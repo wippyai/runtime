@@ -12,15 +12,28 @@
             padding: 20px;
             line-height: 1.6;
         }
+
         #status {
             font-weight: bold;
             padding: 10px;
             border-radius: 4px;
             margin-bottom: 10px;
         }
-        .connected { background-color: #d4edda; color: #155724; }
-        .disconnected { background-color: #f8d7da; color: #721c24; }
-        .connecting { background-color: #fff3cd; color: #856404; }
+
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .connecting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
 
         #messages {
             height: 400px;
@@ -30,26 +43,41 @@
             margin-bottom: 10px;
             border-radius: 4px;
         }
+
         .message {
             margin-bottom: 8px;
             padding: 8px;
             border-radius: 4px;
         }
-        .update { background-color: #e2f0fd; }
-        .echo { background-color: #e6f3e6; }
-        .welcome { background-color: #e6e6fa; }
-        .error { background-color: #f8d7da; }
+
+        .update {
+            background-color: #e2f0fd;
+        }
+
+        .echo {
+            background-color: #e6f3e6;
+        }
+
+        .welcome {
+            background-color: #e6e6fa;
+        }
+
+        .error {
+            background-color: #f8d7da;
+        }
 
         .input-group {
             display: flex;
             margin-bottom: 10px;
         }
+
         #message {
             flex-grow: 1;
             padding: 6px 12px;
             border: 1px solid #ced4da;
             border-radius: 4px 0 0 4px;
         }
+
         button {
             padding: 6px 12px;
             background-color: #007bff;
@@ -58,11 +86,13 @@
             border-radius: 0 4px 4px 0;
             cursor: pointer;
         }
+
         button:disabled {
             background-color: #6c757d;
             border-color: #6c757d;
             cursor: not-allowed;
         }
+
         .stats {
             font-size: 0.9em;
             color: #6c757d;
@@ -101,7 +131,7 @@
         updateStatus('connecting', 'Connecting...');
 
         // Get the current host and port
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const protocol = window.location.protocol;
         const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/connect`;
 
         // Create WebSocket connection
@@ -122,7 +152,7 @@
                 const data = JSON.parse(event.data);
                 addMessage(data.type, data);
             } catch (e) {
-                addMessage('error', { message: `Failed to parse message: ${event.data}` });
+                addMessage('error', {message: `Failed to parse message: ${event.data}`});
             }
         });
 
@@ -139,7 +169,7 @@
         // Connection error
         socket.addEventListener('error', (event) => {
             updateStatus('disconnected', 'Connection Error');
-            addMessage('error', { message: 'WebSocket connection error' });
+            addMessage('error', {message: 'WebSocket connection error'});
         });
     }
 
@@ -156,7 +186,7 @@
         if (message && socket && socket.readyState === WebSocket.OPEN) {
             socket.send(message);
             messageInput.value = '';
-            addMessage('sent', { message: message });
+            addMessage('sent', {message: message});
         }
     }
 

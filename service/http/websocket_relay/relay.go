@@ -10,6 +10,7 @@ import (
 	httpapi "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/internal/uniqid"
 	"go.uber.org/zap"
+	"log"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -65,6 +66,7 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 		h.ServeHTTP(w, r)
 
 		relayConfigStr := r.Header.Get(WSRelayHeader)
+		log.Printf("RRRRRRRRRR")
 		if relayConfigStr == "" {
 			return // not our business
 		}
