@@ -1,9 +1,10 @@
 package topology
 
 import (
-	"github.com/ponyruntime/pony/api/registry"
 	"slices"
 	"strings"
+
+	"github.com/ponyruntime/pony/api/registry"
 )
 
 // StateMap is a representation of the registry state using a map for faster lookups.
