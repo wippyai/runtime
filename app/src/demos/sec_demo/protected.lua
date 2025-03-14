@@ -2,6 +2,7 @@ local http = require("http")
 local security = require("security")
 local json = require("json")
 
+-- Protected resource handler
 local function handler()
     local res = http.response()
     local req = http.request()
@@ -9,22 +10,27 @@ local function handler()
     -- Set JSON content type
     res:set_content_type(http.CONTENT.JSON)
 
-    -- Check if user is authenticated
+    -- Get current actor from security context
     local actor = security.actor()
+
+    -- Check if authenticated
     if not actor then
         res:set_status(http.STATUS.UNAUTHORIZED)
         res:write_json({
             success = false,
             error = "Authentication required",
-            details = "This endpoint requires a valid token"
+            details = "This resource requires a valid authentication token"
         })
         return
     end
 
-    -- Check if actor has required permissions
-    local resource_id = "demo:restricted"
+    -- Define the resource ID for this endpoint
+    local resource_id = "demo:protected"
+
+    -- Check if actor has permission to access this resource
     local can_access = security.can("read", resource_id)
 
+    -- Handle unauthorized access
     if not can_access then
         res:set_status(http.STATUS.FORBIDDEN)
         res:write_json({
@@ -44,18 +50,19 @@ local function handler()
         return
     end
 
-    -- Return success with some protected data
+    -- Return protected content for authorized users
     res:set_status(http.STATUS.OK)
     res:write_json({
         success = true,
-        message = "Access granted to restricted resource",
+        message = "Access granted to protected resource",
         actor = {
             id = actor:id(),
             metadata = actor:meta()
         },
         data = {
-            secret = "This is confidential information",
-            timestamp = os.time()
+            secret = "This is protected information",
+            timestamp = os.time(),
+            description = "This endpoint demonstrates token-based authentication and permission checking"
         }
     })
 end

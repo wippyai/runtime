@@ -3,14 +3,14 @@ namespace: demo.security
 
 meta:
   depends_on: [ ns:system ]
-  description: "Minimal security demo implementation"
+  description: "Security demo implementation"
 
 entries:
-  # Main API for security operations
+  # JSON API for security operations
   - name: api
     kind: function.lua
     meta:
-      comment: "Security API for token management and permission testing"
+      comment: "Security JSON API"
     source: file://api.lua
     method: handler
     modules: [ http, security, json, time ]
@@ -18,44 +18,26 @@ entries:
   - name: api.endpoint
     kind: http.endpoint
     meta:
-      comment: "Security API endpoint"
+      comment: "Security JSON API Endpoint"
       router: system:api
     method: POST
-    path: /api/demo/security
+    path: /security
     func: api
 
-  # Restricted resource endpoint (protected by auth)
-  - name: restricted
+  # Protected resource endpoint
+  - name: protected
     kind: function.lua
     meta:
-      comment: "Restricted resource requiring authentication"
-    source: file://restricted.lua
+      comment: "Protected resource requiring authentication"
+    source: file://protected.lua
     method: handler
     modules: [ http, security, json ]
 
-  - name: restricted.endpoint
+  - name: protected.endpoint
     kind: http.endpoint
     meta:
       comment: "Protected resource endpoint"
       router: system:api
     method: GET
-    path: /api/demo/restricted
-    func: restricted
-
-  # UI page
-  - name: ui
-    kind: function.lua
-    meta:
-      comment: "Security demo UI"
-    source: file://ui.lua
-    method: handler
-    modules: [ http ]
-
-  - name: ui.endpoint
-    kind: http.endpoint
-    meta:
-      comment: "Security demo UI endpoint"
-      router: system:api
-    method: GET
-    path: /demo/security
-    func: ui
+    path: /protected
+    func: protected

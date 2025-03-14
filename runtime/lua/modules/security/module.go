@@ -94,7 +94,8 @@ func (m *Module) can(l *lua.LState) int {
 	// Get metadata from third argument if provided
 	meta, err := optMetadataFromLuaTable(l, 3)
 	if err != nil {
-		return 0 // Error already raised
+		l.RaiseError(err.Error())
+		return 0
 	}
 
 	allowed := secapi.IsAllowed(l.Context(), action, resourceStr, meta)
@@ -181,7 +182,8 @@ func (m *Module) newActor(l *lua.LState) int {
 	// Get metadata from second argument if provided
 	meta, err := optMetadataFromLuaTable(l, 2)
 	if err != nil {
-		return 0 // Error already raised
+		l.RaiseError(err.Error())
+		return 0
 	}
 
 	actor := secapi.Actor{

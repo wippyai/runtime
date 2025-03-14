@@ -6,6 +6,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
+	"log"
 )
 
 const ActorMetatable = "security.Actor"
@@ -39,6 +40,7 @@ func registerActorType(l *lua.LState) {
 // actorID returns the actor's ID
 func actorID(l *lua.LState) int {
 	actor := checkActor(l)
+	log.Printf("ASDSAD")
 	l.Push(lua.LString(actor.ID))
 	return 1
 }
