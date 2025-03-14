@@ -28,7 +28,7 @@ entries:
       comment: "Process that manages WebSocket connections"
     source: file://ws_hub_process.lua
     method: run
-    modules: [ time ]
+    modules: [ time, json ]
 
   # Define the WebSocket auth endpoint function
   - name: ws_auth
