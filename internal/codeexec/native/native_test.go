@@ -155,7 +155,7 @@ func TestExecutor_EmptyCmd(t *testing.T) {
 
 func TestExecutor_Stderr(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	executor := NewNativeExecutor(logger, WithCmd("echo 'error message' >&2"))
+	executor := NewNativeExecutor(logger, WithCmd("sleep 1 && echo 'error message' >&2"))
 
 	err := executor.Start()
 	assert.NoError(t, err)
