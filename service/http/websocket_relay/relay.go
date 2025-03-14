@@ -19,72 +19,26 @@ import (
 
 // Constants for the WebSocket relay
 const (
-	// WSRelayHeader is the header that indicates a WebSocket connection request, send by downstream
+	// WSRelayHeader is the header that indicates a WebSocket connection request
 	WSRelayHeader = "X-WS-Relay"
 
-	// WSMessageTopic is the default topic for WebSocket messages
-	WSMessageTopic pubsub.Topic = "ws.message"
+	// Topic constants
+	WSMessageTopic   pubsub.Topic = "ws.message"
+	WSJoinTopic      pubsub.Topic = "ws.join"
+	WSLeaveTopic     pubsub.Topic = "ws.leave"
+	WSControlTopic   pubsub.Topic = "ws.control"
+	WSCloseTopic     pubsub.Topic = "ws.close"
+	WSHeartbeatTopic pubsub.Topic = "ws.heartbeat"
 
-	// WSJoinTopic is the topic for join notifications
-	WSJoinTopic pubsub.Topic = "ws.join"
-
-	// WSLeaveTopic is the topic for leave notifications
-	WSLeaveTopic pubsub.Topic = "ws.leave"
-
-	// WSControlTopic is the topic for configuration
-	WSControlTopic pubsub.Topic = "ws.control"
-
-	// WSCloseTopic is the topic for close signals (any message to close the connection)
-	WSCloseTopic pubsub.Topic = "ws.close"
-
-	// WSPingTopic is the topic for ping messages
-	WSPingTopic pubsub.Topic = "ws.ping"
-
-	// WSPongTopic is the topic for pong responses
-	WSPongTopic pubsub.Topic = "ws.pong"
-
-	// WSHealthcheckTopic is the topic for healthcheck requests
-	WSHealthcheckTopic pubsub.Topic = "ws.healthcheck"
-
-	// Default ping interval if not specified
-	DefaultPingInterval = 30 * time.Second
+	// Default heartbeat interval
+	DefaultHeartbeatInterval = 30 * time.Second
 )
 
-// ConnectionMetadata holds metadata about a WebSocket connection
-type ConnectionMetadata struct {
-	// ConnectedAt is the time the connection was established
-	ConnectedAt time.Time `json:"connected_at"`
-
-	// LastPongAt is the time of the last pong response
-	LastPongAt time.Time `json:"last_pong_at,omitempty"`
-
-	// CustomData holds any additional connection-specific data
-	CustomData map[string]interface{} `json:"custom_data,omitempty"`
-}
-
-// RelayCommand holds the configuration for a WebSocket relay request, can be send at start or into ws.control
+// RelayCommand holds the configuration for a WebSocket relay request
 type RelayCommand struct {
-	// TargetPID is the Target that should receive WebSocket messages
-	TargetPID string `json:"target_pid"`
-
-	// MessageTopic is the topic to use for WebSocket messages (optional)
-	MessageTopic string `json:"message_topic,omitempty"`
-
-	// PingInterval is the interval at which to send ping messages (optional)
-	// Format: "1s", "30s", "1m", etc.
-	PingInterval string `json:"ping_interval,omitempty"`
-
-	// ConnectionMetadata is additional data to include with the connection
-	ConnectionMetadata map[string]interface{} `json:"connection_metadata,omitempty"`
-}
-
-// CloseCommand holds information about how to close a WebSocket connection
-type CloseCommand struct {
-	// Reason is a human-readable explanation for the closure
-	Reason string `json:"reason,omitempty"`
-
-	// Code is the WebSocket status code to use (defaults to NormalClosure)
-	Code int `json:"code,omitempty"`
+	TargetPID         string `json:"target_pid"`
+	MessageTopic      string `json:"message_topic,omitempty"`
+	HeartbeatInterval string `json:"heartbeat_interval,omitempty"`
 }
 
 // RelayManager manages WebSocket connections and their relay to the pubsub system
@@ -134,11 +88,11 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 			return
 		}
 
-		// Parse the target Target
+		// Parse the target PID
 		targetPID, err := pubsub.ParsePID(config.TargetPID)
 		if err != nil {
-			logger.Error("Invalid target Target", zap.Error(err), zap.String("pid", config.TargetPID))
-			http.Error(w, "Invalid target Target: "+err.Error(), http.StatusBadRequest)
+			logger.Error("Invalid target PID", zap.Error(err), zap.String("pid", config.TargetPID))
+			http.Error(w, "Invalid target PID: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -160,22 +114,12 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 	})
 }
 
-// safeClose closes a WebSocket connection and logs any errors
-func (m *RelayManager) safeClose(conn *websocket.Conn, code websocket.StatusCode, reason string, logger *zap.Logger) {
-	if err := conn.Close(code, reason); err != nil {
-		logger.Error("Error closing WebSocket connection",
-			zap.Error(err),
-			zap.Int("statusCode", int(code)),
-			zap.String("reason", reason))
-	}
-}
-
 // handleConnection manages a WebSocket connection and its bidirectional communication
 func (m *RelayManager) handleConnection(
 	ctx context.Context,
 	conn *websocket.Conn,
 	targetPID pubsub.PID,
-	relayConfig RelayCommand,
+	config RelayCommand,
 	messageTopic pubsub.Topic,
 ) {
 	// Create logger with connection info
@@ -188,7 +132,7 @@ func (m *RelayManager) handleConnection(
 	host := pubsub.GetHost(ctx)
 	if host == nil {
 		connLogger.Error("Host not found in context")
-		m.safeClose(conn, websocket.StatusInternalError, "Host not found in context", connLogger)
+		conn.Close(websocket.StatusInternalError, "Host not found in context")
 		return
 	}
 
@@ -196,7 +140,7 @@ func (m *RelayManager) handleConnection(
 	node := pubsub.GetNode(ctx)
 	if node == nil {
 		connLogger.Error("Node not found in context")
-		m.safeClose(conn, websocket.StatusInternalError, "Node not found in context", connLogger)
+		conn.Close(websocket.StatusInternalError, "Node not found in context")
 		return
 	}
 
@@ -204,7 +148,7 @@ func (m *RelayManager) handleConnection(
 	serverID, ok := ctx.Value(httpapi.ContextServerID).(registry.ID)
 	if !ok || serverID.String() == "" {
 		connLogger.Error("Server ID not found in context")
-		m.safeClose(conn, websocket.StatusInternalError, "Server ID not found in context", connLogger)
+		conn.Close(websocket.StatusInternalError, "Server ID not found in context")
 		return
 	}
 
@@ -212,11 +156,11 @@ func (m *RelayManager) handleConnection(
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
 		connLogger.Error("Transcoder not found in context")
-		m.safeClose(conn, websocket.StatusInternalError, "Transcoder not found in context", connLogger)
+		conn.Close(websocket.StatusInternalError, "Transcoder not found in context")
 		return
 	}
 
-	// Create a unique Target for this WebSocket connection
+	// Create a unique PID for this WebSocket connection
 	wsPID := pubsub.PID{
 		Node:   node.ID(),
 		Host:   serverID.String(),
@@ -228,14 +172,18 @@ func (m *RelayManager) handleConnection(
 	connLogger = connLogger.With(zap.String("pid", wsPID.String()))
 	connLogger.Info("WebSocket connection established")
 
+	// Connection metrics
+	connectedAt := time.Now()
+	msgCount := atomic.Int64{}
+
 	// Create a channel for receiving messages from pubsub
 	msgCh := make(chan *pubsub.Package, 10)
 
-	// Attach the WebSocket Target to the relay host
+	// Attach the WebSocket PID to the relay host
 	cancel, err := host.Attach(wsPID, msgCh)
 	if err != nil {
 		connLogger.Error("Error attaching WebSocket to relay host", zap.Error(err))
-		m.safeClose(conn, websocket.StatusInternalError, "Failed to attach to relay", connLogger)
+		conn.Close(websocket.StatusInternalError, "Failed to attach to relay")
 		return
 	}
 	defer cancel()
@@ -251,286 +199,42 @@ func (m *RelayManager) handleConnection(
 	currentTargetPID.Store(targetPID)
 	currentMessageTopic.Store(messageTopic)
 
-	// Create connection metadata
-	connectionMetadata := &ConnectionMetadata{
-		ConnectedAt: time.Now(),
-		LastPongAt:  time.Now(),
-		CustomData:  relayConfig.ConnectionMetadata,
-	}
-
-	// Set up ping interval
-	var pingInterval time.Duration
-	if relayConfig.PingInterval != "" {
-		var parseErr error
-		pingInterval, parseErr = time.ParseDuration(relayConfig.PingInterval)
-		if parseErr != nil {
-			connLogger.Warn("Invalid ping interval format, using default",
-				zap.String("provided", relayConfig.PingInterval),
-				zap.Error(parseErr))
-			pingInterval = DefaultPingInterval
+	// Parse heartbeat interval
+	heartbeatInterval := DefaultHeartbeatInterval
+	if config.HeartbeatInterval != "" {
+		if interval, err := time.ParseDuration(config.HeartbeatInterval); err == nil {
+			heartbeatInterval = interval
 		}
-	} else {
-		pingInterval = DefaultPingInterval
 	}
 
-	// Create the join payload with connection metadata
-	joinPayload := payload.NewPayload(map[string]interface{}{
-		"ws_pid":    wsPID,
-		"metadata":  connectionMetadata,
-		"reconnect": false,
-	}, payload.JSON)
+	// Create a heartbeat ticker
+	heartbeatTicker := time.NewTicker(heartbeatInterval)
+	defer heartbeatTicker.Stop()
 
-	// Send a join notification to the target Target
-	joinMsg := pubsub.NewPackage(wsPID, targetPID, WSJoinTopic, joinPayload)
+	// Send a join notification - use string to keep it simple and reliable
+	joinInfo := fmt.Sprintf("%s", wsPID.String())
+	joinMsg := pubsub.NewPackage(wsPID, targetPID, WSJoinTopic, payload.NewString(joinInfo))
 	if err := node.Send(joinMsg); err != nil {
 		connLogger.Error("Error sending join message", zap.Error(err))
-		m.safeClose(conn, websocket.StatusInternalError, "Error sending join message", connLogger)
+		conn.Close(websocket.StatusInternalError, "Error sending join message")
 		return
 	}
 
-	// Create a WaitGroup for the main handlers
+	// Create a WaitGroup for the goroutines
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Set up ping ticker
-	pingTicker := time.NewTicker(pingInterval)
-	defer pingTicker.Stop()
-
-	// Start handler for messages from pubsub to WebSocket
+	// Goroutine 1: Handle incoming WebSocket messages (client -> pubsub)
 	go func() {
 		defer wg.Done()
-
-		for {
-			select {
-			case <-wsCtx.Done():
-				return
-
-			case <-pingTicker.C:
-				// Send ping to client
-				pingData := map[string]interface{}{
-					"type":      "ping",
-					"timestamp": time.Now().UnixNano(),
-					"server_ts": time.Now().Format(time.RFC3339Nano),
-				}
-
-				pingJSON, err := json.Marshal(pingData)
-				if err != nil {
-					connLogger.Error("Error encoding ping message", zap.Error(err))
-					continue
-				}
-
-				if err := conn.Write(wsCtx, websocket.MessageText, pingJSON); err != nil {
-					connLogger.Error("Error sending ping to WebSocket", zap.Error(err))
-					wsCancel()
-					return
-				}
-
-				// Also send ping to target
-				currentTarget := currentTargetPID.Load().(pubsub.PID)
-				pingPayload := payload.NewPayload(map[string]interface{}{
-					"ws_pid":    wsPID.String(),
-					"metadata":  *connectionMetadata,
-					"ping_time": time.Now(),
-				}, payload.JSON)
-
-				pingMsg := pubsub.NewPackage(wsPID, currentTarget, WSPingTopic, pingPayload)
-				if err := node.Send(pingMsg); err != nil {
-					connLogger.Warn("Error sending ping to target", zap.Error(err))
-				}
-
-			case pkg, ok := <-msgCh:
-				if !ok {
-					connLogger.Debug("Message channel closed")
-					return
-				}
-
-				for _, msg := range pkg.Messages {
-					// Handle control messages (reconfiguration)
-					if msg.Topic == WSControlTopic && len(msg.Payloads) > 0 {
-						var command RelayCommand
-						if err := dtt.Unmarshal(msg.Payloads[0], &command); err != nil {
-							connLogger.Error("Failed to unmarshal control payload", zap.Error(err))
-							continue
-						}
-
-						// Update configuration
-						if command.TargetPID != "" {
-							oldTargetPID := currentTargetPID.Load().(pubsub.PID)
-							newTargetPID, err := pubsub.ParsePID(command.TargetPID)
-							if err != nil {
-								connLogger.Error("Invalid target PID in control command",
-									zap.Error(err),
-									zap.String("pid", command.TargetPID))
-								continue
-							}
-
-							// Only send leave/join if the target actually changed
-							if oldTargetPID.String() != newTargetPID.String() {
-								// Send leave notification to old target
-								leavePayload := payload.NewPayload(map[string]interface{}{
-									"ws_pid":   wsPID,
-									"metadata": connectionMetadata,
-									"reason":   "Target PID changed",
-								}, payload.JSON)
-
-								leaveMsg := pubsub.NewPackage(wsPID, oldTargetPID, WSLeaveTopic, leavePayload)
-								if err := node.Send(leaveMsg); err != nil {
-									connLogger.Error("Error sending leave message on PID change", zap.Error(err))
-								}
-
-								// Send join notification to new target
-								joinPayload := payload.NewPayload(map[string]interface{}{
-									"ws_pid":    wsPID,
-									"metadata":  connectionMetadata,
-									"reconnect": false,
-								}, payload.JSON)
-
-								joinMsg := pubsub.NewPackage(wsPID, newTargetPID, WSJoinTopic, joinPayload)
-								if err := node.Send(joinMsg); err != nil {
-									connLogger.Error("Error sending join message on PID change", zap.Error(err))
-								}
-							}
-
-							currentTargetPID.Store(newTargetPID)
-							connLogger.Info("Updated target PID", zap.String("newTargetPID", newTargetPID.String()))
-						}
-
-						if command.MessageTopic != "" {
-							currentMessageTopic.Store(pubsub.Topic(command.MessageTopic))
-							connLogger.Info("Updated message topic", zap.String("newTopic", command.MessageTopic))
-						}
-
-						if command.PingInterval != "" {
-							newInterval, err := time.ParseDuration(command.PingInterval)
-							if err != nil {
-								connLogger.Error("Invalid ping interval in control command",
-									zap.Error(err),
-									zap.String("interval", command.PingInterval))
-							} else {
-								pingInterval = newInterval
-								pingTicker.Reset(pingInterval)
-								connLogger.Info("Updated ping interval", zap.Duration("newInterval", pingInterval))
-							}
-						}
-
-						if command.ConnectionMetadata != nil {
-							connectionMetadata.CustomData = command.ConnectionMetadata
-							connLogger.Info("Updated connection metadata")
-						}
-
-						continue
-					}
-
-					// Handle close messages
-					if msg.Topic == WSCloseTopic {
-						closeReason := "Connection closed by server"
-						closeCode := websocket.StatusNormalClosure
-
-						// Extract close reason and code if provided
-						if len(msg.Payloads) > 0 {
-							var closeCommand CloseCommand
-							if err := dtt.Unmarshal(msg.Payloads[0], &closeCommand); err == nil {
-								if closeCommand.Reason != "" {
-									closeReason = closeCommand.Reason
-								}
-								if closeCommand.Code != 0 {
-									closeCode = websocket.StatusCode(closeCommand.Code)
-								}
-							}
-						}
-
-						connLogger.Info("Received close command from server",
-							zap.String("reason", closeReason),
-							zap.Int("code", int(closeCode)))
-
-						m.safeClose(conn, closeCode, closeReason, connLogger)
-						wsCancel() // Trigger clean shutdown
-						return
-					}
-
-					// Forward regular messages to WebSocket
-					if len(msg.Payloads) > 0 {
-						p := msg.Payloads[0]
-						var data []byte
-						var msgType = websocket.MessageText
-
-						// Use DTT to transcode to the appropriate format
-						var jsonPayload payload.Payload
-						var err error
-
-						// Convert to JSON if not already in JSON or string format
-						if p.Format() != payload.JSON && p.Format() != payload.String {
-							jsonPayload, err = dtt.Transcode(p, payload.JSON)
-							if err != nil {
-								connLogger.Error("Error transcoding payload", zap.Error(err))
-								continue
-							}
-						} else {
-							jsonPayload = p
-						}
-
-						// Extract data based on format
-						switch jsonPayload.Format() {
-						case payload.JSON:
-							// Fix the panic by correctly handling JSON data
-							switch v := jsonPayload.Data().(type) {
-							case []byte:
-								data = v
-							case string:
-								data = []byte(v)
-							default:
-								// If it's not already a string or []byte, marshal it
-								jsonBytes, err := json.Marshal(jsonPayload.Data())
-								if err != nil {
-									connLogger.Error("Error marshaling JSON payload", zap.Error(err))
-									continue
-								}
-								data = jsonBytes
-							}
-						case payload.String:
-							switch v := jsonPayload.Data().(type) {
-							case string:
-								data = []byte(v)
-							default:
-								data = []byte(fmt.Sprintf("%v", v))
-							}
-						case payload.Bytes:
-							switch v := jsonPayload.Data().(type) {
-							case []byte:
-								data = v
-							default:
-								connLogger.Error("Expected bytes payload but got different type")
-								continue
-							}
-							msgType = websocket.MessageBinary
-						default:
-							connLogger.Error("Unsupported payload format after transcoding",
-								zap.String("format", string(jsonPayload.Format())))
-							continue
-						}
-
-						// Write to WebSocket
-						if err := conn.Write(wsCtx, msgType, data); err != nil {
-							connLogger.Error("Error writing to WebSocket", zap.Error(err))
-							wsCancel()
-							return
-						}
-					}
-				}
-			}
-		}
-	}()
-
-	// Start handler for messages from WebSocket to pubsub
-	go func() {
-		defer wg.Done()
+		defer wsCancel() // Ensure context is cancelled when this goroutine exits
 
 		for {
 			select {
 			case <-wsCtx.Done():
 				return
 			default:
-				// Read from WebSocket with context
+				// Read from WebSocket
 				msgType, data, err := conn.Read(wsCtx)
 				if err != nil {
 					if closeStatus := websocket.CloseStatus(err); closeStatus != -1 {
@@ -540,92 +244,223 @@ func (m *RelayManager) handleConnection(
 					} else {
 						connLogger.Error("Error reading from WebSocket", zap.Error(err))
 					}
-					wsCancel()
 					return
 				}
 
-				// Check if message is a pong response to our ping
-				if msgType == websocket.MessageText {
-					var msgObj map[string]interface{}
-					if err := json.Unmarshal(data, &msgObj); err == nil {
-						// Handle pong response
-						if msgType, ok := msgObj["type"].(string); ok && msgType == "pong" {
-							// Update last pong time
-							connectionMetadata.LastPongAt = time.Now()
-
-							// Forward pong to target
-							currentTarget := currentTargetPID.Load().(pubsub.PID)
-							pongPayload := payload.NewPayload(map[string]interface{}{
-								"ws_pid":    wsPID.String(),
-								"metadata":  connectionMetadata,
-								"client_ts": msgObj["client_ts"],
-								"server_ts": msgObj["server_ts"],
-								"pong_time": time.Now(),
-							}, payload.JSON)
-
-							pongMsg := pubsub.NewPackage(wsPID, currentTarget, WSPongTopic, pongPayload)
-							if err := node.Send(pongMsg); err != nil {
-								connLogger.Warn("Error sending pong to target", zap.Error(err))
-							}
-							continue // Skip normal message handling
-						}
-
-						// Handle healthcheck
-						if msgType, ok := msgObj["type"].(string); ok && msgType == "healthcheck" {
-							// Forward healthcheck to target with connection metadata
-							healthcheckData := map[string]interface{}{
-								"ws_pid":      wsPID.String(),
-								"metadata":    connectionMetadata,
-								"client_data": msgObj,
-							}
-
-							currentTarget := currentTargetPID.Load().(pubsub.PID)
-							healthcheckPayload := payload.NewPayload(healthcheckData, payload.JSON)
-							healthcheckMsg := pubsub.NewPackage(wsPID, currentTarget, WSHealthcheckTopic, healthcheckPayload)
-
-							if err := node.Send(healthcheckMsg); err != nil {
-								connLogger.Error("Error sending healthcheck", zap.Error(err))
-							}
-							continue // Skip normal message handling
-						}
-					}
-				}
+				// Increment message counter
+				msgCount.Add(1)
 
 				// Convert to pubsub payload
 				var payloadData payload.Payload
-
 				if msgType == websocket.MessageText {
 					payloadData = payload.NewString(string(data))
 				} else {
 					payloadData = payload.NewPayload(data, payload.Bytes)
 				}
 
-				// Get current configuration values
+				// Get current config values
 				currentTarget := currentTargetPID.Load().(pubsub.PID)
 				currentTopic := currentMessageTopic.Load().(pubsub.Topic)
 
-				// Send to target Target using the current message topic
+				// Send to target PID
 				msg := pubsub.NewPackage(wsPID, currentTarget, currentTopic, payloadData)
 				if err := node.Send(msg); err != nil {
 					connLogger.Error("Error sending to pubsub", zap.Error(err))
-					wsCancel()
 					return
 				}
 			}
 		}
 	}()
 
-	// Wait for handlers to complete
+	// Goroutine 2: Handle pubsub messages and internal events (pubsub -> client)
+	go func() {
+		defer wg.Done()
+		defer wsCancel() // Ensure context is cancelled when this goroutine exits
+
+		for {
+			select {
+			case <-wsCtx.Done():
+				return
+
+			case <-heartbeatTicker.C:
+				// Send heartbeat to target
+				currentTarget := currentTargetPID.Load().(pubsub.PID)
+				uptime := time.Since(connectedAt).String()
+				msgCountVal := msgCount.Load()
+
+				heartbeatInfo := fmt.Sprintf("%s,%s,%d", wsPID.String(), uptime, msgCountVal)
+				heartbeatMsg := pubsub.NewPackage(wsPID, currentTarget, WSHeartbeatTopic, payload.NewString(heartbeatInfo))
+
+				if err := node.Send(heartbeatMsg); err != nil {
+					connLogger.Warn("Error sending heartbeat", zap.Error(err))
+				}
+
+			case pkg, ok := <-msgCh:
+				if !ok {
+					connLogger.Debug("Message channel closed")
+					return
+				}
+
+				for _, msg := range pkg.Messages {
+					// Handle control messages
+					if msg.Topic == WSControlTopic && len(msg.Payloads) > 0 {
+						var command RelayCommand
+						if err := dtt.Unmarshal(msg.Payloads[0], &command); err != nil {
+							connLogger.Error("Failed to unmarshal control payload", zap.Error(err))
+							continue
+						}
+
+						// Update target PID if provided
+						if command.TargetPID != "" {
+							oldTarget := currentTargetPID.Load().(pubsub.PID)
+							newTarget, err := pubsub.ParsePID(command.TargetPID)
+							if err != nil {
+								connLogger.Error("Invalid target PID in control command", zap.Error(err))
+								continue
+							}
+
+							if oldTarget.String() != newTarget.String() {
+								// Send leave to old target
+								leaveMsg := pubsub.NewPackage(wsPID, oldTarget, WSLeaveTopic,
+									payload.NewString(wsPID.String()))
+								if err := node.Send(leaveMsg); err != nil {
+									connLogger.Error("Error sending leave on target change", zap.Error(err))
+								}
+
+								// Send join to new target
+								joinMsg := pubsub.NewPackage(wsPID, newTarget, WSJoinTopic,
+									payload.NewString(wsPID.String()))
+								if err := node.Send(joinMsg); err != nil {
+									connLogger.Error("Error sending join on target change", zap.Error(err))
+								}
+							}
+
+							currentTargetPID.Store(newTarget)
+							connLogger.Info("Updated target PID", zap.String("newTarget", newTarget.String()))
+						}
+
+						// Update message topic if provided
+						if command.MessageTopic != "" {
+							currentMessageTopic.Store(pubsub.Topic(command.MessageTopic))
+							connLogger.Info("Updated message topic", zap.String("newTopic", command.MessageTopic))
+						}
+
+						// Update heartbeat interval if provided
+						if command.HeartbeatInterval != "" {
+							if interval, err := time.ParseDuration(command.HeartbeatInterval); err == nil {
+								heartbeatInterval = interval
+								heartbeatTicker.Reset(heartbeatInterval)
+								connLogger.Info("Updated heartbeat interval", zap.Duration("newInterval", heartbeatInterval))
+							}
+						}
+
+						continue
+					}
+
+					// Handle close messages
+					if msg.Topic == WSCloseTopic {
+						reason := "Connection closed by server"
+						code := websocket.StatusNormalClosure
+
+						if len(msg.Payloads) > 0 {
+							// Try to extract reason and code from payload
+							payload := msg.Payloads[0].Data()
+							if str, ok := payload.(string); ok {
+								reason = str
+							} else if data, err := json.Marshal(payload); err == nil {
+								reason = string(data)
+							}
+						}
+
+						connLogger.Info("Received close command", zap.String("reason", reason))
+						conn.Close(code, reason)
+						return
+					}
+
+					// Forward regular messages to WebSocket
+					if len(msg.Payloads) > 0 {
+						p := msg.Payloads[0]
+						var msgType = websocket.MessageText
+
+						// Process different payload types
+						switch p.Format() {
+						case payload.String:
+							// Handle string payloads directly
+							if str, ok := p.Data().(string); ok {
+								if err := conn.Write(wsCtx, msgType, []byte(str)); err != nil {
+									connLogger.Error("Error writing string to WebSocket", zap.Error(err))
+									return
+								}
+							} else {
+								// Convert to string if not already
+								strData := fmt.Sprintf("%v", p.Data())
+								if err := conn.Write(wsCtx, msgType, []byte(strData)); err != nil {
+									connLogger.Error("Error writing converted string to WebSocket", zap.Error(err))
+									return
+								}
+							}
+
+						case payload.JSON:
+							// For JSON payloads, marshal directly to bytes
+							var data []byte
+							var err error
+
+							// If already JSON bytes, use directly
+							if bytes, ok := p.Data().([]byte); ok {
+								data = bytes
+							} else if str, ok := p.Data().(string); ok {
+								// If it's a JSON string, use directly
+								data = []byte(str)
+							} else {
+								// Otherwise marshal the data to JSON
+								data, err = json.Marshal(p.Data())
+								if err != nil {
+									connLogger.Error("Error marshaling JSON payload", zap.Error(err))
+									continue
+								}
+							}
+
+							// Send the JSON directly to WebSocket
+							if err := conn.Write(wsCtx, msgType, data); err != nil {
+								connLogger.Error("Error writing JSON to WebSocket", zap.Error(err))
+								return
+							}
+
+						case payload.Bytes:
+							// Handle binary data
+							if bytes, ok := p.Data().([]byte); ok {
+								if err := conn.Write(wsCtx, websocket.MessageBinary, bytes); err != nil {
+									connLogger.Error("Error writing binary data to WebSocket", zap.Error(err))
+									return
+								}
+							} else {
+								connLogger.Error("Expected bytes payload but got different type")
+								continue
+							}
+
+						default:
+							pj, err := dtt.Transcode(p, payload.JSON)
+							if err != nil {
+								connLogger.Error("Failed to transcode payload to JSON", zap.Error(err))
+								continue
+							}
+
+							if err := conn.Write(wsCtx, msgType, pj.Data().([]byte)); err != nil {
+								connLogger.Error("Error writing converted JSON to WebSocket", zap.Error(err))
+								return
+							}
+						}
+					}
+				}
+			}
+		}
+	}()
+
+	// Wait for goroutines to complete
 	wg.Wait()
 
-	// Send a leave notification to the target Target with reason
-	leavePayload := payload.NewPayload(map[string]interface{}{
-		"ws_pid":   wsPID,
-		"metadata": connectionMetadata,
-		"reason":   "Connection closed",
-	}, payload.JSON)
-
-	leaveMsg := pubsub.NewPackage(wsPID, currentTargetPID.Load().(pubsub.PID), WSLeaveTopic, leavePayload)
+	// Send leave notification
+	leaveMsg := pubsub.NewPackage(wsPID, currentTargetPID.Load().(pubsub.PID), WSLeaveTopic, payload.NewString(wsPID.String()))
 	if err := node.Send(leaveMsg); err != nil {
 		connLogger.Error("Error sending leave message", zap.Error(err))
 	}
@@ -635,6 +470,7 @@ func (m *RelayManager) handleConnection(
 	connLogger.Info("websocket connection closed")
 }
 
+// responseWrapper wraps the ResponseWriter to capture headers
 type responseWrapper struct {
 	http.ResponseWriter
 	headers http.Header

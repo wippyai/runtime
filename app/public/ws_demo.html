@@ -66,6 +66,16 @@
             background-color: #f8d7da;
         }
 
+        .system {
+            background-color: #f8f9fa;
+            font-style: italic;
+        }
+
+        .sent {
+            background-color: #f0f8ff;
+            text-align: right;
+        }
+
         .input-group {
             display: flex;
             margin-bottom: 10px;
@@ -93,10 +103,25 @@
             cursor: not-allowed;
         }
 
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .button-group button {
+            border-radius: 4px;
+        }
+
         .stats {
             font-size: 0.9em;
             color: #6c757d;
             margin-top: 5px;
+        }
+
+        .connection-info {
+            margin-bottom: 10px;
+            font-size: 0.9em;
         }
     </style>
 </head>
@@ -109,8 +134,10 @@
     <button id="send" disabled>Send</button>
 </div>
 
-<button id="connect">Connect</button>
-<button id="disconnect" disabled>Disconnect</button>
+<div class="button-group">
+    <button id="connect">Connect</button>
+    <button id="disconnect" disabled>Disconnect</button>
+</div>
 
 <div id="messages"></div>
 
@@ -125,15 +152,18 @@
 
     // WebSocket connection
     let socket = null;
+    let reconnectTimer = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
 
     // Connect to WebSocket
     function connect() {
         updateStatus('connecting', 'Connecting...');
 
-        // Get the current host and port
-        const protocol = window.location.protocol;
+        // Get the current protocol (ws or wss)
+        const protocol = window.location.protocol.startsWith('https') ? 'wss' : 'ws';
+        const wsUrl = `${protocol}://${window.location.host}/api/v1/ws/connect`;
 
-        const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/connect`;
         // Create WebSocket connection
         socket = new WebSocket(wsUrl);
 
@@ -143,6 +173,7 @@
             enableMessageInput(true);
             connectButton.disabled = true;
             disconnectButton.disabled = false;
+            reconnectAttempts = 0;
             addMessage('system', 'Connected to WebSocket server');
         });
 
@@ -150,9 +181,9 @@
         socket.addEventListener('message', (event) => {
             try {
                 const data = JSON.parse(event.data);
-                addMessage(data.type, data);
+                addMessage(data.type || 'message', data);
             } catch (e) {
-                addMessage('error', {message: `Failed to parse message: ${event.data}`});
+                addMessage('message', { message: event.data });
             }
         });
 
@@ -164,6 +195,20 @@
             disconnectButton.disabled = true;
             addMessage('system', `Connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
             socket = null;
+
+            // Try to reconnect automatically if not a normal closure
+            if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
+                reconnectAttempts++;
+                const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000); // Exponential backoff
+
+                addMessage('system', `Reconnecting in ${delay/1000} seconds... (Attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+
+                reconnectTimer = setTimeout(() => {
+                    if (!socket) {
+                        connect();
+                    }
+                }, delay);
+            }
         });
 
         // Connection error
@@ -175,8 +220,13 @@
 
     // Disconnect WebSocket
     function disconnect() {
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+
         if (socket) {
-            socket.close();
+            socket.close(1000, "User disconnected");
         }
     }
 
@@ -243,11 +293,17 @@
                 break;
 
             case 'error':
-                content = `<strong>Error:</strong> ${data.message}`;
+                content = `<strong>Error:</strong> ${data.message || data}`;
                 break;
 
             default:
-                content = `<strong>${type}:</strong> ${JSON.stringify(data)}`;
+                if (typeof data === 'string') {
+                    content = data;
+                } else if (data.message) {
+                    content = data.message;
+                } else {
+                    content = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                }
         }
 
         messageEl.innerHTML = content;

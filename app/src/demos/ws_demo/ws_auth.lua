@@ -26,7 +26,7 @@ function handler()
     -- Look up the hub process PID by its registered name
     local hub_pid = process.registry.lookup("ws_hub")
     if not hub_pid then
-        res:set_status(http.STATUS.SERVICE_UNAVAILABLE)
+        res:set_status(500)
         res:write_json({
             error = "Hub not available",
             message = "WebSocket hub process is not running"
