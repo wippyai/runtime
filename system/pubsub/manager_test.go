@@ -271,7 +271,7 @@ func TestManager_Send(t *testing.T) {
 			}
 
 			pkg := &api.Package{
-				PID: pid,
+				Target: pid,
 				Messages: []*api.Message{
 					{Topic: "test"},
 				},

@@ -40,19 +40,19 @@ func TestPIDJSONMarshaling(t *testing.T) {
 			// Test marshaling
 			data, err := json.Marshal(tc.pid)
 			if err != nil {
-				t.Fatalf("failed to marshal PID: %v", err)
+				t.Fatalf("failed to marshal Target: %v", err)
 			}
 			if string(data) != tc.expect {
-				t.Errorf("marshaled PID doesn't match expectation\nexpected: %s\ngot: %s", tc.expect, string(data))
+				t.Errorf("marshaled Target doesn't match expectation\nexpected: %s\ngot: %s", tc.expect, string(data))
 			}
 
 			// Test unmarshaling
 			var pid PID
 			if err := json.Unmarshal(data, &pid); err != nil {
-				t.Fatalf("failed to unmarshal PID: %v", err)
+				t.Fatalf("failed to unmarshal Target: %v", err)
 			}
 
-			// Compare unmarshaled PID with original
+			// Compare unmarshaled Target with original
 			if pid.Node != tc.pid.Node {
 				t.Errorf("Node mismatch: expected %s, got %s", tc.pid.Node, pid.Node)
 			}
@@ -68,7 +68,7 @@ func TestPIDJSONMarshaling(t *testing.T) {
 		})
 	}
 
-	// Test with a struct containing PID
+	// Test with a struct containing Target
 	type Container struct {
 		ThePID PID `json:"pid"`
 		Value  int `json:"value"`
@@ -97,7 +97,7 @@ func TestPIDJSONMarshaling(t *testing.T) {
 
 	// Verify everything matches
 	if original.ThePID.String() != decoded.ThePID.String() {
-		t.Errorf("PID mismatch in container: expected %s, got %s",
+		t.Errorf("Target mismatch in container: expected %s, got %s",
 			original.ThePID.String(), decoded.ThePID.String())
 	}
 	if original.Value != decoded.Value {

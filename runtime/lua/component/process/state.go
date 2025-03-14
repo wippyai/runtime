@@ -85,7 +85,7 @@ func (s *State) InitContext(ctx context.Context, pid pubsub.PID) error {
 
 	s.PID = pid
 
-	// Set PID in context
+	// Set Target in context
 	ctx = pubsub.WithPID(ctx, pid)
 
 	// Init unit of work

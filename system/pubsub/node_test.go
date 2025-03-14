@@ -56,7 +56,7 @@ func TestNodeSendLocal(t *testing.T) {
 		UniqID: "uniq",
 	}
 	pkg := &api.Package{
-		PID: pidLocalEmpty,
+		Target: pidLocalEmpty,
 		Messages: []*api.Message{
 			{Topic: "local"},
 		},
@@ -72,7 +72,7 @@ func TestNodeSendLocal(t *testing.T) {
 		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
-	pkg.PID = pidLocal
+	pkg.Target = pidLocal
 	err = node.Send(pkg)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(2), dhost.sendCalled)
@@ -87,7 +87,7 @@ func TestNodeSendHostNotFound(t *testing.T) {
 		UniqID: "uniq",
 	}
 	pkg := &api.Package{
-		PID: pid,
+		Target: pid,
 		Messages: []*api.Message{
 			{Topic: "notfound"},
 		},
@@ -108,7 +108,7 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 		UniqID: "uniq",
 	}
 	pkg := &api.Package{
-		PID: pid,
+		Target: pid,
 		Messages: []*api.Message{
 			{Topic: "invalid"},
 		},
@@ -127,7 +127,7 @@ func TestNodeSendNonLocalNoUpstream(t *testing.T) {
 		UniqID: "uniq",
 	}
 	pkg := &api.Package{
-		PID: pid,
+		Target: pid,
 		Messages: []*api.Message{
 			{Topic: "nonlocal"},
 		},
@@ -149,7 +149,7 @@ func TestNodeSendNonLocalWithUpstream(t *testing.T) {
 		UniqID: "uniq",
 	}
 	pkg := &api.Package{
-		PID: pid,
+		Target: pid,
 		Messages: []*api.Message{
 			{Topic: "nonlocal"},
 		},

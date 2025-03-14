@@ -59,16 +59,16 @@ var ix = 0
 // for external nodes.
 func (n *Node) Send(pkg *api.Package) error {
 	// Handle local messages
-	if pkg.PID.Node == "" || pkg.PID.Node == n.nodeID {
-		if h, ok := n.hosts.Load(pkg.PID.Host); ok {
+	if pkg.Target.Node == "" || pkg.Target.Node == n.nodeID {
+		if h, ok := n.hosts.Load(pkg.Target.Host); ok {
 			host, ok := h.(api.Host)
 			if !ok {
-				return fmt.Errorf("host %s has invalid type", pkg.PID.Host)
+				return fmt.Errorf("host %s has invalid type", pkg.Target.Host)
 			}
 
 			return host.Send(pkg)
 		}
-		return fmt.Errorf("host %s not found in node", pkg.PID.Host)
+		return fmt.Errorf("host %s not found in node", pkg.Target.Host)
 	}
 
 	// Handle upstream messages if we have an upstream configured
@@ -76,12 +76,12 @@ func (n *Node) Send(pkg *api.Package) error {
 		return (*upstream).Send(pkg)
 	}
 
-	return fmt.Errorf("no upstream available for non-local node %s", pkg.PID.Node)
+	return fmt.Errorf("no upstream available for non-local node %s", pkg.Target.Node)
 }
 
 // Attach connects a process ID to a channel for receiving packages.
 // Returns a cancel function to detach the channel and an error if the host
-// is not found or the PID refers to a non-local node.
+// is not found or the Target refers to a non-local node.
 func (n *Node) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	if pid.Node == "" || pid.Node == n.nodeID {
 		if h, ok := n.hosts.Load(pid.Host); ok {
@@ -98,7 +98,7 @@ func (n *Node) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, er
 }
 
 // Detach disconnects a process ID from its receive channel.
-// If the PID refers to a non-local node or the host is not found, this is a no-op.
+// If the Target refers to a non-local node or the host is not found, this is a no-op.
 func (n *Node) Detach(pid api.PID) {
 	if pid.Node == "" || pid.Node == n.nodeID {
 		if h, ok := n.hosts.Load(pid.Host); ok {

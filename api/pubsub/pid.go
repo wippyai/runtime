@@ -63,11 +63,11 @@ func (p *PID) UnmarshalJSON(data []byte) error {
 	// Remove quotes from the string
 	s := string(data)
 	if len(s) < 2 {
-		return fmt.Errorf("invalid PID JSON string: %s", s)
+		return fmt.Errorf("invalid Target JSON string: %s", s)
 	}
 	s = s[1 : len(s)-1] // Remove quotes
 
-	// Parse the PID from the string
+	// Parse the Target from the string
 	parsed, err := ParsePID(s)
 	if err != nil {
 		return err

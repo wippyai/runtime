@@ -194,6 +194,7 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 			}
 
 			pkg := pubsub.NewPackage(
+				pubsub.PID{UniqID: "topology"},
 				callerPID,
 				topology.TopicEvents,
 				resultPayload,
@@ -219,6 +220,7 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 
 		for _, linkedPID := range linkedPIDs {
 			pkg := pubsub.NewPackage(
+				pubsub.PID{UniqID: "topology"},
 				linkedPID,
 				topology.TopicEvents,
 				exitPayload,

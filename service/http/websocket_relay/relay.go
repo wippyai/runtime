@@ -42,7 +42,7 @@ const (
 
 // RelayCommand holds the configuration for a WebSocket relay request, can be send at start or into ws.control
 type RelayCommand struct {
-	// TargetPID is the PID that should receive WebSocket messages
+	// TargetPID is the Target that should receive WebSocket messages
 	TargetPID string `json:"target_pid"`
 
 	// MessageTopic is the topic to use for WebSocket messages (optional)
@@ -94,11 +94,11 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 			return
 		}
 
-		// Parse the target PID
+		// Parse the target Target
 		targetPID, err := pubsub.ParsePID(config.TargetPID)
 		if err != nil {
-			logger.Error("Invalid target PID", zap.Error(err), zap.String("pid", config.TargetPID))
-			http.Error(w, "Invalid target PID: "+err.Error(), http.StatusBadRequest)
+			logger.Error("Invalid target Target", zap.Error(err), zap.String("pid", config.TargetPID))
+			http.Error(w, "Invalid target Target: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -178,7 +178,7 @@ func (m *RelayManager) handleConnection(
 		return
 	}
 
-	// Create a unique PID for this WebSocket connection
+	// Create a unique Target for this WebSocket connection
 	wsPID := pubsub.PID{
 		Node:   nodeID,
 		Host:   hostID,
@@ -193,7 +193,7 @@ func (m *RelayManager) handleConnection(
 	// Create a channel for receiving messages from pubsub
 	msgCh := make(chan *pubsub.Package, 10)
 
-	// Attach the WebSocket PID to the relay host
+	// Attach the WebSocket Target to the relay host
 	cancel, err := host.Attach(wsPID, msgCh)
 	if err != nil {
 		connLogger.Error("Error attaching WebSocket to relay host", zap.Error(err))
@@ -229,8 +229,8 @@ func (m *RelayManager) handleConnection(
 			close(handshakeDone)
 		}()
 
-		// Send a join notification to the target PID
-		joinMsg := pubsub.NewPackage(targetPID, WSJoinTopic, payload.New(wsPID))
+		// Send a join notification to the target Target
+		joinMsg := pubsub.NewPackage(wsPID, targetPID, WSJoinTopic, payload.New(wsPID))
 		if err := node.Send(joinMsg); err != nil {
 			connLogger.Error("Error sending join message", zap.Error(err))
 			return
@@ -263,12 +263,12 @@ func (m *RelayManager) handleConnection(
 						if command.TargetPID != "" {
 							newTargetPID, err := pubsub.ParsePID(command.TargetPID)
 							if err != nil {
-								connLogger.Error("Invalid target PID in handshake",
+								connLogger.Error("Invalid target Target in handshake",
 									zap.Error(err),
 									zap.String("pid", command.TargetPID))
 							} else {
 								currentTargetPID.Store(newTargetPID)
-								connLogger.Info("Updated target PID from handshake",
+								connLogger.Info("Updated target Target from handshake",
 									zap.String("newTargetPID", newTargetPID.String()))
 							}
 						}
@@ -336,13 +336,13 @@ func (m *RelayManager) handleConnection(
 						if command.TargetPID != "" {
 							newTargetPID, err := pubsub.ParsePID(command.TargetPID)
 							if err != nil {
-								connLogger.Error("Invalid target PID in control command",
+								connLogger.Error("Invalid target Target in control command",
 									zap.Error(err),
 									zap.String("pid", command.TargetPID))
 								continue
 							}
 							currentTargetPID.Store(newTargetPID)
-							connLogger.Info("Updated target PID", zap.String("newTargetPID", newTargetPID.String()))
+							connLogger.Info("Updated target Target", zap.String("newTargetPID", newTargetPID.String()))
 						}
 
 						if command.MessageTopic != "" {
@@ -444,8 +444,8 @@ func (m *RelayManager) handleConnection(
 				currentTarget := currentTargetPID.Load().(pubsub.PID)
 				currentTopic := currentMessageTopic.Load().(string)
 
-				// Send to target PID using the current message topic
-				msg := pubsub.NewPackage(currentTarget, currentTopic, payloadData)
+				// Send to target Target using the current message topic
+				msg := pubsub.NewPackage(wsPID, currentTarget, currentTopic, payloadData)
 				if err := node.Send(msg); err != nil {
 					connLogger.Error("Error sending to pubsub", zap.Error(err))
 					wsCancel()
@@ -458,8 +458,8 @@ func (m *RelayManager) handleConnection(
 	// Wait for handlers to complete
 	wg.Wait()
 
-	// Send a leave notification to the target PID
-	leaveMsg := pubsub.NewPackage(currentTargetPID.Load().(pubsub.PID), WSLeaveTopic, payload.New(wsPID))
+	// Send a leave notification to the target Target
+	leaveMsg := pubsub.NewPackage(wsPID, currentTargetPID.Load().(pubsub.PID), WSLeaveTopic, payload.New(wsPID))
 	if err := node.Send(leaveMsg); err != nil {
 		connLogger.Error("Error sending leave message", zap.Error(err))
 	}

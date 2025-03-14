@@ -229,10 +229,10 @@ func (h *Host) startMessageWorkers() {
 						return
 					}
 
-					err := h.pool.Send(m.PID, m)
+					err := h.pool.Send(m.Target, m)
 					if err != nil {
 						h.log.Warn("failed to send message to process",
-							zap.String("pid", m.PID.String()),
+							zap.String("pid", m.Target.String()),
 							zap.Error(err))
 						continue
 					}

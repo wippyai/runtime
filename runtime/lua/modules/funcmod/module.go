@@ -78,7 +78,7 @@ func (e *Module) ensureSubscriptions(l *lua.LState) bool {
 
 	pid, ok := pubsub.GetPID(l.Context())
 	if !ok {
-		e.log.Error("no PID found")
+		e.log.Error("no Target found")
 		return false
 	}
 

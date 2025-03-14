@@ -29,7 +29,7 @@ func (m *mockUpstream) Send(pkg *pubsub.Package) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.sends[pkg.PID.String()] = append(m.sends[pkg.PID.String()], pkg)
+	m.sends[pkg.Target.String()] = append(m.sends[pkg.Target.String()], pkg)
 	return nil
 }
 
