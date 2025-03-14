@@ -488,3 +488,19 @@ func newResponseWrapper(w http.ResponseWriter) *responseWrapper {
 func (rw *responseWrapper) Header() http.Header {
 	return rw.headers
 }
+
+func (rw *responseWrapper) Write(data []byte) (int, error) {
+	// Capture the response body if needed
+	return rw.ResponseWriter.Write(data)
+}
+
+func (rw *responseWrapper) WriteHeader(statusCode int) {
+	rw.headers.Set(WSRelayHeader, fmt.Sprintf("%d", statusCode))
+	rw.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (rw *responseWrapper) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
