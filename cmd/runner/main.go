@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/go-chi/chi/v5/middleware"
 	httpbase "net/http"
 	"os"
 	"os/signal"
