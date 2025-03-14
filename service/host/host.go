@@ -25,7 +25,7 @@ type Host struct {
 	cfg         *host.EntryConfig
 	log         *zap.Logger
 	msgHost     pubsub.Host
-	msgCh       chan *pubsub.Package // Single channel for all message routing
+	msgQueues   []chan *pubsub.Package // Multiple queues for message routing, one per worker
 	pool        ProcessPoolAPI
 	ctx         context.Context
 	done        chan struct{}
@@ -45,15 +45,32 @@ func NewMultiProcessHost(
 	msgFactory MessageHostFactory,
 	poolFactory ProcessPoolFactory,
 ) *Host {
+	// Create one message queue per worker for balanced processing
+	msgQueues := make([]chan *pubsub.Package, config.HostConfig.MessageWorkerCount)
+	for i := 0; i < config.HostConfig.MessageWorkerCount; i++ {
+		msgQueues[i] = make(chan *pubsub.Package, config.HostConfig.BufferSize)
+	}
+
 	return &Host{
 		id:          id,
 		cfg:         config,
 		log:         log,
-		msgCh:       make(chan *pubsub.Package, config.HostConfig.BufferSize),
+		msgQueues:   msgQueues,
 		done:        make(chan struct{}),
 		msgFactory:  msgFactory,
 		poolFactory: poolFactory,
 	}
+}
+
+// fnv1a32 is a very fast hash function for string inputs
+// It's simple and provides good distribution
+func fnv1a32(s string) uint32 {
+	var h uint32 = 2166136261
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= 16777619
+	}
+	return h
 }
 
 // Attach registers a receiver channel with the underlying msgHost, rejecting if shutdown is in progress.
@@ -122,7 +139,7 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, 
 	}
 
 	// Attach to message routing with shared channel
-	_, err := h.msgHost.Attach(launch.PID, h.msgCh)
+	_, err := h.msgHost.Attach(launch.PID, h.getQueueForPID(launch.PID))
 	if err != nil {
 		return pubsub.PID{}, err
 	}
@@ -134,6 +151,14 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, 
 
 	h.log.Debug("process launched", zap.String("pid", launch.PID.String()))
 	return launch.PID, nil
+}
+
+// getQueueForPID determines which message queue to use for a given PID
+// This ensures messages from the same source are processed in order
+func (h *Host) getQueueForPID(pid pubsub.PID) chan *pubsub.Package {
+	hash := fnv1a32(pid.UniqID)
+	index := int(hash % uint32(len(h.msgQueues)))
+	return h.msgQueues[index]
 }
 
 // prepareContext sets up the context for a process
@@ -215,16 +240,21 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 
 // startMessageWorkers spawns worker goroutines to process routing messages.
 func (h *Host) startMessageWorkers() {
-	for i := 0; i < h.cfg.HostConfig.MessageWorkerCount; i++ {
+	// Start one worker per message queue for load balancing
+	for i := 0; i < len(h.msgQueues); i++ {
 		h.msgWG.Add(1)
+		queue := h.msgQueues[i]
 
-		go func() {
+		go func(workerID int, q chan *pubsub.Package) {
 			defer h.msgWG.Done()
+
+			h.log.Debug("starting message worker", zap.Int("workerID", workerID))
+
 			for {
 				select {
 				case <-h.done:
 					return
-				case m, ok := <-h.msgCh:
+				case m, ok := <-q:
 					if !ok {
 						return
 					}
@@ -240,7 +270,7 @@ func (h *Host) startMessageWorkers() {
 					return
 				}
 			}
-		}()
+		}(i, queue)
 	}
 }
 
@@ -260,6 +290,12 @@ func (h *Host) Stop(ctx context.Context) error {
 
 	h.pool.Close()
 	close(h.done)
+
+	// Close all message queues
+	for _, q := range h.msgQueues {
+		close(q)
+	}
+
 	h.msgWG.Wait()
 	h.sendStatus("host shutdown complete")
 	close(h.statusCh)
