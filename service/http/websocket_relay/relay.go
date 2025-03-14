@@ -144,10 +144,13 @@ func (m *RelayManager) handleConnection(
 
 	// Get node from context
 	node := pubsub.GetNode(ctx)
-	nodeID := ""
-	if node != nil {
-		nodeID = node.ID()
+	if node == nil {
+		connLogger.Error("Node not found in context")
+		m.safeClose(conn, websocket.StatusInternalError, "Node not found in context", connLogger)
+		return
 	}
+
+	nodeID := ""
 
 	// Get server ID from context
 	serverID, ok := ctx.Value(httpapi.ContextServerID).(registry.ID)
@@ -170,12 +173,12 @@ func (m *RelayManager) handleConnection(
 	wsPID := pubsub.PID{
 		Node:   nodeID,
 		Host:   hostID,
-		ID:     registry.ParseID("ws:connection"),
+		ID:     registry.ParseID("ws:conn"),
 		UniqID: m.idGen.Generate(),
 	}
 
 	// Update logger with WebSocket ID
-	connLogger = connLogger.With(zap.String("wsID", wsPID.String()))
+	connLogger = connLogger.With(zap.String("pid", wsPID.String()))
 	connLogger.Info("WebSocket connection established")
 
 	// Create a channel for receiving messages from pubsub
@@ -193,7 +196,7 @@ func (m *RelayManager) handleConnection(
 	// Send a join notification to the target PID
 	joinMsg := pubsub.NewPackage(targetPID, WSJoinTopic, payload.New(wsPID))
 
-	if err := host.Send(joinMsg); err != nil {
+	if err := node.Send(joinMsg); err != nil {
 		connLogger.Error("Error sending join message", zap.Error(err))
 		m.safeClose(conn, websocket.StatusInternalError, "Failed to send join message", connLogger)
 		return
@@ -350,16 +353,8 @@ func (m *RelayManager) handleConnection(
 				var payloadData payload.Payload
 
 				if msgType == websocket.MessageText {
-					// Try to parse as JSON
-					var jsonData interface{}
-					if json.Unmarshal(data, &jsonData) == nil {
-						payloadData = payload.NewPayload(string(data), payload.JSON)
-					} else {
-						// Treat as plain text
-						payloadData = payload.NewString(string(data))
-					}
+					payloadData = payload.NewString(string(data))
 				} else {
-					// Binary data
 					payloadData = payload.NewPayload(data, payload.Bytes)
 				}
 
@@ -369,7 +364,7 @@ func (m *RelayManager) handleConnection(
 
 				// Send to target PID using the current message topic
 				msg := pubsub.NewPackage(currentTarget, currentTopic, payloadData)
-				if err := host.Send(msg); err != nil {
+				if err := node.Send(msg); err != nil {
 					connLogger.Error("Error sending to pubsub", zap.Error(err))
 					wsCancel()
 					return
@@ -383,7 +378,7 @@ func (m *RelayManager) handleConnection(
 
 	// Send a leave notification to the target PID
 	leaveMsg := pubsub.NewPackage(currentTargetPID.Load().(pubsub.PID), WSLeaveTopic, payload.New(wsPID))
-	if err := host.Send(leaveMsg); err != nil {
+	if err := node.Send(leaveMsg); err != nil {
 		connLogger.Error("Error sending leave message", zap.Error(err))
 	}
 
