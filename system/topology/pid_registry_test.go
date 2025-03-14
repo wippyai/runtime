@@ -1,11 +1,12 @@
 package topology
 
 import (
+	"testing"
+
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	"testing"
 )
 
 func TestPIDRegistry_Register(t *testing.T) {

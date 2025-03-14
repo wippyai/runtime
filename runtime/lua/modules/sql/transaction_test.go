@@ -2,8 +2,9 @@ package sql
 
 import (
 	"database/sql"
-	sqlres "github.com/ponyruntime/pony/service/sql"
 	"testing"
+
+	sqlres "github.com/ponyruntime/pony/service/sql"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"

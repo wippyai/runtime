@@ -2,10 +2,11 @@ package dataconverter
 
 import (
 	"encoding/json"
-	jpayload "github.com/ponyruntime/pony/system/payload/json"
-	ypayload "github.com/ponyruntime/pony/system/payload/yaml"
 	"strconv"
 	"testing"
+
+	jpayload "github.com/ponyruntime/pony/system/payload/json"
+	ypayload "github.com/ponyruntime/pony/system/payload/yaml"
 
 	"github.com/ponyruntime/pony/api/payload"
 	transcoder "github.com/ponyruntime/pony/system/payload"

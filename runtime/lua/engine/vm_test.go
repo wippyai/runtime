@@ -4,9 +4,10 @@ import (
 	"context"
 	errors2 "errors"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"strings"
 	"testing"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 
 	"github.com/yuin/gopher-lua/parse"
 

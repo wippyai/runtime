@@ -3,14 +3,15 @@ package http
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
-	"net/http"
-	"sync"
 )
 
 // ServerFactoryAPI creates new server instances

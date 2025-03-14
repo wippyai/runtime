@@ -3,12 +3,13 @@ package errors
 import (
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/inspect"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	lua "github.com/yuin/gopher-lua"
 	"io"
 	"runtime"
 	"strings"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/inspect"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // WrappedError represents an error that occurred in either Go or Lua Context,

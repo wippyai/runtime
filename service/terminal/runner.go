@@ -2,12 +2,13 @@ package terminal
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
 	"io"
 	"os"
 	"sync"
+
+	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/runtime"
 )
 
 // RunnerConfig holds the configuration for a Runner.

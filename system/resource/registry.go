@@ -3,8 +3,9 @@ package resource
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/resource"
 	"sync"
+
+	"github.com/ponyruntime/pony/api/resource"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"

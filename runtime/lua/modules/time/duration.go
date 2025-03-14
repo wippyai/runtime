@@ -2,8 +2,9 @@ package time
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"time"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	lua "github.com/yuin/gopher-lua"
 )

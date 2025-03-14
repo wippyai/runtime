@@ -2,10 +2,11 @@ package channel
 
 import (
 	"context"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"

@@ -1,6 +1,9 @@
 package loader
 
 import (
+	"reflect"
+	"testing"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	tr "github.com/ponyruntime/pony/system/payload"
@@ -9,8 +12,6 @@ import (
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"github.com/ponyruntime/pony/tests/tempfiles"
 	"go.uber.org/zap"
-	"reflect"
-	"testing"
 )
 
 func setupTranscoder() payload.Transcoder {

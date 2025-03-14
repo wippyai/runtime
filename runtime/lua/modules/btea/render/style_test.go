@@ -1,12 +1,13 @@
 package render
 
 import (
-	"github.com/muesli/termenv"
 	"testing"
+
+	"github.com/muesli/termenv"
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
-	"github.com/yuin/gopher-lua"
 )
 
 // setupState initializes a new Lua state with the btea module registered.
@@ -115,12 +116,12 @@ func TestStyleDimensions(t *testing.T) {
 	script := `
 		local s = btea.style()
 		local widthed = s:width(50)
-		local heighted = s:height(10)
+		local heightened = s:height(10)
 		local maxWidthed = s:max_width(60)
 		local maxHeighted = s:max_height(15)
 		local tabW = s:tab_width(4)
 		assert(type(widthed) == "userdata", "width should return a Style")
-		assert(type(heighted) == "userdata", "height should return a Style")
+		assert(type(heightened) == "userdata", "height should return a Style")
 		assert(type(maxWidthed) == "userdata", "max_width should return a Style")
 		assert(type(maxHeighted) == "userdata", "max_height should return a Style")
 		assert(type(tabW) == "userdata", "tab_width should return a Style")

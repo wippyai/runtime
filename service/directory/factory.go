@@ -1,8 +1,9 @@
 package directory
 
 import (
-	fsapi "github.com/ponyruntime/pony/api/fs"
 	"io/fs"
+
+	fsapi "github.com/ponyruntime/pony/api/fs"
 )
 
 // FSFactoryAPI defines the interface for creating filesystem instances

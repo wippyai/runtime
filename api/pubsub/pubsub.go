@@ -4,6 +4,7 @@ package pubsub
 import (
 	"context"
 	"errors"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"

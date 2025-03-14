@@ -2,8 +2,9 @@ package sql
 
 import (
 	"database/sql"
-	sqlapi "github.com/ponyruntime/pony/api/service/sql"
 	"testing"
+
+	sqlapi "github.com/ponyruntime/pony/api/service/sql"
 
 	_ "github.com/mattn/go-sqlite3"
 	sqlres "github.com/ponyruntime/pony/service/sql"

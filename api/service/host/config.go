@@ -2,9 +2,10 @@ package host
 
 import (
 	"fmt"
+	"runtime"
+
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"runtime"
 )
 
 // Registry kind constants for Process Host components

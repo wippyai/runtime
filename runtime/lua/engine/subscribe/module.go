@@ -2,9 +2,10 @@ package subscribe
 
 import (
 	"fmt"
+	"sync/atomic"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
-	"sync/atomic"
 )
 
 var chanID = atomic.Uint64{}

@@ -2,8 +2,9 @@
 package pubsub
 
 import (
-	"github.com/ponyruntime/pony/api/payload"
 	"sync"
+
+	"github.com/ponyruntime/pony/api/payload"
 )
 
 // Package combines a Process Source with a batch of messages for tracking message origin.

@@ -3,15 +3,16 @@ package fs
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
-	"io"
-	"os"
-	"path/filepath"
-	"strings"
 )
 
 // FS represents a filesystem instance wrapper with its own current working directory.

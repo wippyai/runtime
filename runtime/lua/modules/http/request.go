@@ -3,12 +3,13 @@ package http
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"io"
 	basehttp "net/http"
 	"strings"
 	"time"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
@@ -363,7 +364,7 @@ func requestBodyJSON(l *lua.LState) int {
 	defer func() {
 		err := req.request.Body.Close()
 		if err != nil {
-			// supressed for now
+			// suppressed for now
 		}
 	}()
 

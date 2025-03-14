@@ -722,13 +722,13 @@ func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 		"main": createTestNode("MainFunc"),
 		"lib1": createTestNode("Lib1"),
 		"lib2": createTestNode("Lib2"),
-		"mod1": &Node{
+		"mod1": {
 			ID:     registry.ID{Name: "Module1"},
 			Kind:   "module.lua",
 			Source: "module1 source",
 			Module: mod1,
 		},
-		"mod2": &Node{
+		"mod2": {
 			ID:     registry.ID{Name: "Module2"},
 			Kind:   "module.lua",
 			Source: "module2 source",
@@ -786,13 +786,13 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 		"main": createTestNode("MainFunc"),
 		"lib1": createTestNode("Lib1"),
 		"lib2": createTestNode("Lib2"),
-		"mod1": &Node{
+		"mod1": {
 			ID:     registry.ID{Name: "Module1"},
 			Kind:   "module.lua",
 			Source: "module1 source",
 			Module: mod1,
 		},
-		"shared": &Node{
+		"shared": {
 			ID:     registry.ID{Name: "Shared"},
 			Kind:   "module.lua",
 			Source: "shared module source",

@@ -2,6 +2,7 @@ package logger
 
 import (
 	"errors"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	transcoder "github.com/ponyruntime/pony/system/payload/lua"
@@ -35,7 +36,6 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the plugin
 func (m *Module) Loader(l *lua.LState) int {
-
 	// Register all methods at once using the efficient method from util.go
 	methods := map[string]lua.LGFunction{
 		"debug": loggerDebug,

@@ -3,13 +3,14 @@ package http
 import (
 	"context"
 	"fmt"
-	"github.com/go-chi/chi/v5"
-	"github.com/ponyruntime/pony/api/registry"
-	httpapi "github.com/ponyruntime/pony/api/service/http"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/ponyruntime/pony/api/registry"
+	httpapi "github.com/ponyruntime/pony/api/service/http"
 )
 
 // RouteEntry represents a single route within a router

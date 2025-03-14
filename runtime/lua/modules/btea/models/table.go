@@ -2,10 +2,10 @@ package models
 
 import (
 	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbletea"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // Table wraps tablewidget.Model for Lua.

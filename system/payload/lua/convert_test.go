@@ -1,15 +1,16 @@
 package lua
 
 import (
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
-	"reflect"
-	"strings"
-	"testing"
-	"time"
 )
 
 func TestToGoAny(t *testing.T) {

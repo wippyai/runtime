@@ -3,6 +3,9 @@ package host
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
@@ -10,8 +13,6 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	msg "github.com/ponyruntime/pony/system/pubsub"
 	"go.uber.org/zap"
-	"sync"
-	"time"
 )
 
 // ProcessPoolAPI defines the interface that a process pool must implement

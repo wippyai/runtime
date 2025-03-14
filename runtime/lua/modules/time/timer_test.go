@@ -1,7 +1,7 @@
 package time
 
 //
-//func TestTimer(t *testing.T) {
+// func TestTimer(t *testing.T) {
 //	logger := zap.NewNop()
 //
 //	t.Run("timer basic functionality", func(t *testing.T) {

@@ -2,12 +2,13 @@ package http
 
 import (
 	"fmt"
+	"mime/multipart"
+	basehttp "net/http"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
-	"mime/multipart"
-	basehttp "net/http"
 )
 
 // MultipartFile represents a file from a multipart form

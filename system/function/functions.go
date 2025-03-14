@@ -3,12 +3,13 @@ package function
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/internal/uniqid"
-	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/system/eventbus"

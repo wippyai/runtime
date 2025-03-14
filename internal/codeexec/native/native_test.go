@@ -188,7 +188,7 @@ func TestExecutor_Stderr(t *testing.T) {
 
 func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 	l, oLogger := mocklogger.ZapTestLogger(zap.DebugLevel)
-	executor := NewNativeExecutor(l, WithCmd("invalidcommand"))
+	executor := NewNativeExecutor(l, WithCmd("sleep 1 && invalidcommand"))
 
 	err := executor.Start()
 	assert.NoError(t, err)
@@ -203,7 +203,6 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 	for {
 		// we don't care about the perf here
 		buf := make([]byte, 65536)
-		time.Sleep(time.Second)
 		_, err = executor.StderrReader().Read(buf)
 		if err != nil {
 			// fs.ErrClosed is returned when the process is stopped (the file is already closed)

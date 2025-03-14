@@ -3,9 +3,10 @@ package sql
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	config "github.com/ponyruntime/pony/api/service/sql"
 	config2 "github.com/ponyruntime/pony/internal/config"
-	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"

@@ -1,10 +1,11 @@
 package render
 
 import (
+	"testing"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
-	"testing"
 )
 
 // mockTeaModel implements tea.Model for testing

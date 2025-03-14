@@ -4,10 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/ponyruntime/pony/internal/config"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ponyruntime/pony/internal/config"
 
 	_ "github.com/mattn/go-sqlite3" // Import SQLite driver
 

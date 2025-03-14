@@ -3,6 +3,8 @@ package funcmod
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -13,7 +15,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/process"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"strings"
 )
 
 // Channel context keys for UoW storage

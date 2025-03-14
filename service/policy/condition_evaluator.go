@@ -2,10 +2,11 @@ package policy
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/api/service/policy"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/ponyruntime/pony/api/service/policy"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/security"
@@ -171,7 +172,7 @@ func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator stri
 	// Handle nil values
 	if fieldValue == nil {
 		// Only exists operator can return true for nil field values
-		return operator == "exists" && compareValue.(bool) == false, nil
+		return operator == "exists" && !compareValue.(bool), nil
 	}
 
 	// Handle special operators

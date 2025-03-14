@@ -2,8 +2,9 @@ package models
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"testing"
+
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/require"

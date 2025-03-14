@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	lua "github.com/yuin/gopher-lua"
 	"io"
 	"net/http"
 	"testing"
 	"time"
+
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"

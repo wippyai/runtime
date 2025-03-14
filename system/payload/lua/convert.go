@@ -2,14 +2,15 @@ package lua
 
 import (
 	"fmt"
+	"reflect"
+	"sync"
+	"time"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"reflect"
-	"sync"
-	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )

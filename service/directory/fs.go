@@ -3,11 +3,12 @@ package directory
 import (
 	"errors"
 	"fmt"
-	fsapi "github.com/ponyruntime/pony/api/fs"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sync/atomic"
+
+	fsapi "github.com/ponyruntime/pony/api/fs"
 )
 
 var (
