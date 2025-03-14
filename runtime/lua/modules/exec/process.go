@@ -44,7 +44,7 @@ func (m *Module) newProcess(l *lua.LState) int {
 
 	nopts = append(nopts, native2.WithCmd(cmd))
 
-	executor := native2.NewNativeExecutor(log.Named("native_exec"), nopts...)
+	executor := native2.NewNativeExecutor(log, nopts...)
 	engine.GetUnitOfWork(l.Context()).AddCleanup(func() error {
 		// stop the executor
 		executor.Stop()

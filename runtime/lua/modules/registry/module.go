@@ -33,7 +33,7 @@ func NewRegistryModule(log *zap.Logger) *Module {
 	if log == nil {
 		log = zap.NewNop()
 	}
-	return &Module{log: log.Named("registry")}
+	return &Module{log: log}
 }
 
 // Name returns the module name

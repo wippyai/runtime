@@ -47,7 +47,7 @@ func mapDBTypeFromResourceKind(dbType string) string {
 // NewSQLModule creates a new SQL module
 func NewSQLModule(log *zap.Logger) *Module {
 	return &Module{
-		log: log.Named("sql"),
+		log: log,
 	}
 }
 
