@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/pony/api/security"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -164,8 +165,7 @@ func (h *Host) getQueueForPID(pid pubsub.PID) chan *pubsub.Package {
 
 // prepareContext sets up the context for a process
 func (h *Host) prepareContext(ctx context.Context, pid pubsub.PID, lifecycle process.Lifecycle) context.Context {
-	// security and other core keys
-	pCtx := ctxapi.MergeContext(h.ctx, ctx)
+	pCtx := security.CopyContext(ctx, h.ctx)
 
 	// global lifecycle
 	pCtx = process.GetProcesses(ctx).AttachLifecycle(pCtx, lifecycle)

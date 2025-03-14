@@ -3,11 +3,11 @@ package terminal
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/api/security"
 	"os"
 	"sync/atomic"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	logsapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -167,7 +167,7 @@ func (t *Terminal) prepareContext(
 	pid pubsub.PID,
 	lifecycle process.Lifecycle,
 ) context.Context {
-	pCtx := ctxapi.MergeContext(t.ctx, ctx)
+	pCtx := security.CopyContext(ctx, t.ctx)
 
 	// global lifecycle
 	pCtx = process.GetProcesses(ctx).AttachLifecycle(ctx, lifecycle)
