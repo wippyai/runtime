@@ -119,12 +119,24 @@ local function handler()
         return
     end
 
-    -- Return token and user info
+    -- Get the complete user record including created_at
+    local complete_user, err = user_repo.get(user_id)
+    if err then
+        res:set_status(http.STATUS.INTERNAL_ERROR)
+        res:write_json({
+            success = false,
+            error = "Failed to retrieve complete user record",
+            details = err
+        })
+        return
+    end
+
+    -- Return token and user info with created_at timestamp
     res:set_status(http.STATUS.OK)
     res:write_json({
         success = true,
         token = token,
-        user = user,
+        user = complete_user,
         actor = {
             id = actor:id(),
             metadata = actor:meta()
