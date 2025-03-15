@@ -474,75 +474,78 @@ func (c *Connection) writeTranscodedPayload(p payload.Payload, msgType websocket
 
 // sendJoinNotification sends a join notification to the target PID
 func (c *Connection) sendJoinNotification(targetPID pubsub.PID) error {
-	// The Lua hub expects a simple string PID format, so we'll use that directly
-	// while storing metadata in a separate message if needed
-	joinMsg := pubsub.NewPackage(c.wsPID, targetPID, WSJoinTopic, payload.NewString(c.wsPID.String()))
-
-	// If metadata exists, send it in a separate metadata message
-	if c.config.Metadata != nil && len(c.config.Metadata) > 0 {
-		metadataInfo := map[string]interface{}{
-			"type":       "client_metadata",
-			"client_pid": c.wsPID.String(),
-			"metadata":   c.config.Metadata,
-		}
-
-		metadataData, err := json.Marshal(metadataInfo)
-		if err != nil {
-			c.logger.Warn("Error marshaling metadata", zap.Error(err))
-		} else {
-			metadataMsg := pubsub.NewPackage(c.wsPID, targetPID, WSMessageTopic,
-				payload.NewPayload(metadataData, payload.JSON))
-
-			if err := c.node.Send(metadataMsg); err != nil {
-				c.logger.Warn("Error sending metadata message", zap.Error(err))
-			}
-		}
+	// Create a join info structure that includes both client PID and metadata
+	joinInfo := JoinInfo{
+		ClientPID: c.wsPID.String(),
+		Metadata:  c.config.Metadata,
 	}
+
+	// Marshal the join info to JSON
+	joinData, err := json.Marshal(joinInfo)
+	if err != nil {
+		return fmt.Errorf("failed to marshal join info: %w", err)
+	}
+
+	// Create and send a single package containing both the client PID and metadata
+	joinMsg := pubsub.NewPackage(
+		c.wsPID,
+		targetPID,
+		WSJoinTopic,
+		payload.NewPayload(joinData, payload.JSON),
+	)
 
 	return c.node.Send(joinMsg)
 }
 
 // sendLeaveNotification sends a leave notification to the target PID
 func (c *Connection) sendLeaveNotification(targetPID pubsub.PID) error {
-	// Use simple string format as expected by Lua hub
-	leaveMsg := pubsub.NewPackage(c.wsPID, targetPID, WSLeaveTopic, payload.NewString(c.wsPID.String()))
+	// Create a join info structure that includes both client PID and metadata
+	leaveInfo := JoinInfo{
+		ClientPID: c.wsPID.String(),
+		Metadata:  c.config.Metadata,
+	}
+
+	// Marshal the leave info to JSON
+	leaveData, err := json.Marshal(leaveInfo)
+	if err != nil {
+		return fmt.Errorf("failed to marshal leave info: %w", err)
+	}
+
+	// Create and send a single package containing both the client PID and metadata
+	leaveMsg := pubsub.NewPackage(
+		c.wsPID,
+		targetPID,
+		WSLeaveTopic,
+		payload.NewPayload(leaveData, payload.JSON),
+	)
+
 	return c.node.Send(leaveMsg)
 }
 
 // sendHeartbeat sends a heartbeat message to the current target PID
 func (c *Connection) sendHeartbeat() {
-	// Format compatible with existing Lua code expectations
-	// Create a simple comma-separated string with the information the Lua code needs
-	heartbeatString := fmt.Sprintf("%s,%s,%d",
-		c.wsPID.String(),
-		time.Since(c.connectedAt).String(),
-		c.msgCount.Load())
-
-	heartbeatMsg := pubsub.NewPackage(c.wsPID, c.currentTargetPID, WSHeartbeatTopic,
-		payload.NewString(heartbeatString))
-
-	// Send metadata in a separate message if available
-	if c.config.Metadata != nil && len(c.config.Metadata) > 0 {
-		metadataInfo := map[string]interface{}{
-			"type":       "heartbeat_metadata",
-			"client_pid": c.wsPID.String(),
-			"uptime":     time.Since(c.connectedAt).String(),
-			"count":      c.msgCount.Load(),
-			"metadata":   c.config.Metadata,
-		}
-
-		metadataData, err := json.Marshal(metadataInfo)
-		if err != nil {
-			c.logger.Warn("Error marshaling heartbeat metadata", zap.Error(err))
-		} else {
-			metadataMsg := pubsub.NewPackage(c.wsPID, c.currentTargetPID, WSMessageTopic,
-				payload.NewPayload(metadataData, payload.JSON))
-
-			if err := c.node.Send(metadataMsg); err != nil {
-				c.logger.Warn("Error sending heartbeat metadata message", zap.Error(err))
-			}
-		}
+	// Create a structured heartbeat info object
+	heartbeatInfo := HeartbeatInfo{
+		ClientPID:    c.wsPID.String(),
+		Uptime:       time.Since(c.connectedAt).String(),
+		MessageCount: c.msgCount.Load(),
+		Metadata:     c.config.Metadata,
 	}
+
+	// Marshal the heartbeat info to JSON
+	heartbeatData, err := json.Marshal(heartbeatInfo)
+	if err != nil {
+		c.logger.Warn("Error marshaling heartbeat info", zap.Error(err))
+		return
+	}
+
+	// Create and send a single heartbeat message
+	heartbeatMsg := pubsub.NewPackage(
+		c.wsPID,
+		c.currentTargetPID,
+		WSHeartbeatTopic,
+		payload.NewPayload(heartbeatData, payload.JSON),
+	)
 
 	if err := c.node.Send(heartbeatMsg); err != nil {
 		c.logger.Warn("Error sending heartbeat", zap.Error(err))
