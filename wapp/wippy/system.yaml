@@ -1,0 +1,12 @@
+version: "1.0"
+namespace: system
+
+entries:
+  - name: api
+    kind: http.router
+    meta:
+      comment: "API router for v1 endpoints"
+      server: app:gateway
+      depends_on:
+        - app:gateway
+    prefix: /api/v1/system/

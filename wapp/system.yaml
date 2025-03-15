@@ -1,0 +1,78 @@
+version: "1.0"
+namespace: app
+
+entries:
+  - name: files
+    kind: fs.directory
+    meta:
+      comment: "User files and content"
+    directory: ./wapp/files/
+    mode: "0755"
+    default: true
+
+  - name: public
+    kind: fs.directory
+    meta:
+      comment: "Public filesystem and frontend"
+      depends_on:
+        - root
+    directory: ./wapp/public/
+    mode: "0755"
+
+  - name: gateway
+    kind: http.service
+    meta:
+      comment: "Main HTTP gateway service"
+    addr: ":8082"
+    lifecycle:
+      auto_start: true
+
+  - name: frontend
+    kind: http.static
+    meta:
+      comment: "Public files and compiled frontend"
+      server: gateway
+      depends_on:
+        - gateway
+        - public
+    path: /
+    fs: public
+    directory: /
+    options:
+      index: "index.html"
+      spa: true
+
+  - name: public_api
+    kind: http.router
+    meta:
+      comment: "API router for v1 endpoints"
+      server: gateway
+      depends_on:
+        - gateway
+    prefix: /api/v1
+    middleware: [ token_auth ]
+    options:
+      token_store: system.security:auth.tokens
+
+  - name: api
+    kind: http.router
+    meta:
+      comment: "API router for v1 endpoints"
+      server: gateway
+      depends_on:
+        - gateway
+    prefix: /api/v1/private/
+    middleware: [ websocket_relay, token_auth ]
+    post_middleware: [ endpoint_firewall ]
+    options:
+      token_store: system.security:auth.tokens
+
+  - name: processes
+    kind: process.host
+    meta:
+      comment: "Process execution host"
+    host:
+      workers: 8
+      max_processes: 1000
+    lifecycle:
+      auto_start: true

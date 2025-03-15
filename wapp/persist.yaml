@@ -1,0 +1,20 @@
+version: "1.0"
+namespace: app
+
+entries:
+  - name: db
+    kind: db.sql.sqlite
+    meta:
+      comment: "Application SQLite database"
+    file: "./wapp/data/app.db"
+    lifecycle:
+      auto_start: true
+
+  - name: cache
+    kind: store.memory
+    meta:
+      comment: "System-wide memory cache"
+    max_size: 5000
+    cleanup_interval: 5m
+    lifecycle:
+      auto_start: true

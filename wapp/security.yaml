@@ -1,0 +1,32 @@
+version: "1.0"
+namespace: app.security
+
+entries:
+  - name: tokens
+    kind: security.token_store
+    meta:
+      comment: "Authentication token storage"
+    store: session
+    token_length: 32
+    token_key: "${ENV_TOKEN_KEY:-application-key}"
+    default_expiration: 24h
+
+  - name: session
+    kind: store.memory
+    meta:
+      comment: "User session storage"
+    max_size: 5000
+    cleanup_interval: 10m
+    lifecycle:
+      auto_start: true
+
+  # Security policies
+  - name: user.policy
+    kind: security.policy
+    meta:
+      comment: "Generic user access policy"
+    groups: [ "app:user" ]
+    policy:
+      actions: "*"
+      resources: "*"
+      effect: "allow"
