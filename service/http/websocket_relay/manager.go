@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ponyruntime/pony/api/topology"
 	"net/http"
 
 	"github.com/coder/websocket"
@@ -100,6 +101,14 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 			return
 		}
 
+		topo := topology.GetTopology(r.Context())
+		if topo == nil {
+			errMsg := "Topology not found in context"
+			logger.Error(errMsg)
+			http.Error(w, errMsg, http.StatusInternalServerError)
+			return
+		}
+
 		// Get server ID from context
 		serverID, ok := r.Context().Value(httpapi.ContextServerID).(registry.ID)
 		if !ok || serverID.String() == "" {
@@ -129,6 +138,7 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 			serverID,
 			host,
 			node,
+			topo,
 			transcoder,
 			m.idGen,
 			logger,

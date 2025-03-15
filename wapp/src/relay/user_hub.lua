@@ -124,9 +124,7 @@ local function run(args)
             print("Client joined user hub for", state.user_id, ":", client_pid)
 
             -- Add client to our list
-            state.connected_clients[client_pid] = {
-                last_activity = time.now()
-            }
+            state.connected_clients[client_pid] = { connected_on = time.now() }
             state.client_count = state.client_count + 1
             state.last_activity = time.now()
 
@@ -156,16 +154,11 @@ local function run(args)
 
         -- Handle WebSocket messages
         [WS_MESSAGE_TOPIC] = function(state, payload)
-            -- Get sender PID from the message context
-            local client_pid = payload.client_pid
             local message = payload.message
 
-            print("Received message from client", client_pid, "for user", state.user_id, ":", json.encode(payload))
+            print("Received message from client", state.user_id, ":", json.encode(payload))
 
             -- Update client's last activity time
-            if state.connected_clients[client_pid] then
-                state.connected_clients[client_pid].last_activity = time.now()
-            end
             state.last_activity = time.now()
             state.messages_handled = state.messages_handled + 1
 
@@ -181,7 +174,7 @@ local function run(args)
                 -- Broadcast to all clients
                 broadcast_to_clients(state, UPDATE_TOPIC, response)
             end
-
+die()
             return state
         end,
 

@@ -48,8 +48,6 @@ local function run()
                 -- A monitored process has exited
                 local from_pid = event.from
 
-                print("EVNT FROM PID", from_pid, "EXITED", event.reason)
-
                 if from_pid then
                     -- Find which user hub this was
                     for user_id, hub_info in pairs(state.user_hubs) do

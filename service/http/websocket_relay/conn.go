@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
+	"github.com/ponyruntime/pony/api/topology"
 	"sync/atomic"
 	"time"
 
@@ -32,6 +32,7 @@ type Connection struct {
 	currentMessageTopic pubsub.Topic
 	host                pubsub.Host
 	node                pubsub.Node
+	topo                topology.Topology
 	transcoder          payload.Transcoder
 
 	// Configuration
@@ -61,6 +62,7 @@ func NewConnection(
 	serverID registry.ID,
 	host pubsub.Host,
 	node pubsub.Node,
+	topo topology.Topology,
 	transcoder payload.Transcoder,
 	idGen *uniqid.Generator, // Add idGen parameter
 	logger *zap.Logger,
@@ -110,6 +112,7 @@ func NewConnection(
 		currentMessageTopic: messageTopic,
 		host:                host,
 		node:                node,
+		topo:                topo,
 		transcoder:          transcoder,
 		config:              config,
 		heartbeatInterval:   heartbeatInterval,
@@ -139,6 +142,13 @@ func NewConnection(
 
 // Serve begins processing WebSocket communication
 func (c *Connection) Serve() {
+	// Start monitoring the target PID
+	if err := c.topo.Wait(c.wsPID, c.currentTargetPID); err != nil {
+		c.logger.Error("Failed to monitor target PID", zap.Error(err))
+		c.Close("Failed to monitor target PID")
+		return
+	}
+
 	// Send initial join notification with metadata
 	if err := c.sendJoinNotification(c.currentTargetPID); err != nil {
 		c.logger.Error("Failed to send join notification", zap.Error(err))
@@ -205,8 +215,6 @@ func (c *Connection) handleWebSocketRead() {
 			// Increment message counter
 			c.msgCount.Add(1)
 
-			log.Printf("TYPE %s", msgType)
-
 			// Forward message to pubsub
 			if err := c.forwardMessageToPubSub(msgType, data); err != nil {
 				c.logger.Error("Error forwarding message to pubsub", zap.Error(err))
@@ -234,6 +242,14 @@ func (c *Connection) forwardMessageToPubSub(msgType websocket.MessageType, data 
 // handlePubSubPackage processes a package received from pubsub
 func (c *Connection) handlePubSubPackage(pkg *pubsub.Package) {
 	for _, msg := range pkg.Messages {
+		// Handle exit events for the target PID
+		if msg.Topic == topology.TopicEvents && len(msg.Payloads) > 0 {
+			if c.handleExitEvent(msg.Payloads) {
+				// Exit event was for current target PID, we're closing
+				return
+			}
+		}
+
 		// Handle control messages
 		if msg.Topic == WSControlTopic && len(msg.Payloads) > 0 {
 			c.handleControlMessage(msg.Payloads[0])
@@ -255,6 +271,29 @@ func (c *Connection) handlePubSubPackage(pkg *pubsub.Package) {
 			}
 		}
 	}
+}
+
+func (c *Connection) handleExitEvent(payloads []payload.Payload) bool {
+	for _, p := range payloads {
+		// Check if the payload is an exit event
+		if exitEvent, ok := p.Data().(*topology.ExitEvent); ok {
+			// Check if the exit event is for our current target PID
+			if exitEvent.From.String() == c.currentTargetPID.String() {
+				c.logger.Info("Target PID exited, closing connection",
+					zap.String("targetPID", c.currentTargetPID.String()),
+					zap.Any("result", exitEvent.Result))
+
+				reason := "Target process exited"
+				if exitEvent.Result != nil && exitEvent.Result.Error != nil {
+					reason = fmt.Sprintf("Target process exited with error: %v", exitEvent.Result.Error)
+				}
+
+				c.Close(reason)
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // handleControlMessage processes control messages from pubsub
@@ -302,6 +341,18 @@ func (c *Connection) handleTargetPIDChange(command RelayCommand) {
 	}
 
 	if oldTarget.String() != newTarget.String() {
+		// Stop monitoring the old target
+		if err := c.topo.Release(c.wsPID, oldTarget); err != nil {
+			c.logger.Warn("Error releasing monitor for old target", zap.Error(err))
+		}
+
+		// Start monitoring the new target
+		if err := c.topo.Wait(c.wsPID, newTarget); err != nil {
+			c.logger.Error("Failed to monitor new target PID", zap.Error(err))
+			c.Close("Failed to monitor new target PID")
+			return
+		}
+
 		// Send leave to old target
 		if err := c.sendLeaveNotification(oldTarget); err != nil {
 			c.logger.Error("Error sending leave on target change", zap.Error(err))
@@ -567,6 +618,11 @@ func (c *Connection) Close(reason string) {
 func (c *Connection) cleanup() {
 	// Stop the heartbeat ticker
 	c.heartbeatTicker.Stop()
+
+	// Release monitoring of the target PID
+	if err := c.topo.Release(c.wsPID, c.currentTargetPID); err != nil {
+		c.logger.Warn("Error releasing monitor during cleanup", zap.Error(err))
+	}
 
 	// Send leave notification
 	if err := c.sendLeaveNotification(c.currentTargetPID); err != nil {

@@ -31,11 +31,16 @@
             font-weight: bold;
         }
 
-        input[type="text"] {
+        input[type="text"], textarea {
             width: 100%;
             padding: 8px;
             border: 1px solid #ddd;
             border-radius: 4px;
+        }
+
+        textarea {
+            min-height: 80px;
+            font-family: monospace;
         }
 
         button {
@@ -98,6 +103,34 @@
 
         .message-content {
             margin-top: 3px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .stats-group {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .stat-box {
+            background-color: #f0f8ff;
+            border: 1px solid #b8daff;
+            border-radius: 4px;
+            padding: 10px;
+            flex: 1;
+            margin-right: 10px;
+            text-align: center;
+        }
+
+        .stat-box:last-child {
+            margin-right: 0;
+        }
+
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin: 5px 0;
         }
     </style>
 </head>
@@ -118,10 +151,33 @@
 </div>
 
 <div class="card">
-    <h2>Messages</h2>
-    <div id="connectionStats">
-        <p>Messages received: <span id="messageCount">0</span></p>
-        <p>Connected clients: <span id="clientCount">0</span></p>
+    <h2>Send Message</h2>
+    <div class="form-group">
+        <label for="actionInput">Action:</label>
+        <input type="text" id="actionInput" placeholder="Enter action (e.g. 'chat', 'update', 'command')">
+    </div>
+    <div class="form-group">
+        <label for="dataInput">Data (JSON):</label>
+        <textarea id="dataInput" placeholder='{"key": "value"}'></textarea>
+    </div>
+    <button id="sendBtn" disabled>Send Message</button>
+</div>
+
+<div class="card">
+    <h2>Stats</h2>
+    <div class="stats-group">
+        <div class="stat-box">
+            <div>Messages Received</div>
+            <div id="messageCount" class="stat-value">0</div>
+        </div>
+        <div class="stat-box">
+            <div>Connected Clients</div>
+            <div id="clientCount" class="stat-value">0</div>
+        </div>
+        <div class="stat-box">
+            <div>Updates</div>
+            <div id="updateCount" class="stat-value">0</div>
+        </div>
     </div>
     <div id="messageLog"></div>
 </div>
@@ -136,6 +192,7 @@
         maxReconnectAttempts: 5,
         messageCount: 0,
         clientCount: 0,
+        updateCount: 0,
         pingInterval: null
     };
 
@@ -143,10 +200,14 @@
     const tokenInput = document.getElementById('tokenInput');
     const connectBtn = document.getElementById('connectBtn');
     const disconnectBtn = document.getElementById('disconnectBtn');
+    const sendBtn = document.getElementById('sendBtn');
+    const actionInput = document.getElementById('actionInput');
+    const dataInput = document.getElementById('dataInput');
     const statusEl = document.getElementById('status');
     const messageLogEl = document.getElementById('messageLog');
     const messageCountEl = document.getElementById('messageCount');
     const clientCountEl = document.getElementById('clientCount');
+    const updateCountEl = document.getElementById('updateCount');
 
     // Helper function to update connection status
     function updateStatus(statusClass, message) {
@@ -209,6 +270,7 @@
                 updateStatus('connected', 'Connected');
                 connectBtn.disabled = true;
                 disconnectBtn.disabled = false;
+                sendBtn.disabled = false;
                 state.reconnectAttempts = 0;
 
                 addMessage('System', 'Connected to WebSocket server');
@@ -229,17 +291,21 @@
                     // Handle different message types
                     if (message.topic === 'welcome') {
                         addMessage('Welcome', message.data);
+
+                        // Update client count if available
                         if (message.data.clients) {
                             state.clientCount = message.data.clients;
                             clientCountEl.textContent = state.clientCount;
                         }
                     } else if (message.topic === 'update') {
-                        // Only log every 5th update to avoid spamming
-                        if (message.data.sequence % 5 === 0) {
-                            addMessage('Update', message.data);
-                        }
+                        // Always log updates
+                        addMessage('Update', message.data);
 
-                        // Update client count
+                        // Update the update counter
+                        state.updateCount++;
+                        updateCountEl.textContent = state.updateCount;
+
+                        // Update client count if available
                         if (message.data.connected_clients) {
                             state.clientCount = message.data.connected_clients;
                             clientCountEl.textContent = state.clientCount;
@@ -255,6 +321,7 @@
                     }
                 } catch (e) {
                     addMessage('Error', 'Failed to parse message: ' + e.message);
+                    console.error('Error parsing message:', e, event.data);
                 }
             });
 
@@ -265,6 +332,7 @@
                 updateStatus('disconnected', 'Disconnected');
                 connectBtn.disabled = false;
                 disconnectBtn.disabled = true;
+                sendBtn.disabled = true;
 
                 addMessage('System', `Connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
 
@@ -287,10 +355,12 @@
             state.socket.addEventListener('error', (event) => {
                 updateStatus('disconnected', 'Connection Error');
                 addMessage('Error', 'WebSocket connection error');
+                console.error('WebSocket error:', event);
             });
         } catch (error) {
             updateStatus('disconnected', 'Connection Failed');
             addMessage('Error', 'Failed to create WebSocket: ' + error.message);
+            console.error('Failed to create WebSocket:', error);
         }
     }
 
@@ -312,9 +382,47 @@
         }
     }
 
+    // Send custom message
+    function sendMessage() {
+        if (!state.connected || !state.socket) {
+            alert('Not connected to the server');
+            return;
+        }
+
+        const action = actionInput.value.trim();
+        if (!action) {
+            alert('Please enter an action');
+            return;
+        }
+
+        let data = {};
+        try {
+            const dataText = dataInput.value.trim();
+            if (dataText) {
+                data = JSON.parse(dataText);
+            }
+        } catch (e) {
+            alert('Invalid JSON data: ' + e.message);
+            return;
+        }
+
+        const payload = {
+            action: action,
+            data: data
+        };
+
+        try {
+            state.socket.send(JSON.stringify(payload));
+            addMessage('Sent', payload);
+        } catch (e) {
+            addMessage('Error', 'Failed to send message: ' + e.message);
+        }
+    }
+
     // Set up event listeners
     connectBtn.addEventListener('click', connect);
     disconnectBtn.addEventListener('click', disconnect);
+    sendBtn.addEventListener('click', sendMessage);
 
     // Check for token in URL params
     document.addEventListener('DOMContentLoaded', () => {
