@@ -1,0 +1,45 @@
+version: "1.0"
+namespace: app.user.auth
+
+meta:
+  depends_on: [ ns:system, ns:system.security ]
+  description: "User authentication and token management"
+
+entries:
+  - name: api
+    kind: function.lua
+    meta:
+      comment: "User Token API"
+    source: file://user_api.lua
+    method: handler
+    modules: [ http, security, json, time ]
+
+  - name: api.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "User Token API Endpoint"
+      router: system:public_api
+    method: POST
+    path: /user/token
+    func: api
+
+  - name: user_repo
+    kind: library.lua
+    meta:
+      comment: "User repository library"
+    source: file://user_repo.lua
+    modules: [ sql ]
+
+  # Migrations
+  - name: user_table
+    kind: function.lua
+    meta:
+      description: "Create users table with indexes"
+      timestamp: "2025-03-15T10:00:00Z"
+      tags: [ "user_auth" ]
+      type: "migration"
+      target_db: "app:db"
+    source: file://migrations/add_users_table.lua
+    method: migrate
+    imports:
+      migration: "wippy.migration:migration"
