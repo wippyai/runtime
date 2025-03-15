@@ -113,6 +113,15 @@ func (s *TokenStore) Create(
 		return "", fmt.Errorf("failed to generate token: %w", err)
 	}
 
+	// Extract the base token (without signature) for storage key
+	baseToken := tokenStr
+	if s.config.TokenKey != "" {
+		parts := splitToken(tokenStr)
+		if len(parts) == 2 {
+			baseToken = parts[0]
+		}
+	}
+
 	// Set expiration
 	expiration := details.Expiration
 	if expiration == 0 {
@@ -134,24 +143,17 @@ func (s *TokenStore) Create(
 		}
 	}
 
-	// Create token data
-	data := tokenData{
-		ActorID:       actor.ID,
-		ActorMeta:     actor.Meta,
-		ScopePolicies: policies,
-		Created:       time.Now(),
-		Expires:       expires,
-		Meta:          details.Meta,
-	}
-
-	// Store token data in backing store
-	value := payload.New(data)
-	tokenKey := registry.ParseID(string(tokenStr))
-
 	err = kvStore.Set(ctx, store.Entry{
-		Key:   tokenKey,
-		Value: value,
-		TTL:   expiration,
+		Key: registry.ParseID(baseToken),
+		Value: payload.New(&tokenData{
+			ActorID:       actor.ID,
+			ActorMeta:     actor.Meta,
+			ScopePolicies: policies,
+			Created:       time.Now(),
+			Expires:       expires,
+			Meta:          details.Meta,
+		}),
+		TTL: expiration,
 	})
 
 	if err != nil {
@@ -168,6 +170,9 @@ func (s *TokenStore) Validate(ctx context.Context, token security.Token) (securi
 		return security.Actor{}, nil, security.ErrTokenInvalid
 	}
 
+	// Extract base token for lookup
+	baseToken := string(token)
+
 	// Verify token signature if a key is configured
 	if s.config.TokenKey != "" {
 		parts := splitToken(string(token))
@@ -181,7 +186,7 @@ func (s *TokenStore) Validate(ctx context.Context, token security.Token) (securi
 		}
 
 		// Use only the token part for lookup
-		token = security.Token(parts[0])
+		baseToken = parts[0]
 	}
 
 	// Acquire store only when needed
@@ -191,9 +196,7 @@ func (s *TokenStore) Validate(ctx context.Context, token security.Token) (securi
 	}
 	defer storeRes.Release() // Release after use
 
-	// Retrieve token data from store
-	tokenKey := registry.ParseID(string(token))
-	value, err := kvStore.Get(ctx, tokenKey)
+	value, err := kvStore.Get(ctx, registry.ParseID(baseToken))
 	if err != nil {
 		if errors.Is(err, store.ErrKeyNotFound) {
 			return security.Actor{}, nil, security.ErrTokenNotFound
@@ -205,13 +208,6 @@ func (s *TokenStore) Validate(ctx context.Context, token security.Token) (securi
 	var data tokenData
 	if err := s.dtt.Unmarshal(value, &data); err != nil {
 		return security.Actor{}, nil, fmt.Errorf("failed to unmarshal token data: %w", err)
-	}
-
-	// Check expiration
-	if data.Expires != nil && time.Now().After(*data.Expires) {
-		// Clean up expired token
-		_ = kvStore.Delete(ctx, tokenKey)
-		return security.Actor{}, nil, security.ErrTokenExpired
 	}
 
 	// Reconstruct actor
@@ -242,13 +238,16 @@ func (s *TokenStore) Revoke(ctx context.Context, token security.Token) error {
 		return security.ErrTokenInvalid
 	}
 
+	// Extract base token for lookup
+	baseToken := string(token)
+
 	// Extract token part if signed
 	if s.config.TokenKey != "" {
 		parts := splitToken(string(token))
 		if len(parts) != 2 {
 			return security.ErrTokenInvalid
 		}
-		token = security.Token(parts[0])
+		baseToken = parts[0]
 	}
 
 	// Acquire store only when needed
@@ -259,8 +258,7 @@ func (s *TokenStore) Revoke(ctx context.Context, token security.Token) error {
 	defer storeRes.Release() // Release after use
 
 	// Delete the token from store
-	tokenKey := registry.ParseID(string(token))
-	if err := kvStore.Delete(ctx, tokenKey); err != nil {
+	if err := kvStore.Delete(ctx, registry.ParseID(baseToken)); err != nil {
 		if errors.Is(err, store.ErrKeyNotFound) {
 			return security.ErrTokenNotFound
 		}

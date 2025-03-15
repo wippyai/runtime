@@ -30,7 +30,7 @@ func (m *Module) Name() string {
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
 	// Create module table with preallocated size
-	mod := l.CreateTable(0, 8)
+	mod := l.CreateTable(0, 9)
 
 	// Register context-related functions
 	mod.RawSetString("actor", l.NewFunction(m.actor))
@@ -41,10 +41,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("policy", l.NewFunction(m.policy))
 	mod.RawSetString("named_scope", l.NewFunction(m.namedScope))
 	mod.RawSetString("new_scope", l.NewFunction(m.newScope))
-	mod.RawSetString("with_policy", l.NewFunction(m.withPolicy))
 	mod.RawSetString("new_actor", l.NewFunction(m.newActor))
 
-	// Register token store functions
 	mod.RawSetString("token_store", l.NewFunction(m.tokenStore))
 
 	// Register types and their methods
@@ -110,9 +108,8 @@ func (m *Module) policy(l *lua.LState) int {
 
 	policy, err := secapi.GetPolicy(l.Context(), id)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.RaiseError(err.Error())
+		return 0
 	}
 
 	policyUD := wrapPolicy(l, policy)
@@ -161,20 +158,6 @@ func (m *Module) newScope(l *lua.LState) int {
 	return 1
 }
 
-// WithPolicy creates a new context with added policy
-func (m *Module) withPolicy(l *lua.LState) int {
-	policyUD := l.CheckUserData(1)
-	policy, ok := policyUD.Value.(secapi.Policy)
-	if !ok {
-		l.ArgError(1, "policy expected")
-		return 0
-	}
-
-	ctx := secapi.WithPolicy(l.Context(), policy)
-	l.SetContext(ctx)
-	return 0
-}
-
 // NewActor creates a new actor
 func (m *Module) newActor(l *lua.LState) int {
 	id := l.CheckString(1)
@@ -190,7 +173,6 @@ func (m *Module) newActor(l *lua.LState) int {
 		ID:   id,
 		Meta: meta,
 	}
-
 	actorUD := wrapActor(l, actor)
 	l.Push(actorUD)
 	return 1
@@ -204,34 +186,29 @@ func (m *Module) tokenStore(l *lua.LState) int {
 	// Get unit of work from context
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("unit of work not found in context"))
-		return 2
+		l.RaiseError("no unit of work found in context")
+		return 0
 	}
-
 	// Get resource registry from context
 	resources := resource.GetResources(l.Context())
 	if resources == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("resource registry not found in context"))
-		return 2
+		l.RaiseError("no resource registry found in context")
+		return 0
 	}
 
 	// Acquire the token store resource
 	res, err := resources.Acquire(l.Context(), id, resource.ModeNormal)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.RaiseError(err.Error())
+		return 0
 	}
 
 	// Get the actual token store from the resource
 	tokenStore, err := getTokenStoreFromResource(res)
 	if err != nil {
 		res.Release()
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.RaiseError(err.Error())
+		return 0
 	}
 
 	// Create a token store wrapper

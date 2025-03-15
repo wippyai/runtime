@@ -77,15 +77,14 @@ function handle_create_actor(req, res, body)
     -- Create actor with metadata
     local metadata = body.metadata or {}
     local actor = security.new_actor(id, metadata)
-    print(actor:id())
 
     -- Return response
     res:set_status(http.STATUS.OK)
     res:write_json({
         success = true,
         actor = {
-       --     id = actor:id(),
-            --metadata = actor:meta()
+            id = actor:id(),
+            metadata = actor:meta()
         }
     })
 end
@@ -216,6 +215,8 @@ function handle_validate_token(req, res, body)
         })
         return
     end
+
+    print(token)
 
     -- Validate token
     local actor, scope, err = token_store:validate(token)

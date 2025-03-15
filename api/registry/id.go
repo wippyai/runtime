@@ -72,9 +72,6 @@ func (t *ID) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return err
 	}
-	if obj.ID == "" {
-		return fmt.Errorf("missing required field 'id'")
-	}
 	t.NS = obj.NS
 	t.Name = obj.ID
 	return nil
