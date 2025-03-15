@@ -2,11 +2,41 @@ version: "1.0"
 namespace: system
 
 entries:
+  - name: gateway
+    kind: http.service
+    meta:
+      comment: "System HTTP gateway service"
+    addr: ":8082"
+    lifecycle:
+      auto_start: true
+
+  - name: public
+    kind: fs.directory
+    meta:
+      comment: "Wippy public system files"
+    directory: ./wapp/wippy/public/
+    mode: "0755"
+
+  - name: system_ui
+    kind: http.static
+    meta:
+      comment: "Public files and compiled frontend"
+      server: gateway
+      depends_on:
+        - gateway
+        - public
+    path: /
+    fs: public
+    directory: /
+    options:
+      index: "index.html"
+      spa: true
+
   - name: api
     kind: http.router
     meta:
       comment: "API router for v1 endpoints"
-      server: app:gateway
+      server: system:gateway
       depends_on:
-        - app:gateway
+        - gateway
     prefix: /api/v1/system/
