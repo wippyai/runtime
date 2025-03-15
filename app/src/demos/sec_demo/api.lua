@@ -216,8 +216,6 @@ function handle_validate_token(req, res, body)
         return
     end
 
-    print(token)
-
     -- Validate token
     local actor, scope, err = token_store:validate(token)
 
