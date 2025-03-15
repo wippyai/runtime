@@ -49,10 +49,10 @@ entries:
       server: gateway
       depends_on:
         - gateway
-    prefix: /api/v1
+    prefix: /api/public
     middleware: [ token_auth ]
     options:
-      token_store: system.security:auth.tokens
+      token_store: app.security:tokens
 
   - name: api
     kind: http.router
@@ -61,11 +61,11 @@ entries:
       server: gateway
       depends_on:
         - gateway
-    prefix: /api/v1/private/
+    prefix: /api/v1/
     middleware: [ websocket_relay, token_auth ]
     post_middleware: [ endpoint_firewall ]
     options:
-      token_store: system.security:auth.tokens
+      token_store: app.security:tokens
 
   - name: processes
     kind: process.host

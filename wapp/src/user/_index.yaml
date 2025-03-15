@@ -1,0 +1,27 @@
+version: "1.0"
+namespace: app.user.api
+
+meta:
+  depends_on: [ ns:app, ns:app.user.auth ]
+  description: "User API endpoints"
+
+entries:
+  # Endpoint to get current user details
+  - name: me
+    kind: function.lua
+    meta:
+      comment: "Current user details"
+      depends_on: [ app.user.auth:user_repo ]
+    source: file://me.lua
+    method: handler
+    modules: [ http, security, json, time ]
+
+  - name: me.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Current user details endpoint"
+      router: app:api
+      depends_on: [ app:api ]
+    method: GET
+    path: /user/me
+    func: me
