@@ -9,7 +9,6 @@ import (
 	"github.com/ponyruntime/pony/api/resource"
 	secapi "github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -170,7 +169,7 @@ func tokenStoreCreate(l *lua.LState) int {
 			var err error
 			meta, err = luaTableToMetadata(l, metaTable)
 			if err != nil {
-				l.RaiseError(err.Error())
+				l.RaiseError("%s", err.Error())
 				return 0
 			}
 		}
@@ -182,18 +181,15 @@ func tokenStoreCreate(l *lua.LState) int {
 		Meta:       meta,
 	}
 
-	// This function is asynchronous, so wrap it with coroutine
-	coroutine.Wrap(l, func() *engine.Update {
-		// Create the token
-		token, err := ts.tokenStore.Create(l.Context(), actor, scope, details)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	token, err := ts.tokenStore.Create(l.Context(), actor, scope, details)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("failed to create token: " + err.Error()))
+		return 2
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{lua.LString(token), lua.LNil}, nil)
-	})
-
-	return -1 // Yield to coroutine
+	l.Push(lua.LString(token))
+	return 1
 }
 
 // tokenStoreCreate creates a new token

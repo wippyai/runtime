@@ -92,7 +92,7 @@ func (m *Module) can(l *lua.LState) int {
 	// Get metadata from third argument if provided
 	meta, err := optMetadataFromLuaTable(l, 3)
 	if err != nil {
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 0
 	}
 
@@ -108,7 +108,7 @@ func (m *Module) policy(l *lua.LState) int {
 
 	policy, err := secapi.GetPolicy(l.Context(), id)
 	if err != nil {
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 0
 	}
 
@@ -165,7 +165,7 @@ func (m *Module) newActor(l *lua.LState) int {
 	// Get metadata from second argument if provided
 	meta, err := optMetadataFromLuaTable(l, 2)
 	if err != nil {
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 0
 	}
 
@@ -199,7 +199,7 @@ func (m *Module) tokenStore(l *lua.LState) int {
 	// Acquire the token store resource
 	res, err := resources.Acquire(l.Context(), id, resource.ModeNormal)
 	if err != nil {
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 0
 	}
 
@@ -207,7 +207,7 @@ func (m *Module) tokenStore(l *lua.LState) int {
 	tokenStore, err := getTokenStoreFromResource(res)
 	if err != nil {
 		res.Release()
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 0
 	}
 

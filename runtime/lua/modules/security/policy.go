@@ -67,7 +67,7 @@ func policyEvaluate(l *lua.LState) int {
 	// Get metadata (optional)
 	meta, err := optMetadataFromLuaTable(l, 5)
 	if err != nil {
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 0
 	}
 
