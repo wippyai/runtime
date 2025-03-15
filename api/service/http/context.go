@@ -22,6 +22,7 @@ var (
 // It includes routing parameters, endpoint configuration, and matching details.
 type RouteInfo struct {
 	Params     map[string]string // URL parameters extracted from the route
+	Endpoint   registry.ID       // ID of the matched endpoint configuration
 	Func       registry.ID       // Identifier for the function to be called
 	MatchedURI string            // The URI pattern that matched the request
 }
@@ -64,15 +65,4 @@ func (h *RequestContext) MarkHandled() {
 // ResponseHandled returns true if a response has already been sent for this request.
 func (h *RequestContext) ResponseHandled() bool {
 	return h.responseHandled
-}
-
-// SetEndpointConfig sets the endpoint configuration in the context
-func SetEndpointConfig(ctx context.Context, cfg *EndpointConfig) context.Context {
-	return context.WithValue(ctx, EndpointConfigCtx, cfg)
-}
-
-// GetEndpointConfig retrieves endpoint configuration from the context
-func GetEndpointConfig(ctx context.Context) (*EndpointConfig, bool) {
-	cfg, ok := ctx.Value(EndpointConfigCtx).(*EndpointConfig)
-	return cfg, ok
 }

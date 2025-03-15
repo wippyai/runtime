@@ -94,7 +94,20 @@ func (s *ServerService) UpsertRouter(id registry.ID, cfg *config.RouterConfig) e
 		}
 	}
 
-	return s.routeMgr.AddRouter(id, cfg.Prefix, middlewares)
+	// Convert post-match middleware config to actual middleware functions
+	postMiddlewares := make([]func(http.Handler) http.Handler, 0, len(cfg.PostMiddleware))
+	if s.middlewareFac != nil {
+		for _, mw := range cfg.PostMiddleware {
+			m, err := s.middlewareFac.CreateMiddleware(mw, cfg.PostOptions)
+			if err != nil {
+				return fmt.Errorf("failed to create post-match middleware %s: %w", mw, err)
+			}
+
+			postMiddlewares = append(postMiddlewares, m)
+		}
+	}
+
+	return s.routeMgr.AddRouter(id, cfg.Prefix, middlewares, postMiddlewares)
 }
 
 // DeleteRouter removes a router by Source

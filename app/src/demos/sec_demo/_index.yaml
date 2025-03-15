@@ -51,9 +51,13 @@ entries:
         - system:gateway
         - system.security:auth.tokens
     prefix: /api/secure
-    middleware: [ token_auth, firewall ]
+    middleware: [ token_auth, resource_firewall ]
+    post_middleware: [ endpoint_firewall ]
     options:
       token_store: system.security:auth.tokens
+      resource_action: access
+      resource_target: global:api
+    post_options:
       endpoint_action: access
 
   # Secure endpoint definition
@@ -62,8 +66,6 @@ entries:
     meta:
       comment: "Secure user profile endpoint requiring authentication"
       router: demo.security:secure.router
-      guard_resource: api:user.profile
-      guard_action: read # optional, default "access"
     method: GET
     path: /profile
     func: demo.security:secure_endpoint
@@ -74,8 +76,6 @@ entries:
     meta:
       comment: "Administrative endpoint requiring admin privileges"
       router: demo.security:secure.router
-      guard_resource: api:admin.dashboard
-      guard_action: admin
     method: GET
     path: /admin
     func: demo.security:secure_endpoint

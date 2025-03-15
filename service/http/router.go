@@ -23,9 +23,10 @@ type RouteEntry struct {
 
 // RouterEntry represents a router with its routes and middleware
 type RouterEntry struct {
-	prefix     string
-	middleware []func(http.Handler) http.Handler
-	routes     map[registry.ID]*RouteEntry
+	prefix         string
+	middleware     []func(http.Handler) http.Handler
+	postMiddleware []func(http.Handler) http.Handler
+	routes         map[registry.ID]*RouteEntry
 }
 
 // RouteManager handles all routing with full isolation of underlying router implementation
@@ -49,7 +50,10 @@ func NewRouteManager() *RouteManager {
 
 // AddRouter adds a new router or updates an existing one
 // If a router with the same Source already exists, it will be updated with the new prefix and middleware
-func (rm *RouteManager) AddRouter(id registry.ID, prefix string, middleware []func(http.Handler) http.Handler) error {
+func (rm *RouteManager) AddRouter(id registry.ID, prefix string,
+	middleware []func(http.Handler) http.Handler,
+	postMiddleware []func(http.Handler) http.Handler) error {
+
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
@@ -58,14 +62,16 @@ func (rm *RouteManager) AddRouter(id registry.ID, prefix string, middleware []fu
 		// Update existing router instead of returning an error
 		existingRouter.prefix = prefix
 		existingRouter.middleware = middleware
+		existingRouter.postMiddleware = postMiddleware
 		return nil
 	}
 
 	// Create a new router if it doesn't exist
 	rm.routers[id] = &RouterEntry{
-		prefix:     prefix,
-		middleware: middleware,
-		routes:     make(map[registry.ID]*RouteEntry),
+		prefix:         prefix,
+		middleware:     middleware,
+		postMiddleware: postMiddleware,
+		routes:         make(map[registry.ID]*RouteEntry),
 	}
 
 	return nil
@@ -127,7 +133,7 @@ func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, p
 	router.routes[id] = &RouteEntry{
 		method:  method,
 		path:    path,
-		handler: rm.wrapHandler(handler, funcID),
+		handler: handler, // Store original handler, middleware will be applied at Build time
 		funcID:  funcID,
 	}
 
@@ -186,36 +192,6 @@ func (rm *RouteManager) Unmount(path string) error {
 	return nil
 }
 
-// wrapHandler wraps an HTTP handler with request context information
-func (rm *RouteManager) wrapHandler(handler http.Handler, funcID registry.ID) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract URL parameters from chi router context
-		rctx := chi.RouteContext(r.Context())
-		params := make(map[string]string)
-
-		if rctx != nil {
-			for i, key := range rctx.URLParams.Keys {
-				if i < len(rctx.URLParams.Values) {
-					params[key] = rctx.URLParams.Values[i]
-				}
-			}
-		}
-
-		// Create route info
-		routeInfo := &httpapi.RouteInfo{
-			Params: params,
-			Func:   funcID,
-		}
-
-		// Create request context
-		reqCtx := httpapi.NewRequestContext(r, w)
-		ctx := context.WithValue(r.Context(), httpapi.RequestCtx, reqCtx)
-		ctx = context.WithValue(ctx, httpapi.RouteCtx, routeInfo)
-
-		handler.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
 // Build rebuilds the entire router from the current configuration
 func (rm *RouteManager) Build() {
 	router := chi.NewRouter()
@@ -229,14 +205,60 @@ func (rm *RouteManager) Build() {
 	for _, re := range rm.routers {
 		subRouter := chi.NewRouter()
 
-		// Apply router middleware
+		// Apply router pre-match middleware
 		for _, mw := range re.middleware {
 			subRouter.Use(mw)
 		}
 
-		// Add routes to subrouter
-		for _, route := range re.routes {
-			subRouter.Method(route.method, route.path, route.handler)
+		// Create and add each route with custom handling for post-match middleware
+		for routeID, route := range re.routes {
+			// Create a custom handler that:
+			// 1. Runs first middleware to extract chi params and add route info
+			// 2. Runs post-match middleware
+			// 3. Finally calls the original handler
+
+			finalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Step 1: Extract URL parameters and add route context
+				chiRouteCtx := chi.RouteContext(r.Context())
+				params := make(map[string]string)
+
+				if chiRouteCtx != nil {
+					for i, key := range chiRouteCtx.URLParams.Keys {
+						if i < len(chiRouteCtx.URLParams.Values) {
+							params[key] = chiRouteCtx.URLParams.Values[i]
+						}
+					}
+				}
+
+				// Create route info
+				routeInfo := &httpapi.RouteInfo{
+					Params:   params,
+					Endpoint: routeID,
+					Func:     route.funcID,
+				}
+
+				// Create request context with route info
+				reqCtx := httpapi.NewRequestContext(r, w)
+				ctx := context.WithValue(r.Context(), httpapi.RequestCtx, reqCtx)
+				ctx = context.WithValue(ctx, httpapi.RouteCtx, routeInfo)
+
+				// Create request with updated context
+				r = r.WithContext(ctx)
+
+				// Step 2: Run post-match middleware chain
+				if len(re.postMiddleware) == 0 {
+					// No post middleware, just call the original handler
+					route.handler.ServeHTTP(w, r)
+					return
+				}
+
+				// Create a middleware chain
+				chain := createChain(re.postMiddleware, route.handler)
+				chain.ServeHTTP(w, r)
+			})
+
+			// Register the route with our custom handler
+			subRouter.Method(route.method, route.path, finalHandler)
 		}
 
 		// Mount subrouter
@@ -245,6 +267,20 @@ func (rm *RouteManager) Build() {
 
 	var h http.Handler = router
 	rm.router.Store(&h)
+}
+
+// createChain creates a middleware chain that will call middlewares in order,
+// then call the final handler
+func createChain(middleware []func(http.Handler) http.Handler, finalHandler http.Handler) http.Handler {
+	// Start with the final handler
+	h := finalHandler
+
+	// Apply middleware in reverse order so they execute in the correct order
+	for i := len(middleware) - 1; i >= 0; i-- {
+		h = middleware[i](h)
+	}
+
+	return h
 }
 
 // ServeHTTP implements the http.Handler interface

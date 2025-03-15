@@ -43,7 +43,6 @@ func (f *EndpointFactory) CreateHandler(ctx context.Context, cfg *config.Endpoin
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rCtx := config.NewRequestContext(r, w)
 		execCtx := context.WithValue(r.Context(), config.RequestCtx, rCtx)
-		execCtx = config.SetEndpointConfig(execCtx, cfg)
 
 		resultCh, err := f.funcs.Call(execCtx, runtime.Task{ID: cfg.Func})
 		if err != nil {

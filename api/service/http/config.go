@@ -53,11 +53,13 @@ type (
 
 	// RouterConfig represents the configuration for a group of endpoints (a router).
 	RouterConfig struct {
-		Meta       registry.Metadata `json:"meta"`       // Metadata
-		Server     registry.ID       `json:"server"`     // Server Source
-		Prefix     string            `json:"prefix"`     // URL prefix for this group
-		Middleware []string          `json:"middleware"` // Middleware names
-		Options    map[string]string `json:"options"`    // Middleware options
+		Meta           registry.Metadata `json:"meta"`            // Metadata
+		Server         registry.ID       `json:"server"`          // Server Source
+		Prefix         string            `json:"prefix"`          // URL prefix for this group
+		Middleware     []string          `json:"middleware"`      // Middleware names
+		Options        map[string]string `json:"options"`         // Middleware options
+		PostMiddleware []string          `json:"post_middleware"` // Post-match middleware names
+		PostOptions    map[string]string `json:"post_options"`    // Post-match middleware options
 	}
 
 	// EndpointConfig represents the configuration for a single endpoint.

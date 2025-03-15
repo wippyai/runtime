@@ -690,7 +690,8 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 		// WebSocket relay middleware
 		http.WithMiddleware("websocket_relay", relayManager.Middleware),
 		http.WithMiddlewareCreator(tokenstore.MiddlewareName, tokenstore.CreateTokenAuthMiddleware),
-		http.WithMiddlewareCreator(firewall.MiddlewareName, firewall.CreateFirewallMiddleware),
+		http.WithMiddlewareCreator(firewall.ResourceMiddlewareName, firewall.CreateResourceFirewallMiddleware),
+		http.WithMiddlewareCreator(firewall.EndpointMiddlewareName, firewall.CreateEndpointFirewallMiddleware),
 	)
 
 	// Create manager with all required factories

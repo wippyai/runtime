@@ -26,6 +26,26 @@ entries:
       resources: "user:*"
       effect: "allow"
 
+  - name: user_api_policy
+    kind: security.policy
+    meta:
+      comment: "Global user access policy"
+    groups: [ "global:user" ]
+    policy:
+      actions: "access"
+      resources: "global:api"
+      effect: "allow"
+
+  - name: user_demo_policy
+    kind: security.policy
+    meta:
+      comment: "Global user access policy"
+    groups: [ "global:user" ]
+    policy:
+      actions: "access"
+      resources: "demo.security:secure.endpoint"
+      effect: "allow"
+
   - name: auth.tokens
     kind: security.token_store
     meta:
