@@ -2,6 +2,7 @@ package websocket_relay
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"sync/atomic"
@@ -244,7 +245,7 @@ func (c *Connection) handlePubSubPackage(pkg *pubsub.Package) {
 
 		// Forward regular messages to WebSocket
 		if len(msg.Payloads) > 0 {
-			if err := c.forwardPayloadToWebSocket(msg.Payloads[0]); err != nil {
+			if err := c.forwardPayloadToWebSocket(msg.Topic, msg.Payloads...); err != nil {
 				c.logger.Error("Error forwarding payload to WebSocket", zap.Error(err))
 				c.cancelCtx()
 				return
@@ -337,28 +338,85 @@ func (c *Connection) handleCloseMessage(payloads []payload.Payload) {
 	c.Close(reason)
 }
 
-// forwardPayloadToWebSocket sends a payload to the WebSocket client
-func (c *Connection) forwardPayloadToWebSocket(p payload.Payload) error {
-	var msgType = websocket.MessageText
-
-	// Process different payload types
-	switch p.Format() {
-	case payload.String:
-		// Handle string payloads
-		return c.writeStringPayload(p, msgType)
-
-	case payload.JSON:
-		// Handle JSON payloads
-		return c.writeJSONPayload(p, msgType)
-
-	case payload.Bytes:
-		// Handle binary data
-		return c.writeBinaryPayload(p)
-
-	default:
-		// Try to transcode to JSON
-		return c.writeTranscodedPayload(p, msgType)
+// forwardPayloadToWebSocket sends payloads to the WebSocket client
+// with topic information and support for multiple payloads
+func (c *Connection) forwardPayloadToWebSocket(topic pubsub.Topic, payloads ...payload.Payload) error {
+	if len(payloads) == 0 {
+		return nil
 	}
+
+	// Process each payload as a separate message
+	for _, p := range payloads {
+		// Create a wrapper object that includes the topic and data
+		wrapper := struct {
+			Topic string      `json:"topic"`
+			Data  interface{} `json:"data"`
+		}{
+			Topic: string(topic),
+		}
+
+		// Process different payload types
+		switch p.Format() {
+		case payload.String:
+			// For string payloads, use the string data directly
+			if str, ok := p.Data().(string); ok {
+				wrapper.Data = str
+			} else {
+				wrapper.Data = fmt.Sprintf("%v", p.Data())
+			}
+
+		case payload.JSON:
+			// For JSON payloads, use the data as-is without double parsing
+			if bytes, ok := p.Data().([]byte); ok {
+				// Raw JSON bytes - pass as raw message
+				// This avoids unnecessary unmarshaling and remarshaling
+				rawMsg := json.RawMessage(bytes)
+				wrapper.Data = rawMsg
+			} else if str, ok := p.Data().(string); ok {
+				// JSON string - convert to raw message
+				rawMsg := json.RawMessage(str)
+				wrapper.Data = rawMsg
+			} else {
+				// Already a structured object, use directly
+				wrapper.Data = p.Data()
+			}
+
+		case payload.Bytes:
+			// For binary data, encode as base64 string for JSON compatibility
+			if bytes, ok := p.Data().([]byte); ok {
+				wrapper.Data = base64.StdEncoding.EncodeToString(bytes)
+			} else {
+				return fmt.Errorf("expected bytes payload but got different type")
+			}
+
+		default:
+			// Try to transcode to JSON for all other formats
+			pj, err := c.transcoder.Transcode(p, payload.JSON)
+			if err != nil {
+				return fmt.Errorf("failed to transcode payload to JSON: %w", err)
+			}
+
+			// Use the transcoded JSON data directly as a RawMessage
+			if jsonBytes, ok := pj.Data().([]byte); ok {
+				wrapper.Data = json.RawMessage(jsonBytes)
+			} else {
+				wrapper.Data = pj.Data()
+			}
+		}
+
+		// Marshal the wrapper to JSON and send it
+		jsonData, err := json.Marshal(wrapper)
+		if err != nil {
+			return fmt.Errorf("error marshaling message wrapper: %w", err)
+		}
+
+		// Write to WebSocket as text message
+		if err := c.conn.Write(c.ctx, websocket.MessageText, jsonData); err != nil {
+			return fmt.Errorf("error writing to WebSocket: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // writeStringPayload writes a string payload to WebSocket
