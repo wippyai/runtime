@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User WebSocket Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        button {
+            padding: 8px 16px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        #status {
+            font-weight: bold;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .connecting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        #messageLog {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            margin-top: 15px;
+        }
+
+        .message {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .message-time {
+            font-size: 0.8em;
+            color: #666;
+        }
+
+        .message-content {
+            margin-top: 3px;
+        }
+    </style>
+</head>
+<body>
+<h1>User WebSocket Demo</h1>
+
+<div class="card">
+    <h2>Connection Settings</h2>
+    <div class="form-group">
+        <label for="tokenInput">Authentication Token:</label>
+        <input type="text" id="tokenInput" placeholder="Enter your authentication token">
+    </div>
+    <div class="form-group">
+        <button id="connectBtn">Connect</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+    </div>
+    <div id="status" class="disconnected">Disconnected</div>
+</div>
+
+<div class="card">
+    <h2>Messages</h2>
+    <div id="connectionStats">
+        <p>Messages received: <span id="messageCount">0</span></p>
+        <p>Connected clients: <span id="clientCount">0</span></p>
+    </div>
+    <div id="messageLog"></div>
+</div>
+
+<script>
+    // Application state
+    const state = {
+        connected: false,
+        socket: null,
+        reconnectTimer: null,
+        reconnectAttempts: 0,
+        maxReconnectAttempts: 5,
+        messageCount: 0,
+        clientCount: 0,
+        pingInterval: null
+    };
+
+    // DOM Elements
+    const tokenInput = document.getElementById('tokenInput');
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const statusEl = document.getElementById('status');
+    const messageLogEl = document.getElementById('messageLog');
+    const messageCountEl = document.getElementById('messageCount');
+    const clientCountEl = document.getElementById('clientCount');
+
+    // Helper function to update connection status
+    function updateStatus(statusClass, message) {
+        statusEl.className = statusClass;
+        statusEl.textContent = message;
+    }
+
+    // Helper function to add message to log
+    function addMessage(type, content) {
+        const messageEl = document.createElement('div');
+        messageEl.className = 'message';
+
+        const timeEl = document.createElement('div');
+        timeEl.className = 'message-time';
+        timeEl.textContent = `[${new Date().toLocaleTimeString()}] ${type}`;
+
+        const contentEl = document.createElement('div');
+        contentEl.className = 'message-content';
+
+        if (typeof content === 'object') {
+            contentEl.textContent = JSON.stringify(content, null, 2);
+        } else {
+            contentEl.textContent = content;
+        }
+
+        messageEl.appendChild(timeEl);
+        messageEl.appendChild(contentEl);
+        messageLogEl.appendChild(messageEl);
+
+        // Auto-scroll to bottom
+        messageLogEl.scrollTop = messageLogEl.scrollHeight;
+
+        // Update message count
+        state.messageCount++;
+        messageCountEl.textContent = state.messageCount;
+    }
+
+    // Connect to WebSocket
+    function connect() {
+        // Validate token
+        const token = tokenInput.value.trim();
+        if (!token) {
+            alert('Please enter an authentication token');
+            return;
+        }
+
+        updateStatus('connecting', 'Connecting...');
+
+        // Get current protocol
+        const protocol = window.location.protocol.startsWith('https') ? 'wss' : 'ws';
+        const wsUrl = `${protocol}://${window.location.host}/api/v1/ws/join?x-auth-token=${encodeURIComponent(token)}`;
+
+        try {
+            // Create WebSocket connection
+            state.socket = new WebSocket(wsUrl);
+
+            // Connection opened
+            state.socket.addEventListener('open', (event) => {
+                state.connected = true;
+                updateStatus('connected', 'Connected');
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                state.reconnectAttempts = 0;
+
+                addMessage('System', 'Connected to WebSocket server');
+
+                // Start ping interval
+                state.pingInterval = setInterval(() => {
+                    if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+                        state.socket.send(JSON.stringify({type: 'ping'}));
+                    }
+                }, 30000); // Send ping every 30 seconds
+            });
+
+            // Listen for messages
+            state.socket.addEventListener('message', (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+
+                    // Handle different message types
+                    if (message.topic === 'welcome') {
+                        addMessage('Welcome', message.data);
+                        if (message.data.clients) {
+                            state.clientCount = message.data.clients;
+                            clientCountEl.textContent = state.clientCount;
+                        }
+                    } else if (message.topic === 'update') {
+                        // Only log every 5th update to avoid spamming
+                        if (message.data.sequence % 5 === 0) {
+                            addMessage('Update', message.data);
+                        }
+
+                        // Update client count
+                        if (message.data.connected_clients) {
+                            state.clientCount = message.data.connected_clients;
+                            clientCountEl.textContent = state.clientCount;
+                        }
+                    } else if (message.topic === 'pong') {
+                        // Skip logging pongs to reduce noise
+                    } else if (message.topic === 'hub.shutdown') {
+                        addMessage('System', 'Hub is shutting down: ' + message.data.message);
+                        disconnect();
+                    } else {
+                        // Log all other messages
+                        addMessage(message.topic || 'Message', message.data || message);
+                    }
+                } catch (e) {
+                    addMessage('Error', 'Failed to parse message: ' + e.message);
+                }
+            });
+
+            // Connection closed
+            state.socket.addEventListener('close', (event) => {
+                clearInterval(state.pingInterval);
+                state.connected = false;
+                updateStatus('disconnected', 'Disconnected');
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+
+                addMessage('System', `Connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
+
+                // Try to reconnect automatically if not a normal closure
+                if (event.code !== 1000 && state.reconnectAttempts < state.maxReconnectAttempts) {
+                    state.reconnectAttempts++;
+                    const delay = Math.min(1000 * Math.pow(2, state.reconnectAttempts - 1), 10000);
+
+                    addMessage('System', `Reconnecting in ${delay / 1000} seconds... (Attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts})`);
+
+                    state.reconnectTimer = setTimeout(() => {
+                        if (!state.connected) {
+                            connect();
+                        }
+                    }, delay);
+                }
+            });
+
+            // Connection error
+            state.socket.addEventListener('error', (event) => {
+                updateStatus('disconnected', 'Connection Error');
+                addMessage('Error', 'WebSocket connection error');
+            });
+        } catch (error) {
+            updateStatus('disconnected', 'Connection Failed');
+            addMessage('Error', 'Failed to create WebSocket: ' + error.message);
+        }
+    }
+
+    // Disconnect from WebSocket
+    function disconnect() {
+        if (state.reconnectTimer) {
+            clearTimeout(state.reconnectTimer);
+            state.reconnectTimer = null;
+        }
+
+        if (state.pingInterval) {
+            clearInterval(state.pingInterval);
+            state.pingInterval = null;
+        }
+
+        if (state.socket) {
+            state.socket.close(1000, "User disconnected");
+            state.socket = null;
+        }
+    }
+
+    // Set up event listeners
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+
+    // Check for token in URL params
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+
+        if (token) {
+            tokenInput.value = token;
+            // Auto-connect if token is provided
+            connect();
+        }
+    });
+</script>
+</body>
+</html>

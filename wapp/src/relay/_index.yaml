@@ -1,0 +1,51 @@
+version: "1.0"
+namespace: app.users.relay
+
+meta:
+  depends_on: [ "ns:app", "ns:app.user.auth" ]
+  comment: "User WebSocket Relay System"
+
+entries:
+  - name: ws_join
+    kind: function.lua
+    meta:
+      comment: "WebSocket authentication and join endpoint"
+    source: file://ws_join.lua
+    method: handler
+    modules: [ http, security, json ]
+
+  - name: ws_join.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "WebSocket join endpoint"
+      router: app:api
+    method: GET
+    path: /ws/join
+    func: ws_join
+
+  - name: central_hub.service
+    kind: process.service
+    meta:
+      comment: "Central Hub Service"
+    process: central_hub
+    host: app:processes
+    lifecycle:
+      auto_start: true
+
+  - name: central_hub
+    kind: process.lua
+    meta:
+      comment: "Process that manages central users relay"
+    source: file://central_hub.lua
+    method: run
+    modules: [ time, json ]
+    imports:
+      actor: "wippy.actor:actor"
+
+#  - name: user_hub.process
+#    kind: process.lua
+#    meta:
+#      comment: "Process for individual user WebSocket connections"
+#    source: file://user_hub_process.lua
+#    method: run
+#    modules: [ time, json ]
