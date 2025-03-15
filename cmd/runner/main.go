@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/go-chi/chi/v5/middleware"
 	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
+	"github.com/ponyruntime/pony/service/http/firewall"
 	"github.com/ponyruntime/pony/service/tokenstore"
 	httpbase "net/http"
 	"os"
@@ -689,6 +690,7 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 		// WebSocket relay middleware
 		http.WithMiddleware("websocket_relay", relayManager.Middleware),
 		http.WithMiddlewareCreator(tokenstore.MiddlewareName, tokenstore.CreateTokenAuthMiddleware),
+		http.WithMiddlewareCreator(firewall.MiddlewareName, firewall.CreateFirewallMiddleware),
 	)
 
 	// Create manager with all required factories

@@ -12,9 +12,10 @@ import (
 // Context keys for storing HTTP-specific values in the request context
 var (
 	// todo: privatize
-	RequestCtx      = &ctxapi.Key{Name: "http.request"}   //nolint:gochecknoglobals
-	RouteCtx        = &ctxapi.Key{Name: "http.route"}     //nolint:gochecknoglobals
-	ContextServerID = &ctxapi.Key{Name: "http.server_id"} //nolint:gochecknoglobals
+	RequestCtx        = &ctxapi.Key{Name: "http.request"}         //nolint:gochecknoglobals
+	RouteCtx          = &ctxapi.Key{Name: "http.route"}           //nolint:gochecknoglobals
+	ContextServerID   = &ctxapi.Key{Name: "http.server_id"}       //nolint:gochecknoglobals
+	EndpointConfigCtx = &ctxapi.Key{Name: "http.endpoint_config"} //nolint:gochecknoglobals
 )
 
 // RouteInfo contains information about the matched route for the current request.
@@ -63,4 +64,15 @@ func (h *RequestContext) MarkHandled() {
 // ResponseHandled returns true if a response has already been sent for this request.
 func (h *RequestContext) ResponseHandled() bool {
 	return h.responseHandled
+}
+
+// SetEndpointConfig sets the endpoint configuration in the context
+func SetEndpointConfig(ctx context.Context, cfg *EndpointConfig) context.Context {
+	return context.WithValue(ctx, EndpointConfigCtx, cfg)
+}
+
+// GetEndpointConfig retrieves endpoint configuration from the context
+func GetEndpointConfig(ctx context.Context) (*EndpointConfig, bool) {
+	cfg, ok := ctx.Value(EndpointConfigCtx).(*EndpointConfig)
+	return cfg, ok
 }

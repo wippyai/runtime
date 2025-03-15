@@ -249,8 +249,6 @@ func (h *Host) startMessageWorkers() {
 		go func(workerID int, q chan *pubsub.Package) {
 			defer h.msgWG.Done()
 
-			h.log.Debug("starting message worker", zap.Int("workerID", workerID))
-
 			for {
 				select {
 				case <-h.done:

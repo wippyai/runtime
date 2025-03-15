@@ -41,3 +41,50 @@ entries:
     method: GET
     path: /protected
     func: protected
+
+  - name: secure.router
+    kind: http.router
+    meta:
+      comment: "Secure API router with firewall protection"
+      server: system:gateway
+      depends_on:
+        - system:gateway
+        - system.security:auth.tokens
+    prefix: /api/secure
+    middleware: [ token_auth, firewall ]
+    options:
+      token_store: system.security:auth.tokens
+      endpoint_action: access
+
+  # Secure endpoint definition
+  - name: secure.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Secure user profile endpoint requiring authentication"
+      router: demo.security:secure.router
+      guard_resource: api:user.profile
+      guard_action: read # optional, default "access"
+    method: GET
+    path: /profile
+    func: demo.security:secure_endpoint
+
+  # Admin endpoint definition
+  - name: secure.admin
+    kind: http.endpoint
+    meta:
+      comment: "Administrative endpoint requiring admin privileges"
+      router: demo.security:secure.router
+      guard_resource: api:admin.dashboard
+      guard_action: admin
+    method: GET
+    path: /admin
+    func: demo.security:secure_endpoint
+
+  # Secure endpoint implementation
+  - name: secure_endpoint
+    kind: function.lua
+    meta:
+      comment: "Secure endpoint handler implementation"
+    source: file://secure.lua
+    method: handler
+    modules: [ http, security, json, time ]
