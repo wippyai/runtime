@@ -237,13 +237,8 @@ func (rm *RouteManager) Build() {
 					Func:     route.funcID,
 				}
 
-				// Create request context with route info
-				reqCtx := httpapi.NewRequestContext(r, w)
-				ctx := context.WithValue(r.Context(), httpapi.RequestCtx, reqCtx)
-				ctx = context.WithValue(ctx, httpapi.RouteCtx, routeInfo)
-
 				// Create request with updated context
-				r = r.WithContext(ctx)
+				r = r.WithContext(context.WithValue(r.Context(), httpapi.RouteCtx, routeInfo))
 
 				// Step 2: Run post-match middleware chain
 				if len(re.postMiddleware) == 0 {
