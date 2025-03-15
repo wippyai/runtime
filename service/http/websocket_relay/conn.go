@@ -13,6 +13,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/internal/uniqid"
 	"go.uber.org/zap"
 )
@@ -39,6 +40,7 @@ type Connection struct {
 	config            RelayCommand
 	heartbeatTicker   *time.Ticker
 	heartbeatInterval time.Duration
+	closeReason       string
 
 	// Metrics
 	connectedAt time.Time
@@ -142,6 +144,13 @@ func NewConnection(
 
 // Serve begins processing WebSocket communication
 func (c *Connection) Serve() {
+	err := c.topo.Register(c.wsPID)
+	if err != nil {
+		c.logger.Error("Failed to register WebSocket PID", zap.Error(err))
+		c.Close("Failed to register WebSocket PID")
+		return
+	}
+
 	// Start monitoring the target PID
 	if err := c.topo.Wait(c.wsPID, c.currentTargetPID); err != nil {
 		c.logger.Error("Failed to monitor target PID", zap.Error(err))
@@ -273,6 +282,7 @@ func (c *Connection) handlePubSubPackage(pkg *pubsub.Package) {
 	}
 }
 
+// handleExitEvent processes exit events from pubsub
 func (c *Connection) handleExitEvent(payloads []payload.Payload) bool {
 	for _, p := range payloads {
 		// Check if the payload is an exit event
@@ -608,6 +618,9 @@ func (c *Connection) sendHeartbeat() {
 
 // Close closes the WebSocket connection with the specified reason
 func (c *Connection) Close(reason string) {
+	// Store the reason for later use in the notify
+	c.closeReason = reason
+
 	if err := c.conn.Close(websocket.StatusNormalClosure, reason); err != nil {
 		c.logger.Error("Error closing WebSocket connection", zap.Error(err))
 	}
@@ -628,6 +641,15 @@ func (c *Connection) cleanup() {
 	if err := c.sendLeaveNotification(c.currentTargetPID); err != nil {
 		c.logger.Error("Error sending leave message", zap.Error(err))
 	}
+
+	// Notify topology about our exit
+	result := &runtime.Result{
+		Value: payload.NewString("websocket connection closed"),
+		Error: nil,
+	}
+
+	c.topo.Notify(c.wsPID, result)
+	c.topo.Remove(c.wsPID)
 
 	// Detach from host
 	c.host.Detach(c.wsPID)
