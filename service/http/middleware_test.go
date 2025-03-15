@@ -58,10 +58,11 @@ func TestMiddlewareFactory(t *testing.T) {
 		assert.Equal(t, "true", rec.Header().Get("X-Test"))
 		assert.Equal(t, http.StatusOK, rec.Code)
 
-		// Try to get non-existent middleware
+		// Try to get non-existent middleware - should now return an error
 		handler, err = factory.CreateMiddleware("nonexistent", nil)
 		assert.Nil(t, handler)
-		assert.NoError(t, err)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "middleware not found")
 	})
 
 	t.Run("with middleware creator", func(t *testing.T) {
@@ -84,8 +85,9 @@ func TestMiddlewareFactory(t *testing.T) {
 		)
 
 		// Test with default options
-		handler, _ := factory.CreateMiddleware("configurable", nil)
+		handler, err := factory.CreateMiddleware("configurable", nil)
 		assert.NotNil(t, handler)
+		assert.NoError(t, err)
 
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/", nil)
@@ -99,7 +101,7 @@ func TestMiddlewareFactory(t *testing.T) {
 		assert.Equal(t, "default", rec.Header().Get("X-Test-Value"))
 
 		// Test with custom options
-		handler, err := factory.CreateMiddleware("configurable", map[string]string{
+		handler, err = factory.CreateMiddleware("configurable", map[string]string{
 			"value": "custom",
 		})
 		assert.NotNil(t, handler)
@@ -120,8 +122,10 @@ func TestMiddlewareFactory(t *testing.T) {
 			}),
 		)
 
+		// Should now return an error when the creator returns nil
 		handler, err := factory.CreateMiddleware("nil-creator", nil)
 		assert.Nil(t, handler)
-		assert.NoError(t, err)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "middleware not found")
 	})
 }
