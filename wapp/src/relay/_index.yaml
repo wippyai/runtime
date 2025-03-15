@@ -42,10 +42,12 @@ entries:
     imports:
       actor: "wippy.actor:actor"
 
-#  - name: user_hub.process
-#    kind: process.lua
-#    meta:
-#      comment: "Process for individual user WebSocket connections"
-#    source: file://user_hub_process.lua
-#    method: run
-#    modules: [ time, json ]
+  - name: user_hub
+    kind: process.lua
+    meta:
+      comment: "Process for individual user WebSocket connections pool"
+    source: file://user_hub.lua
+    method: run
+    modules: [ time, json ]
+    imports:
+      actor: "wippy.actor:actor"

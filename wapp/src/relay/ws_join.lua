@@ -79,7 +79,7 @@ function handler()
         })
         return
     end
-print("PGRADE", config_json)
+
     -- Set header for WebSocket relay, do not send anything else
     res:set_header("X-WS-Relay", config_json)
 end
