@@ -39,7 +39,10 @@ function handler()
     -- Create WS relay configuration
     local relay_config = {
         target_pid = hub_pid,
-        message_topic = "ws.message" -- Default message topic for WS messages
+        message_topic = "ws.message",
+        metadata = {
+            hello = "world",
+        }
     }
 
     -- Encode relay config as JSON
