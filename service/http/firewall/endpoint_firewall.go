@@ -5,7 +5,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/security"
-	http2 "github.com/ponyruntime/pony/api/service/http"
+	httpapi "github.com/ponyruntime/pony/api/service/http"
 	"go.uber.org/zap"
 )
 
@@ -53,7 +53,7 @@ func CreateEndpointFirewallMiddleware(options map[string]string) func(http.Handl
 			}
 
 			// Get the route information which will provide the endpoint ID
-			rInfo, ok := http2.GetRouteInfo(ctx)
+			rInfo, ok := httpapi.GetRouteInfo(ctx)
 			if !ok {
 				logs.GetLogger(ctx).Debug("endpoint firewall: no route info in context",
 					zap.String("actor_id", actor.ID),
