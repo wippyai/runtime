@@ -37,8 +37,9 @@ func TestMiddlewareFactory(t *testing.T) {
 		)
 
 		// Test the middleware
-		handler := factory.CreateMiddleware("test", nil)
+		handler, err := factory.CreateMiddleware("test", nil)
 		assert.NotNil(t, handler)
+		assert.NoError(t, err)
 
 		// Test that it works
 		rec := httptest.NewRecorder()
@@ -58,8 +59,9 @@ func TestMiddlewareFactory(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		// Try to get non-existent middleware
-		handler = factory.CreateMiddleware("nonexistent", nil)
+		handler, err = factory.CreateMiddleware("nonexistent", nil)
 		assert.Nil(t, handler)
+		assert.NoError(t, err)
 	})
 
 	t.Run("with middleware creator", func(t *testing.T) {
@@ -97,10 +99,11 @@ func TestMiddlewareFactory(t *testing.T) {
 		assert.Equal(t, "default", rec.Header().Get("X-Test-Value"))
 
 		// Test with custom options
-		handler = factory.CreateMiddleware("configurable", map[string]string{
+		handler, err := factory.CreateMiddleware("configurable", map[string]string{
 			"value": "custom",
 		})
 		assert.NotNil(t, handler)
+		assert.NoError(t, err)
 
 		rec = httptest.NewRecorder()
 		wrappedHandler = handler(testHandler)
@@ -117,7 +120,8 @@ func TestMiddlewareFactory(t *testing.T) {
 			}),
 		)
 
-		handler := factory.CreateMiddleware("nil-creator", nil)
+		handler, err := factory.CreateMiddleware("nil-creator", nil)
 		assert.Nil(t, handler)
+		assert.NoError(t, err)
 	})
 }
