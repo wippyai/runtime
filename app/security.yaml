@@ -16,6 +16,16 @@ entries:
       resources: "*"
       effect: "allow"
 
+  - name: user_policy
+    kind: security.policy
+    meta:
+      comment: "Global user access policy"
+    groups: [ "global:user" ]
+    policy:
+      actions: "*"
+      resources: "user:*"
+      effect: "allow"
+
   - name: auth.tokens
     kind: security.token_store
     meta:

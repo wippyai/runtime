@@ -107,7 +107,7 @@ function handle_create_token(req, res, body)
     local actor = security.new_actor(actor_id, metadata)
 
     -- Get scope
-    local scope_name = body.scope or "global:admin"
+    local scope_name = body.scope or "global:user"
     local scope
 
     -- Get named scope or create admin scope
