@@ -162,7 +162,6 @@ local function run()
 
         -- Create message with current blob state
         local update = {
-            type = "update",
             time = time.now():format_rfc3339(),
             sequence = state.total_updates,
             clients = state.client_count,
@@ -180,7 +179,7 @@ local function run()
         -- Broadcast to all clients
         for client_pid, _ in pairs(state.connected_clients) do
             if client_pid then
-                process.send(client_pid, "ws.message", update)
+                process.send(client_pid, "update", update)
             end
         end
     end
@@ -283,8 +282,7 @@ local function run()
                 state.client_count = state.client_count + 1
 
                 -- Send welcome message to this client with current blob state
-                local ok, err = process.send(client_pid, "ws.message", {
-                    type = "welcome",
+                local ok, err = process.send(client_pid, "welcome", {
                     message = "Welcome to the Blob Game!",
                     clients = state.client_count,
                     position = state.blob.position,
@@ -382,8 +380,7 @@ local function run()
                                     state.blob.boundary.x_max, state.blob.boundary.y_max))
 
                                 -- Send immediate position update to this client
-                                process.send(sender, "ws.message", {
-                                    type = "update",
+                                process.send(sender, "update", {
                                     clients = state.client_count,
                                     position = state.blob.position,
                                     velocity = state.blob.velocity

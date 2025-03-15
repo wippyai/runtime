@@ -512,8 +512,13 @@
         // Listen for messages
         state.socket.addEventListener('message', (event) => {
             try {
-                const data = JSON.parse(event.data);
-                handleServerMessage(data);
+                const message = JSON.parse(event.data);
+                // Handle the new message format with topic and data fields
+                if (message.topic && message.data !== undefined) {
+                    handleServerMessage(message.topic, message.data);
+                } else {
+                    console.error('Received message in invalid format:', message);
+                }
             } catch (e) {
                 console.error('Error parsing message:', e);
             }
@@ -582,31 +587,65 @@
         }
     }
 
-    function handleServerMessage(data) {
-        if (data.type === 'update') {
-            // Update blob position from server
-            if (data.position) {
-                state.blobPosition = data.position;
-            }
+    // Handle messages with topic and data structure
+    function handleServerMessage(topic, data) {
+        // Handle different message topics
+        switch (topic) {
+            case 'update':
+                // Update blob position from server
+                if (data.position) {
+                    state.blobPosition = data.position;
+                }
 
-            // Update player count
-            if (data.clients !== undefined) {
-                state.playerCount = data.clients;
-                playersEl.textContent = `Players: ${state.playerCount}`;
-            }
-        } else if (data.type === 'welcome') {
-            console.log('Welcome message:', data.message);
+                // Update player count
+                if (data.clients !== undefined) {
+                    state.playerCount = data.clients;
+                    playersEl.textContent = `Players: ${state.playerCount}`;
+                }
+                break;
 
-            // Initialize blob position if provided
-            if (data.position) {
-                state.blobPosition = data.position;
-            }
+            case 'welcome':
+                console.log('Welcome message:', data.message);
 
-            // Update player count
-            if (data.clients !== undefined) {
-                state.playerCount = data.clients;
-                playersEl.textContent = `Players: ${state.playerCount}`;
-            }
+                // Initialize blob position if provided
+                if (data.position) {
+                    state.blobPosition = data.position;
+                }
+
+                // Update player count
+                if (data.clients !== undefined) {
+                    state.playerCount = data.clients;
+                    playersEl.textContent = `Players: ${state.playerCount}`;
+                }
+                break;
+
+            case 'player_count':
+                // Update player count if the topic is specifically for player count
+                if (data.count !== undefined) {
+                    state.playerCount = data.count;
+                    playersEl.textContent = `Players: ${state.playerCount}`;
+                }
+                break;
+
+            case 'position_update':
+                // Handle position update if the topic is specifically for position
+                if (data.x !== undefined && data.y !== undefined) {
+                    state.blobPosition = {
+                        x: data.x,
+                        y: data.y
+                    };
+                }
+                break;
+
+            case 'error':
+                // Handle error messages from server
+                console.error('Server error:', data.message || data);
+                break;
+
+            default:
+                // Log unknown message topics
+                console.log(`Received message with topic "${topic}":`, data);
+                break;
         }
     }
 
