@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync/atomic"
 	"time"
 
@@ -203,6 +204,8 @@ func (c *Connection) handleWebSocketRead() {
 
 			// Increment message counter
 			c.msgCount.Add(1)
+
+			log.Printf("TYPE %s", msgType)
 
 			// Forward message to pubsub
 			if err := c.forwardMessageToPubSub(msgType, data); err != nil {
