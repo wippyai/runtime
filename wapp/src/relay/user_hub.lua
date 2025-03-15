@@ -174,7 +174,7 @@ local function run(args)
                 -- Broadcast to all clients
                 broadcast_to_clients(state, UPDATE_TOPIC, response)
             end
-die()
+
             return state
         end,
 

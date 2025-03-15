@@ -293,12 +293,13 @@ func (c *Connection) handleExitEvent(payloads []payload.Payload) bool {
 					zap.String("targetPID", c.currentTargetPID.String()),
 					zap.Any("result", exitEvent.Result))
 
-				reason := "Target process exited"
 				if exitEvent.Result != nil && exitEvent.Result.Error != nil {
-					reason = fmt.Sprintf("Target process exited with error: %v", exitEvent.Result.Error)
+					c.logger.Warn("Target PID exited, closing connection",
+						zap.String("targetPID", c.currentTargetPID.String()),
+						zap.Error(exitEvent.Result.Error))
 				}
 
-				c.Close(reason)
+				c.Close("target process exited")
 				return true
 			}
 		}
