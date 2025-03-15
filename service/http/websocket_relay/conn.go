@@ -146,21 +146,21 @@ func NewConnection(
 func (c *Connection) Serve() {
 	err := c.topo.Register(c.wsPID)
 	if err != nil {
-		c.logger.Error("Failed to register WebSocket PID", zap.Error(err))
+		c.logger.Error("failed to register WebSocket PID", zap.Error(err))
 		c.Close("Failed to register WebSocket PID")
 		return
 	}
 
 	// Start monitoring the target PID
 	if err := c.topo.Wait(c.wsPID, c.currentTargetPID); err != nil {
-		c.logger.Error("Failed to monitor target PID", zap.Error(err))
+		c.logger.Error("failed to monitor target PID", zap.Error(err))
 		c.Close("Failed to monitor target PID")
 		return
 	}
 
 	// Send initial join notification with metadata
 	if err := c.sendJoinNotification(c.currentTargetPID); err != nil {
-		c.logger.Error("Failed to send join notification", zap.Error(err))
+		c.logger.Error("failed to send join notification", zap.Error(err))
 		c.Close("Failed to send join notification")
 		return
 	}
@@ -189,7 +189,7 @@ func (c *Connection) processMessages() {
 
 		case pkg, ok := <-c.msgCh:
 			if !ok {
-				c.logger.Debug("Message channel closed")
+				c.logger.Debug("message channel closed")
 				return
 			}
 
@@ -212,11 +212,11 @@ func (c *Connection) handleWebSocketRead() {
 			msgType, data, err := c.conn.Read(c.ctx)
 			if err != nil {
 				if closeStatus := websocket.CloseStatus(err); closeStatus != -1 {
-					c.logger.Info("WebSocket closed by client",
+					c.logger.Debug("websocket closed by client",
 						zap.Int("closeCode", int(closeStatus)),
 						zap.String("error", err.Error()))
 				} else {
-					c.logger.Error("Error reading from WebSocket", zap.Error(err))
+					c.logger.Error("error reading from WebSocket", zap.Error(err))
 				}
 				return
 			}
@@ -226,7 +226,7 @@ func (c *Connection) handleWebSocketRead() {
 
 			// Forward message to pubsub
 			if err := c.forwardMessageToPubSub(msgType, data); err != nil {
-				c.logger.Error("Error forwarding message to pubsub", zap.Error(err))
+				c.logger.Error("error forwarding message to pubsub", zap.Error(err))
 				return
 			}
 		}
@@ -274,7 +274,7 @@ func (c *Connection) handlePubSubPackage(pkg *pubsub.Package) {
 		// Forward regular messages to WebSocket
 		if len(msg.Payloads) > 0 {
 			if err := c.forwardPayloadToWebSocket(msg.Topic, msg.Payloads...); err != nil {
-				c.logger.Error("Error forwarding payload to WebSocket", zap.Error(err))
+				c.logger.Error("error forwarding payload to WebSocket", zap.Error(err))
 				c.cancelCtx()
 				return
 			}
@@ -289,12 +289,12 @@ func (c *Connection) handleExitEvent(payloads []payload.Payload) bool {
 		if exitEvent, ok := p.Data().(*topology.ExitEvent); ok {
 			// Check if the exit event is for our current target PID
 			if exitEvent.From.String() == c.currentTargetPID.String() {
-				c.logger.Info("Target PID exited, closing connection",
+				c.logger.Debug("target PID exited, closing connection",
 					zap.String("targetPID", c.currentTargetPID.String()),
 					zap.Any("result", exitEvent.Result))
 
 				if exitEvent.Result != nil && exitEvent.Result.Error != nil {
-					c.logger.Warn("Target PID exited, closing connection",
+					c.logger.Warn("target PID exited with error, closing connection",
 						zap.String("targetPID", c.currentTargetPID.String()),
 						zap.Error(exitEvent.Result.Error))
 				}
@@ -311,7 +311,7 @@ func (c *Connection) handleExitEvent(payloads []payload.Payload) bool {
 func (c *Connection) handleControlMessage(p payload.Payload) {
 	var command RelayCommand
 	if err := c.transcoder.Unmarshal(p, &command); err != nil {
-		c.logger.Error("Failed to unmarshal control payload", zap.Error(err))
+		c.logger.Error("failed to unmarshal control payload", zap.Error(err))
 		return
 	}
 
@@ -323,7 +323,7 @@ func (c *Connection) handleControlMessage(p payload.Payload) {
 	// Update message topic if provided
 	if command.MessageTopic != "" {
 		c.currentMessageTopic = pubsub.Topic(command.MessageTopic)
-		c.logger.Info("Updated message topic", zap.String("newTopic", command.MessageTopic))
+		c.logger.Debug("updated message topic", zap.String("newTopic", command.MessageTopic))
 	}
 
 	// Update heartbeat interval if provided
@@ -331,14 +331,14 @@ func (c *Connection) handleControlMessage(p payload.Payload) {
 		if interval, err := time.ParseDuration(command.HeartbeatInterval); err == nil {
 			c.heartbeatInterval = interval
 			c.heartbeatTicker.Reset(interval)
-			c.logger.Info("Updated heartbeat interval", zap.Duration("newInterval", interval))
+			c.logger.Debug("updated heartbeat interval", zap.Duration("newInterval", interval))
 		}
 	}
 
 	// Update metadata if provided
 	if command.Metadata != nil && len(command.Metadata) > 0 {
 		c.config.Metadata = command.Metadata
-		c.logger.Info("Updated metadata", zap.Any("metadata", command.Metadata))
+		c.logger.Debug("updated metadata", zap.Any("metadata", command.Metadata))
 	}
 }
 
@@ -347,42 +347,42 @@ func (c *Connection) handleTargetPIDChange(command RelayCommand) {
 	oldTarget := c.currentTargetPID
 	newTarget, err := pubsub.ParsePID(command.TargetPID)
 	if err != nil {
-		c.logger.Error("Invalid target PID in control command", zap.Error(err))
+		c.logger.Error("invalid target PID in control command", zap.Error(err))
 		return
 	}
 
 	if oldTarget.String() != newTarget.String() {
 		// Stop monitoring the old target
 		if err := c.topo.Release(c.wsPID, oldTarget); err != nil {
-			c.logger.Warn("Error releasing monitor for old target", zap.Error(err))
+			c.logger.Warn("error releasing monitor for old target", zap.Error(err))
 		}
 
 		// Start monitoring the new target
 		if err := c.topo.Wait(c.wsPID, newTarget); err != nil {
-			c.logger.Error("Failed to monitor new target PID", zap.Error(err))
+			c.logger.Error("failed to monitor new target PID", zap.Error(err))
 			c.Close("Failed to monitor new target PID")
 			return
 		}
 
 		// Send leave to old target
 		if err := c.sendLeaveNotification(oldTarget); err != nil {
-			c.logger.Error("Error sending leave on target change", zap.Error(err))
+			c.logger.Error("error sending leave on target change", zap.Error(err))
 		}
 
 		// Send join to new target
 		if err := c.sendJoinNotification(newTarget); err != nil {
-			c.logger.Error("Error sending join on target change", zap.Error(err))
+			c.logger.Error("error sending join on target change", zap.Error(err))
 		}
 
 		// Store any updated metadata
 		if command.Metadata != nil && len(command.Metadata) > 0 {
 			c.config.Metadata = command.Metadata
-			c.logger.Info("Updated metadata on target change", zap.Any("metadata", command.Metadata))
+			c.logger.Debug("updated metadata on target change", zap.Any("metadata", command.Metadata))
 		}
 	}
 
 	c.currentTargetPID = newTarget
-	c.logger.Info("Updated target PID", zap.String("newTarget", newTarget.String()))
+	c.logger.Debug("updated target PID", zap.String("newTarget", newTarget.String()))
 }
 
 // handleCloseMessage processes a close message from pubsub
@@ -399,7 +399,7 @@ func (c *Connection) handleCloseMessage(payloads []payload.Payload) {
 		}
 	}
 
-	c.logger.Info("Received close command", zap.String("reason", reason))
+	c.logger.Debug("received close command", zap.String("reason", reason))
 	c.Close(reason)
 }
 
@@ -600,7 +600,7 @@ func (c *Connection) sendHeartbeat() {
 	// Marshal the heartbeat info to JSON
 	heartbeatData, err := json.Marshal(heartbeatInfo)
 	if err != nil {
-		c.logger.Warn("Error marshaling heartbeat info", zap.Error(err))
+		c.logger.Warn("error marshaling heartbeat info", zap.Error(err))
 		return
 	}
 
@@ -613,7 +613,7 @@ func (c *Connection) sendHeartbeat() {
 	)
 
 	if err := c.node.Send(heartbeatMsg); err != nil {
-		c.logger.Warn("Error sending heartbeat", zap.Error(err))
+		c.logger.Warn("error sending heartbeat", zap.Error(err))
 	}
 }
 
@@ -623,7 +623,7 @@ func (c *Connection) Close(reason string) {
 	c.closeReason = reason
 
 	if err := c.conn.Close(websocket.StatusNormalClosure, reason); err != nil {
-		c.logger.Error("Error closing WebSocket connection", zap.Error(err))
+		c.logger.Error("error closing WebSocket connection", zap.Error(err))
 	}
 	c.cancelCtx()
 }
@@ -635,12 +635,12 @@ func (c *Connection) cleanup() {
 
 	// Release monitoring of the target PID
 	if err := c.topo.Release(c.wsPID, c.currentTargetPID); err != nil {
-		c.logger.Warn("Error releasing monitor during cleanup", zap.Error(err))
+		c.logger.Warn("error releasing monitor during cleanup", zap.Error(err))
 	}
 
 	// Send leave notification
 	if err := c.sendLeaveNotification(c.currentTargetPID); err != nil {
-		c.logger.Error("Error sending leave message", zap.Error(err))
+		c.logger.Error("error sending leave message", zap.Error(err))
 	}
 
 	// Notify topology about our exit
@@ -655,5 +655,5 @@ func (c *Connection) cleanup() {
 	// Detach from host
 	c.host.Detach(c.wsPID)
 
-	c.logger.Info("WebSocket connection closed")
+	c.logger.Debug("websocket connection closed")
 }
