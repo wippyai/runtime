@@ -84,6 +84,11 @@ func (e *ConditionEvaluator) extractField(
 
 // extractActorField extracts a field from the actor
 func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []string) (any, error) {
+	// Check if actor is nil or zero value
+	if actor.ID == "" && actor.Meta == nil {
+		return nil, fmt.Errorf("nil or empty actor")
+	}
+
 	// Handle first level of actor fields
 	if len(parts) == 0 {
 		return nil, fmt.Errorf("no actor field specified")
@@ -99,6 +104,11 @@ func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []str
 
 		// Handle nested metadata access
 		actorMeta := actor.Meta
+		// Handle nil metadata
+		if actorMeta == nil {
+			return nil, nil
+		}
+
 		key := parts[1]
 		if len(parts) == 2 {
 			return actorMeta[key], nil
@@ -128,12 +138,8 @@ func (e *ConditionEvaluator) extractMetaField(meta registry.Metadata, parts []st
 	// If it's a direct metadata key
 	key := parts[0]
 	if len(parts) == 1 {
-		v, ok := meta[key]
-		if !ok {
-			return nil, fmt.Errorf("metadata key not found: %s", key)
-		}
-
-		return v, nil
+		// Simply return the value (or nil if not found) without error
+		return meta[key], nil
 	}
 
 	// Handle nested maps

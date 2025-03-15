@@ -96,41 +96,33 @@ func TestPolicy(t *testing.T) {
 	}
 
 	// Test policy evaluation with matching role
-	adminActor := security.Actor{
-		ID:   "admin-user",
-		Meta: registry.Metadata{"role": "admin"},
-	}
+	adminActor := newMockActor("admin-user", registry.Metadata{"role": "admin"})
 	result := p.Evaluate(adminActor, "read", "document", nil)
 	if result != security.Allow {
 		t.Errorf("Expected Allow result for admin user, got %v", result)
 	}
 
 	// Test policy evaluation with non-matching role
-	userActor := &mockActor{
-		id:   "regular-user",
-		meta: registry.Metadata{"role": "user"},
-	}
+	userActor := newMockActor("regular-user", registry.Metadata{"role": "user"})
 	result = p.Evaluate(userActor, "read", "document", nil)
 	if result != security.Undefined {
 		t.Errorf("Expected Undefined result for regular user, got %v", result)
 	}
 
-	// Test with nil actor
-	result = p.Evaluate(nil, "read", "document", nil)
+	// Test with empty actor (not nil)
+	emptyActor := newMockActor("", nil)
+	result = p.Evaluate(emptyActor, "read", "document", nil)
 	if result != security.Undefined {
-		t.Errorf("Expected Undefined result for nil actor, got %v", result)
+		t.Errorf("Expected Undefined result for empty actor, got %v", result)
 	}
 }
 
 // Test policy with wildcard patterns
 func TestPolicyWithWildcards(t *testing.T) {
 	// Create a test actor
-	actor := &mockActor{
-		id: "test-user",
-		meta: registry.Metadata{
-			"role": "editor",
-		},
-	}
+	actor := newMockActor("test-user", registry.Metadata{
+		"role": "editor",
+	})
 
 	// Test cases for action wildcards
 	actionWildcardTests := []struct {
