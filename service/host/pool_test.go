@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -300,7 +301,7 @@ func TestProcessPool_CancelAll(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		procs[i] = newMockProcess()
-		pids[i] = pubsub.PID{Host: "test", UniqID: string('1' + i)}
+		pids[i] = pubsub.PID{Host: "test", UniqID: fmt.Sprintf("proc-%d", i)}
 		if err := pool.Add(pids[i], procs[i]); err != nil {
 			t.Fatalf("failed to add process %d: %v", i, err)
 		}
@@ -711,7 +712,7 @@ func TestProcessPool_Concurrency(t *testing.T) {
 			defer wg.Done()
 
 			proc := newMockProcess()
-			pid := pubsub.PID{Host: "test", UniqID: string('1' + id)}
+			pid := pubsub.PID{Host: "test", UniqID: fmt.Sprintf("proc-%d", id)}
 
 			if err := pool.Add(pid, proc); err != nil {
 				errorCh <- err
@@ -741,7 +742,7 @@ func TestProcessPool_Concurrency(t *testing.T) {
 	// Verify all processes were added
 	processCount := 0
 	for i := 0; i < numProcesses; i++ {
-		pid := pubsub.PID{Host: "test", UniqID: string('1' + i)}
+		pid := pubsub.PID{Host: "test", UniqID: fmt.Sprintf("proc-%d", i)}
 		if pool.Has(pid) {
 			processCount++
 		}
