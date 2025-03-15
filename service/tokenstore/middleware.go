@@ -34,8 +34,8 @@ const (
 	// Default values
 	DefaultHeaderName   = "Authorization"
 	DefaultHeaderPrefix = "Bearer "
-	DefaultQueryParam   = "token"
-	DefaultCookieName   = "token"
+	DefaultQueryParam   = "x-auth-token"
+	DefaultCookieName   = "x-auth-token"
 )
 
 // CreateTokenAuthMiddleware creates a token authentication middleware that only enriches request context

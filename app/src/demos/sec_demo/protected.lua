@@ -32,7 +32,7 @@ local function handler()
 
     -- Handle unauthorized access
     if not can_access then
-        res:set_status(403)
+        res:set_status(http.STATUS.FORBIDDEN)
         res:write_json({
             success = false,
             error = "Access denied",

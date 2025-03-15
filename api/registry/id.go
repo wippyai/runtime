@@ -10,6 +10,15 @@ func (t ID) String() string {
 	return fmt.Sprintf("%s:%s", t.NS, t.Name)
 }
 
+// MarshalJSON implements the json.Marshaler interface.
+// It serializes the ID as a string in the format "namespace:name" or just "name" if namespace is empty.
+func (t ID) MarshalJSON() ([]byte, error) {
+	if t.NS == "" {
+		return json.Marshal(string(t.Name))
+	}
+	return json.Marshal(fmt.Sprintf("%s:%s", t.NS, t.Name))
+}
+
 // WithDefaultNS returns a new ID with the given default namespace if one is not already set.
 // If the ID already has a namespace, it returns the ID unchanged.
 func (t ID) WithDefaultNS(defaultNS Namespace) ID {
@@ -66,13 +75,13 @@ func (t *ID) UnmarshalJSON(data []byte) error {
 
 	// Handle object format
 	var obj struct {
-		NS Namespace `json:"ns"`
-		ID Name      `json:"id"`
+		NS   Namespace `json:"ns"`
+		Name Name      `json:"name"`
 	}
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return err
 	}
 	t.NS = obj.NS
-	t.Name = obj.ID
+	t.Name = obj.Name
 	return nil
 }
