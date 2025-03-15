@@ -2,7 +2,7 @@ version: "1.0"
 namespace: app.user.auth
 
 meta:
-  depends_on: [ ns:system, ns:system.security ]
+  depends_on: [ ns:app, ns:app.security ]
   description: "User authentication and token management"
 
 entries:
@@ -10,15 +10,18 @@ entries:
     kind: function.lua
     meta:
       comment: "User Token API"
+      depends_on: [ user_repo ]
     source: file://user_api.lua
     method: handler
     modules: [ http, security, json, time ]
+    imports:
+      user_repo: "app.user.auth:user_repo"
 
   - name: api.endpoint
     kind: http.endpoint
     meta:
       comment: "User Token API Endpoint"
-      router: system:public_api
+      router: app:public_api
     method: POST
     path: /user/token
     func: api
@@ -39,7 +42,7 @@ entries:
       tags: [ "user_auth" ]
       type: "migration"
       target_db: "app:db"
-    source: file://migrations/add_users_table.lua
+    source: file://migrations/add_user_table.lua
     method: migrate
     imports:
       migration: "wippy.migration:migration"

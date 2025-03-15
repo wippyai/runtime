@@ -6,6 +6,10 @@ local time = require("time")
 -- Get the user repository
 local user_repo = require("user_repo")
 
+-- Hardcoded user policy
+local TOKEN_STORE = "app.security:tokens"
+local USER_SCOPE = "app:user"
+
 -- Main handler function
 local function handler()
     local res = http.response()
@@ -52,9 +56,7 @@ local function handler()
     -- Create actor with metadata
     local actor = security.new_actor(user_id, metadata)
 
-    -- Get named scope (using "global:user" as default)
-    local scope_name = "global:user"
-    local scope, err = security.named_scope(scope_name)
+    local scope, err = security.named_scope(USER_SCOPE)
 
     if not scope then
         res:set_status(http.STATUS.INTERNAL_ERROR)
@@ -67,7 +69,7 @@ local function handler()
     end
 
     -- Get token store
-    local token_store, err = security.token_store("system.security:auth.tokens")
+    local token_store, err = security.token_store(TOKEN_STORE)
     if not token_store then
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({
