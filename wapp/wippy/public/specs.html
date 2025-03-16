@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Specs Browser</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .spec-item.selected {
+            background-color: #ebf5ff;
+            border-left: 4px solid #3b82f6;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .search-highlight {
+            background-color: rgba(255, 255, 0, 0.3);
+            padding: 0 2px;
+            border-radius: 2px;
+        }
+        .spec-count {
+            background-color: #3b82f6;
+            color: white;
+            border-radius: 9999px;
+            padding: 2px 8px;
+            font-size: 0.75rem;
+        }
+        .loading-spinner {
+            border: 3px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top: 3px solid #3b82f6;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+<div class="container mx-auto p-4">
+    <header class="bg-white shadow-md rounded-lg p-6 mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">API Specs Browser</h1>
+        <p class="text-gray-600 mt-2">Browse, search, and combine API specifications for AI context</p>
+    </header>
+
+    <div class="flex flex-col md:flex-row gap-6">
+        <!-- Left sidebar with search and spec list -->
+        <div class="w-full md:w-2/5 bg-white p-6 rounded-lg shadow-md">
+            <div class="mb-6 relative">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <svg class="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                    </svg>
+                </div>
+                <input type="text" id="search-input" placeholder="Search by keyword or title..."
+                       class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+
+            <div class="mb-4 flex justify-between items-center">
+                <div class="flex items-center gap-2">
+                    <h2 class="text-lg font-semibold text-gray-800">Available Specs</h2>
+                    <span id="spec-count" class="spec-count">0</span>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button id="select-all" class="text-sm text-blue-600 hover:text-blue-800 font-medium">Select All</button>
+                    <span class="text-gray-300">|</span>
+                    <button id="clear-selection" class="text-sm text-blue-600 hover:text-blue-800 font-medium">Clear</button>
+                </div>
+            </div>
+
+            <div id="spec-list" class="overflow-y-auto max-h-[calc(100vh-250px)] divide-y divide-gray-200">
+                <!-- Specs will be loaded here -->
+                <div class="text-center py-8 text-gray-500 flex justify-center">
+                    <div class="loading-spinner mr-3"></div>
+                    <p>Loading specs...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right content area -->
+        <div class="w-full md:w-3/5 bg-white p-6 rounded-lg shadow-md">
+            <div class="mb-4 flex justify-between items-center">
+                <div>
+                    <h2 class="text-lg font-semibold text-gray-800">Combined Content</h2>
+                    <p class="text-sm text-gray-500" id="selected-count">No specs selected</p>
+                </div>
+
+                <button id="copy-content" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2" disabled>
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                        <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                    </svg>
+                    Copy to Clipboard
+                </button>
+            </div>
+
+            <div id="no-selection" class="text-center py-12 px-6 border-2 border-dashed border-gray-300 rounded-lg">
+                <svg class="h-12 w-12 text-gray-400 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p class="text-gray-600 mb-2">No specs selected</p>
+                <p class="text-gray-500 text-sm">Select one or more specs from the list on the left to view and copy their combined content.</p>
+            </div>
+
+            <pre id="combined-content" class="bg-gray-50 p-4 rounded-md text-sm hidden overflow-y-auto max-h-[calc(100vh-200px)] border border-gray-200"></pre>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // DOM elements
+        const specList = document.getElementById('spec-list');
+        const searchInput = document.getElementById('search-input');
+        const clearSelectionBtn = document.getElementById('clear-selection');
+        const selectAllBtn = document.getElementById('select-all');
+        const noSelectionMsg = document.getElementById('no-selection');
+        const combinedContent = document.getElementById('combined-content');
+        const copyContentBtn = document.getElementById('copy-content');
+        const specCountElem = document.getElementById('spec-count');
+        const selectedCountElem = document.getElementById('selected-count');
+
+        // State
+        let allSpecs = [];
+        let selectedSpecs = new Set();
+        let searchTerm = '';
+
+        // Fetch all specs
+        async function fetchSpecs() {
+            try {
+                const response = await fetch('/api/v1/system/specs');
+                const data = await response.json();
+
+                if (data.specs && data.specs.length > 0) {
+                    allSpecs = data.specs;
+                    specCountElem.textContent = allSpecs.length;
+                    renderSpecList(allSpecs);
+                } else {
+                    specList.innerHTML = '<div class="text-center py-8 text-red-500"><p>No specs found</p></div>';
+                    specCountElem.textContent = '0';
+                }
+            } catch (error) {
+                console.error('Error fetching specs:', error);
+                specList.innerHTML = `<div class="text-center py-8 text-red-500"><p>Error loading specs: ${error.message}</p></div>`;
+                specCountElem.textContent = '0';
+            }
+        }
+
+        // Render the spec list
+        function renderSpecList(specs) {
+            if (specs.length === 0) {
+                specList.innerHTML = '<div class="text-center py-8 text-gray-500"><p>No specs match your search</p></div>';
+                return;
+            }
+
+            specList.innerHTML = specs.map(spec => {
+                const isSelected = selectedSpecs.has(spec.filename);
+                let displayTitle = spec.title;
+
+                // Highlight search term in title
+                if (searchTerm) {
+                    const regex = new RegExp(`(${escapeRegExp(searchTerm)})`, 'gi');
+                    displayTitle = displayTitle.replace(regex, '<span class="search-highlight">$1</span>');
+                }
+
+                return `
+                        <div class="spec-item p-3 cursor-pointer hover:bg-gray-50 transition-colors ${isSelected ? 'selected pl-4' : 'pl-5'}" 
+                             data-filename="${spec.filename}">
+                            <div class="flex items-center gap-3">
+                                <div class="flex-shrink-0">
+                                    <input type="checkbox" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" 
+                                           ${isSelected ? 'checked' : ''}>
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                    <h3 class="font-medium ${isSelected ? 'text-blue-700' : 'text-gray-800'}">${displayTitle}</h3>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+            }).join('');
+
+            // Add click event listeners
+            document.querySelectorAll('.spec-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    // If checkbox was directly clicked, don't toggle again
+                    if (e.target.tagName.toLowerCase() === 'input') return;
+
+                    const filename = item.getAttribute('data-filename');
+                    toggleSpecSelection(filename);
+
+                    // Update checkbox state
+                    const checkbox = item.querySelector('input[type="checkbox"]');
+                    if (checkbox) {
+                        checkbox.checked = selectedSpecs.has(filename);
+                    }
+                });
+
+                // Add checkbox event listener
+                const checkbox = item.querySelector('input[type="checkbox"]');
+                if (checkbox) {
+                    checkbox.addEventListener('change', (e) => {
+                        const filename = item.getAttribute('data-filename');
+                        if (e.target.checked) {
+                            selectedSpecs.add(filename);
+                        } else {
+                            selectedSpecs.delete(filename);
+                        }
+                        renderSpecList(filterSpecs(searchTerm));
+                        updateCombinedContent();
+                    });
+                }
+            });
+        }
+
+        // Toggle spec selection
+        function toggleSpecSelection(filename) {
+            if (selectedSpecs.has(filename)) {
+                selectedSpecs.delete(filename);
+            } else {
+                selectedSpecs.add(filename);
+            }
+
+            renderSpecList(filterSpecs(searchTerm));
+            updateCombinedContent();
+        }
+
+        // Filter specs based on search term
+        function filterSpecs(term) {
+            if (!term) return allSpecs;
+
+            term = term.toLowerCase();
+            return allSpecs.filter(spec => {
+                return spec.title.toLowerCase().includes(term) ||
+                    spec.content.toLowerCase().includes(term);
+            });
+        }
+
+        // Update the combined content
+        function updateCombinedContent() {
+            const count = selectedSpecs.size;
+            selectedCountElem.textContent = count === 0 ? 'No specs selected' :
+                count === 1 ? '1 spec selected' :
+                    `${count} specs selected`;
+
+            if (count === 0) {
+                noSelectionMsg.classList.remove('hidden');
+                combinedContent.classList.add('hidden');
+                copyContentBtn.disabled = true;
+                return;
+            }
+
+            noSelectionMsg.classList.add('hidden');
+            combinedContent.classList.remove('hidden');
+            copyContentBtn.disabled = false;
+
+            const selectedContent = allSpecs
+                .filter(spec => selectedSpecs.has(spec.filename))
+                .map(spec => spec.content)
+                .join('\n\n---\n\n');
+
+            combinedContent.textContent = selectedContent;
+        }
+
+        // Escape special regex characters
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // Search event
+        searchInput.addEventListener('input', () => {
+            searchTerm = searchInput.value;
+            const filteredSpecs = filterSpecs(searchTerm);
+            renderSpecList(filteredSpecs);
+        });
+
+        // Clear selection event
+        clearSelectionBtn.addEventListener('click', () => {
+            selectedSpecs.clear();
+            renderSpecList(filterSpecs(searchTerm));
+            updateCombinedContent();
+        });
+
+        // Select all event
+        selectAllBtn.addEventListener('click', () => {
+            const visibleSpecs = filterSpecs(searchTerm);
+
+            // If all visible specs are already selected, deselect all
+            const allSelected = visibleSpecs.every(spec => selectedSpecs.has(spec.filename));
+
+            if (allSelected) {
+                visibleSpecs.forEach(spec => {
+                    selectedSpecs.delete(spec.filename);
+                });
+            } else {
+                visibleSpecs.forEach(spec => {
+                    selectedSpecs.add(spec.filename);
+                });
+            }
+
+            renderSpecList(visibleSpecs);
+            updateCombinedContent();
+        });
+
+        // Copy to clipboard event
+        copyContentBtn.addEventListener('click', () => {
+            if (selectedSpecs.size === 0) return;
+
+            navigator.clipboard.writeText(combinedContent.textContent)
+                .then(() => {
+                    const originalHTML = copyContentBtn.innerHTML;
+                    copyContentBtn.innerHTML = '<svg class="h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg> Copied!';
+                    setTimeout(() => {
+                        copyContentBtn.innerHTML = originalHTML;
+                    }, 2000);
+                })
+                .catch(err => {
+                    console.error('Error copying text: ', err);
+                    const originalHTML = copyContentBtn.innerHTML;
+                    copyContentBtn.innerHTML = '<svg class="h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg> Error!';
+                    setTimeout(() => {
+                        copyContentBtn.innerHTML = originalHTML;
+                    }, 2000);
+                });
+        });
+
+        // Initialize
+        fetchSpecs();
+    });
+</script>
+</body>
+</html>

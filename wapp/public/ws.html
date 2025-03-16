@@ -3,157 +3,310 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Chat WebSocket Demo</title>
+    <title>LLM Chat</title>
     <style>
+        :root {
+            --primary-color: #4285f4;
+            --secondary-color: #f1f3f4;
+            --text-color: #202124;
+            --border-color: #dadce0;
+            --success-bg: #d4edda;
+            --success-text: #155724;
+            --error-bg: #f8d7da;
+            --error-text: #721c24;
+            --warning-bg: #fff3cd;
+            --warning-text: #856404;
+            --user-bubble: #dcf8c6;
+            --assistant-bubble: #e5e5ea;
+            --system-color: #808080;
+            --thinking-color: #9e9e9e;
+            --token-color: #1a73e8;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             max-width: 1000px;
             margin: 0 auto;
             padding: 20px;
             line-height: 1.6;
+            color: var(--text-color);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            margin: 0;
+        }
+
+        .status-badge {
+            font-size: 14px;
+            font-weight: 500;
+            padding: 6px 12px;
+            border-radius: 16px;
+        }
+
+        .status-connected {
+            background-color: var(--success-bg);
+            color: var(--success-text);
+        }
+
+        .status-disconnected {
+            background-color: var(--error-bg);
+            color: var(--error-text);
+        }
+
+        .status-connecting {
+            background-color: var(--warning-bg);
+            color: var(--warning-text);
         }
 
         .card {
-            border: 1px solid #ddd;
+            background: white;
             border-radius: 8px;
+            box-shadow: 0 1px 2px 0 rgba(60, 64, 67, .3), 0 1px 3px 1px rgba(60, 64, 67, .15);
             padding: 20px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
-        .form-group {
-            margin-bottom: 15px;
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 70vh;
         }
 
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
         }
 
-        input[type="text"], textarea {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+        .chat-model-info {
+            font-size: 14px;
+            color: var(--system-color);
         }
 
-        textarea {
-            min-height: 80px;
-            font-family: monospace;
-        }
-
-        button {
-            padding: 8px 16px;
-            background-color: #4285f4;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-right: 10px;
-        }
-
-        button:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
-        }
-
-        #status {
-            font-weight: bold;
-            padding: 10px;
-            border-radius: 4px;
-            margin-bottom: 15px;
-        }
-
-        .connected {
-            background-color: #d4edda;
-            color: #155724;
-        }
-
-        .disconnected {
-            background-color: #f8d7da;
-            color: #721c24;
-        }
-
-        .connecting {
-            background-color: #fff3cd;
-            color: #856404;
-        }
-
-        #messageLog {
-            height: 300px;
+        .chat-messages {
+            flex: 1;
             overflow-y: auto;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 10px;
-            background-color: #f9f9f9;
-            margin-top: 15px;
+            padding: 15px 0;
         }
 
         .message {
-            margin-bottom: 5px;
-            padding: 5px;
-            border-bottom: 1px solid #eee;
+            margin-bottom: 15px;
+            max-width: 70%;
+            padding: 10px 15px;
+            border-radius: 18px;
+            position: relative;
+            clear: both;
         }
 
-        .message-time {
-            font-size: 0.8em;
-            color: #666;
+        .message-user {
+            background-color: var(--user-bubble);
+            align-self: flex-end;
+            float: right;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message-assistant {
+            background-color: var(--assistant-bubble);
+            align-self: flex-start;
+            float: left;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message-system {
+            background-color: var(--secondary-color);
+            max-width: 100%;
+            margin: 10px auto;
+            text-align: center;
+            font-style: italic;
+            color: var(--system-color);
+            clear: both;
+            float: none;
         }
 
         .message-content {
-            margin-top: 3px;
-            font-family: monospace;
-            white-space: pre-wrap;
-            word-break: break-word;
+            word-wrap: break-word;
         }
 
-        .stats-group {
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .stat-box {
-            background-color: #f0f8ff;
-            border: 1px solid #b8daff;
+        .message-thinking {
+            font-style: italic;
+            color: var(--thinking-color);
+            margin-top: 8px;
+            padding: 5px;
+            background-color: rgba(0,0,0,0.05);
             border-radius: 4px;
-            padding: 10px;
-            flex: 1;
+        }
+
+        .message-meta {
+            font-size: 12px;
+            color: var(--system-color);
+            margin-top: 5px;
+            text-align: right;
+        }
+
+        .typing-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
             margin-right: 10px;
+            border-radius: 50%;
+            background-color: var(--primary-color);
+            animation: typing-animation 1s infinite;
+            opacity: 0.6;
+        }
+
+        @keyframes typing-animation {
+            0% { opacity: 0.3; }
+            50% { opacity: 0.8; }
+            100% { opacity: 0.3; }
+        }
+
+        .chat-input {
+            display: flex;
+            padding-top: 15px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .chat-input input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            font-size: 16px;
+            outline: none;
+        }
+
+        .chat-input input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(66, 133, 244, .25);
+        }
+
+        .chat-input button {
+            margin-left: 10px;
+            padding: 12px 20px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 24px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .chat-input button:hover {
+            background-color: #3367d6;
+        }
+
+        .chat-input button:disabled {
+            background-color: #c5c5c5;
+            cursor: not-allowed;
+        }
+
+        .token-stats {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .token-stat {
+            flex: 1;
+            min-width: 120px;
+            padding: 10px;
+            background-color: var(--secondary-color);
+            border-radius: 8px;
             text-align: center;
         }
 
-        .stat-box:last-child {
-            margin-right: 0;
-        }
-
-        .stat-value {
-            font-size: 1.5em;
+        .token-stat-value {
+            font-size: 20px;
             font-weight: bold;
-            margin: 5px 0;
+            color: var(--token-color);
         }
 
-        /* Chat Interface Styles */
+        .token-stat-label {
+            font-size: 12px;
+            color: var(--system-color);
+        }
+
+        .sidebar {
+            margin-bottom: 20px;
+        }
+
+        .command-list {
+            background-color: var(--secondary-color);
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .command-list h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+
+        .command-list ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .command-list li {
+            margin-bottom: 5px;
+        }
+
+        .settings {
+            margin-top: 20px;
+        }
+
+        .settings-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .debug-log {
+            height: 200px;
+            overflow-y: auto;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 5px;
+        }
+
+        .log-time {
+            color: var(--system-color);
+        }
+
         .tabs {
             display: flex;
             margin-bottom: 20px;
-            border-bottom: 1px solid #ddd;
+            border-bottom: 1px solid var(--border-color);
         }
 
         .tab {
             padding: 10px 20px;
             cursor: pointer;
-            border: 1px solid transparent;
-            border-bottom: none;
-            margin-right: 5px;
-            border-radius: 4px 4px 0 0;
+            border-bottom: 3px solid transparent;
+            font-weight: 500;
         }
 
         .tab.active {
-            background-color: #f0f8ff;
-            border-color: #ddd;
-            border-bottom-color: #f0f8ff;
-            margin-bottom: -1px;
+            border-bottom-color: var(--primary-color);
+            color: var(--primary-color);
         }
 
         .tab-content {
@@ -164,197 +317,132 @@
             display: block;
         }
 
-        #chatMessages {
-            height: 400px;
-            overflow-y: auto;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 15px;
-            background-color: #f9f9f9;
-            margin-bottom: 15px;
-        }
-
-        .chat-message {
-            margin-bottom: 15px;
-            max-width: 80%;
-            padding: 10px 15px;
-            border-radius: 10px;
-            position: relative;
-            clear: both;
-        }
-
-        .user-message {
-            background-color: #dcf8c6;
-            float: right;
-            border-bottom-right-radius: 3px;
-        }
-
-        .system-message {
-            background-color: #f1f0f0;
-            float: left;
-            text-align: center;
-            width: 100%;
-            font-style: italic;
-            color: #666;
-            padding: 5px;
-            margin: 10px 0;
-        }
-
-        .assistant-message {
-            background-color: #e5e5ea;
-            float: left;
-            border-bottom-left-radius: 3px;
-        }
-
-        .chat-message-content {
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        .chat-message-time {
-            font-size: 0.7em;
-            color: #666;
-            margin-top: 5px;
-            text-align: right;
-        }
-
-        .chat-input-container {
-            display: flex;
-            margin-top: 15px;
-        }
-
-        #chatInput {
-            flex-grow: 1;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            margin-right: 10px;
-        }
-
-        #sendChatBtn {
-            white-space: nowrap;
-        }
-
-        .thinking {
-            font-style: italic;
-            color: #666;
-            padding: 8px;
-            background-color: #f8f9fa;
-            border-radius: 5px;
-            margin-top: 5px;
-        }
-
-        .command-list {
-            background-color: #f8f9fa;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 10px;
-            margin-top: 10px;
-        }
-
-        .command-list h3 {
+        .tab-content h2 {
             margin-top: 0;
         }
 
-        .command-list ul {
-            margin-bottom: 0;
-            padding-left: 20px;
+        .connection-form {
+            margin-bottom: 20px;
         }
 
-        .streaming-indicator {
-            font-style: italic;
-            color: #4285f4;
-            animation: blinking 1.5s infinite;
+        .connection-form input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
         }
 
-        @keyframes blinking {
-            0% { opacity: 0.4; }
-            50% { opacity: 1; }
-            100% { opacity: 0.4; }
-        }
-
-        .model-info {
-            font-size: 0.8em;
-            color: #666;
-            margin-top: 5px;
+        .connection-actions {
+            display: flex;
+            gap: 10px;
         }
     </style>
 </head>
 <body>
-<h1>AI Chat WebSocket Demo</h1>
-
-<div class="card">
-    <h2>Connection Settings</h2>
-    <div class="form-group">
-        <label for="tokenInput">Authentication Token:</label>
-        <input type="text" id="tokenInput" placeholder="Enter your authentication token">
-    </div>
-    <div class="form-group">
-        <button id="connectBtn">Connect</button>
-        <button id="disconnectBtn" disabled>Disconnect</button>
-    </div>
-    <div id="status" class="disconnected">Disconnected</div>
+<div class="header">
+    <h1>LLM Chat</h1>
+    <div id="statusBadge" class="status-badge status-disconnected">Disconnected</div>
 </div>
 
 <div class="tabs">
-    <div class="tab active" data-tab="chat">Chat Interface</div>
-    <div class="tab" data-tab="advanced">Advanced Interface</div>
-    <div class="tab" data-tab="debug">Debug Log</div>
+    <div class="tab active" data-tab="chat">Chat</div>
+    <div class="tab" data-tab="settings">Settings</div>
+    <div class="tab" data-tab="debug">Debug</div>
 </div>
 
 <div id="chatTab" class="tab-content active">
-    <div class="card">
-        <h2>AI Chat</h2>
+    <div class="sidebar">
         <div class="command-list">
             <h3>Available Commands</h3>
             <ul>
-                <li><strong>/model &lt;model_name&gt;</strong> - Change the LLM model (e.g. /model gpt-4o)</li>
-                <li><strong>/provider &lt;openai|anthropic&gt;</strong> - Change the LLM provider</li>
-                <li><strong>/clear</strong> - Clear message history</li>
+                <li><strong>/model &lt;name&gt;</strong> - Change the LLM model</li>
+                <li><strong>/provider &lt;openai|anthropic&gt;</strong> - Change the provider</li>
+                <li><strong>/system &lt;text&gt;</strong> - Set system prompt</li>
+                <li><strong>/clear</strong> - Clear conversation history</li>
                 <li><strong>/help</strong> - Show available commands</li>
             </ul>
         </div>
-        <div id="chatMessages"></div>
-        <div class="chat-input-container">
-            <input type="text" id="chatInput" placeholder="Type a message or command...">
-            <button id="sendChatBtn" disabled>Send</button>
+    </div>
+
+    <div class="token-stats">
+        <div class="token-stat">
+            <div id="promptTokens" class="token-stat-value">0</div>
+            <div class="token-stat-label">Prompt Tokens</div>
+        </div>
+        <div class="token-stat">
+            <div id="completionTokens" class="token-stat-value">0</div>
+            <div class="token-stat-label">Completion Tokens</div>
+        </div>
+        <div class="token-stat">
+            <div id="thinkingTokens" class="token-stat-value">0</div>
+            <div class="token-stat-label">Thinking Tokens</div>
+        </div>
+        <div class="token-stat">
+            <div id="totalTokens" class="token-stat-value">0</div>
+            <div class="token-stat-label">Total Tokens</div>
+        </div>
+    </div>
+
+    <div class="card chat-container">
+        <div class="chat-header">
+            <div class="chat-model-info" id="modelInfo">Model: Loading...</div>
+            <div id="clientCount">Clients: 0</div>
+        </div>
+        <div class="chat-messages" id="chatMessages"></div>
+        <div class="chat-input">
+            <input type="text" id="messageInput" placeholder="Type a message or command..." disabled>
+            <button id="sendBtn" disabled>Send</button>
         </div>
     </div>
 </div>
 
-<div id="advancedTab" class="tab-content">
-    <div class="card">
-        <h2>Send Message</h2>
-        <div class="form-group">
-            <label for="actionInput">Action:</label>
-            <input type="text" id="actionInput" placeholder="Enter action (e.g. 'chat', 'update', 'command')">
+<div id="settingsTab" class="tab-content">
+    <h2>Connection Settings</h2>
+    <div class="card connection-form">
+        <div>
+            <label for="tokenInput">Authentication Token</label>
+            <input type="text" id="tokenInput" placeholder="Enter your authentication token">
         </div>
-        <div class="form-group">
-            <label for="dataInput">Data (JSON):</label>
-            <textarea id="dataInput" placeholder='{"key": "value"}'></textarea>
+        <div class="connection-actions">
+            <button id="connectBtn">Connect</button>
+            <button id="disconnectBtn" disabled>Disconnect</button>
         </div>
-        <button id="sendBtn" disabled>Send Message</button>
+    </div>
+
+    <h2>Current Session</h2>
+    <div class="card settings">
+        <div class="settings-item">
+            <span>Model:</span>
+            <span id="currentModel">-</span>
+        </div>
+        <div class="settings-item">
+            <span>Provider:</span>
+            <span id="currentProvider">-</span>
+        </div>
+        <div class="settings-item">
+            <span>System Prompt:</span>
+            <span id="currentSystemPrompt">-</span>
+        </div>
+        <div class="settings-item">
+            <span>Connected Clients:</span>
+            <span id="connectedClients">0</span>
+        </div>
+        <div class="settings-item">
+            <span>Messages Handled:</span>
+            <span id="messagesHandled">0</span>
+        </div>
+        <div class="settings-item">
+            <span>Uptime:</span>
+            <span id="uptime">-</span>
+        </div>
     </div>
 </div>
 
 <div id="debugTab" class="tab-content">
+    <h2>Debug Log</h2>
     <div class="card">
-        <h2>Stats</h2>
-        <div class="stats-group">
-            <div class="stat-box">
-                <div>Messages Received</div>
-                <div id="messageCount" class="stat-value">0</div>
-            </div>
-            <div class="stat-box">
-                <div>Connected Clients</div>
-                <div id="clientCount" class="stat-value">0</div>
-            </div>
-            <div class="stat-box">
-                <div>Updates</div>
-                <div id="updateCount" class="stat-value">0</div>
-            </div>
-        </div>
-        <div id="messageLog"></div>
+        <div class="debug-log" id="debugLog"></div>
     </div>
 </div>
 
@@ -368,36 +456,44 @@
         maxReconnectAttempts: 5,
         messageCount: 0,
         clientCount: 0,
-        updateCount: 0,
-        pingInterval: null,
+        currentModel: '',
+        currentProvider: '',
+        systemPrompt: '',
         isStreaming: false,
-        currentStreamedMessage: '',
-        streamingMessageElement: null,
-        currentModel: 'gpt-4o-mini',
-        currentProvider: 'openai',
-        userMessageQueue: [], // Queue for pending user messages
-        processing: false // Flag to indicate if we're processing a message
+        currentStreamingMessage: null,
+        tokens: {
+            prompt: 0,
+            completion: 0,
+            thinking: 0,
+            total: 0
+        }
     };
 
     // DOM Elements
+    const statusBadge = document.getElementById('statusBadge');
     const tokenInput = document.getElementById('tokenInput');
     const connectBtn = document.getElementById('connectBtn');
     const disconnectBtn = document.getElementById('disconnectBtn');
+    const messageInput = document.getElementById('messageInput');
     const sendBtn = document.getElementById('sendBtn');
-    const actionInput = document.getElementById('actionInput');
-    const dataInput = document.getElementById('dataInput');
-    const statusEl = document.getElementById('status');
-    const messageLogEl = document.getElementById('messageLog');
-    const messageCountEl = document.getElementById('messageCount');
-    const clientCountEl = document.getElementById('clientCount');
-    const updateCountEl = document.getElementById('updateCount');
-    const chatMessagesEl = document.getElementById('chatMessages');
-    const chatInputEl = document.getElementById('chatInput');
-    const sendChatBtn = document.getElementById('sendChatBtn');
+    const chatMessages = document.getElementById('chatMessages');
+    const debugLog = document.getElementById('debugLog');
+    const modelInfo = document.getElementById('modelInfo');
+    const clientCount = document.getElementById('clientCount');
+    const currentModel = document.getElementById('currentModel');
+    const currentProvider = document.getElementById('currentProvider');
+    const currentSystemPrompt = document.getElementById('currentSystemPrompt');
+    const connectedClients = document.getElementById('connectedClients');
+    const messagesHandled = document.getElementById('messagesHandled');
+    const uptime = document.getElementById('uptime');
+    const promptTokens = document.getElementById('promptTokens');
+    const completionTokens = document.getElementById('completionTokens');
+    const thinkingTokens = document.getElementById('thinkingTokens');
+    const totalTokens = document.getElementById('totalTokens');
     const tabs = document.querySelectorAll('.tab');
     const tabContents = document.querySelectorAll('.tab-content');
 
-    // Tab navigation
+    // Set up tab navigation
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
             const tabName = tab.getAttribute('data-tab');
@@ -413,331 +509,183 @@
     });
 
     // Helper function to update connection status
-    function updateStatus(statusClass, message) {
-        statusEl.className = statusClass;
-        statusEl.textContent = message;
+    function updateStatus(status) {
+        statusBadge.className = `status-badge status-${status}`;
+        statusBadge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
     }
 
-    // Helper function to add message to debug log
-    function addMessage(type, content) {
-        const messageEl = document.createElement('div');
-        messageEl.className = 'message';
+    // Helper function to add log entry
+    function log(type, content) {
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
 
-        const timeEl = document.createElement('div');
-        timeEl.className = 'message-time';
-        timeEl.textContent = `[${new Date().toLocaleTimeString()}] ${type}`;
+        const time = document.createElement('span');
+        time.className = 'log-time';
+        time.textContent = `[${new Date().toLocaleTimeString()}] ${type}: `;
+
+        const text = document.createTextNode(
+            typeof content === 'object' ? JSON.stringify(content, null, 2) : content
+        );
+
+        entry.appendChild(time);
+        entry.appendChild(text);
+        debugLog.appendChild(entry);
+
+        // Auto-scroll to bottom
+        debugLog.scrollTop = debugLog.scrollHeight;
+    }
+
+    // Add a message to the chat
+    function addMessage(type, content, metadata = {}) {
+        const messageEl = document.createElement('div');
+        messageEl.className = `message message-${type}`;
 
         const contentEl = document.createElement('div');
         contentEl.className = 'message-content';
-
-        if (typeof content === 'object') {
-            contentEl.textContent = JSON.stringify(content, null, 2);
-        } else {
-            contentEl.textContent = content;
-        }
-
-        messageEl.appendChild(timeEl);
-        messageEl.appendChild(contentEl);
-        messageLogEl.appendChild(messageEl);
-
-        // Auto-scroll to bottom
-        messageLogEl.scrollTop = messageLogEl.scrollHeight;
-
-        // Update message count
-        state.messageCount++;
-        messageCountEl.textContent = state.messageCount;
-    }
-
-    // Function to add a chat message
-    function addChatMessage(role, content, metadata = {}) {
-        const messageEl = document.createElement('div');
-        messageEl.className = `chat-message ${role}-message`;
-
-        const contentEl = document.createElement('div');
-        contentEl.className = 'chat-message-content';
         contentEl.textContent = content;
-
-        const timeEl = document.createElement('div');
-        timeEl.className = 'chat-message-time';
-        timeEl.textContent = new Date().toLocaleTimeString();
-
         messageEl.appendChild(contentEl);
-        messageEl.appendChild(timeEl);
 
-        // If there's model info, add it
-        if (metadata.model) {
-            const modelEl = document.createElement('div');
-            modelEl.className = 'model-info';
-            modelEl.textContent = `Model: ${metadata.model} (${metadata.provider || 'unknown'})`;
-            messageEl.appendChild(modelEl);
-        }
+        // Add metadata if provided
+        if (Object.keys(metadata).length > 0) {
+            const metaEl = document.createElement('div');
+            metaEl.className = 'message-meta';
 
-        chatMessagesEl.appendChild(messageEl);
-
-        // Auto-scroll to bottom
-        chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
-
-        return messageEl;
-    }
-
-    // Function to add a system message to the chat
-    function addSystemMessage(content) {
-        const messageEl = document.createElement('div');
-        messageEl.className = 'chat-message system-message';
-        messageEl.textContent = content;
-        chatMessagesEl.appendChild(messageEl);
-        chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
-        return messageEl;
-    }
-
-    // Function to handle beginning of LLM streaming
-    function startLLMStreaming() {
-        state.isStreaming = true;
-        state.currentStreamedMessage = '';
-
-        // Add the assistant message that will be updated during streaming
-        state.streamingMessageElement = addChatMessage('assistant', '');
-
-        // Add streaming indicator
-        const streamingIndicator = document.createElement('div');
-        streamingIndicator.className = 'streaming-indicator';
-        streamingIndicator.textContent = 'Thinking...';
-        state.streamingMessageElement.appendChild(streamingIndicator);
-    }
-
-    // Function to update the currently streaming message
-    function updateStreamingMessage(content) {
-        if (!state.streamingMessageElement) {
-            startLLMStreaming();
-        }
-
-        // Append the new content
-        state.currentStreamedMessage += content;
-
-        // Update the message content
-        const contentEl = state.streamingMessageElement.querySelector('.chat-message-content');
-        contentEl.textContent = state.currentStreamedMessage;
-
-        // Auto-scroll
-        chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
-    }
-
-    // Function to finalize the streaming message
-    function finalizeStreamingMessage(metadata = {}) {
-        if (state.streamingMessageElement) {
-            state.isStreaming = false;
-
-            // Remove the streaming indicator
-            const indicator = state.streamingMessageElement.querySelector('.streaming-indicator');
-            if (indicator) {
-                indicator.remove();
-            }
-
-            // Add model info if provided
             if (metadata.model) {
-                const modelEl = document.createElement('div');
-                modelEl.className = 'model-info';
-                modelEl.textContent = `Model: ${metadata.model} (${metadata.provider || 'unknown'})`;
-                state.streamingMessageElement.appendChild(modelEl);
+                metaEl.textContent = `${metadata.model} (${metadata.provider || 'unknown'})`;
+            } else {
+                metaEl.textContent = new Date().toLocaleTimeString();
             }
 
-            state.streamingMessageElement = null;
+            messageEl.appendChild(metaEl);
+        }
 
-            // Process the next message in the queue if any
-            processNextMessage();
+        chatMessages.appendChild(messageEl);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        return messageEl;
+    }
+
+    // Create or update a streaming message
+    function updateStreamingMessage(content, isThinking = false) {
+        if (!state.currentStreamingMessage) {
+            state.currentStreamingMessage = addMessage('assistant', '');
+        }
+
+        if (isThinking) {
+            // Update or create thinking section
+            let thinkingEl = state.currentStreamingMessage.querySelector('.message-thinking');
+            if (!thinkingEl) {
+                thinkingEl = document.createElement('div');
+                thinkingEl.className = 'message-thinking';
+                state.currentStreamingMessage.appendChild(thinkingEl);
+            }
+            thinkingEl.textContent = `Thinking: ${content}`;
+        } else {
+            // Update content
+            const contentEl = state.currentStreamingMessage.querySelector('.message-content');
+            contentEl.textContent += content;
+        }
+
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Finalize a streaming message
+    function finalizeStreamingMessage(metadata = {}) {
+        if (state.currentStreamingMessage) {
+            // Remove any thinking section
+            const thinkingEl = state.currentStreamingMessage.querySelector('.message-thinking');
+            if (thinkingEl) {
+                thinkingEl.remove();
+            }
+
+            // Add metadata if provided
+            if (Object.keys(metadata).length > 0) {
+                let metaEl = state.currentStreamingMessage.querySelector('.message-meta');
+                if (!metaEl) {
+                    metaEl = document.createElement('div');
+                    metaEl.className = 'message-meta';
+                    state.currentStreamingMessage.appendChild(metaEl);
+                }
+                metaEl.textContent = `${metadata.model} (${metadata.provider || 'unknown'})`;
+            }
+
+            state.currentStreamingMessage = null;
+            state.isStreaming = false;
         }
     }
 
-    // Function to show thinking content
-    function showThinking(content) {
-        // If no streaming message element yet, create one
-        if (!state.streamingMessageElement) {
-            startLLMStreaming();
-        }
-
-        // Check if we already have a thinking div
-        let thinkingEl = state.streamingMessageElement.querySelector('.thinking');
-
-        if (!thinkingEl) {
-            thinkingEl = document.createElement('div');
-            thinkingEl.className = 'thinking';
-            state.streamingMessageElement.appendChild(thinkingEl);
-        }
-
-        // Update thinking content
-        thinkingEl.textContent = `Thinking: ${content}`;
-    }
-
-    // Function to process the next message in the queue
-    function processNextMessage() {
-        if (state.userMessageQueue.length > 0 && !state.processing && !state.isStreaming) {
-            state.processing = true;
-            const nextMessage = state.userMessageQueue.shift();
-            sendChatMessage(nextMessage);
-        }
+    // Update token statistics display
+    function updateTokenStats() {
+        promptTokens.textContent = state.tokens.prompt.toLocaleString();
+        completionTokens.textContent = state.tokens.completion.toLocaleString();
+        thinkingTokens.textContent = state.tokens.thinking.toLocaleString();
+        totalTokens.textContent = state.tokens.total.toLocaleString();
     }
 
     // Connect to WebSocket
     function connect() {
-        // Validate token
         const token = tokenInput.value.trim();
         if (!token) {
             alert('Please enter an authentication token');
             return;
         }
 
-        updateStatus('connecting', 'Connecting...');
+        updateStatus('connecting');
+        log('System', 'Connecting to WebSocket server...');
 
-        // Get current protocol
+        // Get protocol and create WebSocket URL
         const protocol = window.location.protocol.startsWith('https') ? 'wss' : 'ws';
         const wsUrl = `${protocol}://${window.location.host}/api/v1/ws/join?x-auth-token=${encodeURIComponent(token)}`;
 
         try {
-            // Create WebSocket connection
             state.socket = new WebSocket(wsUrl);
 
             // Connection opened
-            state.socket.addEventListener('open', (event) => {
+            state.socket.addEventListener('open', () => {
                 state.connected = true;
-                updateStatus('connected', 'Connected');
+                updateStatus('connected');
+                log('System', 'Connected to WebSocket server');
+                addMessage('system', 'Connected to chat server');
+
+                // Update UI
                 connectBtn.disabled = true;
                 disconnectBtn.disabled = false;
+                messageInput.disabled = false;
                 sendBtn.disabled = false;
-                sendChatBtn.disabled = false;
                 state.reconnectAttempts = 0;
-
-                addMessage('System', 'Connected to WebSocket server');
-                addSystemMessage('Connected to chat server');
-
-                // Start ping interval
-                state.pingInterval = setInterval(() => {
-                    if (state.socket && state.socket.readyState === WebSocket.OPEN) {
-                        state.socket.send(JSON.stringify({type: 'ping'}));
-                    }
-                }, 30000); // Send ping every 30 seconds
             });
 
-            // Listen for messages
+            // Message received
             state.socket.addEventListener('message', (event) => {
-                try {
-                    const message = JSON.parse(event.data);
+                const message = JSON.parse(event.data);
+                log('Received', message);
 
-                    // Always add to debug log
-                    addMessage(message.topic || 'Message', message.data || message);
-
-                    // Handle different message types
-                    if (message.topic === 'welcome') {
-                        addSystemMessage(`Welcome! User ID: ${message.data.user_id}`);
-
-                        // Update client count if available
-                        if (message.data.clients) {
-                            state.clientCount = message.data.clients;
-                            clientCountEl.textContent = state.clientCount;
-                        }
-                    } else if (message.topic === 'update') {
-                        // Update the update counter
-                        state.updateCount++;
-                        updateCountEl.textContent = state.updateCount;
-
-                        // Process different types of update messages
-                        const data = message.data;
-
-                        // Handle LLM session start
-                        if (data.llm_session_start) {
-                            startLLMStreaming();
-
-                            // Update current model and provider info
-                            if (data.model) state.currentModel = data.model;
-                            if (data.provider) state.currentProvider = data.provider;
-                        }
-
-                        // Handle LLM streaming content
-                        if (data.llm_content) {
-                            updateStreamingMessage(data.llm_content);
-                        }
-
-                        // Handle LLM response as a whole (non-streaming alternative)
-                        if (data.llm_response) {
-                            if (data.llm_response.content) {
-                                updateStreamingMessage(data.llm_response.content);
-                            }
-                        }
-
-                        // Handle thinking content
-                        if (data.thinking) {
-                            showThinking(data.thinking);
-                        }
-
-                        // Handle LLM completion
-                        if (data.llm_done) {
-                            finalizeStreamingMessage({
-                                model: data.model || state.currentModel,
-                                provider: data.provider || state.currentProvider
-                            });
-                            state.processing = false;
-                        }
-
-                        // Handle system messages
-                        if (data.system && data.message) {
-                            addSystemMessage(data.message);
-                        }
-
-                        // Handle errors
-                        if (data.error) {
-                            addSystemMessage(`Error: ${data.error_message || data.error}`);
-                            state.isStreaming = false;
-                            state.processing = false;
-                            if (state.streamingMessageElement) {
-                                state.streamingMessageElement.remove();
-                                state.streamingMessageElement = null;
-                            }
-                        }
-
-                        // Update client count if available
-                        if (data.connected_clients !== undefined) {
-                            state.clientCount = data.connected_clients;
-                            clientCountEl.textContent = state.clientCount;
-                        }
-                    } else if (message.topic === 'pong') {
-                        // Skip logging pongs to reduce noise
-                    } else if (message.topic === 'ws.cancel' || message.topic === 'hub.shutdown') {
-                        addSystemMessage('Chat server is shutting down: ' + (message.data.reason || 'No reason provided'));
-                        disconnect();
-                    } else {
-                        // Log any other message types that might be relevant to the chat
-                        if (message.data && message.data.message) {
-                            // This could be a regular message from another user
-                            if (message.data.user_id && message.data.user_id !== 'system') {
-                                addChatMessage('user', message.data.message.text || JSON.stringify(message.data.message));
-                            }
-                        }
-                    }
-                } catch (e) {
-                    addMessage('Error', 'Failed to parse message: ' + e.message);
-                    console.error('Error parsing message:', e, event.data);
-                }
+                handleMessage(message);
             });
 
             // Connection closed
             state.socket.addEventListener('close', (event) => {
-                clearInterval(state.pingInterval);
                 state.connected = false;
-                updateStatus('disconnected', 'Disconnected');
+                state.isStreaming = false;
+                state.currentStreamingMessage = null;
+
+                // Update UI
+                updateStatus('disconnected');
                 connectBtn.disabled = false;
                 disconnectBtn.disabled = true;
+                messageInput.disabled = true;
                 sendBtn.disabled = true;
-                sendChatBtn.disabled = true;
 
-                addMessage('System', `Connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
-                addSystemMessage(`Disconnected from chat server. Code: ${event.code}`);
+                log('System', `Connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
+                addMessage('system', `Disconnected from chat server. Code: ${event.code}`);
 
-                // Try to reconnect automatically if not a normal closure
+                // Try to reconnect if not a normal closure
                 if (event.code !== 1000 && state.reconnectAttempts < state.maxReconnectAttempts) {
                     state.reconnectAttempts++;
                     const delay = Math.min(1000 * Math.pow(2, state.reconnectAttempts - 1), 10000);
 
-                    addMessage('System', `Reconnecting in ${delay / 1000} seconds... (Attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts})`);
-                    addSystemMessage(`Reconnecting in ${delay / 1000} seconds... (Attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts})`);
+                    log('System', `Reconnecting in ${delay/1000} seconds... (Attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts})`);
+                    addMessage('system', `Reconnecting in ${delay/1000} seconds... (Attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts})`);
 
                     state.reconnectTimer = setTimeout(() => {
                         if (!state.connected) {
@@ -749,16 +697,13 @@
 
             // Connection error
             state.socket.addEventListener('error', (event) => {
-                updateStatus('disconnected', 'Connection Error');
-                addMessage('Error', 'WebSocket connection error');
-                addSystemMessage('Connection error occurred');
-                console.error('WebSocket error:', event);
+                log('Error', 'WebSocket connection error');
+                addMessage('system', 'Connection error occurred');
             });
         } catch (error) {
-            updateStatus('disconnected', 'Connection Failed');
-            addMessage('Error', 'Failed to create WebSocket: ' + error.message);
-            addSystemMessage('Failed to connect: ' + error.message);
-            console.error('Failed to create WebSocket:', error);
+            updateStatus('disconnected');
+            log('Error', `Failed to create WebSocket: ${error.message}`);
+            addMessage('system', `Failed to connect: ${error.message}`);
         }
     }
 
@@ -769,118 +714,209 @@
             state.reconnectTimer = null;
         }
 
-        if (state.pingInterval) {
-            clearInterval(state.pingInterval);
-            state.pingInterval = null;
-        }
-
         if (state.socket) {
             state.socket.close(1000, "User disconnected");
             state.socket = null;
         }
     }
 
-    // Send chat message
-    function sendChatMessage(text) {
-        if (!state.connected || !state.socket) {
-            alert('Not connected to the server');
-            return false;
-        }
+    // Handle incoming messages
+    function handleMessage(message) {
+        const topic = message.topic || '';
 
-        if (!text || text.trim() === '') {
-            return false;
-        }
+        if (topic === 'welcome') {
+            // Handle welcome message
+            log('Welcome', message);
 
-        // Add user message to chat interface
-        addChatMessage('user', text);
+            // Extract data from the welcome message
+            const data = message.data || message;
+            addMessage('system', `Welcome! User ID: ${data.user_id || 'Unknown'}`);
 
-        // Send message to server
-        try {
-            const payload = {
-                action: "message",
-                data: {
-                    text: text
-                }
-            };
-
-            state.socket.send(JSON.stringify(payload));
-            return true;
-        } catch (e) {
-            addSystemMessage('Error sending message: ' + e.message);
-            return false;
-        }
-    }
-
-    // Handle chat input submission
-    function handleChatSubmit() {
-        const text = chatInputEl.value.trim();
-
-        if (text) {
-            // If we're already processing or streaming, queue the message
-            if (state.isStreaming || state.processing) {
-                state.userMessageQueue.push(text);
-                addSystemMessage('Message queued. It will be processed after the current response completes.');
-            } else {
-                state.processing = true;
-                if (sendChatMessage(text)) {
-                    chatInputEl.value = '';
-                }
+            // Update client info
+            if (data.client_count) {
+                state.clientCount = data.client_count;
+                clientCount.textContent = `Clients: ${state.clientCount}`;
+                connectedClients.textContent = state.clientCount;
             }
+
+            // Update model info
+            if (data.model) {
+                state.currentModel = data.model;
+                state.currentProvider = data.provider || 'unknown';
+                modelInfo.textContent = `Model: ${state.currentModel} (${state.currentProvider})`;
+                currentModel.textContent = state.currentModel;
+                currentProvider.textContent = state.currentProvider;
+            }
+
+            // Update system prompt
+            if (data.system_prompt) {
+                state.systemPrompt = data.system_prompt;
+                currentSystemPrompt.textContent = state.systemPrompt;
+            }
+
+            // Update token info
+            if (data.tokens) {
+                state.tokens = data.tokens;
+                updateTokenStats();
+            }
+        } else if (topic === 'update') {
+            // Handle update messages - extract the data field
+            const data = message.data || message;
+
+            // Handle different update types
+            const type = data.type || '';
+
+            switch (type) {
+                case 'start':
+                    // LLM session start
+                    state.isStreaming = true;
+                    if (data.model) state.currentModel = data.model;
+                    if (data.provider) state.currentProvider = data.provider;
+                    modelInfo.textContent = `Model: ${state.currentModel} (${state.currentProvider})`;
+                    break;
+
+                case 'content':
+                    // Content update from LLM
+                    updateStreamingMessage(data.content);
+                    break;
+
+                case 'thinking':
+                    // Thinking output
+                    updateStreamingMessage(data.content, true);
+                    break;
+
+                case 'done':
+                    // LLM response complete
+                    finalizeStreamingMessage({
+                        model: data.model || state.currentModel,
+                        provider: data.provider || state.currentProvider
+                    });
+                    break;
+
+                case 'error':
+                    // Error notification
+                    addMessage('system', `Error: ${data.message || data.error}`);
+                    state.isStreaming = false;
+                    state.currentStreamingMessage = null;
+                    break;
+
+                case 'system':
+                    // System message
+                    addMessage('system', data.message);
+                    break;
+
+                case 'user_message':
+                    // Echo of user message
+                    addMessage('user', data.content);
+                    break;
+
+                case 'tokens':
+                    // Token statistics update
+                    if (data.total) {
+                        state.tokens = data.total;
+                        updateTokenStats();
+                    }
+                    break;
+
+                case 'stats':
+                    // Statistics update
+                    if (data.clients) {
+                        state.clientCount = data.clients;
+                        clientCount.textContent = `Clients: ${state.clientCount}`;
+                        connectedClients.textContent = state.clientCount;
+                    }
+
+                    if (data.messages) {
+                        messagesHandled.textContent = data.messages;
+                    }
+
+                    if (data.uptime) {
+                        uptime.textContent = data.uptime;
+                    }
+
+                    if (data.tokens) {
+                        state.tokens = data.tokens;
+                        updateTokenStats();
+                    }
+                    break;
+
+                default:
+                    // Handle legacy format without explicit type
+                    if (data.llm_response && data.llm_response.type === 'content' && data.llm_response.content) {
+                        updateStreamingMessage(data.llm_response.content);
+                    } else if (data.llm_response && data.llm_response.type === 'thinking' && data.llm_response.thinking) {
+                        updateStreamingMessage(data.llm_response.thinking, true);
+                    } else if (data.llm_streaming && data.payload) {
+                        // Direct forwarded payload format
+                        if (data.payload.type === 'content' && data.payload.content) {
+                            updateStreamingMessage(data.payload.content);
+                        } else if (data.payload.type === 'thinking' && data.payload.thinking) {
+                            updateStreamingMessage(data.payload.thinking, true);
+                        } else if (data.payload.type === 'done') {
+                            const meta = data.payload.meta || {};
+                            finalizeStreamingMessage({
+                                model: meta.model || state.currentModel,
+                                provider: meta.provider || state.currentProvider
+                            });
+                        }
+                    }
+            }
+        } else if (topic === 'ws.cancel') {
+            // Handle cancellation
+            const reason = message.data && message.data.reason ? message.data.reason : 'No reason provided';
+            addMessage('system', `Chat server is shutting down: ${reason}`);
+            disconnect();
+        } else {
+            // Other message types are just logged
+            log('Other', message);
         }
     }
 
-    // Send custom message (advanced tab)
+    // Send a message
     function sendMessage() {
         if (!state.connected || !state.socket) {
             alert('Not connected to the server');
             return;
         }
 
-        const action = actionInput.value.trim();
-        if (!action) {
-            alert('Please enter an action');
+        const text = messageInput.value.trim();
+        if (!text) {
             return;
         }
 
-        let data = {};
         try {
-            const dataText = dataInput.value.trim();
-            if (dataText) {
-                data = JSON.parse(dataText);
-            }
-        } catch (e) {
-            alert('Invalid JSON data: ' + e.message);
-            return;
-        }
+            // Create message payload
+            const payload = {
+                text: text
+            };
 
-        const payload = {
-            action: action,
-            data: data
-        };
-
-        try {
             state.socket.send(JSON.stringify(payload));
-            addMessage('Sent', payload);
-        } catch (e) {
-            addMessage('Error', 'Failed to send message: ' + e.message);
+            log('Sent', payload);
+
+            // Clear input
+            messageInput.value = '';
+
+            // Don't add user message here - will be echoed back
+        } catch (error) {
+            log('Error', `Failed to send message: ${error.message}`);
+            addMessage('system', `Error sending message: ${error.message}`);
         }
     }
 
-    // Set up event listeners
+    // Event listeners
     connectBtn.addEventListener('click', connect);
     disconnectBtn.addEventListener('click', disconnect);
     sendBtn.addEventListener('click', sendMessage);
-    sendChatBtn.addEventListener('click', handleChatSubmit);
 
-    // Allow Enter key to submit chat message
-    chatInputEl.addEventListener('keydown', (e) => {
+    // Allow Enter key to submit
+    messageInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            handleChatSubmit();
+            sendMessage();
         }
     });
 
-    // Check for token in URL params
+    // Check for token in URL
     document.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
         const token = urlParams.get('token');

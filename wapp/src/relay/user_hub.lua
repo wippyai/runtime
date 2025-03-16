@@ -2,19 +2,28 @@ local time = require("time")
 local json = require("json")
 local actor = require("actor")
 local funcs = require("funcs")
+local prompt = require("prompt")
 
 -- Constants
-local PING_INTERVAL = "60s"   -- Send stats to central hub every 5 seconds
-local UPDATE_INTERVAL = "30s" -- Send updates to clients every 1 second
+local PING_INTERVAL = "60s"
+local UPDATE_INTERVAL = "30s"
 local USER_HUB_REGISTRY_PREFIX = "user_hub."
 local WS_JOIN_TOPIC = "ws.join"
 local WS_LEAVE_TOPIC = "ws.leave"
 local WS_MESSAGE_TOPIC = "ws.message"
-local WS_CANCEL_TOPIC = "ws.cancel" -- Topic to notify clients of cancellation
+local WS_CANCEL_TOPIC = "ws.cancel"
 local WELCOME_TOPIC = "welcome"
 local UPDATE_TOPIC = "update"
-local STATS_PING_TOPIC = "stats.ping" -- Topic for sending stats to central hub
-local LLM_RESPONSE_TOPIC = "llm_response" -- Topic for LLM streaming responses
+local STATS_PING_TOPIC = "stats.ping"
+local LLM_RESPONSE_TOPIC = "llm_response"
+
+-- Command prefixes
+local CMD_PREFIX = "/"
+local CMD_MODEL = "model"
+local CMD_PROVIDER = "provider"
+local CMD_CLEAR = "clear"
+local CMD_HELP = "help"
+local CMD_SYSTEM = "system"
 
 -- User Hub Process - Handles WebSocket connections for a specific user
 local function run(args)
@@ -27,24 +36,31 @@ local function run(args)
     local user_id = args.user_id
     local user_metadata = args.user_metadata or {}
     local central_hub_pid = args.central_hub_pid
-    local llm_model = args.llm_model or "gpt-4o-mini" -- Default model if not specified
-    local llm_provider = args.llm_provider or "openai" -- Default provider
+    local llm_model = args.llm_model or "gpt-4o-mini"
+    local llm_provider = args.llm_provider or "openai"
 
     -- Initialize actor state
     local initial_state = {
         user_id = user_id,
         metadata = user_metadata,
-        connected_clients = {}, -- Map of client_pid -> { last_activity = timestamp }
+        connected_clients = {},
         client_count = 0,
         last_activity = time.now(),
-        start_time = time.now(), -- Store start time for uptime calculation
+        start_time = time.now(),
         messages_handled = 0,
         ping_ticker = nil,
         update_ticker = nil,
         central_hub_pid = central_hub_pid,
-        message_history = {}, -- Store message history for context
+        prompt_builder = prompt.new(),
         llm_model = llm_model,
-        llm_provider = llm_provider
+        llm_provider = llm_provider,
+        system_prompt = "You are a helpful AI assistant.",
+        total_tokens = {
+            prompt = 0,
+            completion = 0,
+            thinking = 0,
+            total = 0
+        }
     }
 
     -- Define handlers for different message topics
@@ -54,7 +70,7 @@ local function run(args)
             -- Register this process with the user's ID for easy discovery
             local registry_name = USER_HUB_REGISTRY_PREFIX .. state.user_id
             process.registry.register(registry_name)
-            print("User Hub started for user:", state.user_id, "with PID:", process.pid())
+            print("LLM Chat User Hub started for user:", state.user_id, "with PID:", process.pid())
 
             -- Set process options
             process.set_options({
@@ -71,7 +87,8 @@ local function run(args)
                             user_id = s.user_id,
                             client_count = s.client_count,
                             last_activity = s.last_activity:format_rfc3339(),
-                            messages_handled = s.messages_handled
+                            messages_handled = s.messages_handled,
+                            tokens = s.total_tokens
                         })
                     end
                 end
@@ -82,31 +99,91 @@ local function run(args)
             state.update_ticker = time.ticker(UPDATE_INTERVAL)
             state.register_channel(state.update_ticker:channel(), function(s, _, ok)
                 if ok then
-                    -- Send update to all connected clients
+                    -- Send update to all connected clients with simplified stats
                     broadcast_to_clients(s, UPDATE_TOPIC, {
-                        user_id = s.user_id,
-                        time = time.now():format_rfc3339(),
-                        message = "Regular update"
+                        type = "stats",
+                        uptime = tostring(time.now():sub(s.start_time)),
+                        clients = s.client_count,
+                        messages = s.messages_handled,
+                        tokens = s.total_tokens
                     })
                 end
                 return s
             end)
 
-            -- Register handler for LLM streaming responses
-            state.register_topic = function(topic, handler)
-                state.add_handler(topic, handler)
-                return true
-            end
+            -- Initialize prompt builder with system message
+            state.prompt_builder:add_system(state.system_prompt)
 
             -- Register the LLM response topic handler
-            state.register_topic(LLM_RESPONSE_TOPIC, function(s, payload)
-                -- Forward LLM chunks directly to all clients
-                broadcast_to_clients(s, UPDATE_TOPIC, {
-                    user_id = s.user_id,
-                    time = time.now():format_rfc3339(),
-                    llm_response = payload,
-                    streaming = true
-                })
+            state.add_handler(LLM_RESPONSE_TOPIC, function(s, payload)
+                -- Check payload type and forward appropriately
+                if type(payload) == "table" then
+                    if payload.type == "content" and payload.content then
+                        -- Content chunk
+                        broadcast_to_clients(s, UPDATE_TOPIC, {
+                            type = "content",
+                            content = payload.content
+                        })
+                    elseif payload.type == "thinking" and payload.thinking then
+                        -- Thinking output
+                        broadcast_to_clients(s, UPDATE_TOPIC, {
+                            type = "thinking",
+                            content = payload.thinking
+                        })
+                    elseif payload.type == "done" then
+                        -- Completion notification
+                        broadcast_to_clients(s, UPDATE_TOPIC, {
+                            type = "done",
+                            model = payload.meta and payload.meta.model or s.llm_model,
+                            provider = payload.meta and payload.meta.provider or s.llm_provider
+                        })
+
+                        -- Update token statistics if available
+                        if payload.meta and payload.meta.usage then
+                            local usage = payload.meta.usage
+                            s.total_tokens.prompt = s.total_tokens.prompt + (usage.prompt_tokens or 0)
+                            s.total_tokens.completion = s.total_tokens.completion + (usage.completion_tokens or 0)
+
+                            -- Check for thinking tokens
+                            if usage.completion_tokens_details and usage.completion_tokens_details.reasoning_tokens then
+                                s.total_tokens.thinking = s.total_tokens.thinking + usage.completion_tokens_details.reasoning_tokens
+                            end
+
+                            s.total_tokens.total = s.total_tokens.prompt + s.total_tokens.completion
+
+                            -- Send token stats update
+                            broadcast_to_clients(s, UPDATE_TOPIC, {
+                                type = "tokens",
+                                session = {
+                                    prompt = usage.prompt_tokens or 0,
+                                    completion = usage.completion_tokens or 0,
+                                    thinking = (usage.completion_tokens_details and usage.completion_tokens_details.reasoning_tokens) or 0,
+                                    total = (usage.total_tokens or 0)
+                                },
+                                total = s.total_tokens
+                            })
+                        end
+                    elseif payload.type == "error" then
+                        -- Error notification
+                        broadcast_to_clients(s, UPDATE_TOPIC, {
+                            type = "error",
+                            error = payload.error,
+                            message = payload.message
+                        })
+                    else
+                        -- Forward the payload directly for any other types
+                        broadcast_to_clients(s, UPDATE_TOPIC, {
+                            llm_streaming = true,
+                            payload = payload
+                        })
+                    end
+                else
+                    -- Just forward anything we don't recognize
+                    broadcast_to_clients(s, UPDATE_TOPIC, {
+                        llm_streaming = true,
+                        payload = payload
+                    })
+                end
                 return s
             end)
 
@@ -115,7 +192,6 @@ local function run(args)
 
         -- Handle system events
         __on_event = function(state, event)
-            -- handle child processes
             return state
         end,
 
@@ -125,9 +201,8 @@ local function run(args)
 
             -- Send cancellation notification to all connected clients
             broadcast_to_clients(state, WS_CANCEL_TOPIC, {
-                user_id = state.user_id,
-                time = time.now():format_rfc3339(),
-                reason = "Hub shutting down"
+                type = "system",
+                message = "Hub shutting down"
             })
 
             -- Stop tickers
@@ -146,17 +221,22 @@ local function run(args)
         [WS_JOIN_TOPIC] = function(state, payload)
             local client_pid = payload.client_pid
 
-            print("Client joined user hub for", state.user_id, ":", client_pid)
+            print("Client joined LLM chat hub for", state.user_id, ":", client_pid)
 
             -- Add client to our list
             state.connected_clients[client_pid] = { connected_on = time.now() }
             state.client_count = state.client_count + 1
             state.last_activity = time.now()
 
-            -- Send welcome message with user ID
+            -- Send welcome message with user ID and current settings
             process.send(client_pid, WELCOME_TOPIC, {
                 user_id = state.user_id,
-                time = time.now():format_rfc3339()
+                client_count = state.client_count,
+                model = state.llm_model,
+                provider = state.llm_provider,
+                system_prompt = state.system_prompt,
+                tokens = state.total_tokens,
+                history_size = state.prompt_builder:get_messages() and #state.prompt_builder:get_messages() or 0
             })
 
             return state
@@ -164,11 +244,10 @@ local function run(args)
 
         -- Handle WebSocket leave
         [WS_LEAVE_TOPIC] = function(state, payload)
-            -- Get sender PID from the message context
             local client_pid = payload.client_pid
 
             if state.connected_clients[client_pid] then
-                print("Client left user hub for", state.user_id, ":", client_pid)
+                print("Client left LLM chat hub for", state.user_id, ":", client_pid)
                 state.connected_clients[client_pid] = nil
                 state.client_count = state.client_count - 1
                 state.last_activity = time.now()
@@ -179,8 +258,8 @@ local function run(args)
 
         -- Handle WebSocket messages
         [WS_MESSAGE_TOPIC] = function(state, payload)
-            local message, err = json.decode(payload)
-            if not message then
+            local message_data, err = json.decode(payload)
+            if not message_data then
                 print("Error decoding message from client", state.user_id, ":", err)
                 return state
             end
@@ -189,114 +268,189 @@ local function run(args)
             state.last_activity = time.now()
             state.messages_handled = state.messages_handled + 1
 
-            -- todo process message too
+            -- Extract message text (support both wrapped and direct formats)
+            local message_text
+            if message_data.data and message_data.data.text then
+                message_text = message_data.data.text
+            elseif message_data.text then
+                message_text = message_data.text
+            end
 
-            if not message.data then
-                print("Invalid message from client", state.user_id, ":", message)
+            if not message_text or message_text == "" then
+                print("No valid text found in message:", json.encode(message_data))
                 return state
             end
 
-            message = message.data
+            -- Check if this is a command (starts with /)
+            if message_text:sub(1, 1) == CMD_PREFIX then
+                handle_command(state, message_text)
+                return state
+            end
 
-            -- Check if message contains text to process with LLM
-            if message.text and message.text ~= "" then
+            -- Regular message - process with LLM
+            -- Add to prompt builder
+            state.prompt_builder:add_user(message_text)
 
+            -- Broadcast user message to clients
+            broadcast_to_clients(state, UPDATE_TOPIC, {
+                type = "user_message",
+                content = message_text
+            })
 
-                -- Store message in history for context
-                table.insert(state.message_history, {
-                    role = "user",
-                    content = message.text
-                })
+            -- Notify clients that LLM processing is starting
+            broadcast_to_clients(state, UPDATE_TOPIC, {
+                type = "start",
+                model = state.llm_model,
+                provider = state.llm_provider
+            })
 
-                -- Trim history if it gets too long
-                if #state.message_history > 20 then
-                    table.remove(state.message_history, 1)
-                end
-
-                -- Determine which LLM function to call based on provider
-                local llm_function_path
-                if state.llm_provider == "openai" then
-                    llm_function_path = "wippy.llm.openai:text_generation"
-                else
-                    llm_function_path = "wippy.llm.claude:text_generation"
-                end
-
-                -- Notify clients that LLM processing is starting
-                broadcast_to_clients(state, UPDATE_TOPIC, {
-                    user_id = state.user_id,
-                    time = time.now():format_rfc3339(),
-                    llm_session_start = true,
-                    model = state.llm_model,
-                    provider = state.llm_provider
-                })
-
-                -- Create LLM request
-                local llm_request = {
-                    model = state.llm_model,
-                    messages = state.message_history,
-                    stream = {
-                        reply_to = process.pid(),
-                        topic = LLM_RESPONSE_TOPIC
-                    },
-                    options = {
-                        temperature = 0.7,
-                        max_tokens = 1024
-                    }
-                }
-
-                -- Call LLM function
-                local result, err = funcs.new():call(llm_function_path, llm_request)
-                if err then
-                    print("Error calling LLM function:", err)
-                    broadcast_to_clients(state, UPDATE_TOPIC, {
-                        user_id = state.user_id,
-                        time = time.now():format_rfc3339(),
-                        error = "llm_error",
-                        error_message = err
-                    })
-                else
-                    -- When streaming is enabled, funcs.call returns immediately
-                    -- The streamed responses will come through the registered handler
-                    print("LLM streaming request sent successfully")
-
-                    -- Add assistant response to history when result is available
-                    if result and result.result then
-                        table.insert(state.message_history, {
-                            role = "assistant",
-                            content = result.result
-                        })
-                    end
-                end
+            -- Determine which LLM function to call
+            local llm_function_path
+            if state.llm_provider == "openai" then
+                llm_function_path = "wippy.llm.openai:text_generation"
             else
-                -- Regular message without LLM processing
-                local response = {
-                    user_id = state.user_id,
-                    time = time.now():format_rfc3339(),
-                    message = message
-                }
+                llm_function_path = "wippy.llm.claude:text_generation"
+            end
 
-                -- Broadcast to all clients
-                broadcast_to_clients(state, UPDATE_TOPIC, response)
+            -- Create LLM request using the messages from prompt builder
+            local llm_request = {
+                model = state.llm_model,
+                messages = state.prompt_builder:get_messages(),
+                stream = {
+                    reply_to = process.pid(),
+                    topic = LLM_RESPONSE_TOPIC
+                },
+                options = {
+                    temperature = 0.7,
+                    max_tokens = 1024,
+                    thinking_effort = 25  -- Enable thinking mode (scales 0-100)
+                },
+                timeout = 60
+            }
+
+            -- Call LLM function
+            local result, err = funcs.new():call(llm_function_path, llm_request)
+            if err then
+                print("Error calling LLM function:", err)
+                broadcast_to_clients(state, UPDATE_TOPIC, {
+                    type = "error",
+                    error = "llm_error",
+                    message = err
+                })
+            else
+                -- When streaming is enabled, the response chunks come through the handler
+                -- If streaming disabled or completed, add to conversation history
+                if result and result.result then
+                    state.prompt_builder:add_assistant(result.result)
+                end
             end
 
             return state
         end,
 
-        -- Handle LLM response streaming
-        [LLM_RESPONSE_TOPIC] = function(state, payload)
-            -- Forward LLM content directly to clients
-            -- Actual payload forwarding is handled by the dynamically registered handler
-            return state
-        end,
-
+        -- Default handler for any other topics
         __default = function(state, topic, payload)
+            -- Just forward any other messages to clients
             broadcast_to_clients(state, topic, payload)
             return state
         end
     }
 
+    -- Helper function to handle commands
+    function handle_command(state, command_text)
+        -- Strip the prefix and split into command and args
+        local cmd, args = command_text:match("^" .. CMD_PREFIX .. "(%w+)%s*(.*)")
+
+        if not cmd then
+            print("Invalid command format:", command_text)
+            return
+        end
+
+        if cmd == CMD_MODEL then
+            -- Change model
+            if args and args ~= "" then
+                state.llm_model = args
+                broadcast_to_clients(state, UPDATE_TOPIC, {
+                    type = "system",
+                    message = "Model changed to: " .. args
+                })
+            else
+                broadcast_to_clients(state, UPDATE_TOPIC, {
+                    type = "system",
+                    message = "Current model: " .. state.llm_model
+                })
+            end
+        elseif cmd == CMD_PROVIDER then
+            -- Change provider
+            if args == "openai" or args == "anthropic" then
+                state.llm_provider = args
+                broadcast_to_clients(state, UPDATE_TOPIC, {
+                    type = "system",
+                    message = "Provider changed to: " .. args
+                })
+            else
+                broadcast_to_clients(state, UPDATE_TOPIC, {
+                    type = "system",
+                    message = "Invalid provider. Use 'openai' or 'anthropic'"
+                })
+            end
+        elseif cmd == CMD_SYSTEM then
+            -- Set system prompt
+            if args and args ~= "" then
+                state.system_prompt = args
+                -- Clear and recreate prompt builder with new system message
+                state.prompt_builder = prompt.new()
+                state.prompt_builder:add_system(state.system_prompt)
+                broadcast_to_clients(state, UPDATE_TOPIC, {
+                    type = "system",
+                    message = "System prompt updated and history cleared"
+                })
+            else
+                broadcast_to_clients(state, UPDATE_TOPIC, {
+                    type = "system",
+                    message = "Current system prompt: " .. state.system_prompt
+                })
+            end
+        elseif cmd == CMD_CLEAR then
+            -- Clear conversation history
+            state.prompt_builder = prompt.new()
+            state.prompt_builder:add_system(state.system_prompt)
+            broadcast_to_clients(state, UPDATE_TOPIC, {
+                type = "system",
+                message = "Conversation history cleared"
+            })
+        elseif cmd == CMD_HELP then
+            -- Show available commands
+            broadcast_to_clients(state, UPDATE_TOPIC, {
+                type = "system",
+                message = "Available commands:\n" ..
+                          "- /" .. CMD_MODEL .. " <model_name> - Change LLM model\n" ..
+                          "- /" .. CMD_PROVIDER .. " <openai|anthropic> - Change LLM provider\n" ..
+                          "- /" .. CMD_SYSTEM .. " <text> - Set system prompt\n" ..
+                          "- /" .. CMD_CLEAR .. " - Clear conversation history\n" ..
+                          "- /" .. CMD_HELP .. " - Show this help message"
+            })
+        else
+            -- Unknown command
+            broadcast_to_clients(state, UPDATE_TOPIC, {
+                type = "system",
+                message = "Unknown command: " .. cmd .. ". Type /" .. CMD_HELP .. " for available commands."
+            })
+        end
+    end
+
     -- Helper function to broadcast a message to all connected clients
     function broadcast_to_clients(state, topic, message)
+        -- Add timestamp if not already present
+        if not message.time then
+            message.time = time.now():format_rfc3339()
+        end
+
+        -- Add user ID to every message
+        if not message.user_id then
+            message.user_id = state.user_id
+        end
+
         for client_pid, _ in pairs(state.connected_clients) do
             process.send(client_pid, topic, message)
         end
