@@ -178,6 +178,11 @@ local function run(args)
             return state
         end,
 
+        broadcast = function(state, topic, payload)
+            broadcast_to_clients(state, topic, payload)
+            return state
+        end,
+
         __default = function(state, topic, payload)
             print("Unhandled message in user hub for", state.user_id, ":", topic, json.encode(payload))
             --unt":0,"metadata":{"auth_time":1742066279,"user_id":"wolfy-j","user_metadata":{"sf_instance_token":"asd"}},"uptime":"29.009048977s"}    {"pid": "{Antares@app:processes|app.users.relay:user_hub|0x00002}"}
