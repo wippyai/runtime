@@ -46,6 +46,7 @@ entries:
     kind: process.lua
     meta:
       comment: "Process for individual user WebSocket connections pool"
+      default_host: app:processes
     source: file://user_hub.lua
     method: run
     modules: [ time, json ]

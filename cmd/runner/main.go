@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
 	"github.com/ponyruntime/pony/service/http/firewall"
+	"github.com/ponyruntime/pony/service/processfunc"
 	"github.com/ponyruntime/pony/service/tokenstore"
 	httpbase "net/http"
 	"os"
@@ -534,6 +535,7 @@ func main() {
 		WithEphemeralHost(app),
 		WithSQLManager(app),
 		WithMemStore(app),
+		WithProcessFunctionBridge(app),
 	)...)
 	// --------------------------------------------------
 
@@ -786,6 +788,14 @@ func WithMemStore(a *App) eventbus.EventHandler {
 	)
 
 	return reghandler.NewRegistryHandler("store.memory", manager)
+}
+
+func WithProcessFunctionBridge(a *App) eventbus.EventHandler {
+	return processfunc.WithProcessFunctionBridge(
+		a.logger.Named("pfunc"),
+		a.eventBus,
+		a.processes,
+	)
 }
 
 func WithLuaRuntime(a *App) []eventbus.EventHandler {
