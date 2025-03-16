@@ -190,14 +190,27 @@ func (l *Listener) createProcessHandler(processID registry.ID, hostID pubsub.Hos
 				select {
 				case <-ctx.Done():
 					// Context canceled - release the monitor first
-					_ = topology.GetTopology(ctx).Release(callerPID, pid)
+					topo := topology.GetTopology(ctx)
+					if topo != nil {
+						if err := topo.Release(callerPID, pid); err != nil {
+							l.log.Warn("failed to release monitor before cancel",
+								zap.String("pid", pid.String()),
+								zap.Error(err))
+						}
+					} else {
+						l.log.Warn("topology not found in context, skipping monitor release")
+					}
 
 					// Send cancel request
-					_ = node.Send(topology.Cancel(
+					if err := node.Send(topology.Cancel(
 						callerPID,
 						pid,
 						time.Now().Add(DefaultCancelTimeout),
-					))
+					)); err != nil {
+						l.log.Warn("failed to send cancel request",
+							zap.String("pid", pid.String()),
+							zap.Error(err))
+					}
 
 					// Return context error immediately
 					resultCh <- &runtime.Result{
