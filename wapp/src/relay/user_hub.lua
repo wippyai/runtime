@@ -1,10 +1,11 @@
 local time = require("time")
 local json = require("json")
 local actor = require("actor")
+local funcs = require("funcs")
 
 -- Constants
-local PING_INTERVAL = "60s"  -- Send stats to central hub every 5 seconds
-local UPDATE_INTERVAL = "1s" -- Send updates to clients every 1 second
+local PING_INTERVAL = "60s"   -- Send stats to central hub every 5 seconds
+local UPDATE_INTERVAL = "30s" -- Send updates to clients every 1 second
 local USER_HUB_REGISTRY_PREFIX = "user_hub."
 local WS_JOIN_TOPIC = "ws.join"
 local WS_LEAVE_TOPIC = "ws.leave"
@@ -154,37 +155,36 @@ local function run(args)
 
         -- Handle WebSocket messages
         [WS_MESSAGE_TOPIC] = function(state, payload)
-            local message = payload.message
-
-            print("Received message from client", state.user_id, ":", json.encode(payload))
+            local message, err = json.decode(payload)
+            if not message then
+                print("Error decoding message from client", state.user_id, ":", err)
+                return state
+            end
 
             -- Update client's last activity time
             state.last_activity = time.now()
             state.messages_handled = state.messages_handled + 1
 
             -- Echo message back to all clients with user_id attached
-            if message then
-                local response = {
-                    user_id = state.user_id,
-                    time = time.now():format_rfc3339(),
-                    message = message,
-                    echo = true
-                }
+            local response = {
+                user_id = state.user_id,
+                time = time.now():format_rfc3339(),
+                message = message
+            }
 
-                -- Broadcast to all clients
-                broadcast_to_clients(state, UPDATE_TOPIC, response)
-            end
 
-            return state
-        end,
+            -- Broadcast to all clients (todo: make it accept command)
+            broadcast_to_clients(state, UPDATE_TOPIC, response)
 
-        broadcast = function(state, topic, payload)
-            broadcast_to_clients(state, topic, payload)
             return state
         end,
 
         __default = function(state, topic, payload)
             print("Unhandled message in user hub for", state.user_id, ":", topic, json.encode(payload))
+
+            -- relay to all clients
+            broadcast_to_clients(state, topic, payload)
+
             --unt":0,"metadata":{"auth_time":1742066279,"user_id":"wolfy-j","user_metadata":{"sf_instance_token":"asd"}},"uptime":"29.009048977s"}    {"pid": "{Antares@app:processes|app.users.relay:user_hub|0x00002}"}
             --2025-03-15 15:18:29     INFO    hosts   Unhandled message in user hub for wolfy-j : ws.heartbeat {"client_pid":"{Antares@app:gateway|ws:conn|0x00001}","message_count":0,"metadata":{"auth_time":1742066279,"user_id":"wolfy-j","user_metadata":{"sf_instance_token":"asd"}},"uptime":"30.000431237s"}    {"pid": "{Antares@app:processes|app.users.relay:user_hub|0x00002}"}
             --2025-03-15 15:18:29     INFO    hosts   Received stats from hub for user wolfy-j : clients: 1 messages: 0       {"pid": "{Antares@app:processes|app.users.relay:central_hub|0x00001}"}

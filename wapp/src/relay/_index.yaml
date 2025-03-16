@@ -49,6 +49,6 @@ entries:
       default_host: app:processes
     source: file://user_hub.lua
     method: run
-    modules: [ time, json ]
+    modules: [ time, json, funcs ]
     imports:
       actor: "wippy.actor:actor"
