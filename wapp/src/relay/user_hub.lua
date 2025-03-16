@@ -14,6 +14,7 @@ local WS_CANCEL_TOPIC = "ws.cancel" -- Topic to notify clients of cancellation
 local WELCOME_TOPIC = "welcome"
 local UPDATE_TOPIC = "update"
 local STATS_PING_TOPIC = "stats.ping" -- Topic for sending stats to central hub
+local LLM_RESPONSE_TOPIC = "llm_response" -- Topic for LLM streaming responses
 
 -- User Hub Process - Handles WebSocket connections for a specific user
 local function run(args)
@@ -26,6 +27,8 @@ local function run(args)
     local user_id = args.user_id
     local user_metadata = args.user_metadata or {}
     local central_hub_pid = args.central_hub_pid
+    local llm_model = args.llm_model or "gpt-4o-mini" -- Default model if not specified
+    local llm_provider = args.llm_provider or "openai" -- Default provider
 
     -- Initialize actor state
     local initial_state = {
@@ -38,7 +41,10 @@ local function run(args)
         messages_handled = 0,
         ping_ticker = nil,
         update_ticker = nil,
-        central_hub_pid = central_hub_pid
+        central_hub_pid = central_hub_pid,
+        message_history = {}, -- Store message history for context
+        llm_model = llm_model,
+        llm_provider = llm_provider
     }
 
     -- Define handlers for different message topics
@@ -83,6 +89,24 @@ local function run(args)
                         message = "Regular update"
                     })
                 end
+                return s
+            end)
+
+            -- Register handler for LLM streaming responses
+            state.register_topic = function(topic, handler)
+                state.add_handler(topic, handler)
+                return true
+            end
+
+            -- Register the LLM response topic handler
+            state.register_topic(LLM_RESPONSE_TOPIC, function(s, payload)
+                -- Forward LLM chunks directly to all clients
+                broadcast_to_clients(s, UPDATE_TOPIC, {
+                    user_id = s.user_id,
+                    time = time.now():format_rfc3339(),
+                    llm_response = payload,
+                    streaming = true
+                })
                 return s
             end)
 
@@ -165,32 +189,108 @@ local function run(args)
             state.last_activity = time.now()
             state.messages_handled = state.messages_handled + 1
 
-            -- Echo message back to all clients with user_id attached
-            local response = {
-                user_id = state.user_id,
-                time = time.now():format_rfc3339(),
-                message = message
-            }
+            -- todo process message too
+
+            if not message.data then
+                print("Invalid message from client", state.user_id, ":", message)
+                return state
+            end
+
+            message = message.data
+
+            -- Check if message contains text to process with LLM
+            if message.text and message.text ~= "" then
 
 
-            -- Broadcast to all clients (todo: make it accept command)
-            broadcast_to_clients(state, UPDATE_TOPIC, response)
+                -- Store message in history for context
+                table.insert(state.message_history, {
+                    role = "user",
+                    content = message.text
+                })
+
+                -- Trim history if it gets too long
+                if #state.message_history > 20 then
+                    table.remove(state.message_history, 1)
+                end
+
+                -- Determine which LLM function to call based on provider
+                local llm_function_path
+                if state.llm_provider == "openai" then
+                    llm_function_path = "wippy.llm.openai:text_generation"
+                else
+                    llm_function_path = "wippy.llm.claude:text_generation"
+                end
+
+                -- Notify clients that LLM processing is starting
+                broadcast_to_clients(state, UPDATE_TOPIC, {
+                    user_id = state.user_id,
+                    time = time.now():format_rfc3339(),
+                    llm_session_start = true,
+                    model = state.llm_model,
+                    provider = state.llm_provider
+                })
+
+                -- Create LLM request
+                local llm_request = {
+                    model = state.llm_model,
+                    messages = state.message_history,
+                    stream = {
+                        reply_to = process.pid(),
+                        topic = LLM_RESPONSE_TOPIC
+                    },
+                    options = {
+                        temperature = 0.7,
+                        max_tokens = 1024
+                    }
+                }
+
+                -- Call LLM function
+                local result, err = funcs.new():call(llm_function_path, llm_request)
+                if err then
+                    print("Error calling LLM function:", err)
+                    broadcast_to_clients(state, UPDATE_TOPIC, {
+                        user_id = state.user_id,
+                        time = time.now():format_rfc3339(),
+                        error = "llm_error",
+                        error_message = err
+                    })
+                else
+                    -- When streaming is enabled, funcs.call returns immediately
+                    -- The streamed responses will come through the registered handler
+                    print("LLM streaming request sent successfully")
+
+                    -- Add assistant response to history when result is available
+                    if result and result.result then
+                        table.insert(state.message_history, {
+                            role = "assistant",
+                            content = result.result
+                        })
+                    end
+                end
+            else
+                -- Regular message without LLM processing
+                local response = {
+                    user_id = state.user_id,
+                    time = time.now():format_rfc3339(),
+                    message = message
+                }
+
+                -- Broadcast to all clients
+                broadcast_to_clients(state, UPDATE_TOPIC, response)
+            end
 
             return state
         end,
 
+        -- Handle LLM response streaming
+        [LLM_RESPONSE_TOPIC] = function(state, payload)
+            -- Forward LLM content directly to clients
+            -- Actual payload forwarding is handled by the dynamically registered handler
+            return state
+        end,
+
         __default = function(state, topic, payload)
-            print("Unhandled message in user hub for", state.user_id, ":", topic, json.encode(payload))
-
-            -- relay to all clients
             broadcast_to_clients(state, topic, payload)
-
-            --unt":0,"metadata":{"auth_time":1742066279,"user_id":"wolfy-j","user_metadata":{"sf_instance_token":"asd"}},"uptime":"29.009048977s"}    {"pid": "{Antares@app:processes|app.users.relay:user_hub|0x00002}"}
-            --2025-03-15 15:18:29     INFO    hosts   Unhandled message in user hub for wolfy-j : ws.heartbeat {"client_pid":"{Antares@app:gateway|ws:conn|0x00001}","message_count":0,"metadata":{"auth_time":1742066279,"user_id":"wolfy-j","user_metadata":{"sf_instance_token":"asd"}},"uptime":"30.000431237s"}    {"pid": "{Antares@app:processes|app.users.relay:user_hub|0x00002}"}
-            --2025-03-15 15:18:29     INFO    hosts   Received stats from hub for user wolfy-j : clients: 1 messages: 0       {"pid": "{Antares@app:processes|app.users.relay:central_hub|0x00001}"}
-            --2025-03-15 15:18:29     INFO    hosts   Received message from client  for user wolfy-j : "{\"type\":\"ping\"}"  {"pid": "{Antares@app:processes|app.users.relay:user_hub|0x00002}"}
-            --2025-03-15 15:18:30     INFO    hosts   Unhandled message in user hub for wolfy-j : ws.heartbeat {"client_pid":"{Antares@app:gateway|ws:conn|0x00001}","message_count":1,"metadata":{"auth_time":1742066279,"user_id":"wolfy-j","user_metadata":{"sf_instance_token":"asd"}},"uptime":"31.000816944s"}    {"pid": "{Antares@app:processes|app.users.relay:user_hub|0x00002}"}
-            --2025-03-15 15:18:31     INFO    hosts   Unhandled message in user hub for wolfy-j : ws.heartbeat {"client_pid":"{Antares@app:gateway|ws:conn|0x00001}","message_count":1,"metadata":{"auth_time":1742066279,"user_id":"wolfy-j","user_metadata":{"sf_instance_token":"asd"}},"uptime":"32.000467682s"}    {"pid": "{Antares@app:processes|app.users.relay:user_hub|0x00002}
             return state
         end
     }

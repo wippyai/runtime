@@ -52,3 +52,4 @@ entries:
     modules: [ time, json, funcs ]
     imports:
       actor: "wippy.actor:actor"
+      prompt: "wippy.llm:prompt"
