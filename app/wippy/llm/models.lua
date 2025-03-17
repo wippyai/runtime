@@ -1,4 +1,3 @@
--- Models Library - For discovering and managing LLM models
 local registry = require("registry")
 
 -- Main module

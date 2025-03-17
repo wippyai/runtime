@@ -11,7 +11,7 @@ return require("migration").define(function()
                ]])
 
                 if err then
-                    return nil, "Failed to create users table: " .. err
+                    error(err)
                 end
 
                 return true

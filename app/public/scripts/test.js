@@ -56,6 +56,86 @@ const TestCase = {
     }
 };
 
+// Flat Test Item Component
+const FlatTestItem = {
+    template: '#flat-test-item-template',
+    props: {
+        test: {
+            type: Object,
+            required: true
+        },
+        suiteName: {
+            type: String,
+            required: true
+        },
+        opId: {
+            type: String,
+            required: true
+        }
+    },
+    methods: {
+        getStatusClass() {
+            switch (this.test.status) {
+                case 'passed':
+                    return 'status-passed';
+                case 'failed':
+                    return 'status-failed';
+                case 'running':
+                    return 'status-running';
+                case 'error':
+                    return 'status-error';
+                case 'skipped':
+                    return 'status-skipped';
+                default:
+                    return 'status-pending';
+            }
+        },
+        getStatusIcon() {
+            switch (this.test.status) {
+                case 'passed':
+                    return `<svg xmlns="http://www.w3.org/2000/svg" class="icon text-success" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                        </svg>`;
+                case 'failed':
+                    return `<svg xmlns="http://www.w3.org/2000/svg" class="icon text-danger" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                        </svg>`;
+                case 'error':
+                    return `<svg xmlns="http://www.w3.org/2000/svg" class="icon text-warning" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                        </svg>`;
+                case 'running':
+                    return `<svg xmlns="http://www.w3.org/2000/svg" class="icon text-primary animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke-width="4"></circle>
+                            <path class="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>`;
+                case 'skipped':
+                    return `<svg xmlns="http://www.w3.org/2000/svg" class="icon text-neutral" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                        </svg>`;
+                default:
+                    return `<svg xmlns="http://www.w3.org/2000/svg" class="icon text-neutral" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+                        </svg>`;
+            }
+        }
+    }
+};
+
+// Flat Test List Component
+const FlatTestList = {
+    template: '#flat-test-list-template',
+    components: {
+        FlatTestItem
+    },
+    props: {
+        testItems: {
+            type: Array,
+            required: true
+        }
+    }
+};
+
 // Test Suite Component
 const TestSuite = {
     template: '#test-suite-template',
@@ -70,7 +150,7 @@ const TestSuite = {
     },
     data() {
         return {
-            expanded: false // Changed from true to false
+            expanded: false
         };
     },
     methods: {
@@ -78,7 +158,6 @@ const TestSuite = {
             this.expanded = !this.expanded;
         },
         getSuiteHeaderClass() {
-            // Added this method to apply appropriate background color based on suite status
             if (this.suite.failed > 0) {
                 return 'bg-danger-light';
             } else if (this.suite.passed > 0 && this.suite.passed + this.suite.skipped === this.suite.total) {
@@ -116,7 +195,7 @@ const TestOperation = {
     },
     data() {
         return {
-            expanded: false // Changed from true to false
+            expanded: false
         };
     },
     computed: {
@@ -169,7 +248,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const app = Vue.createApp({
         template: '#app-template',
         components: {
-            TestOperation
+            TestOperation,
+            FlatTestList
         },
         data() {
             return {
@@ -182,6 +262,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 globalError: null,
                 testDataByCase: {},
                 darkMode: false,
+                viewMode: 'tree', // 'tree' or 'flat'
+
+                // Sequential run tracking
+                runQueue: [],
+                isRunningSequentially: false,
+                currentRunIndex: 0,
 
                 // Modal state
                 showLogModal: false,
@@ -251,10 +337,36 @@ document.addEventListener('DOMContentLoaded', () => {
             hasMultipleGroups() {
                 // Check if there's more than one group
                 return new Set(Object.values(this.operations).map(op => op.group || 'default')).size > 1;
+            },
+            flatTestItems() {
+                // Create a flat list of all test items
+                const items = [];
+
+                Object.values(this.operations).forEach(op => {
+                    Object.values(op.suites || {}).forEach(suite => {
+                        (suite.tests || []).forEach(test => {
+                            items.push({
+                                opId: op.id,
+                                opName: op.name,
+                                group: op.group,
+                                suite: suite.name,
+                                test: test
+                            });
+                        });
+                    });
+                });
+
+                // Sort by group, then suite, then test name
+                return items.sort((a, b) => {
+                    if (a.group !== b.group) return a.group.localeCompare(b.group);
+                    if (a.suite !== b.suite) return a.suite.localeCompare(b.suite);
+                    return a.test.name.localeCompare(b.test.name);
+                });
             }
         },
         mounted() {
             this.initTheme();
+            this.discoverTests();
         },
         methods: {
             // Theme Management
@@ -274,29 +386,301 @@ document.addEventListener('DOMContentLoaded', () => {
                         this.darkMode = true;
                     }
                 }
+
+                // Check for saved view mode
+                const savedViewMode = localStorage.getItem('viewMode');
+                if (savedViewMode === 'flat' || savedViewMode === 'tree') {
+                    this.viewMode = savedViewMode;
+                }
             },
             toggleTheme() {
                 this.darkMode = !this.darkMode;
                 document.documentElement.classList.toggle('dark', this.darkMode);
                 localStorage.setItem('theme', this.darkMode ? 'dark' : 'light');
             },
+            toggleViewMode() {
+                this.viewMode = this.viewMode === 'tree' ? 'flat' : 'tree';
+                localStorage.setItem('viewMode', this.viewMode);
+            },
+
+            // Test Discovery
+            discoverTests() {
+                this.isLoading = true;
+                this.loadingMessage = 'Discovering tests...';
+
+                fetch('http://localhost:8082/api/v1/test/discover')
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        // Initialize operations from discovery data
+                        (data.tests || []).forEach(op => {
+                            this.operations[op.id] = {
+                                id: op.id,
+                                name: op.name,
+                                group: op.group,
+                                meta: op.meta,
+                                status: 'pending',
+                                suites: {},
+                                passed: 0,
+                                failed: 0,
+                                skipped: 0,
+                                total: 0
+                            };
+                        });
+
+                        this.isLoading = false;
+                    })
+                    .catch(error => {
+                        console.error('Error discovering tests:', error);
+                        this.isLoading = false;
+                        this.globalError = {
+                            message: `Error discovering tests: ${error.message}`,
+                            context: {
+                                timestamp: new Date().toLocaleString(),
+                                error: error.toString()
+                            }
+                        };
+                    });
+            },
+
+            // Sequential Execution Management
+            addToRunQueue(runItem) {
+                this.runQueue.push(runItem);
+                if (!this.isRunningSequentially) {
+                    this.startSequentialRun();
+                }
+            },
+
+            startSequentialRun() {
+                if (this.runQueue.length === 0 || this.isRunningSequentially) return;
+
+                this.isRunningSequentially = true;
+                this.currentRunIndex = 0;
+                this.executeNextInQueue();
+            },
+
+            executeNextInQueue() {
+                if (this.currentRunIndex >= this.runQueue.length) {
+                    this.isRunningSequentially = false;
+                    this.runQueue = [];
+                    return;
+                }
+
+                const runItem = this.runQueue[this.currentRunIndex];
+                console.log(`Executing queue item ${this.currentRunIndex + 1}/${this.runQueue.length}:`, runItem);
+
+                // Execute the appropriate test run based on type
+                switch (runItem.type) {
+                    case 'all':
+                        this.executeRunAll();
+                        break;
+                    case 'specific':
+                        this.executeRunSpecific(runItem.details);
+                        break;
+                    case 'suite':
+                        this.executeRunSuite(runItem.details);
+                        break;
+                    case 'operation':
+                        this.executeRunOperation(runItem.opId);
+                        break;
+                    case 'group':
+                        this.executeRunGroup(runItem.groupName);
+                        break;
+                }
+            },
+
+            onTestRunComplete() {
+                // This is called when a test run is completed
+                this.currentRunIndex++;
+                setTimeout(() => {
+                    this.executeNextInQueue();
+                }, 500); // Small delay before next run
+            },
 
             // Test Execution
             runTests() {
+                this.resetTestState();
+                this.addToRunQueue({ type: 'all' });
+            },
+
+            executeRunAll() {
+                this.resetTestState();
                 this.isLoading = true;
                 this.loadingMessage = 'Initializing tests...';
                 this.startTime = Date.now();
                 this.status = 'running';
+
+                this.fetchTestResults('http://localhost:8082/api/v1/test');
+            },
+
+            runSpecificTest(details) {
+                // Extract test details
+                const {opId, suite, test} = details;
+
+                // Add to run queue
+                this.addToRunQueue({
+                    type: 'specific',
+                    details: details
+                });
+            },
+
+            executeRunSpecific(details) {
+                const {opId, suite, test} = details;
+                const testName = typeof test === 'string' ? test : test.name;
+
+                // Mark this specific test as running
+                if (this.operations[opId] &&
+                    this.operations[opId].suites[suite] &&
+                    this.operations[opId].suites[suite].tests) {
+
+                    const testObj = this.operations[opId].suites[suite].tests.find(t => t.name === testName);
+                    if (testObj) {
+                        testObj.status = 'running';
+                    }
+                }
+
+                // Set the status to running
+                this.status = 'running';
+                this.startTime = Date.now();
+
+                // Build the URL with all necessary parameters
+                let url = `http://localhost:8082/api/v1/test/run?test_id=${encodeURIComponent(opId)}`;
+
+                // Add suite and test parameters if available
+                if (suite) {
+                    url += `&suite=${encodeURIComponent(suite)}`;
+                }
+
+                if (testName) {
+                    url += `&test=${encodeURIComponent(testName)}`;
+                }
+
+                console.log(`Running specific test with URL: ${url}`);
+                this.fetchTestResults(url);
+            },
+
+            runSuiteTests(details) {
+                this.addToRunQueue({
+                    type: 'suite',
+                    details: details
+                });
+            },
+
+            executeRunSuite(details) {
+                const {opId, suite} = details;
+
+                // Mark all tests in this suite as running
+                if (this.operations[opId] && this.operations[opId].suites[suite]) {
+                    this.operations[opId].suites[suite].tests.forEach(test => {
+                        test.status = 'running';
+                    });
+                }
+
+                // Set the status to running
+                this.status = 'running';
+                this.startTime = Date.now();
+
+                // Build the URL with test_id and suite parameters
+                const url = `http://localhost:8082/api/v1/test/run?test_id=${encodeURIComponent(opId)}&suite=${encodeURIComponent(suite)}`;
+                console.log(`Running suite tests with URL: ${url}`);
+                this.fetchTestResults(url);
+            },
+
+            runOperationTests(opId) {
+                this.addToRunQueue({
+                    type: 'operation',
+                    opId: opId
+                });
+            },
+
+            executeRunOperation(opId) {
+                // Mark all tests in this operation as running
+                if (this.operations[opId]) {
+                    Object.values(this.operations[opId].suites).forEach(suite => {
+                        suite.tests.forEach(test => {
+                            test.status = 'running';
+                        });
+                    });
+
+                    // Also mark the operation as running
+                    this.operations[opId].status = 'running';
+                }
+
+                // Set the status to running
+                this.status = 'running';
+                this.startTime = Date.now();
+
+                // Build the URL with test_id parameter
+                const url = `http://localhost:8082/api/v1/test/run?test_id=${encodeURIComponent(opId)}`;
+                this.fetchTestResults(url);
+            },
+
+            runGroupTests(groupName) {
+                this.addToRunQueue({
+                    type: 'group',
+                    groupName: groupName
+                });
+            },
+
+            executeRunGroup(groupName) {
+                // Mark all tests in this group as running
+                Object.values(this.operations).forEach(op => {
+                    if (op.group === groupName) {
+                        Object.values(op.suites).forEach(suite => {
+                            suite.tests.forEach(test => {
+                                test.status = 'running';
+                            });
+                        });
+
+                        // Also mark the operation as running
+                        op.status = 'running';
+                    }
+                });
+
+                // Set the status to running
+                this.status = 'running';
+                this.startTime = Date.now();
+
+                // Build the URL with group parameter
+                const url = `http://localhost:8082/api/v1/test/run?group=${encodeURIComponent(groupName)}`;
+                this.fetchTestResults(url);
+            },
+
+            resetTestState() {
                 this.globalError = null;
-                this.operations = {};
                 this.testDataByCase = {};
                 this.stats = {passed: 0, failed: 0, skipped: 0, total: 0, completed: 0};
                 this.activeTestId = null;
 
-                this.fetchTestResults();
+                // Reset all test statuses to pending, but keep the structure
+                Object.values(this.operations).forEach(op => {
+                    op.status = 'pending';
+                    op.passed = 0;
+                    op.failed = 0;
+                    op.skipped = 0;
+                    op.total = 0;
+
+                    Object.values(op.suites || {}).forEach(suite => {
+                        suite.passed = 0;
+                        suite.failed = 0;
+                        suite.skipped = 0;
+                        suite.total = 0;
+
+                        (suite.tests || []).forEach(test => {
+                            test.status = 'pending';
+                            test.error = null;
+                            test.duration = null;
+                        });
+                    });
+                });
             },
-            fetchTestResults() {
-                fetch('http://localhost:8082/api/v1/test')
+
+            fetchTestResults(url) {
+                fetch(url)
                     .then(response => {
                         if (!response.ok) {
                             throw new Error(`HTTP error! status: ${response.status}`);
@@ -318,29 +702,47 @@ document.addEventListener('DOMContentLoaded', () => {
                                 error: error.toString()
                             }
                         };
+                        // Notify that the run is complete even if there was an error
+                        this.onTestRunComplete();
                     });
             },
+
             async processStream(reader, decoder) {
                 try {
+                    let buffer = ''; // Buffer for incomplete JSON strings
+
                     while (true) {
                         const {done, value} = await reader.read();
 
                         if (done) {
+                            // Process any remaining data in the buffer
+                            if (buffer.trim()) {
+                                try {
+                                    const data = JSON.parse(buffer);
+                                    this.processTestEvent(data);
+                                } catch (e) {
+                                    console.error('Error parsing remaining JSON:', e, buffer);
+                                }
+                            }
+
                             this.finishTestRun();
+                            this.onTestRunComplete();
                             break;
                         }
 
                         const chunk = decoder.decode(value, {stream: true});
-                        const lines = chunk.split('\n');
+                        buffer += chunk;
 
-                        for (const line of lines) {
-                            if (line.trim()) {
-                                try {
-                                    const data = JSON.parse(line);
-                                    this.processTestEvent(data);
-                                } catch (e) {
-                                    console.error('Error parsing JSON:', e, line);
-                                }
+                        // Process complete JSON objects
+                        const objects = this.extractJsonObjects(buffer);
+                        buffer = objects.remainder;
+
+                        for (const jsonStr of objects.complete) {
+                            try {
+                                const data = JSON.parse(jsonStr);
+                                this.processTestEvent(data);
+                            } catch (e) {
+                                console.error('Error parsing JSON:', e, jsonStr);
                             }
                         }
                     }
@@ -354,9 +756,46 @@ document.addEventListener('DOMContentLoaded', () => {
                             error: error.toString()
                         }
                     };
+                    this.onTestRunComplete();
                 } finally {
                     this.isLoading = false;
                 }
+            },
+
+            // More robust JSON extraction for streaming data
+            extractJsonObjects(str) {
+                const result = {
+                    complete: [],
+                    remainder: ''
+                };
+
+                let depth = 0;
+                let startPos = -1;
+
+                for (let i = 0; i < str.length; i++) {
+                    const char = str[i];
+
+                    if (char === '{') {
+                        if (depth === 0) {
+                            startPos = i;
+                        }
+                        depth++;
+                    } else if (char === '}') {
+                        depth--;
+                        if (depth === 0 && startPos !== -1) {
+                            // We have a complete JSON object
+                            result.complete.push(str.substring(startPos, i + 1));
+                            startPos = -1;
+                        }
+                    }
+                }
+
+                // Store the remainder
+                if (startPos !== -1) {
+                    result.remainder = str.substring(startPos);
+                }
+
+                return result;
             },
 
             // Event Processing
@@ -370,13 +809,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.processLegacyEvent(data);
                 }
             },
+
             processNewProtocolEvent(data) {
                 // Extract event type and data from the new protocol format
                 const eventType = data.type;
                 const eventData = data.data || {};
 
                 // Use test_id from event data if available, otherwise use ref_id
-                const testId = eventData.test_id || eventData.ref_id;
+                const testId = eventData.test_id || eventData.ref_id || eventData.id;
 
                 if (testId) {
                     // Use this test_id for the current operation if needed
@@ -464,15 +904,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         break;
 
                     case 'test:complete':
-                        this.updateFinalSummary({
-                            tests_passed: eventData.passed,
-                            tests_failed: eventData.failed,
-                            tests_skipped: eventData.skipped,
-                            total: eventData.total,
-                            status: eventData.status
-                        });
-
-                        // Also update the operation status
+                        // Update operation status with summary data
                         if (this.activeTestId && this.operations[this.activeTestId]) {
                             this.handleOperationEnd({
                                 id: this.activeTestId,
@@ -528,8 +960,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         // Mark running tests as errored
                         this.markRunningTestsAsErrored(eventData.message);
                         break;
+
+                    case 'test:debug':
+                        // Log debug messages but don't process them
+                        console.log('Debug:', eventData);
+                        break;
                 }
             },
+
             processLegacyEvent(data) {
                 // Process based on legacy event type
                 switch (data.event) {
@@ -576,22 +1014,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Event Handlers
             updateGlobalStats(data) {
-                if (data.total) {
+                if (data.total !== undefined) {
                     this.stats.total = data.total;
                 }
-                if (data.completed) {
+                if (data.completed !== undefined) {
                     this.stats.completed = data.completed;
                 }
-                if (data.failed) {
+                if (data.failed !== undefined) {
                     this.stats.failed = data.failed;
                     if (data.failed > 0) {
                         this.status = 'failed';
                     }
                 }
-                if (data.passed) {
+                if (data.passed !== undefined) {
                     this.stats.passed = data.passed;
                 }
-                if (data.skipped) {
+                if (data.skipped !== undefined) {
                     this.stats.skipped = data.skipped;
                 }
 
@@ -602,25 +1040,29 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.status = 'failed';
                 }
             },
+
             handleTestDiscovery(data) {
                 this.isLoading = false;
 
                 // Initialize operations from discovery data
                 (data.tests || []).forEach(op => {
-                    this.operations[op.id] = {
-                        id: op.id,
-                        name: op.name,
-                        group: op.group,
-                        meta: op.meta,
-                        status: 'pending',
-                        suites: {},
-                        passed: 0,
-                        failed: 0,
-                        skipped: 0,
-                        total: 0
-                    };
+                    if (!this.operations[op.id]) {
+                        this.operations[op.id] = {
+                            id: op.id,
+                            name: op.name,
+                            group: op.group,
+                            meta: op.meta,
+                            status: 'pending',
+                            suites: {},
+                            passed: 0,
+                            failed: 0,
+                            skipped: 0,
+                            total: 0
+                        };
+                    }
                 });
             },
+
             handleOperationStart(data) {
                 const id = data.id || data.ref_id;
                 const name = data.name;
@@ -648,6 +1090,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     };
                 }
             },
+
             handleTestPlan(data) {
                 const opId = data.test_id || data.ref_id || this.activeTestId;
 
@@ -655,31 +1098,82 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
+                // Reset operation counters for the new test plan
+                this.operations[opId].passed = 0;
+                this.operations[opId].failed = 0;
+                this.operations[opId].skipped = 0;
+                this.operations[opId].total = 0;
+
                 // Initialize suites for this operation
                 (data.suites || []).forEach(suite => {
                     const suiteName = suite.name;
 
+                    // Create suite if it doesn't exist
                     if (!this.operations[opId].suites[suiteName]) {
                         this.operations[opId].suites[suiteName] = {
                             name: suiteName,
-                            tests: (suite.tests || []).map(test => ({
-                                name: test.name,
-                                status: test.skipped ? 'skipped' : 'pending',
-                                duration: null,
-                                error: null
-                            })),
+                            tests: [],
                             passed: 0,
                             failed: 0,
                             skipped: 0,
-                            total: (suite.tests || []).length
+                            total: 0
                         };
                     }
 
-                    // Update operation total
-                    this.operations[opId].total += (suite.tests || []).length;
-                    this.stats.total += (suite.tests || []).length;
+                    // Reset suite counters
+                    this.operations[opId].suites[suiteName].passed = 0;
+                    this.operations[opId].suites[suiteName].failed = 0;
+                    this.operations[opId].suites[suiteName].skipped = 0;
+                    this.operations[opId].suites[suiteName].total = 0;
+
+                    // Add or update tests in suite
+                    suite.tests.forEach(planTest => {
+                        let foundTest = this.operations[opId].suites[suiteName].tests.find(
+                            t => t.name === planTest.name
+                        );
+
+                        if (foundTest) {
+                            // Reset existing test
+                            foundTest.status = planTest.skipped ? 'skipped' : 'pending';
+                            foundTest.error = null;
+                            foundTest.duration = null;
+
+                            // Update skipped count if needed
+                            if (planTest.skipped) {
+                                this.operations[opId].suites[suiteName].skipped++;
+                                this.operations[opId].skipped++;
+                            }
+                        } else {
+                            // Add new test
+                            this.operations[opId].suites[suiteName].tests.push({
+                                name: planTest.name,
+                                status: planTest.skipped ? 'skipped' : 'pending',
+                                duration: null,
+                                error: null
+                            });
+
+                            // Update skipped count if needed
+                            if (planTest.skipped) {
+                                this.operations[opId].suites[suiteName].skipped++;
+                                this.operations[opId].skipped++;
+                            }
+                        }
+
+                        // Update total count
+                        this.operations[opId].suites[suiteName].total++;
+                        this.operations[opId].total++;
+                    });
                 });
+
+                // Only add to global total for new tests to avoid double counting
+                this.stats.total = Object.values(this.operations).reduce(
+                    (sum, op) => sum + op.total, 0
+                );
+                this.stats.skipped = Object.values(this.operations).reduce(
+                    (sum, op) => sum + op.skipped, 0
+                );
             },
+
             handleTestCase(data) {
                 const testId = data.test_id || data.ref_id || this.activeTestId;
                 const {suite, test, status, error, duration} = data;
@@ -716,91 +1210,220 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.operations[testId].total++;
                 }
 
-                // Update test status
+                // Store previous status for counter adjustment
                 const prevStatus = testItem.status;
+
+                // Update test status
                 testItem.status = status;
-                testItem.error = error;
+
+                if (error !== undefined) {
+                    testItem.error = error;
+                }
 
                 if (duration !== undefined) {
                     testItem.duration = duration;
                 }
 
-                // Update suite counters only if status changed to a final state
+                // Only update counters if transitioning to a final state and not already in that state
                 if (status === 'passed' && prevStatus !== 'passed') {
+                    // Remove from other counters if needed
+                    if (prevStatus === 'failed') {
+                        this.operations[testId].suites[suite].failed--;
+                        this.operations[testId].failed--;
+                        this.stats.failed--;
+                    } else if (prevStatus === 'skipped') {
+                        this.operations[testId].suites[suite].skipped--;
+                        this.operations[testId].skipped--;
+                        this.stats.skipped--;
+                    }
+
+                    // Add to passed counter
                     this.operations[testId].suites[suite].passed++;
                     this.operations[testId].passed++;
                     this.stats.passed++;
-                    this.stats.completed++;
-                } else if (status === 'failed' && prevStatus !== 'failed') {
+
+                    // Only increment completed if not already in a final state
+                    if (prevStatus !== 'failed' && prevStatus !== 'skipped') {
+                        this.stats.completed++;
+                    }
+                }
+                else if (status === 'failed' && prevStatus !== 'failed') {
+                    // Remove from other counters if needed
+                    if (prevStatus === 'passed') {
+                        this.operations[testId].suites[suite].passed--;
+                        this.operations[testId].passed--;
+                        this.stats.passed--;
+                    } else if (prevStatus === 'skipped') {
+                        this.operations[testId].suites[suite].skipped--;
+                        this.operations[testId].skipped--;
+                        this.stats.skipped--;
+                    }
+
+                    // Add to failed counter
                     this.operations[testId].suites[suite].failed++;
                     this.operations[testId].failed++;
                     this.stats.failed++;
-                    this.stats.completed++;
                     this.status = 'failed';
-                } else if (status === 'skipped' && prevStatus !== 'skipped') {
+
+                    // Only increment completed if not already in a final state
+                    if (prevStatus !== 'passed' && prevStatus !== 'skipped') {
+                        this.stats.completed++;
+                    }
+                }
+                else if (status === 'skipped' && prevStatus !== 'skipped') {
+                    // Remove from other counters if needed
+                    if (prevStatus === 'passed') {
+                        this.operations[testId].suites[suite].passed--;
+                        this.operations[testId].passed--;
+                        this.stats.passed--;
+                    } else if (prevStatus === 'failed') {
+                        this.operations[testId].suites[suite].failed--;
+                        this.operations[testId].failed--;
+                        this.stats.failed--;
+                    }
+
+                    // Add to skipped counter
                     this.operations[testId].suites[suite].skipped++;
                     this.operations[testId].skipped++;
                     this.stats.skipped++;
-                    this.stats.completed++;
+
+                    // Only increment completed if not already in a final state
+                    if (prevStatus !== 'passed' && prevStatus !== 'failed') {
+                        this.stats.completed++;
+                    }
+                }
+
+                // If final status achieved for all tests in suite, update suite status
+                const suite_obj = this.operations[testId].suites[suite];
+                if (suite_obj.passed + suite_obj.failed + suite_obj.skipped === suite_obj.total) {
+                    if (suite_obj.failed > 0) {
+                        // At least one test failed
+                        suite_obj.status = 'failed';
+                    } else {
+                        // All tests passed or were skipped
+                        suite_obj.status = 'passed';
+                    }
+                } else {
+                    // Still tests running or pending
+                    suite_obj.status = 'running';
                 }
             },
+
             handleOperationEnd(data) {
                 const {id, status, passed, failed, skipped, total} = data;
                 const opId = id || this.activeTestId;
 
-                if (this.operations[opId]) {
-                    this.operations[opId].status = status || 'completed';
-
-                    // Only update these if provided
-                    if (passed !== undefined) this.operations[opId].passed = passed;
-                    if (failed !== undefined) this.operations[opId].failed = failed;
-                    if (skipped !== undefined) this.operations[opId].skipped = skipped;
-                    if (total !== undefined) this.operations[opId].total = total;
-
-                    // Update overall status if any operation failed
-                    if (failed > 0) {
-                        this.status = 'failed';
-                    }
-                }
-            },
-            updateOperationResult(opId, result) {
-                // Update duration if available
-                if (result.duration_ms && this.operations[opId]) {
-                    this.operations[opId].duration = result.duration_ms / 1000;
+                if (!this.operations[opId]) {
+                    return;
                 }
 
-                // Update operation status based on result
-                if (result.failed_tests > 0) {
+                // Calculate final status
+                let finalStatus = status || 'completed';
+                if (failed > 0) {
+                    finalStatus = 'failed';
+                } else if ((passed + skipped) > 0 && (passed + skipped) === total) {
+                    finalStatus = 'passed';
+                }
+
+                // Update operation with final status and metrics
+                this.operations[opId].status = finalStatus;
+
+                // Only update counters if provided and different
+                if (passed !== undefined && this.operations[opId].passed !== passed) {
+                    this.operations[opId].passed = passed;
+                }
+
+                if (failed !== undefined && this.operations[opId].failed !== failed) {
+                    this.operations[opId].failed = failed;
+                }
+
+                if (skipped !== undefined && this.operations[opId].skipped !== skipped) {
+                    this.operations[opId].skipped = skipped;
+                }
+
+                if (total !== undefined && this.operations[opId].total !== total) {
+                    this.operations[opId].total = total;
+                }
+
+                // Update global status if any operation failed
+                if (failed > 0 || finalStatus === 'failed') {
                     this.status = 'failed';
                 }
             },
+
+            updateOperationResult(opId, result) {
+                if (!this.operations[opId]) return;
+
+                // Update duration if available
+                if (result.duration_ms) {
+                    this.operations[opId].duration = result.duration_ms / 1000;
+                }
+
+                // Update operation status and counters from result
+                if (result.failed_tests !== undefined) {
+                    this.operations[opId].failed = result.failed_tests;
+                    if (result.failed_tests > 0) {
+                        this.operations[opId].status = 'failed';
+                        this.status = 'failed';
+                    }
+                }
+
+                if (result.passed_tests !== undefined) {
+                    this.operations[opId].passed = result.passed_tests;
+                }
+
+                if (result.skipped_tests !== undefined) {
+                    this.operations[opId].skipped = result.skipped_tests;
+                }
+
+                if (result.total_tests !== undefined) {
+                    this.operations[opId].total = result.total_tests;
+                }
+            },
+
             updateFinalSummary(data) {
                 const failedTests = data.tests_failed || data.failed || 0;
+                const passedTests = data.tests_passed || data.passed || 0;
+                const skippedTests = data.tests_skipped || data.skipped || 0;
+                const totalTests = data.total || passedTests + failedTests + skippedTests || 0;
 
                 // Always update status based on tests_failed, not just status field
                 if (failedTests > 0) {
                     this.status = 'failed';
-                } else if (this.status !== 'failed') {
+                } else if (this.status !== 'failed' && passedTests + skippedTests === totalTests) {
                     // Only set to passed if we don't already know it failed
+                    // and all tests have concluded
                     this.status = 'passed';
                 }
             },
+
             markRunningTestsAsErrored(errorMessage) {
                 // For each operation
                 Object.values(this.operations).forEach(operation => {
+                    if (operation.status === 'running') {
+                        operation.status = 'error';
+                    }
+
                     // For each suite in the operation
                     Object.values(operation.suites).forEach(suite => {
                         // Check all running tests in this suite
                         suite.tests.forEach(test => {
                             if (test.status === 'running') {
-                                test.status = 'error';
-                                test.error = errorMessage;
+                                // Only update counters if this is the first time marking as error
+                                if (test.status !== 'error') {
+                                    test.status = 'error';
+                                    test.error = errorMessage;
 
-                                // Update counters
-                                suite.failed++;
-                                operation.failed++;
-                                this.stats.failed++;
-                                this.stats.completed++;
+                                    // Update counters
+                                    suite.failed++;
+                                    operation.failed++;
+                                    this.stats.failed++;
+                                    this.stats.completed++;
+                                } else {
+                                    // Just update status without changing counters
+                                    test.status = 'error';
+                                    test.error = errorMessage;
+                                }
 
                                 // Mark status as failed
                                 this.status = 'failed';
@@ -809,6 +1432,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 });
             },
+
             finishTestRun() {
                 // Make sure status is correct based on pass/fail counts
                 if (this.stats.failed > 0) {
@@ -816,52 +1440,104 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (this.stats.total > 0 && this.stats.completed >= this.stats.total) {
                     this.status = 'passed';
                 }
+
+                // Mark any remaining "running" tests as errored
+                Object.values(this.operations).forEach(operation => {
+                    if (operation.status === 'running') {
+                        operation.status = operation.failed > 0 ? 'failed' : 'completed';
+                    }
+
+                    Object.values(operation.suites).forEach(suite => {
+                        suite.tests.forEach(test => {
+                            if (test.status === 'running') {
+                                // Only update if not already in error state
+                                if (test.status !== 'error') {
+                                    test.status = 'error';
+                                    test.error = 'Test did not complete properly';
+
+                                    // Update counters
+                                    suite.failed++;
+                                    operation.failed++;
+                                    this.stats.failed++;
+                                    this.stats.completed++;
+                                    this.status = 'failed';
+                                }
+                            }
+                        });
+                    });
+                });
             },
 
             // UI Helper Methods
             showTestDetails(details) {
                 const {opId, suite, test} = details;
-                const testId = `${opId}:${suite}:${test.name}`;
+                let testName, testObj;
+
+                if (typeof test === 'string') {
+                    testName = test;
+                } else {
+                    testName = test.name;
+                    testObj = test;
+                }
+
+                const testId = `${opId}:${suite}:${testName}`;
                 const events = this.testDataByCase[testId] || [];
 
-                this.logModalTitle = `${suite} - ${test.name}`;
+                this.logModalTitle = `${suite} - ${testName}`;
 
                 // Format the log content
                 let logText = '';
-                events.forEach(event => {
-                    const timestamp = new Date(event.time * 1000).toLocaleTimeString();
-                    let statusText = event.status;
+                if (events.length > 0) {
+                    events.forEach(event => {
+                        const timestamp = new Date(event.time * 1000).toLocaleTimeString();
+                        let statusText = event.status;
 
-                    if (statusText === 'passed') {
-                        statusText = '✅ PASSED';
-                    } else if (statusText === 'failed') {
-                        statusText = '❌ FAILED';
-                    } else if (statusText === 'running') {
-                        statusText = '🔄 RUNNING';
-                    } else if (statusText === 'error') {
-                        statusText = '⚠️ ERROR';
-                    } else if (statusText === 'skipped') {
-                        statusText = '⏭️ SKIPPED';
+                        if (statusText === 'passed') {
+                            statusText = '✅ PASSED';
+                        } else if (statusText === 'failed') {
+                            statusText = '❌ FAILED';
+                        } else if (statusText === 'running') {
+                            statusText = '🔄 RUNNING';
+                        } else if (statusText === 'error') {
+                            statusText = '⚠️ ERROR';
+                        } else if (statusText === 'skipped') {
+                            statusText = '⏭️ SKIPPED';
+                        }
+
+                        logText += `[${timestamp}] ${statusText}\n`;
+
+                        if (event.error) {
+                            logText += `ERROR: ${event.error}\n`;
+                        }
+
+                        if (event.duration) {
+                            logText += `Duration: ${event.duration.toFixed(3)}s\n`;
+                        }
+
+                        logText += '\n';
+                    });
+                } else if (testObj && testObj.error) {
+                    // If we don't have event logs but we do have an error on the test object
+                    logText = `ERROR: ${testObj.error}\n\n`;
+                    if (testObj.duration) {
+                        logText += `Duration: ${testObj.duration.toFixed(3)}s\n`;
                     }
+                } else {
+                    logText = 'No detailed log available for this test.';
+                }
 
-                    logText += `[${timestamp}] ${statusText}\n`;
-
-                    if (event.error) {
-                        logText += `ERROR: ${event.error}\n`;
-                    }
-
-                    if (event.duration) {
-                        logText += `Duration: ${event.duration.toFixed(3)}s\n`;
-                    }
-
-                    logText += '\n';
-                });
-
-                this.logContent = logText || 'No detailed log available for this test.';
+                this.logContent = logText;
                 this.showLogModal = true;
             }
         }
     });
+
+    // Register the components
+    app.component('TestOperation', TestOperation);
+    app.component('TestSuite', TestSuite);
+    app.component('TestCase', TestCase);
+    app.component('FlatTestList', FlatTestList);
+    app.component('FlatTestItem', FlatTestItem);
 
     // Mount the app
     app.mount('#app');

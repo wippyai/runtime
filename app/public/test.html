@@ -12,7 +12,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
 
     <!-- Existing CSS -->
-    <link rel="stylesheet" href="../../app/public/styles/dashboard.css">
+    <link rel="stylesheet" href="/styles/dashboard.css">
 </head>
 <body>
 <div id="app" class="container mx-auto p-4 max-w-6xl">
@@ -39,10 +39,51 @@
                               clip-rule="evenodd"/>
                     </svg>
                 </button>
+                <button class="run-test-btn p-1 text-tertiary hover:text-primary"
+                        :disabled="test.status === 'running'"
+                        @click.stop="$emit('run-test', test)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="icon-sm" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd"
+                              d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                              clip-rule="evenodd"/>
+                    </svg>
+                </button>
             </div>
         </div>
         <div class="mt-2 p-2 bg-danger-light text-danger rounded text-sm" v-if="test.error">
             <pre class="error-pre">{{ test.error }}</pre>
+        </div>
+    </div>
+</script>
+
+<!-- Flat Test Item Component -->
+<script type="text/x-template" id="flat-test-item-template">
+    <div :class="['test-item', getStatusClass()]">
+        <div class="flex items-center gap-2 overflow-hidden">
+            <span v-html="getStatusIcon()"></span>
+            <span class="test-name overflow-hidden text-ellipsis">{{ test.name }}</span>
+        </div>
+        <div class="test-group">{{ suiteName }}</div>
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-tertiary" v-if="test.duration">{{ test.duration.toFixed(3) }}s</span>
+            <button class="btn btn-icon text-tertiary hover:text-secondary"
+                    v-if="test.error || test.status === 'error'"
+                    @click.stop="$emit('view-details', test)">
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon-sm" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                          d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2h-1V9a1 1 0 00-1-1z"
+                          clip-rule="evenodd"/>
+                </svg>
+            </button>
+            <button class="btn btn-icon text-tertiary hover:text-primary"
+                    :disabled="test.status === 'running'"
+                    @click.stop="$emit('run-test', {test: test, suite: suiteName, opId: opId})">
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon-sm" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                          d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                          clip-rule="evenodd"/>
+                </svg>
+            </button>
         </div>
     </div>
 </script>
@@ -53,17 +94,17 @@
         <!-- Suite Header -->
         <div :class="['p-3 cursor-pointer', getSuiteHeaderClass()]" @click="toggleExpanded">
             <div class="flex justify-between items-center">
-                <div class="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="icon transition-transform"
-                         :class="{'rotate-180': expanded}" viewBox="0 0 20 20" fill="currentColor">
+                <div class="flex items-center gap-2 flex-1 overflow-hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="icon test-toggle-btn"
+                         :class="{'expanded': expanded}" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd"
                               d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
                               clip-rule="evenodd"/>
                     </svg>
                     <div :class="getStatusDotClass()"></div>
-                    <h3 class="font-medium">{{ suite.name }}</h3>
+                    <h3 class="font-medium truncate">{{ suite.name }}</h3>
                 </div>
-                <div class="flex gap-3">
+                <div class="flex gap-3 items-center">
                     <div class="test-summary-badge">
                         <div class="test-summary-dot test-summary-dot-passed"></div>
                         <span>{{ suite.passed }}</span>
@@ -76,6 +117,16 @@
                         <div class="test-summary-dot test-summary-dot-skipped"></div>
                         <span>{{ suite.skipped }}</span>
                     </div>
+                    <button class="btn btn-sm btn-secondary ml-2"
+                            :disabled="isRunningSequentially"
+                            @click.stop="$emit('run-suite', suite.name)">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="icon-sm" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd"
+                                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                                  clip-rule="evenodd"/>
+                        </svg>
+                        Run
+                    </button>
                 </div>
             </div>
         </div>
@@ -86,7 +137,8 @@
                     v-for="test in suite.tests"
                     :key="test.name"
                     :test="test"
-                    @view-details="$emit('view-details', { suite: suite.name, test: test })">
+                    @view-details="$emit('view-details', { suite: suite.name, test: test })"
+                    @run-test="$emit('run-test', { suite: suite.name, test: test })">
             </test-case>
         </div>
     </div>
@@ -97,16 +149,16 @@
     <div class="panel mb-4 overflow-hidden">
         <!-- Operation Header -->
         <div :class="['panel-header cursor-pointer', getHeaderClass()]" @click="toggleExpanded">
-            <div class="flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="icon transition-transform"
-                     :class="{'rotate-180': expanded}" viewBox="0 0 20 20" fill="currentColor">
+            <div class="flex items-center gap-2 flex-1 overflow-hidden">
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon test-toggle-btn"
+                     :class="{'expanded': expanded}" viewBox="0 0 20 20" fill="currentColor">
                     <path fill-rule="evenodd"
                           d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
                           clip-rule="evenodd"/>
                 </svg>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 overflow-hidden">
                     <div :class="getStatusDotClass()"></div>
-                    <h2 class="font-semibold">{{ operation.name }}</h2>
+                    <h2 class="font-semibold truncate">{{ operation.name }}</h2>
                 </div>
             </div>
             <div class="flex gap-3 items-center">
@@ -124,6 +176,16 @@
                 </div>
                 <span class="text-xs text-tertiary"
                       v-if="operation.duration">{{ operation.duration.toFixed(2) }}s</span>
+                <button class="btn btn-sm btn-secondary ml-2"
+                        :disabled="isRunningSequentially"
+                        @click.stop="$emit('run-operation', operation.id)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="icon-sm" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd"
+                              d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                              clip-rule="evenodd"/>
+                    </svg>
+                    Run
+                </button>
             </div>
         </div>
 
@@ -139,8 +201,63 @@
                     v-for="suite in sortedSuites"
                     :key="suite.name"
                     :suite="suite"
-                    @view-test-details="details => $emit('view-test-details', { opId: operation.id, ...details })">
+                    :is-running-sequentially="isRunningSequentially"
+                    @view-details="details => $emit('view-test-details', { opId: operation.id, ...details })"
+                    @run-test="details => $emit('run-test', { opId: operation.id, ...details })"
+                    @run-suite="suiteName => $emit('run-suite', { opId: operation.id, suite: suiteName })">
             </test-suite>
+        </div>
+    </div>
+</script>
+
+<!-- Flat Test List Component -->
+<script type="text/x-template" id="flat-test-list-template">
+    <div class="panel mb-4">
+        <div class="panel-header">
+            <h2 class="font-semibold">All Tests</h2>
+            <div class="flex items-center gap-2">
+                <button class="btn btn-sm btn-secondary"
+                        :disabled="isRunningSequentially"
+                        @click="$emit('run-all')">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="icon-sm" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd"
+                              d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                              clip-rule="evenodd"/>
+                    </svg>
+                    Run All
+                </button>
+            </div>
+        </div>
+        <div class="flat-test-list">
+            <flat-test-item
+                    v-for="item in testItems"
+                    :key="`${item.opId}-${item.suite}-${item.test.name}`"
+                    :test="item.test"
+                    :suite-name="item.suite"
+                    :op-id="item.opId"
+                    @view-details="$emit('view-details', item)"
+                    @run-test="$emit('run-test', item)">
+            </flat-test-item>
+        </div>
+    </div>
+</script>
+
+<!-- Queue Status Component -->
+<script type="text/x-template" id="queue-status-template">
+    <div v-if="runQueue.length > 0" class="fixed bottom-4 right-4 bg-panel shadow-lg rounded-lg p-3 z-30">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold">Test Queue</h3>
+            <button class="text-tertiary hover:text-danger" @click="$emit('clear-queue')">
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon-sm" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+            </button>
+        </div>
+        <div class="text-sm mb-2">
+            <span>{{ currentRunIndex + 1 }}/{{ runQueue.length }} running</span>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" :style="{ width: `${(currentRunIndex / runQueue.length) * 100}%` }"></div>
         </div>
     </div>
 </script>
@@ -151,6 +268,12 @@
         <div class="flex justify-between items-center">
             <h1 class="text-2xl font-bold">Test Dashboard</h1>
             <div class="flex gap-2">
+                <button class="btn btn-secondary" @click="toggleViewMode">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="icon" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M2 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1H3a1 1 0 01-1-1V4zM8 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1H9a1 1 0 01-1-1V4zM15 3a1 1 0 00-1 1v12a1 1 0 001 1h2a1 1 0 001-1V4a1 1 0 00-1-1h-2z"/>
+                    </svg>
+                    {{ viewMode === 'tree' ? 'Flat View' : 'Tree View' }}
+                </button>
                 <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode" @click="toggleTheme">
                     <svg v-if="darkMode" xmlns="http://www.w3.org/2000/svg" class="icon" viewBox="0 0 20 20"
                          fill="currentColor">
@@ -162,7 +285,9 @@
                         <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
                     </svg>
                 </button>
-                <button id="run-tests-btn" class="btn btn-primary" @click="runTests">
+                <button id="run-tests-btn" class="btn btn-primary"
+                        :disabled="isRunningSequentially"
+                        @click="runTests">
                     <svg xmlns="http://www.w3.org/2000/svg" class="icon" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd"
                               d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
@@ -177,6 +302,9 @@
                 <div class="status-bar-item">
                     <div :class="statusDotClass"></div>
                     <span>{{ statusMessage }}</span>
+                    <span v-if="isRunningSequentially" class="queue-indicator">
+                        Queue: {{ currentRunIndex + 1 }}/{{ runQueue.length }}
+                    </span>
                 </div>
                 <div class="status-bar-item">
                     <svg xmlns="http://www.w3.org/2000/svg" class="icon" viewBox="0 0 20 20" fill="currentColor">
@@ -267,23 +395,58 @@
             No test data available. Click "Run Tests" to start.
         </div>
 
-        <!-- Test Operations Container -->
+        <!-- Flat view mode -->
+        <div v-else-if="viewMode === 'flat'">
+            <flat-test-list
+                    :test-items="flatTestItems"
+                    :is-running-sequentially="isRunningSequentially"
+                    @view-details="showTestDetails"
+                    @run-test="runSpecificTest"
+                    @run-all="runTests">
+            </flat-test-list>
+        </div>
+
+        <!-- Tree view mode -->
         <div v-else>
             <!-- Group by test group -->
             <div v-for="[group, groupOperations] in sortedOperationGroups" :key="group">
                 <!-- Group Header (only show if multiple groups) -->
-                <div class="px-4 py-2 bg-bg-hover font-semibold mb-2" v-if="hasMultipleGroups">{{ group }}</div>
+                <div class="group-header mb-2" v-if="hasMultipleGroups">
+                    <span>{{ group }}</span>
+                    <button class="btn btn-sm btn-secondary"
+                            :disabled="isRunningSequentially"
+                            @click="runGroupTests(group)">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="icon-sm" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd"
+                                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                                  clip-rule="evenodd"/>
+                        </svg>
+                        Run Group
+                    </button>
+                </div>
 
                 <!-- Operations in this group -->
                 <test-operation
                         v-for="op in groupOperations"
                         :key="op.id"
                         :operation="op"
-                        @view-test-details="showTestDetails">
+                        :is-running-sequentially="isRunningSequentially"
+                        @view-test-details="showTestDetails"
+                        @run-test="runSpecificTest"
+                        @run-suite="runSuiteTests"
+                        @run-operation="runOperationTests">
                 </test-operation>
             </div>
         </div>
     </main>
+
+    <!-- Queue Status Indicator -->
+    <queue-status-template
+            v-if="isRunningSequentially"
+            :run-queue="runQueue"
+            :current-run-index="currentRunIndex"
+            @clear-queue="clearRunQueue">
+    </queue-status-template>
 
     <!-- Log modal -->
     <div id="log-modal" class="modal-overlay" v-if="showLogModal" @click.self="showLogModal = false">
@@ -346,6 +509,6 @@
 </script>
 
 <!-- External JS file -->
-<script src="../../app/public/scripts/test.js"></script>
+<script src="/scripts/test.js"></script>
 </body>
 </html>
