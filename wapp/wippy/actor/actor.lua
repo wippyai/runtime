@@ -132,6 +132,7 @@ function actor.new(initial_state, handlers, proc)
         while true do
             local result = channel.select(select_cases)
             if not result.ok then
+                -- todo: not really
                 break
             end
 

@@ -55,6 +55,7 @@ local function run(args)
         llm_model = llm_model,
         llm_provider = llm_provider,
         system_prompt = "You are a helpful AI assistant.",
+        active_llm_tasks = {}, -- Track active LLM tasks
         total_tokens = {
             prompt = 0,
             completion = 0,
@@ -114,80 +115,91 @@ local function run(args)
             -- Initialize prompt builder with system message
             state.prompt_builder:add_system(state.system_prompt)
 
-            -- Register the LLM response topic handler
-            state.add_handler(LLM_RESPONSE_TOPIC, function(s, payload)
-                -- Check payload type and forward appropriately
-                if type(payload) == "table" then
-                    if payload.type == "content" and payload.content then
-                        -- Content chunk
-                        broadcast_to_clients(s, UPDATE_TOPIC, {
-                            type = "content",
-                            content = payload.content
-                        })
-                    elseif payload.type == "thinking" and payload.thinking then
-                        -- Thinking output
-                        broadcast_to_clients(s, UPDATE_TOPIC, {
-                            type = "thinking",
-                            content = payload.thinking
-                        })
-                    elseif payload.type == "done" then
-                        -- Completion notification
-                        broadcast_to_clients(s, UPDATE_TOPIC, {
-                            type = "done",
-                            model = payload.meta and payload.meta.model or s.llm_model,
-                            provider = payload.meta and payload.meta.provider or s.llm_provider
-                        })
+            return state
+        end,
 
-                        -- Update token statistics if available
-                        if payload.meta and payload.meta.usage then
-                            local usage = payload.meta.usage
-                            s.total_tokens.prompt = s.total_tokens.prompt + (usage.prompt_tokens or 0)
-                            s.total_tokens.completion = s.total_tokens.completion + (usage.completion_tokens or 0)
+        [LLM_RESPONSE_TOPIC] = function(s, payload)
+            -- Add debug logging for every payload received
+            if type(payload) == "table" then
+                print("Payload type:", payload.type or "nil")
+                if payload.type == "content" then print("Content length:", #(payload.content or "")) end
+                if payload.type == "thinking" then print("Thinking length:", #(payload.thinking or "")) end
+                if payload.type == "done" then print("Done received with meta:", payload.meta ~= nil) end
+            end
 
-                            -- Check for thinking tokens
-                            if usage.completion_tokens_details and usage.completion_tokens_details.reasoning_tokens then
-                                s.total_tokens.thinking = s.total_tokens.thinking + usage.completion_tokens_details.reasoning_tokens
-                            end
+            -- Check payload type and forward appropriately
+            if type(payload) == "table" then
+                if payload.type == "content" and payload.content then
+                    -- Content chunk
+                    broadcast_to_clients(s, UPDATE_TOPIC, {
+                        type = "content",
+                        content = payload.content
+                    })
+                elseif payload.type == "thinking" and payload.thinking then
+                    -- Thinking output
+                    broadcast_to_clients(s, UPDATE_TOPIC, {
+                        type = "thinking",
+                        content = payload.thinking
+                    })
+                elseif payload.type == "done" then
+                    -- Completion notification
+                    broadcast_to_clients(s, UPDATE_TOPIC, {
+                        type = "done",
+                        model = payload.meta and payload.meta.model or s.llm_model,
+                        provider = payload.meta and payload.meta.provider or s.llm_provider
+                    })
 
-                            s.total_tokens.total = s.total_tokens.prompt + s.total_tokens.completion
+                    -- Update token statistics if available
+                    if payload.meta and payload.meta.usage then
+                        local usage = payload.meta.usage
+                        s.total_tokens.prompt = s.total_tokens.prompt + (usage.prompt_tokens or 0)
+                        s.total_tokens.completion = s.total_tokens.completion + (usage.completion_tokens or 0)
 
-                            -- Send token stats update
-                            broadcast_to_clients(s, UPDATE_TOPIC, {
-                                type = "tokens",
-                                session = {
-                                    prompt = usage.prompt_tokens or 0,
-                                    completion = usage.completion_tokens or 0,
-                                    thinking = (usage.completion_tokens_details and usage.completion_tokens_details.reasoning_tokens) or 0,
-                                    total = (usage.total_tokens or 0)
-                                },
-                                total = s.total_tokens
-                            })
+                        -- Check for thinking tokens
+                        if usage.completion_tokens_details and usage.completion_tokens_details.reasoning_tokens then
+                            s.total_tokens.thinking = s.total_tokens.thinking +
+                                usage.completion_tokens_details.reasoning_tokens
                         end
-                    elseif payload.type == "error" then
-                        -- Error notification
+
+                        s.total_tokens.total = s.total_tokens.prompt + s.total_tokens.completion
+
+                        -- Send token stats update
                         broadcast_to_clients(s, UPDATE_TOPIC, {
-                            type = "error",
-                            error = payload.error,
-                            message = payload.message
-                        })
-                    else
-                        -- Forward the payload directly for any other types
-                        broadcast_to_clients(s, UPDATE_TOPIC, {
-                            llm_streaming = true,
-                            payload = payload
+                            type = "tokens",
+                            session = {
+                                prompt = usage.prompt_tokens or 0,
+                                completion = usage.completion_tokens or 0,
+                                thinking = (usage.completion_tokens_details and usage.completion_tokens_details.reasoning_tokens) or
+                                    0,
+                                total = (usage.total_tokens or 0)
+                            },
+                            total = s.total_tokens
                         })
                     end
+                elseif payload.type == "error" then
+                    -- Error notification
+                    broadcast_to_clients(s, UPDATE_TOPIC, {
+                        type = "error",
+                        error = payload.error,
+                        message = payload.message
+                    })
                 else
-                    -- Just forward anything we don't recognize
+                    -- Forward the payload directly for any other types
+                    print("Forwarding unrecognized payload type:", payload.type or "nil")
                     broadcast_to_clients(s, UPDATE_TOPIC, {
                         llm_streaming = true,
                         payload = payload
                     })
                 end
-                return s
-            end)
-
-            return state
+            else
+                -- Just forward anything we don't recognize
+                print("Forwarding non-table payload")
+                broadcast_to_clients(s, UPDATE_TOPIC, {
+                    llm_streaming = true,
+                    payload = payload
+                })
+            end
+            return s
         end,
 
         -- Handle system events
@@ -313,37 +325,65 @@ local function run(args)
             end
 
             -- Create LLM request using the messages from prompt builder
+            local messages = state.prompt_builder:get_messages()
+            -- Print the messages to debug
+            print("Sending", #messages, "messages to LLM")
+            for i, msg in ipairs(messages) do
+                print("- Message", i, "role:", msg.role)
+            end
+
             local llm_request = {
                 model = state.llm_model,
-                messages = state.prompt_builder:get_messages(),
+                messages = messages,
                 stream = {
                     reply_to = process.pid(),
                     topic = LLM_RESPONSE_TOPIC
                 },
                 options = {
                     temperature = 0.7,
-                    max_tokens = 1024,
-                    thinking_effort = 25  -- Enable thinking mode (scales 0-100)
+                    max_tokens = 1024
                 },
                 timeout = 60
             }
 
-            -- Call LLM function
-            local result, err = funcs.new():call(llm_function_path, llm_request)
-            if err then
-                print("Error calling LLM function:", err)
-                broadcast_to_clients(state, UPDATE_TOPIC, {
-                    type = "error",
-                    error = "llm_error",
-                    message = err
-                })
-            else
-                -- When streaming is enabled, the response chunks come through the handler
-                -- If streaming disabled or completed, add to conversation history
-                if result and result.result then
-                    state.prompt_builder:add_assistant(result.result)
+            -- Create a response channel to communicate with the coroutine
+            local response_channel = channel.new(1)
+
+            -- Use coroutine.spawn to make the LLM call non-blocking
+            print("Spawning coroutine for LLM function:", llm_function_path, "with model:", state.llm_model)
+            coroutine.spawn(function()
+                -- Call LLM function inside the coroutine
+                local result, err = funcs.new():call(llm_function_path, llm_request)
+
+                -- Handle completion
+                if err then
+                    print("Error calling LLM function:", err)
+                    -- Send error directly to clients
+                    response_channel:send(err)
+                    return
+                else
+                    print("LLM function call complete, result type:", type(result))
+                    if result then
+                        print("Result contains result field:", result.result ~= nil)
+                        if result.result then
+                            -- Add assistant response to conversation history
+                            state.prompt_builder:add_assistant(result.result)
+                        end
+                    end
                 end
-            end
+
+                -- Close the channel to indicate completion
+                response_channel:send(true)
+            end)
+
+            -- Register the response channel to be notified when the coroutine finishes
+            state.register_channel(response_channel, function(s, value, ok)
+                if ok then
+                    print("LLM task completed for user:", s.user_id, " with:", tostring(value))
+                end
+                s.unregister_channel(response_channel)
+                return s
+            end)
 
             return state
         end,
@@ -424,11 +464,11 @@ local function run(args)
             broadcast_to_clients(state, UPDATE_TOPIC, {
                 type = "system",
                 message = "Available commands:\n" ..
-                          "- /" .. CMD_MODEL .. " <model_name> - Change LLM model\n" ..
-                          "- /" .. CMD_PROVIDER .. " <openai|anthropic> - Change LLM provider\n" ..
-                          "- /" .. CMD_SYSTEM .. " <text> - Set system prompt\n" ..
-                          "- /" .. CMD_CLEAR .. " - Clear conversation history\n" ..
-                          "- /" .. CMD_HELP .. " - Show this help message"
+                    "- /" .. CMD_MODEL .. " <model_name> - Change LLM model\n" ..
+                    "- /" .. CMD_PROVIDER .. " <openai|anthropic> - Change LLM provider\n" ..
+                    "- /" .. CMD_SYSTEM .. " <text> - Set system prompt\n" ..
+                    "- /" .. CMD_CLEAR .. " - Clear conversation history\n" ..
+                    "- /" .. CMD_HELP .. " - Show this help message"
             })
         else
             -- Unknown command

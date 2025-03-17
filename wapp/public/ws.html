@@ -4,344 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LLM Chat</title>
-    <style>
-        :root {
-            --primary-color: #4285f4;
-            --secondary-color: #f1f3f4;
-            --text-color: #202124;
-            --border-color: #dadce0;
-            --success-bg: #d4edda;
-            --success-text: #155724;
-            --error-bg: #f8d7da;
-            --error-text: #721c24;
-            --warning-bg: #fff3cd;
-            --warning-text: #856404;
-            --user-bubble: #dcf8c6;
-            --assistant-bubble: #e5e5ea;
-            --system-color: #808080;
-            --thinking-color: #9e9e9e;
-            --token-color: #1a73e8;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 20px;
-            line-height: 1.6;
-            color: var(--text-color);
-        }
-
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .header h1 {
-            margin: 0;
-        }
-
-        .status-badge {
-            font-size: 14px;
-            font-weight: 500;
-            padding: 6px 12px;
-            border-radius: 16px;
-        }
-
-        .status-connected {
-            background-color: var(--success-bg);
-            color: var(--success-text);
-        }
-
-        .status-disconnected {
-            background-color: var(--error-bg);
-            color: var(--error-text);
-        }
-
-        .status-connecting {
-            background-color: var(--warning-bg);
-            color: var(--warning-text);
-        }
-
-        .card {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 1px 2px 0 rgba(60, 64, 67, .3), 0 1px 3px 1px rgba(60, 64, 67, .15);
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-
-        .chat-container {
-            display: flex;
-            flex-direction: column;
-            height: 70vh;
-        }
-
-        .chat-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding-bottom: 15px;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .chat-model-info {
-            font-size: 14px;
-            color: var(--system-color);
-        }
-
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 15px 0;
-        }
-
-        .message {
-            margin-bottom: 15px;
-            max-width: 70%;
-            padding: 10px 15px;
-            border-radius: 18px;
-            position: relative;
-            clear: both;
-        }
-
-        .message-user {
-            background-color: var(--user-bubble);
-            align-self: flex-end;
-            float: right;
-            border-bottom-right-radius: 4px;
-        }
-
-        .message-assistant {
-            background-color: var(--assistant-bubble);
-            align-self: flex-start;
-            float: left;
-            border-bottom-left-radius: 4px;
-        }
-
-        .message-system {
-            background-color: var(--secondary-color);
-            max-width: 100%;
-            margin: 10px auto;
-            text-align: center;
-            font-style: italic;
-            color: var(--system-color);
-            clear: both;
-            float: none;
-        }
-
-        .message-content {
-            word-wrap: break-word;
-        }
-
-        .message-thinking {
-            font-style: italic;
-            color: var(--thinking-color);
-            margin-top: 8px;
-            padding: 5px;
-            background-color: rgba(0,0,0,0.05);
-            border-radius: 4px;
-        }
-
-        .message-meta {
-            font-size: 12px;
-            color: var(--system-color);
-            margin-top: 5px;
-            text-align: right;
-        }
-
-        .typing-indicator {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            margin-right: 10px;
-            border-radius: 50%;
-            background-color: var(--primary-color);
-            animation: typing-animation 1s infinite;
-            opacity: 0.6;
-        }
-
-        @keyframes typing-animation {
-            0% { opacity: 0.3; }
-            50% { opacity: 0.8; }
-            100% { opacity: 0.3; }
-        }
-
-        .chat-input {
-            display: flex;
-            padding-top: 15px;
-            border-top: 1px solid var(--border-color);
-        }
-
-        .chat-input input {
-            flex: 1;
-            padding: 12px 15px;
-            border: 1px solid var(--border-color);
-            border-radius: 24px;
-            font-size: 16px;
-            outline: none;
-        }
-
-        .chat-input input:focus {
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 2px rgba(66, 133, 244, .25);
-        }
-
-        .chat-input button {
-            margin-left: 10px;
-            padding: 12px 20px;
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 24px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-
-        .chat-input button:hover {
-            background-color: #3367d6;
-        }
-
-        .chat-input button:disabled {
-            background-color: #c5c5c5;
-            cursor: not-allowed;
-        }
-
-        .token-stats {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-        }
-
-        .token-stat {
-            flex: 1;
-            min-width: 120px;
-            padding: 10px;
-            background-color: var(--secondary-color);
-            border-radius: 8px;
-            text-align: center;
-        }
-
-        .token-stat-value {
-            font-size: 20px;
-            font-weight: bold;
-            color: var(--token-color);
-        }
-
-        .token-stat-label {
-            font-size: 12px;
-            color: var(--system-color);
-        }
-
-        .sidebar {
-            margin-bottom: 20px;
-        }
-
-        .command-list {
-            background-color: var(--secondary-color);
-            border-radius: 8px;
-            padding: 15px;
-        }
-
-        .command-list h3 {
-            margin-top: 0;
-            margin-bottom: 10px;
-        }
-
-        .command-list ul {
-            margin: 0;
-            padding-left: 20px;
-        }
-
-        .command-list li {
-            margin-bottom: 5px;
-        }
-
-        .settings {
-            margin-top: 20px;
-        }
-
-        .settings-item {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-        }
-
-        .debug-log {
-            height: 200px;
-            overflow-y: auto;
-            background-color: #f5f5f5;
-            border-radius: 4px;
-            padding: 10px;
-            font-family: monospace;
-            font-size: 12px;
-        }
-
-        .log-entry {
-            margin-bottom: 5px;
-            border-bottom: 1px solid #e0e0e0;
-            padding-bottom: 5px;
-        }
-
-        .log-time {
-            color: var(--system-color);
-        }
-
-        .tabs {
-            display: flex;
-            margin-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .tab {
-            padding: 10px 20px;
-            cursor: pointer;
-            border-bottom: 3px solid transparent;
-            font-weight: 500;
-        }
-
-        .tab.active {
-            border-bottom-color: var(--primary-color);
-            color: var(--primary-color);
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        .tab-content h2 {
-            margin-top: 0;
-        }
-
-        .connection-form {
-            margin-bottom: 20px;
-        }
-
-        .connection-form input {
-            width: 100%;
-            padding: 12px;
-            margin-bottom: 10px;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-        }
-
-        .connection-actions {
-            display: flex;
-            gap: 10px;
-        }
-    </style>
+    <!-- Include Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Include Markdown-it for message formatting -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.1/markdown-it.min.js"></script>
+    <!-- Include Highlight.js for code syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <!-- Your custom styles -->
+    <link rel="stylesheet" href="/styles/main.css">
 </head>
-<body>
+<body class="bg-[#1e1e1e] text-[#e0e0e0]">
 <div class="header">
-    <h1>LLM Chat</h1>
+    <div class="logo-container">
+        <svg class="logo-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 9.5H15M8 13.5H13M7 19H17C18.1046 19 19 18.1046 19 17V7C19 5.89543 18.1046 5 17 5H7C5.89543 5 5 5.89543 5 7V17C5 18.1046 5.89543 19 7 19Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h1>LLM Chat</h1>
+    </div>
     <div id="statusBadge" class="status-badge status-disconnected">Disconnected</div>
 </div>
 
@@ -352,47 +32,60 @@
 </div>
 
 <div id="chatTab" class="tab-content active">
-    <div class="sidebar">
-        <div class="command-list">
-            <h3>Available Commands</h3>
-            <ul>
-                <li><strong>/model &lt;name&gt;</strong> - Change the LLM model</li>
-                <li><strong>/provider &lt;openai|anthropic&gt;</strong> - Change the provider</li>
-                <li><strong>/system &lt;text&gt;</strong> - Set system prompt</li>
-                <li><strong>/clear</strong> - Clear conversation history</li>
-                <li><strong>/help</strong> - Show available commands</li>
-            </ul>
-        </div>
-    </div>
+    <div class="chat-layout">
+        <div class="sidebar">
+            <div class="model-selector-container">
+                <label for="modelSelector">Model:</label>
+                <select id="modelSelector" disabled>
+                    <!-- Models will be populated via JavaScript -->
+                </select>
+            </div>
 
-    <div class="token-stats">
-        <div class="token-stat">
-            <div id="promptTokens" class="token-stat-value">0</div>
-            <div class="token-stat-label">Prompt Tokens</div>
-        </div>
-        <div class="token-stat">
-            <div id="completionTokens" class="token-stat-value">0</div>
-            <div class="token-stat-label">Completion Tokens</div>
-        </div>
-        <div class="token-stat">
-            <div id="thinkingTokens" class="token-stat-value">0</div>
-            <div class="token-stat-label">Thinking Tokens</div>
-        </div>
-        <div class="token-stat">
-            <div id="totalTokens" class="token-stat-value">0</div>
-            <div class="token-stat-label">Total Tokens</div>
-        </div>
-    </div>
+            <div class="command-list">
+                <h3>Available Commands</h3>
+                <ul>
+                    <li><strong>/model &lt;name&gt;</strong> - Change the LLM model</li>
+                    <li><strong>/provider &lt;openai|anthropic&gt;</strong> - Change the provider</li>
+                    <li><strong>/system &lt;text&gt;</strong> - Set system prompt</li>
+                    <li><strong>/clear</strong> - Clear conversation history</li>
+                    <li><strong>/help</strong> - Show available commands</li>
+                </ul>
+            </div>
 
-    <div class="card chat-container">
-        <div class="chat-header">
-            <div class="chat-model-info" id="modelInfo">Model: Loading...</div>
-            <div id="clientCount">Clients: 0</div>
+            <div class="token-stats">
+                <div class="token-stat">
+                    <div id="promptTokens" class="token-stat-value">0</div>
+                    <div class="token-stat-label">Prompt Tokens</div>
+                </div>
+                <div class="token-stat">
+                    <div id="completionTokens" class="token-stat-value">0</div>
+                    <div class="token-stat-label">Completion Tokens</div>
+                </div>
+                <div class="token-stat">
+                    <div id="thinkingTokens" class="token-stat-value">0</div>
+                    <div class="token-stat-label">Thinking Tokens</div>
+                </div>
+                <div class="token-stat">
+                    <div id="totalTokens" class="token-stat-value">0</div>
+                    <div class="token-stat-label">Total Tokens</div>
+                </div>
+            </div>
         </div>
-        <div class="chat-messages" id="chatMessages"></div>
-        <div class="chat-input">
-            <input type="text" id="messageInput" placeholder="Type a message or command..." disabled>
-            <button id="sendBtn" disabled>Send</button>
+
+        <div class="chat-container card">
+            <div class="chat-header">
+                <div class="chat-model-info" id="modelInfo">Model: Loading...</div>
+                <div id="clientCount">Clients: 0</div>
+            </div>
+            <div class="chat-messages" id="chatMessages"></div>
+            <div class="chat-input">
+                <input type="text" id="messageInput" placeholder="Type a message or command..." disabled>
+                <button id="sendBtn" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -446,487 +139,19 @@
     </div>
 </div>
 
+<!-- Fallback script for highlight.js -->
 <script>
-    // Application state
-    const state = {
-        connected: false,
-        socket: null,
-        reconnectTimer: null,
-        reconnectAttempts: 0,
-        maxReconnectAttempts: 5,
-        messageCount: 0,
-        clientCount: 0,
-        currentModel: '',
-        currentProvider: '',
-        systemPrompt: '',
-        isStreaming: false,
-        currentStreamingMessage: null,
-        tokens: {
-            prompt: 0,
-            completion: 0,
-            thinking: 0,
-            total: 0
-        }
-    };
-
-    // DOM Elements
-    const statusBadge = document.getElementById('statusBadge');
-    const tokenInput = document.getElementById('tokenInput');
-    const connectBtn = document.getElementById('connectBtn');
-    const disconnectBtn = document.getElementById('disconnectBtn');
-    const messageInput = document.getElementById('messageInput');
-    const sendBtn = document.getElementById('sendBtn');
-    const chatMessages = document.getElementById('chatMessages');
-    const debugLog = document.getElementById('debugLog');
-    const modelInfo = document.getElementById('modelInfo');
-    const clientCount = document.getElementById('clientCount');
-    const currentModel = document.getElementById('currentModel');
-    const currentProvider = document.getElementById('currentProvider');
-    const currentSystemPrompt = document.getElementById('currentSystemPrompt');
-    const connectedClients = document.getElementById('connectedClients');
-    const messagesHandled = document.getElementById('messagesHandled');
-    const uptime = document.getElementById('uptime');
-    const promptTokens = document.getElementById('promptTokens');
-    const completionTokens = document.getElementById('completionTokens');
-    const thinkingTokens = document.getElementById('thinkingTokens');
-    const totalTokens = document.getElementById('totalTokens');
-    const tabs = document.querySelectorAll('.tab');
-    const tabContents = document.querySelectorAll('.tab-content');
-
-    // Set up tab navigation
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            const tabName = tab.getAttribute('data-tab');
-
-            // Remove active class from all tabs and contents
-            tabs.forEach(t => t.classList.remove('active'));
-            tabContents.forEach(c => c.classList.remove('active'));
-
-            // Add active class to clicked tab and corresponding content
-            tab.classList.add('active');
-            document.getElementById(`${tabName}Tab`).classList.add('active');
-        });
-    });
-
-    // Helper function to update connection status
-    function updateStatus(status) {
-        statusBadge.className = `status-badge status-${status}`;
-        statusBadge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-    }
-
-    // Helper function to add log entry
-    function log(type, content) {
-        const entry = document.createElement('div');
-        entry.className = 'log-entry';
-
-        const time = document.createElement('span');
-        time.className = 'log-time';
-        time.textContent = `[${new Date().toLocaleTimeString()}] ${type}: `;
-
-        const text = document.createTextNode(
-            typeof content === 'object' ? JSON.stringify(content, null, 2) : content
-        );
-
-        entry.appendChild(time);
-        entry.appendChild(text);
-        debugLog.appendChild(entry);
-
-        // Auto-scroll to bottom
-        debugLog.scrollTop = debugLog.scrollHeight;
-    }
-
-    // Add a message to the chat
-    function addMessage(type, content, metadata = {}) {
-        const messageEl = document.createElement('div');
-        messageEl.className = `message message-${type}`;
-
-        const contentEl = document.createElement('div');
-        contentEl.className = 'message-content';
-        contentEl.textContent = content;
-        messageEl.appendChild(contentEl);
-
-        // Add metadata if provided
-        if (Object.keys(metadata).length > 0) {
-            const metaEl = document.createElement('div');
-            metaEl.className = 'message-meta';
-
-            if (metadata.model) {
-                metaEl.textContent = `${metadata.model} (${metadata.provider || 'unknown'})`;
-            } else {
-                metaEl.textContent = new Date().toLocaleTimeString();
+    // Create a fallback for highlight.js in case CDN fails
+    if (typeof window.hljs === 'undefined') {
+        window.hljs = {
+            highlightBlock: function(block) {
+                // Simple fallback that does nothing but prevents errors
+                console.log('Highlight.js not loaded - fallback used');
             }
-
-            messageEl.appendChild(metaEl);
-        }
-
-        chatMessages.appendChild(messageEl);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-
-        return messageEl;
+        };
     }
-
-    // Create or update a streaming message
-    function updateStreamingMessage(content, isThinking = false) {
-        if (!state.currentStreamingMessage) {
-            state.currentStreamingMessage = addMessage('assistant', '');
-        }
-
-        if (isThinking) {
-            // Update or create thinking section
-            let thinkingEl = state.currentStreamingMessage.querySelector('.message-thinking');
-            if (!thinkingEl) {
-                thinkingEl = document.createElement('div');
-                thinkingEl.className = 'message-thinking';
-                state.currentStreamingMessage.appendChild(thinkingEl);
-            }
-            thinkingEl.textContent = `Thinking: ${content}`;
-        } else {
-            // Update content
-            const contentEl = state.currentStreamingMessage.querySelector('.message-content');
-            contentEl.textContent += content;
-        }
-
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
-
-    // Finalize a streaming message
-    function finalizeStreamingMessage(metadata = {}) {
-        if (state.currentStreamingMessage) {
-            // Remove any thinking section
-            const thinkingEl = state.currentStreamingMessage.querySelector('.message-thinking');
-            if (thinkingEl) {
-                thinkingEl.remove();
-            }
-
-            // Add metadata if provided
-            if (Object.keys(metadata).length > 0) {
-                let metaEl = state.currentStreamingMessage.querySelector('.message-meta');
-                if (!metaEl) {
-                    metaEl = document.createElement('div');
-                    metaEl.className = 'message-meta';
-                    state.currentStreamingMessage.appendChild(metaEl);
-                }
-                metaEl.textContent = `${metadata.model} (${metadata.provider || 'unknown'})`;
-            }
-
-            state.currentStreamingMessage = null;
-            state.isStreaming = false;
-        }
-    }
-
-    // Update token statistics display
-    function updateTokenStats() {
-        promptTokens.textContent = state.tokens.prompt.toLocaleString();
-        completionTokens.textContent = state.tokens.completion.toLocaleString();
-        thinkingTokens.textContent = state.tokens.thinking.toLocaleString();
-        totalTokens.textContent = state.tokens.total.toLocaleString();
-    }
-
-    // Connect to WebSocket
-    function connect() {
-        const token = tokenInput.value.trim();
-        if (!token) {
-            alert('Please enter an authentication token');
-            return;
-        }
-
-        updateStatus('connecting');
-        log('System', 'Connecting to WebSocket server...');
-
-        // Get protocol and create WebSocket URL
-        const protocol = window.location.protocol.startsWith('https') ? 'wss' : 'ws';
-        const wsUrl = `${protocol}://${window.location.host}/api/v1/ws/join?x-auth-token=${encodeURIComponent(token)}`;
-
-        try {
-            state.socket = new WebSocket(wsUrl);
-
-            // Connection opened
-            state.socket.addEventListener('open', () => {
-                state.connected = true;
-                updateStatus('connected');
-                log('System', 'Connected to WebSocket server');
-                addMessage('system', 'Connected to chat server');
-
-                // Update UI
-                connectBtn.disabled = true;
-                disconnectBtn.disabled = false;
-                messageInput.disabled = false;
-                sendBtn.disabled = false;
-                state.reconnectAttempts = 0;
-            });
-
-            // Message received
-            state.socket.addEventListener('message', (event) => {
-                const message = JSON.parse(event.data);
-                log('Received', message);
-
-                handleMessage(message);
-            });
-
-            // Connection closed
-            state.socket.addEventListener('close', (event) => {
-                state.connected = false;
-                state.isStreaming = false;
-                state.currentStreamingMessage = null;
-
-                // Update UI
-                updateStatus('disconnected');
-                connectBtn.disabled = false;
-                disconnectBtn.disabled = true;
-                messageInput.disabled = true;
-                sendBtn.disabled = true;
-
-                log('System', `Connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
-                addMessage('system', `Disconnected from chat server. Code: ${event.code}`);
-
-                // Try to reconnect if not a normal closure
-                if (event.code !== 1000 && state.reconnectAttempts < state.maxReconnectAttempts) {
-                    state.reconnectAttempts++;
-                    const delay = Math.min(1000 * Math.pow(2, state.reconnectAttempts - 1), 10000);
-
-                    log('System', `Reconnecting in ${delay/1000} seconds... (Attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts})`);
-                    addMessage('system', `Reconnecting in ${delay/1000} seconds... (Attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts})`);
-
-                    state.reconnectTimer = setTimeout(() => {
-                        if (!state.connected) {
-                            connect();
-                        }
-                    }, delay);
-                }
-            });
-
-            // Connection error
-            state.socket.addEventListener('error', (event) => {
-                log('Error', 'WebSocket connection error');
-                addMessage('system', 'Connection error occurred');
-            });
-        } catch (error) {
-            updateStatus('disconnected');
-            log('Error', `Failed to create WebSocket: ${error.message}`);
-            addMessage('system', `Failed to connect: ${error.message}`);
-        }
-    }
-
-    // Disconnect from WebSocket
-    function disconnect() {
-        if (state.reconnectTimer) {
-            clearTimeout(state.reconnectTimer);
-            state.reconnectTimer = null;
-        }
-
-        if (state.socket) {
-            state.socket.close(1000, "User disconnected");
-            state.socket = null;
-        }
-    }
-
-    // Handle incoming messages
-    function handleMessage(message) {
-        const topic = message.topic || '';
-
-        if (topic === 'welcome') {
-            // Handle welcome message
-            log('Welcome', message);
-
-            // Extract data from the welcome message
-            const data = message.data || message;
-            addMessage('system', `Welcome! User ID: ${data.user_id || 'Unknown'}`);
-
-            // Update client info
-            if (data.client_count) {
-                state.clientCount = data.client_count;
-                clientCount.textContent = `Clients: ${state.clientCount}`;
-                connectedClients.textContent = state.clientCount;
-            }
-
-            // Update model info
-            if (data.model) {
-                state.currentModel = data.model;
-                state.currentProvider = data.provider || 'unknown';
-                modelInfo.textContent = `Model: ${state.currentModel} (${state.currentProvider})`;
-                currentModel.textContent = state.currentModel;
-                currentProvider.textContent = state.currentProvider;
-            }
-
-            // Update system prompt
-            if (data.system_prompt) {
-                state.systemPrompt = data.system_prompt;
-                currentSystemPrompt.textContent = state.systemPrompt;
-            }
-
-            // Update token info
-            if (data.tokens) {
-                state.tokens = data.tokens;
-                updateTokenStats();
-            }
-        } else if (topic === 'update') {
-            // Handle update messages - extract the data field
-            const data = message.data || message;
-
-            // Handle different update types
-            const type = data.type || '';
-
-            switch (type) {
-                case 'start':
-                    // LLM session start
-                    state.isStreaming = true;
-                    if (data.model) state.currentModel = data.model;
-                    if (data.provider) state.currentProvider = data.provider;
-                    modelInfo.textContent = `Model: ${state.currentModel} (${state.currentProvider})`;
-                    break;
-
-                case 'content':
-                    // Content update from LLM
-                    updateStreamingMessage(data.content);
-                    break;
-
-                case 'thinking':
-                    // Thinking output
-                    updateStreamingMessage(data.content, true);
-                    break;
-
-                case 'done':
-                    // LLM response complete
-                    finalizeStreamingMessage({
-                        model: data.model || state.currentModel,
-                        provider: data.provider || state.currentProvider
-                    });
-                    break;
-
-                case 'error':
-                    // Error notification
-                    addMessage('system', `Error: ${data.message || data.error}`);
-                    state.isStreaming = false;
-                    state.currentStreamingMessage = null;
-                    break;
-
-                case 'system':
-                    // System message
-                    addMessage('system', data.message);
-                    break;
-
-                case 'user_message':
-                    // Echo of user message
-                    addMessage('user', data.content);
-                    break;
-
-                case 'tokens':
-                    // Token statistics update
-                    if (data.total) {
-                        state.tokens = data.total;
-                        updateTokenStats();
-                    }
-                    break;
-
-                case 'stats':
-                    // Statistics update
-                    if (data.clients) {
-                        state.clientCount = data.clients;
-                        clientCount.textContent = `Clients: ${state.clientCount}`;
-                        connectedClients.textContent = state.clientCount;
-                    }
-
-                    if (data.messages) {
-                        messagesHandled.textContent = data.messages;
-                    }
-
-                    if (data.uptime) {
-                        uptime.textContent = data.uptime;
-                    }
-
-                    if (data.tokens) {
-                        state.tokens = data.tokens;
-                        updateTokenStats();
-                    }
-                    break;
-
-                default:
-                    // Handle legacy format without explicit type
-                    if (data.llm_response && data.llm_response.type === 'content' && data.llm_response.content) {
-                        updateStreamingMessage(data.llm_response.content);
-                    } else if (data.llm_response && data.llm_response.type === 'thinking' && data.llm_response.thinking) {
-                        updateStreamingMessage(data.llm_response.thinking, true);
-                    } else if (data.llm_streaming && data.payload) {
-                        // Direct forwarded payload format
-                        if (data.payload.type === 'content' && data.payload.content) {
-                            updateStreamingMessage(data.payload.content);
-                        } else if (data.payload.type === 'thinking' && data.payload.thinking) {
-                            updateStreamingMessage(data.payload.thinking, true);
-                        } else if (data.payload.type === 'done') {
-                            const meta = data.payload.meta || {};
-                            finalizeStreamingMessage({
-                                model: meta.model || state.currentModel,
-                                provider: meta.provider || state.currentProvider
-                            });
-                        }
-                    }
-            }
-        } else if (topic === 'ws.cancel') {
-            // Handle cancellation
-            const reason = message.data && message.data.reason ? message.data.reason : 'No reason provided';
-            addMessage('system', `Chat server is shutting down: ${reason}`);
-            disconnect();
-        } else {
-            // Other message types are just logged
-            log('Other', message);
-        }
-    }
-
-    // Send a message
-    function sendMessage() {
-        if (!state.connected || !state.socket) {
-            alert('Not connected to the server');
-            return;
-        }
-
-        const text = messageInput.value.trim();
-        if (!text) {
-            return;
-        }
-
-        try {
-            // Create message payload
-            const payload = {
-                text: text
-            };
-
-            state.socket.send(JSON.stringify(payload));
-            log('Sent', payload);
-
-            // Clear input
-            messageInput.value = '';
-
-            // Don't add user message here - will be echoed back
-        } catch (error) {
-            log('Error', `Failed to send message: ${error.message}`);
-            addMessage('system', `Error sending message: ${error.message}`);
-        }
-    }
-
-    // Event listeners
-    connectBtn.addEventListener('click', connect);
-    disconnectBtn.addEventListener('click', disconnect);
-    sendBtn.addEventListener('click', sendMessage);
-
-    // Allow Enter key to submit
-    messageInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
-
-    // Check for token in URL
-    document.addEventListener('DOMContentLoaded', () => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const token = urlParams.get('token');
-
-        if (token) {
-            tokenInput.value = token;
-            // Auto-connect if token is provided
-            connect();
-        }
-    });
 </script>
+
+<script src="/scripts/main.js"></script>
 </body>
 </html>
