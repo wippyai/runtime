@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/modules/excel"
 	httpbase "net/http"
 	"os"
 	"os/signal"
@@ -755,6 +756,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				treesitter.NewTreeSitterModule(a.logger.Named("tsitter")),
 				btea.NewBteaModule(a.logger.Named("btea")),
 				sqlmod.NewSQLModule(a.logger.Named("sql")),
+				excel.NewModule(a.logger.Named("excel")),
 			},
 			ProtoCacheSize: 600,
 			MainCacheSize:  100,
