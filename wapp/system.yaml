@@ -50,9 +50,12 @@ entries:
       depends_on:
         - gateway
     prefix: /api/public
-    middleware: [ token_auth ]
+    middleware: [ cors, token_auth ]
     options:
       token_store: app.security:tokens
+      allow_origins: "*"
+      allow_methods: "*"
+      allow_headers: "*"
 
   - name: api
     kind: http.router
@@ -62,10 +65,13 @@ entries:
       depends_on:
         - gateway
     prefix: /api/v1/
-    middleware: [ websocket_relay, token_auth ]
+    middleware: [ cors, websocket_relay, token_auth ]
     post_middleware: [ endpoint_firewall ]
     options:
       token_store: app.security:tokens
+      allow_origins: "*"
+      allow_methods: "*"
+      allow_headers: "*"
 
   - name: processes
     kind: process.host

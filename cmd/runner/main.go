@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/go-chi/chi/v5/middleware"
 	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
+	"github.com/ponyruntime/pony/service/http/cors"
 	"github.com/ponyruntime/pony/service/http/firewall"
 	"github.com/ponyruntime/pony/service/processfunc"
 	"github.com/ponyruntime/pony/service/tokenstore"
@@ -670,6 +671,8 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 	// Create middleware factory with all standard middleware
 	midFactory := http.NewDefaultMiddlewareFactory(
 		http.WithLogger(a.logger.Named("http.md")),
+
+		http.WithMiddlewareCreator(cors.MiddlewareName, cors.CreateCORSMiddleware),
 
 		// Standard Chi middlewares
 		http.WithMiddleware("recoverer", middleware.Recoverer),
