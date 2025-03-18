@@ -5,28 +5,6 @@ meta:
   depends_on: [ ns:wippy.test ]
 
 entries:
-  - name: traits
-    kind: library.lua
-    meta:
-      comment: "Traits library for discovering and loading agent traits"
-      type: "library"
-    source: file://traits.lua
-    modules: [ "registry" ]
-
-  - name: traits_test
-    kind: function.lua
-    meta:
-      name: "Agent Traits Test"
-      type: "test"
-      tags: [ "traits", "registry", "discovery", "tests" ]
-      group: "Agent Framework"
-      comment: "Tests the agent traits library"
-    source: file://traits_test.lua
-    method: run_tests
-    imports:
-      test: "wippy.test:test"
-      traits: "wippy.agents:traits"
-
   - name: conversational
     kind: registry.entry
     meta:

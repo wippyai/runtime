@@ -1,32 +1,210 @@
 local registry = require("registry")
 local traits = require("traits")
 
+---------------------------
 -- Main module
+---------------------------
 local agent_registry = {}
 
+-- Constants
+agent_registry.AGENT_TYPE = "agent.gen1"
+
+---------------------------
+-- Dependency Injection Support
+---------------------------
 -- Allow for dependency injection for testing
 agent_registry._registry = nil
 agent_registry._traits = nil
 
--- Get registry - use injected registry or require it
+-- Internal: Get registry instance - use injected registry or require it
 local function get_registry()
     return agent_registry._registry or registry
 end
 
--- Get traits - use injected traits or require it
+-- Internal: Get traits instance - use injected traits or require it
 local function get_traits()
     return agent_registry._traits or traits
 end
 
 ---------------------------
--- Constants
+-- Helper Functions
 ---------------------------
 
--- Agent type identifier
-agent_registry.AGENT_TYPE = "agent.gen1"
+-- Internal: Check if an array contains a value
+local function contains(array, value)
+    for _, item in ipairs(array) do
+        if item == value then
+            return true
+        end
+    end
+    return false
+end
+
+-- Internal: Check if an entry is a valid agent
+local function is_valid_agent(entry)
+    return entry and entry.meta and entry.meta.type == agent_registry.AGENT_TYPE
+end
+
+-- Internal: Get agent metadata with default values
+local function get_agent_metadata(entry)
+    return {
+        id = entry.id,
+        name = (entry.meta and entry.meta.name) or "",
+        description = (entry.meta and entry.meta.comment) or "",
+    }
+end
+
+-- Internal: Add unique items to target array
+local function add_unique_items(target_array, source_array)
+    if not source_array then
+        return
+    end
+
+    for _, item in ipairs(source_array) do
+        if not contains(target_array, item) then
+            table.insert(target_array, item)
+        end
+    end
+end
+
+-- Internal: Process traits and incorporate their prompts
+local function process_traits(agent_spec)
+    if #agent_spec.traits == 0 then
+        return
+    end
+
+    local trait_prompts = {}
+    local traits_lib = get_traits()
+
+    for _, trait_name in ipairs(agent_spec.traits) do
+        local trait, err = traits_lib.get_by_name(trait_name)
+        if trait and trait.prompt and #trait.prompt > 0 then
+            table.insert(trait_prompts, trait.prompt)
+        end
+    end
+
+    -- Combine trait prompts with the agent's base prompt
+    if #trait_prompts > 0 then
+        -- Store the original trait prompts for reference
+        agent_spec.trait_prompts = trait_prompts
+
+        -- If the agent has a base prompt, combine it with trait prompts
+        if agent_spec.prompt and #agent_spec.prompt > 0 then
+            local combined_prompt = agent_spec.prompt
+            for _, trait_prompt in ipairs(trait_prompts) do
+                combined_prompt = combined_prompt .. "\n\n" .. trait_prompt
+            end
+            agent_spec.prompt = combined_prompt
+        else
+            -- If no base prompt, just concatenate trait prompts
+            agent_spec.prompt = table.concat(trait_prompts, "\n\n")
+        end
+    end
+end
 
 ---------------------------
--- Agent Discovery Functions
+-- Core Build Function
+---------------------------
+
+
+-- Internal: Process inheritance from parent agents
+local function process_inheritance(agent_spec, inherit_list, visited_ids)
+    local reg = get_registry()
+
+    for _, parent_id in ipairs(inherit_list) do
+        -- Skip if we've already processed this parent (prevents recursion)
+        if not visited_ids[parent_id] then
+            local parent_entry, err = reg.get(parent_id)
+
+            if is_valid_agent(parent_entry) then
+                -- Process parent and its inheritance tree recursively
+                local parent_spec = agent_registry._build_agent_spec(parent_entry, visited_ids)
+
+                -- Add traits, tools, and memories from parent if not already present
+                add_unique_items(agent_spec.traits, parent_spec.traits)
+                add_unique_items(agent_spec.tools, parent_spec.tools)
+                add_unique_items(agent_spec.memory, parent_spec.memory)
+            end
+        end
+    end
+end
+
+-- Internal: Process handout entries
+local function process_handouts(agent_spec, handout_list, visited_ids)
+    -- Create a separate visited_ids table for handouts to prevent interference
+    local handout_visited = {}
+    for id, _ in pairs(visited_ids) do
+        handout_visited[id] = true
+    end
+
+    local reg = get_registry()
+
+    for _, handout_id in ipairs(handout_list) do
+        -- Skip if already processed (prevents recursion)
+        if not handout_visited[handout_id] then
+            local handout_entry, err = reg.get(handout_id)
+
+            if is_valid_agent(handout_entry) then
+                -- Mark as visited
+                handout_visited[handout_id] = true
+
+                -- Only add metadata to handouts array, NOT the tools
+                table.insert(agent_spec.handouts, {
+                    id = handout_entry.id,
+                    name = (handout_entry.meta and handout_entry.meta.name) or "",
+                    description = (handout_entry.meta and handout_entry.meta.comment) or ""
+                })
+            end
+        end
+    end
+end
+
+-- Internal: Build a complete agent specification with resolved dependencies
+function agent_registry._build_agent_spec(entry, visited_ids)
+    -- Initialize visited_ids on first call to prevent infinite recursion
+    visited_ids = visited_ids or {}
+
+    -- Start with a complete agent spec from the entry data
+    local agent_spec = {
+        id = entry.id,
+        name = (entry.meta and entry.meta.name) or "",
+        description = (entry.meta and entry.meta.comment) or "",
+        prompt = entry.data.prompt or "",
+        model = entry.data.model or "",
+        max_tokens = entry.data.max_tokens or 0,
+        temperature = entry.data.temperature or 0,
+        traits = {},
+        tools = {},
+        memory = {},
+        handouts = {} -- Initialize handouts array
+    }
+
+    -- Mark this ID as visited
+    visited_ids[entry.id] = true
+
+    -- Add the agent's own traits, tools, and memories first
+    add_unique_items(agent_spec.traits, entry.data.traits)
+    add_unique_items(agent_spec.tools, entry.data.tools)
+    add_unique_items(agent_spec.memory, entry.data.memory)
+
+    -- Process parent agents (inheritance)
+    if entry.data.inherit and #entry.data.inherit > 0 then
+        process_inheritance(agent_spec, entry.data.inherit, visited_ids)
+    end
+
+    -- Process handout entries
+    if entry.data.handout and #entry.data.handout > 0 then
+        process_handouts(agent_spec, entry.data.handout, visited_ids)
+    end
+
+    -- Process traits and incorporate their prompts
+    process_traits(agent_spec)
+
+    return agent_spec
+end
+
+---------------------------
+-- Public API Functions
 ---------------------------
 
 -- Get agent specification by ID
@@ -38,12 +216,13 @@ function agent_registry.get_by_id(agent_id)
     -- Get agent directly from registry without snapshot
     local reg = get_registry()
     local entry, err = reg.get(agent_id)
+
     if not entry then
         return nil, "No agent found with ID: " .. tostring(agent_id) .. ", error: " .. tostring(err)
     end
 
     -- Verify it's an agent
-    if not entry.meta or entry.meta.type ~= agent_registry.AGENT_TYPE then
+    if not is_valid_agent(entry) then
         return nil, "Entry is not a gen1 agent: " .. tostring(agent_id)
     end
 
@@ -73,136 +252,7 @@ function agent_registry.get_by_name(name)
     return agent_registry._build_agent_spec(entries[1])
 end
 
----------------------------
--- Utility Functions
----------------------------
-
--- Build a complete agent specification with resolved dependencies
-function agent_registry._build_agent_spec(entry)
-    -- Start with a complete agent spec from the entry data
-    local agent_spec = {
-        id = entry.id,
-        name = (entry.meta and entry.meta.name) or "",
-        description = (entry.meta and entry.meta.comment) or "",
-        prompt = entry.data.prompt or "",
-        model = entry.data.model or "",
-        max_tokens = entry.data.max_tokens or 0,
-        temperature = entry.data.temperature or 0,
-        traits = entry.data.traits or {},
-        tools = {},
-        memory = {},
-        handouts = {} -- Initialize handouts array
-    }
-
-    -- Copy the agent's own tools and memories first (to maintain order)
-    if entry.data.tools then
-        for _, tool in ipairs(entry.data.tools) do
-            table.insert(agent_spec.tools, tool)
-        end
-    end
-
-    if entry.data.memory then
-        for _, mem in ipairs(entry.data.memory) do
-            table.insert(agent_spec.memory, mem)
-        end
-    end
-
-    -- Resolve parent agents if specified
-    if entry.data.inherit and #entry.data.inherit > 0 then
-        -- Process parent agents in order
-        for _, parent_id in ipairs(entry.data.inherit) do
-            local reg = get_registry()
-            local parent_entry, err = reg.get(parent_id)
-            if parent_entry and parent_entry.meta and parent_entry.meta.type == agent_registry.AGENT_TYPE then
-                -- Add parent tools if they don't already exist
-                if parent_entry.data.tools then
-                    for _, tool in ipairs(parent_entry.data.tools) do
-                        if not agent_registry._contains(agent_spec.tools, tool) then
-                            table.insert(agent_spec.tools, tool)
-                        end
-                    end
-                end
-
-                -- Add parent memories if they don't already exist
-                if parent_entry.data.memory then
-                    for _, mem in ipairs(parent_entry.data.memory) do
-                        if not agent_registry._contains(agent_spec.memory, mem) then
-                            table.insert(agent_spec.memory, mem)
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- Add handout tools and metadata if specified
-    if entry.data.handout and #entry.data.handout > 0 then
-        for _, handout_id in ipairs(entry.data.handout) do
-            local reg = get_registry()
-            local handout_entry, err = reg.get(handout_id)
-            if handout_entry and handout_entry.meta and handout_entry.meta.type == agent_registry.AGENT_TYPE then
-                -- Add handout tools if they don't already exist
-                if handout_entry.data.tools then
-                    for _, tool in ipairs(handout_entry.data.tools) do
-                        if not agent_registry._contains(agent_spec.tools, tool) then
-                            table.insert(agent_spec.tools, tool)
-                        end
-                    end
-                end
-
-                -- Add handout metadata to the handouts array
-                table.insert(agent_spec.handouts, {
-                    id = handout_entry.id,
-                    name = (handout_entry.meta and handout_entry.meta.name) or "",
-                    description = (handout_entry.meta and handout_entry.meta.comment) or ""
-                })
-            end
-        end
-    end
-
-    -- Process traits and incorporate their prompts
-    if entry.data.traits and #entry.data.traits > 0 then
-        local trait_prompts = {}
-
-        for _, trait_name in ipairs(entry.data.traits) do
-            -- Try to get trait by name
-            local traits_lib = get_traits()
-            local trait, err = traits_lib.get_by_name(trait_name)
-            if trait and trait.prompt and #trait.prompt > 0 then
-                table.insert(trait_prompts, trait.prompt)
-            end
-        end
-
-        -- Combine trait prompts with the agent's base prompt
-        if #trait_prompts > 0 then
-            -- Store the original trait prompts for reference
-            agent_spec.trait_prompts = trait_prompts
-
-            -- If the agent has a base prompt, combine it with trait prompts
-            if agent_spec.prompt and #agent_spec.prompt > 0 then
-                local combined_prompt = agent_spec.prompt
-                for _, trait_prompt in ipairs(trait_prompts) do
-                    combined_prompt = combined_prompt .. "\n\n" .. trait_prompt
-                end
-                agent_spec.prompt = combined_prompt
-            else
-                -- If no base prompt, just concatenate trait prompts
-                agent_spec.prompt = table.concat(trait_prompts, "\n\n")
-            end
-        end
-    end
-
-    return agent_spec
-end
-
--- Check if an array contains a value
-function agent_registry._contains(array, value)
-    for _, item in ipairs(array) do
-        if item == value then
-            return true
-        end
-    end
-    return false
-end
+-- For backward compatibility, export _contains function
+agent_registry._contains = contains
 
 return agent_registry

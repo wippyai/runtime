@@ -1,9 +1,10 @@
 version: "1.0"
-#namespace: wippy.agents.gen1
+namespace: wippy.agents.gen1
 
 meta:
   depends_on:
     - ns:wippy.agents
+    - ns:wippy.test
 
 entries:
   - name: registry
@@ -29,3 +30,4 @@ entries:
     imports:
       test: "wippy.test:test"
       agent_registry: "wippy.agents.gen1:registry"
+      traits: "wippy.agents:traits"

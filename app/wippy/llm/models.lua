@@ -39,7 +39,7 @@ function models.get_by_name(name)
     -- Find models with matching name
     local entries = reg.find({
         [".kind"] = "registry.entry",
-        name = name
+        ["meta.name"] = name
     })
 
     if not entries or #entries == 0 then
