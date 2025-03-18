@@ -5,8 +5,20 @@ meta:
   depends_on:
     - ns:wippy.agents
     - ns:wippy.test
+    - ns:wippy.llm
 
 entries:
+  - name: agent
+    kind: library.lua
+    meta:
+      comment: "Agent runner library for executing LLM agents with conversation and tool support"
+      type: "library"
+    source: file://agent.lua
+    modules: [ "time", "json" ]
+    imports:
+      prompt: "wippy.llm:prompt"
+      llm: "wippy.llm:llm"
+
   - name: registry
     kind: library.lua
     meta:
@@ -16,6 +28,25 @@ entries:
     modules: [ "registry" ]
     imports:
       traits: "wippy.agents:traits"
+
+  - name: agent_test
+    kind: function.lua
+    meta:
+      name: "Agent Runner Test"
+      type: "test"
+      tags: [ "agents", "llm", "conversation", "tools", "tests" ]
+      group: "Agent Framework"
+      comment: "Tests the agent runner library functionality for executing LLM agents with conversation and tool support"
+      depends_on: [ "registry" ]
+    source: file://agent_test.lua
+    method: run_tests
+    modules: [ "time", "json", "env" ]
+    imports:
+      test: "wippy.test:test"
+      agent: "wippy.agents.gen1:agent"
+      prompt: "wippy.llm:prompt"
+      llm: "wippy.llm:llm"
+      agent_registry: "wippy.agents.gen1:registry"
 
   - name: registry_test
     kind: function.lua

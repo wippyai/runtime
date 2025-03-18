@@ -183,7 +183,13 @@ function llm.generate(prompt_input, options)
 
     -- Execute handler using the injected or default executor
     local executor = get_executor()
-    return executor:call(handler_id, request)
+    local result = executor:call(handler_id, request)
+
+    if result.error then
+        return nil, result.error_message or result.error
+    end
+
+    return result
 end
 
 -- Generate structured output (with schema)

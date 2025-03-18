@@ -176,7 +176,7 @@ function agent_registry._build_agent_spec(entry, visited_ids)
         traits = {},
         tools = {},
         memory = {},
-        handouts = {} -- Initialize handouts array
+        handouts = {}
     }
 
     -- Mark this ID as visited
