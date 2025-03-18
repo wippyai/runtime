@@ -7,10 +7,25 @@ local function is_exit(result)
     return type(result) == "table" and result._actor_exit == true
 end
 
+local function is_next(result)
+    return type(result) == "table" and result._actor_next == true
+end
+
 function actor.exit(result)
     return {
         _actor_exit = true,
         result = result
+    }
+end
+
+-- Function to pass control to another handler
+-- topic: The next handler to call (required)
+-- payload: Optional payload override (default: use original payload)
+function actor.next(topic, payload)
+    return {
+        _actor_next = true,
+        next_topic = topic,
+        payload = payload -- If nil, original payload will be used
     }
 end
 
@@ -109,10 +124,10 @@ function actor.new(initial_state, handlers)
             return false
         end
 
-        local function post(msg_type, payload, source)
+        local function post(payload, msg_type, source)
             internal_channel:send({
-                type = msg_type,
                 payload = payload,
+                type = msg_type,
                 from = source or "self"
             })
             return true
@@ -134,15 +149,70 @@ function actor.new(initial_state, handlers)
             coroutine.spawn(function()
                 local result, err = fn()
                 internal_channel:send({
+                    payload = result,
                     type = "async_result",
                     task_id = async_task.id,
-                    result = result,
                     error = err,
                     from = "async"
                 })
             end)
 
             return async_task
+        end
+
+        -- Process a message through topic handlers with next support
+        local function process_inbox_message(msg)
+            local from = msg:from()
+            local topic = msg:topic()
+            local payload_ud = msg:payload()
+            local payload = payload_ud:data()
+
+            local current_topic = topic
+            local current_payload = payload
+
+            while true do
+                -- Get the appropriate handler
+                local handler = topic_handlers[current_topic]
+                if not handler and current_topic ~= "__default" then
+                    -- If no specific handler and we're not already trying default
+                    handler = handlers.__default
+                    if handler then
+                        current_topic = "__default"
+                    end
+                end
+
+                if not handler then
+                    -- No handler found at all
+                    return nil
+                end
+
+                -- Call the handler
+                local reply = handler(state, current_payload, current_topic, from)
+
+                if is_next(reply) then
+                    -- Chain to the next handler
+                    local next_topic = reply.next_topic
+
+                    -- Update payload if provided, otherwise keep current
+                    if reply.payload ~= nil then
+                        current_payload = reply.payload
+                    end
+
+                    -- If no topic, try default handler if available
+                    if not next_topic then
+                        if handlers.__default then
+                            current_topic = "__default"
+                        else
+                            -- No more handlers to try
+                            return nil
+                        end
+                    else
+                        current_topic = next_topic
+                    end
+                else
+                    return reply
+                end
+            end
         end
 
         state.register_channel = register_channel
@@ -180,7 +250,7 @@ function actor.new(initial_state, handlers)
 
                 -- Handle specific cancel events
                 if event_kind == proc.event.CANCEL and handlers.__on_cancel then
-                    local exit_result = handlers.__on_cancel(state, event, from)
+                    local exit_result = handlers.__on_cancel(state, event, event_kind, from)
                     if is_exit(exit_result) then
                         return exit_result.result
                     end
@@ -188,44 +258,29 @@ function actor.new(initial_state, handlers)
             end
 
             if result.channel == inbox and result.value then
-                local msg = result.value
-                local from = msg:from()
-                local topic = msg:topic()
-                local payload_ud = msg:payload()
-                local payload = payload_ud:data()
-
-                local handler = topic_handlers[topic]
-
-                if handler then
-                    local reply = handler(state, payload, topic, from)
-                    if is_exit(reply) then
-                        return reply.result
-                    end
-                elseif handlers.__default then
-                    local reply = handlers.__default(state, payload, topic, from)
-                    if is_exit(reply) then
-                        return reply.result
-                    end
+                local exit_result = process_inbox_message(result.value)
+                if is_exit(exit_result) then
+                    return exit_result.result
                 end
             end
 
             if result.channel == internal_channel and result.value then
                 local msg = result.value
-                local msg_type = msg.type
                 local payload = msg.payload
+                local msg_type = msg.type
                 local from = msg.from or "internal"
 
                 if msg_type == "async_result" and async_tasks[msg.task_id] then
                     local task = async_tasks[msg.task_id]
                     if task._then then
-                        local reply = task._then(state, msg.result, msg.error, msg.task_id)
+                        local reply = task._then(state, payload, msg.error, msg.task_id)
                         if is_exit(reply) then
                             return reply.result
                         end
                     end
                     async_tasks[msg.task_id] = nil
                 elseif handlers.__on_internal_message then
-                    local reply = handlers.__on_internal_message(state, msg_type, payload, from)
+                    local reply = handlers.__on_internal_message(state, payload, msg_type, from)
                     if is_exit(reply) then
                         return reply.result
                     end

@@ -50,10 +50,35 @@ local function define_tests()
             end)
         end)
 
+        -- Actor.next Tests
+        describe("Actor Next", function()
+            it("should create a next object with specified topic", function()
+                local next_topic = "next_handler"
+                local next_obj = actor.next(next_topic)
+
+                expect(next_obj).not_to_be_nil("Next object should be created")
+                expect(next_obj._actor_next).to_be_true("Next object should have _actor_next flag")
+                expect(next_obj.next_topic).to_equal(next_topic, "Next object should contain the topic")
+                expect(next_obj.payload).to_be_nil("Payload should be nil for using original payload")
+            end)
+
+            it("should create a next object with specified topic and payload", function()
+                local next_topic = "next_handler"
+                local next_payload = { value = 42 }
+                local next_obj = actor.next(next_topic, next_payload)
+
+                expect(next_obj).not_to_be_nil("Next object should be created")
+                expect(next_obj._actor_next).to_be_true("Next object should have _actor_next flag")
+                expect(next_obj.next_topic).to_equal(next_topic, "Next object should contain the topic")
+                expect(next_obj.payload).to_equal(next_payload, "Next object should contain the payload")
+            end)
+        end)
+
         -- Test with dependency injection
         describe("Message Handling with DI", function()
-            it("should handle inbox messages with unified arguments", function()
+            it("should handle inbox messages with correct argument order", function()
                 local handler_called = false
+                local received_state = nil
                 local received_payload = nil
                 local received_topic = nil
                 local received_from = nil
@@ -124,12 +149,16 @@ local function define_tests()
                     }
                 }
 
+                -- Create the actor with initial state
+                local initial_state = { value = 42 }
+
                 -- Create the actor
                 local test_actor = actor.new(
-                    { value = 42 },
+                    initial_state,
                     {
                         status = function(state, payload, topic, from)
                             handler_called = true
+                            received_state = state
                             received_payload = payload
                             received_topic = topic
                             received_from = from
@@ -145,8 +174,9 @@ local function define_tests()
                 _G.channel = original_channel
                 _G.tostring = original_tostring
 
-                -- Verify handler was called with all parameters
+                -- Verify handler was called with all parameters in correct order
                 expect(handler_called).to_be_true("Inbox handler should have been called")
+                expect(received_state).to_equal(initial_state, "State should be passed correctly")
                 expect(received_payload.command).to_equal("get_status", "Payload should be passed correctly")
                 expect(received_topic).to_equal("status", "Topic should be passed correctly")
                 expect(received_from).to_equal("sender_pid", "Sender should be passed correctly")
@@ -156,8 +186,9 @@ local function define_tests()
 
         -- Event Handling Tests with DI
         describe("Event Handling with DI", function()
-            it("should handle system events with unified arguments", function()
+            it("should handle system events with correct argument order", function()
                 local handler_called = false
+                local received_state = nil
                 local received_event = nil
                 local received_kind = nil
                 local received_from = nil
@@ -220,12 +251,16 @@ local function define_tests()
                     }
                 }
 
+                -- Create the actor with initial state
+                local initial_state = { value = 0 }
+
                 -- Create the actor
                 local test_actor = actor.new(
-                    { value = 0 },
+                    initial_state,
                     {
                         __on_event = function(state, event, kind, from)
                             handler_called = true
+                            received_state = state
                             received_event = event
                             received_kind = kind
                             received_from = from
@@ -240,8 +275,9 @@ local function define_tests()
                 -- Restore original functions
                 _G.channel = original_channel
 
-                -- Verify handler was called with correct parameters
+                -- Verify handler was called with correct parameters in correct order
                 expect(handler_called).to_be_true("Event handler should have been called")
+                expect(received_state).to_equal(initial_state, "State should be passed correctly")
                 expect(received_event).to_equal(mock_event, "Event should be passed correctly")
                 expect(received_kind).to_equal("pid.exit", "Event kind should be passed separately")
                 expect(received_from).to_equal("other_pid", "Event source should be passed separately")
@@ -249,7 +285,7 @@ local function define_tests()
                 expect(result.value).to_equal(99, "Handler should affect exit result")
             end)
 
-            it("should handle cancel events with specific handler", function()
+            it("should handle cancel events with specific handler using correct argument order", function()
                 -- Create mock cancel event
                 local mock_event = {
                     kind = "pid.cancel",
@@ -306,14 +342,23 @@ local function define_tests()
                 }
 
                 local cancel_handler_called = false
+                local received_state = nil
+                local received_event = nil
+                local received_kind = nil
                 local received_from = nil
+
+                -- Create the actor with initial state
+                local initial_state = { value = 0 }
 
                 -- Create the actor with a specific cancel handler
                 local test_actor = actor.new(
-                    { value = 0 },
+                    initial_state,
                     {
-                        __on_cancel = function(state, event, from)
+                        __on_cancel = function(state, event, kind, from)
                             cancel_handler_called = true
+                            received_state = state
+                            received_event = event
+                            received_kind = kind
                             received_from = from
                             return actor.exit({ status = "cancelled", source = from })
                         end
@@ -326,8 +371,11 @@ local function define_tests()
                 -- Restore original functions
                 _G.channel = original_channel
 
-                -- Verify the specific handler was called
+                -- Verify the specific handler was called with correct parameters
                 expect(cancel_handler_called).to_be_true("Cancel handler should have been called")
+                expect(received_state).to_equal(initial_state, "State should be passed correctly")
+                expect(received_event).to_equal(mock_event, "Event should be passed correctly")
+                expect(received_kind).to_equal("pid.cancel", "Kind should be passed correctly")
                 expect(received_from).to_equal("parent_pid", "Should receive the correct source")
                 expect(result.status).to_equal("cancelled", "Should return cancelled status")
                 expect(result.source).to_equal("parent_pid", "Should include source in result")
@@ -394,9 +442,12 @@ local function define_tests()
                     }
                 }
 
+                -- Create the actor with initial state
+                local initial_state = { value = 0 }
+
                 -- Create the actor
                 local test_actor = actor.new(
-                    { value = 0 },
+                    initial_state,
                     {
                         __init = function(state)
                             -- Start an async task
@@ -405,7 +456,7 @@ local function define_tests()
                             end)
 
                             -- Register a callback
-                            task.on_complete(function()
+                            task.on_complete(function(state, result)
                                 return nil
                             end)
 
@@ -486,13 +537,16 @@ local function define_tests()
                     }
                 }
 
+                -- Create the actor with initial state
+                local initial_state = { value = 0 }
+
                 -- Create the actor
                 local test_actor = actor.new(
-                    { value = 0 },
+                    initial_state,
                     {
                         __init = function(state)
                             -- Post a message with source
-                            state.post("test_message", { value = 42 }, "test_source")
+                            state.post({ value = 42 }, "test_message", "test_source")
 
                             return actor.exit({ status = "initialized" })
                         end
@@ -596,20 +650,23 @@ local function define_tests()
                     }
                 }
 
+                -- Create the actor with initial state
+                local initial_state = { value = 0 }
+
                 -- Create the actor with handlers to test dynamic registration
                 local test_actor = actor.new(
-                    { value = 0 },
+                    initial_state,
                     {
                         __init = function(state)
                             -- Add a dynamic topic handler in init
-                            state.add_handler("dynamic_topic", function(state, payload)
+                            state.add_handler("dynamic_topic", function(state, payload, topic, from)
                                 first_handler_called = true
 
                                 -- Remove the handler after being called
                                 state.remove_handler("dynamic_topic")
 
                                 -- Add a new handler for the same topic
-                                state.add_handler("dynamic_topic", function(state, payload)
+                                state.add_handler("dynamic_topic", function(state, payload, topic, from)
                                     second_handler_called = true
                                     return nil
                                 end)
@@ -621,7 +678,7 @@ local function define_tests()
                         end,
 
                         -- Default handler to ensure we catch messages with no handler
-                        __default = function(state, payload, topic)
+                        __default = function(state, payload, topic, from)
                             -- This should not be called for our dynamic topic
                             expect(topic).not_to_equal("dynamic_topic",
                                 "Default handler should not be called for registered topic")
@@ -733,12 +790,15 @@ local function define_tests()
                     }
                 }
 
+                -- Create the actor with initial state containing test channel
+                local initial_state = {
+                    value = 0,
+                    test_channel = test_channel
+                }
+
                 -- Create the actor with channel manipulation
                 local test_actor = actor.new(
-                    {
-                        value = 0,
-                        test_channel = test_channel
-                    },
+                    initial_state,
                     {
                         __init = function(state)
                             -- Count baseline cases (inbox, events, internal)
@@ -775,7 +835,318 @@ local function define_tests()
                 expect(handler_received_value).to_equal("test_data", "Handler should receive correct data")
             end)
         end)
-    end) -- End of main "Actor Library Tests" describe block
+
+        -- Test actor.next functionality
+        describe("Handler Chaining with actor.next", function()
+            it("should chain handlers using actor.next", function()
+                -- Track handler calls
+                local first_handler_called = false
+                local second_handler_called = false
+                local payload_received_by_second = nil
+
+                -- Create mock message
+                local mock_message = {
+                    from = function() return "sender_pid" end,
+                    topic = function() return "first_topic" end,
+                    payload = function()
+                        return {
+                            data = function()
+                                return { value = 42 }
+                            end
+                        }
+                    end
+                }
+
+                -- Create mock channels
+                local inbox_channel = {
+                    case_receive = function() return "inbox_case" end
+                }
+
+                local events_channel = {
+                    case_receive = function() return "events_case" end
+                }
+
+                -- Create a mock internal channel
+                local internal_channel = {
+                    send = function(self, value) return true end,
+                    receive = function(self) return nil, false end,
+                    case_receive = function(self) return "internal_case" end
+                }
+
+                -- Store original functions
+                local original_channel = _G.channel
+
+                -- Counter to limit execution cycles to prevent actual infinite loop in test
+                local select_count = 0
+                local max_iterations = 5
+
+                -- Mock channel
+                _G.channel = {
+                    new = function(size)
+                        return internal_channel
+                    end,
+                    select = function(cases)
+                        select_count = select_count + 1
+
+                        -- First return the message, then exit after a few iterations
+                        -- to avoid hanging if loop detection fails
+                        if select_count == 1 then
+                            return {
+                                ok = true,
+                                channel = inbox_channel,
+                                value = mock_message
+                            }
+                        else
+                            -- Force exit after a few iterations
+                            return { ok = false }
+                        end
+                    end
+                }
+
+                -- Set up the mock process
+                actor._process = {
+                    inbox = function() return inbox_channel end,
+                    events = function() return events_channel end,
+                    send = function(dest, topic, payload) return true end,
+                    pid = function() return "test-pid" end,
+                    event = {
+                        CANCEL = "pid.cancel",
+                        EXIT = "pid.exit",
+                        LINK_DOWN = "pid.link.down"
+                    }
+                }
+
+                -- Create the actor with handlers that use next
+                local test_actor = actor.new(
+                    { value = 0 },
+                    {
+                        first_topic = function(state, payload, topic, from)
+                            first_handler_called = true
+                            -- Chain to second handler with modified payload
+                            return actor.next("second_topic", { value = payload.value * 2 })
+                        end,
+
+                        second_topic = function(state, payload, topic, from)
+                            second_handler_called = true
+                            payload_received_by_second = payload
+                            -- Exit after second handler
+                            return actor.exit({ status = "completed", value = payload.value })
+                        end
+                    }
+                )
+
+                -- Run the actor
+                local result = test_actor.run()
+
+                -- Restore original functions
+                _G.channel = original_channel
+
+                -- Verify both handlers were called in sequence
+                expect(first_handler_called).to_be_true("First handler should be called")
+                expect(second_handler_called).to_be_true("Second handler should be called via next")
+                expect(payload_received_by_second.value).to_equal(84, "Payload should be modified by first handler")
+                expect(result.status).to_equal("completed", "Actor should exit with correct status")
+                expect(result.value).to_equal(84, "Actor should exit with correct value")
+            end)
+
+            it("should chain to default handler when specified topic doesn't exist", function()
+                -- Track handler calls
+                local first_handler_called = false
+                local default_handler_called = false
+                local received_topic_in_default = nil
+
+                -- Create mock message
+                local mock_message = {
+                    from = function() return "sender_pid" end,
+                    topic = function() return "first_topic" end,
+                    payload = function()
+                        return {
+                            data = function()
+                                return { value = 42 }
+                            end
+                        }
+                    end
+                }
+
+                -- Create mock channels
+                local inbox_channel = {
+                    case_receive = function() return "inbox_case" end
+                }
+
+                local events_channel = {
+                    case_receive = function() return "events_case" end
+                }
+
+                -- Create a mock internal channel
+                local internal_channel = {
+                    send = function(self, value) return true end,
+                    receive = function(self) return nil, false end,
+                    case_receive = function(self) return "internal_case" end
+                }
+
+                -- Store original functions
+                local original_channel = _G.channel
+
+                -- Mock channel
+                _G.channel = {
+                    new = function(size)
+                        return internal_channel
+                    end,
+                    select = function(cases)
+                        -- Return message then exit
+                        return {
+                            ok = true,
+                            channel = inbox_channel,
+                            value = mock_message
+                        }
+                    end
+                }
+
+                -- Set up the mock process
+                actor._process = {
+                    inbox = function() return inbox_channel end,
+                    events = function() return events_channel end,
+                    send = function(dest, topic, payload) return true end,
+                    pid = function() return "test-pid" end,
+                    event = {
+                        CANCEL = "pid.cancel",
+                        EXIT = "pid.exit",
+                        LINK_DOWN = "pid.link.down"
+                    }
+                }
+
+                -- Create the actor with next to nonexistent handler
+                local test_actor = actor.new(
+                    { value = 0 },
+                    {
+                        first_topic = function(state, payload, topic, from)
+                            first_handler_called = true
+                            -- Chain to nonexistent topic, should go to default
+                            return actor.next("nonexistent_topic")
+                        end,
+
+                        __default = function(state, payload, topic, from)
+                            default_handler_called = true
+                            received_topic_in_default = topic
+                            return actor.exit({ status = "handled_by_default" })
+                        end
+                    }
+                )
+
+                -- Run the actor
+                local result = test_actor.run()
+
+                -- Restore original functions
+                _G.channel = original_channel
+
+                -- Verify default handler was called
+                expect(first_handler_called).to_be_true("First handler should be called")
+                expect(default_handler_called).to_be_true("Default handler should be called when topic doesn't exist")
+                expect(received_topic_in_default).to_equal("__default",
+                    "Default handler should get the default topic name")
+                expect(result.status).to_equal("handled_by_default", "Actor should exit with correct status")
+            end)
+
+            it("should use original payload when next payload is nil", function()
+                -- Track received payloads
+                local first_handler_called = false
+                local second_handler_called = false
+                local payload_received_by_second = nil
+
+                -- Create mock message with original payload
+                local original_payload = { value = 42, extra = "data" }
+                local mock_message = {
+                    from = function() return "sender_pid" end,
+                    topic = function() return "first_topic" end,
+                    payload = function()
+                        return {
+                            data = function()
+                                return original_payload
+                            end
+                        }
+                    end
+                }
+
+                -- Create mock channels
+                local inbox_channel = {
+                    case_receive = function() return "inbox_case" end
+                }
+
+                local events_channel = {
+                    case_receive = function() return "events_case" end
+                }
+
+                -- Create a mock internal channel
+                local internal_channel = {
+                    send = function(self, value) return true end,
+                    receive = function(self) return nil, false end,
+                    case_receive = function(self) return "internal_case" end
+                }
+
+                -- Store original functions
+                local original_channel = _G.channel
+
+                -- Mock channel
+                _G.channel = {
+                    new = function(size)
+                        return internal_channel
+                    end,
+                    select = function(cases)
+                        -- Return message then exit
+                        return {
+                            ok = true,
+                            channel = inbox_channel,
+                            value = mock_message
+                        }
+                    end
+                }
+
+                -- Set up the mock process
+                actor._process = {
+                    inbox = function() return inbox_channel end,
+                    events = function() return events_channel end,
+                    send = function(dest, topic, payload) return true end,
+                    pid = function() return "test-pid" end,
+                    event = {
+                        CANCEL = "pid.cancel",
+                        EXIT = "pid.exit",
+                        LINK_DOWN = "pid.link.down"
+                    }
+                }
+
+                -- Create the actor with next that doesn't specify payload
+                local test_actor = actor.new(
+                    { value = 0 },
+                    {
+                        first_topic = function(state, payload, topic, from)
+                            first_handler_called = true
+                            -- Chain to second handler without modifying payload
+                            return actor.next("second_topic")
+                        end,
+
+                        second_topic = function(state, payload, topic, from)
+                            second_handler_called = true
+                            payload_received_by_second = payload
+                            -- Exit after second handler
+                            return actor.exit({ status = "completed" })
+                        end
+                    }
+                )
+
+                -- Run the actor
+                test_actor.run()
+
+                -- Restore original functions
+                _G.channel = original_channel
+
+                -- Verify both handlers were called and payload preserved
+                expect(first_handler_called).to_be_true("First handler should be called")
+                expect(second_handler_called).to_be_true("Second handler should be called via next")
+                expect(payload_received_by_second).to_equal(original_payload,
+                    "Original payload should be passed to second handler")
+            end)
+        end)
+    end)
 end
 
 return require("test").run_cases(define_tests)
