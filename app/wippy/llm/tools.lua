@@ -203,7 +203,7 @@ function tool_resolver.find_tools(criteria)
 
     local query = {
         [".kind"] = "function.lua",
-        type = "tool"
+        ["meta.type"] = "tool"
     }
 
     -- Add additional criteria

@@ -20,7 +20,7 @@ local function discover_tests()
 
     -- Parse query parameters for filtering
     local options = {
-        type = "test"
+        ["meta.type"] = "test"
     }
 
     if req:query("group") then

@@ -406,7 +406,15 @@ local function run(args)
             return
         end
 
-        if cmd == CMD_MODEL then
+        if cmd == "art" then
+            -- Change model
+            broadcast_to_clients(state, UPDATE_TOPIC, {
+                type = "artifact",
+                artifact_id = "abc",
+                artifact_type = "text/markdown",
+                content = "## This is a test artifact\n\nThis is a test artifact content"
+            })
+        elseif cmd == CMD_MODEL then
             -- Change model
             if args and args ~= "" then
                 state.llm_model = args

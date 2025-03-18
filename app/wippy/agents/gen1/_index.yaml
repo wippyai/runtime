@@ -1,0 +1,31 @@
+version: "1.0"
+namespace: wippy.agents.gen1
+
+meta:
+  depends_on:
+    - ns:wippy.agents
+
+entries:
+  - name: registry
+    kind: library.lua
+    meta:
+      comment: "Agent registry library for discovering and loading gen1 agents"
+      type: "library"
+    source: file://registry.lua
+    modules: [ "registry" ]
+    imports:
+      traits: "wippy.agents:traits"
+
+  - name: registry_test
+    kind: function.lua
+    meta:
+      name: "Agent Registry Test"
+      type: "test"
+      tags: [ "agents", "registry", "discovery", "tests" ]
+      group: "Agent Framework"
+      comment: "Tests the agent registry library functionality for discovering and loading gen1 agents"
+    source: file://registry_test.lua
+    method: run_tests
+    imports:
+      test: "wippy.test:test"
+      agent_registry: "wippy.agents.gen1:registry"
