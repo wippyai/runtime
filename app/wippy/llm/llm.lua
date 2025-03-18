@@ -190,9 +190,9 @@ function llm.generate(prompt_input, options)
     end
 
     if type(result.result) == "table" then
+        -- flattening per spec
         result.tool_calls = result.result.tool_calls or {}
         result.result = result.result.content or ""
-
         return result.result
     end
 

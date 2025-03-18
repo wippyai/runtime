@@ -630,7 +630,6 @@ local function define_tests()
             builder:add_user("What's the weather in Seattle?")
             builder:add_developer("Always use the weather tool")
 
-            -- Make the API call directly - no pcall needed as it returns result, err
             local response = llm.generate(builder, {
                 model = "gpt-4o-mini",
                 api_key = openai_api_key,
