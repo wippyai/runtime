@@ -103,6 +103,7 @@ func TestExcelFileSystemIntegration(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.Write(excelData)
 	require.NoError(t, err)
+	f.Close()
 
 	// Execute the integration test script
 	err = L.DoString(`
