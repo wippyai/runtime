@@ -87,6 +87,18 @@ Returns:
 
 - `error`: Error message (string, or nil on success).
 
+#### `workbook:write_to(writer)`
+
+Writes the workbook to an object with :write method.
+
+Parameters:
+
+- `writer`: An object that have :write method.
+
+Returns:
+
+- `error`: Error message (string, or nil on success).
+
 #### `workbook:close()`
 
 Closes the workbook and releases resources.
@@ -97,7 +109,7 @@ Returns:
 
 ## Error Handling
 
-Most methods return either the expected value and nil (for success) or nil and an error message (for failure). The `set_cell_value` and `close` methods return only an error message or nil.
+Most methods return either the expected value and nil (for success) or nil and an error message (for failure). The `set_cell_value`, `write_to`, and `close` methods return only an error message or nil.
 
 Example error handling:
 
@@ -212,6 +224,58 @@ end
 wb:close()
 ```
 
+### Writing a Workbook to a File
+
+```lua
+local excel = require("excel")
+local fs = require("fs")
+
+-- Get access to the filesystem
+local fsObj = fs.default()
+
+-- Create a new workbook
+local wb, err = excel.new()
+if err then
+    print("Error creating workbook:", err)
+    return
+end
+
+-- Add data to the workbook
+wb:new_sheet("Report")
+wb:set_cell_value("Report", "A1", "Monthly Report")
+wb:set_cell_value("Report", "A2", "Month")
+wb:set_cell_value("Report", "B2", "Sales")
+
+for i = 1, 12 do
+    local month = os.date("%B", os.time({year=2023, month=i, day=1}))
+    wb:set_cell_value("Report", "A" .. (i+2), month)
+    wb:set_cell_value("Report", "B" .. (i+2), math.random(1000, 5000))
+end
+
+-- Open a file for writing
+local file = fsObj:open("report.xlsx", "w")
+if not file then
+    print("Error opening output file")
+    wb:close()
+    return
+end
+
+-- Write the workbook to the file
+local err = wb:write_to(file)
+if err then
+    print("Error writing workbook:", err)
+    file:close()
+    wb:close()
+    return
+end
+
+-- Close the file and workbook
+file:close()
+wb:close()
+
+print("Report successfully written to report.xlsx")
+```
+
 ### Report Generation Example
 
 ```lua
@@ -259,7 +323,26 @@ for i, row in ipairs(data) do
     end
 end
 
--- Close workbook to ensure all changes are saved and resources released
+-- Open an output file
+local outFile = fsObj:open("output.xlsx", "w")
+if not outFile then
+    print("Error opening output file")
+    wb:close()
+    return
+end
+
+-- Write the workbook to the output file
+local err = wb:write_to(outFile)
+if err then
+    print("Error writing workbook:", err)
+    outFile:close()
+    wb:close()
+    return
+end
+
+outFile:close()
+
+-- Close workbook to ensure all resources are released
 local err = wb:close()
 if err then
     print("Error closing workbook:", err)

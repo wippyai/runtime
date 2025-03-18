@@ -599,3 +599,156 @@ func TestIntegrationWorkflow(t *testing.T) {
 
 	assert.NoError(t, err, "Integration workflow should complete without errors")
 }
+
+func TestWorkbook_WriteTo(t *testing.T) {
+	t.Run("write to buffer", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		// Create a buffer for output
+		outBuf := new(bytes.Buffer)
+		ud := l.NewUserData()
+		ud.Value = outBuf
+		l.SetGlobal("out_buffer", ud)
+
+		err := l.DoString(`
+			local excel = require("excel")
+			local wb = excel.new()
+			
+			-- Create a sheet with some data
+			wb:new_sheet("TestSheet")
+			wb:set_cell_value("TestSheet", "A1", "Test Data")
+			wb:set_cell_value("TestSheet", "B1", 123)
+			
+			-- Write the workbook to the buffer
+			local err = wb:write_to(out_buffer)
+			assert(err == nil, "write_to should succeed")
+			
+			-- Close the workbook
+			wb:close()
+		`)
+		assert.NoError(t, err, "WriteTo test script should run without errors")
+
+		// Verify that data was written to the buffer
+		assert.NotEmpty(t, outBuf.Bytes(), "Buffer should contain Excel file data")
+
+		// Try to open the generated Excel file from the buffer
+		f, err := excelize.OpenReader(bytes.NewReader(outBuf.Bytes()))
+		assert.NoError(t, err, "Generated Excel file should be valid")
+
+		// Verify content if file was opened successfully
+		if f != nil {
+			val, err := f.GetCellValue("TestSheet", "A1")
+			assert.NoError(t, err, "Should be able to read cell value")
+			assert.Equal(t, "Test Data", val, "Cell value should match what was written")
+
+			f.Close()
+		}
+	})
+
+	t.Run("invalid writer", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		// Create a userdata that doesn't implement io.Writer
+		ud := l.NewUserData()
+		ud.Value = "not a writer"
+		l.SetGlobal("invalid_writer", ud)
+
+		err := l.DoString(`
+			local excel = require("excel")
+			local wb = excel.new()
+			
+			-- Try to write to invalid writer
+			local err = wb:write_to(invalid_writer)
+			assert(err == "value does not implement io.Writer", "should get appropriate error message")
+			
+			wb:close()
+		`)
+		assert.NoError(t, err, "Invalid writer test should run without errors")
+	})
+
+	t.Run("invalid workbook", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		// Create a buffer for output
+		outBuf := new(bytes.Buffer)
+		ud := l.NewUserData()
+		ud.Value = outBuf
+		l.SetGlobal("out_buffer", ud)
+
+		// Create a fake workbook
+		fakeWb := l.NewUserData()
+		fakeWb.Value = "not a workbook"
+		l.SetMetatable(fakeWb, l.GetTypeMetatable("Workbook"))
+		l.SetGlobal("fake_wb", fakeWb)
+
+		err := l.DoString(`
+			local err = fake_wb:write_to(out_buffer)
+			assert(err == "workbook expected", "error should indicate workbook expected")
+		`)
+		assert.NoError(t, err, "Invalid workbook test should run without errors")
+	})
+
+	t.Run("integration with file manipulation", func(t *testing.T) {
+		// This test demonstrates how the write_to method could be used in a real-world
+		// scenario where we create a workbook, manipulate it, then read it back
+		l := setupTestVM(t)
+		defer l.Close()
+
+		// Create buffers for write and read operations
+		outBuf := new(bytes.Buffer)
+		ud := l.NewUserData()
+		ud.Value = outBuf
+		l.SetGlobal("out_buffer", ud)
+
+		err := l.DoString(`
+			local excel = require("excel")
+			
+			-- Create a workbook with data
+			local wb = excel.new()
+			wb:new_sheet("Report")
+			
+			-- Add some data
+			wb:set_cell_value("Report", "A1", "Sales Report")
+			wb:set_cell_value("Report", "A2", "Quarter")
+			wb:set_cell_value("Report", "B2", "Amount")
+			
+			for i = 1, 4 do
+				wb:set_cell_value("Report", "A" .. (i+2), "Q" .. i)
+				wb:set_cell_value("Report", "B" .. (i+2), i * 1000)
+			end
+			
+			-- Write the workbook to the buffer
+			local err = wb:write_to(out_buffer)
+			assert(err == nil, "write_to should succeed")
+			wb:close()
+		`)
+		assert.NoError(t, err, "First part of integration test should run without errors")
+
+		// Now set up the buffer as a reader to open the generated workbook
+		inBuf := bytes.NewReader(outBuf.Bytes())
+		readerUD := l.NewUserData()
+		readerUD.Value = inBuf
+		l.SetGlobal("in_buffer", readerUD)
+
+		err = l.DoString(`
+			local excel = require("excel")
+			
+			-- Open the workbook from the buffer
+			local wb, err = excel.open(in_buffer)
+			assert(wb ~= nil, "should be able to open workbook from buffer")
+			assert(err == nil, "open should succeed")
+			
+			-- Verify the data
+			local rows = wb:get_rows("Report")
+			assert(rows[1][1] == "Sales Report", "Title should match")
+			assert(rows[3][1] == "Q1", "First quarter label should match")
+			assert(rows[6][2] == "4000", "Q4 amount should match")
+			
+			wb:close()
+		`)
+		assert.NoError(t, err, "Second part of integration test should run without errors")
+	})
+}
