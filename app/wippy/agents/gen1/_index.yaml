@@ -1,5 +1,5 @@
 version: "1.0"
-namespace: wippy.agents.gen1
+#namespace: wippy.agents.gen1
 
 meta:
   depends_on:

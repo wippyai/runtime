@@ -30,6 +30,7 @@ function traits.get_by_id(trait_id)
 
     -- Get trait directly from registry using the getter function
     local reg = get_registry()
+
     local entry, err = reg.get(trait_id)
     if not entry then
         return nil, "No trait found with ID: " .. tostring(trait_id) .. ", error: " .. tostring(err)

@@ -60,12 +60,7 @@ end
 
 -- Get specific test by ID
 function test_registry.get(id)
-    local snapshot, err = registry.snapshot()
-    if err then
-        return nil, "Failed to get registry snapshot: " .. err
-    end
-
-    local entry = snapshot:get(id)
+    local entry = registry.get(id)
     if not entry then
         return nil, "Test not found: " .. id
     end
@@ -81,12 +76,7 @@ end
 
 -- Get all test groups
 function test_registry.get_groups()
-    local snapshot, err = registry.snapshot()
-    if err then
-        return nil, "Failed to get registry snapshot: " .. err
-    end
-
-    local entries = snapshot:find({
+    local entries = registry.find({
         ["type"] = "test"
     })
 
@@ -114,7 +104,7 @@ function test_registry.get_by_group(group)
         return nil, "Group name is required"
     end
 
-    return test_registry.find({group = group})
+    return test_registry.find({ group = group })
 end
 
 return test_registry

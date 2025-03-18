@@ -88,7 +88,7 @@ function agent_registry._build_agent_spec(entry)
         model = entry.data.model or "",
         max_tokens = entry.data.max_tokens or 0,
         temperature = entry.data.temperature or 0,
-        traits = entry.data.traits or entry.data.flavors or {}, -- Support both traits and legacy flavors
+        traits = entry.data.traits or {},
         tools = {},
         memory = {},
         handouts = {} -- Initialize handouts array
@@ -160,7 +160,7 @@ function agent_registry._build_agent_spec(entry)
         end
     end
 
-    -- Process traits (flavors) and incorporate their prompts
+    -- Process traits and incorporate their prompts
     if entry.data.traits and #entry.data.traits > 0 then
         local trait_prompts = {}
 
