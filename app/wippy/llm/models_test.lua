@@ -90,7 +90,7 @@ local function define_tests()
                     local results = {}
 
                     -- If query is looking for all registry entries
-                    if query and query[".kind"] == "registry.entry" and not query.name then
+                    if query and query[".kind"] == "registry.entry" and not query["meta.name"] then
                         for _, entry in pairs(model_entries) do
                             table.insert(results, entry)
                         end
@@ -107,7 +107,7 @@ local function define_tests()
                         end
 
                         -- Match on name (default checks meta.name)
-                        if query.name and entry.meta.name ~= query.name then
+                        if query["meta.name"] and entry.meta.name ~= query["meta.name"] then
                             matches = false
                         end
 

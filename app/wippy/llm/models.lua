@@ -53,9 +53,10 @@ end
 function models.get_all()
     local reg = get_registry()
 
+    -- !todo: optimize
     -- Find all model entries from registry
     local entries = reg.find({
-        [".kind"] = "registry.entry"
+        [".kind"] = "registry.entry",
     })
 
     local all_models = {}

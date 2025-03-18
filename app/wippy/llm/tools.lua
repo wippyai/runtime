@@ -237,7 +237,7 @@ function tool_resolver.find_tools(criteria)
             -- Check for duplicate tool names
             if name_to_id[tool.name] then
                 return nil, "Duplicate tool name detected: '" .. tool.name .. "' for tools '" ..
-                           name_to_id[tool.name] .. "' and '" .. entry.id .. "'"
+                    name_to_id[tool.name] .. "' and '" .. entry.id .. "'"
             end
 
             -- Record this tool name
