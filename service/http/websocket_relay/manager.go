@@ -116,7 +116,7 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 			http.Error(w, "Server ID not found in context", http.StatusInternalServerError)
 			return
 		}
-
+		// todO: fix options
 		// Upgrade the connection to WebSocket
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 			OriginPatterns: []string{"*"},
