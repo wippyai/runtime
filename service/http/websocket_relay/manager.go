@@ -118,7 +118,9 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 		}
 
 		// Upgrade the connection to WebSocket
-		conn, err := websocket.Accept(w, r, nil)
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+			OriginPatterns: []string{"*"},
+		})
 		if err != nil {
 			logger.Error("Error upgrading to WebSocket", zap.Error(err))
 			return
