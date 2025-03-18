@@ -41,6 +41,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
+	"github.com/ponyruntime/pony/runtime/lua/modules/excel"
 	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
 	"github.com/ponyruntime/pony/runtime/lua/modules/funcmod"
 	fncallmod "github.com/ponyruntime/pony/runtime/lua/modules/funcs"
@@ -755,6 +756,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				treesitter.NewTreeSitterModule(a.logger.Named("tsitter")),
 				btea.NewBteaModule(a.logger.Named("btea")),
 				sqlmod.NewSQLModule(a.logger.Named("sql")),
+				excel.NewModule(a.logger.Named("excel")),
 			},
 			ProtoCacheSize: 600,
 			MainCacheSize:  100,
