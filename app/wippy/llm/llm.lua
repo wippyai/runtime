@@ -189,6 +189,13 @@ function llm.generate(prompt_input, options)
         return nil, result.error_message or result.error
     end
 
+    if type(result.result) == "table" then
+        result.tool_calls = result.result.tool_calls or {}
+        result.result = result.result.content or ""
+
+        return result.result
+    end
+
     return result
 end
 

@@ -436,15 +436,36 @@ local function define_tests()
                 model = "gpt-4o-mini",
                 prompt =
                 "You are a helpful assistant that can perform calculations. Always use the calculator tool for math problems.",
-                tools = { "test:calculator" },
+                tools = {}, -- Empty tools list - we'll use inline tools instead
                 traits = {},
                 memory = {}
             }
 
-            -- Calculator function handler without using load
+            -- Define calculator tool schema
+            local calculator_schema = {
+                name = "calculator", -- Simple name without prefix
+                description = "Perform mathematical calculations",
+                schema = {
+                    type = "object",
+                    properties = {
+                        expression = {
+                            type = "string",
+                            description = "The mathematical expression to evaluate"
+                        }
+                    },
+                    required = { "expression" }
+                }
+            }
+
+            -- Create agent
+            local test_agent = agent.new(real_agent_spec)
+
+            -- Register the calculator tool directly
+            test_agent:register_tool("calculator", calculator_schema)
+
+            -- Calculator function handler
             local function handle_calculator_tool(expression)
-                -- Simple calculator that evaluates basic math expressions without using load
-                -- Only handles the specific test case of 123 * 456
+                -- Simple calculator that evaluates basic math expressions
                 if expression == "123 * 456" then
                     return { result = 56088 }
                 elseif expression == "123 + 456" then
@@ -457,9 +478,6 @@ local function define_tests()
                     return { error = "Expression not supported in test calculator" }
                 end
             end
-
-            -- Create agent
-            local test_agent = agent.new(real_agent_spec)
 
             -- Run a conversation with tool use
             test_agent:add_user_message("What is 123 * 456?")
@@ -482,7 +500,7 @@ local function define_tests()
 
                 -- Process the calculator call
                 local tool_result
-                if tool_call.name == "test:calculator" then
+                if tool_call.name == "calculator" then
                     tool_result = handle_calculator_tool(tool_call.arguments.expression)
                 else
                     tool_result = { error = "Unknown tool" }

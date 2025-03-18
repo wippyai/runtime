@@ -14,7 +14,6 @@ entries:
       comment: "Agent runner library for executing LLM agents with conversation and tool support"
       type: "library"
     source: file://agent.lua
-    modules: [ "time", "json" ]
     imports:
       prompt: "wippy.llm:prompt"
       llm: "wippy.llm:llm"

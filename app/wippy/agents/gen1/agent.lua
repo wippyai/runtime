@@ -1,6 +1,5 @@
 local prompt = require("prompt")
 local llm = require("llm")
-local time = require("time")
 
 -- Main module
 local agent = {}
@@ -13,7 +12,6 @@ agent.DEFAULT_TEMPERATURE = 0.7
 -- For dependency injection in testing
 agent._llm = nil
 agent._prompt = nil
-agent._time = nil
 
 -- Internal: Get LLM instance - use injected llm or require it
 local function get_llm()
@@ -23,11 +21,6 @@ end
 -- Internal: Get prompt module - use injected prompt or require it
 local function get_prompt()
     return agent._prompt or prompt
-end
-
--- Internal: Get time module - use injected time or require it
-local function get_time()
-    return agent._time or time
 end
 
 -- Constructor: Create a new agent runner from an agent spec
@@ -57,10 +50,10 @@ function agent.new(agent_spec)
         prompt_builder = nil,
         base_prompt = agent_spec.prompt or "",
         tool_ids = {},
+        tool_schemas = {},  -- Custom tool schemas
         handout_tools = {}, -- Handout tool schemas
         handout_map = {},   -- Maps tool IDs to target agent IDs
         last_result = nil,
-        session_start_time = get_time().now(),
         total_tokens = {
             prompt = 0,
             completion = 0,
@@ -162,6 +155,22 @@ function agent:_build_system_prompt()
     self.prompt_builder:add_system(system_prompt)
 end
 
+-- Register a custom tool schema
+function agent:register_tool(tool_name, tool_schema)
+    if not tool_name then
+        return nil, "Tool name is required"
+    end
+
+    if not tool_schema then
+        return nil, "Tool schema is required"
+    end
+
+    -- Add to tool schemas only
+    self.tool_schemas[tool_name] = tool_schema
+
+    return self
+end
+
 -- Add a user message to the conversation
 function agent:add_user_message(message)
     self.prompt_builder:add_user(message)
@@ -204,9 +213,17 @@ function agent:step()
         options.tool_ids = self.tool_ids
     end
 
+    -- Add custom tool schemas
+    if next(self.tool_schemas) then
+        options.tool_schemas = options.tool_schemas or {}
+        for tool_id, schema in pairs(self.tool_schemas) do
+            options.tool_schemas[tool_id] = schema
+        end
+    end
+
     -- Add handout tools as tool_schemas
     if next(self.handout_tools) then
-        options.tool_schemas = {}
+        options.tool_schemas = options.tool_schemas or {}
         for tool_id, schema in pairs(self.handout_tools) do
             options.tool_schemas[tool_id] = schema
         end
@@ -271,7 +288,6 @@ function agent:get_stats()
         id = self.id,
         name = self.name,
         messages_handled = self.messages_handled,
-        session_duration = get_time().now():sub(self.session_start_time),
         total_tokens = self.total_tokens
     }
 end
