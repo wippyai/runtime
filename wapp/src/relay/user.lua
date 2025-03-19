@@ -23,9 +23,6 @@ local SESSION_HOST = "app:processes"
 local SESSION_MESSAGE_TOPIC = "session.message"
 local SESSION_COMMAND_TOPIC = "session.command"
 
--- Context constants
-local CONTEXT_CREATE_FUNCTION = "app.sessions:create_context"
-
 -- User Hub Process - Handles WebSocket connections and session management
 local function run(args)
     -- Verify required arguments
@@ -150,39 +147,6 @@ local function run(args)
                 local context_payload = message_data.context or {}
                 local start_token = message_data.start_token
 
-                -- If no context_id but context payload exists, we need to create context
-                -- Initialize context in the registry
-                local context_result, err = funcs.new():call(
-                    CONTEXT_CREATE_FUNCTION,
-                    {
-                        user_id = state.user_id,
-                        data = context_payload,
-                        type = "data"
-                    }
-                )
-
-                if err then
-                    -- Send error only to the originating client
-                    process.send(from, ERROR_TOPIC, {
-                        type = "error",
-                        error = "context_creation_failed",
-                        message = "Failed to create context: " .. err
-                    })
-                    return state
-                end
-
-                if not context_result or not context_result.context_id then
-                    -- Send error only to the originating client
-                    process.send(from, ERROR_TOPIC, {
-                        type = "error",
-                        error = "context_creation_failed",
-                        message = "Failed to get context ID from result"
-                    })
-                    return state
-                end
-
-                local context_id = context_result.context_id
-
                 -- Create session init data
                 local session_init = {
                     session_id = session_id,
@@ -191,7 +155,8 @@ local function run(args)
                     conn_pid = process.pid(),
                     primary_context_id = context_id,
                     kind = message_data.kind or "default",
-                    start_token = start_token
+                    start_token = start_token,
+                    start_context = context_payload,
                 }
 
                 -- Spawn session process
@@ -245,7 +210,9 @@ local function run(args)
 
         -- Forward any other messages to clients (including responses from sessions)
         __default = function(state, payload, topic)
-            print(payload:from())
+            if topic == "__default" then
+                return state
+            end
 
             -- todo: we can filter it out a bit
             broadcast_to_clients(state, topic, payload)
