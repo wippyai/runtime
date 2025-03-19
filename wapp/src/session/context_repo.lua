@@ -137,9 +137,9 @@ function context_repo.get_by_type(type, limit, offset)
 
     -- Add limit and offset if provided
     if limit and limit > 0 then
-        query = query .. " LIMIT " .. limit
+        query = query .. " LIMIT " .. sql.as.int(limit)
         if offset and offset > 0 then
-            query = query .. " OFFSET " .. offset
+            query = query .. " OFFSET " .. sql.as.int(offset)
         end
     end
 

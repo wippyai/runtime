@@ -26,6 +26,18 @@ Available in `sql.type`:
 - `ORACLE` (string): Oracle database
 - `UNKNOWN` (string): Unknown or unsupported database type
 
+### Type Conversions
+
+The `sql.as` submodule provides functions for explicit type conversion between Lua values and SQL-specific types:
+
+- `sql.as.int(value)`: Converts the value to a SQL INTEGER type
+- `sql.as.float(value)`: Converts the value to a SQL FLOAT/REAL type
+- `sql.as.binary(value)`: Converts the value to a SQL BINARY/BLOB type
+- `sql.as.text(value)`: Converts the value to a SQL TEXT type
+- `sql.as.null()`: Explicitly represents a SQL NULL value
+
+These functions help ensure type compatibility between Lua's dynamic typing and SQL's strict typing system, particularly useful when Lua's number type (float) needs to be treated as a specific SQL type.
+
 ## Core Concepts
 
 ### Resource Management
@@ -357,6 +369,36 @@ else
     tx:commit()
     print("Product added and inventory updated")
 end
+
+-- Release the database when done
+db:release()
+```
+
+### Type Conversion Example
+
+```lua
+-- Get database connection
+local db, err = sql.get("main_db")
+if err then error(err) end
+
+-- Example using explicit type conversions
+local result, err = db:execute(
+    "INSERT INTO token_usage (usage_id, prompt_tokens, timestamp) VALUES (?, ?, ?)",
+    { 
+        usage_id,
+        sql.as.int(prompt_tokens),  -- Ensure integer type for count
+        sql.as.int(os.time())       -- Ensure integer type for timestamp
+    }
+)
+if err then error(err) end
+
+-- Example with NULL values
+local description = has_description and description_text or sql.as.null()
+result, err = db:execute(
+    "INSERT INTO products (name, price, description) VALUES (?, ?, ?)",
+    { "Widget", 9.99, description }  -- description will be NULL if has_description is false
+)
+if err then error(err) end
 
 -- Release the database when done
 db:release()

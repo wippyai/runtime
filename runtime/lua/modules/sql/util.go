@@ -46,9 +46,19 @@ func checkParams(l *lua.LState, index int) (interface{}, error) {
 
 			// Check for special NULL value
 			if v.Type() == lua.LTUserData {
-				if ud, ok := v.(*lua.LUserData); ok && ud.Value == "SQL_NULL" {
-					result[i-1] = nil
-					continue
+				if ud, ok := v.(*lua.LUserData); ok {
+					// Check for SQL NULL
+					if ud.Value == "SQL_NULL" {
+						result[i-1] = nil
+						continue
+					}
+
+					// Check for typed values
+					if typedValue, ok := ud.Value.(*TypedValue); ok {
+						// Use the pre-converted value with the right type
+						result[i-1] = typedValue.Value
+						continue
+					}
 				}
 			}
 

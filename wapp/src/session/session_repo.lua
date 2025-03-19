@@ -42,7 +42,7 @@ function session_repo.create(session_id, user_id, primary_context_id, title)
         [[INSERT INTO sessions
           (session_id, user_id, primary_context_id, title, start_date, last_message_date)
           VALUES (?, ?, ?, ?, ?, ?)]],
-        { session_id, user_id, primary_context_id, title, now, now }
+        { session_id, user_id, primary_context_id, title, sql.as.int(now), sql.as.int(now) }
     )
 
     db:release()
@@ -112,9 +112,9 @@ function session_repo.list_by_user(user_id, limit, offset)
 
     -- Add limit and offset if provided
     if limit and limit > 0 then
-        query = query .. " LIMIT " .. limit
+        query = query .. " LIMIT " .. sql.as.int(limit)
         if offset and offset > 0 then
-            query = query .. " OFFSET " .. offset
+            query = query .. " OFFSET " .. sql.as.int(offset)
         end
     end
 
@@ -203,7 +203,7 @@ function session_repo.update_last_message_date(session_id, date)
     -- Update last message date
     local result, err = db:execute(
         "UPDATE sessions SET last_message_date = ? WHERE session_id = ?",
-        { date, session_id }
+        { sql.as.int(date), session_id }
     )
 
     db:release()

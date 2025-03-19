@@ -192,35 +192,4 @@ function sessions.get_daily_token_usage(start_date, end_date)
     return token_usage_repo.get_daily_usage(start_date, end_date)
 end
 
---------------------------------------------------------------------------------
--- Helper Functions
---------------------------------------------------------------------------------
-
--- Create a message thread - helper for agent conversation
-function sessions.create_message_thread(session_id, user_message, agent_name)
-    -- Begin with user message
-    local user_msg, err = sessions.add_message(session_id, "user", user_message)
-    if err then
-        return nil, "Failed to add user message: " .. err
-    end
-
-    -- Add agent message metadata
-    local metadata = {
-        agent = agent_name,
-        thinking_enabled = true
-    }
-
-    -- Add initial agent message (empty, will be updated)
-    local agent_msg, err = sessions.add_message(session_id, "agent", "", metadata)
-    if err then
-        return nil, "Failed to add agent message: " .. err
-    end
-
-    return {
-        session_id = session_id,
-        user_message_id = user_msg.message_id,
-        agent_message_id = agent_msg.message_id
-    }
-end
-
 return sessions

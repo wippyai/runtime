@@ -47,7 +47,16 @@ function token_usage_repo.record(usage_id, session_id, model_name, prompt_tokens
         [[INSERT INTO token_usage
           (usage_id, session_id, model_name, prompt_tokens, completion_tokens, thinking_tokens, total_tokens, timestamp)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)]],
-        { usage_id, session_id, model_name, prompt_tokens, completion_tokens, thinking_tokens, total_tokens, now }
+        {
+            usage_id,
+            session_id,
+            model_name,
+            sql.as.int(prompt_tokens),
+            sql.as.int(completion_tokens),
+            sql.as.int(thinking_tokens),
+            sql.as.int(total_tokens),
+            sql.as.int(now)
+        }
     )
 
     db:release()
@@ -191,12 +200,12 @@ function token_usage_repo.get_by_model(model_name, start_time, end_time)
     -- Add time filters if provided
     if start_time then
         time_condition = time_condition .. " AND timestamp >= ?"
-        table.insert(params, start_time)
+        table.insert(params, sql.as.int(start_time))
     end
 
     if end_time then
         time_condition = time_condition .. " AND timestamp <= ?"
-        table.insert(params, end_time)
+        table.insert(params, sql.as.int(end_time))
     end
 
     local query = [[
@@ -251,12 +260,12 @@ function token_usage_repo.get_user_totals(user_id, start_time, end_time)
     -- Add time filters if provided
     if start_time then
         time_condition = time_condition .. " AND tu.timestamp >= ?"
-        table.insert(params, start_time)
+        table.insert(params, sql.as.int(start_time))
     end
 
     if end_time then
         time_condition = time_condition .. " AND tu.timestamp <= ?"
-        table.insert(params, end_time)
+        table.insert(params, sql.as.int(end_time))
     end
 
     local query = [[
@@ -310,7 +319,7 @@ function token_usage_repo.get_daily_usage(start_date, end_date)
     -- Add date filters if provided
     if start_date then
         date_condition = date_condition .. " WHERE date(timestamp, 'unixepoch') >= date(?, 'unixepoch')"
-        table.insert(params, start_date)
+        table.insert(params, sql.as.int(start_date))
     end
 
     if end_date then
@@ -320,7 +329,7 @@ function token_usage_repo.get_daily_usage(start_date, end_date)
             date_condition = date_condition .. " AND "
         end
         date_condition = date_condition .. "date(timestamp, 'unixepoch') <= date(?, 'unixepoch')"
-        table.insert(params, end_date)
+        table.insert(params, sql.as.int(end_date))
     end
 
     local query = [[

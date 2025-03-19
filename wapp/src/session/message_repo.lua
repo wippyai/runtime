@@ -64,7 +64,7 @@ function message_repo.create(message_id, session_id, type, data, metadata)
     -- Insert the message
     local result, err = tx:execute(
         "INSERT INTO messages (message_id, session_id, date, type, data, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-        { message_id, session_id, now, type, data, metadata_json }
+        { message_id, session_id, sql.as.int(now), type, data, metadata_json }
     )
 
     if err then
@@ -76,7 +76,7 @@ function message_repo.create(message_id, session_id, type, data, metadata)
     -- Update session's last message date
     result, err = tx:execute(
         "UPDATE sessions SET last_message_date = ? WHERE session_id = ?",
-        { now, session_id }
+        { sql.as.int(now), session_id }
     )
 
     if err then
@@ -171,9 +171,9 @@ function message_repo.list_by_session(session_id, limit, offset)
 
     -- Add limit and offset if provided
     if limit and limit > 0 then
-        query = query .. " LIMIT " .. limit
+        query = query .. " LIMIT " .. sql.as.int(limit)
         if offset and offset > 0 then
-            query = query .. " OFFSET " .. offset
+            query = query .. " OFFSET " .. sql.as.int(offset)
         end
     end
 
@@ -221,9 +221,9 @@ function message_repo.list_by_type(session_id, type, limit, offset)
 
     -- Add limit and offset if provided
     if limit and limit > 0 then
-        query = query .. " LIMIT " .. limit
+        query = query .. " LIMIT " .. sql.as.int(limit)
         if offset and offset > 0 then
-            query = query .. " OFFSET " .. offset
+            query = query .. " OFFSET " .. sql.as.int(offset)
         end
     end
 
