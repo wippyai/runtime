@@ -34,72 +34,58 @@ local function run(args)
         start_token = args.start_token,
         start_context = args.start_context,
         create = args.create,
-        messages = {},
-        is_active = true
     }
 
-    -- todo we can load it here actually
-    print("SESS START")
+    local loaded_state
+    local err
+
+    if initial_state.create then
+        -- Create new session
+        if not initial_state.start_token then
+            error("Start token is required for new session")
+        end
+
+        state, err = loader.create_session(initial_state)
+    else
+        -- Load existing session
+        state, err = loader.load_session(initial_state)
+        -- todo load msg
+    end
+
+    if err then
+        error(err)
+    end
+
+    print("Session initialized:", state.session_id)
+
+    -- Notify parent about session status
+    if state.parent_pid then
+        if state.create then
+            -- New session
+            process.send(state.parent_pid, UPDATE_TOPIC, {
+                type = MESSAGE_TYPE_SESSION_READY,
+                session_id = state.session_id,
+                agent = state.meta.agent,
+                model = state.meta.model,
+                kind = state.meta.kind
+            })
+        else
+            -- Recovered session
+            process.send(state.parent_pid, UPDATE_TOPIC, {
+                type = MESSAGE_TYPE_SESSION_RECOVERED,
+                session_id = state.session_id,
+                agent = state.meta.agent,
+                model = state.meta.model,
+                kind = state.meta.kind,
+                last_message_id = state.last_message_id
+            })
+        end
+    end
+
+
+
     -- Define message handlers
     local handlers = {
-        -- Initialize the actor
-        __init = function(state)
-            print("Session initializing:", state.session_id, state.create and "(new)" or "(existing)")
-
-            local loaded_state
-            local err
-
-            if state.create then
-                -- Create new session
-                if not state.start_token then
-                    return actor.exit({ error = "Start token required for new sessions" })
-                end
-
-                loaded_state, err = loader.create_session(state)
-            else
-                -- Load existing session
-                loaded_state, err = loader.load_session(state)
-            end
-
-            if err then
-                print("Session initialization failed:", err)
-                return actor.exit({ error = err })
-            end
-
-            -- Update state with loaded data
-            for k, v in pairs(loaded_state) do
-                state[k] = v
-            end
-
-            print("Session initialized:", state.session_id)
-
-            -- Notify parent about session status
-            if state.parent_pid then
-                if state.create then
-                    -- New session
-                    process.send(state.parent_pid, UPDATE_TOPIC, {
-                        type = MESSAGE_TYPE_SESSION_READY,
-                        session_id = state.session_id,
-                        agent = state.meta.agent,
-                        model = state.meta.model,
-                        kind = state.meta.kind
-                    })
-                else
-                    -- Recovered session
-                    process.send(state.parent_pid, UPDATE_TOPIC, {
-                        type = MESSAGE_TYPE_SESSION_RECOVERED,
-                        session_id = state.session_id,
-                        agent = state.meta.agent,
-                        model = state.meta.model,
-                        kind = state.meta.kind,
-                        last_message_id = state.last_message_id
-                    })
-                end
-            end
-
-            return state
-        end,
-
         -- Handle cancellation
         __on_cancel = function(state)
             print("Session cancelled:", state.session_id)

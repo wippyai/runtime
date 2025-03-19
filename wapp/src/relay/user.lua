@@ -201,8 +201,8 @@ local function run(args)
                     user_id = state.user_id,
                     conn_pid = from,
                     parent_pid = process.pid(),
-                    --start_token = message_data.context,
-                    start_context = message_data.start_token,
+                    start_token = message_data.start_token,
+                    start_context = message_data.context,
                     create = create
                 }
 
