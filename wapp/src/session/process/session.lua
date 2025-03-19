@@ -22,7 +22,7 @@ local MESSAGE_TYPE_SESSION_CLOSED = "session_closed"
 local function run(args)
     -- Validate required args
     if not args or not args.user_id or not args.session_id then
-        return { error = "Missing required arguments" }
+        error("User ID and session ID are required")
     end
 
     -- Initialize actor state
@@ -38,6 +38,8 @@ local function run(args)
         is_active = true
     }
 
+    -- todo we can load it here actually
+    print("SESS START")
     -- Define message handlers
     local handlers = {
         -- Initialize the actor
@@ -138,8 +140,8 @@ local function run(args)
                 -- If the user's message contains content, echo it back
                 if payload.data then
                     response = response ..
-                    "You said: " ..
-                    (type(payload.data) == "table" and json.encode(payload.data) or tostring(payload.data)) .. "\n\n"
+                        "You said: " ..
+                        (type(payload.data) == "table" and json.encode(payload.data) or tostring(payload.data)) .. "\n\n"
                 end
 
                 -- Simulate streaming by sending chunks

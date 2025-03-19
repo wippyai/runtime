@@ -66,12 +66,17 @@ local function run(args)
                 -- Find and remove the terminated session
                 for session_id, pid in pairs(state.active_sessions) do
                     if pid == event.from then
+                        local err = "terminated"
+                        if event.result and event.result.error then
+                            err = tostring(event.result.error)
+                        end
+
                         state.active_sessions[session_id] = nil
                         state.session_count = state.session_count - 1
                         broadcast_to_clients(state, UPDATE_TOPIC, {
                             type = "session_closed",
                             session_id = session_id,
-                            reason = "process_terminated",
+                            reason = err,
                             active_session_ids = get_active_session_ids(state)
                         })
                         break
@@ -157,6 +162,7 @@ local function run(args)
 
             local msg_type = message_data.type
             local data = message_data.data
+            local session_id = message_data.session_id
 
             -- Route message based on type
             if msg_type == "session_open" then
@@ -172,10 +178,7 @@ local function run(args)
                     return state
                 end
 
-                -- Generate session ID if not provided
-                local session_id = message_data.session_id
                 local create = true
-
                 if not session_id then
                     -- Generate new session ID
                     local id, err = uuid.v7()
@@ -194,7 +197,7 @@ local function run(args)
 
                 -- Create session init data
                 local session_init = {
-                    session_id = message_data.session_id,
+                    session_id = session_id,
                     user_id = state.user_id,
                     conn_pid = from,
                     parent_pid = process.pid(),
