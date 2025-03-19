@@ -5,8 +5,7 @@ return require("migration").define(function()
                 -- Create contexts table
                 local success, err = db:execute([[
                     CREATE TABLE contexts (
-                        context_id TEXT PRIMARY KEY,
-                        uuid TEXT NOT NULL UNIQUE,
+                        context_id TEXT PRIMARY KEY, -- This is the UUID
                         type TEXT NOT NULL,
                         data BLOB
                     )
@@ -14,12 +13,6 @@ return require("migration").define(function()
 
                 if err then
                     return nil, "Failed to create contexts table: " .. err
-                end
-
-                -- Create indexes
-                success, err = db:execute("CREATE INDEX idx_contexts_uuid ON contexts(uuid)")
-                if err then
-                    return nil, "Failed to create uuid index: " .. err
                 end
 
                 success, err = db:execute("CREATE INDEX idx_contexts_type ON contexts(type)")
@@ -31,13 +24,8 @@ return require("migration").define(function()
             end)
 
             down(function(db)
-                -- Drop indexes first
-                local success, err = db:execute("DROP INDEX IF EXISTS idx_contexts_uuid")
-                if err then
-                    return nil, "Failed to drop uuid index: " .. err
-                end
-
-                success, err = db:execute("DROP INDEX IF EXISTS idx_contexts_type")
+                -- Drop index first
+                local success, err = db:execute("DROP INDEX IF EXISTS idx_contexts_type")
                 if err then
                     return nil, "Failed to drop type index: " .. err
                 end

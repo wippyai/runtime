@@ -1,0 +1,119 @@
+version: "1.0"
+namespace: app.sessions
+
+meta:
+  depends_on: [ ns:app, ns:app.user.auth, ns:wippy.migration ]
+  description: "User sessions and conversation management system"
+
+entries:
+  # Repository libraries
+  - name: context_repo
+    kind: library.lua
+    meta:
+      comment: "Context repository for managing data and text contexts"
+    source: file://context_repo.lua
+    modules: [ sql ]
+
+  - name: session_repo
+    kind: library.lua
+    meta:
+      comment: "Session repository for managing user sessions"
+      depends_on: [ context_repo ]
+    source: file://session_repo.lua
+    modules: [ sql ]
+
+  - name: message_repo
+    kind: library.lua
+    meta:
+      comment: "Message repository for managing session messages"
+      depends_on: [ session_repo ]
+    source: file://message_repo.lua
+    modules: [ sql, json ]
+
+  - name: token_usage_repo
+    kind: library.lua
+    meta:
+      comment: "Token usage repository for tracking model usage statistics"
+      depends_on: [ session_repo ]
+    source: file://token_usage_repo.lua
+    modules: [ sql ]
+
+  # Main API
+  - name: api
+    kind: library.lua
+    meta:
+      comment: "High-level sessions API"
+      depends_on: [ context_repo, session_repo, message_repo, token_usage_repo ]
+    source: file://sessions.lua
+    modules: [ uuid ]
+    imports:
+      context_repo: "app.sessions:context_repo"
+      session_repo: "app.sessions:session_repo"
+      message_repo: "app.sessions:message_repo"
+      token_usage_repo: "app.sessions:token_usage_repo"
+
+  # Migrations
+  - name: migrations.create_contexts_table
+    kind: function.lua
+    meta:
+      description: "Create contexts table with indexes"
+      timestamp: "2025-03-16T10:00:00Z"
+      tags: [ "sessions" ]
+      type: "migration"
+      target_db: "app:db"
+    source: file://migrations/01_create_contexts_table.lua
+    method: migrate
+    imports:
+      migration: "wippy.migration:migration"
+
+  - name: migrations.create_sessions_table
+    kind: function.lua
+    meta:
+      description: "Create sessions table with indexes"
+      timestamp: "2025-03-16T10:05:00Z"
+      tags: [ "sessions" ]
+      type: "migration"
+      target_db: "app:db"
+    source: file://migrations/02_create_sessions_table.lua
+    method: migrate
+    imports:
+      migration: "wippy.migration:migration"
+
+  - name: migrations.create_session_contexts_table
+    kind: function.lua
+    meta:
+      description: "Create session_contexts junction table"
+      timestamp: "2025-03-16T10:10:00Z"
+      tags: [ "sessions" ]
+      type: "migration"
+      target_db: "app:db"
+    source: file://migrations/03_create_session_contexts_table.lua
+    method: migrate
+    imports:
+      migration: "wippy.migration:migration"
+
+  - name: migrations.create_token_usage_table
+    kind: function.lua
+    meta:
+      description: "Create token_usage table with indexes"
+      timestamp: "2025-03-16T10:15:00Z"
+      tags: [ "sessions" ]
+      type: "migration"
+      target_db: "app:db"
+    source: file://migrations/04_create_token_usage_table.lua
+    method: migrate
+    imports:
+      migration: "wippy.migration:migration"
+
+  - name: migrations.create_messages_table
+    kind: function.lua
+    meta:
+      description: "Create messages table with indexes"
+      timestamp: "2025-03-16T10:20:00Z"
+      tags: [ "sessions" ]
+      type: "migration"
+      target_db: "app:db"
+    source: file://migrations/05_create_messages_table.lua
+    method: migrate
+    imports:
+      migration: "wippy.migration:migration"
