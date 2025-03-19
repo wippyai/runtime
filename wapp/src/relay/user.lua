@@ -225,6 +225,12 @@ local function run(args)
                 local session_pid = state.active_sessions[session_id]
                 if session_pid then
                     process.send(session_pid, SESSION_MESSAGE_TOPIC, data)
+                else
+                    process.send(from, ERROR_TOPIC, {
+                        type = "error",
+                        error = "session_not_found",
+                        message = "Session not found: " .. session_id
+                    })
                 end
             elseif msg_type == "session_command" and session_id then
                 -- Forward command to session if it exists
