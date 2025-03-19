@@ -7,7 +7,7 @@ local CENTRAL_HUB_REGISTRY_NAME = "central_hub"
 local WS_JOIN_TOPIC = "ws.join"
 local WS_CONTROL_TOPIC = "ws.control"
 local STATS_PING_TOPIC = "stats.ping"
-local USER_HUB_PROCESS_ID = "app.users.relay:user_hub"
+local USER_HUB_PROCESS_ID = "app.users.relay:user"
 local USER_HUB_HOST = "app:processes"
 local USER_HUB_INACTIVITY_TIMEOUT = "300s"
 local GC_CHECK_INTERVAL = "120s" -- Check for inactive hubs every 30 seconds
@@ -165,7 +165,7 @@ local function run()
                 user_id = user_id,
                 user_metadata = user_metadata,
                 inactivity_timeout = USER_HUB_INACTIVITY_TIMEOUT,
-                central_hub_pid = process.pid() -- Pass central hub PID to user hub
+                central_hub_pid = process.pid()
             }
         )
 
