@@ -345,7 +345,15 @@ function token_usage_repo.get_daily_usage(start_date, end_date)
         ORDER BY date(timestamp, 'unixepoch') ASC
     ]]
 
-    local result, err = db:query(query, params)
+    local result, err
+
+    -- Only pass params if we have any parameters
+    if #params > 0 then
+        result, err = db:query(query, params)
+    else
+        result, err = db:query(query)
+    end
+
     db:release()
 
     if err then

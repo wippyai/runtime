@@ -123,8 +123,8 @@ entries:
     meta:
       name: "Token Usage Repository Test"
       type: "test"
-      tags: [ "backend", "database", "token_usage", "tests" ]
-      group: "Backend Tests"
+      tags: [ "session", "database", "token_usage", "tests" ]
+      group: "Session Tests"
       comment: "Tests the token usage repository functionality for recording and retrieving token usage data"
       depends_on: [ context_repo, session_repo, token_usage_repo ]
     source: file://token_usage_repo_test.lua
@@ -133,5 +133,55 @@ entries:
     imports:
       test: "wippy.test:test"
       token_usage_repo: "app.sessions:token_usage_repo"
+      session_repo: "app.sessions:session_repo"
+      context_repo: "app.sessions:context_repo"
+
+  - name: context_repo_test
+    kind: function.lua
+    meta:
+      name: "Context Repository Test"
+      type: "test"
+      tags: [ "session", "database", "context", "tests" ]
+      group: "Session Tests"
+      comment: "Tests the context repository functionality for managing data contexts"
+    source: file://context_repo_test.lua
+    method: run_tests
+    modules: [ "sql", "uuid" ]
+    imports:
+      test: "wippy.test:test"
+      context_repo: "app.sessions:context_repo"
+
+  - name: session_repo_test
+    kind: function.lua
+    meta:
+      name: "Session Repository Test"
+      type: "test"
+      tags: [ "session", "database", "session", "tests" ]
+      group: "Session Tests"
+      comment: "Tests the session repository functionality for managing user sessions"
+      depends_on: [ context_repo ]
+    source: file://session_repo_test.lua
+    method: run_tests
+    modules: [ "sql", "uuid" ]
+    imports:
+      test: "wippy.test:test"
+      session_repo: "app.sessions:session_repo"
+      context_repo: "app.sessions:context_repo"
+
+  - name: message_repo_test
+    kind: function.lua
+    meta:
+      name: "Message Repository Test"
+      type: "test"
+      tags: [ "session", "database", "message", "tests" ]
+      group: "Session Tests"
+      comment: "Tests the message repository functionality for managing session messages"
+      depends_on: [ session_repo, context_repo ]
+    source: file://message_repo_test.lua
+    method: run_tests
+    modules: [ "sql", "uuid", "json" ]
+    imports:
+      test: "wippy.test:test"
+      message_repo: "app.sessions:message_repo"
       session_repo: "app.sessions:session_repo"
       context_repo: "app.sessions:context_repo"

@@ -129,6 +129,7 @@ function context_repo.get_by_type(type, limit, offset)
         return nil, err
     end
 
+    local params = { type }
     local query = [[
         SELECT context_id, type, data
         FROM contexts
@@ -137,13 +138,16 @@ function context_repo.get_by_type(type, limit, offset)
 
     -- Add limit and offset if provided
     if limit and limit > 0 then
-        query = query .. " LIMIT " .. sql.as.int(limit)
+        query = query .. " LIMIT ?"
+        table.insert(params, limit)
+
         if offset and offset > 0 then
-            query = query .. " OFFSET " .. sql.as.int(offset)
+            query = query .. " OFFSET ?"
+            table.insert(params, offset)
         end
     end
 
-    local contexts, err = db:query(query, { type })
+    local contexts, err = db:query(query, params)
     db:release()
 
     if err then

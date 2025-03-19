@@ -16,7 +16,7 @@ local function get_db()
 end
 
 -- Create a new message
-function message_repo.create(message_id, session_id, type, data, metadata)
+function message_repo.create(message_id, session_id, msg_type, data, metadata)
     if not message_id or message_id == "" then
         return nil, "Message ID is required"
     end
@@ -25,7 +25,7 @@ function message_repo.create(message_id, session_id, type, data, metadata)
         return nil, "Session ID is required"
     end
 
-    if not type or type == "" then
+    if not msg_type or msg_type == "" then
         return nil, "Message type is required"
     end
 
@@ -61,10 +61,20 @@ function message_repo.create(message_id, session_id, type, data, metadata)
 
     local now = os.time()
 
-    -- Insert the message
+    -- Insert the message - ensure metadata_json is never nil for SQL query
+    -- If metadata is nil, we'll pass an empty string
+    local params = {
+        message_id,
+        session_id,
+        sql.as.int(now),
+        msg_type,
+        data,
+        metadata_json or "" -- Use empty string if metadata_json is nil
+    }
+
     local result, err = tx:execute(
         "INSERT INTO messages (message_id, session_id, date, type, data, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-        { message_id, session_id, sql.as.int(now), type, data, metadata_json }
+        params
     )
 
     if err then
@@ -106,7 +116,7 @@ function message_repo.create(message_id, session_id, type, data, metadata)
         message_id = message_id,
         session_id = session_id,
         date = now,
-        type = type
+        type = msg_type
     }
 end
 
@@ -162,6 +172,7 @@ function message_repo.list_by_session(session_id, limit, offset)
         return nil, err
     end
 
+    local params = { session_id }
     local query = [[
         SELECT message_id, session_id, date, type, data, metadata
         FROM messages
@@ -171,13 +182,15 @@ function message_repo.list_by_session(session_id, limit, offset)
 
     -- Add limit and offset if provided
     if limit and limit > 0 then
-        query = query .. " LIMIT " .. sql.as.int(limit)
+        query = query .. " LIMIT ?"
+        table.insert(params, limit)
         if offset and offset > 0 then
-            query = query .. " OFFSET " .. sql.as.int(offset)
+            query = query .. " OFFSET ?"
+            table.insert(params, offset)
         end
     end
 
-    local messages, err = db:query(query, { session_id })
+    local messages, err = db:query(query, params)
     db:release()
 
     if err then
@@ -198,12 +211,12 @@ function message_repo.list_by_session(session_id, limit, offset)
 end
 
 -- List messages by type within a session
-function message_repo.list_by_type(session_id, type, limit, offset)
+function message_repo.list_by_type(session_id, msg_type, limit, offset)
     if not session_id or session_id == "" then
         return nil, "Session ID is required"
     end
 
-    if not type or type == "" then
+    if not msg_type or msg_type == "" then
         return nil, "Message type is required"
     end
 
@@ -212,6 +225,7 @@ function message_repo.list_by_type(session_id, type, limit, offset)
         return nil, err
     end
 
+    local params = { session_id, msg_type }
     local query = [[
         SELECT message_id, session_id, date, type, data, metadata
         FROM messages
@@ -221,13 +235,15 @@ function message_repo.list_by_type(session_id, type, limit, offset)
 
     -- Add limit and offset if provided
     if limit and limit > 0 then
-        query = query .. " LIMIT " .. sql.as.int(limit)
+        query = query .. " LIMIT ?"
+        table.insert(params, limit)
         if offset and offset > 0 then
-            query = query .. " OFFSET " .. sql.as.int(offset)
+            query = query .. " OFFSET ?"
+            table.insert(params, offset)
         end
     end
 
-    local messages, err = db:query(query, { session_id, type })
+    local messages, err = db:query(query, params)
     db:release()
 
     if err then
@@ -353,12 +369,12 @@ function message_repo.count_by_session(session_id)
 end
 
 -- Count messages by type in a session
-function message_repo.count_by_type(session_id, type)
+function message_repo.count_by_type(session_id, msg_type)
     if not session_id or session_id == "" then
         return nil, "Session ID is required"
     end
 
-    if not type or type == "" then
+    if not msg_type or msg_type == "" then
         return nil, "Message type is required"
     end
 
@@ -373,7 +389,7 @@ function message_repo.count_by_type(session_id, type)
         WHERE session_id = ? AND type = ?
     ]]
 
-    local result, err = db:query(query, { session_id, type })
+    local result, err = db:query(query, { session_id, msg_type })
     db:release()
 
     if err then

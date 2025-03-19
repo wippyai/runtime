@@ -60,11 +60,11 @@ local function define_tests()
             end
 
             -- Delete test data in proper order (respecting foreign key constraints)
-            tx:execute("DELETE FROM token_usage WHERE session_id = ?", {test_data.session_id})
-            tx:execute("DELETE FROM messages WHERE session_id = ?", {test_data.session_id})
-            tx:execute("DELETE FROM session_contexts WHERE session_id = ?", {test_data.session_id})
-            tx:execute("DELETE FROM sessions WHERE session_id = ?", {test_data.session_id})
-            tx:execute("DELETE FROM contexts WHERE context_id = ?", {test_data.context_id})
+            tx:execute("DELETE FROM token_usage WHERE session_id = ?", { test_data.session_id })
+            tx:execute("DELETE FROM messages WHERE session_id = ?", { test_data.session_id })
+            tx:execute("DELETE FROM session_contexts WHERE session_id = ?", { test_data.session_id })
+            tx:execute("DELETE FROM sessions WHERE session_id = ?", { test_data.session_id })
+            tx:execute("DELETE FROM contexts WHERE context_id = ?", { test_data.context_id })
 
             -- Commit transaction
             local success, err = tx:commit()
@@ -82,9 +82,9 @@ local function define_tests()
                 test_data.usage_id,
                 test_data.session_id,
                 "test-model",
-                100,  -- prompt_tokens
-                50,   -- completion_tokens
-                25    -- thinking_tokens
+                100, -- prompt_tokens
+                50,  -- completion_tokens
+                25   -- thinking_tokens
             )
 
             expect(err).to_be_nil()
@@ -95,7 +95,7 @@ local function define_tests()
             expect(usage.prompt_tokens).to_equal(100)
             expect(usage.completion_tokens).to_equal(50)
             expect(usage.thinking_tokens).to_equal(25)
-            expect(usage.total_tokens).to_equal(175)  -- Sum of all token types
+            expect(usage.total_tokens).to_equal(175) -- Sum of all token types
             expect(usage.timestamp).not_to_be_nil()
         end)
 
@@ -167,14 +167,14 @@ local function define_tests()
 
             expect(err).to_be_nil()
             expect(daily).not_to_be_nil()
-            expect(#daily).to_be_true()
+            expect(#daily == 1).to_be_true()
 
             -- Find our test data in the results (there might be other data in the DB)
             local found = false
             for _, day in ipairs(daily) do
                 if day.prompt_tokens >= 100 and
-                   day.completion_tokens >= 50 and
-                   day.thinking_tokens >= 25 then
+                    day.completion_tokens >= 50 and
+                    day.thinking_tokens >= 25 then
                     found = true
                     break
                 end
@@ -184,7 +184,7 @@ local function define_tests()
         end)
 
         it("should handle missing records gracefully", function()
-            local missing_id = uuid.generate()
+            local missing_id = uuid.v7()
 
             local usage, err = token_usage_repo.get(missing_id)
             expect(err).not_to_be_nil()

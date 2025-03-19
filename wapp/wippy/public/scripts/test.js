@@ -646,7 +646,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.startTime = Date.now();
 
                 // Build the URL with group parameter
-                const url = `http://localhost:8082/api/v1/v1/system/test/run?group=${encodeURIComponent(groupName)}`;
+                const url = `http://localhost:8082/api/v1/system/test/run?group=${encodeURIComponent(groupName)}`;
                 this.fetchTestResults(url);
             },
 
