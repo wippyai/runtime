@@ -1,6 +1,7 @@
 local time = require("time")
 local json = require("json")
 local actor = require("actor")
+local loader = require("loader")
 
 -- Topic constants
 local UPDATE_TOPIC = "update"
@@ -14,12 +15,13 @@ local MESSAGE_TYPE_CONTENT = "content"
 local MESSAGE_TYPE_DONE = "done"
 local MESSAGE_TYPE_SYSTEM = "system"
 local MESSAGE_TYPE_SESSION_READY = "session_ready"
+local MESSAGE_TYPE_SESSION_RECOVERED = "session_recovered"
 local MESSAGE_TYPE_SESSION_CLOSED = "session_closed"
 
 -- Simple Session Process - Handles basic message processing
 local function run(args)
     -- Validate required args
-    if not args or not args.session_id or not args.user_id then
+    if not args or not args.user_id or not args.session_id then
         return { error = "Missing required arguments" }
     end
 
@@ -28,30 +30,70 @@ local function run(args)
         session_id = args.session_id,
         user_id = args.user_id,
         parent_pid = args.parent_pid,
-        context_id = args.primary_context_id,
-        start_time = time.now(),
+        conn_pid = args.conn_pid,
+        start_token = args.start_token,
+        start_context = args.start_context,
+        create = args.create,
         messages = {},
-        is_active = true,
-        meta = {
-            model = "claude-3-7-sonnet-20250219",
-            provider = "anthropic"
-        }
+        is_active = true
     }
 
     -- Define message handlers
     local handlers = {
         -- Initialize the actor
         __init = function(state)
-            print("Session started:", state.session_id)
+            print("Session initializing:", state.session_id, state.create and "(new)" or "(existing)")
 
-            -- Notify parent that we're ready
-            process.send(state.parent_pid, UPDATE_TOPIC, {
-                type = MESSAGE_TYPE_SESSION_READY,
-                session_id = state.session_id
-            })
+            local loaded_state
+            local err
 
-            -- todo load session or create it, notify client about last message id if any
-            -- todo: notify about status also
+            if state.create then
+                -- Create new session
+                if not state.start_token then
+                    return actor.exit({ error = "Start token required for new sessions" })
+                end
+
+                loaded_state, err = loader.create_session(state)
+            else
+                -- Load existing session
+                loaded_state, err = loader.load_session(state)
+            end
+
+            if err then
+                print("Session initialization failed:", err)
+                return actor.exit({ error = err })
+            end
+
+            -- Update state with loaded data
+            for k, v in pairs(loaded_state) do
+                state[k] = v
+            end
+
+            print("Session initialized:", state.session_id)
+
+            -- Notify parent about session status
+            if state.parent_pid then
+                if state.create then
+                    -- New session
+                    process.send(state.parent_pid, UPDATE_TOPIC, {
+                        type = MESSAGE_TYPE_SESSION_READY,
+                        session_id = state.session_id,
+                        agent = state.meta.agent,
+                        model = state.meta.model,
+                        kind = state.meta.kind
+                    })
+                else
+                    -- Recovered session
+                    process.send(state.parent_pid, UPDATE_TOPIC, {
+                        type = MESSAGE_TYPE_SESSION_RECOVERED,
+                        session_id = state.session_id,
+                        agent = state.meta.agent,
+                        model = state.meta.model,
+                        kind = state.meta.kind,
+                        last_message_id = state.last_message_id
+                    })
+                end
+            end
 
             return state
         end,
@@ -94,8 +136,10 @@ local function run(args)
                 local response = "This is a simple echo response from the session process.\n\n"
 
                 -- If the user's message contains content, echo it back
-                if payload.content then
-                    response = response .. "You said: " .. payload.content .. "\n\n"
+                if payload.data then
+                    response = response ..
+                    "You said: " ..
+                    (type(payload.data) == "table" and json.encode(payload.data) or tostring(payload.data)) .. "\n\n"
                 end
 
                 -- Simulate streaming by sending chunks
@@ -146,10 +190,16 @@ local function run(args)
                     session_id = state.session_id,
                     message = "Generation stopped"
                 })
-
-
             elseif command == "model" then
                 -- handle model change
+                if payload.data and payload.data.name then
+                    state.meta.model = payload.data.name
+                    process.send(payload.conn_pid, UPDATE_TOPIC, {
+                        type = MESSAGE_TYPE_SYSTEM,
+                        session_id = state.session_id,
+                        message = "Model changed to " .. payload.data.name
+                    })
+                end
             end
 
             return state

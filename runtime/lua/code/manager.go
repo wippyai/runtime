@@ -164,14 +164,13 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 		},
 	}
 
-	// AddCleanup node to graph
 	if err := cm.memGraph.AddNode(nodePtr); err != nil {
 		return fmt.Errorf("failed to add node: %w", err)
 	}
 
-	// AddCleanup dependencies
 	for _, dep := range deps {
 		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
+			_ = cm.memGraph.RemoveNode(node.ID)
 			return fmt.Errorf("failed to add dependency %s -> %s: %w",
 				node.ID, dep.ID, err)
 		}
@@ -211,7 +210,7 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 		}
 	}
 
-	// AddCleanup new dependencies
+	// Add new dependencies
 	for _, dep := range deps {
 		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
 			return fmt.Errorf("failed to add new dependency: %w", err)

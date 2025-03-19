@@ -43,19 +43,6 @@ entries:
       session_repo: "app.sessions:session_repo"
       message_repo: "app.sessions:message_repo"
 
-  - name: create_context
-    kind: function.lua
-    meta:
-      name: "Create Context"
-      description: "Creates a new context for storing session data"
-      tags: ["session", "context", "api"]
-      depends_on: [context_repo]
-    source: file://create_context.lua
-    method: run
-    modules: ["uuid", "json"]
-    imports:
-      context_repo: "app.sessions:context_repo"
-
   # Migrations
   - name: migrations.create_contexts_table
     kind: function.lua

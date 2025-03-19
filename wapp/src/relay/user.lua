@@ -156,7 +156,6 @@ local function run(args)
             end
 
             local msg_type = message_data.type
-            local session_id = message_data.session_id
             local data = message_data.data
 
             -- Route message based on type
@@ -173,21 +172,35 @@ local function run(args)
                     return state
                 end
 
-                -- Generate session_id if not provided
-                if not session_id then
-                    session_id = uuid.v4()
-                end
+                -- Generate session ID if not provided
+                local session_id = message_data.session_id
+                local create = true
 
-                -- Generate a context ID for tracking
-                local context_id = uuid.v4()
+                if not session_id then
+                    -- Generate new session ID
+                    local id, err = uuid.v7()
+                    if err then
+                        process.send(from, ERROR_TOPIC, {
+                            type = "error",
+                            error = "session_id_gen_error",
+                            message = "Failed to generate session ID: " .. err
+                        })
+                        return state
+                    end
+                    session_id = id
+                else
+                    create = false
+                end
 
                 -- Create session init data
                 local session_init = {
-                    session_id = session_id,
+                    session_id = message_data.session_id,
                     user_id = state.user_id,
+                    conn_pid = from,
                     parent_pid = process.pid(),
-                    start_token = message_data.context,
+                    --start_token = message_data.context,
                     start_context = message_data.start_token,
+                    create = create
                 }
 
                 -- Spawn session process
