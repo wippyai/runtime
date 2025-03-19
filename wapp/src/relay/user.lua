@@ -111,6 +111,15 @@ local function run(args)
                 active_session_ids = get_active_session_ids(state)
             })
 
+            -- Notify central hub about client count change
+            if state.central_hub_pid then
+                process.send(state.central_hub_pid, STATS_PING_TOPIC, {
+                    user_id = state.user_id,
+                    client_count = state.client_count,
+                    last_activity = time.now():format_rfc3339()
+                })
+            end
+
             return state
         end,
 
@@ -120,6 +129,15 @@ local function run(args)
             if state.connected_clients[client_pid] then
                 state.connected_clients[client_pid] = nil
                 state.client_count = state.client_count - 1
+
+                -- Notify central hub about client count change
+                if state.central_hub_pid then
+                    process.send(state.central_hub_pid, STATS_PING_TOPIC, {
+                        user_id = state.user_id,
+                        client_count = state.client_count,
+                        last_activity = time.now():format_rfc3339()
+                    })
+                end
             end
             return state
         end,
@@ -292,7 +310,6 @@ local function run(args)
                 return state
             end
 
-            -- todo: we can filter it out a bit
             broadcast_to_clients(state, topic, payload)
             return state
         end

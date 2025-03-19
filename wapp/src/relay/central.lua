@@ -10,7 +10,7 @@ local STATS_PING_TOPIC = "stats.ping"
 local USER_HUB_PROCESS_ID = "app.users.relay:user"
 local USER_HUB_HOST = "app:processes"
 local USER_HUB_INACTIVITY_TIMEOUT = "300s"
-local GC_CHECK_INTERVAL = "120s" -- Check for inactive hubs every 30 seconds
+local GC_CHECK_INTERVAL = "120s" -- Check for inactive hubs every 120 seconds
 
 -- Central Hub Process - Central hub that manages user-specific hubs
 local function run()
@@ -143,7 +143,7 @@ local function run()
 
         -- Update stats
         if state.user_hubs[user_id] then
-            state.user_hubs[user_id].last_ping = time.now()
+            state.user_hubs[user_id].last_activity = time.now()
         end
     end
 
@@ -194,35 +194,36 @@ local function run()
         local now = time.now()
         local inactivity_duration = time.parse_duration(USER_HUB_INACTIVITY_TIMEOUT)
 
-        function check_inactive_hubs(state)
-            local now = time.now()
-            local inactivity_duration = time.parse_duration(USER_HUB_INACTIVITY_TIMEOUT)
-
-            for user_id, hub_info in pairs(state.user_hubs) do
-                -- Skip hubs that are already being terminated
-                if hub_info.terminating then
-                    goto continue
-                end
-
-                -- Check if hub has been inactive for too long
-                local last_activity = now:sub(hub_info.last_activity)
-
-                -- If hub has no clients and has been inactive for too long, terminate it
-                if hub_info.client_count == 0 and last_activity:seconds() > inactivity_duration:seconds() then
-                    print("terminating inactive user hub for", hub_info.hub_pid)
-                    local success, err = process.cancel(hub_info.hub_pid, "10s")
-
-                    if success then
-                        -- Mark as being terminated to avoid repeated termination attempts
-                        hub_info.terminating = true
-                        hub_info.termination_started_at = now
-                    else
-                        print("failed to terminate hub", hub_info.hub_pid, ":", err)
-                    end
-                end
-
-                ::continue::
+        for user_id, hub_info in pairs(state.user_hubs) do
+            -- Skip hubs that are already being terminated
+            if hub_info.terminating then
+                goto continue
             end
+
+            -- Only check hubs with no clients
+            if hub_info.client_count > 0 then
+                goto continue
+            end
+
+            -- Check if hub has been inactive for too long
+            local last_activity_time = hub_info.last_activity or hub_info.created_at
+            local time_since_activity = now:sub(last_activity_time)
+
+            -- If hub has no clients and has been inactive for too long, terminate it
+            if time_since_activity:seconds() > inactivity_duration:seconds() then
+                print("terminating inactive user hub for", user_id, "pid:", hub_info.hub_pid)
+                local success, err = process.cancel(hub_info.hub_pid, "10s")
+
+                if success then
+                    -- Mark as being terminated to avoid repeated termination attempts
+                    hub_info.terminating = true
+                    hub_info.termination_started_at = now
+                else
+                    print("failed to terminate hub", hub_info.hub_pid, ":", err)
+                end
+            end
+
+            ::continue::
         end
     end
 
