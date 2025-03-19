@@ -147,13 +147,16 @@ local function run(args)
                 local context_payload = message_data.context or {}
                 local start_token = message_data.start_token
 
+                -- Generate a context ID for tracking
+                local context_id = uuid.v4()
+
                 -- Create session init data
                 local session_init = {
                     session_id = session_id,
                     user_id = state.user_id,
                     parent_pid = process.pid(),
                     conn_pid = process.pid(),
-                    primary_context_id = context_id,
+                    primary_context_id = context_id, -- Use the newly generated context ID
                     kind = message_data.kind or "default",
                     start_token = start_token,
                     start_context = context_payload,
@@ -172,6 +175,7 @@ local function run(args)
                         error = "session_spawn_error",
                         message = "Failed to create session: " .. err
                     })
+                    return state
                 end
 
                 if session_pid then
@@ -183,6 +187,16 @@ local function run(args)
                     })
                 end
             elseif msg_type == "session_close" then
+                -- Validate session ID is provided
+                if not session_id then
+                    process.send(from, ERROR_TOPIC, {
+                        type = "error",
+                        error = "invalid_session_id",
+                        message = "Session ID is required for closing a session"
+                    })
+                    return state
+                end
+
                 -- Close session if it exists
                 local session_pid = state.active_sessions[session_id]
                 if session_pid then
@@ -192,8 +206,25 @@ local function run(args)
                         type = "session_closed",
                         session_id = session_id
                     })
+                else
+                    -- Send error when trying to close non-existent session
+                    process.send(from, ERROR_TOPIC, {
+                        type = "error",
+                        error = "session_not_found",
+                        message = "Cannot close session: session ID not found or invalid"
+                    })
                 end
-            elseif msg_type == "session_message" and session_id then
+            elseif msg_type == "session_message" then
+                -- Validate session ID is provided
+                if not session_id then
+                    process.send(from, ERROR_TOPIC, {
+                        type = "error",
+                        error = "invalid_session_id",
+                        message = "Session ID is required for sending a message"
+                    })
+                    return state
+                end
+
                 -- Forward message to session if it exists
                 local session_pid = state.active_sessions[session_id]
                 if session_pid then
@@ -205,12 +236,36 @@ local function run(args)
                         message = "Session not found: " .. session_id
                     })
                 end
-            elseif msg_type == "session_command" and session_id then
+            elseif msg_type == "session_command" then
+                -- Validate session ID is provided
+                if not session_id then
+                    process.send(from, ERROR_TOPIC, {
+                        type = "error",
+                        error = "invalid_session_id",
+                        message = "Session ID is required for sending a command"
+                    })
+                    return state
+                end
+
                 -- Forward command to session if it exists
                 local session_pid = state.active_sessions[session_id]
                 if session_pid then
                     process.send(session_pid, SESSION_COMMAND_TOPIC, data)
+                else
+                    -- Send error when trying to send command to a non-existent session
+                    process.send(from, ERROR_TOPIC, {
+                        type = "error",
+                        error = "session_not_found",
+                        message = "Cannot send command: session ID not found or invalid"
+                    })
                 end
+            else
+                -- Unrecognized message type
+                process.send(from, ERROR_TOPIC, {
+                    type = "error",
+                    error = "invalid_message_type",
+                    message = "Unrecognized message type: " .. (msg_type or "nil")
+                })
             end
 
             return state

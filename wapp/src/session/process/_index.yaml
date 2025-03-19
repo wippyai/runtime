@@ -1,0 +1,18 @@
+version: "1.0"
+namespace: wippy.session
+
+meta:
+  depends_on: [ "ns:wippy" ]
+  comment: "Simple Session Process"
+
+entries:
+  - name: session
+    kind: process.lua
+    meta:
+      comment: "Minimalistic session process for message handling"
+      default_host: app:processes
+    source: file://session.lua
+    method: run
+    modules: [ time, json ]
+    imports:
+      actor: "wippy.actor:actor"
