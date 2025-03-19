@@ -53,7 +53,6 @@ function agent.new(agent_spec)
         tool_schemas = {},  -- Custom tool schemas
         handout_tools = {}, -- Handout tool schemas
         handout_map = {},   -- Maps tool IDs to target agent IDs
-        last_result = nil,
         total_tokens = {
             prompt = 0,
             completion = 0,
@@ -89,24 +88,28 @@ end
 
 -- Generate handout tools with schemas
 function agent:_generate_handout_tools()
-    if not self.handouts then return end
+    if not self.handouts or #self.handouts == 0 then return end
 
     for _, handout in ipairs(self.handouts) do
-        -- Create a handout tool ID using a consistent prefix
-        local handout_tool_id = "handout_" .. (handout.name:gsub("%s+", "_"):lower())
+        -- Get the tool name from handout configuration (required)
+        local tool_name = handout.name
+        if not tool_name or #tool_name == 0 then
+            error("Handout name is required for agent " .. handout.id)
+        end
+
+        -- Create description using the rule
+        local description = "Forward the request to " .. (handout.rule or "when appropriate")
 
         -- Create schema for this handout
         local schema = {
-            name = handout_tool_id,
-            description = "Forward the request to " .. handout.name .. ": " ..
-                (handout.description or "No description available") ..
-                ", this is exit tool, you can not call anything else with it.",
+            name = tool_name,
+            description = description .. ", this is exit tool, you can not call anything else with it.",
             schema = {
                 type = "object",
                 properties = {
                     message = {
                         type = "string",
-                        description = "The message to forward to " .. handout.name
+                        description = "The message to forward to the agent"
                     }
                 },
                 required = { "message" }
@@ -114,10 +117,10 @@ function agent:_generate_handout_tools()
         }
 
         -- Store the tool schema
-        self.handout_tools[handout_tool_id] = schema
+        self.handout_tools[tool_name] = schema
 
         -- Map this tool ID to the target agent ID
-        self.handout_map[handout_tool_id] = handout.id
+        self.handout_map[tool_name] = handout.id
     end
 end
 
@@ -143,15 +146,102 @@ function agent:_build_system_prompt()
     if self.handouts and #self.handouts > 0 then
         system_prompt = system_prompt .. "\n\n## You can delegate tasks to these specialized agents:"
         for _, handout in ipairs(self.handouts) do
-            local tool_id = "handout:" .. (handout.name:gsub("%s+", "_"):lower())
-            system_prompt = system_prompt .. "\n- " .. handout.name .. ": " ..
-                (handout.description or "No description") ..
-                " (use tool " .. tool_id .. ")"
+            -- Get display name from the ID's last part if possible
+            local display_name = handout.id:match("[^:]+$") or handout.name
+            display_name = display_name:gsub("_", " "):gsub("%-", " ")
+            display_name = display_name:sub(1, 1):upper() .. display_name:sub(2) -- Capitalize first letter
+
+            -- Use rule for the description
+            local description = handout.rule or ""
+
+            system_prompt = system_prompt .. "\n- " .. display_name .. ": " ..
+                description .. " (use tool " .. handout.name .. ")"
         end
     end
 
     -- Add the system prompt to the prompt builder
     self.prompt_builder:add_system(system_prompt)
+end
+
+-- Execute the agent to get the next action
+function agent:step()
+    -- Get LLM instance
+    local llm_instance = get_llm()
+
+    -- Prepare LLM options
+    local options = {
+        model = self.model,
+        max_tokens = self.max_tokens,
+        temperature = self.temperature
+    }
+
+    -- Add standard tools as tool_ids
+    if #self.tool_ids > 0 then
+        options.tool_ids = self.tool_ids
+    end
+
+    -- Add custom tool schemas
+    if next(self.tool_schemas) then
+        options.tool_schemas = options.tool_schemas or {}
+        for tool_id, schema in pairs(self.tool_schemas) do
+            options.tool_schemas[tool_id] = schema
+        end
+    end
+
+    -- Add handout tools as tool_schemas
+    if next(self.handout_tools) then
+        options.tool_schemas = options.tool_schemas or {}
+        for tool_id, schema in pairs(self.handout_tools) do
+            options.tool_schemas[tool_id] = schema
+        end
+    end
+
+    -- Get messages from prompt builder
+    local messages = self.prompt_builder:get_messages()
+
+    -- Execute LLM call
+    local result, err = llm_instance.generate(messages, options)
+
+    if err then
+        return nil, err
+    end
+
+    -- Create the response object with all necessary fields
+    local response = {
+        -- Text response priority: content > result
+        result = result.content or result.result,
+        tokens = result.tokens,
+        finish_reason = result.finish_reason
+    }
+
+    -- Copy tool_calls if present
+    if result.tool_calls then
+        response.tool_calls = result.tool_calls
+    end
+
+    -- Update token usage statistics
+    if result.tokens then
+        self.total_tokens.prompt = self.total_tokens.prompt + (result.tokens.prompt_tokens or 0)
+        self.total_tokens.completion = self.total_tokens.completion + (result.tokens.completion_tokens or 0)
+        self.total_tokens.thinking = self.total_tokens.thinking + (result.tokens.thinking_tokens or 0)
+        self.total_tokens.total = self.total_tokens.prompt + self.total_tokens.completion + self.total_tokens.thinking
+    end
+
+    -- Process handout tool calls
+    if response.tool_calls and #response.tool_calls > 0 then
+        for _, tool_call in ipairs(response.tool_calls) do
+            -- Check if this tool call is for a handout
+            if self.handout_map[tool_call.name] then
+                -- Mark that this is a handout call
+                response.handout_target = self.handout_map[tool_call.name]
+                response.handout_message = tool_call.arguments.message
+                response.tool_calls = nil -- handout intercept tools calls
+                break
+            end
+        end
+    end
+
+    return response
 end
 
 -- Register a custom tool schema
@@ -271,9 +361,6 @@ function agent:step()
             end
         end
     end
-
-    -- Store last result
-    self.last_result = response
 
     return response
 end

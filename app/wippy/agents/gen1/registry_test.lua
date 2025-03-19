@@ -92,7 +92,10 @@ local function define_tests()
                         "wippy.tools:knowledge_base"
                     },
                     handout = {
-                        "wippy.agents:code_tools"
+                        ["wippy.agents:code_tools"] = {
+                            name = "to_code_tools",
+                            rule = "Forward to this agent when coding help is needed"
+                        }
                     },
                     inherit = {
                         "wippy.agents:coding_assistant"
@@ -373,7 +376,7 @@ local function define_tests()
             expect(agent.prompt).to_contain("use <thinking> tags")
         end)
 
-        it("should register handouts but not inherit their tools", function()
+        it("should register handouts with the new format", function()
             local agent, err = agent_registry.get_by_id("wippy.agents:advanced_assistant")
 
             expect(err).to_be_nil()
@@ -399,7 +402,9 @@ local function define_tests()
             -- Verify handout metadata is recorded
             expect(#agent.handouts).to_equal(1)
             expect(agent.handouts[1].id).to_equal("wippy.agents:code_tools")
-            expect(agent.handouts[1].name).to_equal("Code Tools")
+            expect(agent.handouts[1].name).to_equal("to_code_tools")
+            expect(agent.handouts[1].rule).to_equal("Forward to this agent when coding help is needed")
+            -- No description field anymore
         end)
 
         it("should multi-level inherit traits", function()

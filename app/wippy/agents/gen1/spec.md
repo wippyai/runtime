@@ -292,10 +292,13 @@ entries:
       ]
 
       # Other agents this agent can delegate tasks to
-      handout: [
-        "wippy.agents:data-analyst",
-        "wippy.agents:citation-assistant"
-      ]
+      handout:
+        wippy.agents:data-analyst:
+          rule: "Give to data analyst if data analysis is needed"
+          name: "to_data_analyst"
+        wippy.agents:citation-assistant:
+          rule: "Give to citation assistant if citation help is needed"
+          name: "to_citation_assistant"
 
   # Example Agent: Data Analyst
   - name: data-analyst

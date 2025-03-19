@@ -130,32 +130,22 @@ local function process_inheritance(agent_spec, inherit_list, visited_ids)
 end
 
 -- Internal: Process handout entries
-local function process_handouts(agent_spec, handout_list, visited_ids)
-    -- Create a separate visited_ids table for handouts to prevent interference
-    local handout_visited = {}
-    for id, _ in pairs(visited_ids) do
-        handout_visited[id] = true
+local function process_handouts(agent_spec, handout_map)
+    if not handout_map or type(handout_map) ~= "table" then
+        return
     end
 
-    local reg = get_registry()
+    -- Initialize handouts array if not present
+    agent_spec.handouts = agent_spec.handouts or {}
 
-    for _, handout_id in ipairs(handout_list) do
-        -- Skip if already processed (prevents recursion)
-        if not handout_visited[handout_id] then
-            local handout_entry, err = reg.get(handout_id)
-
-            if is_valid_agent(handout_entry) then
-                -- Mark as visited
-                handout_visited[handout_id] = true
-
-                -- Only add metadata to handouts array, NOT the tools
-                table.insert(agent_spec.handouts, {
-                    id = handout_entry.id,
-                    name = (handout_entry.meta and handout_entry.meta.name) or "",
-                    description = (handout_entry.meta and handout_entry.meta.comment) or ""
-                })
-            end
-        end
+    -- Process each handout entry from the map structure
+    for agent_id, handout_config in pairs(handout_map) do
+        -- Create handout entry with direct ID reference
+        table.insert(agent_spec.handouts, {
+            id = agent_id,
+            name = handout_config.name,
+            rule = handout_config.rule,
+        })
     end
 end
 
@@ -192,9 +182,9 @@ function agent_registry._build_agent_spec(entry, visited_ids)
         process_inheritance(agent_spec, entry.data.inherit, visited_ids)
     end
 
-    -- Process handout entries
-    if entry.data.handout and #entry.data.handout > 0 then
-        process_handouts(agent_spec, entry.data.handout, visited_ids)
+    -- Process handout entries using new map format
+    if entry.data.handout then
+        process_handouts(agent_spec, entry.data.handout)
     end
 
     -- Process traits and incorporate their prompts
