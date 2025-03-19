@@ -6,7 +6,7 @@ local function define_migration()
                 local success, err = db:execute([[
                     CREATE VIRTUAL TABLE IF NOT EXISTS documents USING vec0(
                         doc_id INTEGER PRIMARY KEY,
-                        embedding float[1536],      -- Vector with 1536 dimensions
+                        embedding float[512],      -- Vector with 512 dimensions
                         title TEXT,                 -- Document title
                         content TEXT,               -- Document content
                         created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
@@ -14,7 +14,7 @@ local function define_migration()
                 ]])
 
                 if err then
-                    error(err)
+                    return nil, "Failed to create documents table: " .. err
                 end
 
                 -- Create full-text search table for text search
@@ -27,7 +27,7 @@ local function define_migration()
                 ]])
 
                 if err then
-                    error(err)
+                    return nil, "Failed to create text search table: " .. err
                 end
 
                 return true
@@ -37,12 +37,12 @@ local function define_migration()
                 -- Drop tables in reverse order of creation
                 local success, err = db:execute("DROP TABLE IF EXISTS doc_content")
                 if err then
-                    error(err)
+                    return nil, "Failed to drop doc_content table: " .. err
                 end
 
                 success, err = db:execute("DROP TABLE IF EXISTS documents")
                 if err then
-                    error(err)
+                    return nil, "Failed to drop documents table: " .. err
                 end
 
                 return true

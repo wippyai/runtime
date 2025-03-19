@@ -19,7 +19,8 @@ end
 local function generate_embedding(text)
     -- Use text-embedding-3-small model for embeddings
     local response = llm.embed(text, {
-        model = "text-embedding-3-small"
+        model = "text-embedding-3-small",
+        dimensions = 512
     })
 
     if not response or response.error then
@@ -61,7 +62,7 @@ function document_repo.add(title, content)
     local current_time = os.time()
     local result, err = tx:execute(
         "INSERT INTO documents(title, content, embedding, created_at) VALUES (?, ?, ?, CAST(? AS INTEGER))",
-        {title or "", content, embedding, current_time}
+        { title or "", content, embedding, current_time }
     )
     if err then
         tx:rollback()
@@ -74,7 +75,7 @@ function document_repo.add(title, content)
     -- Insert into full-text search table
     result, err = tx:execute(
         "INSERT INTO doc_content(doc_id, title, content) VALUES (?, ?, ?)",
-        {doc_id, title or "", content}
+        { doc_id, title or "", content }
     )
     if err then
         tx:rollback()
@@ -91,7 +92,7 @@ function document_repo.add(title, content)
     end
 
     db:release()
-    return {id = doc_id}
+    return { id = doc_id }
 end
 
 -- Get a single document by ID
@@ -111,7 +112,7 @@ function document_repo.get(id)
         WHERE doc_id = ?
     ]]
 
-    local docs, err = db:query(query, {id})
+    local docs, err = db:query(query, { id })
     db:release()
 
     if err then
@@ -142,7 +143,7 @@ function document_repo.list(limit, offset)
         LIMIT ? OFFSET ?
     ]]
 
-    local docs, err = db:query(query, {limit, offset})
+    local docs, err = db:query(query, { limit, offset })
     db:release()
 
     if err then
@@ -186,7 +187,7 @@ function document_repo.search_by_similarity(query_text, limit)
         ORDER BY distance  -- Sort by similarity
     ]]
 
-    local results, err = db:query(query, {embedding, limit})
+    local results, err = db:query(query, { embedding, limit })
     db:release()
 
     if err then
@@ -216,7 +217,11 @@ function document_repo.hybrid_search(query_text, limit)
         return nil, err
     end
 
-    -- Perform hybrid search
+    -- Process the query_text - escape single quotes by doubling them
+    -- This is safe for SQLite FTS5 MATCH operator
+    local sanitized_query = query_text:gsub("'", "''")
+
+    -- Perform hybrid search with FTS5 query directly in SQL
     local query = [[
         WITH vector_matches AS (
             SELECT
@@ -231,7 +236,7 @@ function document_repo.hybrid_search(query_text, limit)
                 doc_id,
                 bm25(doc_content) AS relevance
             FROM doc_content
-            WHERE doc_content MATCH ?
+            WHERE doc_content MATCH ']] .. sanitized_query .. [['
         )
         SELECT
             v.doc_id,
@@ -242,7 +247,7 @@ function document_repo.hybrid_search(query_text, limit)
             t.relevance AS text_relevance,
             -- Combined ranking score (adjust weights as needed)
             (1 - (v.distance / 2)) * 0.6 + (1 / (t.relevance + 1)) * 0.4 AS score,
-            highlight(doc_content, 2, '<mark>', '</mark>') AS content_highlight
+            highlight(doc_content, 0, '<mark>', '</mark>') AS content_highlight
         FROM vector_matches v
         JOIN text_matches t ON v.doc_id = t.doc_id
         JOIN documents d ON v.doc_id = d.doc_id
@@ -250,13 +255,58 @@ function document_repo.hybrid_search(query_text, limit)
         LIMIT ?
     ]]
 
-    local results, err = db:query(query, {embedding, query_text, limit})
-    db:release()
+    local results, err = db:query(query, { embedding, limit })
 
+    -- If there's an error with the hybrid search, fall back to vector search
     if err then
-        return nil, "Search failed: " .. err
+        db:release()
+        -- Try vector search as fallback
+        return document_repo.search_by_similarity(query_text, limit)
     end
 
+    db:release()
+    return results
+end
+
+-- BM25 text search only (no vector similarity)
+function document_repo.search_by_text(query_text, limit)
+    if not query_text or query_text == "" then
+        return nil, "Query text is required"
+    end
+
+    local db, err = get_db()
+    if err then
+        return nil, err
+    end
+
+    limit = limit or 5
+
+    -- Sanitize the query text for FTS5
+    local sanitized_query = query_text:gsub("'", "''")
+
+    -- Perform pure text search using FTS5 with BM25 ranking
+    local query = [[
+        SELECT
+            c.doc_id,
+            d.title,
+            d.content,
+            d.created_at,
+            bm25(doc_content) AS relevance,
+            highlight(doc_content, 0, '<mark>', '</mark>') AS content_highlight
+        FROM doc_content c
+        JOIN documents d ON c.doc_id = d.doc_id
+        WHERE doc_content MATCH ']] .. sanitized_query .. [['
+        ORDER BY relevance
+        LIMIT ]] .. tostring(limit)
+
+    local results, err = db:query(query)
+
+    if err then
+        db:release()
+        return nil, "Text search failed: " .. err
+    end
+
+    db:release()
     return results
 end
 

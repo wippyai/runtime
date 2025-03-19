@@ -46,7 +46,7 @@ entries:
     imports:
       document_repo: "app.demo.document_search:document_repo"
     pool:
-      size: 4
+      size: 2
 
   - name: search_documents
     kind: function.lua
@@ -59,7 +59,7 @@ entries:
     imports:
       document_repo: "app.demo.document_search:document_repo"
     pool:
-      size: 4
+      size: 2
 
   - name: list_documents
     kind: function.lua
@@ -72,7 +72,7 @@ entries:
     imports:
       document_repo: "app.demo.document_search:document_repo"
     pool:
-      size: 4
+      size: 2
 
   # HTTP Endpoints
   - name: add_document.endpoint

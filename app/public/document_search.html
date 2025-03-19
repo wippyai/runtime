@@ -9,13 +9,18 @@
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        [v-cloak] { display: none; }
+        [v-cloak] {
+            display: none;
+        }
+
         .fade-enter-active, .fade-leave-active {
             transition: opacity 0.3s;
         }
+
         .fade-enter-from, .fade-leave-to {
             opacity: 0;
         }
+
         .highlight mark {
             background-color: #FFFF00;
             font-weight: bold;
@@ -94,6 +99,10 @@
                         <input type="radio" v-model="searchType" value="vector" class="form-radio">
                         <span class="ml-2">Vector Similarity Only</span>
                     </label>
+                    <label class="inline-flex items-center">
+                        <input type="radio" v-model="searchType" value="bm25" class="form-radio">
+                        <span class="ml-2">BM25 Text Search</span>
+                    </label>
                 </div>
             </div>
             <div>
@@ -119,7 +128,7 @@
                         <h4 class="text-md font-medium text-gray-800">{{ result.title || 'Untitled Document' }}</h4>
                         <span class="text-sm text-gray-500">ID: {{ result.doc_id }}</span>
                     </div>
-                    <div v-if="searchType === 'hybrid' && result.content_highlight"
+                    <div v-if="(searchType === 'hybrid' || searchType === 'bm25') && result.content_highlight"
                          class="mt-2 text-gray-600 prose highlight"
                          v-html="result.content_highlight"></div>
                     <div v-else class="mt-2 text-gray-600">
@@ -129,6 +138,7 @@
                         <span>Created: {{ formatDate(result.created_at) }}</span>
                         <span v-if="result.score !== undefined" class="ml-4">Score: {{ result.score.toFixed(4) }}</span>
                         <span v-else-if="result.distance !== undefined" class="ml-4">Distance: {{ result.distance.toFixed(4) }}</span>
+                        <span v-else-if="result.relevance !== undefined" class="ml-4">Relevance: {{ result.relevance.toFixed(4) }}</span>
                     </div>
                 </div>
             </div>
@@ -174,14 +184,15 @@
     </div>
 
     <!-- Success message -->
-    <div v-if="successMessage" class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mt-6" role="alert">
+    <div v-if="successMessage" class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mt-6"
+         role="alert">
         <strong class="font-bold">Success!</strong>
         <span class="block sm:inline">{{ successMessage }}</span>
     </div>
 </div>
 
 <script>
-    const { createApp, ref, onMounted } = Vue;
+    const {createApp, ref, onMounted} = Vue;
 
     const app = createApp({
         setup() {
@@ -192,7 +203,7 @@
             const successMessage = ref('');
 
             // Add document state
-            const newDocument = ref({ title: '', content: '' });
+            const newDocument = ref({title: '', content: ''});
 
             // Search state
             const searchQuery = ref('');
@@ -260,7 +271,7 @@
                 searchSubmitted.value = true;
 
                 try {
-                    const type = searchType.value === 'hybrid' ? 'hybrid' : 'vector';
+                    const type = searchType.value;
                     const response = await fetch(`${API_URL}/search?q=${encodeURIComponent(searchQuery.value)}&type=${type}&limit=${searchLimit.value}`);
 
                     const data = await response.json();
