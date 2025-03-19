@@ -389,7 +389,7 @@ local function run(args)
         end,
 
         -- Default handler for any other topics
-        __default = function(state, topic, payload)
+        __default = function(state, payload, topic)
             -- Just forward any other messages to clients
             broadcast_to_clients(state, topic, payload)
             return state

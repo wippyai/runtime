@@ -5,7 +5,7 @@ local http = require("http")
 -- Function to get all .md files in the framework directory
 local function get_specs()
     local specs = {}
-    local filesystem = fs.get("system:framework")  -- Use the framework filesystem
+    local filesystem = fs.get("system:root") -- Use the framework filesystem
 
     -- Recursive function to scan directory and subdirectories
     local function scan_directory(path)
@@ -51,21 +51,23 @@ local function get_all_specs()
         return nil, "Failed to create HTTP response"
     end
 
-    -- Set response headers
-    res:set_status(http.STATUS.OK)
-    res:set_content_type(http.CONTENT.JSON)
-    res:set_header("Access-Control-Allow-Origin", "*")
-    res:set_header("Access-Control-Allow-Methods", "GET")
-
     -- Get all specs
     local specs, err = get_specs()
     if err then
+        print(err)
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({
             error = err
         })
         return false
     end
+
+    -- Set response headers
+    res:set_status(http.STATUS.OK)
+    res:set_content_type(http.CONTENT.JSON)
+    res:set_header("Access-Control-Allow-Origin", "*")
+    res:set_header("Access-Control-Allow-Methods", "GET")
+
 
     -- Return the specs as JSON
     res:write_json({

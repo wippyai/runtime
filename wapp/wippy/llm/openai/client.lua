@@ -15,7 +15,7 @@ openai.DEFAULT_EMBEDDING_ENDPOINT = "/embeddings"
 openai.FINISH_REASON_MAP = {
     ["stop"] = output.FINISH_REASON.STOP,
     ["length"] = output.FINISH_REASON.LENGTH,
-    ["content_filter"] = output.FINISH_REASON.CONTENT_FILTER,
+    ["content_filter"] = output.FINISH_REASON.CONTENT_FILTERF,
     ["tool_calls"] = output.FINISH_REASON.TOOL_CALL,
 }
 

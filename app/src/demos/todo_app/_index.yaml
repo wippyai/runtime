@@ -1,5 +1,5 @@
 version: "1.0"
-namespace: app.demo.todo_app
+#namespace: app.demo.todo_app
 
 meta:
   depends_on:

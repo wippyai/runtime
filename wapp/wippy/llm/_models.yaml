@@ -9,7 +9,7 @@ entries:
       type: "llm.model"
       name: "gpt-4o"
       comment: "Fast, intelligent, flexible GPT model with text and image input capabilities"
-      capabilities: [ "tool_use", "vision" ]
+      capabilities: [ "tool_use", "vision", "generate" ]
     provider_model: "gpt-4o-2024-11-20"
     max_tokens: 128000
     output_tokens: 16384
@@ -28,7 +28,7 @@ entries:
       type: "llm.model"
       name: "gpt-4o-mini"
       comment: "Fast, affordable small model for focused tasks with text and image input"
-      capabilities: [ "tool_use", "vision" ]
+      capabilities: [ "tool_use", "vision", "generate" ]
     provider_model: "gpt-4o-mini-2024-07-18"
     max_tokens: 128000
     output_tokens: 16384
@@ -47,7 +47,7 @@ entries:
       type: "llm.model"
       name: "o3-mini"
       comment: "Fast, flexible intelligent reasoning model for complex, multi-step tasks"
-      capabilities: [ "tool_use", "thinking" ]
+      capabilities: [ "tool_use", "thinking", "generate" ]
     provider_model: "o3-mini-2025-01-31"
     max_tokens: 200000
     output_tokens: 100000
@@ -67,7 +67,7 @@ entries:
       type: "llm.model"
       name: "claude-3-7-sonnet"
       comment: "Anthropic's most intelligent model with extended thinking capabilities for complex reasoning"
-      capabilities: [ "tool_use", "vision", "thinking", "caching" ]
+      capabilities: [ "tool_use", "vision", "thinking", "caching", "generate" ]
     provider_model: "claude-3-7-sonnet-20250219"
     max_tokens: 200000
     output_tokens: 8192
@@ -85,7 +85,7 @@ entries:
       type: "llm.model"
       name: "claude-3-5-sonnet"
       comment: "High-performance Claude model with strong reasoning and multimodal capabilities"
-      capabilities: [ "tool_use", "vision", "caching" ]
+      capabilities: [ "tool_use", "vision", "caching", "generate" ]
     provider_model: "claude-3-5-sonnet-20241022"
     max_tokens: 200000
     output_tokens: 8192
@@ -103,7 +103,7 @@ entries:
       type: "llm.model"
       name: "claude-3-5-haiku"
       comment: "Fastest Claude model optimized for speed while maintaining high intelligence"
-      capabilities: [ "tool_use", "vision", "caching" ]
+      capabilities: [ "tool_use", "vision", "caching", "generate" ]
     provider_model: "claude-3-5-haiku-20241022"
     max_tokens: 200000
     output_tokens: 8192

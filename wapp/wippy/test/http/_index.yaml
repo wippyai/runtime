@@ -25,7 +25,7 @@ entries:
     imports:
       registry: "wippy.test:registry"
     pool:
-      size: 8
+      size: 2
 
   - name: discover.endpoint
     kind: http.endpoint
@@ -34,7 +34,7 @@ entries:
       router: system:api
     method: GET
     path: /test/discover
-    func: test_discovery
+    func: discovery
 
   - name: test.endpoint
     kind: http.endpoint
@@ -44,3 +44,24 @@ entries:
     method: GET
     path: /test
     func: test
+
+  - name: run_specific
+    kind: function.lua
+    meta:
+      comment: "Runs a specific test or test group"
+    source: file://run_specific.lua
+    method: run_specific_test
+    modules: [ http, time, json, funcs ]
+    imports:
+      registry: "wippy.test:registry"
+    pool:
+      size: 2
+
+  - name: run_specific.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Runs specific test or test group"
+      router: system:api
+    method: GET
+    path: /test/run
+    func: run_specific

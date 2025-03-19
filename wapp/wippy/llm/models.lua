@@ -1,4 +1,3 @@
--- Models Library - For discovering and managing LLM models
 local registry = require("registry")
 
 -- Main module
@@ -40,7 +39,7 @@ function models.get_by_name(name)
     -- Find models with matching name
     local entries = reg.find({
         [".kind"] = "registry.entry",
-        name = name
+        ["meta.name"] = name
     })
 
     if not entries or #entries == 0 then
@@ -54,9 +53,10 @@ end
 function models.get_all()
     local reg = get_registry()
 
+    -- !todo: optimize
     -- Find all model entries from registry
     local entries = reg.find({
-        [".kind"] = "registry.entry"
+        [".kind"] = "registry.entry",
     })
 
     local all_models = {}

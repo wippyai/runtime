@@ -37,6 +37,36 @@ entries:
     source: file://models.lua
     modules: [ "registry", "json" ]
 
+  - name: llm
+    kind: library.lua
+    meta:
+      comment: "Model discovery library for finding models by name, capability, and retrieving model cards"
+      type: "library"
+      depends_on: [ "models" ]
+    source: file://llm.lua
+    modules: [ "registry", "json", "funcs" ]
+    imports:
+      models: "wippy.llm:models"
+      prompt: "wippy.llm:prompt"
+
+  - name: llm_test
+    kind: function.lua
+    meta:
+      name: "LLM Library Test"
+      type: "test"
+      tags: [ "llm", "generation", "structured_output", "embeddings", "tests" ]
+      group: "LLM Library"
+      comment: "Tests the high-level LLM library functionality for text generation, structured output, and embeddings"
+      depends_on: [ "models" ]
+    source: file://llm_test.lua
+    method: run_tests
+    modules: [ "json", "time", "env", "funcs" ]
+    imports:
+      test: "wippy.test:test"
+      llm: "wippy.llm:llm"
+      models: "wippy.llm:models"
+      prompt: "wippy.llm:prompt"
+
   - name: prompt_test
     kind: function.lua
     meta:

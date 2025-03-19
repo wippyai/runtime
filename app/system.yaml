@@ -8,7 +8,6 @@ entries:
       comment: "Root filesystem"
     directory: ./
     mode: "0755"
-    default: true
 
   - name: public
     kind: fs.directory
@@ -28,10 +27,6 @@ entries:
       idle: 120s
     lifecycle:
       auto_start: true
-      restart:
-        initial_delay: 5s
-        max_attempts: 3
-        backoff_factor: 1.5
 
   - name: public.static
     kind: http.static
