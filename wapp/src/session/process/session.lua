@@ -65,7 +65,7 @@ local function run(args)
             session_id = state.session_id,
             agent = state.meta.agent,
             model = state.meta.model,
-            kind = state.meta.kind,
+            status = state.status,
             last_message_id = state.last_message_id or nil,
         })
     end
