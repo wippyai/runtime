@@ -6,14 +6,14 @@ return require("migration").define(function()
                 local success, err = db:execute([[
                     CREATE TABLE token_usage (
                         usage_id TEXT PRIMARY KEY,
-                        session_id TEXT NULL,
+                        user_id TEXT NOT NULL,
+                        context_id TEXT NULL,
                         model_name TEXT NOT NULL,
                         prompt_tokens INTEGER DEFAULT 0,
                         completion_tokens INTEGER DEFAULT 0,
                         thinking_tokens INTEGER DEFAULT 0,
                         total_tokens INTEGER DEFAULT 0,
-                        timestamp INTEGER NOT NULL,
-                        FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                        timestamp INTEGER NOT NULL
                     )
                 ]])
 
@@ -22,7 +22,12 @@ return require("migration").define(function()
                 end
 
                 -- Create indexes
-                success, err = db:execute("CREATE INDEX idx_token_usage_session ON token_usage(session_id)")
+                success, err = db:execute("CREATE INDEX idx_token_usage_user ON token_usage(user_id)")
+                if err then
+                    error(err)
+                end
+
+                success, err = db:execute("CREATE INDEX idx_token_usage_context ON token_usage(context_id)")
                 if err then
                     error(err)
                 end
@@ -40,25 +45,30 @@ return require("migration").define(function()
 
             down(function(db)
                 -- Drop indexes first
-                local success, err = db:execute("DROP INDEX IF EXISTS idx_token_usage_session")
+                local success, err = db:execute("DROP INDEX IF EXISTS idx_token_usage_user")
                 if err then
-                    return nil, "Failed to drop session index: " .. err
+                    error("Failed to drop user index: " .. err)
+                end
+
+                success, err = db:execute("DROP INDEX IF EXISTS idx_token_usage_context")
+                if err then
+                    error("Failed to drop context index: " .. err)
                 end
 
                 success, err = db:execute("DROP INDEX IF EXISTS idx_token_usage_model")
                 if err then
-                    error(err)
+                    error("Failed to drop model index: " .. err)
                 end
 
                 success, err = db:execute("DROP INDEX IF EXISTS idx_token_usage_timestamp")
                 if err then
-                    error(err)
+                    error("Failed to drop timestamp index: " .. err)
                 end
 
                 -- Drop table
                 success, err = db:execute("DROP TABLE IF EXISTS token_usage")
                 if err then
-                    error(err)
+                    error("Failed to drop token_usage table: " .. err)
                 end
             end)
         end)

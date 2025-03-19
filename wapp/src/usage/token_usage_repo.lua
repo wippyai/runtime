@@ -1,4 +1,5 @@
 local sql = require("sql")
+local uuid = require("uuid")
 
 -- Hardcoded database resource name
 local DB_RESOURCE = "app:db"
@@ -15,13 +16,9 @@ local function get_db()
 end
 
 -- Record token usage
-function token_usage_repo.record(usage_id, session_id, model_name, prompt_tokens, completion_tokens, thinking_tokens)
-    if not usage_id or usage_id == "" then
-        return nil, "Usage ID is required"
-    end
-
-    if not session_id or session_id == "" then
-        return nil, "Session ID is required"
+function token_usage_repo.record(user_id, context_id, model_name, prompt_tokens, completion_tokens, thinking_tokens)
+    if not user_id or user_id == "" then
+        return nil, "User ID is required"
     end
 
     if not model_name or model_name == "" then
@@ -36,6 +33,9 @@ function token_usage_repo.record(usage_id, session_id, model_name, prompt_tokens
     -- Calculate total tokens
     local total_tokens = prompt_tokens + completion_tokens + thinking_tokens
 
+    -- Generate a new UUID for this usage record
+    local usage_id = uuid.v7()
+
     local db, err = get_db()
     if err then
         return nil, err
@@ -45,11 +45,12 @@ function token_usage_repo.record(usage_id, session_id, model_name, prompt_tokens
 
     local result, err = db:execute(
         [[INSERT INTO token_usage
-          (usage_id, session_id, model_name, prompt_tokens, completion_tokens, thinking_tokens, total_tokens, timestamp)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)]],
+          (usage_id, user_id, context_id, model_name, prompt_tokens, completion_tokens, thinking_tokens, total_tokens, timestamp)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]],
         {
             usage_id,
-            session_id,
+            user_id,
+            context_id, -- can be nil
             model_name,
             sql.as.int(prompt_tokens),
             sql.as.int(completion_tokens),
@@ -67,7 +68,8 @@ function token_usage_repo.record(usage_id, session_id, model_name, prompt_tokens
 
     return {
         usage_id = usage_id,
-        session_id = session_id,
+        user_id = user_id,
+        context_id = context_id,
         model_name = model_name,
         prompt_tokens = prompt_tokens,
         completion_tokens = completion_tokens,
@@ -89,7 +91,7 @@ function token_usage_repo.get(usage_id)
     end
 
     local query = [[
-        SELECT usage_id, session_id, model_name, prompt_tokens, completion_tokens,
+        SELECT usage_id, user_id, context_id, model_name, prompt_tokens, completion_tokens,
                thinking_tokens, total_tokens, timestamp
         FROM token_usage
         WHERE usage_id = ?
@@ -109,10 +111,10 @@ function token_usage_repo.get(usage_id)
     return usages[1]
 end
 
--- Get all token usage for a session
-function token_usage_repo.get_by_session(session_id)
-    if not session_id or session_id == "" then
-        return nil, "Session ID is required"
+-- Get all token usage for a user
+function token_usage_repo.get_by_user(user_id, start_time, end_time)
+    if not user_id or user_id == "" then
+        return nil, "User ID is required"
     end
 
     local db, err = get_db()
@@ -120,28 +122,85 @@ function token_usage_repo.get_by_session(session_id)
         return nil, err
     end
 
+    local params = { user_id }
+    local time_condition = ""
+
+    -- Add time filters if provided
+    if start_time then
+        time_condition = time_condition .. " AND timestamp >= ?"
+        table.insert(params, sql.as.int(start_time))
+    end
+
+    if end_time then
+        time_condition = time_condition .. " AND timestamp <= ?"
+        table.insert(params, sql.as.int(end_time))
+    end
+
     local query = [[
-        SELECT usage_id, session_id, model_name, prompt_tokens, completion_tokens,
+        SELECT usage_id, user_id, context_id, model_name, prompt_tokens, completion_tokens,
                thinking_tokens, total_tokens, timestamp
         FROM token_usage
-        WHERE session_id = ?
+        WHERE user_id = ?]] .. time_condition .. [[
         ORDER BY timestamp ASC
     ]]
 
-    local usages, err = db:query(query, { session_id })
+    local usages, err = db:query(query, params)
     db:release()
 
     if err then
-        return nil, "Failed to get token usage for session: " .. err
+        return nil, "Failed to get token usage for user: " .. err
     end
 
     return usages
 end
 
--- Get aggregated token usage for a session
-function token_usage_repo.get_session_totals(session_id)
-    if not session_id or session_id == "" then
-        return nil, "Session ID is required"
+-- Get all token usage for a context
+function token_usage_repo.get_by_context(context_id, start_time, end_time)
+    if not context_id or context_id == "" then
+        return nil, "Context ID is required"
+    end
+
+    local db, err = get_db()
+    if err then
+        return nil, err
+    end
+
+    local params = { context_id }
+    local time_condition = ""
+
+    -- Add time filters if provided
+    if start_time then
+        time_condition = time_condition .. " AND timestamp >= ?"
+        table.insert(params, sql.as.int(start_time))
+    end
+
+    if end_time then
+        time_condition = time_condition .. " AND timestamp <= ?"
+        table.insert(params, sql.as.int(end_time))
+    end
+
+    local query = [[
+        SELECT usage_id, user_id, context_id, model_name, prompt_tokens, completion_tokens,
+               thinking_tokens, total_tokens, timestamp
+        FROM token_usage
+        WHERE context_id = ?]] .. time_condition .. [[
+        ORDER BY timestamp ASC
+    ]]
+
+    local usages, err = db:query(query, params)
+    db:release()
+
+    if err then
+        return nil, "Failed to get token usage for context: " .. err
+    end
+
+    return usages
+end
+
+-- Get aggregated token usage for a context
+function token_usage_repo.get_context_totals(context_id)
+    if not context_id or context_id == "" then
+        return nil, "Context ID is required"
     end
 
     local db, err = get_db()
@@ -157,20 +216,20 @@ function token_usage_repo.get_session_totals(session_id)
             SUM(total_tokens) as total_tokens,
             COUNT(*) as request_count
         FROM token_usage
-        WHERE session_id = ?
+        WHERE context_id = ?
     ]]
 
-    local result, err = db:query(query, { session_id })
+    local result, err = db:query(query, { context_id })
     db:release()
 
     if err then
-        return nil, "Failed to get session token totals: " .. err
+        return nil, "Failed to get context token totals: " .. err
     end
 
     -- Return zeros if no records found
     if not result[1].prompt_tokens then
         return {
-            session_id = session_id,
+            context_id = context_id,
             prompt_tokens = 0,
             completion_tokens = 0,
             thinking_tokens = 0,
@@ -179,7 +238,7 @@ function token_usage_repo.get_session_totals(session_id)
         }
     end
 
-    result[1].session_id = session_id
+    result[1].context_id = context_id
     return result[1]
 end
 
@@ -259,28 +318,27 @@ function token_usage_repo.get_user_totals(user_id, start_time, end_time)
 
     -- Add time filters if provided
     if start_time then
-        time_condition = time_condition .. " AND tu.timestamp >= ?"
+        time_condition = time_condition .. " AND timestamp >= ?"
         table.insert(params, sql.as.int(start_time))
     end
 
     if end_time then
-        time_condition = time_condition .. " AND tu.timestamp <= ?"
+        time_condition = time_condition .. " AND timestamp <= ?"
         table.insert(params, sql.as.int(end_time))
     end
 
     local query = [[
         SELECT
-            s.user_id,
-            SUM(tu.prompt_tokens) as prompt_tokens,
-            SUM(tu.completion_tokens) as completion_tokens,
-            SUM(tu.thinking_tokens) as thinking_tokens,
-            SUM(tu.total_tokens) as total_tokens,
-            COUNT(DISTINCT tu.usage_id) as request_count,
-            COUNT(DISTINCT tu.session_id) as session_count
-        FROM token_usage tu
-        JOIN sessions s ON tu.session_id = s.session_id
-        WHERE s.user_id = ?]] .. time_condition .. [[
-        GROUP BY s.user_id
+            user_id,
+            SUM(prompt_tokens) as prompt_tokens,
+            SUM(completion_tokens) as completion_tokens,
+            SUM(thinking_tokens) as thinking_tokens,
+            SUM(total_tokens) as total_tokens,
+            COUNT(DISTINCT usage_id) as request_count,
+            COUNT(DISTINCT context_id) as context_count
+        FROM token_usage
+        WHERE user_id = ?]] .. time_condition .. [[
+        GROUP BY user_id
     ]]
 
     local result, err = db:query(query, params)
@@ -299,7 +357,7 @@ function token_usage_repo.get_user_totals(user_id, start_time, end_time)
             thinking_tokens = 0,
             total_tokens = 0,
             request_count = 0,
-            session_count = 0
+            context_count = 0
         }
     end
 
