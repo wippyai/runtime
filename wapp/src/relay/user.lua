@@ -245,6 +245,8 @@ local function run(args)
 
         -- Forward any other messages to clients (including responses from sessions)
         __default = function(state, payload, topic)
+            print(payload:from())
+
             -- todo: we can filter it out a bit
             broadcast_to_clients(state, topic, payload)
             return state
