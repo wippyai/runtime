@@ -38,14 +38,14 @@ entries:
       max_tokens: 3500
       temperature: 0.5
 
-      # Inherit capabilities from base agents
-      inherit: [ ]
-
-      # Traits that define this agent's capabilities
-      traits: [ ]
-
-      # Tools this agent can access
-      tools: [ ]
+      #      # Inherit capabilities from base agents
+      #      inherit: [ ]
+      #
+      #      # Traits that define this agent's capabilities
+      #      traits: [ ]
+      #
+      #      # Tools this agent can access
+      #      tools: [ ]
 
       # Long-term memory entries
       memory: [
@@ -73,20 +73,20 @@ entries:
       max_tokens: 4000
       temperature: 0.7
 
-      # Inherit capabilities from base agents
-      inherit: [ ]
-
-      # Traits that define this agent's capabilities
-      traits: [ ]
-
-      # Tools this agent can access
-      tools: [
-        # todo: add demo tools
-      ]
+      #      # Inherit capabilities from base agents
+      #      inherit: [ ]
+      #
+      #      # Traits that define this agent's capabilities
+      #      traits: [ ]
+      #
+      #      # Tools this agent can access
+      #      tools: [
+      #        # todo: add demo tools
+      #      ]
 
       # Long-term memory entries
       memory: [
-        "Navigator: The Navigator is your Fortress.ai guide and your assistant for everything related to the platform. The Navigator can be used like any AI chat interface, and it will assist you on how to use Fortress.ai and the platform. Use the Navigator like ChatGPT to help you learn how to use Fortress.ai and the platform. The Navigator can perform the following tasks: • Answer questions about Fortress.ai and how to use it. • Answer questions about how to use the entire platform. • Access to Google search, allowing you to ask virtually anything. • Access to LinkedIn to quickly learn about people or companies you interact with. Suggested Prompts: • What does the "Deal Studies" agent do? • How can I compare the terms of two agreements? • Where should I go to see outstanding tasks for me or a specific deal? • How do I update deal terms? • How do I create a new deal in Fortress.ai? • Which agent should I use for managing tasks? • How do I update deal terms?",
+        "Navigator: The Navigator is your Fortress.ai guide and your assistant for everything related to the platform. The Navigator can be used like any AI chat interface, and it will assist you on how to use Fortress.ai and the platform. Use the Navigator like ChatGPT to help you learn how to use Fortress.ai and the platform. The Navigator can perform the following tasks: • Answer questions about Fortress.ai and how to use it. • Answer questions about how to use the entire platform. • Access to Google search, allowing you to ask virtually anything. • Access to LinkedIn to quickly learn about people or companies you interact with. Suggested Prompts: • What does the \"Deal Studies\" agent do? • How can I compare the terms of two agreements? • Where should I go to see outstanding tasks for me or a specific deal? • How do I update deal terms? • How do I create a new deal in Fortress.ai? • Which agent should I use for managing tasks? • How do I update deal terms?",
         "If user asks specific questions about how Project Fortress (platform) works, like how to do something, use the User Training Manager Skill agent.",
         "Time Entry Narrative: I can use the time entry narrative agent to review session conversations and create time entry narratives for users to enter into their time-entry software. These narratives are formatted as ready-to-use entries linked to the applicable client/matter number, making it easy for users to accurately record their billable time.",
         "If a user asks about the Salesforce token, use the get_salesforce_token tool. Do not use the get_salesforce_token tool for anything else!"
