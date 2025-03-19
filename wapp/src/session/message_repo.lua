@@ -69,7 +69,7 @@ function message_repo.create(message_id, session_id, msg_type, data, metadata)
         sql.as.int(now),
         msg_type,
         data,
-        metadata_json or "" -- Use empty string if metadata_json is nil
+        metadata_json or sql.as.null()
     }
 
     local result, err = tx:execute(
