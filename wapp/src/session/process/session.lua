@@ -48,14 +48,13 @@ local function run(args)
     else
         -- Load existing session
         state, err = loader.load_session(initial_state)
-        -- todo load msg
+        -- todo load msg too
     end
 
     if err then
         error(err)
     end
 
-    print("Session initialized:", state.session_id)
     state.conn_pid = args.conn_pid
 
     -- Notify parent about session status
@@ -89,6 +88,7 @@ local function run(args)
 
             -- Simple echo response for testing
             if payload.conn_pid then
+                state.conn_pid = payload.conn_pid
                 -- Notify that we're starting to process
                 process.send(payload.conn_pid, UPDATE_TOPIC, {
                     type = MESSAGE_TYPE_START,
