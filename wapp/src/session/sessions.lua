@@ -2,7 +2,6 @@
 local context_repo = require("context_repo")
 local session_repo = require("session_repo")
 local message_repo = require("message_repo")
-local token_usage_repo = require("token_usage_repo")
 local uuid = require("uuid")
 
 local sessions = {}

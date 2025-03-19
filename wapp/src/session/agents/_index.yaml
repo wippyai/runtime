@@ -11,9 +11,12 @@ entries:
     kind: function.lua
     meta:
       comment: "Lists all agents with limited metadata (name, title, group, comment, icon, tags)"
+      depends_on: [ ns:app.sessions ]
     source: file://agents_endpoint.lua
     method: handler
     modules: [ http, json, security, registry ]
+    imports:
+      "start_tokens": "app.sessions:start_tokens"
 
   - name: list_agents.endpoint
     kind: http.endpoint

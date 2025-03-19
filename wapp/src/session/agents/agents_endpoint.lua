@@ -1,6 +1,7 @@
 local http = require("http")
 local json = require("json")
 local security = require("security")
+local start_tokens = require("start_tokens")
 
 local function handler()
     -- Get response object
@@ -44,15 +45,39 @@ local function handler()
     local agents = {}
     for _, entry in ipairs(all_entries) do
         if entry.meta then
-            -- Include only the requested metadata fields
-            table.insert(agents, {
+            -- Extract the model information
+            local model = entry.meta.model or "default_model"
+
+            -- Extract the session kind (default to "default" if not specified)
+            local kind = entry.meta.session_kind or "default"
+
+            -- Create the agent object with original metadata fields
+            local agent = {
                 name = entry.meta.name or "",
                 title = entry.meta.title or entry.meta.name or "",
                 group = entry.meta.group or {},
                 comment = entry.meta.comment or "",
                 icon = entry.meta.icon or "",
-                tags = entry.meta.tags or {}
-            })
+                tags = entry.meta.tags or {},
+                model = model
+            }
+
+            -- Generate a start token for this agent
+            local token_params = {
+                agent = entry.meta.name or "",
+                model = model,
+                kind = kind
+            }
+
+            local token, token_err = start_tokens.pack(token_params)
+            if token then
+                agent.start_token = token
+            else
+                -- Log the error but continue without a token
+                print("Failed to generate start token for agent " .. agent.name .. ": " .. (token_err or "unknown error"))
+            end
+
+            table.insert(agents, agent)
         end
     end
 

@@ -30,14 +30,6 @@ entries:
     source: file://message_repo.lua
     modules: [ sql, json ]
 
-  - name: token_usage_repo
-    kind: library.lua
-    meta:
-      comment: "Token usage repository for tracking model usage statistics"
-      depends_on: [ session_repo ]
-    source: file://token_usage_repo.lua
-    modules: [ sql ]
-
   # Main API
   - name: api
     kind: library.lua
@@ -50,7 +42,6 @@ entries:
       context_repo: "app.sessions:context_repo"
       session_repo: "app.sessions:session_repo"
       message_repo: "app.sessions:message_repo"
-      token_usage_repo: "app.sessions:token_usage_repo"
 
   - name: create_context
     kind: function.lua
@@ -105,19 +96,6 @@ entries:
     imports:
       migration: "wippy.migration:migration"
 
-  - name: migrations.create_token_usage_table
-    kind: function.lua
-    meta:
-      description: "Create token_usage table with indexes"
-      timestamp: "2025-03-16T10:15:00Z"
-      tags: [ "sessions" ]
-      type: "migration"
-      target_db: "app:db"
-    source: file://migrations/04_create_token_usage_table.lua
-    method: migrate
-    imports:
-      migration: "wippy.migration:migration"
-
   - name: migrations.create_messages_table
     kind: function.lua
     meta:
@@ -126,28 +104,10 @@ entries:
       tags: [ "sessions" ]
       type: "migration"
       target_db: "app:db"
-    source: file://migrations/05_create_messages_table.lua
+    source: file://migrations/04_create_messages_table.lua
     method: migrate
     imports:
       migration: "wippy.migration:migration"
-
-  - name: token_usage_repo_test
-    kind: function.lua
-    meta:
-      name: "Token Usage Repository Test"
-      type: "test"
-      tags: [ "session", "database", "token_usage", "tests" ]
-      group: "Session Tests"
-      comment: "Tests the token usage repository functionality for recording and retrieving token usage data"
-      depends_on: [ context_repo, session_repo, token_usage_repo ]
-    source: file://token_usage_repo_test.lua
-    method: run_tests
-    modules: [ "sql", "uuid" ]
-    imports:
-      test: "wippy.test:test"
-      token_usage_repo: "app.sessions:token_usage_repo"
-      session_repo: "app.sessions:session_repo"
-      context_repo: "app.sessions:context_repo"
 
   - name: context_repo_test
     kind: function.lua
