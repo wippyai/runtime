@@ -121,6 +121,10 @@ local function handler(args)
                 end
             end
 
+            if type(result_content) == "table" then
+                result_content = json.encode(result_content)
+            end
+
             -- Create a user message with tool_result content block
             table.insert(processed_messages, {
                 role = "user",

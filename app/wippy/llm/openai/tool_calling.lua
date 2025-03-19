@@ -65,6 +65,10 @@ local function handler(args)
                 content = (type(msg.content) == "table" and #msg.content > 0 and msg.content[1].text) or msg.content
             }
 
+            if type(tool_msg.content) == "table" then
+                tool_msg.content = json.encode(tool_msg.content)
+            end
+
             -- Add tool_call_id if available
             if msg.function_call_id then
                 tool_msg.tool_call_id = msg.function_call_id

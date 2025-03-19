@@ -62,8 +62,7 @@ function agent.new(agent_spec)
         },
 
         -- Conversation state
-        messages_handled = 0,
-        available_for_next_execute = true
+        messages_handled = 0
     }
 
     -- Initialize the prompt builder
@@ -175,7 +174,6 @@ end
 function agent:add_user_message(message)
     self.prompt_builder:add_user(message)
     self.messages_handled = self.messages_handled + 1
-    self.available_for_next_execute = true
     return self
 end
 
@@ -185,19 +183,19 @@ function agent:add_assistant_message(message)
     return self
 end
 
+function agent:add_function_call(function_name, arguments, function_call_id)
+    self.prompt_builder:add_function_call(function_name, arguments, function_call_id)
+    return self
+end
+
 -- Add a function result to the conversation
 function agent:add_function_result(function_name, result, function_call_id)
     self.prompt_builder:add_function_result(function_name, result, function_call_id)
-    self.available_for_next_execute = true
     return self
 end
 
 -- Execute the agent to get the next action
 function agent:step()
-    if not self.available_for_next_execute then
-        return nil, "Agent is waiting for more input before executing again"
-    end
-
     -- Get LLM instance
     local llm_instance = get_llm()
 
@@ -272,9 +270,6 @@ function agent:step()
                 break
             end
         end
-
-        -- Mark as not ready for next execute if there are tool calls
-        self.available_for_next_execute = false
     end
 
     -- Store last result
@@ -311,7 +306,6 @@ function agent:clear_history()
 
     -- Reset message count
     self.messages_handled = 0
-    self.available_for_next_execute = true
     return self
 end
 
