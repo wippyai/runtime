@@ -28,7 +28,6 @@ local function run(args)
         session_id = args.session_id,
         user_id = args.user_id,
         parent_pid = args.parent_pid,
-        conn_pid = args.conn_pid,
         context_id = args.primary_context_id,
         start_time = time.now(),
         messages = {},
@@ -46,12 +45,13 @@ local function run(args)
             print("Session started:", state.session_id)
 
             -- Notify parent that we're ready
-            if state.parent_pid then
-                process.send(state.parent_pid, UPDATE_TOPIC, {
-                    type = MESSAGE_TYPE_SESSION_READY,
-                    session_id = state.session_id
-                })
-            end
+            process.send(state.parent_pid, UPDATE_TOPIC, {
+                type = MESSAGE_TYPE_SESSION_READY,
+                session_id = state.session_id
+            })
+
+            -- todo load session or create it, notify client about last message id if any
+            -- todo: notify about status also
 
             return state
         end,
@@ -60,30 +60,20 @@ local function run(args)
         __on_cancel = function(state)
             print("Session cancelled:", state.session_id)
             state.is_active = false
-
-            -- Notify clients of termination
-            if state.conn_pid then
-                process.send(state.conn_pid, UPDATE_TOPIC, {
-                    type = MESSAGE_TYPE_SESSION_CLOSED,
-                    session_id = state.session_id,
-                    reason = "cancelled"
-                })
-            end
-
             return actor.exit({ status = "shutdown" })
         end,
 
         -- Handle user messages
         [SESSION_MESSAGE_TOPIC] = function(state, payload)
-            print("Session message received:", state.session_id)
+            print("Session message received:", state.session_id, json.encode(payload))
 
             -- Add message to history
             table.insert(state.messages, payload)
 
             -- Simple echo response for testing
-            if state.conn_pid then
+            if payload.conn_pid then
                 -- Notify that we're starting to process
-                process.send(state.conn_pid, UPDATE_TOPIC, {
+                process.send(payload.conn_pid, UPDATE_TOPIC, {
                     type = MESSAGE_TYPE_START,
                     session_id = state.session_id,
                     model = state.meta.model,
@@ -91,7 +81,7 @@ local function run(args)
                 })
 
                 -- Simulate thinking (very simplified)
-                process.send(state.conn_pid, UPDATE_TOPIC, {
+                process.send(payload.conn_pid, UPDATE_TOPIC, {
                     type = MESSAGE_TYPE_THINKING,
                     session_id = state.session_id,
                     content = "Processing your message..."
@@ -116,7 +106,7 @@ local function run(args)
                 }
 
                 for _, chunk in ipairs(chunks) do
-                    process.send(state.conn_pid, UPDATE_TOPIC, {
+                    process.send(payload.conn_pid, UPDATE_TOPIC, {
                         type = MESSAGE_TYPE_CONTENT,
                         session_id = state.session_id,
                         content = chunk
@@ -125,7 +115,7 @@ local function run(args)
                 end
 
                 -- Finish the response
-                process.send(state.conn_pid, UPDATE_TOPIC, {
+                process.send(payload.conn_pid, UPDATE_TOPIC, {
                     type = MESSAGE_TYPE_DONE,
                     session_id = state.session_id,
                     model = state.meta.model,
@@ -151,30 +141,15 @@ local function run(args)
 
             if command == "stop" then
                 -- Just acknowledge the stop command
-                process.send(state.conn_pid, UPDATE_TOPIC, {
+                process.send(payload.conn_pid, UPDATE_TOPIC, {
                     type = MESSAGE_TYPE_SYSTEM,
                     session_id = state.session_id,
                     message = "Generation stopped"
                 })
+
+
             elseif command == "model" then
-                -- Update the model if provided
-                if params.name then
-                    state.meta.model = params.name
-
-                    -- Update provider based on model name pattern
-                    if string.find(params.name, "claude") then
-                        state.meta.provider = "anthropic"
-                    elseif string.find(params.name, "gpt") then
-                        state.meta.provider = "openai"
-                    end
-
-                    -- Acknowledge the model change
-                    process.send(state.conn_pid, UPDATE_TOPIC, {
-                        type = MESSAGE_TYPE_SYSTEM,
-                        session_id = state.session_id,
-                        message = "Model changed to " .. state.meta.model
-                    })
-                end
+                -- handle model change
             end
 
             return state

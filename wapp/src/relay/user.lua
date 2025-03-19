@@ -167,7 +167,7 @@ local function run(args)
                         type = "error",
                         error = "session_limit_reached",
                         message = "Maximum session limit reached (" ..
-                        MAX_SESSIONS_PER_USER .. " sessions). Please close an existing session.",
+                            MAX_SESSIONS_PER_USER .. " sessions). Please close an existing session.",
                         active_session_ids = get_active_session_ids(state)
                     })
                     return state
@@ -186,7 +186,6 @@ local function run(args)
                     session_id = session_id,
                     user_id = state.user_id,
                     parent_pid = process.pid(),
-                    conn_pid = process.pid(),
                     start_token = message_data.context,
                     start_context = message_data.start_token,
                 }
@@ -261,7 +260,10 @@ local function run(args)
                 -- Forward message to session if it exists
                 local session_pid = state.active_sessions[session_id]
                 if session_pid then
-                    process.send(session_pid, SESSION_MESSAGE_TOPIC, data)
+                    process.send(session_pid, SESSION_MESSAGE_TOPIC, {
+                        conn_pid = from,
+                        data = data
+                    })
                 else
                     process.send(from, ERROR_TOPIC, {
                         type = "error",
@@ -283,7 +285,10 @@ local function run(args)
                 -- Forward command to session if it exists
                 local session_pid = state.active_sessions[session_id]
                 if session_pid then
-                    process.send(session_pid, SESSION_COMMAND_TOPIC, data)
+                    process.send(session_pid, SESSION_COMMAND_TOPIC, {
+                        conn_pid = from,
+                        data = data
+                    })
                 else
                     -- Send error when trying to send command to a non-existent session
                     process.send(from, ERROR_TOPIC, {
