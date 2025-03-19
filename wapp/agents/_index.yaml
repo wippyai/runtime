@@ -10,7 +10,8 @@ entries:
     kind: registry.entry
     meta:
       type: "agent.gen1"
-      name: "M&A Deal Manager"
+      name: "mna-deal-manager" # shared name with user
+      title: "M&A Deal Manager"
       group: [ "Deal Managers" ]
       comment: "Specializes in managing and analyzing deals for mergers and acquisitions"
       icon: "icon-abc"
@@ -58,7 +59,8 @@ entries:
     kind: registry.entry
     meta:
       type: "agent.gen1"
-      name: "Navigator Manager"
+      name: "navigator-manager" # shared name with user
+      title: "Navigator Manager"
       group: [ "Platform Assistants" ]
       comment: "Advanced AI assistant for the Fortress platform"
       icon: "icon-navigator"
