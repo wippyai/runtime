@@ -198,3 +198,25 @@ entries:
       message_repo: "app.sessions:message_repo"
       session_repo: "app.sessions:session_repo"
       context_repo: "app.sessions:context_repo"
+
+  - name: start_tokens
+    kind: library.lua
+    meta:
+      comment: "Library for creating and validating session start tokens"
+    source: file://start_tokens.lua
+    modules: [ crypto, base64, json ]
+
+  - name: start_tokens_test
+    kind: function.lua
+    meta:
+      name: "Start Tokens Library Test"
+      type: "test"
+      tags: [ "session", "security", "token", "tests" ]
+      group: "Session Tests"
+      comment: "Tests the start_tokens library for creating and validating session start tokens"
+    source: file://start_tokens_test.lua
+    method: run_tests
+    modules: [ "crypto", "base64", "json" ]
+    imports:
+      test: "wippy.test:test"
+      start_tokens: "app.sessions:start_tokens"

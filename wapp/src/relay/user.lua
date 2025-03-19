@@ -143,9 +143,6 @@ local function run(args)
                     session_id = uuid.v4()
                 end
 
-                -- Check for context - it's always required
-                local context_payload = message_data.context or {}
-                local start_token = message_data.start_token
 
                 -- Generate a context ID for tracking
                 local context_id = uuid.v4()
@@ -156,10 +153,8 @@ local function run(args)
                     user_id = state.user_id,
                     parent_pid = process.pid(),
                     conn_pid = process.pid(),
-                    primary_context_id = context_id, -- Use the newly generated context ID
-                    kind = message_data.kind or "default",
-                    start_token = start_token,
-                    start_context = context_payload,
+                    start_token = message_data.context,
+                    start_context = message_data.start_token,
                 }
 
                 -- Spawn session process

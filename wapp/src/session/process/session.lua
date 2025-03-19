@@ -2,6 +2,20 @@ local time = require("time")
 local json = require("json")
 local actor = require("actor")
 
+-- Topic constants
+local UPDATE_TOPIC = "update"
+local SESSION_MESSAGE_TOPIC = "session.message"
+local SESSION_COMMAND_TOPIC = "session.command"
+
+-- Session status and message type constants
+local MESSAGE_TYPE_START = "start"
+local MESSAGE_TYPE_THINKING = "thinking"
+local MESSAGE_TYPE_CONTENT = "content"
+local MESSAGE_TYPE_DONE = "done"
+local MESSAGE_TYPE_SYSTEM = "system"
+local MESSAGE_TYPE_SESSION_READY = "session_ready"
+local MESSAGE_TYPE_SESSION_CLOSED = "session_closed"
+
 -- Simple Session Process - Handles basic message processing
 local function run(args)
     -- Validate required args
@@ -33,8 +47,8 @@ local function run(args)
 
             -- Notify parent that we're ready
             if state.parent_pid then
-                process.send(state.parent_pid, "update", {
-                    type = "session_ready",
+                process.send(state.parent_pid, UPDATE_TOPIC, {
+                    type = MESSAGE_TYPE_SESSION_READY,
                     session_id = state.session_id
                 })
             end
@@ -49,8 +63,8 @@ local function run(args)
 
             -- Notify clients of termination
             if state.conn_pid then
-                process.send(state.conn_pid, "update", {
-                    type = "session_closed",
+                process.send(state.conn_pid, UPDATE_TOPIC, {
+                    type = MESSAGE_TYPE_SESSION_CLOSED,
                     session_id = state.session_id,
                     reason = "cancelled"
                 })
@@ -60,7 +74,7 @@ local function run(args)
         end,
 
         -- Handle user messages
-        ["session.message"] = function(state, payload)
+        [SESSION_MESSAGE_TOPIC] = function(state, payload)
             print("Session message received:", state.session_id)
 
             -- Add message to history
@@ -69,16 +83,16 @@ local function run(args)
             -- Simple echo response for testing
             if state.conn_pid then
                 -- Notify that we're starting to process
-                process.send(state.conn_pid, "update", {
-                    type = "start",
+                process.send(state.conn_pid, UPDATE_TOPIC, {
+                    type = MESSAGE_TYPE_START,
                     session_id = state.session_id,
                     model = state.meta.model,
                     provider = state.meta.provider
                 })
 
                 -- Simulate thinking (very simplified)
-                process.send(state.conn_pid, "update", {
-                    type = "thinking",
+                process.send(state.conn_pid, UPDATE_TOPIC, {
+                    type = MESSAGE_TYPE_THINKING,
                     session_id = state.session_id,
                     content = "Processing your message..."
                 })
@@ -102,8 +116,8 @@ local function run(args)
                 }
 
                 for _, chunk in ipairs(chunks) do
-                    process.send(state.conn_pid, "update", {
-                        type = "content",
+                    process.send(state.conn_pid, UPDATE_TOPIC, {
+                        type = MESSAGE_TYPE_CONTENT,
                         session_id = state.session_id,
                         content = chunk
                     })
@@ -111,8 +125,8 @@ local function run(args)
                 end
 
                 -- Finish the response
-                process.send(state.conn_pid, "update", {
-                    type = "done",
+                process.send(state.conn_pid, UPDATE_TOPIC, {
+                    type = MESSAGE_TYPE_DONE,
                     session_id = state.session_id,
                     model = state.meta.model,
                     provider = state.meta.provider,
@@ -128,7 +142,7 @@ local function run(args)
         end,
 
         -- Handle commands
-        ["session.command"] = function(state, payload)
+        [SESSION_COMMAND_TOPIC] = function(state, payload)
             print("Session command received:", state.session_id, json.encode(payload))
 
             -- Command could be: stop, model, system, etc.
@@ -137,8 +151,8 @@ local function run(args)
 
             if command == "stop" then
                 -- Just acknowledge the stop command
-                process.send(state.conn_pid, "update", {
-                    type = "system",
+                process.send(state.conn_pid, UPDATE_TOPIC, {
+                    type = MESSAGE_TYPE_SYSTEM,
                     session_id = state.session_id,
                     message = "Generation stopped"
                 })
@@ -155,8 +169,8 @@ local function run(args)
                     end
 
                     -- Acknowledge the model change
-                    process.send(state.conn_pid, "update", {
-                        type = "system",
+                    process.send(state.conn_pid, UPDATE_TOPIC, {
+                        type = MESSAGE_TYPE_SYSTEM,
                         session_id = state.session_id,
                         message = "Model changed to " .. state.meta.model
                     })
