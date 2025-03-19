@@ -6,7 +6,7 @@ return require("migration").define(function()
                 local success, err = db:execute([[
                     CREATE TABLE token_usage (
                         usage_id TEXT PRIMARY KEY,
-                        session_id TEXT NOT NULL,
+                        session_id TEXT NULL,
                         model_name TEXT NOT NULL,
                         prompt_tokens INTEGER DEFAULT 0,
                         completion_tokens INTEGER DEFAULT 0,
@@ -42,7 +42,7 @@ return require("migration").define(function()
                 -- Drop indexes first
                 local success, err = db:execute("DROP INDEX IF EXISTS idx_token_usage_session")
                 if err then
-                    error(err)
+                    return nil, "Failed to drop session index: " .. err
                 end
 
                 success, err = db:execute("DROP INDEX IF EXISTS idx_token_usage_model")
