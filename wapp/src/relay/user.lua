@@ -192,6 +192,15 @@ local function run(args)
                     end
                     session_id = id
                 else
+                    if state.active_sessions[session_id] then
+                        process.send(from, ERROR_TOPIC, {
+                            type = "error",
+                            error = "session_exists",
+                            message = "Session already exists with ID: " .. session_id
+                        })
+                        return state
+                    end
+
                     create = false
                 end
 

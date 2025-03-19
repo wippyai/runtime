@@ -47,7 +47,9 @@ function loader.create_session(args)
         return nil, "Failed to generate context UUID: " .. err
     end
 
-    local context, err = context_repo.create(context_id, "data", context_data)
+    -- todo: wrap to tx
+
+    local context, err = context_repo.create(context_id, "data", json.encode(context_data))
     if err then
         return nil, "Failed to create primary context: " .. err
     end
@@ -57,7 +59,7 @@ function loader.create_session(args)
         args.session_id,
         args.user_id,
         context_id,
-        "", -- title
+        "",
         token_data.kind or "default",
         token_data.model,
         token_data.agent
