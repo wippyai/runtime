@@ -13,12 +13,13 @@ return require("migration").define(function()
                 if err then
                     error(err)
                 end
-
-                return true
             end)
 
             down(function(db)
-                return db:execute("DROP TABLE IF EXISTS users")
+                local ok, err = db:execute("DROP TABLE IF EXISTS users")
+                if err then
+                    error(err)
+                end
             end)
         end)
     end)

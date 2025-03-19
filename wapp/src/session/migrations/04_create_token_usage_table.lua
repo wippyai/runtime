@@ -18,52 +18,48 @@ return require("migration").define(function()
                 ]])
 
                 if err then
-                    return nil, "Failed to create token_usage table: " .. err
+                    error(err)
                 end
 
                 -- Create indexes
                 success, err = db:execute("CREATE INDEX idx_token_usage_session ON token_usage(session_id)")
                 if err then
-                    return nil, "Failed to create session index: " .. err
+                    error(err)
                 end
 
                 success, err = db:execute("CREATE INDEX idx_token_usage_model ON token_usage(model_name)")
                 if err then
-                    return nil, "Failed to create model index: " .. err
+                    error(err)
                 end
 
                 success, err = db:execute("CREATE INDEX idx_token_usage_timestamp ON token_usage(timestamp)")
                 if err then
-                    return nil, "Failed to create timestamp index: " .. err
+                    error(err)
                 end
-
-                return true
             end)
 
             down(function(db)
                 -- Drop indexes first
                 local success, err = db:execute("DROP INDEX IF EXISTS idx_token_usage_session")
                 if err then
-                    return nil, "Failed to drop session index: " .. err
+                    error(err)
                 end
 
                 success, err = db:execute("DROP INDEX IF EXISTS idx_token_usage_model")
                 if err then
-                    return nil, "Failed to drop model index: " .. err
+                    error(err)
                 end
 
                 success, err = db:execute("DROP INDEX IF EXISTS idx_token_usage_timestamp")
                 if err then
-                    return nil, "Failed to drop timestamp index: " .. err
+                    error(err)
                 end
 
                 -- Drop table
                 success, err = db:execute("DROP TABLE IF EXISTS token_usage")
                 if err then
-                    return nil, "Failed to drop token_usage table: " .. err
+                    error(err)
                 end
-
-                return true
             end)
         end)
     end)

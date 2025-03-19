@@ -14,42 +14,38 @@ return require("migration").define(function()
                 ]])
 
                 if err then
-                    return nil, "Failed to create session_contexts table: " .. err
+                    error(err)
                 end
 
                 -- Create index for faster lookups
                 success, err = db:execute("CREATE INDEX idx_session_contexts_session ON session_contexts(session_id)")
                 if err then
-                    return nil, "Failed to create session index: " .. err
+                    error(err)
                 end
 
                 success, err = db:execute("CREATE INDEX idx_session_contexts_context ON session_contexts(context_id)")
                 if err then
-                    return nil, "Failed to create context index: " .. err
+                    error(err)
                 end
-
-                return true
             end)
 
             down(function(db)
                 -- Drop indexes first
                 local success, err = db:execute("DROP INDEX IF EXISTS idx_session_contexts_session")
                 if err then
-                    return nil, "Failed to drop session index: " .. err
+                    error(err)
                 end
 
                 success, err = db:execute("DROP INDEX IF EXISTS idx_session_contexts_context")
                 if err then
-                    return nil, "Failed to drop context index: " .. err
+                    error(err)
                 end
 
                 -- Drop table
                 success, err = db:execute("DROP TABLE IF EXISTS session_contexts")
                 if err then
-                    return nil, "Failed to drop session_contexts table: " .. err
+                    error(err)
                 end
-
-                return true
             end)
         end)
     end)

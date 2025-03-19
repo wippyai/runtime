@@ -16,42 +16,38 @@ return require("migration").define(function()
                 ]])
 
                 if err then
-                    return nil, "Failed to create messages table: " .. err
+                    error(err)
                 end
 
                 -- Create indexes
                 success, err = db:execute("CREATE INDEX idx_messages_session_date ON messages(session_id, date)")
                 if err then
-                    return nil, "Failed to create session_date index: " .. err
+                    error(err)
                 end
 
                 success, err = db:execute("CREATE INDEX idx_messages_type ON messages(type)")
                 if err then
-                    return nil, "Failed to create type index: " .. err
+                    error(err)
                 end
-
-                return true
             end)
 
             down(function(db)
                 -- Drop indexes first
                 local success, err = db:execute("DROP INDEX IF EXISTS idx_messages_session_date")
                 if err then
-                    return nil, "Failed to drop session_date index: " .. err
+                    error(err)
                 end
 
                 success, err = db:execute("DROP INDEX IF EXISTS idx_messages_type")
                 if err then
-                    return nil, "Failed to drop type index: " .. err
+                    error(err)
                 end
 
                 -- Drop table
                 success, err = db:execute("DROP TABLE IF EXISTS messages")
                 if err then
-                    return nil, "Failed to drop messages table: " .. err
+                    error(err)
                 end
-
-                return true
             end)
         end)
     end)

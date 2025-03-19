@@ -117,3 +117,21 @@ entries:
     method: migrate
     imports:
       migration: "wippy.migration:migration"
+
+  - name: token_usage_repo_test
+    kind: function.lua
+    meta:
+      name: "Token Usage Repository Test"
+      type: "test"
+      tags: [ "backend", "database", "token_usage", "tests" ]
+      group: "Backend Tests"
+      comment: "Tests the token usage repository functionality for recording and retrieving token usage data"
+      depends_on: [ context_repo, session_repo, token_usage_repo ]
+    source: file://token_usage_repo_test.lua
+    method: run_tests
+    modules: [ "sql", "uuid" ]
+    imports:
+      test: "wippy.test:test"
+      token_usage_repo: "app.sessions:token_usage_repo"
+      session_repo: "app.sessions:session_repo"
+      context_repo: "app.sessions:context_repo"

@@ -1,8 +1,8 @@
 -- High-level API for the app.sessions namespace
-local context_repo = require("app.sessions.context_repo")
-local session_repo = require("app.sessions.session_repo")
-local message_repo = require("app.sessions.message_repo")
-local token_usage_repo = require("app.sessions.token_usage_repo")
+local context_repo = require("context_repo")
+local session_repo = require("session_repo")
+local message_repo = require("message_repo")
+local token_usage_repo = require("token_usage_repo")
 local uuid = require("uuid")
 
 local sessions = {}
@@ -40,7 +40,7 @@ end
 --------------------------------------------------------------------------------
 
 -- Create a new session with a primary data context
-function sessions.create_session(user_id, initial_data, title)
+function sessions.create_session(user_id, initial_data, title, kind, current_model, current_agent)
     -- Create primary data context
     local context_id, err = uuid.v7()
     if err then
@@ -58,7 +58,7 @@ function sessions.create_session(user_id, initial_data, title)
         return nil, "Failed to generate session UUID: " .. err
     end
 
-    return session_repo.create(session_id, user_id, context_id, title)
+    return session_repo.create(session_id, user_id, context_id, title, kind, current_model, current_agent)
 end
 
 -- Get a session by ID
@@ -74,6 +74,34 @@ end
 -- Update session title
 function sessions.update_session_title(session_id, title)
     return session_repo.update_title(session_id, title)
+end
+
+-- Update session metadata (model, agent, and/or title) in a single transaction
+function sessions.update_session_metadata(session_id, updates)
+    if not updates or type(updates) ~= "table" then
+        return nil, "Updates must be a table containing fields to update"
+    end
+
+    -- Create a valid updates object for the repo function
+    local repo_updates = {}
+
+    -- Copy only valid fields to update
+    if updates.title ~= nil then
+        repo_updates.title = updates.title
+    end
+
+    if updates.current_model ~= nil then
+        repo_updates.current_model = updates.current_model
+    end
+
+    if updates.current_agent ~= nil then
+        repo_updates.current_agent = updates.current_agent
+    end
+
+    -- Always update last_message_date when metadata changes
+    repo_updates.last_message_date = os.time()
+
+    return session_repo.update_session_meta(session_id, repo_updates)
 end
 
 -- Add an additional context to a session

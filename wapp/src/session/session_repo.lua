@@ -15,7 +15,7 @@ local function get_db()
 end
 
 -- Create a new session
-function session_repo.create(session_id, user_id, primary_context_id, title)
+function session_repo.create(session_id, user_id, primary_context_id, title, kind, current_model, current_agent)
     if not session_id or session_id == "" then
         return nil, "Session ID is required"
     end
@@ -28,8 +28,11 @@ function session_repo.create(session_id, user_id, primary_context_id, title)
         return nil, "Primary context ID is required"
     end
 
-    -- Default title to empty string if not provided
+    -- Default values for optional parameters
     title = title or ""
+    kind = kind or "default"
+    current_model = current_model or ""
+    current_agent = current_agent or ""
 
     local db, err = get_db()
     if err then
@@ -40,9 +43,9 @@ function session_repo.create(session_id, user_id, primary_context_id, title)
 
     local result, err = db:execute(
         [[INSERT INTO sessions
-          (session_id, user_id, primary_context_id, title, start_date, last_message_date)
-          VALUES (?, ?, ?, ?, ?, ?)]],
-        { session_id, user_id, primary_context_id, title, sql.as.int(now), sql.as.int(now) }
+          (session_id, user_id, primary_context_id, title, kind, current_model, current_agent, start_date, last_message_date)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]],
+        { session_id, user_id, primary_context_id, title, kind, current_model, current_agent, sql.as.int(now), sql.as.int(now) }
     )
 
     db:release()
@@ -56,6 +59,9 @@ function session_repo.create(session_id, user_id, primary_context_id, title)
         user_id = user_id,
         primary_context_id = primary_context_id,
         title = title,
+        kind = kind,
+        current_model = current_model,
+        current_agent = current_agent,
         start_date = now,
         last_message_date = now
     }
@@ -73,7 +79,7 @@ function session_repo.get(session_id)
     end
 
     local query = [[
-        SELECT session_id, user_id, primary_context_id, title, start_date, last_message_date
+        SELECT session_id, user_id, primary_context_id, title, kind, current_model, current_agent, start_date, last_message_date
         FROM sessions
         WHERE session_id = ?
     ]]
@@ -104,7 +110,7 @@ function session_repo.list_by_user(user_id, limit, offset)
     end
 
     local query = [[
-        SELECT session_id, user_id, primary_context_id, title, start_date, last_message_date
+        SELECT session_id, user_id, primary_context_id, title, kind, current_model, current_agent, start_date, last_message_date
         FROM sessions
         WHERE user_id = ?
         ORDER BY last_message_date DESC
@@ -217,6 +223,87 @@ function session_repo.update_last_message_date(session_id, date)
         last_message_date = date,
         updated = true
     }
+end
+
+-- Update session metadata (model, agent, and last_message_date) in a single transaction
+function session_repo.update_session_meta(session_id, updates)
+    if not session_id or session_id == "" then
+        return nil, "Session ID is required"
+    end
+
+    if not updates or type(updates) ~= "table" then
+        return nil, "Updates table is required"
+    end
+
+    local db, err = get_db()
+    if err then
+        return nil, err
+    end
+
+    -- Check if session exists
+    local sessions, err = db:query("SELECT session_id FROM sessions WHERE session_id = ?", { session_id })
+    if err then
+        db:release()
+        return nil, "Failed to check if session exists: " .. err
+    end
+
+    if #sessions == 0 then
+        db:release()
+        return nil, "Session not found"
+    end
+
+    -- Build update query based on provided fields
+    local set_clauses = {}
+    local params = {}
+    local result = { session_id = session_id, updated = true }
+
+    -- Add fields to update
+    if updates.current_model ~= nil then
+        table.insert(set_clauses, "current_model = ?")
+        table.insert(params, updates.current_model)
+        result.current_model = updates.current_model
+    end
+
+    if updates.current_agent ~= nil then
+        table.insert(set_clauses, "current_agent = ?")
+        table.insert(params, updates.current_agent)
+        result.current_agent = updates.current_agent
+    end
+
+    if updates.title ~= nil then
+        table.insert(set_clauses, "title = ?")
+        table.insert(params, updates.title)
+        result.title = updates.title
+    end
+
+    -- Always update last_message_date if requested or if any other field is updated
+    if updates.last_message_date ~= nil or #set_clauses > 0 then
+        local date = updates.last_message_date or os.time()
+        table.insert(set_clauses, "last_message_date = ?")
+        table.insert(params, sql.as.int(date))
+        result.last_message_date = date
+    end
+
+    -- If nothing to update, return early
+    if #set_clauses == 0 then
+        db:release()
+        return result
+    end
+
+    -- Add session_id to params
+    table.insert(params, session_id)
+
+    -- Execute update query
+    local update_query = "UPDATE sessions SET " .. table.concat(set_clauses, ", ") .. " WHERE session_id = ?"
+    local update_result, err = db:execute(update_query, params)
+
+    db:release()
+
+    if err then
+        return nil, "Failed to update session metadata: " .. err
+    end
+
+    return result
 end
 
 -- Add a context to a session (many-to-many relationship)

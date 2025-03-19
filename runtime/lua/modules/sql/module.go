@@ -90,6 +90,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Add types table to module
 	mod.RawSetString("type", types)
 
+	RegisterAsModule(l, mod)
+
 	// Return module
 	l.Push(mod)
 	return 1

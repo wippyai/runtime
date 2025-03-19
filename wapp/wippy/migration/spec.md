@@ -2,7 +2,9 @@
 
 ## Overview
 
-This guide outlines the best practices for creating and managing database migrations in a structured, reliable way. As an AI system tasked with writing database migrations, following these patterns will ensure consistent, maintainable, and reversible database schema changes.
+This guide outlines the best practices for creating and managing database migrations in a structured, reliable way. As
+an AI system tasked with writing database migrations, following these patterns will ensure consistent, maintainable, and
+reversible database schema changes.
 
 ## Migration Architecture
 
@@ -47,7 +49,9 @@ local function define_migration()
             -- Define rollback
             down(function(db)
                 -- SQL or code to revert changes
-                return db:execute("DROP TABLE IF EXISTS example")
+                db:execute("DROP TABLE IF EXISTS example")
+                
+                
             end)
             
             -- Optional post-migration tasks
@@ -70,7 +74,8 @@ return require("migration").define(define_migration)
 
 ## Understanding the SQL Transaction Interface
 
-In migration functions (`up`, `down`, and `after`), the `db` parameter is a **transaction object**, not a direct database connection. This is crucial to understand as:
+In migration functions (`up`, `down`, and `after`), the `db` parameter is a **transaction object**, not a direct
+database connection. This is crucial to understand as:
 
 1. The transaction automatically rolls back if any error occurs
 2. You must return an error explicitly to trigger a rollback
@@ -151,11 +156,11 @@ Always provide a thorough `down` function that fully reverses the migration:
 
 ```lua
 up(function(db)
-    return db:execute("ALTER TABLE users ADD COLUMN email TEXT")
+    db:execute("ALTER TABLE users ADD COLUMN email TEXT")
 end)
 
 down(function(db)
-    return db:execute("ALTER TABLE users DROP COLUMN email")
+    db:execute("ALTER TABLE users DROP COLUMN email")
 end)
 ```
 
@@ -171,15 +176,13 @@ All migrations run in transactions, which means:
 up(function(db)
     local result, err = db:execute("CREATE TABLE users (...)")
     if err then
-        return nil, "Failed to create users table: " .. err
+         error(err)
     end
     
     result, err = db:execute("CREATE INDEX idx_user_email ON users(email)")
     if err then
-        return nil, "Failed to create email index: " .. err
+          error(err)
     end
-    
-    return true -- Success
 end)
 ```
 
@@ -191,14 +194,14 @@ Provide separate implementations for each database type:
 database("sqlite", function()
     up(function(db)
         -- SQLite implementation
-        return db:execute("CREATE TABLE users (id INTEGER PRIMARY KEY, ...)")
+        db:execute("CREATE TABLE users (id INTEGER PRIMARY KEY, ...)")
     end)
 end)
 
 database("postgres", function()
     up(function(db)
         -- PostgreSQL implementation
-        return db:execute("CREATE TABLE users (id SERIAL PRIMARY KEY, ...)")
+        db:execute("CREATE TABLE users (id SERIAL PRIMARY KEY, ...)")
     end)
 end)
 ```
@@ -217,12 +220,8 @@ up(function(db)
     ]])
     
     if err then
-        -- Return nil + error message to indicate failure
-        return nil, "Failed to create users table: " .. err
+          error(err)
     end
-    
-    -- Return true or a result object to indicate success
-    return true
 end)
 ```
 
@@ -232,7 +231,7 @@ When possible, make migrations that can be applied multiple times without error:
 
 ```lua
 up(function(db)
-    return db:execute("CREATE TABLE IF NOT EXISTS users (...)")
+    db:execute("CREATE TABLE IF NOT EXISTS users (...)")
 end)
 ```
 
@@ -242,7 +241,7 @@ end)
 
 ```lua
 up(function(db)
-    return db:execute([[
+    db:execute([[
         CREATE TABLE products (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
@@ -253,7 +252,7 @@ up(function(db)
 end)
 
 down(function(db)
-    return db:execute("DROP TABLE IF EXISTS products")
+    db:execute("DROP TABLE IF EXISTS products")
 end)
 ```
 
@@ -261,14 +260,14 @@ end)
 
 ```lua
 up(function(db)
-    return db:execute("ALTER TABLE products ADD COLUMN description TEXT")
+    db:execute("ALTER TABLE products ADD COLUMN description TEXT")
 end)
 
 down(function(db)
     -- SQLite doesn't support DROP COLUMN directly
     -- For SQLite, you might need a more complex migration
     -- For other databases:
-    return db:execute("ALTER TABLE products DROP COLUMN description")
+    db:execute("ALTER TABLE products DROP COLUMN description")
 end)
 ```
 
@@ -276,11 +275,11 @@ end)
 
 ```lua
 up(function(db)
-    return db:execute("CREATE INDEX idx_products_name ON products(name)")
+     db:execute("CREATE INDEX idx_products_name ON products(name)")
 end)
 
 down(function(db)
-    return db:execute("DROP INDEX IF EXISTS idx_products_name")
+     db:execute("DROP INDEX IF EXISTS idx_products_name")
 end)
 ```
 
@@ -289,14 +288,14 @@ end)
 ```lua
 up(function(db)
     -- Insert multiple rows
-    return db:execute([[
+     db:execute([[
         INSERT INTO roles (name) VALUES 
         ('admin'), ('user'), ('guest')
     ]])
 end)
 
 down(function(db)
-    return db:execute("DELETE FROM roles WHERE name IN ('admin', 'user', 'guest')")
+     db:execute("DELETE FROM roles WHERE name IN ('admin', 'user', 'guest')")
 end)
 ```
 
@@ -309,7 +308,7 @@ up(function(db)
     -- Create prepared statement
     local stmt, err = db:prepare("INSERT INTO users (name, email) VALUES (?, ?)")
     if err then
-        return nil, "Failed to prepare statement: " .. err
+          error(err)
     end
     
     -- Execute for multiple rows
@@ -322,11 +321,9 @@ up(function(db)
     for _, user in ipairs(users) do
         local result, err = stmt:execute(user)
         if err then
-            return nil, "Failed to insert user: " .. err
+              error(err)
         end
     end
-    
-    return true
 end)
 ```
 
@@ -347,22 +344,22 @@ up(function(db)
             created_at INTEGER NOT NULL
         )
     ]])
-    if err then return nil, err end
+    if err then   error(err) end
     
     -- 2. Copy data from old table to new table
     result, err = db:execute([[
         INSERT INTO users_new (id, name, created_at)
         SELECT id, name, created_at FROM users
     ]])
-    if err then return nil, err end
+    if err then   error(err) end
     
     -- 3. Drop old table
     result, err = db:execute("DROP TABLE users")
-    if err then return nil, err end
+    if err then   error(err) end
     
     -- 4. Rename new table to old table name
     result, err = db:execute("ALTER TABLE users_new RENAME TO users")
-    if err then return nil, err end
+    if err then   error(err) end
     
     return true
 end)
@@ -407,4 +404,5 @@ Common issues to watch for:
 - AUTO_INCREMENT requires PRIMARY KEY
 - Case sensitivity depends on collation
 
-By following these guidelines, you'll create robust, maintainable database migrations that can be confidently applied and rolled back when needed.
+By following these guidelines, you'll create robust, maintainable database migrations that can be confidently applied
+and rolled back when needed.
