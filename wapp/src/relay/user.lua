@@ -15,6 +15,7 @@ local WS_CANCEL_TOPIC = "ws.cancel"
 local WELCOME_TOPIC = "welcome"
 local UPDATE_TOPIC = "update"
 local STATS_PING_TOPIC = "stats.ping"
+local ERROR_TOPIC = "error" -- New error topic for sending errors
 
 -- Session constants
 local SESSION_PROCESS_ID = "wippy.session:session"
@@ -122,9 +123,15 @@ local function run(args)
         end,
 
         -- Handle WebSocket messages
-        [WS_MESSAGE_TOPIC] = function(state, payload)
+        [WS_MESSAGE_TOPIC] = function(state, payload, topic, from)
             local message_data, err = json.decode(payload)
             if not message_data then
+                -- Send error back to the specific client that sent the malformed message
+                process.send(from, ERROR_TOPIC, {
+                    type = "error",
+                    error = "invalid_json",
+                    message = "Failed to decode JSON message"
+                })
                 return state
             end
 
@@ -139,42 +146,42 @@ local function run(args)
                     session_id = uuid.v4()
                 end
 
-                -- Check if we need to create context first
-                local context_id = message_data.context_id
-                local context_payload = message_data.context
+                -- Check for context - it's always required
+                local context_payload = message_data.context or {}
+                local start_token = message_data.start_token
 
                 -- If no context_id but context payload exists, we need to create context
-                if not context_id and context_payload then
-                    -- Initialize context in the registry
-                    local context_result, err = funcs.new():call(
-                        CONTEXT_CREATE_FUNCTION,
-                        {
-                            user_id = state.user_id,
-                            data = context_payload,
-                            type = "session"
-                        }
-                    )
+                -- Initialize context in the registry
+                local context_result, err = funcs.new():call(
+                    CONTEXT_CREATE_FUNCTION,
+                    {
+                        user_id = state.user_id,
+                        data = context_payload,
+                        type = "data"
+                    }
+                )
 
-                    if err then
-                        broadcast_to_clients(state, UPDATE_TOPIC, {
-                            type = "error",
-                            error = "context_creation_failed",
-                            message = "Failed to create context: " .. err
-                        })
-                        return state
-                    end
-
-                    if context_result and context_result.context_id then
-                        context_id = context_result.context_id
-                    else
-                        broadcast_to_clients(state, UPDATE_TOPIC, {
-                            type = "error",
-                            error = "context_creation_failed",
-                            message = "Failed to get context ID from result"
-                        })
-                        return state
-                    end
+                if err then
+                    -- Send error only to the originating client
+                    process.send(from, ERROR_TOPIC, {
+                        type = "error",
+                        error = "context_creation_failed",
+                        message = "Failed to create context: " .. err
+                    })
+                    return state
                 end
+
+                if not context_result or not context_result.context_id then
+                    -- Send error only to the originating client
+                    process.send(from, ERROR_TOPIC, {
+                        type = "error",
+                        error = "context_creation_failed",
+                        message = "Failed to get context ID from result"
+                    })
+                    return state
+                end
+
+                local context_id = context_result.context_id
 
                 -- Create session init data
                 local session_init = {
@@ -183,7 +190,8 @@ local function run(args)
                     parent_pid = process.pid(),
                     conn_pid = process.pid(),
                     primary_context_id = context_id,
-                    kind = message_data.kind or "default"
+                    kind = message_data.kind or "default",
+                    start_token = start_token
                 }
 
                 -- Spawn session process
@@ -231,6 +239,7 @@ local function run(args)
 
         -- Forward any other messages to clients (including responses from sessions)
         __default = function(state, payload, topic)
+            -- todo: we can filter it out a bit
             broadcast_to_clients(state, topic, payload)
             return state
         end

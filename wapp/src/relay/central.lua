@@ -27,7 +27,7 @@ local function run()
         __init = function(state)
             -- Register this process with a name for easy discovery
             process.registry.register(CENTRAL_HUB_REGISTRY_NAME)
-            print("Central Hub started with PID:", process.pid())
+            print("central hub started")
 
             -- Create garbage collection ticker
             state.gc_ticker = time.ticker(GC_CHECK_INTERVAL)
@@ -52,7 +52,7 @@ local function run()
                     -- Find which user hub this was
                     for user_id, hub_info in pairs(state.user_hubs) do
                         if hub_info.hub_pid == from_pid then
-                            print("User hub for", user_id, "has exited")
+                            print("user hub for", user_id, "has exited")
                             state.user_hubs[user_id] = nil
                             state.total_hubs = state.total_hubs - 1
                             break
@@ -66,7 +66,7 @@ local function run()
 
         -- Handle cancellation
         __on_cancel = function(state)
-            print("Central Hub received cancel request")
+            print("central hub received cancel request")
 
             for user_id, hub_info in pairs(state.user_hubs) do
                 process.cancel(hub_info.hub_pid)
@@ -77,7 +77,7 @@ local function run()
                 state.gc_ticker:stop()
             end
 
-            print("Central Hub shutting down")
+            print("central hub shutting down")
             return actor.exit({ status = "shutdown", hubs = state.total_hubs })
         end,
 
@@ -121,11 +121,11 @@ local function run()
         -- Extract user ID from metadata
         local user_id = extract_user_id(metadata)
         if not user_id then
-            print("Missing user_id in metadata, cannot route client:", client_pid)
+            print("missing user_id in metadata, cannot route client:", client_pid)
             return
         end
 
-        print("Handling connection for user:", user_id, "client:", client_pid)
+        print("handling connection for user:", user_id, "client:", client_pid)
 
         -- Get or create user hub for this user
         local user_hub_pid = create_user_hub(state, user_id, metadata.user_metadata)
@@ -135,7 +135,7 @@ local function run()
         end
 
         -- Send redirection control message to WebSocket relay
-        print("Redirecting client", client_pid, "to user hub", user_hub_pid)
+        print("redirecting client", client_pid, "to user hub", user_hub_pid)
         process.send(client_pid, WS_CONTROL_TOPIC, {
             target_pid = user_hub_pid,
             metadata = metadata
@@ -155,7 +155,7 @@ local function run()
         end
 
         -- Create a new user hub for this user
-        print("Creating new user hub for user:", user_id)
+        print("creating new user hub for user:", user_id)
 
         -- Spawn a monitored user hub process
         local hub_pid, err = process.spawn_monitored(
@@ -170,7 +170,7 @@ local function run()
         )
 
         if not hub_pid then
-            print("Failed to create user hub for", user_id, ":", err)
+            print("failed to create user hub for", user_id, ":", err)
             return nil
         end
 
@@ -184,7 +184,7 @@ local function run()
         }
 
         state.total_hubs = state.total_hubs + 1
-        print("Created user hub for", user_id, "with PID:", hub_pid)
+        print("created user hub for", user_id, "with PID:", hub_pid)
 
         return hub_pid
     end
@@ -209,7 +209,7 @@ local function run()
 
                 -- If hub has no clients and has been inactive for too long, terminate it
                 if hub_info.client_count == 0 and last_activity:seconds() > inactivity_duration:seconds() then
-                    print("Terminating inactive user hub for", hub_info.hub_pid)
+                    print("terminating inactive user hub for", hub_info.hub_pid)
                     local success, err = process.cancel(hub_info.hub_pid, "10s")
 
                     if success then
@@ -217,7 +217,7 @@ local function run()
                         hub_info.terminating = true
                         hub_info.termination_started_at = now
                     else
-                        print("Failed to terminate hub", hub_info.hub_pid, ":", err)
+                        print("failed to terminate hub", hub_info.hub_pid, ":", err)
                     end
                 end
 
