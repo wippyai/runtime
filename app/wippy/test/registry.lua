@@ -77,7 +77,7 @@ end
 -- Get all test groups
 function test_registry.get_groups()
     local entries = registry.find({
-        ["type"] = "test"
+        ["meta.type"] = "test"
     })
 
     local groups = {}
@@ -104,7 +104,7 @@ function test_registry.get_by_group(group)
         return nil, "Group name is required"
     end
 
-    return test_registry.find({ group = group })
+    return test_registry.find({ ["meta.group"] = group })
 end
 
 return test_registry
