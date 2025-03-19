@@ -14,7 +14,7 @@ local function define_migration()
                 ]])
 
                 if err then
-                    return nil, "Failed to create documents table: " .. err
+                    error(err)
                 end
 
                 -- Create full-text search table for text search
@@ -27,7 +27,7 @@ local function define_migration()
                 ]])
 
                 if err then
-                    return nil, "Failed to create text search table: " .. err
+                    error(err)
                 end
 
                 return true
@@ -37,12 +37,12 @@ local function define_migration()
                 -- Drop tables in reverse order of creation
                 local success, err = db:execute("DROP TABLE IF EXISTS doc_content")
                 if err then
-                    return nil, "Failed to drop doc_content table: " .. err
+                    error(err)
                 end
 
                 success, err = db:execute("DROP TABLE IF EXISTS documents")
                 if err then
-                    return nil, "Failed to drop documents table: " .. err
+                    error(err)
                 end
 
                 return true

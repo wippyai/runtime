@@ -80,7 +80,7 @@ entries:
     meta:
       comment: "Add document endpoint"
     method: POST
-    path: /api/v1/documents
+    path: /documents
     func: app.demo.document_search:add_document
 
   - name: search_documents.endpoint
@@ -88,7 +88,7 @@ entries:
     meta:
       comment: "Search documents endpoint"
     method: GET
-    path: /api/v1/documents/search
+    path: /documents/search
     func: app.demo.document_search:search_documents
 
   - name: list_documents.endpoint
@@ -96,5 +96,5 @@ entries:
     meta:
       comment: "List documents endpoint"
     method: GET
-    path: /api/v1/documents
+    path: /documents
     func: app.demo.document_search:list_documents

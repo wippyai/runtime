@@ -57,10 +57,11 @@ function document_repo.add(title, content)
         return nil, err
     end
 
-    -- Insert into documents table
+    -- Insert into documents table with explicit timestamp cast to INTEGER
+    local current_time = os.time()
     local result, err = tx:execute(
-        "INSERT INTO documents(title, content, embedding) VALUES (?, ?, ?)",
-        {title or "", content, embedding}
+        "INSERT INTO documents(title, content, embedding, created_at) VALUES (?, ?, ?, CAST(? AS INTEGER))",
+        {title or "", content, embedding, current_time}
     )
     if err then
         tx:rollback()
