@@ -193,7 +193,6 @@ function llm.generate(prompt_input, options)
         -- flattening per spec
         result.tool_calls = result.result.tool_calls or {}
         result.result = result.result.content or ""
-        return result.result
     end
 
     return result

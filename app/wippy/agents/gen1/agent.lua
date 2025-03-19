@@ -94,7 +94,7 @@ function agent:_generate_handout_tools()
 
     for _, handout in ipairs(self.handouts) do
         -- Create a handout tool ID using a consistent prefix
-        local handout_tool_id = "handout:" .. (handout.name:gsub("%s+", "_"):lower())
+        local handout_tool_id = "handout_" .. (handout.name:gsub("%s+", "_"):lower())
 
         -- Create schema for this handout
         local schema = {
@@ -231,6 +231,7 @@ function agent:step()
 
     -- Get messages from prompt builder
     local messages = self.prompt_builder:get_messages()
+
     -- Execute LLM call
     local result, err = llm_instance.generate(messages, options)
 
