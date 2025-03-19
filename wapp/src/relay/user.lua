@@ -22,6 +22,7 @@ local SESSION_PROCESS_ID = "wippy.session:session"
 local SESSION_HOST = "app:processes"
 local SESSION_MESSAGE_TOPIC = "session.message"
 local SESSION_COMMAND_TOPIC = "session.command"
+local MAX_SESSIONS_PER_USER = 3 -- Maximum allowed sessions per user
 
 -- User Hub Process - Handles WebSocket connections and session management
 local function run(args)
@@ -41,7 +42,8 @@ local function run(args)
         connected_clients = {},
         client_count = 0,
         central_hub_pid = central_hub_pid,
-        active_sessions = {} -- Map of session_id -> session_pid
+        active_sessions = {}, -- Map of session_id -> session_pid
+        session_count = 0     -- Counter for active sessions
     }
 
     -- Define handlers for different message topics
@@ -65,10 +67,12 @@ local function run(args)
                 for session_id, pid in pairs(state.active_sessions) do
                     if pid == event.from then
                         state.active_sessions[session_id] = nil
+                        state.session_count = state.session_count - 1
                         broadcast_to_clients(state, UPDATE_TOPIC, {
                             type = "session_closed",
                             session_id = session_id,
-                            reason = "process_terminated"
+                            reason = "process_terminated",
+                            active_session_ids = get_active_session_ids(state)
                         })
                         break
                     end
@@ -103,7 +107,8 @@ local function run(args)
             process.send(client_pid, WELCOME_TOPIC, {
                 user_id = state.user_id,
                 client_count = state.client_count,
-                active_sessions = #state.active_sessions,
+                active_sessions = state.session_count,
+                active_session_ids = get_active_session_ids(state)
             })
 
             return state
@@ -138,11 +143,22 @@ local function run(args)
 
             -- Route message based on type
             if msg_type == "session_open" then
+                -- Check if maximum session limit is reached
+                if state.session_count >= MAX_SESSIONS_PER_USER then
+                    process.send(from, ERROR_TOPIC, {
+                        type = "error",
+                        error = "session_limit_reached",
+                        message = "Maximum session limit reached (" ..
+                        MAX_SESSIONS_PER_USER .. " sessions). Please close an existing session.",
+                        active_session_ids = get_active_session_ids(state)
+                    })
+                    return state
+                end
+
                 -- Generate session_id if not provided
                 if not session_id then
                     session_id = uuid.v4()
                 end
-
 
                 -- Generate a context ID for tracking
                 local context_id = uuid.v4()
@@ -175,10 +191,12 @@ local function run(args)
 
                 if session_pid then
                     state.active_sessions[session_id] = session_pid
+                    state.session_count = state.session_count + 1
                     broadcast_to_clients(state, UPDATE_TOPIC, {
                         type = "session_opened",
                         session_id = session_id,
-                        context_id = context_id
+                        context_id = context_id,
+                        active_session_ids = get_active_session_ids(state)
                     })
                 end
             elseif msg_type == "session_close" then
@@ -197,9 +215,11 @@ local function run(args)
                 if session_pid then
                     process.cancel(session_pid)
                     state.active_sessions[session_id] = nil
+                    state.session_count = state.session_count - 1
                     broadcast_to_clients(state, UPDATE_TOPIC, {
                         type = "session_closed",
-                        session_id = session_id
+                        session_id = session_id,
+                        active_session_ids = get_active_session_ids(state)
                     })
                 else
                     -- Send error when trying to close non-existent session
@@ -283,6 +303,15 @@ local function run(args)
         for client_pid, _ in pairs(state.connected_clients) do
             process.send(client_pid, topic, message)
         end
+    end
+
+    -- Helper function to get all active session IDs as an array
+    function get_active_session_ids(state)
+        local session_ids = {}
+        for session_id, _ in pairs(state.active_sessions) do
+            table.insert(session_ids, session_id)
+        end
+        return session_ids
     end
 
     -- Create and run the actor

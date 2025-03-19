@@ -13,9 +13,10 @@
             color: #e0e0e0;
             display: grid;
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: auto 1fr auto;
+            grid-template-rows: auto auto 1fr auto;
             grid-template-areas:
                 "header header"
+                "agents agents"
                 "commands debug"
                 "input input";
             height: 100vh;
@@ -41,6 +42,15 @@
         .status-connecting { background-color: #664d00; color: #ffcc00; }
         .status-connected { background-color: #145214; color: #4caf50; }
         .status-disconnected { background-color: #5e1414; color: #ff5252; }
+
+        #agentsPanel {
+            grid-area: agents;
+            border: 1px solid #555;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-y: auto;
+            max-height: 200px;
+        }
 
         #commands {
             grid-area: commands;
@@ -133,6 +143,39 @@
         .log-system {
             color: #ffcc00;
         }
+
+        .agents-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+        }
+
+        .agent-item {
+            background-color: #333;
+            border-radius: 4px;
+            padding: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .agent-item:hover {
+            background-color: #444;
+        }
+
+        .agent-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .agent-model {
+            font-size: 11px;
+            color: #aaa;
+        }
+
+        .toggle-button {
+            background-color: #555;
+            margin-left: 10px;
+        }
     </style>
 </head>
 <body>
@@ -144,36 +187,31 @@
     <div id="status" class="status-disconnected">DISCONNECTED</div>
 </div>
 
+<div id="agentsPanel">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3>Available Agents</h3>
+        <button id="refreshAgentsBtn">Refresh Agents</button>
+    </div>
+    <div id="agentsContainer" class="agents-grid">
+        <div class="agent-item placeholder">Loading agents...</div>
+    </div>
+</div>
+
 <div id="commands">
     <h3>Commands</h3>
 
     <div class="command-category">
         <h4>Session</h4>
-        <button class="command-button" data-template='{"type":"session_open","context":{"provider":"anthropic","model":"claude-3-7-sonnet-20250219"}}'>
-            Open Session (Claude 3.7)
-        </button>
-
-        <button class="command-button" data-template='{"type":"session_open","context":{"provider":"openai","model":"gpt-4o-2024-11-20"}}'>
-            Open Session (GPT-4o)
-        </button>
-
-        <button class="command-button" data-template='{"type":"session_close","session_id":"{{SESSION_ID}}"}'>
-            Close Session
-        </button>
+        <div style="display: flex; align-items: center; margin-bottom: 10px;">
+            <input type="text" id="sessionIdInput" placeholder="Enter session ID to resume" style="flex: 1; padding: 8px; background-color: #252526; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; margin-right: 5px;">
+            <button id="openExistingSessionBtn" style="white-space: nowrap;">Open Existing Session</button>
+        </div>
     </div>
 
     <div class="command-category">
         <h4>Messages</h4>
-        <button class="command-button" data-template='{"type":"session_message","session_id":"{{SESSION_ID}}","data":{"role":"user","content":"Hello, tell me about yourself."}}'>
-            Simple Message
-        </button>
-
-        <button class="command-button" data-template='{"type":"session_message","session_id":"{{SESSION_ID}}","data":{"role":"user","content":"What is 2+2?"}}'>
-            Math Question
-        </button>
-
-        <button class="command-button" data-template='{"type":"session_message","session_id":"{{SESSION_ID}}","data":{"role":"user","content":"Write a short story about a robot."}}'>
-            Creative Task
+        <button class="command-button" data-template='{"type":"session_message","session_id":"{{SESSION_ID}}","data":{"text":"Hello, tell me about yourself.","file_uuids":[]}}'>
+            Send Message
         </button>
     </div>
 
@@ -183,12 +221,16 @@
             Stop Generation
         </button>
 
-        <button class="command-button" data-template='{"type":"session_command","session_id":"{{SESSION_ID}}","data":{"command":"model","params":{"name":"claude-3-5-sonnet-20241022"}}}'>
+        <button class="command-button" data-template='{"type":"session_command","session_id":"{{SESSION_ID}}","data":{"command":"model","params":{"name":"claude-3-5-sonnet"}}}'>
             Switch to Claude 3.5
         </button>
 
-        <button class="command-button" data-template='{"type":"session_command","session_id":"{{SESSION_ID}}","data":{"command":"model","params":{"name":"gpt-4o-mini-2024-07-18"}}}'>
+        <button class="command-button" data-template='{"type":"session_command","session_id":"{{SESSION_ID}}","data":{"command":"model","params":{"name":"gpt-4o-mini"}}}'>
             Switch to GPT-4o Mini
+        </button>
+
+        <button class="command-button" data-template='{"type":"session_close","session_id":"{{SESSION_ID}}"}'>
+            Close Session
         </button>
     </div>
 </div>
@@ -208,7 +250,8 @@
         connected: false,
         sessionId: null,
         clientCount: 0,
-        messageCount: 0
+        messageCount: 0,
+        availableAgents: []
     };
 
     // DOM elements
@@ -218,11 +261,32 @@
     const sendBtn = document.getElementById('sendBtn');
     const statsElement = document.getElementById('stats');
     const commandButtons = document.querySelectorAll('.command-button');
+    const agentsContainer = document.getElementById('agentsContainer');
+    const refreshAgentsBtn = document.getElementById('refreshAgentsBtn');
 
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', () => {
         // Set up event listeners
         sendBtn.addEventListener('click', sendMessage);
+        refreshAgentsBtn.addEventListener('click', fetchAgents);
+
+        // Set up event listener for opening existing session
+        const openExistingSessionBtn = document.getElementById('openExistingSessionBtn');
+        const sessionIdInput = document.getElementById('sessionIdInput');
+
+        openExistingSessionBtn.addEventListener('click', () => {
+            const sessionId = sessionIdInput.value.trim();
+            if (sessionId) {
+                const sessionOpenPayload = {
+                    type: "session_open",
+                    session_id: sessionId
+                };
+                messageTextarea.value = JSON.stringify(sessionOpenPayload, null, 2);
+                log('system', `Prepared to open existing session: ${sessionId}`);
+            } else {
+                log('error', 'Please enter a session ID');
+            }
+        });
 
         commandButtons.forEach(button => {
             button.addEventListener('click', () => {
@@ -332,6 +396,9 @@
 
                     // Connect WebSocket after successful authentication
                     connectWebSocket();
+
+                    // Fetch available agents
+                    fetchAgents();
                 } else {
                     throw new Error('Token not received in response');
                 }
@@ -340,6 +407,90 @@
                 log('error', `Authentication failed: ${error.message}`);
                 updateStatus('disconnected');
             });
+    }
+
+    // Fetch available agents
+    function fetchAgents() {
+        if (!state.token) {
+            log('error', 'No authentication token available');
+            return;
+        }
+
+        log('system', 'Fetching available agents...');
+
+        // Clear current agents display
+        agentsContainer.innerHTML = '<div class="agent-item placeholder">Loading agents...</div>';
+
+        // API URL for agents endpoint
+        const apiUrl = `${window.location.protocol}//${window.location.host}/api/v1/agents/list`;
+
+        fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${state.token}`
+            }
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    state.availableAgents = data.agents || [];
+                    log('system', `Fetched ${state.availableAgents.length} agents`);
+                    renderAgents();
+                } else {
+                    throw new Error('Failed to fetch agents: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                log('error', `Failed to fetch agents: ${error.message}`);
+                agentsContainer.innerHTML = `<div class="agent-item placeholder">Error: ${error.message}</div>`;
+            });
+    }
+
+    // Render agents in the UI
+    function renderAgents() {
+        agentsContainer.innerHTML = '';
+
+        if (state.availableAgents.length === 0) {
+            agentsContainer.innerHTML = '<div class="agent-item placeholder">No agents available</div>';
+            return;
+        }
+
+        state.availableAgents.forEach(agent => {
+            const agentElement = document.createElement('div');
+            agentElement.className = 'agent-item';
+            agentElement.setAttribute('data-agent-name', agent.name);
+            agentElement.setAttribute('data-start-token', agent.start_token);
+
+            const titleElement = document.createElement('div');
+            titleElement.className = 'agent-title';
+            titleElement.textContent = agent.title || agent.name;
+
+            const modelElement = document.createElement('div');
+            modelElement.className = 'agent-model';
+            modelElement.textContent = agent.model || 'Unknown model';
+
+            agentElement.appendChild(titleElement);
+            agentElement.appendChild(modelElement);
+
+            // Add click handler to prepare session open command with start token
+            agentElement.addEventListener('click', () => {
+                const sessionOpenPayload = {
+                    type: "session_open",
+                    start_token: agent.start_token
+                };
+
+                messageTextarea.value = JSON.stringify(sessionOpenPayload, null, 2);
+                log('system', `Selected agent: ${agent.title || agent.name}`);
+            });
+
+            agentsContainer.appendChild(agentElement);
+        });
     }
 
     // Connect to WebSocket
@@ -406,11 +557,6 @@
             updateStats();
 
             log('system', `Welcome received: User ID: ${data.user_id || 'Unknown'}`);
-
-            // Optionally auto-open a session
-            // setTimeout(() => {
-            //    openDefaultSession();
-            // }, 1000);
         }
         else if (topic === 'update') {
             const data = message.data || message;
@@ -428,28 +574,18 @@
                 updateStats();
             }
         }
+        else if (topic === 'error') {
+            const data = message.data || message;
+            log('error', `Server error: ${data.message || 'Unknown error'}`, data);
+        }
     }
 
     // Update stats display
     function updateStats() {
         statsElement.textContent = `Status: ${state.connected ? 'Connected' : 'Disconnected'} | ` +
             `Clients: ${state.clientCount} | ` +
-            `Session: ${state.sessionId || 'None'}`;
-    }
-
-    // Open default session
-    function openDefaultSession() {
-        if (!state.connected || state.sessionId) return;
-
-        const openSessionPayload = {
-            type: "session_open",
-            context: {
-                provider: "anthropic",
-                model: "claude-3-7-sonnet-20250219"
-            }
-        };
-
-        sendPayload(openSessionPayload);
+            `Session: ${state.sessionId || 'None'} | ` +
+            `Agents: ${state.availableAgents.length}`;
     }
 
     // Send message from textarea
