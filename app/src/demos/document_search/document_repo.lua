@@ -197,7 +197,89 @@ function document_repo.search_by_similarity(query_text, limit)
     return results
 end
 
--- Hybrid search combining vector and text search
+-- BM25 text search with full FTS5 query syntax support
+function document_repo.search_by_text(query_text, limit)
+    if not query_text or query_text == "" then
+        return nil, "Query text is required"
+    end
+
+    local db, err = get_db()
+    if err then
+        return nil, err
+    end
+
+    limit = limit or 5
+
+    -- Process the query text to support FTS5 advanced features
+    local processed_query = process_fts5_query(query_text)
+
+    -- Perform text search using FTS5 with BM25 ranking
+    local query = [[
+        SELECT
+            c.doc_id,
+            d.title,
+            d.content,
+            d.created_at,
+            bm25(doc_content) AS relevance,
+            highlight(doc_content, 0, '<mark>', '</mark>') AS content_highlight
+        FROM doc_content c
+        JOIN documents d ON c.doc_id = d.doc_id
+        WHERE doc_content MATCH ']] .. processed_query .. [['
+        ORDER BY relevance
+        LIMIT ]] .. tostring(limit)
+
+    local results, err = db:query(query)
+
+    if err then
+        db:release()
+        return nil, "Text search failed: " .. err
+    end
+
+    db:release()
+    return results
+end
+
+-- Process query text to enhance FTS5 query capabilities
+-- This function handles:
+-- 1. Proper escaping of quotes
+-- 2. Automatic conversion of multi-word queries to AND queries if no operators present
+-- 3. Preservation of FTS5 special syntax (phrases, operators, etc.)
+function process_fts5_query(query_text)
+    if not query_text or query_text == "" then
+        return ""
+    end
+
+    -- First, escape any single quotes
+    local escaped_query = query_text:gsub("'", "''")
+
+    -- Check if the query already contains FTS5 operators
+    local has_fts5_operators = escaped_query:match("[%+%-\":]") or
+                               escaped_query:match("%sAND%s") or
+                               escaped_query:match("%sOR%s") or
+                               escaped_query:match("%sNOT%s") or
+                               escaped_query:match("%sNEAR%s")
+
+    -- If query has operators, keep as is (already using FTS5 syntax)
+    if has_fts5_operators then
+        return escaped_query
+    end
+
+    -- If no operators, split by whitespace and join with AND for better matching
+    local words = {}
+    for word in escaped_query:gmatch("%S+") do
+        table.insert(words, word)
+    end
+
+    -- For single words, return as is
+    if #words <= 1 then
+        return escaped_query
+    end
+
+    -- For multiple words, join with AND for better matching
+    return table.concat(words, " AND ")
+end
+
+-- Update hybrid search to use the same query processing
 function document_repo.hybrid_search(query_text, limit)
     if not query_text or query_text == "" then
         return nil, "Query text is required"
@@ -217,11 +299,10 @@ function document_repo.hybrid_search(query_text, limit)
         return nil, err
     end
 
-    -- Process the query_text - escape single quotes by doubling them
-    -- This is safe for SQLite FTS5 MATCH operator
-    local sanitized_query = query_text:gsub("'", "''")
+    -- Process the query for FTS5
+    local processed_query = process_fts5_query(query_text)
 
-    -- Perform hybrid search with FTS5 query directly in SQL
+    -- Perform hybrid search with FTS5 query
     local query = [[
         WITH vector_matches AS (
             SELECT
@@ -236,7 +317,7 @@ function document_repo.hybrid_search(query_text, limit)
                 doc_id,
                 bm25(doc_content) AS relevance
             FROM doc_content
-            WHERE doc_content MATCH ']] .. sanitized_query .. [['
+            WHERE doc_content MATCH ']] .. processed_query .. [['
         )
         SELECT
             v.doc_id,
@@ -252,10 +333,9 @@ function document_repo.hybrid_search(query_text, limit)
         JOIN text_matches t ON v.doc_id = t.doc_id
         JOIN documents d ON v.doc_id = d.doc_id
         ORDER BY score DESC
-        LIMIT ?
-    ]]
+        LIMIT ]] .. tostring(limit)
 
-    local results, err = db:query(query, { embedding, limit })
+    local results, err = db:query(query, { embedding })
 
     -- If there's an error with the hybrid search, fall back to vector search
     if err then
@@ -268,46 +348,5 @@ function document_repo.hybrid_search(query_text, limit)
     return results
 end
 
--- BM25 text search only (no vector similarity)
-function document_repo.search_by_text(query_text, limit)
-    if not query_text or query_text == "" then
-        return nil, "Query text is required"
-    end
-
-    local db, err = get_db()
-    if err then
-        return nil, err
-    end
-
-    limit = limit or 5
-
-    -- Sanitize the query text for FTS5
-    local sanitized_query = query_text:gsub("'", "''")
-
-    -- Perform pure text search using FTS5 with BM25 ranking
-    local query = [[
-        SELECT
-            c.doc_id,
-            d.title,
-            d.content,
-            d.created_at,
-            bm25(doc_content) AS relevance,
-            highlight(doc_content, 0, '<mark>', '</mark>') AS content_highlight
-        FROM doc_content c
-        JOIN documents d ON c.doc_id = d.doc_id
-        WHERE doc_content MATCH ']] .. sanitized_query .. [['
-        ORDER BY relevance
-        LIMIT ]] .. tostring(limit)
-
-    local results, err = db:query(query)
-
-    if err then
-        db:release()
-        return nil, "Text search failed: " .. err
-    end
-
-    db:release()
-    return results
-end
 
 return document_repo
