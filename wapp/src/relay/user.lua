@@ -160,11 +160,19 @@ local function run(args)
                 }
 
                 -- Spawn session process
-                local session_pid = process.spawn_linked(
+                local session_pid, err = process.spawn_linked(
                     SESSION_PROCESS_ID,
                     SESSION_HOST,
                     session_init
                 )
+
+                if err then
+                    process.send(from, ERROR_TOPIC, {
+                        type = "error",
+                        error = "session_spawn_error",
+                        message = "Failed to create session: " .. err
+                    })
+                end
 
                 if session_pid then
                     state.active_sessions[session_id] = session_pid
