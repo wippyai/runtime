@@ -2,7 +2,7 @@ version: "1.0"
 namespace: wippy.session
 
 meta:
-  depends_on: [ "ns:wippy", "ns:app.sessions" ]
+  depends_on: [ "ns:wippy", "ns:wippy.session" ]
   comment: "Simple Session Process"
 
 entries:
@@ -11,23 +11,23 @@ entries:
     meta:
       comment: "Minimalistic session process for message handling"
       default_host: app:processes
-      depends_on: [ "app.sessions:loader" ]
+      depends_on: [ "wippy.session:loader" ]
     source: file://session.lua
     method: run
     modules: [ time, json ]
     imports:
       actor: "wippy.actor:actor"
-      loader: "app.sessions:loader"
+      loader: "wippy.session:loader"
 
   - name: loader
     kind: library.lua
     meta:
       comment: "Session state loader for initializing and loading session states"
-      depends_on: [ "app.sessions:context_repo", "app.sessions:session_repo", "app.sessions:message_repo","app.sessions:start_tokens" ]
+      depends_on: [ "wippy.session:context_repo", "wippy.session:session_repo", "wippy.session:message_repo","wippy.session:start_tokens" ]
     source: file://loader.lua
     modules: [ time, json, uuid ]
     imports:
-      context_repo: "app.sessions:context_repo"
-      session_repo: "app.sessions:session_repo"
-      message_repo: "app.sessions:message_repo"
-      start_tokens: "app.sessions:start_tokens"
+      context_repo: "wippy.session:context_repo"
+      session_repo: "wippy.session:session_repo"
+      message_repo: "wippy.session:message_repo"
+      start_tokens: "wippy.session:start_tokens"

@@ -1,5 +1,5 @@
 version: "1.0"
-namespace: app.sessions
+namespace: wippy.session
 
 meta:
   depends_on: [ ns:app, ns:app.user.auth, ns:wippy.migration ]
@@ -39,9 +39,9 @@ entries:
     source: file://sessions.lua
     modules: [ uuid ]
     imports:
-      context_repo: "app.sessions:context_repo"
-      session_repo: "app.sessions:session_repo"
-      message_repo: "app.sessions:message_repo"
+      context_repo: "wippy.session:context_repo"
+      session_repo: "wippy.session:session_repo"
+      message_repo: "wippy.session:message_repo"
 
   # Migrations
   - name: migrations.create_contexts_table
@@ -109,7 +109,7 @@ entries:
     modules: [ "sql", "uuid" ]
     imports:
       test: "wippy.test:test"
-      context_repo: "app.sessions:context_repo"
+      context_repo: "wippy.session:context_repo"
 
   - name: session_repo_test
     kind: function.lua
@@ -125,8 +125,8 @@ entries:
     modules: [ "sql", "uuid" ]
     imports:
       test: "wippy.test:test"
-      session_repo: "app.sessions:session_repo"
-      context_repo: "app.sessions:context_repo"
+      session_repo: "wippy.session:session_repo"
+      context_repo: "wippy.session:context_repo"
 
   - name: message_repo_test
     kind: function.lua
@@ -142,9 +142,9 @@ entries:
     modules: [ "sql", "uuid", "json" ]
     imports:
       test: "wippy.test:test"
-      message_repo: "app.sessions:message_repo"
-      session_repo: "app.sessions:session_repo"
-      context_repo: "app.sessions:context_repo"
+      message_repo: "wippy.session:message_repo"
+      session_repo: "wippy.session:session_repo"
+      context_repo: "wippy.session:context_repo"
 
   - name: start_tokens
     kind: library.lua
@@ -166,4 +166,4 @@ entries:
     modules: [ "crypto", "base64", "json" ]
     imports:
       test: "wippy.test:test"
-      start_tokens: "app.sessions:start_tokens"
+      start_tokens: "wippy.session:start_tokens"

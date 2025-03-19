@@ -1,4 +1,4 @@
--- High-level API for the app.sessions namespace
+-- High-level API for the wippy.session namespace
 local context_repo = require("context_repo")
 local session_repo = require("session_repo")
 local message_repo = require("message_repo")
