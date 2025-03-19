@@ -20,7 +20,7 @@ Expected data structures:
 
 -- Schema definitions for tracking table by database type
 migrations.schemas = {
-    [sql.type.postgres] = [[
+    [sql.type.POSTGRES] = [[
         CREATE TABLE IF NOT EXISTS _migrations (
             id VARCHAR(512) PRIMARY KEY,
             applied_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -28,7 +28,7 @@ migrations.schemas = {
         )
     ]],
 
-    [sql.type.sqlite] = [[
+    [sql.type.SQLITE] = [[
         CREATE TABLE IF NOT EXISTS _migrations (
             id VARCHAR(512) PRIMARY KEY,
             applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -36,7 +36,7 @@ migrations.schemas = {
         )
     ]],
 
-    [sql.type.mysql] = [[
+    [sql.type.MYSQL] = [[
         CREATE TABLE IF NOT EXISTS _migrations (
             id VARCHAR(512) PRIMARY KEY,
             applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -47,7 +47,7 @@ migrations.schemas = {
 
 -- Queries to check if migration table exists
 migrations.table_exists_queries = {
-    [sql.type.postgres] = [[
+    [sql.type.POSTGRES] = [[
         SELECT EXISTS (
             SELECT FROM pg_tables
             WHERE schemaname = 'public'
@@ -55,14 +55,14 @@ migrations.table_exists_queries = {
         )
     ]],
 
-    [sql.type.sqlite] = [[
+    [sql.type.SQLITE] = [[
         SELECT COUNT(*) AS count
         FROM sqlite_master
         WHERE type='table'
         AND name='_migrations'
     ]],
 
-    [sql.type.mysql] = [[
+    [sql.type.MYSQL] = [[
         SELECT COUNT(*) AS count
         FROM information_schema.tables
         WHERE table_schema = DATABASE()

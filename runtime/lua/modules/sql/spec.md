@@ -19,12 +19,12 @@ local sql = require("sql")
 
 Available in `sql.type`:
 
-- `postgres` (string): PostgreSQL database
-- `mysql` (string): MySQL database
-- `sqlite` (string): SQLite database
-- `mssql` (string): Microsoft SQL Server database
-- `oracle` (string): Oracle database
-- `unknown` (string): Unknown or unsupported database type
+- `POSTGRES` (string): PostgreSQL database
+- `MYSQL` (string): MySQL database
+- `SQLITE` (string): SQLite database
+- `MSSQL` (string): Microsoft SQL Server database
+- `ORACLE` (string): Oracle database
+- `UNKNOWN` (string): Unknown or unsupported database type
 
 ## Core Concepts
 

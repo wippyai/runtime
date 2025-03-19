@@ -1,0 +1,100 @@
+version: "1.0"
+namespace: app.demo.document_search
+
+meta:
+  depends_on:
+    - "ns:system"
+    - "ns:wippy.migration"
+    - "ns:wippy.llm"
+  type: "application"
+  router: system:api
+
+entries:
+  # Database Migration
+  - name: documents_table
+    kind: function.lua
+    meta:
+      description: "Create documents table with vector embedding support"
+      timestamp: "2025-03-18T12:00:00Z"
+      tags: [ "document_search" ]
+      type: "migration"
+      target_db: "system:db"
+    source: file://create_documents_table.lua
+    method: migrate
+    imports:
+      migration: "wippy.migration:migration"
+
+  # Repository
+  - name: document_repo
+    kind: library.lua
+    meta:
+      comment: "Document repository with embedding and search capabilities"
+    source: file://document_repo.lua
+    modules: [ "sql" ]
+    imports:
+      llm: "wippy.llm:llm"
+
+  # API Handlers
+  - name: add_document
+    kind: function.lua
+    meta:
+      comment: "Add a new document with embedding"
+      depends_on: [ "document_repo" ]
+    source: file://add_document_handler.lua
+    method: add_document
+    modules: [ "http", "json" ]
+    imports:
+      document_repo: "app.demo.document_search:document_repo"
+    pool:
+      size: 4
+
+  - name: search_documents
+    kind: function.lua
+    meta:
+      comment: "Search documents by text similarity"
+      depends_on: [ "document_repo" ]
+    source: file://search_documents_handler.lua
+    method: search_documents
+    modules: [ "http" ]
+    imports:
+      document_repo: "app.demo.document_search:document_repo"
+    pool:
+      size: 4
+
+  - name: list_documents
+    kind: function.lua
+    meta:
+      comment: "List all documents"
+      depends_on: [ "document_repo" ]
+    source: file://list_documents_handler.lua
+    method: list_documents
+    modules: [ "http" ]
+    imports:
+      document_repo: "app.demo.document_search:document_repo"
+    pool:
+      size: 4
+
+  # HTTP Endpoints
+  - name: add_document.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Add document endpoint"
+    method: POST
+    path: /api/v1/documents
+    func: app.demo.document_search:add_document
+
+  - name: search_documents.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Search documents endpoint"
+    method: GET
+    path: /api/v1/documents/search
+    func: app.demo.document_search:search_documents
+
+  - name: list_documents.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "List documents endpoint"
+    method: GET
+    path: /api/v1/documents
+    func: app.demo.document_search:list_documents
