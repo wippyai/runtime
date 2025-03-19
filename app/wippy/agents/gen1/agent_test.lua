@@ -12,7 +12,7 @@ local function define_tests()
         local mock_prompt
         local mock_time
 
-        -- Sample agent specification for testing - updated with new handout format
+        -- Sample agent specification for testing - updated with new delegate format
         local test_agent_spec = {
             id = "test-agent",
             name = "Test Agent",
@@ -22,7 +22,7 @@ local function define_tests()
             tools = { "test:calculator" },
             traits = {},
             memory = { "You were created for testing purposes" },
-            handouts = {
+            delegates = {
                 {
                     id = "data-analyst-id",
                     name = "to_data_analyst",
@@ -101,7 +101,7 @@ local function define_tests()
                             }
                         end
 
-                        -- If handout tool is available and detected, simulate handout delegation
+                        -- If delegate tool is available and detected, simulate delegate delegation
                         if options.tool_schemas and options.tool_schemas["to_data_analyst"] and
                             last_message.role == "user" and
                             last_message.content[1].text:lower():match("analyze") then
@@ -285,36 +285,36 @@ local function define_tests()
             expect(final_result.result).not_to_be_nil()
         end)
 
-        it("should handle handout delegation", function()
+        it("should handle delegate delegation", function()
             local test_agent = agent.new(test_agent_spec)
 
-            -- Add a user message that will trigger handout
+            -- Add a user message that will trigger delegate
             test_agent:add_user_message("Analyze this dataset for me")
 
             -- Execute the agent
             local result = test_agent:step()
 
-            -- Verify handout information
-            expect(result.handout_target).not_to_be_nil()
-            expect(result.handout_target).to_equal("data-analyst-id")
-            expect(result.handout_message).to_equal("Please analyze this data")
+            -- Verify delegate information
+            expect(result.delegate_target).not_to_be_nil()
+            expect(result.delegate_target).to_equal("data-analyst-id")
+            expect(result.delegate_message).to_equal("Please analyze this data")
 
-            -- Handout tool calls should be intercepted (replaced with handout info)
+            -- Handout tool calls should be intercepted (replaced with delegate info)
             expect(result.tool_calls).to_be_nil()
         end)
 
-        it("should require name for handouts", function()
-            -- Create an agent spec with a handout missing a name
+        it("should require name for delegates", function()
+            -- Create an agent spec with a delegate missing a name
             local invalid_agent_spec = {
                 id = "invalid-agent",
                 name = "Invalid Agent",
-                description = "An agent with invalid handout configuration",
+                description = "An agent with invalid delegate configuration",
                 model = "gpt-4o-mini",
                 prompt = "You are an invalid test agent.",
                 tools = {},
                 traits = {},
                 memory = {},
-                handouts = {
+                delegates = {
                     {
                         id = "some-agent-id",
                         -- Missing name field
@@ -326,11 +326,11 @@ local function define_tests()
             -- This should throw an error
             local success, err = pcall(function()
                 local agent_instance = agent.new(invalid_agent_spec)
-                -- Force handout tools generation if it's not done in new()
-                agent_instance:_generate_handout_tools()
+                -- Force delegate tools generation if it's not done in new()
+                agent_instance:_generate_delegate_tools()
             end)
 
-            expect(success).to_be_false("Should fail when handout is missing a name field")
+            expect(success).to_be_false("Should fail when delegate is missing a name field")
             expect(tostring(err):match("Handout name is required")).not_to_be_nil(
             "Error should mention the missing name")
         end)
@@ -547,8 +547,8 @@ local function define_tests()
                 final_result.result:match("56,088")).not_to_be_nil()
         end)
 
-        -- Integration test with handout delegation
-        it("should handle handout delegation mechanism with real model", function()
+        -- Integration test with delegate delegation
+        it("should handle delegate mechanism with real model", function()
             -- Skip if integration tests are disabled or no API key
             if not env.get("ENABLE_INTEGRATION_TESTS") then
                 return
@@ -556,7 +556,7 @@ local function define_tests()
 
             local openai_api_key = env.get("OPENAI_API_KEY")
             if not openai_api_key or #openai_api_key < 10 then
-                print("Skipping handout test: No valid OpenAI API key found")
+                print("Skipping delegate test: No valid OpenAI API key found")
                 return
             end
 
@@ -571,7 +571,7 @@ local function define_tests()
                 tools = {},
                 traits = {},
                 memory = {},
-                handouts = {
+                delegates = {
                     {
                         id = "data-analyst-id",
                         name = "to_data_analyst",
@@ -617,15 +617,15 @@ local function define_tests()
             expect(result).not_to_be_nil("Result is nil")
 
             -- If delegation occurred, verify the mechanism works correctly
-            if result.handout_target then
-                print("Delegation occurred to: " .. result.handout_target)
+            if result.delegate_target then
+                print("Delegation occurred to: " .. result.delegate_target)
 
                 -- Verify target agent exists
-                local target_agent = test_registry:get(result.handout_target)
+                local target_agent = test_registry:get(result.delegate_target)
                 expect(target_agent).not_to_be_nil("Target agent not found")
 
-                -- Process the handout with the target agent
-                target_agent:add_user_message(result.handout_message)
+                -- Process the delegate with the target agent
+                target_agent:add_user_message(result.delegate_message)
                 local specialist_result = target_agent:step()
 
                 -- Verify we got a response from the specialist

@@ -12,7 +12,7 @@ include:
 - Managing conversation history
 - Executing LLM calls with appropriate context
 - Tool and function calling support
-- Delegation to other agents via handouts
+- Delegation to other agents via delegates
 - Tracking token usage and statistics
 
 ## 2. Basic Agent Creation and Usage
@@ -292,7 +292,7 @@ entries:
       ]
 
       # Other agents this agent can delegate tasks to
-      handout:
+      delegate:
         wippy.agents:data-analyst:
           rule: "Give to data analyst if data analysis is needed"
           name: "to_data_analyst"
@@ -374,7 +374,7 @@ entries:
     },
     
     -- Handouts (delegation capabilities)
-    handouts = {                            -- Array: Agents to delegate to
+    delegates = {                            -- Array: Agents to delegate to
         {
             id = "data-analyst-id",         -- String: Agent ID to delegate to
             name = "Data Analyst",          -- String: Display name
@@ -404,8 +404,8 @@ entries:
     },
     
     -- Handout information (if the model delegated to another agent), removed from tools
-    handout_target = "data-analyst-id",    -- String: ID of the target agent
-    handout_message = "Analyze this data...", -- String: Message to forward
+    delegate_target = "data-analyst-id",    -- String: ID of the target agent
+    delegate_message = "Analyze this data...", -- String: Message to forward
     
     -- Token usage information
     tokens = {

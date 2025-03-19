@@ -129,22 +129,22 @@ local function process_inheritance(agent_spec, inherit_list, visited_ids)
     end
 end
 
--- Internal: Process handout entries
-local function process_handouts(agent_spec, handout_map)
-    if not handout_map or type(handout_map) ~= "table" then
+-- Internal: Process delegate entries
+local function process_delegates(agent_spec, delegate_map)
+    if not delegate_map or type(delegate_map) ~= "table" then
         return
     end
 
-    -- Initialize handouts array if not present
-    agent_spec.handouts = agent_spec.handouts or {}
+    -- Initialize delegates array if not present
+    agent_spec.delegates = agent_spec.delegates or {}
 
-    -- Process each handout entry from the map structure
-    for agent_id, handout_config in pairs(handout_map) do
-        -- Create handout entry with direct ID reference
-        table.insert(agent_spec.handouts, {
+    -- Process each delegate entry from the map structure
+    for agent_id, delegate_config in pairs(delegate_map) do
+        -- Create delegate entry with direct ID reference
+        table.insert(agent_spec.delegates, {
             id = agent_id,
-            name = handout_config.name,
-            rule = handout_config.rule,
+            name = delegate_config.name,
+            rule = delegate_config.rule,
         })
     end
 end
@@ -166,7 +166,7 @@ function agent_registry._build_agent_spec(entry, visited_ids)
         traits = {},
         tools = {},
         memory = {},
-        handouts = {}
+        delegates = {}
     }
 
     -- Mark this ID as visited
@@ -182,9 +182,9 @@ function agent_registry._build_agent_spec(entry, visited_ids)
         process_inheritance(agent_spec, entry.data.inherit, visited_ids)
     end
 
-    -- Process handout entries using new map format
-    if entry.data.handout then
-        process_handouts(agent_spec, entry.data.handout)
+    -- Process delegate entries using new map format
+    if entry.data.delegate then
+        process_delegates(agent_spec, entry.data.delegate)
     end
 
     -- Process traits and incorporate their prompts

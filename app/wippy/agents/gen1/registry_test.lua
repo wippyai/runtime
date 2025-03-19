@@ -91,7 +91,7 @@ local function define_tests()
                     tools = {
                         "wippy.tools:knowledge_base"
                     },
-                    handout = {
+                    delegate = {
                         ["wippy.agents:code_tools"] = {
                             name = "to_code_tools",
                             rule = "Forward to this agent when coding help is needed"
@@ -376,13 +376,13 @@ local function define_tests()
             expect(agent.prompt).to_contain("use <thinking> tags")
         end)
 
-        it("should register handouts with the new format", function()
+        it("should register delegates with the new format", function()
             local agent, err = agent_registry.get_by_id("wippy.agents:advanced_assistant")
 
             expect(err).to_be_nil()
             expect(agent).not_to_be_nil()
 
-            -- Should have tools from self and parent, but NOT from handout
+            -- Should have tools from self and parent, but NOT from delegate
             expect(#agent.tools).to_equal(3)
 
             -- Verify specific tools are present
@@ -395,15 +395,15 @@ local function define_tests()
             expect(tool_map["wippy.tools:code_interpreter"]).to_be_true() -- From parent
             expect(tool_map["wippy.tools:calculator"]).to_be_true() -- From grandparent
 
-            -- Should NOT have tools from handout
+            -- Should NOT have tools from delegate
             expect(tool_map["wippy.tools:git_helper"]).to_be_nil()
             expect(tool_map["wippy.tools:linter"]).to_be_nil()
 
-            -- Verify handout metadata is recorded
-            expect(#agent.handouts).to_equal(1)
-            expect(agent.handouts[1].id).to_equal("wippy.agents:code_tools")
-            expect(agent.handouts[1].name).to_equal("to_code_tools")
-            expect(agent.handouts[1].rule).to_equal("Forward to this agent when coding help is needed")
+            -- Verify delegate metadata is recorded
+            expect(#agent.delegates).to_equal(1)
+            expect(agent.delegates[1].id).to_equal("wippy.agents:code_tools")
+            expect(agent.delegates[1].name).to_equal("to_code_tools")
+            expect(agent.delegates[1].rule).to_equal("Forward to this agent when coding help is needed")
             -- No description field anymore
         end)
 

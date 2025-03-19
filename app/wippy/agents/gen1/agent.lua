@@ -44,15 +44,15 @@ function agent.new(agent_spec)
         traits = agent_spec.traits or {},
         tools = agent_spec.tools or {},
         memory = agent_spec.memory or {},
-        handouts = agent_spec.handouts or {},
+        delegates = agent_spec.delegates or {},
 
         -- Internal state
         prompt_builder = nil,
         base_prompt = agent_spec.prompt or "",
         tool_ids = {},
         tool_schemas = {},  -- Custom tool schemas
-        handout_tools = {}, -- Handout tool schemas
-        handout_map = {},   -- Maps tool IDs to target agent IDs
+        delegate_tools = {}, -- Handout tool schemas
+        delegate_map = {},   -- Maps tool IDs to target agent IDs
         total_tokens = {
             prompt = 0,
             completion = 0,
@@ -77,8 +77,8 @@ function agent.new(agent_spec)
     -- Add metatable for method access
     setmetatable(runner, { __index = agent })
 
-    -- Generate handout tools with schemas
-    runner:_generate_handout_tools()
+    -- Generate delegate tools with schemas
+    runner:_generate_delegate_tools()
 
     -- Build the initial system prompt
     runner:_build_system_prompt()
@@ -86,21 +86,21 @@ function agent.new(agent_spec)
     return runner
 end
 
--- Generate handout tools with schemas
-function agent:_generate_handout_tools()
-    if not self.handouts or #self.handouts == 0 then return end
+-- Generate delegate tools with schemas
+function agent:_generate_delegate_tools()
+    if not self.delegates or #self.delegates == 0 then return end
 
-    for _, handout in ipairs(self.handouts) do
-        -- Get the tool name from handout configuration (required)
-        local tool_name = handout.name
+    for _, delegate in ipairs(self.delegates) do
+        -- Get the tool name from delegate configuration (required)
+        local tool_name = delegate.name
         if not tool_name or #tool_name == 0 then
-            error("Handout name is required for agent " .. handout.id)
+            error("Handout name is required for agent " .. delegate.id)
         end
 
         -- Create description using the rule
-        local description = "Forward the request to " .. (handout.rule or "when appropriate")
+        local description = "Forward the request to " .. (delegate.rule or "when appropriate")
 
-        -- Create schema for this handout
+        -- Create schema for this delegate
         local schema = {
             name = tool_name,
             description = description .. ", this is exit tool, you can not call anything else with it.",
@@ -117,10 +117,10 @@ function agent:_generate_handout_tools()
         }
 
         -- Store the tool schema
-        self.handout_tools[tool_name] = schema
+        self.delegate_tools[tool_name] = schema
 
         -- Map this tool ID to the target agent ID
-        self.handout_map[tool_name] = handout.id
+        self.delegate_map[tool_name] = delegate.id
     end
 end
 
@@ -142,20 +142,20 @@ function agent:_build_system_prompt()
         end
     end
 
-    -- Add information about available handouts
-    if self.handouts and #self.handouts > 0 then
+    -- Add information about available delegates
+    if self.delegates and #self.delegates > 0 then
         system_prompt = system_prompt .. "\n\n## You can delegate tasks to these specialized agents:"
-        for _, handout in ipairs(self.handouts) do
+        for _, delegate in ipairs(self.delegates) do
             -- Get display name from the ID's last part if possible
-            local display_name = handout.id:match("[^:]+$") or handout.name
+            local display_name = delegate.id:match("[^:]+$") or delegate.name
             display_name = display_name:gsub("_", " "):gsub("%-", " ")
             display_name = display_name:sub(1, 1):upper() .. display_name:sub(2) -- Capitalize first letter
 
             -- Use rule for the description
-            local description = handout.rule or ""
+            local description = delegate.rule or ""
 
             system_prompt = system_prompt .. "\n- " .. display_name .. ": " ..
-                description .. " (use tool " .. handout.name .. ")"
+                description .. " (use tool " .. delegate.name .. ")"
         end
     end
 
@@ -188,10 +188,10 @@ function agent:step()
         end
     end
 
-    -- Add handout tools as tool_schemas
-    if next(self.handout_tools) then
+    -- Add delegate tools as tool_schemas
+    if next(self.delegate_tools) then
         options.tool_schemas = options.tool_schemas or {}
-        for tool_id, schema in pairs(self.handout_tools) do
+        for tool_id, schema in pairs(self.delegate_tools) do
             options.tool_schemas[tool_id] = schema
         end
     end
@@ -227,15 +227,15 @@ function agent:step()
         self.total_tokens.total = self.total_tokens.prompt + self.total_tokens.completion + self.total_tokens.thinking
     end
 
-    -- Process handout tool calls
+    -- Process delegate tool calls
     if response.tool_calls and #response.tool_calls > 0 then
         for _, tool_call in ipairs(response.tool_calls) do
-            -- Check if this tool call is for a handout
-            if self.handout_map[tool_call.name] then
-                -- Mark that this is a handout call
-                response.handout_target = self.handout_map[tool_call.name]
-                response.handout_message = tool_call.arguments.message
-                response.tool_calls = nil -- handout intercept tools calls
+            -- Check if this tool call is for a delegate
+            if self.delegate_map[tool_call.name] then
+                -- Mark that this is a delegate call
+                response.delegate_target = self.delegate_map[tool_call.name]
+                response.delegate_message = tool_call.arguments.message
+                response.tool_calls = nil -- delegate intercept tools calls
                 break
             end
         end
@@ -309,10 +309,10 @@ function agent:step()
         end
     end
 
-    -- Add handout tools as tool_schemas
-    if next(self.handout_tools) then
+    -- Add delegate tools as tool_schemas
+    if next(self.delegate_tools) then
         options.tool_schemas = options.tool_schemas or {}
-        for tool_id, schema in pairs(self.handout_tools) do
+        for tool_id, schema in pairs(self.delegate_tools) do
             options.tool_schemas[tool_id] = schema
         end
     end
@@ -348,15 +348,15 @@ function agent:step()
         self.total_tokens.total = self.total_tokens.prompt + self.total_tokens.completion + self.total_tokens.thinking
     end
 
-    -- Process handout tool calls
+    -- Process delegate tool calls
     if response.tool_calls and #response.tool_calls > 0 then
         for _, tool_call in ipairs(response.tool_calls) do
-            -- Check if this tool call is for a handout
-            if self.handout_map[tool_call.name] then
-                -- Mark that this is a handout call
-                response.handout_target = self.handout_map[tool_call.name]
-                response.handout_message = tool_call.arguments.message
-                response.tool_calls = nil -- handout intercept tools calls
+            -- Check if this tool call is for a delegate
+            if self.delegate_map[tool_call.name] then
+                -- Mark that this is a delegate call
+                response.delegate_target = self.delegate_map[tool_call.name]
+                response.delegate_message = tool_call.arguments.message
+                response.tool_calls = nil -- delegate intercept tools calls
                 break
             end
         end
