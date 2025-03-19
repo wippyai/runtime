@@ -4,6 +4,7 @@ local actor = require("actor")
 local loader = require("loader")
 
 -- Topic constants
+local INIT_TOPIC = "init"
 local UPDATE_TOPIC = "update"
 local SESSION_MESSAGE_TOPIC = "session.message"
 local SESSION_COMMAND_TOPIC = "session.command"
@@ -15,7 +16,6 @@ local MESSAGE_TYPE_CONTENT = "content"
 local MESSAGE_TYPE_DONE = "done"
 local MESSAGE_TYPE_SYSTEM = "system"
 local MESSAGE_TYPE_SESSION_READY = "session_ready"
-local MESSAGE_TYPE_SESSION_RECOVERED = "session_recovered"
 local MESSAGE_TYPE_SESSION_CLOSED = "session_closed"
 
 -- Simple Session Process - Handles basic message processing
@@ -30,7 +30,6 @@ local function run(args)
         session_id = args.session_id,
         user_id = args.user_id,
         parent_pid = args.parent_pid,
-        conn_pid = args.conn_pid,
         start_token = args.start_token,
         start_context = args.start_context,
         create = args.create,
@@ -57,32 +56,20 @@ local function run(args)
     end
 
     print("Session initialized:", state.session_id)
+    state.conn_pid = args.conn_pid
 
     -- Notify parent about session status
-    if state.parent_pid then
-        if state.create then
-            -- New session
-            process.send(state.parent_pid, UPDATE_TOPIC, {
-                type = MESSAGE_TYPE_SESSION_READY,
-                session_id = state.session_id,
-                agent = state.meta.agent,
-                model = state.meta.model,
-                kind = state.meta.kind
-            })
-        else
-            -- Recovered session
-            process.send(state.parent_pid, UPDATE_TOPIC, {
-                type = MESSAGE_TYPE_SESSION_RECOVERED,
-                session_id = state.session_id,
-                agent = state.meta.agent,
-                model = state.meta.model,
-                kind = state.meta.kind,
-                last_message_id = state.last_message_id
-            })
-        end
+    if state.conn_pid then
+        -- Recovered session
+        process.send(state.conn_pid, INIT_TOPIC, {
+            type = MESSAGE_TYPE_SESSION_READY,
+            session_id = state.session_id,
+            agent = state.meta.agent,
+            model = state.meta.model,
+            kind = state.meta.kind,
+            last_message_id = state.last_message_id or nil,
+        })
     end
-
-
 
     -- Define message handlers
     local handlers = {
