@@ -3,7 +3,7 @@ namespace: wippy.session
 
 meta:
   depends_on: [ "ns:wippy", "ns:wippy.session" ]
-  comment: "Simple Session Process"
+  comment: "Session Process and Components"
 
 entries:
   - name: session
@@ -11,13 +11,14 @@ entries:
     meta:
       comment: "Minimalistic session process for message handling"
       default_host: app:processes
-      depends_on: [ "wippy.session:loader" ]
+      depends_on: [ "wippy.session:loader", "wippy.session:session_state" ]
     source: file://session.lua
     method: run
     modules: [ time, json ]
     imports:
       actor: "wippy.actor:actor"
       loader: "wippy.session:loader"
+      session_state: "wippy.session:session_state"
 
   - name: loader
     kind: library.lua
@@ -31,3 +32,18 @@ entries:
       session_repo: "wippy.session:session_repo"
       message_repo: "wippy.session:message_repo"
       start_tokens: "wippy.session:start_tokens"
+
+  - name: session_state
+    kind: library.lua
+    meta:
+      comment: "Session state management for handling conversation flow and agent interactions"
+      depends_on: [ "wippy.session:context_repo", "wippy.session:session_repo", "wippy.session:message_repo", "wippy.agents.gen1:agent", "wippy.agents.gen1:registry", "wippy.llm:prompt" ]
+    source: file://state.lua
+    modules: [ json, uuid ]
+    imports:
+      context_repo: "wippy.session:context_repo"
+      session_repo: "wippy.session:session_repo"
+      message_repo: "wippy.session:message_repo"
+      agent_registry: "wippy.agents.gen1:registry"
+      agent_runner: "wippy.agents.gen1:agent"
+      prompt: "wippy.llm:prompt"

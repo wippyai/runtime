@@ -78,7 +78,6 @@ function loader.create_session(args)
             agent = token_data.agent,
             model = token_data.model,
             kind = token_data.kind or "default",
-            provider = "anthropic"
         },
         start_date = session.start_date,
         last_message_date = session.last_message_date,
@@ -119,7 +118,6 @@ function loader.load_session(args)
             agent = session.current_agent,
             model = session.current_model,
             kind = session.kind,
-            provider = "anthropic"
         },
         start_date = session.start_date,
         last_message_date = session.last_message_date,

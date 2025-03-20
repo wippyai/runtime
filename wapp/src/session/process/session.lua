@@ -1,72 +1,67 @@
+-- session.lua
 local time = require("time")
 local json = require("json")
 local actor = require("actor")
+local session_state = require("session_state")
 local loader = require("loader")
 
 -- Topic constants
 local INIT_TOPIC = "init"
-local UPDATE_TOPIC = "update"
 local SESSION_MESSAGE_TOPIC = "session.message"
 local SESSION_COMMAND_TOPIC = "session.command"
-
--- Session status and message type constants
-local MESSAGE_TYPE_START = "start"
-local MESSAGE_TYPE_THINKING = "thinking"
-local MESSAGE_TYPE_CONTENT = "content"
-local MESSAGE_TYPE_DONE = "done"
-local MESSAGE_TYPE_SYSTEM = "system"
 local MESSAGE_TYPE_SESSION_READY = "session_ready"
-local MESSAGE_TYPE_SESSION_CLOSED = "session_closed"
 
--- Simple Session Process - Handles basic message processing
 local function run(args)
     -- Validate required args
     if not args or not args.user_id or not args.session_id then
         error("User ID and session ID are required")
     end
 
-    -- Initialize actor state
-    local initial_state = {
-        session_id = args.session_id,
-        user_id = args.user_id,
-        parent_pid = args.parent_pid,
-        start_token = args.start_token,
-        start_context = args.start_context,
-        create = args.create,
-    }
-
-    local loaded_state
-    local err
-
-    if initial_state.create then
-        -- Create new session
-        if not initial_state.start_token then
+    -- Create/load session via loader - this gives us the base state
+    local loader_state, err
+    if args.create then
+        if not args.start_token then
             error("Start token is required for new session")
         end
-
-        state, err = loader.create_session(initial_state)
+        loader_state, err = loader.create_session(args)
     else
-        -- Load existing session
-        state, err = loader.load_session(initial_state)
-        -- todo load msg too
+        loader_state, err = loader.load_session(args)
     end
 
     if err then
         error(err)
     end
 
-    state.conn_pid = args.conn_pid
+    -- Create session state object using the loader state data
+    local session = session_state.new(loader_state)
 
-    -- Notify parent about session status
-    if state.conn_pid then
-        -- Recovered session
-        process.send(state.conn_pid, INIT_TOPIC, {
+    -- Set connection and parent process IDs
+    session:set_conn_pid(args.conn_pid)
+    session:set_parent_pid(args.parent_pid)
+
+    -- If creating new session with agent from loader_state meta
+    if args.create and loader_state.meta and loader_state.meta.agent then
+        local _, err = session:initialize_with_agent_name(loader_state.meta.agent, loader_state.meta.model)
+        if err then
+            error("Failed to initialize agent: " .. err)
+        end
+    else
+        -- For existing sessions, load message history
+        local _, err = session:load_history()
+        if err then
+            error("Failed to load message history: " .. err)
+        end
+    end
+
+    -- Notify client that session is ready
+    if args.conn_pid then
+        process.send(args.conn_pid, INIT_TOPIC, {
             type = MESSAGE_TYPE_SESSION_READY,
-            session_id = state.session_id,
-            agent = state.meta.agent,
-            model = state.meta.model,
-            status = state.status,
-            last_message_id = state.last_message_id or nil,
+            session_id = loader_state.session_id,
+            agent = loader_state.meta and loader_state.meta.agent,
+            model = loader_state.meta and loader_state.meta.model,
+            status = loader_state.status,
+            last_message_id = loader_state.last_message_id
         })
     end
 
@@ -75,105 +70,63 @@ local function run(args)
         -- Handle cancellation
         __on_cancel = function(state)
             print("Session cancelled:", state.session_id)
-            state.is_active = false
             return actor.exit({ status = "shutdown" })
         end,
 
         -- Handle user messages
         [SESSION_MESSAGE_TOPIC] = function(state, payload)
-            print("Session message received:", state.session_id, json.encode(payload))
-
-            -- Add message to history
-            table.insert(state.messages, payload)
-
-            -- Simple echo response for testing
-            if payload.conn_pid then
-                state.conn_pid = payload.conn_pid
-                -- Notify that we're starting to process
-                process.send(payload.conn_pid, UPDATE_TOPIC, {
-                    type = MESSAGE_TYPE_START,
-                    session_id = state.session_id,
-                    model = state.meta.model,
-                    provider = state.meta.provider
-                })
-
-                -- Simulate thinking (very simplified)
-                process.send(payload.conn_pid, UPDATE_TOPIC, {
-                    type = MESSAGE_TYPE_THINKING,
-                    session_id = state.session_id,
-                    content = "Processing your message..."
-                })
-
-                -- Add a slight delay to simulate processing
-                time.sleep("500ms")
-
-                -- Send content in chunks to simulate streaming
-                local response = "This is a simple echo response from the session process.\n\n"
-
-                -- If the user's message contains content, echo it back
-                if payload.data then
-                    response = response ..
-                        "You said: " ..
-                        (type(payload.data) == "table" and json.encode(payload.data) or tostring(payload.data)) .. "\n\n"
-                end
-
-                -- Simulate streaming by sending chunks
-                local chunks = {
-                    response:sub(1, 20),
-                    response:sub(21, 50),
-                    response:sub(51)
-                }
-
-                for _, chunk in ipairs(chunks) do
-                    process.send(payload.conn_pid, UPDATE_TOPIC, {
-                        type = MESSAGE_TYPE_CONTENT,
-                        session_id = state.session_id,
-                        content = chunk
-                    })
-                    time.sleep("100ms")
-                end
-
-                -- Finish the response
-                process.send(payload.conn_pid, UPDATE_TOPIC, {
-                    type = MESSAGE_TYPE_DONE,
-                    session_id = state.session_id,
-                    model = state.meta.model,
-                    provider = state.meta.provider,
-                    tokens = {
-                        prompt = 10,
-                        completion = 30,
-                        total = 40
-                    }
-                })
+            if not payload or not payload.data then
+                return state
             end
+
+            -- Update conn_pid if provided
+            if payload.conn_pid then
+                session:set_conn_pid(payload.conn_pid)
+            end
+
+            -- Process the message
+            local result, err = session:process_message(payload.data)
+
+            if err then
+                print("Error processing message:", err)
+                return state
+            end
+
+            -- Execute agent asynchronously
+            coroutine.spawn(function()
+                local exec_result, exec_err = session:execute_agent(result)
+
+                if exec_err then
+                    print("Error executing agent:", exec_err)
+                end
+            end)
 
             return state
         end,
 
         -- Handle commands
         [SESSION_COMMAND_TOPIC] = function(state, payload)
-            print("Session command received:", state.session_id, json.encode(payload))
+            if not payload or not payload.command then
+                return state
+            end
 
-            -- Command could be: stop, model, system, etc.
+            -- Update conn_pid if provided
+            if payload.conn_pid then
+                session:set_conn_pid(payload.conn_pid)
+            end
+
             local command = payload.command
-            local params = payload.params or {}
 
             if command == "stop" then
-                -- Just acknowledge the stop command
-                process.send(payload.conn_pid, UPDATE_TOPIC, {
-                    type = MESSAGE_TYPE_SYSTEM,
-                    session_id = state.session_id,
-                    message = "Generation stopped"
-                })
+                session:stop_generation()
             elseif command == "model" then
-                -- handle model change
                 if payload.data and payload.data.name then
-                    state.meta.model = payload.data.name
-                    process.send(payload.conn_pid, UPDATE_TOPIC, {
-                        type = MESSAGE_TYPE_SYSTEM,
-                        session_id = state.session_id,
-                        message = "Model changed to " .. payload.data.name
-                    })
+                    session:change_model(payload.data.name)
+                end
+            elseif command == "agent" then
+                -- Switch to a different agent by name
+                if payload.data and payload.data.name then
+                    session:change_agent(payload.data.name)
                 end
             end
 
@@ -181,8 +134,8 @@ local function run(args)
         end
     }
 
-    -- Create and run the actor
-    return actor.new(initial_state, handlers).run()
+    -- Use loader_state as the initial actor state
+    return actor.new(loader_state, handlers).run()
 end
 
 return { run = run }
