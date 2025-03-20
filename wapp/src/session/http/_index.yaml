@@ -11,10 +11,12 @@ entries:
     kind: function.lua
     meta:
       comment: "List all user sessions"
-      depends_on: [ session_repo ]
+      depends_on: [ wippy.session:session_repo ]
     source: file://sessions_endpoint.lua
     method: handler
-    modules: [ http, security, session_repo ]
+    modules: [ http, security ]
+    imports:
+      session_repo: wippy.session:session_repo
 
   - name: list_sessions.endpoint
     kind: http.endpoint
@@ -31,10 +33,13 @@ entries:
     kind: function.lua
     meta:
       comment: "Get messages for a session"
-      depends_on: [ session_repo, message_repo ]
+      depends_on: [ wippy.session:session_repo, wippy.session:message_repo ]
     source: file://session_messages_endpoint.lua
     method: handler
-    modules: [ http, security, session_repo, message_repo ]
+    modules: [ http, security ]
+    imports:
+      session_repo: wippy.session:session_repo
+      message_repo: wippy.session:message_repo
 
   - name: session_messages.endpoint
     kind: http.endpoint
@@ -51,10 +56,13 @@ entries:
     kind: function.lua
     meta:
       comment: "Get detailed session info"
-      depends_on: [ session_repo, message_repo ]
+      depends_on: [ wippy.session:session_repo, wippy.session:message_repo ]
     source: file://session_get_endpoint.lua
     method: handler
-    modules: [ http, security, session_repo, message_repo ]
+    modules: [ http, security ]
+    imports:
+      session_repo: wippy.session:session_repo
+      message_repo: wippy.session:message_repo
 
   - name: get_session.endpoint
     kind: http.endpoint
