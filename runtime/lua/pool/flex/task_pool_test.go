@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	runtime2 "runtime"
 	"sync"
 	"sync/atomic"
@@ -47,7 +48,7 @@ func (m *mockTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 			}
 			return nil, fmt.Errorf("unsupported data type for transcoding: %T", p.Data())
 		}
-		return payload.NewPayload(luaValue, payload.Lua), nil
+		return luaconv.ExportLuaValue(luaValue), nil
 	}
 
 	return nil, fmt.Errorf("unsupported format: %v", format)

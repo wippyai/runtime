@@ -2,6 +2,7 @@ package process
 
 import (
 	"fmt"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	"strings"
 	"time"
 
@@ -299,7 +300,7 @@ func (m *Module) send(l *lua.LState) int {
 	for i := 3; i <= l.GetTop(); i++ {
 		messages = append(messages, &pubsub.Message{
 			Topic:    topic,
-			Payloads: []payload.Payload{payload.NewPayload(l.Get(i), payload.Lua)},
+			Payloads: []payload.Payload{luaconv.ExportLuaValue(l.Get(i))},
 		})
 	}
 
@@ -329,7 +330,7 @@ func (m *Module) createPayloadsFromArgs(l *lua.LState, startIndex int) payload.P
 
 	// Convert each argument to a payload
 	for i := startIndex; i <= l.GetTop(); i++ {
-		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
+		payloads = append(payloads, luaconv.ExportLuaValue(l.Get(i)))
 	}
 
 	return payloads

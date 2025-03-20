@@ -57,7 +57,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 	dataVal := table.RawGetString("data")
 	if dataVal != lua.LNil {
 		// Convert to payload
-		entry.Data = payload.NewPayload(dataVal, payload.Lua)
+		entry.Data = luaconv.ExportLuaValue(dataVal)
 	}
 
 	return entry, nil

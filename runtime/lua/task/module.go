@@ -2,6 +2,7 @@ package task
 
 import (
 	"errors"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
@@ -71,7 +72,7 @@ func (m *Module) taskComplete(l *lua.LState) int {
 	result := l.CheckAny(2)
 
 	// Create result payload
-	resultPayload := payload.NewPayload(result, payload.Lua)
+	resultPayload := luaconv.ExportLuaValue(result)
 
 	// Complete the task
 	err := task.Complete(resultPayload)

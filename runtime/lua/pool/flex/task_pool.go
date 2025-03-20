@@ -3,6 +3,7 @@ package flex
 import (
 	"context"
 	"fmt"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	"sync"
 	"sync/atomic"
 
@@ -148,7 +149,7 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 
 	if err == nil {
 		// Set the result value
-		runtimeResult.Value = payload.NewPayload(result, payload.Lua)
+		runtimeResult.Value = luaconv.ExportLuaValue(result)
 	}
 
 	// Send the result to the channel
