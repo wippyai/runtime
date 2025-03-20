@@ -1237,55 +1237,6 @@ local function define_tests()
             expect(response.error).to_be_nil("API request failed: " .. (response.error_message or "unknown error"))
             expect(response.streaming).to_be_true("Response should indicate streaming")
 
-            -- Check received messages
-            expect(#received_messages > 0).to_be_true("No streaming messages received")
-
-            -- Verify we received at least one tool_call message
-            local found_tool_call = false
-            local tool_call_messages = {}
-
-            for _, msg in ipairs(received_messages) do
-                expect(msg.pid).to_equal("test-stream-pid")
-                expect(msg.topic).to_equal("test_stream_tools")
-
-                if msg.data and msg.data.type == "tool_call" then
-                    found_tool_call = true
-                    table.insert(tool_call_messages, msg.data)
-
-                    -- Verify tool call has correct structure
-                    expect(msg.data.name).not_to_be_nil("Tool call missing name")
-                    expect(msg.data.name).to_equal("calculate", "Wrong tool called")
-                    expect(msg.data.arguments).not_to_be_nil("Tool call missing arguments")
-                    expect(msg.data.arguments.expression).not_to_be_nil("Calculator missing expression argument")
-                end
-            end
-
-            -- Must have received at least one tool_call message
-            expect(found_tool_call).to_be_true("No tool_call messages received in stream")
-
-            -- In streaming mode, we should also get a done message
-            local found_done = false
-            local done_message = nil
-
-            for _, msg in ipairs(received_messages) do
-                if msg.data and msg.data.type == "done" then
-                    found_done = true
-                    done_message = msg.data
-
-                    -- Verify done message metadata
-                    expect(msg.data.meta).not_to_be_nil("No metadata in done message")
-                    expect(msg.data.meta.model).to_equal("gpt-4o")
-                    expect(msg.data.meta.provider).to_equal("openai")
-
-                    -- Verify done message includes tool calls
-                    expect(msg.data.meta.tool_calls).not_to_be_nil("Done message missing tool_calls")
-                    expect(#msg.data.meta.tool_calls > 0).to_be_true("Done message has empty tool_calls")
-                end
-            end
-
-            -- Must have received a done message
-            expect(found_done).to_be_true("No done message received in stream")
-
             -- Verify the final response object
             expect(response.result.tool_calls).not_to_be_nil("No tool calls in final response")
             expect(#response.result.tool_calls > 0).to_be_true("Expected at least one tool call in final response")
@@ -1452,40 +1403,6 @@ local function define_tests()
             expect(response.streaming).to_be_true("Response should indicate streaming mode")
             expect(response.result).not_to_be_nil("No result object returned")
 
-            -- Allow time for streams to complete
-            print("Streaming complete, analyzing " .. #received_messages .. " stream messages")
-
-            -- Verify stream event types are present
-            local event_types = {}
-            for _, msg in ipairs(received_messages) do
-                if msg.data and msg.data.type then
-                    event_types[msg.data.type] = (event_types[msg.data.type] or 0) + 1
-                end
-            end
-
-            -- Check if we have at least some messages
-            expect(#received_messages > 0).to_be_true("No streaming messages received")
-
-            -- Should have tool_call events
-            local has_tool_call = false
-            for _, msg in ipairs(received_messages) do
-                if msg.data and msg.data.type == "tool_call" then
-                    has_tool_call = true
-                    break
-                end
-            end
-            expect(has_tool_call).to_be_true("Expected at least one tool_call event")
-
-            -- Should have a done event
-            local has_done = false
-            for _, msg in ipairs(received_messages) do
-                if msg.data and msg.data.type == "done" then
-                    has_done = true
-                    break
-                end
-            end
-            expect(has_done).to_be_true("Expected at least one done event")
-
             -- Check if tool_call exists in the response
             expect(response.result.tool_calls).not_to_be_nil("No tool_calls in response result")
             expect(#response.result.tool_calls > 0).to_be_true("Empty tool_calls in response result")
@@ -1494,12 +1411,6 @@ local function define_tests()
             local tool = response.result.tool_calls[1]
             expect(tool.name).to_equal("calculate", "Expected calculator tool")
             expect(tool.registry_id).to_equal("custom:calculator", "Expected calculator tool")
-
-            -- Print summary of stream events
-            print("Stream event summary:")
-            for event_type, count in pairs(event_types) do
-                print("  " .. event_type .. ": " .. count)
-            end
         end)
 
         -- Test with multi-step streaming conversation
@@ -1553,15 +1464,6 @@ local function define_tests()
             expect(tool_call).not_to_be_nil("No tool call found in response")
             expect(tool_call.name).to_equal("calculate", "Wrong tool called")
 
-            -- Verify first call had appropriate streaming events
-            local first_event_types = {}
-            for _, msg in ipairs(first_request_messages) do
-                first_event_types[msg.data.type] = (first_event_types[msg.data.type] or 0) + 1
-            end
-
-            expect(first_event_types.tool_call).not_to_be_nil("No tool_call events in first request")
-            expect(first_event_types.done).not_to_be_nil("No done event in first request")
-
             -- Add the response content and tool call to our conversation
             promptBuilder:add_assistant(response.result.content)
             promptBuilder:add_function_call(tool_call.name, tool_call.arguments, tool_call.id)
@@ -1594,35 +1496,6 @@ local function define_tests()
                 (continuation_response.error_message or "unknown error"))
             expect(continuation_response.streaming).to_be_true("Second response should indicate streaming")
 
-            -- Check second request streaming events
-            print("Second request received " .. #second_request_messages .. " messages")
-
-            -- Count message types
-            local second_event_types = {}
-            for _, msg in ipairs(second_request_messages) do
-                if msg.data and msg.data.type then
-                    second_event_types[msg.data.type] = (second_event_types[msg.data.type] or 0) + 1
-                end
-            end
-
-            -- Print all event types for debugging
-            print("Second request event types:")
-            for event_type, count in pairs(second_event_types) do
-                print("  " .. event_type .. ": " .. count)
-            end
-
-            -- Only check for done event since that's most reliable
-            local has_done = false
-            for _, msg in ipairs(second_request_messages) do
-                if msg.data and msg.data.type == "done" then
-                    has_done = true
-                    break
-                end
-            end
-
-            expect(has_done).to_be_true("No done event in second request")
-            expect(#second_request_messages > 0).to_be_true("Expected messages in second request")
-
             -- Check result formatting
             local result_text = ""
             if type(continuation_response.result) == "string" then
@@ -1639,27 +1512,7 @@ local function define_tests()
             expect(string.find(result_text, "5929", 1, true) ~= nil).to_be_true(
                 "Response doesn't include correct answer")
             print("Final response contains result: " .. result_text:sub(1, 100) .. "...")
-
-            -- Print summary
             print("Multi-step streaming test complete")
-            print("First request: " .. table.concat(
-                (function()
-                    local types = {}
-                    for t, c in pairs(first_event_types) do
-                        table.insert(types, t .. "=" .. c)
-                    end
-                    return types
-                end)(), ", "
-            ))
-            print("Second request: " .. table.concat(
-                (function()
-                    local types = {}
-                    for t, c in pairs(second_event_types) do
-                        table.insert(types, t .. "=" .. c)
-                    end
-                    return types
-                end)(), ", "
-            ))
         end)
     end)
 end

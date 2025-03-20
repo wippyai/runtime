@@ -1025,30 +1025,22 @@ local function define_tests()
             -- Verify streamed messages - should have at least one
             expect(#received_messages > 0).to_be_true("Should have received stream messages")
 
-            -- Check for content messages and done message
+            -- Check for content messages
             local content_count = 0
-            local done_count = 0
             local complete_text = ""
 
             for _, msg in ipairs(received_messages) do
                 expect(msg.pid).to_equal("integration-test-pid")
                 expect(msg.topic).to_equal("integration_stream_test")
 
-                if msg.data.type == "content" then
+                if msg.data.type == "chunk" then
                     content_count = content_count + 1
                     complete_text = complete_text .. (msg.data.content or "")
-                elseif msg.data.type == "done" then
-                    done_count = done_count + 1
-                    -- Check minimal metadata in done message
-                    expect(msg.data.meta.model).to_equal("claude-3-5-haiku-20241022")
-                    expect(msg.data.meta.provider).to_equal("anthropic")
                 end
             end
 
             -- Should have at least one content message
             expect(content_count > 0).to_be_true("Should have received content messages")
-            -- Should have exactly one done message
-            expect(done_count).to_equal(1, "Should have exactly one done message")
 
             -- Verify the response contains actual content
             expect(#response.result > 10).to_be_true("Response should have meaningful content")
@@ -1079,16 +1071,6 @@ local function define_tests()
                 callbacks.on_content("Hello")
                 callbacks.on_content(", ")
                 callbacks.on_content("world!")
-
-                -- Call the done callback at the end
-                callbacks.on_done({
-                    content = "Hello, world!",
-                    finish_reason = "end_turn",
-                    usage = {
-                        input_tokens = 25,
-                        output_tokens = 15
-                    }
-                })
 
                 -- Return the full content
                 return "Hello, world!", nil, {
@@ -1142,24 +1124,17 @@ local function define_tests()
 
             -- Check for content messages
             local content_count = 0
-            local done_count = 0
 
             for _, msg in ipairs(received_messages) do
                 expect(msg.pid).to_equal("test-process-id")
                 expect(msg.topic).to_equal("test_stream")
 
-                if msg.data.type == "content" then
+                if msg.data.type == "chunk" then
                     content_count = content_count + 1
-                elseif msg.data.type == "done" then
-                    done_count = done_count + 1
-                    -- Check metadata in done message
-                    expect(msg.data.meta.model).to_equal("claude-3-5-haiku-20241022")
-                    expect(msg.data.meta.provider).to_equal("anthropic")
                 end
             end
 
             expect(content_count > 0).to_be_true("Should have content messages")
-            expect(done_count).to_equal(1, "Should have exactly one done message")
         end)
 
         it("should respect system prompts when generating responses", function()
@@ -1442,25 +1417,15 @@ local function define_tests()
             -- Track message types
             local content_count = 0
             local thinking_count = 0
-            local done_count = 0
 
             for _, msg in ipairs(received_messages) do
                 expect(msg.pid).to_equal("thinking-stream-test-pid")
                 expect(msg.topic).to_equal("thinking_stream_test")
 
-                if msg.data.type == "content" then
+                if msg.data.type == "chunk" then
                     content_count = content_count + 1
                 elseif msg.data.type == "thinking" then
                     thinking_count = thinking_count + 1
-                elseif msg.data.type == "done" then
-                    done_count = done_count + 1
-                    -- Verify done message includes thinking info
-                    expect(msg.data.meta).not_to_be_nil("Done message missing metadata")
-
-                    -- This model should support thinking, but let's be cautious
-                    if msg.data.meta.has_thinking then
-                        expect(msg.data.meta.has_thinking).to_be_true("Expected thinking flag in done metadata")
-                    end
                 end
             end
 
@@ -1473,9 +1438,6 @@ local function define_tests()
             else
                 print("Received " .. thinking_count .. " thinking messages")
             end
-
-            -- Should have exactly one done message
-            expect(done_count).to_equal(1, "Should have exactly one done message")
 
             -- Verify the response contains the correct numerical answer (20 workers)
             expect(response.result:match("20")).not_to_be_nil("Response should contain the correct answer (20 workers)")

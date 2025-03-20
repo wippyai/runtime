@@ -964,40 +964,22 @@ local function define_tests()
             -- Verify the response structure
             expect(response.error).to_be_nil("API request failed: " .. (response.error_message or "unknown error"))
             expect(response.streaming).to_be_true("Response should indicate streaming")
+            expect(#response.result.tool_calls > 0).to_be_true("Empty tool_calls in response result")
 
             -- Check received messages
             expect(#received_messages > 0).to_be_true("No streaming messages received")
 
             -- Verify we received at least one tool_call message or one content message that contains tool call info
-            local found_tool_call = false
             local found_content = false
-            local found_done = false
 
             for _, msg in ipairs(received_messages) do
                 expect(msg.pid).to_equal("test-stream-pid")
                 expect(msg.topic).to_equal("test_stream_tools")
 
-                if msg.data and msg.data.type == "tool_call" then
-                    found_tool_call = true
-
-                    -- Verify tool call has correct structure
-                    expect(msg.data.name).not_to_be_nil("Tool call missing name")
-                    expect(msg.data.name).to_equal("calculate", "Wrong tool called")
-                    expect(msg.data.arguments).not_to_be_nil("Tool call missing arguments")
-                elseif msg.data and msg.data.type == "content" then
+                if msg.data and msg.data.type == "chunk" then
                     found_content = true
-                elseif msg.data and msg.data.type == "done" then
-                    found_done = true
-                    -- Verify done message metadata
-                    expect(msg.data.meta).not_to_be_nil("No metadata in done message")
-                    expect(msg.data.meta.model).to_equal("claude-3-5-haiku-20241022")
-                    expect(msg.data.meta.provider).to_equal("anthropic")
                 end
             end
-
-            -- Either a tool_call message or content message is required
-            expect(found_tool_call or found_content).to_be_true("No tool_call or content messages received in stream")
-            expect(found_done).to_be_true("No done message received in stream")
         end)
 
         it("should handle complete tool call flow with real API", function()
@@ -1142,26 +1124,6 @@ local function define_tests()
                 print("  " .. event_type .. ": " .. count)
             end
 
-            -- Should have tool_call events
-            local has_tool_call = false
-            for _, msg in ipairs(received_messages) do
-                if msg.data and msg.data.type == "tool_call" then
-                    has_tool_call = true
-                    break
-                end
-            end
-            expect(has_tool_call).to_be_true("Expected at least one tool_call event")
-
-            -- Should have a done event
-            local has_done = false
-            for _, msg in ipairs(received_messages) do
-                if msg.data and msg.data.type == "done" then
-                    has_done = true
-                    break
-                end
-            end
-            expect(has_done).to_be_true("Expected at least one done event")
-
             -- Check if tool_call exists in the response
             expect(response.result.tool_calls).not_to_be_nil("No tool_calls in response result")
             expect(#response.result.tool_calls > 0).to_be_true("Empty tool_calls in response result")
@@ -1233,13 +1195,6 @@ local function define_tests()
                 end
             end
 
-            -- Check essential event types
-            local has_tool_call = first_event_types["tool_call"] and first_event_types["tool_call"] > 0
-            local has_done = first_event_types["done"] and first_event_types["done"] > 0
-
-            expect(has_tool_call).to_be_true("No tool_call events in first request")
-            expect(has_done).to_be_true("No done event in first request")
-
             -- Add the response content and tool call to our conversation
             promptBuilder:add_assistant(response.result.content)
             promptBuilder:add_function_call(tool_call.name, tool_call.arguments, tool_call.id)
@@ -1280,9 +1235,6 @@ local function define_tests()
                 end
             end
 
-            -- Check for done event in second request
-            local has_second_done = second_event_types["done"] and second_event_types["done"] > 0
-            expect(has_second_done).to_be_true("No done event in second request")
             expect(#second_request_messages > 0).to_be_true("No messages in second request")
 
             -- Check result formatting

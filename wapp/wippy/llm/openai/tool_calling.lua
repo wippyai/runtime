@@ -2,6 +2,7 @@ local openai_client = require("openai_client")
 local output = require("output")
 local tools = require("tools")
 local json = require("json")
+local prompt_mapper = require("prompt_mapper")
 
 -- OpenAI Tool/Function Calling Handler
 -- Supports text generation with tool/function calling capabilities
@@ -24,131 +25,16 @@ local function handler(args)
         }
     end
 
+    -- Process all messages with the consistent prompt mapper
+    messages = prompt_mapper.map_to_openai(messages, {
+        model = args.model
+    })
+
     -- Configure options objects for easier management
     local options = args.options or {}
 
     -- Check if this is an o* model (OpenAI o-series models)
     local is_o_model = args.model:match("^o%d") ~= nil
-    local is_o1_mini = args.model:match("^o1%-mini") ~= nil
-
-    -- Process all messages to fix incompatibilities
-    local processed_messages = {}
-    for _, msg in ipairs(messages) do
-        if msg.role == "function_call" then
-            -- Convert function_call messages to assistant messages with tool_calls
-            local assistant_msg = {
-                role = "assistant",
-                content = ""
-            }
-
-            -- Add tool_calls data
-            if msg.function_call then
-                assistant_msg.tool_calls = {
-                    {
-                        id = msg.function_call.id or "call_" .. tostring(os.time()),
-                        type = "function",
-                        ["function"] = {
-                            name = msg.function_call.name,
-                            arguments = (type(msg.function_call.arguments) == "table")
-                                and json.encode(msg.function_call.arguments)
-                                or tostring(msg.function_call.arguments)
-                        }
-                    }
-                }
-            end
-
-            table.insert(processed_messages, assistant_msg)
-        elseif msg.role == "function" then
-            -- Convert function messages to tool messages
-            local tool_msg = {
-                role = "tool",
-                content = (type(msg.content) == "table" and #msg.content > 0 and msg.content[1].text) or msg.content
-            }
-
-            if type(tool_msg.content) == "table" then
-                tool_msg.content = json.encode(tool_msg.content)
-            end
-
-            -- Add tool_call_id if available
-            if msg.function_call_id then
-                tool_msg.tool_call_id = msg.function_call_id
-            end
-
-            -- Add name as metadata (not standard but useful)
-            if msg.name then
-                tool_msg.name = msg.name
-            end
-
-            table.insert(processed_messages, tool_msg)
-        elseif msg.role == "developer" and is_o1_mini then
-            -- Convert developer message to user message with special formatting
-            -- Format as a user message with developer instructions
-            local content = ""
-            if type(msg.content) == "string" then
-                content = msg.content
-            elseif type(msg.content) == "table" then
-                -- Handle structured content
-                for _, part in ipairs(msg.content) do
-                    if part.type == "text" then
-                        content = content .. part.text
-                    end
-                end
-            end
-
-            -- Find the previous user message to attach this instruction to
-            local prev_user_idx = nil
-            for i = #processed_messages, 1, -1 do
-                if processed_messages[i].role == "user" then
-                    prev_user_idx = i
-                    break
-                end
-            end
-
-            if prev_user_idx then
-                -- Append to existing user message
-                local user_msg = processed_messages[prev_user_idx]
-                local new_content = ""
-
-                if type(user_msg.content) == "string" then
-                    new_content = user_msg.content .. "\n\nDeveloper instructions:\n" .. content
-                    user_msg.content = new_content
-                elseif type(user_msg.content) == "table" then
-                    -- Find the last text part
-                    local last_text_idx = nil
-                    for i = #user_msg.content, 1, -1 do
-                        if user_msg.content[i].type == "text" then
-                            last_text_idx = i
-                            break
-                        end
-                    end
-
-                    if last_text_idx then
-                        user_msg.content[last_text_idx].text = user_msg.content[last_text_idx].text ..
-                            "\n\nDeveloper instructions:\n" .. content
-                    else
-                        -- No text part found, add one
-                        table.insert(user_msg.content, {
-                            type = "text",
-                            text = "Developer instructions:\n" .. content
-                        })
-                    end
-                end
-            else
-                -- Convert to system message as fallback
-                table.insert(processed_messages, {
-                    role = "system",
-                    content = content
-                })
-            end
-        else
-            -- skip
-        end
-    end
-
-    -- If we processed any messages, use the processed version
-    if #processed_messages > 0 then
-        messages = processed_messages
-    end
 
     -- Configure request payload
     local payload = {
@@ -332,6 +218,9 @@ local function handler(args)
         return openai_client.map_error(err)
     end
 
+    -- Rest of the function remains the same...
+    -- (Handling streaming, processing responses, etc.)
+
     -- Handle streaming responses
     if stream_config and response.stream then
         -- Create a streamer
@@ -369,13 +258,6 @@ local function handler(args)
                         parsed_args = args
                     end
                 end
-
-                -- Send a streaming tool call event
-                streamer:send_tool_call(
-                    tool_call_info.name,
-                    parsed_args,
-                    tool_call_info.id
-                )
 
                 return true
             end,
@@ -421,14 +303,6 @@ local function handler(args)
                         registry_id = tool_name_to_id_map[tool_call.name]
                     })
                 end
-
-                -- Send a simplified done message with minimal info
-                streamer:send_done({
-                    model = args.model,
-                    provider = "openai",
-                    usage = result.usage,
-                    tool_calls = #processed_tool_calls > 0 and processed_tool_calls or nil
-                })
             end
         })
 

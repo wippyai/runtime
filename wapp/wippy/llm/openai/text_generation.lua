@@ -1,5 +1,6 @@
 local openai = require("openai_client")
 local output = require("output")
+local prompt_mapper = require("prompt_mapper")
 
 -- OpenAI Text Generation Handler
 -- Supports both streaming and non-streaming completion
@@ -15,13 +16,10 @@ local function handler(args)
     -- Format messages from various input formats
     local messages = args.messages or {}
 
-    local filtered_messages = {}
-    for _, msg in ipairs(messages) do
-        if msg.role == "user" or msg.role == "assistant" then
-            table.insert(filtered_messages, msg)
-        end
-    end
-    messages = filtered_messages
+    -- Map messages to OpenAI format using the prompt mapper
+    messages = prompt_mapper.map_to_openai(messages, {
+        model = args.model
+    })
 
     if #messages == 0 then
         return {
@@ -166,13 +164,6 @@ local function handler(args)
                 if result.finish_reason then
                     finish_reason = result.finish_reason
                 end
-
-                -- Send a simplified done message with minimal info
-                streamer:send_done({
-                    model = args.model,
-                    provider = "openai",
-                    usage = result.usage
-                })
             end
         })
 

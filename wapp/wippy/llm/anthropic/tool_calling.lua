@@ -469,13 +469,6 @@ local function handler(args)
                     registry_id = tool_name_to_id_map[tool_call_info.name]
                 })
 
-                -- Stream tool call event
-                streamer:send_tool_call(
-                    tool_call_info.name,
-                    tool_call_info.arguments,
-                    tool_call_info.id
-                )
-
                 return true
             end,
             on_thinking = function(thinking_chunk)
@@ -506,21 +499,6 @@ local function handler(args)
                 if result.finish_reason then
                     finish_reason = result.finish_reason
                 end
-
-                -- Send done with metadata
-                local meta = {
-                    model = args.model,
-                    provider = "anthropic",
-                    usage = result.usage,
-                    tool_calls = #tool_calls > 0 and tool_calls or nil
-                }
-
-                -- Add thinking info if available
-                if has_thinking then
-                    meta.has_thinking = true
-                end
-
-                streamer:send_done(meta)
             end
         })
 

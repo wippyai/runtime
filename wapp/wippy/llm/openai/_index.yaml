@@ -15,6 +15,14 @@ entries:
     imports:
       output: "wippy.llm:output"
 
+  - name: prompt_mapper
+    kind: library.lua
+    meta:
+      comment: "Maps internal prompt format to OpenAI-compatible message format"
+    source: file://prompt_mapper.lua
+    modules: [ "json" ]
+    imports: {}
+
   - name: text_generation
     kind: function.lua
     meta:
@@ -24,10 +32,11 @@ entries:
       priority: 100
     source: file://text_generation.lua
     method: handler
-    modules: [ "json", "env" ]
+    modules: [ "json", "env", "security" ]
     imports:
       output: "wippy.llm:output"
       openai_client: "wippy.llm.openai:client"
+      prompt_mapper: "wippy.llm.openai:prompt_mapper"
     pool:
       max_size: 25
 
@@ -45,6 +54,7 @@ entries:
       output: "wippy.llm:output"
       tools: "wippy.llm:tools"
       openai_client: "wippy.llm.openai:client"
+      prompt_mapper: "wippy.llm.openai:prompt_mapper"
     pool:
       max_size: 25
 

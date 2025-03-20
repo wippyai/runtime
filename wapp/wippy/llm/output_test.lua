@@ -43,14 +43,6 @@ local function define_tests()
             expect(response.content).to_equal("Analyzing data...")
         end)
 
-        it("should create done messages", function()
-            local meta = { total_time = 1.23 }
-            local response = output.done(meta)
-
-            expect(response.type).to_equal(output.TYPE.DONE)
-            expect(response.meta).to_equal(meta)
-        end)
-
         it("should calculate usage information", function()
             local usage = output.usage(100, 50, 25)
 
@@ -216,26 +208,6 @@ local function define_tests()
             expect(sent_messages[1].payload.error.type).to_equal(output.ERROR_TYPE.RATE_LIMIT)
             expect(sent_messages[1].payload.error.message).to_equal("Too many requests")
             expect(sent_messages[1].payload.error.code).to_equal(429)
-        end)
-
-        it("should send done chunks via streamer", function()
-            -- Mock process.send
-            local sent_messages = {}
-            mock("process.send", function(pid, topic, payload)
-                table.insert(sent_messages, {
-                    pid = pid,
-                    topic = topic,
-                    payload = payload
-                })
-                return true
-            end)
-
-            local streamer = output.streamer("test-pid")
-            streamer:send_done({ total_time = 1.23 })
-
-            expect(#sent_messages).to_equal(1)
-            expect(sent_messages[1].payload.type).to_equal(output.TYPE.DONE)
-            expect(sent_messages[1].payload.meta.total_time).to_equal(1.23)
         end)
 
         it("should buffer content and send on natural breaks", function()

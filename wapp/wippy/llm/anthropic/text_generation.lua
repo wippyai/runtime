@@ -125,20 +125,6 @@ local function handler(args)
                 if result.finish_reason then
                     finish_reason = result.finish_reason
                 end
-
-                -- Send a simplified done message with minimal info
-                local meta = {
-                    model = args.model,
-                    provider = "anthropic",
-                    usage = result.usage
-                }
-
-                -- Add thinking info if available
-                if has_thinking then
-                    meta.has_thinking = true
-                end
-
-                streamer:send_done(meta)
             end
         })
 

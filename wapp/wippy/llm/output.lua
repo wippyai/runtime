@@ -7,11 +7,10 @@ local output = {}
 
 -- Result type identifiers
 output.TYPE = {
-    CONTENT = "content",     -- Regular text content
+    CONTENT = "chunk",       -- Regular text content
     TOOL_CALL = "tool_call", -- Tool call request
     ERROR = "error",         -- Error
-    THINKING = "thinking",   -- Thinking process
-    DONE = "done"            -- Completion marker
+    THINKING = "thinking"    -- Thinking process
 }
 
 -- Error type constants
@@ -74,14 +73,6 @@ function output.tool_call(name, arguments, id)
         name = name,
         arguments = arguments,
         id = id
-    }
-end
-
--- Format a done message
-function output.done(meta)
-    return {
-        type = output.TYPE.DONE,
-        meta = meta or {}
     }
 end
 
