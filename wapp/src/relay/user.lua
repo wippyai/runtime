@@ -21,8 +21,8 @@ local CLIENT_SESSION_CLOSED_TOPIC = "session.closed"
 local CLIENT_ERROR_TOPIC = "error"
 
 -- Topics we receive/send to sessions
-local SESSION_MESSAGE_TOPIC = "session.message"
-local SESSION_COMMAND_TOPIC = "session.command"
+local SESSION_MESSAGE_TOPIC = "message"
+local SESSION_COMMAND_TOPIC = "command"
 local SESSION_PROCESS_ID = "wippy.session:session"
 local SESSION_HOST = "app:processes"
 

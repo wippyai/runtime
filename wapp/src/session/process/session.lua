@@ -1,265 +1,268 @@
-local time = require("time")
 local json = require("json")
 local actor = require("actor")
 local session_state = require("session_state")
 local loader = require("loader")
+local session_updater = require("updater")
 
 -- Topic constants
-local INIT_TOPIC = "init"
-local SESSION_MESSAGE_TOPIC = "session.message"
-local SESSION_COMMAND_TOPIC = "session.command"
-local MESSAGE_TYPE_SESSION_READY = "session_ready"
+local MESSAGE_TOPIC = "message"
+local COMMAND_TOPIC = "command"
 
-local MSG_TYPE = {
-    USER = "user",
-    ASSISTANT = "assistant",
-    SYSTEM = "system",
-    THINKING = "thinking",
-    CONTENT = "content",
-    DONE = "done"
-}
-
+-- Session status constants
 local STATUS = {
     IDLE = "idle",
     RUNNING = "running",
     ERROR = "error",
-    FAILED = "failed" -- New status for permanent failures
+    FAILED = "failed"
+}
+
+-- Command constants
+local CMD = {
+    STOP = "stop",
+    MODEL = "model",
+    AGENT = "agent"
+}
+
+-- Error code constants
+local ERROR_CODE = {
+    FAILED = "FAILED",
+    ERROR = "ERROR",
+    BUSY = "BUSY"
+}
+
+-- Error message constants
+local ERR = {
+    MISSING_ARGS = "User ID and session ID are required",
+    MISSING_TOKEN = "Start token is required for new session",
+    FAILED_STATE = "Session is in failed state and cannot process messages",
+    FAILED_COMMANDS = "Session is in failed state and cannot process commands",
+    INIT_FAILED = "Session initialization failed",
+    EXEC_AGENT = "Error executing agent",
+    BUSY = "Session is already processing a message"
 }
 
 local function run(args)
     -- Validate required args
     if not args or not args.user_id or not args.session_id then
-        error("User ID and session ID are required")
+        error(ERR.MISSING_ARGS)
     end
 
-    -- Create/load session via loader - this gives us the base state
+    -- Create/load session via loader
     local loader_state, err
     if args.create then
         if not args.start_token then
-            error("Start token is required for new session")
+            error(ERR.MISSING_TOKEN)
         end
         loader_state, err = loader.create_session(args)
     else
         loader_state, err = loader.load_session(args)
-        print("LOAD")
     end
 
     if err then
         error(err)
     end
 
-    -- Create session state object using the loader state data
-    local session = session_state.new(loader_state)
+    -- Initialize session status from loader_state
+    local session_status = loader_state.status or STATUS.IDLE
 
-    -- Set connection and parent process IDs
-    session:set_conn_pid(args.conn_pid)
-    session:set_parent_pid(args.parent_pid)
+    -- Create an updater instance
+    local updater = session_updater.new(args.session_id, args.conn_pid, args.parent_pid)
+
+    -- Create session state object using the loader state data
+    -- Pass the updater by reference so we can update it without notifying session_state
+    local state = session_state.new(loader_state, updater)
 
     -- Check if the session is already in a failed state
-    if loader_state.status == "failed" then
-        -- Just notify that session is in failed state and continue
-        if args.conn_pid then
-            process.send(args.conn_pid, INIT_TOPIC, {
-                type = MESSAGE_TYPE_SESSION_READY,
-                session_id = loader_state.session_id,
-                agent = loader_state.meta and loader_state.meta.agent,
-                model = loader_state.meta and loader_state.meta.model,
-                status = loader_state.status,
-                last_message_date = loader_state.last_message_date,
-                error = loader_state.error
-            })
+    if session_status == STATUS.FAILED then
+        updater:session_error(ERROR_CODE.FAILED, ERR.INIT_FAILED)
+        error("Unable to open failed session")
+    end
+
+    -- Normal session initialization
+    if args.create and loader_state.meta and loader_state.meta.agent then
+        -- Initialize with agent name
+        local success, init_err = state:initialize_with_agent_name(loader_state.meta.agent, loader_state.meta.model)
+        if not success then
+            -- Mark session as failed using state to update DB
+            session_status = STATUS.FAILED
+            state:update_session_status(STATUS.FAILED, init_err)
+
+            updater:session_error(ERROR_CODE.FAILED, init_err)
+            error(init_err)
         end
     else
-        -- Normal session initialization
-        -- If creating new session with agent from loader_state meta
-        if args.create and loader_state.meta and loader_state.meta.agent then
-            -- Initialize with agent name - this will mark the session as failed if agent can't be loaded
-            local _, err = session:initialize_with_agent_name(loader_state.meta.agent, loader_state.meta.model)
-            if err then
-                -- Session has already been marked as failed by initialize_with_agent_name
-                console.error("Failed to initialize agent: " .. err)
-            end
-        else
-            -- For existing sessions, load message history
-            local _, err = session:load_history()
-            if err then
-                -- Mark session as failed if we can't load history
-                session:mark_session_failed("Failed to load message history: " .. err)
-                console.error("Failed to load message history: " .. err)
-            end
-        end
+        -- For existing sessions, load message history
+        local success, history_err = state:load_history()
+        if not success then
+            -- Mark session as failed using state to update DB
+            session_status = STATUS.FAILED
+            state:update_session_status(STATUS.FAILED, history_err)
 
-        -- Notify client that session is ready
-        if args.conn_pid then
-            process.send(args.conn_pid, INIT_TOPIC, {
-                type = MESSAGE_TYPE_SESSION_READY,
-                session_id = loader_state.session_id,
-                agent = loader_state.meta and loader_state.meta.agent,
-                model = loader_state.meta and loader_state.meta.model,
-                status = session.status, -- Use updated status that might be "failed"
-                last_message_date = loader_state.last_message_date,
-                error = session.status == "failed" and "Session initialization failed" or nil
-            })
+            updater:session_error(ERROR_CODE.FAILED, history_err)
+            error(history_err)
         end
     end
+
+    -- Notify client that session is ready using updater
+    updater:update_session({
+        agent = loader_state.meta and loader_state.meta.agent,
+        model = loader_state.meta and loader_state.meta.model,
+        status = session_status,
+        last_message_date = loader_state.last_message_date
+    })
+
+    -- Flag to track generation stop requests
+    local stop_requested = false
 
     -- Define message handlers
     local handlers = {
         -- Handle cancellation
-        __on_cancel = function(state)
-            print("Session cancelled:", state.session_id)
+        __on_cancel = function(actor_state)
+            -- todo: wait for agent to finish before exiting if it's still working
             return actor.exit({ status = "shutdown" })
         end,
 
-        __default = function(state, payload)
-            print("Unhandled message:", require("json").encode(payload))
-            return state
+        -- Handle unhandled messages
+        __default = function(actor_state, payload)
+            print("unhandled message:", json.encode(payload))
+            return actor_state
         end,
 
         -- Handle user messages
-        [SESSION_MESSAGE_TOPIC] = function(state, payload)
+        [MESSAGE_TOPIC] = function(actor_state, payload)
             if not payload or not payload.data then
-                return state
+                return actor_state
             end
 
-            -- Update conn_pid if provided
+            -- Update connection PID if provided
             if payload.conn_pid then
-                session:set_conn_pid(payload.conn_pid)
+                updater.conn_pid = payload.conn_pid
             end
 
             -- Don't process messages if session is in failed state
-            if session.status == "failed" then
-                -- Notify that session is in failed state
-                session:broadcast({
-                    type = MSG_TYPE.SYSTEM,
-                    session_id = session.session_id,
-                    status = "failed",
-                    message = "Session is in failed state and cannot process messages"
-                })
-                return state
+            if session_status == STATUS.FAILED then
+                updater:session_error(ERROR_CODE.FAILED, ERR.FAILED_STATE)
+                return actor_state
             end
+
+            -- Don't process if already running
+            if session_status == STATUS.RUNNING then
+                updater:session_error(ERROR_CODE.BUSY, ERR.BUSY)
+                return actor_state
+            end
+
+            -- Reset stop flag when starting a new message
+            stop_requested = false
+
+            -- Update session status via session_state
+            session_status = STATUS.RUNNING
+            state:update_session_status(STATUS.RUNNING)
+
+            -- Update clients about status change
+            updater:update_session({
+                status = STATUS.RUNNING
+            })
 
             -- Process the message
-            local result, err = session:process_message(payload.data)
-
-            if err then
-                print("Error processing message:", err)
-                return state
+            local next, msg_err = state:process_message(payload.data)
+            if msg_err then
+                -- Handle error, reset status via session_state
+                session_status = STATUS.ERROR
+                state:update_session_status(STATUS.ERROR)
+                updater:update_session({
+                    status = STATUS.ERROR
+                })
+                print("Error processing message:", msg_err)
+                return actor_state
             end
 
-            -- Execute agent asynchronously using state.async
-            state.async(function()
-                local exec_result, exec_err = session:execute_agent(result)
+            -- Execute agent asynchronously
+            actor_state.async(function()
+                -- Check if stop requested before execution
+                if stop_requested then
+                    session_status = STATUS.IDLE
+                    state:update_session_status(STATUS.IDLE)
+
+                    updater:update_session({
+                        status = STATUS.IDLE
+                    })
+                    return { stopped = true }
+                end
+
+                local exec_result, exec_err = state:execute_agent(next, stop_requested)
 
                 if exec_err then
-                    print("Error executing agent:", exec_err)
+                    print("error executing agent:", exec_err)
                     return nil, exec_err
                 end
 
                 return exec_result
-            end).on_complete(function(state, result, error)
+            end).on_complete(function(actor_state, result, error)
                 if error then
-                    print("Async execution error:", error)
-                    -- Notify clients about the error
-                    session:broadcast({
-                        type = MSG_TYPE.SYSTEM,
-                        session_id = session.session_id,
-                        status = STATUS.ERROR,
-                        message = "Error executing agent: " .. error
-                    })
+                    print("async execution error:", error)
+                    session_status = STATUS.ERROR
+                    state:update_session_status(STATUS.ERROR)
+
+                    updater:session_error(ERROR_CODE.ERROR, ERR.EXEC_AGENT .. ": " .. error)
                     return
                 end
 
-                if result then
-                    if result.delegation then
-                        print("Delegation processed:", require("json").encode(result.delegation))
-                        -- Delegation has already been broadcast in execute_agent
+                -- Always update to idle state when complete, whether stopped or not
+                session_status = STATUS.IDLE
+                state:update_session_status(STATUS.IDLE)
 
-                        -- Here we would initiate the delegation to another agent
-                        -- For now, just log it
-                        console.debug("Delegation to agent:", result.delegation.target)
-                    elseif result.tool_calls then
-                        print("Tool calls need processing:", require("json").encode(result.tool_calls))
-
-                        -- In the future, we'll process tool calls here
-                        -- For each tool call:
-                        -- 1. Execute the tool
-                        -- 2. Add the result back to the conversation
-                        -- 3. Continue the conversation
-
-                        -- For now, just notify that tool calls would be processed
-                        session:broadcast({
-                            type = MSG_TYPE.SYSTEM,
-                            session_id = session.session_id,
-                            message = "Tool calls would be processed here"
-                        })
-
-                        -- Reset status to idle for now (in the future, tool processing would do this)
-                        session.status = STATUS.IDLE
-                        session_repo.update_session_meta(session.session_id, { status = STATUS.IDLE })
-                    else
-                        print("Execution completed:", require("json").encode(result))
-                        -- Regular message has already been broadcast in execute_agent
-                    end
-                end
+                updater:update_session({
+                    status = STATUS.IDLE
+                })
             end)
 
-            return state
+            return actor_state
         end,
 
         -- Handle commands
-        [SESSION_COMMAND_TOPIC] = function(state, payload)
+        [COMMAND_TOPIC] = function(actor_state, payload)
             if not payload or not payload.command then
-                return state
+                return actor_state
             end
 
-            -- Update conn_pid if provided
+            -- Update connection PID if provided
             if payload.conn_pid then
-                session:set_conn_pid(payload.conn_pid)
+                updater.conn_pid = payload.conn_pid
             end
 
-            -- Don't process commands if session is in failed state,
-            -- except for the special "reset" command that can recover a failed session
-            if session.status == "failed" and payload.command ~= "reset" then
-                -- Notify that session is in failed state
-                session:broadcast({
-                    type = MSG_TYPE.SYSTEM,
-                    session_id = session.session_id,
-                    status = "failed",
-                    message = "Session is in failed state and cannot process commands"
-                })
-                return state
+            -- Don't process commands if session is in failed state
+            if session_status == STATUS.FAILED then
+                updater:session_error(ERROR_CODE.FAILED, ERR.FAILED_COMMANDS)
+                return actor_state
             end
 
             local command = payload.command
 
-            if command == "stop" then
-                session:stop_generation()
-            elseif command == "model" then
-                if payload.data and payload.data.name then
-                    session:change_model(payload.data.name)
+            if command == CMD.STOP then
+                -- Set the stop flag to signal the agent to stop
+                stop_requested = true
+
+                -- If we're not in RUNNING state, also update status via session_state
+                if session_status ~= STATUS.RUNNING then
+                    session_status = STATUS.IDLE
+                    state:update_session_status(STATUS.IDLE)
+
+                    updater:update_session({
+                        status = STATUS.IDLE
+                    })
                 end
-            elseif command == "agent" then
-                -- Switch to a different agent by name
+            elseif command == CMD.MODEL then
                 if payload.data and payload.data.name then
-                    session:change_agent(payload.data.name)
+                    state:change_model(payload.data.name)
                 end
-            elseif command == "reset" then
-                -- Special command to attempt to recover a failed session
-                -- by resetting it to idle and trying to reload everything
-                if session.status == "failed" and payload.data and payload.data.agent then
-                    -- Try to reset by changing to a specified agent
-                    session.status = "idle"
-                    session_repo.update_session_meta(
-                        session.session_id,
-                        { status = "idle", error = nil }
-                    )
-                    session:change_agent(payload.data.agent)
+            elseif command == CMD.AGENT then
+                if payload.data and payload.data.name then
+                    state:change_agent(payload.data.name)
                 end
             end
 
-            return state
-        end
+            return actor_state
+        end,
     }
 
     -- Use loader_state as the initial actor state
