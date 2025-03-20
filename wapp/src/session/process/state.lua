@@ -452,6 +452,17 @@ function session_state:execute_agent(agent_info, stop_requested)
     local message_id = agent_info.message_id
     local message_text = agent_info.text
 
+    -- Generate response ID first (before streaming starts)
+    local response_id, err = uuid.v7()
+    if err then
+        return nil, ERR.RESPONSE_ID_FAILED
+    end
+
+    -- Announce the response is starting using the new method
+    if self.updater then
+        self.updater:response_beginning(message_id, response_id)
+    end
+
     -- Get prompt slice for the agent
     local prompt_slice = self:_get_prompt_slice()
 
@@ -460,7 +471,8 @@ function session_state:execute_agent(agent_info, stop_requested)
     if self.updater and self.updater.conn_pid then
         stream_options = {
             reply_to = self.updater.conn_pid,
-            topic = "update:" .. self.session_id .. ":" .. message_id
+            -- Use the response_id for streaming
+            topic = self.updater:get_message_topic(response_id)
         }
     end
 
@@ -468,12 +480,6 @@ function session_state:execute_agent(agent_info, stop_requested)
 
     if err then
         return nil, err
-    end
-
-    -- Generate response ID
-    local response_id, err = uuid.v7()
-    if err then
-        return nil, ERR.RESPONSE_ID_FAILED
     end
 
     -- Check if stop was requested during processing
@@ -508,18 +514,11 @@ function session_state:execute_agent(agent_info, stop_requested)
     -- Update prompt builder with assistant response
     self.prompt_builder:add_assistant(result.result)
 
-    -- Send content and token usage to client (message-specific updates)
+    -- Send final content and token usage to client
     if self.updater then
-        self.updater:_send_message_update(message_id, UI_MSG_TYPE.CONTENT, {
+        self.updater:_send_message_update(response_id, UI_MSG_TYPE.CONTENT, {
             content = result.result
         })
-
-        self.updater:report_tokens(
-            message_id,
-            result.tokens.prompt_tokens,
-            result.tokens.completion_tokens,
-            result.tokens.thinking_tokens
-        )
     end
 
     return {

@@ -39,6 +39,15 @@ end
 
 -- MESSAGE-LEVEL UPDATES --
 
+-- Announce new assistant response beginning
+function session_updater:response_beginning(message_id, response_id)
+    self:_send_message_update(message_id, "response_started", {
+        message_id = message_id,
+        response_id = response_id,
+        timestamp = os.time()
+    })
+end
+
 -- Confirm message reception
 function session_updater:message_received(message_id, text)
     self:_send_message_update(message_id, "received", {
