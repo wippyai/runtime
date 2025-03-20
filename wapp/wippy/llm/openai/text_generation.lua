@@ -15,6 +15,14 @@ local function handler(args)
     -- Format messages from various input formats
     local messages = args.messages or {}
 
+    local filtered_messages = {}
+    for _, msg in ipairs(messages) do
+        if msg.role == "user" or msg.role == "assistant" then
+            table.insert(filtered_messages, msg)
+        end
+    end
+    messages = filtered_messages
+
     if #messages == 0 then
         return {
             error = output.ERROR_TYPE.INVALID_REQUEST,

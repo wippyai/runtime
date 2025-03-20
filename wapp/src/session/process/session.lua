@@ -11,6 +11,22 @@ local SESSION_MESSAGE_TOPIC = "session.message"
 local SESSION_COMMAND_TOPIC = "session.command"
 local MESSAGE_TYPE_SESSION_READY = "session_ready"
 
+local MSG_TYPE = {
+    USER = "user",
+    ASSISTANT = "assistant",
+    SYSTEM = "system",
+    THINKING = "thinking",
+    CONTENT = "content",
+    DONE = "done"
+}
+
+local STATUS = {
+    IDLE = "idle",
+    RUNNING = "running",
+    ERROR = "error",
+    FAILED = "failed" -- New status for permanent failures
+}
+
 local function run(args)
     -- Validate required args
     if not args or not args.user_id or not args.session_id then

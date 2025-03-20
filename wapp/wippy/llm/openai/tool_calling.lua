@@ -141,8 +141,7 @@ local function handler(args)
                 })
             end
         else
-            -- Keep other message types unchanged
-            table.insert(processed_messages, msg)
+            -- skip
         end
     end
 
