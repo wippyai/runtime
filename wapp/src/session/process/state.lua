@@ -697,7 +697,7 @@ function SessionState:execute_agent(agent_info)
     -- Execute agent with streaming
     local result, err = self.agent:step({
         reply_to = self.conn_pid,
-        topic = "update"--:" .. self.session_id .. ":" .. message_id
+        topic = "update:" .. self.session_id .. ":" .. message_id
     })
 
     if err then
@@ -736,6 +736,9 @@ function SessionState:execute_agent(agent_info)
 
     -- Update prompt builder
     self.prompt_builder:add_assistant(result.result)
+
+    -- sync with agent
+    self.agent:add_assistant_message(result.result)
 
     -- Update session status
     self.status = STATUS.IDLE

@@ -47,12 +47,12 @@ function agent.new(agent_spec)
         delegates = agent_spec.delegates or {},
 
         -- Internal state
-        prompt_builder = nil,
         base_prompt = agent_spec.prompt or "",
+        system_message = nil, -- Will store the built system message
         tool_ids = {},
-        tool_schemas = {},   -- Custom tool schemas
-        delegate_tools = {}, -- Handout tool schemas
-        delegate_map = {},   -- Maps tool IDs to target agent IDs
+        tool_schemas = {},    -- Custom tool schemas
+        delegate_tools = {},  -- Handout tool schemas
+        delegate_map = {},    -- Maps tool IDs to target agent IDs
         total_tokens = {
             prompt = 0,
             completion = 0,
@@ -63,9 +63,6 @@ function agent.new(agent_spec)
         -- Conversation state
         messages_handled = 0
     }
-
-    -- Initialize the prompt builder
-    runner.prompt_builder = get_prompt().new()
 
     -- Register standard tools (for passing tool_ids to LLM)
     if type(runner.tools) == "table" then
@@ -80,8 +77,8 @@ function agent.new(agent_spec)
     -- Generate delegate tools with schemas
     runner:_generate_delegate_tools()
 
-    -- Build the initial system prompt
-    runner:_build_system_prompt()
+    -- Build the system message
+    runner.system_message = runner:_build_system_message()
 
     return runner
 end
@@ -124,8 +121,9 @@ function agent:_generate_delegate_tools()
     end
 end
 
--- Build the full system prompt from base prompt and agent metadata
-function agent:_build_system_prompt()
+-- Build the system message from base prompt and agent metadata
+-- Returns a system message instead of using a prompt builder
+function agent:_build_system_message()
     local system_prompt = self.base_prompt
 
     -- Add agent identity
@@ -159,12 +157,15 @@ function agent:_build_system_prompt()
         end
     end
 
-    -- Add the system prompt to the prompt builder
-    self.prompt_builder:add_system(system_prompt)
+    -- Return the system message
+    return {
+        role = "system",
+        content = system_prompt
+    }
 end
 
 -- Execute the agent to get the next action
-function agent:step(stream_target)
+function agent:step(prompt_builder_slice, stream_target)
     -- Get LLM instance
     local llm_instance = get_llm()
 
@@ -196,13 +197,26 @@ function agent:step(stream_target)
         end
     end
 
-    -- Get messages from prompt builder
-    local messages = self.prompt_builder:get_messages()
+    -- Create an array of final messages to send to LLM
+    local final_messages = {}
 
-    options.stream = stream_target
-print("ASDASDASDASD")
+    -- First add the system message
+    table.insert(final_messages, self.system_message)
+    table.insert(final_messages, {
+        role = "cache_marker",
+        marker_id = self.id or "default"
+    })
+
+    for _, msg in ipairs(prompt_builder_slice:get_messages()) do
+        table.insert(final_messages, msg)
+    end
+
+    if stream_target then
+        options.stream = stream_target
+    end
+
     -- Execute LLM call
-    local result, err = llm_instance.generate(messages, options)
+    local result, err = llm_instance.generate(final_messages, options)
 
     if err then
         return nil, err
@@ -262,111 +276,6 @@ function agent:register_tool(tool_name, tool_schema)
     return self
 end
 
--- Add a user message to the conversation
-function agent:add_user_message(message)
-    self.prompt_builder:add_user(message)
-    self.messages_handled = self.messages_handled + 1
-    return self
-end
-
--- Add an assistant message to the conversation
-function agent:add_assistant_message(message)
-    self.prompt_builder:add_assistant(message)
-    return self
-end
-
-function agent:add_function_call(function_name, arguments, function_call_id)
-    self.prompt_builder:add_function_call(function_name, arguments, function_call_id)
-    return self
-end
-
--- Add a function result to the conversation
-function agent:add_function_result(function_name, result, function_call_id)
-    self.prompt_builder:add_function_result(function_name, result, function_call_id)
-    return self
-end
-
--- Execute the agent to get the next action
-function agent:step()
-    -- Get LLM instance
-    local llm_instance = get_llm()
-
-    -- Prepare LLM options
-    local options = {
-        model = self.model,
-        max_tokens = self.max_tokens,
-        temperature = self.temperature
-    }
-
-    -- Add standard tools as tool_ids
-    if #self.tool_ids > 0 then
-        options.tool_ids = self.tool_ids
-    end
-
-    -- Add custom tool schemas
-    if next(self.tool_schemas) then
-        options.tool_schemas = options.tool_schemas or {}
-        for tool_id, schema in pairs(self.tool_schemas) do
-            options.tool_schemas[tool_id] = schema
-        end
-    end
-
-    -- Add delegate tools as tool_schemas
-    if next(self.delegate_tools) then
-        options.tool_schemas = options.tool_schemas or {}
-        for tool_id, schema in pairs(self.delegate_tools) do
-            options.tool_schemas[tool_id] = schema
-        end
-    end
-
-    -- Get messages from prompt builder
-    local messages = self.prompt_builder:get_messages()
-
-    -- Execute LLM call
-    local result, err = llm_instance.generate(messages, options)
-
-    if err then
-        return nil, err
-    end
-
-    -- Create the response object with all necessary fields
-    local response = {
-        -- Text response priority: content > result
-        result = result.content or result.result,
-        tokens = result.tokens,
-        finish_reason = result.finish_reason
-    }
-
-    -- Copy tool_calls if present
-    if result.tool_calls then
-        response.tool_calls = result.tool_calls
-    end
-
-    -- Update token usage statistics
-    if result.tokens then
-        self.total_tokens.prompt = self.total_tokens.prompt + (result.tokens.prompt_tokens or 0)
-        self.total_tokens.completion = self.total_tokens.completion + (result.tokens.completion_tokens or 0)
-        self.total_tokens.thinking = self.total_tokens.thinking + (result.tokens.thinking_tokens or 0)
-        self.total_tokens.total = self.total_tokens.prompt + self.total_tokens.completion + self.total_tokens.thinking
-    end
-
-    -- Process delegate tool calls
-    if response.tool_calls and #response.tool_calls > 0 then
-        for _, tool_call in ipairs(response.tool_calls) do
-            -- Check if this tool call is for a delegate
-            if self.delegate_map[tool_call.name] then
-                -- Mark that this is a delegate call
-                response.delegate_target = self.delegate_map[tool_call.name]
-                response.delegate_message = tool_call.arguments.message
-                response.tool_calls = nil -- delegate intercept tools calls
-                break
-            end
-        end
-    end
-
-    return response
-end
-
 -- Get conversation statistics
 function agent:get_stats()
     return {
@@ -375,27 +284,6 @@ function agent:get_stats()
         messages_handled = self.messages_handled,
         total_tokens = self.total_tokens
     }
-end
-
--- Clear conversation history but keep the system prompt
-function agent:clear_history()
-    -- Save the system messages
-    local system_messages = {}
-    for _, msg in ipairs(self.prompt_builder:get_messages()) do
-        if msg.role == "system" then
-            table.insert(system_messages, msg)
-        end
-    end
-
-    -- Create a new prompt builder with just the system messages
-    self.prompt_builder = get_prompt().new()
-    for _, msg in ipairs(system_messages) do
-        self.prompt_builder:add_message(msg.role, msg.content)
-    end
-
-    -- Reset message count
-    self.messages_handled = 0
-    return self
 end
 
 return agent
