@@ -52,7 +52,7 @@ function session_state.new(loader_state, updater)
 
     -- Meta information
     if loader_state.meta then
-        self.agent_id = loader_state.meta.agent
+        self.agent_name = loader_state.meta.agent
         self.model = loader_state.meta.model
         self.provider = loader_state.meta.provider
         self.kind = loader_state.meta.kind
@@ -68,7 +68,7 @@ function session_state.new(loader_state, updater)
     self.prompt_builder = prompt.new()
     self.context_data = {
         session_id = self.session_id,
-        agent_id = self.agent_id,
+        agent_name = self.agent_name,
         model = self.model
     }
 
@@ -163,10 +163,10 @@ end
 
 -- Lazy load the agent when needed
 function session_state:_load_agent()
-    if not self.agent and self.agent_id then
-        -- Get agent spec by name from the agent_id
-        local agent_name = self.agent_id -- agent_id is actually the agent name
-        local agent_spec, err = agent_registry.get_by_id(agent_name)
+    if not self.agent and self.agent_name then
+        -- Get agent spec by name from the agent_name
+        local agent_name = self.agent_name -- agent_name is actually the agent name
+        local agent_spec, err = agent_registry.get_by_name(agent_name)
         if not agent_spec then
             local error_msg = ERR.AGENT_LOAD_FAILED .. ": " .. (err or "Unknown error")
             self:update_session_status(STATUS.FAILED, error_msg)
@@ -211,7 +211,7 @@ function session_state:initialize_with_agent_name(agent_name, model)
     end
 
     -- Set agent ID from spec
-    self.agent_id = agent_spec.id
+    self.agent_name = agent_spec.name
     self.model = model or agent_spec.model
 
     -- Reset the agent instance to force a reload
@@ -221,7 +221,7 @@ function session_state:initialize_with_agent_name(agent_name, model)
     local update_result, err = session_repo.update_session_meta(
         self.session_id,
         {
-            current_agent = self.agent_id,
+            current_agent = self.agent_name,
             current_model = self.model,
             status = self.status
         }
@@ -252,12 +252,12 @@ function session_state:change_agent(agent_name)
     end
 
     -- Update agent ID
-    self.agent_id = agent_spec.id
+    self.agent_name = agent_spec.name
 
     -- Update metadata
     local update_result, err = session_repo.update_session_meta(
         self.session_id,
-        { current_agent = self.agent_id }
+        { current_agent = self.agent_name }
     )
 
     if err then
@@ -488,7 +488,7 @@ function session_state:execute_agent(agent_info, stop_requested)
 
     -- Create assistant message in DB
     local metadata = {
-        agent_id = self.agent_id,
+        agent_name = self.agent_name,
         model = self.model,
         tokens = result.tokens
     }

@@ -158,6 +158,7 @@ function agent_registry._build_agent_spec(entry, visited_ids)
     local agent_spec = {
         id = entry.id,
         name = (entry.meta and entry.meta.name) or "",
+        title = (entry.meta and entry.meta.title) or "",
         description = (entry.meta and entry.meta.comment) or "",
         prompt = entry.data.prompt or "",
         model = entry.data.model or "",
