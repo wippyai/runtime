@@ -109,6 +109,7 @@ function session_repo.list_by_user(user_id, limit, offset)
         return nil, err
     end
 
+    local params = { user_id }
     local query = [[
         SELECT session_id, user_id, primary_context_id, title, kind, current_model, current_agent, start_date, last_message_date
         FROM sessions
@@ -118,13 +119,16 @@ function session_repo.list_by_user(user_id, limit, offset)
 
     -- Add limit and offset if provided
     if limit and limit > 0 then
-        query = query .. " LIMIT " .. sql.as.int(limit)
+        query = query .. " LIMIT ?"
+        table.insert(params, sql.as.int(limit))
+
         if offset and offset > 0 then
-            query = query .. " OFFSET " .. sql.as.int(offset)
+            query = query .. " OFFSET ?"
+            table.insert(params, sql.as.int(offset))
         end
     end
 
-    local sessions, err = db:query(query, { user_id })
+    local sessions, err = db:query(query, params)
     db:release()
 
     if err then
