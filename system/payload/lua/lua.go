@@ -23,6 +23,7 @@ func Register(transcoder payload.TranscoderRegister) {
 
 	RegisterString(transcoder)
 	RegisterBytes(transcoder)
+	RegisterJSON(transcoder)
 }
 
 // ToGolang converts a Lua payload to a Golang payload.

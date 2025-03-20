@@ -414,8 +414,8 @@ func (c *Connection) forwardPayloadToWebSocket(topic pubsub.Topic, payloads ...p
 	for _, p := range payloads {
 		// Create a wrapper object that includes the topic and data
 		wrapper := struct {
-			Topic string      `json:"topic"`
-			Data  interface{} `json:"data"`
+			Topic string `json:"topic"`
+			Data  any    `json:"data"`
 		}{
 			Topic: string(topic),
 		}
@@ -482,59 +482,6 @@ func (c *Connection) forwardPayloadToWebSocket(topic pubsub.Topic, payloads ...p
 	}
 
 	return nil
-}
-
-// writeStringPayload writes a string payload to WebSocket
-func (c *Connection) writeStringPayload(p payload.Payload, msgType websocket.MessageType) error {
-	if str, ok := p.Data().(string); ok {
-		return c.conn.Write(c.ctx, msgType, []byte(str))
-	}
-
-	// Convert to string if not already
-	strData := fmt.Sprintf("%v", p.Data())
-	return c.conn.Write(c.ctx, msgType, []byte(strData))
-}
-
-// writeJSONPayload writes a JSON payload to WebSocket
-func (c *Connection) writeJSONPayload(p payload.Payload, msgType websocket.MessageType) error {
-	var data []byte
-	var err error
-
-	// If already JSON bytes, use directly
-	if bytes, ok := p.Data().([]byte); ok {
-		data = bytes
-	} else if str, ok := p.Data().(string); ok {
-		// If it's a JSON string, use directly
-		data = []byte(str)
-	} else {
-		// Otherwise marshal the data to JSON
-		data, err = json.Marshal(p.Data())
-		if err != nil {
-			return fmt.Errorf("error marshaling JSON payload: %w", err)
-		}
-	}
-
-	// Send the JSON directly to WebSocket
-	return c.conn.Write(c.ctx, msgType, data)
-}
-
-// writeBinaryPayload writes a binary payload to WebSocket
-func (c *Connection) writeBinaryPayload(p payload.Payload) error {
-	if bytes, ok := p.Data().([]byte); ok {
-		return c.conn.Write(c.ctx, websocket.MessageBinary, bytes)
-	}
-
-	return fmt.Errorf("expected bytes payload but got different type")
-}
-
-// writeTranscodedPayload transcodes a payload to JSON and writes it to WebSocket
-func (c *Connection) writeTranscodedPayload(p payload.Payload, msgType websocket.MessageType) error {
-	pj, err := c.transcoder.Transcode(p, payload.JSON)
-	if err != nil {
-		return fmt.Errorf("failed to transcode payload to JSON: %w", err)
-	}
-
-	return c.conn.Write(c.ctx, msgType, pj.Data().([]byte))
 }
 
 // sendJoinNotification sends a join notification to the target PID
