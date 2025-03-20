@@ -200,12 +200,12 @@ function agent:step(prompt_builder_slice, stream_target)
     -- Create an array of final messages to send to LLM
     local final_messages = {}
 
-    -- First add the system message
+    -- Always have system message
     table.insert(final_messages, self.system_message)
-    table.insert(final_messages, {
-        role = "cache_marker",
-        marker_id = self.id or "default"
-    })
+    if #self.tool_schemas == 0 then
+        -- when no dynamic tools provided we can cache the system message
+        table.insert(final_messages, { role = "cache_marker", marker_id = self.id })
+    end
 
     for _, msg in ipairs(prompt_builder_slice:get_messages()) do
         table.insert(final_messages, msg)

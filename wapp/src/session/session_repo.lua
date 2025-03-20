@@ -45,7 +45,8 @@ function session_repo.create(session_id, user_id, primary_context_id, title, kin
         [[INSERT INTO sessions
           (session_id, user_id, primary_context_id, title, kind, current_model, current_agent, start_date, last_message_date)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]],
-        { session_id, user_id, primary_context_id, title, kind, current_model, current_agent, sql.as.int(now), sql.as.int(now) }
+        { session_id, user_id, primary_context_id, title, kind, current_model, current_agent, sql.as.int(now), sql.as
+            .int(now) }
     )
 
     db:release()
@@ -492,14 +493,6 @@ function session_repo.delete(session_id)
         tx:rollback()
         db:release()
         return nil, "Failed to delete session messages: " .. err
-    end
-
-    -- Delete token usage records
-    result, err = tx:execute("DELETE FROM token_usage WHERE session_id = ?", { session_id })
-    if err then
-        tx:rollback()
-        db:release()
-        return nil, "Failed to delete token usage records: " .. err
     end
 
     -- Delete the session

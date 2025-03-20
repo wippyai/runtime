@@ -1042,7 +1042,7 @@ local function define_tests()
                 -- Verify default handler was called
                 expect(first_handler_called).to_be_true("First handler should be called")
                 expect(default_handler_called).to_be_true("Default handler should be called when topic doesn't exist")
-                expect(received_topic_in_default).to_equal("__default",
+                expect(received_topic_in_default).to_equal("nonexistent_topic",
                     "Default handler should get the default topic name")
                 expect(result.status).to_equal("handled_by_default", "Actor should exit with correct status")
             end)

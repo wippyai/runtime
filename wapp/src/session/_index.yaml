@@ -30,19 +30,6 @@ entries:
     source: file://message_repo.lua
     modules: [ sql, json ]
 
-  # Main API
-  - name: api
-    kind: library.lua
-    meta:
-      comment: "High-level sessions API"
-      depends_on: [ context_repo, session_repo, message_repo, token_usage_repo ]
-    source: file://sessions.lua
-    modules: [ uuid ]
-    imports:
-      context_repo: "wippy.session:context_repo"
-      session_repo: "wippy.session:session_repo"
-      message_repo: "wippy.session:message_repo"
-
   # Migrations
   - name: migrations.create_contexts_table
     kind: function.lua

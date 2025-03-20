@@ -144,13 +144,14 @@ local function define_tests()
             -- Create mock prompt module for testing
             mock_prompt = {
                 new = function()
-                    local messages = {
-                        { role = "system", content = { { type = "text", text = "You are a test agent" } } }
-                    }
+                    local messages = {}
 
                     return {
                         add_system = function(self, content)
-                            messages[1].content = { { type = "text", text = content } }
+                            table.insert(messages, {
+                                role = "system",
+                                content = { { type = "text", text = content } }
+                            })
                             return self
                         end,
                         add_user = function(self, content)
@@ -227,39 +228,49 @@ local function define_tests()
         it("should handle basic conversation", function()
             local test_agent = agent.new(test_agent_spec)
 
-            -- Add a user message
-            test_agent:add_user_message("Hello")
-            expect(test_agent.messages_handled).to_equal(1)
+            -- Create a prompt builder
+            local prompt_builder = mock_prompt.new()
 
-            -- Execute the agent
-            local result = test_agent:step()
+            -- Add a user message
+            prompt_builder:add_user("Hello")
+
+            -- Execute the agent with the external prompt
+            local result = test_agent:step(prompt_builder)
 
             -- Verify result
             expect(result).not_to_be_nil()
             expect(result.result).to_equal("This is a test response.")
 
             -- Check token tracking
-            expect(test_agent.total_tokens.prompt).to_equal(10)
-            expect(test_agent.total_tokens.completion).to_equal(5)
-            expect(test_agent.total_tokens.total).to_equal(15)
+            expect(result.tokens.prompt_tokens).to_equal(10)
+            expect(result.tokens.completion_tokens).to_equal(5)
+            expect(result.tokens.total_tokens).to_equal(15)
 
-            -- Add the response to conversation
-            test_agent:add_assistant_message(result.result)
+            -- Add the response to conversation and create a follow-up
+            prompt_builder:add_assistant(result.result)
+            prompt_builder:add_user("How are you?")
 
-            -- Get conversation statistics
+            -- Execute again
+            local result2 = test_agent:step(prompt_builder)
+            expect(result2).not_to_be_nil()
+            expect(result2.result).to_equal("This is a test response.")
+
+            -- Get conversation statistics (if still supported)
             local stats = test_agent:get_stats()
             expect(stats.id).to_equal("test-agent")
-            expect(stats.messages_handled).to_equal(1)
         end)
 
         it("should handle tool calls", function()
             local test_agent = agent.new(test_agent_spec)
 
+            -- Create a prompt builder
+            local prompt_builder = mock_prompt.new()
+
             -- Add a user message that will trigger tool calling
-            test_agent:add_user_message("Calculate 123 * 456")
+            prompt_builder:add_user("Calculate 123 * 456")
 
             -- Execute the agent
-            local result = test_agent:step()
+            local result = test_agent:step(prompt_builder)
 
             -- Verify tool calls
             expect(result.tool_calls).not_to_be_nil()
@@ -267,32 +278,37 @@ local function define_tests()
             expect(result.tool_calls[1].name).to_equal("test:calculator")
             expect(result.tool_calls[1].arguments.expression).to_equal("123 * 456")
 
-            test_agent:add_function_call(
+            -- Add the response and tool call to the conversation
+            prompt_builder:add_assistant(result.result)
+            prompt_builder:add_function_call(
                 "test:calculator",
                 { expression = "123 * 456" },
                 result.tool_calls[1].id
             )
 
             -- Add function result
-            test_agent:add_function_result(
+            prompt_builder:add_function_result(
                 "test:calculator",
                 { result = 56088 },
                 result.tool_calls[1].id
             )
 
             -- Execute again to get response with tool result
-            local final_result = test_agent:step()
+            local final_result = test_agent:step(prompt_builder)
             expect(final_result.result).not_to_be_nil()
         end)
 
         it("should handle delegate delegation", function()
             local test_agent = agent.new(test_agent_spec)
 
+            -- Create a prompt builder
+            local prompt_builder = mock_prompt.new()
+
             -- Add a user message that will trigger delegate
-            test_agent:add_user_message("Analyze this dataset for me")
+            prompt_builder:add_user("Analyze this dataset for me")
 
             -- Execute the agent
-            local result = test_agent:step()
+            local result = test_agent:step(prompt_builder)
 
             -- Verify delegate information
             expect(result.delegate_target).not_to_be_nil()
@@ -335,33 +351,6 @@ local function define_tests()
             "Error should mention the missing name")
         end)
 
-        it("should clear conversation history", function()
-            local test_agent = agent.new(test_agent_spec)
-
-            -- Add some messages and get responses
-            test_agent:add_user_message("Hello")
-            local result1 = test_agent:step()
-            test_agent:add_assistant_message(result1.result)
-
-            test_agent:add_user_message("How are you?")
-            local result2 = test_agent:step()
-            test_agent:add_assistant_message(result2.result)
-
-            -- Verify message count
-            expect(test_agent.messages_handled).to_equal(2)
-
-            -- Clear history
-            test_agent:clear_history()
-
-            -- Messages handled should be reset, but token count preserved
-            expect(test_agent.messages_handled).to_equal(0)
-            expect(test_agent.total_tokens.total > 0).to_be_true()
-
-            -- Should be able to add new messages
-            test_agent:add_user_message("After clearing")
-            expect(test_agent.messages_handled).to_equal(1)
-        end)
-
         -- Integration test with real LLM
         it("should integrate with real LLM when not mocked", function()
             -- Skip if agent still has mocked llm
@@ -370,11 +359,14 @@ local function define_tests()
             -- Create real agent
             local test_agent = agent.new(test_agent_spec)
 
+            -- Create a prompt builder
+            local prompt_builder = prompt.new()
+
             -- Add a simple user message
-            test_agent:add_user_message("Hello, what are you?")
+            prompt_builder:add_user("Hello, what are you?")
 
             -- Execute with error handling
-            local result, err = test_agent:step()
+            local result, err = test_agent:step(prompt_builder)
             if err then
                 print("Integration test error: " .. err)
                 return
@@ -416,9 +408,14 @@ local function define_tests()
             local test_agent = agent.new(real_agent_spec)
             expect(test_agent).not_to_be_nil()
 
+            -- Create a prompt builder
+            local prompt_builder = prompt.new()
+
+            -- Add a simple user message
+            prompt_builder:add_user("Tell me a very short joke about programming")
+
             -- Run a simple conversation
-            test_agent:add_user_message("Tell me a very short joke about programming")
-            local result = test_agent:step()
+            local result = test_agent:step(prompt_builder)
 
             -- Verify response
             expect(result).not_to_be_nil()
@@ -430,14 +427,13 @@ local function define_tests()
 
             -- Get and print stats
             local stats = test_agent:get_stats()
-            print("Messages handled: " .. stats.messages_handled)
             print("Total tokens: " .. stats.total_tokens.total)
 
             -- Continue conversation
-            test_agent:add_assistant_message(result.result)
-            test_agent:add_user_message("Explain why that joke is funny in two sentences.")
+            prompt_builder:add_assistant(result.result)
+            prompt_builder:add_user("Explain why that joke is funny in two sentences.")
 
-            local result2 = test_agent:step()
+            local result2 = test_agent:step(prompt_builder)
             expect(result2).not_to_be_nil()
             expect(result2.result).not_to_be_nil()
 
@@ -486,6 +482,12 @@ local function define_tests()
             -- Register the calculator tool directly
             test_agent:register_tool("calculator", calculator_schema)
 
+            -- Create a prompt builder
+            local prompt_builder = prompt.new()
+
+            -- Add a user message
+            prompt_builder:add_user("What is 123 * 456?")
+
             -- Calculator function handler
             local function handle_calculator_tool(expression)
                 -- Simple calculator that evaluates basic math expressions
@@ -502,11 +504,8 @@ local function define_tests()
                 end
             end
 
-            -- Run a conversation with tool use
-            test_agent:add_user_message("What is 123 * 456?")
-
             -- Process conversation with tools
-            local result, err = test_agent:step()
+            local result, err = test_agent:step(prompt_builder)
             expect(err).to_be_nil()
 
             -- If no tool calls, just print the response and skip the rest
@@ -516,12 +515,12 @@ local function define_tests()
             end
 
             -- Handle tool calls
-            test_agent:add_assistant_message(result.result)
+            prompt_builder:add_assistant(result.result)
 
             for _, tool_call in ipairs(result.tool_calls) do
                 print("Tool called: " .. tool_call.name)
 
-                test_agent:add_function_call(tool_call.name, tool_call.arguments, tool_call.id)
+                prompt_builder:add_function_call(tool_call.name, tool_call.arguments, tool_call.id)
 
                 -- Process the calculator call
                 local tool_result
@@ -532,11 +531,11 @@ local function define_tests()
                 end
 
                 -- Add the result back to conversation
-                test_agent:add_function_result(tool_call.name, tool_result, tool_call.id)
+                prompt_builder:add_function_result(tool_call.name, tool_result, tool_call.id)
             end
 
             -- Get final response with tool output incorporated
-            local final_result, err = test_agent:step()
+            local final_result, err = test_agent:step(prompt_builder)
             expect(err).to_be_nil("Error processing conversation")
             expect(final_result).not_to_be_nil()
             expect(final_result.result).not_to_be_nil()
@@ -608,9 +607,13 @@ local function define_tests()
             local parent = test_registry:register(parent_agent_spec)
             local analyst = test_registry:register(data_analyst_spec)
 
+            -- Create prompt builders
+            local parent_prompt = prompt.new()
+            local analyst_prompt = prompt.new()
+
             -- Test the delegation mechanism
-            parent:add_user_message("What is the correlation coefficient in statistics?")
-            local result, err = parent:step()
+            parent_prompt:add_user("What is the correlation coefficient in statistics?")
+            local result, err = parent:step(parent_prompt)
 
             -- Only verify basic error handling
             expect(err).to_be_nil("Error in conversation")
@@ -625,15 +628,15 @@ local function define_tests()
                 expect(target_agent).not_to_be_nil("Target agent not found")
 
                 -- Process the delegate with the target agent
-                target_agent:add_user_message(result.delegate_message)
-                local specialist_result = target_agent:step()
+                analyst_prompt:add_user(result.delegate_message)
+                local specialist_result = target_agent:step(analyst_prompt)
 
                 -- Verify we got a response from the specialist
                 expect(specialist_result).not_to_be_nil("Specialist result is nil")
                 expect(specialist_result.result).not_to_be_nil("No response from specialist")
 
                 -- Close the loop by sending response back to parent
-                parent:add_assistant_message("Delegated to specialist: " .. specialist_result.result)
+                parent_prompt:add_assistant("Delegated to specialist: " .. specialist_result.result)
 
                 print("Delegation test passed")
             else
