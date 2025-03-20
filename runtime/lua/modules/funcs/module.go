@@ -302,7 +302,7 @@ func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 		}
 
 		// Otherwise create a new payload
-		payloads = append(payloads, luaconv.ExportLuaValue(val))
+		payloads = append(payloads, luaconv.ExportPayload(val))
 	}
 
 	return runtime.Task{

@@ -46,7 +46,7 @@ func NewTaskRunner(app *App) *TaskRunner {
 // SendTask sends a task to the specified channel without waiting for response
 func (r *TaskRunner) SendTask(taskType string, input lua.LValue) error {
 	// Create payload
-	inputPayload := luaconv.ExportLuaValue(input)
+	inputPayload := luaconv.ExportPayload(input)
 
 	// Create task without completion callback
 	t := task2.NewTask(inputPayload, nil)
@@ -84,7 +84,7 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	}
 
 	// Create input payload
-	inputPayload := luaconv.ExportLuaValue(input)
+	inputPayload := luaconv.ExportPayload(input)
 
 	// Create result channel
 	resultCh := make(chan runtime.Result, 1)

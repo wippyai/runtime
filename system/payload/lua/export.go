@@ -5,10 +5,10 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// ExportLuaValue exports a Lua value to a payload with optimized table handling.
+// ExportPayload exports a Lua value to a payload with optimized table handling.
 // Tables are efficiently deep copied with proper capacity pre-allocation.
 // Userdata objects are skipped and replaced with nil.
-func ExportLuaValue(value lua.LValue) payload.Payload {
+func ExportPayload(value lua.LValue) payload.Payload {
 	processedValue := processLuaValue(value)
 	return payload.NewPayload(processedValue, payload.Lua)
 }

@@ -72,7 +72,7 @@ func (m *Module) taskComplete(l *lua.LState) int {
 	result := l.CheckAny(2)
 
 	// Create result payload
-	resultPayload := luaconv.ExportLuaValue(result)
+	resultPayload := luaconv.ExportPayload(result)
 
 	// Complete the task
 	err := task.Complete(resultPayload)

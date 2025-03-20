@@ -48,7 +48,7 @@ func (m *mockTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 			}
 			return nil, fmt.Errorf("unsupported data type for transcoding: %T", p.Data())
 		}
-		return luaconv.ExportLuaValue(luaValue), nil
+		return luaconv.ExportPayload(luaValue), nil
 	}
 
 	return nil, fmt.Errorf("unsupported format: %v", format)

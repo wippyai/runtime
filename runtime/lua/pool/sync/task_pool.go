@@ -153,7 +153,7 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 
 	if err == nil {
 		// Set the result value
-		runtimeResult.Value = luaconv.ExportLuaValue(result)
+		runtimeResult.Value = luaconv.ExportPayload(result)
 
 		// Return VM to the pool
 		select {

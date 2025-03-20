@@ -45,7 +45,7 @@ func TestExportLuaValue(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result := ExportLuaValue(tt.input)
+				result := ExportPayload(tt.input)
 				assert.Equal(t, payload.Lua, result.Format())
 
 				resultValue, ok := result.Data().(lua.LValue)
@@ -70,7 +70,7 @@ func TestExportLuaValue(t *testing.T) {
 			return nested
 		}())
 
-		result := ExportLuaValue(tbl)
+		result := ExportPayload(tbl)
 		assert.Equal(t, payload.Lua, result.Format())
 
 		resultTable, ok := result.Data().(*lua.LTable)
@@ -107,7 +107,7 @@ func TestExportLuaValue(t *testing.T) {
 		l.SetTable(tbl, lua.LNumber(10), lua.LString("ten")) // Will be treated as hash part
 		l.SetTable(tbl, lua.LString("key"), lua.LString("value"))
 
-		result := ExportLuaValue(tbl)
+		result := ExportPayload(tbl)
 		resultTable, _ := result.Data().(*lua.LTable)
 
 		// Check values
@@ -120,7 +120,7 @@ func TestExportLuaValue(t *testing.T) {
 
 	t.Run("Deeply nested tables", func(t *testing.T) {
 		original := createNestedTable(l, 5)
-		result := ExportLuaValue(original)
+		result := ExportPayload(original)
 		resultTable, _ := result.Data().(*lua.LTable)
 
 		// Check the deep nesting
@@ -141,7 +141,7 @@ func TestExportLuaValue(t *testing.T) {
 		ud := l.NewUserData()
 		ud.Value = "some go value" // Any Go value
 
-		result := ExportLuaValue(ud)
+		result := ExportPayload(ud)
 		resultValue, _ := result.Data().(lua.LValue)
 
 		// Userdata should be replaced with nil
@@ -154,7 +154,7 @@ func TestExportLuaValue(t *testing.T) {
 		l.SetTable(tbl, lua.LString("regular"), lua.LString("value"))
 		l.SetTable(tbl, lua.LString("userdata"), l.NewUserData())
 
-		result := ExportLuaValue(tbl)
+		result := ExportPayload(tbl)
 		resultTable, _ := result.Data().(*lua.LTable)
 
 		// Regular value should be preserved
@@ -179,7 +179,7 @@ func TestExportLuaValue(t *testing.T) {
 			l.SetTable(largeTable, key, lua.LNumber(i))
 		}
 
-		result := ExportLuaValue(largeTable)
+		result := ExportPayload(largeTable)
 		resultTable, _ := result.Data().(*lua.LTable)
 
 		// Check a few values to ensure correctness

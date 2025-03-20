@@ -69,7 +69,7 @@ func newCommandFunc(l *lua.LState) int {
 		}
 
 		// Otherwise create a new payload
-		params[i] = luaconv.ExportLuaValue(argVal)
+		params[i] = luaconv.ExportPayload(argVal)
 	}
 
 	// Create the command with cancellation handler

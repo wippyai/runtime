@@ -3,6 +3,7 @@ package process
 import (
 	"context"
 	"errors"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	"sync"
 	"sync/atomic"
 
@@ -277,7 +278,7 @@ func (s *State) Complete(err error, result lua.LValue) {
 			onComplete(s.PID, &runtime.Result{Error: err})
 		} else {
 			onComplete(s.PID, &runtime.Result{
-				Value: payload.NewPayload(result, payload.Lua),
+				Value: luaconv.ExportPayload(result),
 			})
 		}
 	}

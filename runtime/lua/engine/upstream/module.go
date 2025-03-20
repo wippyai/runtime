@@ -70,7 +70,7 @@ func (m *Module) send(l *lua.LState) int {
 	}
 
 	// Create a Lua payload from the input value
-	p := luaconv.ExportLuaValue(l.CheckAny(1))
+	p := luaconv.ExportPayload(l.CheckAny(1))
 
 	select {
 	case ch <- p:
