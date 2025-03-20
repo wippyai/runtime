@@ -41,7 +41,6 @@ entries:
     source: file://state.lua
     modules: [ json, uuid ]
     imports:
-      context_repo: "wippy.session:context_repo"
       session_repo: "wippy.session:session_repo"
       message_repo: "wippy.session:message_repo"
       agent_registry: "wippy.agents.gen1:registry"

@@ -39,30 +39,52 @@ local function run(args)
     session:set_conn_pid(args.conn_pid)
     session:set_parent_pid(args.parent_pid)
 
-    -- If creating new session with agent from loader_state meta
-    if args.create and loader_state.meta and loader_state.meta.agent then
-        local _, err = session:initialize_with_agent_name(loader_state.meta.agent, loader_state.meta.model)
-        if err then
-            error("Failed to initialize agent: " .. err)
+    -- Check if the session is already in a failed state
+    if loader_state.status == "failed" then
+        -- Just notify that session is in failed state and continue
+        if args.conn_pid then
+            process.send(args.conn_pid, INIT_TOPIC, {
+                type = MESSAGE_TYPE_SESSION_READY,
+                session_id = loader_state.session_id,
+                agent = loader_state.meta and loader_state.meta.agent,
+                model = loader_state.meta and loader_state.meta.model,
+                status = loader_state.status,
+                last_message_id = loader_state.last_message_id,
+                error = loader_state.error
+            })
         end
     else
-        -- For existing sessions, load message history
-        local _, err = session:load_history()
-        if err then
-            error("Failed to load message history: " .. err)
+        -- Normal session initialization
+        -- If creating new session with agent from loader_state meta
+        if args.create and loader_state.meta and loader_state.meta.agent then
+            -- Initialize with agent name - this will mark the session as failed if agent can't be loaded
+            local _, err = session:initialize_with_agent_name(loader_state.meta.agent, loader_state.meta.model)
+            if err then
+                -- Session has already been marked as failed by initialize_with_agent_name
+                console.error("Failed to initialize agent: " .. err)
+            end
+        else
+            -- For existing sessions, load message history
+            local _, err = session:load_history()
+            if err then
+                -- Mark session as failed if we can't load history
+                session:mark_session_failed("Failed to load message history: " .. err)
+                console.error("Failed to load message history: " .. err)
+            end
         end
-    end
 
-    -- Notify client that session is ready
-    if args.conn_pid then
-        process.send(args.conn_pid, INIT_TOPIC, {
-            type = MESSAGE_TYPE_SESSION_READY,
-            session_id = loader_state.session_id,
-            agent = loader_state.meta and loader_state.meta.agent,
-            model = loader_state.meta and loader_state.meta.model,
-            status = loader_state.status,
-            last_message_id = loader_state.last_message_id
-        })
+        -- Notify client that session is ready
+        if args.conn_pid then
+            process.send(args.conn_pid, INIT_TOPIC, {
+                type = MESSAGE_TYPE_SESSION_READY,
+                session_id = loader_state.session_id,
+                agent = loader_state.meta and loader_state.meta.agent,
+                model = loader_state.meta and loader_state.meta.model,
+                status = session.status, -- Use updated status that might be "failed"
+                last_message_id = loader_state.last_message_id,
+                error = session.status == "failed" and "Session initialization failed" or nil
+            })
+        end
     end
 
     -- Define message handlers
@@ -82,6 +104,18 @@ local function run(args)
             -- Update conn_pid if provided
             if payload.conn_pid then
                 session:set_conn_pid(payload.conn_pid)
+            end
+
+            -- Don't process messages if session is in failed state
+            if session.status == "failed" then
+                -- Notify that session is in failed state
+                session:broadcast({
+                    type = MSG_TYPE.SYSTEM,
+                    session_id = session.session_id,
+                    status = "failed",
+                    message = "Session is in failed state and cannot process messages"
+                })
+                return state
             end
 
             -- Process the message
@@ -115,6 +149,19 @@ local function run(args)
                 session:set_conn_pid(payload.conn_pid)
             end
 
+            -- Don't process commands if session is in failed state,
+            -- except for the special "reset" command that can recover a failed session
+            if session.status == "failed" and payload.command ~= "reset" then
+                -- Notify that session is in failed state
+                session:broadcast({
+                    type = MSG_TYPE.SYSTEM,
+                    session_id = session.session_id,
+                    status = "failed",
+                    message = "Session is in failed state and cannot process commands"
+                })
+                return state
+            end
+
             local command = payload.command
 
             if command == "stop" then
@@ -127,6 +174,18 @@ local function run(args)
                 -- Switch to a different agent by name
                 if payload.data and payload.data.name then
                     session:change_agent(payload.data.name)
+                end
+            elseif command == "reset" then
+                -- Special command to attempt to recover a failed session
+                -- by resetting it to idle and trying to reload everything
+                if session.status == "failed" and payload.data and payload.data.agent then
+                    -- Try to reset by changing to a specified agent
+                    session.status = "idle"
+                    session_repo.update_session_meta(
+                        session.session_id,
+                        { status = "idle", error = nil }
+                    )
+                    session:change_agent(payload.data.agent)
                 end
             end
 

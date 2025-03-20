@@ -25,7 +25,7 @@ entries:
       comment: "Agent registry library for discovering and loading gen1 agents"
       type: "library"
     source: file://registry.lua
-    modules: [ "registry" ]
+    modules: [ "registry", "json" ]
     imports:
       traits: "wippy.agents:traits"
 

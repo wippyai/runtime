@@ -1,6 +1,4 @@
-local json = require("json")
 local uuid = require("uuid")
-local context_repo = require("context_repo")
 local session_repo = require("session_repo")
 local message_repo = require("message_repo")
 local agent_registry = require("agent_registry")
@@ -20,7 +18,8 @@ local MSG_TYPE = {
 local STATUS = {
     IDLE = "idle",
     RUNNING = "running",
-    ERROR = "error"
+    ERROR = "error",
+    FAILED = "failed" -- New status for permanent failures
 }
 
 -- SessionState class
@@ -100,13 +99,43 @@ function SessionState:load_history()
     return self
 end
 
+-- Mark session as permanently failed
+function SessionState:mark_session_failed(error_message)
+    -- Update session status to FAILED in the database
+    self.status = STATUS.FAILED
+    local update_result, err = session_repo.update_session_meta(
+        self.session_id,
+        {
+            status = STATUS.FAILED,
+            error = error_message
+        }
+    )
+
+    if err then
+        print("Failed to mark session as failed: " .. err)
+    end
+
+    -- Notify clients about permanent failure
+    self:broadcast({
+        type = MSG_TYPE.SYSTEM,
+        session_id = self.session_id,
+        status = STATUS.FAILED,
+        message = "Session failed: " .. error_message
+    })
+
+    return self
+end
+
 -- Lazy load the agent when needed
 function SessionState:_load_agent()
     if not self.agent and self.agent_id then
-        -- Get agent spec first from the registry
-        local agent_spec, err = agent_registry.get_by_id(self.agent_id)
+        -- Get agent spec by name from the agent_id
+        local agent_name = self.agent_id -- agent_id is actually the agent name
+        local agent_spec, err = agent_registry.get_by_id(agent_name)
         if not agent_spec then
-            return nil, "Failed to load agent spec: " .. (err or "Unknown error")
+            local error_msg = "Failed to load agent spec: " .. (err or "Unknown error")
+            self:mark_session_failed(error_msg)
+            return nil, error_msg
         end
 
         -- Override the model if specified
@@ -117,25 +146,27 @@ function SessionState:_load_agent()
         -- Create new agent runner from spec
         local agent, err = agent_runner.new(agent_spec)
         if err then
-            return nil, "Failed to create agent: " .. err
-        }
+            local error_msg = "Failed to create agent: " .. err
+            self:mark_session_failed(error_msg)
+            return nil, error_msg
+        end
 
         -- Set the agent
         self.agent = agent
 
         -- Initialize with prompt history
         if self.prompt_builder then
-            -- Initialize with the current prompt history
+            -- Init agent
             local messages = self.prompt_builder:get_messages()
             for _, msg in ipairs(messages) do
                 if msg.role == "user" then
-                    self.agent:add_user_message(msg.content)
+                    self.agent:add_user_message(msg)
                 elseif msg.role == "assistant" then
-                    self.agent:add_assistant_message(msg.content)
+                    self.agent:add_assistant_message(msg)
                 end
             end
         end
-    }
+    end
 
     return self.agent
 end
@@ -152,11 +183,6 @@ function SessionState:broadcast(message, topic_suffix)
         topic = topic .. ":" .. topic_suffix
     end
 
-    -- Send to current connection if available
-    if self.conn_pid then
-        process.send(self.conn_pid, topic, message)
-    end
-
     -- Send to parent (which can relay to all connections)
     if self.parent_pid then
         process.send(self.parent_pid, topic, message)
@@ -167,31 +193,24 @@ end
 
 -- Initialize with agent by name
 function SessionState:initialize_with_agent_name(agent_name, model)
-    -- Get agent spec by name (not ID)
     local agent_spec, err = agent_registry.get_by_name(agent_name)
     if not agent_spec then
-        return nil, "Failed to load agent by name: " .. (err or "Unknown error")
+        local error_msg = "Failed to load agent by name: " .. (err or "Unknown error")
+        self:mark_session_failed(error_msg)
+        return nil, error_msg
     end
 
     -- Set agent ID from spec
     self.agent_id = agent_spec.id
     self.model = model or agent_spec.model
 
-    -- Store in context
-    self.context_data.agent_id = self.agent_id
-    self.context_data.model = self.model
-
     -- Reset the agent instance to force a reload
     self.agent = nil
 
-    -- Update context in DB
-    local update_result, err = context_repo.update(
-        self.primary_context_id,
-        json.encode(self.context_data)
-    )
-
     if err then
-        return nil, "Failed to update context: " .. err
+        local error_msg = "Failed to update context: " .. err
+        self:mark_session_failed(error_msg)
+        return nil, error_msg
     end
 
     -- Update session metadata
@@ -205,7 +224,9 @@ function SessionState:initialize_with_agent_name(agent_name, model)
     )
 
     if err then
-        return nil, "Failed to update session: " .. err
+        local error_msg = "Failed to update session: " .. err
+        self:mark_session_failed(error_msg)
+        return nil, error_msg
     end
 
     -- Send notification
@@ -236,13 +257,6 @@ function SessionState:change_agent(agent_name)
 
     -- Update agent ID
     self.agent_id = agent_spec.id
-    self.context_data.agent_id = self.agent_id
-
-    -- Update context in DB
-    local update_result, err = context_repo.update(
-        self.primary_context_id,
-        json.encode(self.context_data)
-    )
 
     if err then
         return nil, "Failed to update context: " .. err
@@ -306,6 +320,11 @@ function SessionState:process_message(message_data)
     -- Validate
     if not message_data.text or message_data.text == "" then
         return nil, "Message text cannot be empty"
+    end
+
+    -- Check if session is in failed state
+    if self.status == STATUS.FAILED then
+        return nil, "Session is in a failed state and cannot process messages"
     end
 
     -- Check if already processing
@@ -378,6 +397,12 @@ end
 function SessionState:execute_agent(message_info)
     local message_id = message_info.message_id
     local message_text = message_info.text
+
+    -- Check if session is in failed state
+    if self.status == STATUS.FAILED then
+        self:_handle_error(message_id, "Session is in a failed state and cannot execute agent")
+        return nil, "Session in failed state"
+    end
 
     -- Lazy-load agent if needed
     local agent, err = self:_load_agent()
