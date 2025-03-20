@@ -1,0 +1,67 @@
+version: "1.0"
+namespace: wippy.session.http
+
+meta:
+  depends_on: [ ns:app, ns:wippy.session ]
+  description: "Session management HTTP endpoints"
+
+entries:
+  # List user sessions
+  - name: list_sessions
+    kind: function.lua
+    meta:
+      comment: "List all user sessions"
+      depends_on: [ session_repo ]
+    source: file://sessions_endpoint.lua
+    method: handler
+    modules: [ http, security, session_repo ]
+
+  - name: list_sessions.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "List sessions endpoint"
+      router: app:api
+      depends_on: [ app:api ]
+    method: GET
+    path: /sessions
+    func: list_sessions
+
+  # Get session messages
+  - name: session_messages
+    kind: function.lua
+    meta:
+      comment: "Get messages for a session"
+      depends_on: [ session_repo, message_repo ]
+    source: file://session_messages_endpoint.lua
+    method: handler
+    modules: [ http, security, session_repo, message_repo ]
+
+  - name: session_messages.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Session messages endpoint"
+      router: app:api
+      depends_on: [ app:api ]
+    method: GET
+    path: /sessions/messages
+    func: session_messages
+
+  # Get specific session details
+  - name: get_session
+    kind: function.lua
+    meta:
+      comment: "Get detailed session info"
+      depends_on: [ session_repo, message_repo ]
+    source: file://session_get_endpoint.lua
+    method: handler
+    modules: [ http, security, session_repo, message_repo ]
+
+  - name: get_session.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Get session endpoint"
+      router: app:api
+      depends_on: [ app:api ]
+    method: GET
+    path: /sessions/get
+    func: get_session

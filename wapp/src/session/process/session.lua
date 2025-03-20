@@ -1,4 +1,3 @@
--- session.lua
 local time = require("time")
 local json = require("json")
 local actor = require("actor")
