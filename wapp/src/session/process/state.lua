@@ -12,6 +12,7 @@ local MSG_TYPE = {
     SYSTEM = "system",
     THINKING = "thinking",
     CONTENT = "content",
+    RESULT = "result",
     DONE = "done"
 }
 
@@ -560,7 +561,7 @@ function SessionState:execute_agent(agent_info)
 
     -- Send content to client
     self:broadcast({
-        type = MSG_TYPE.CONTENT,
+        type = MSG_TYPE.RESULT,
         message_id = response_id,
         content = result.result
     }, message_id)
