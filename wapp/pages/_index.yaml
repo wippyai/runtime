@@ -1,0 +1,16 @@
+version: "1.0"
+namespace: fortress.pages
+
+meta:
+  description: "Static pages for Fortress platform"
+
+entries:
+  - name: welcome-page
+    kind: registry.entry
+    meta:
+      type: "virtual.page"
+      name: "welcome"
+      title: "Welcome"
+      icon: "icon-home"
+      content_type: "text/html"
+    source: file://welcome.html
