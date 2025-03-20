@@ -336,6 +336,10 @@ local function run(args)
 
         -- Forward any other messages to clients (including responses from sessions)
         __default = function(state, payload, topic)
+            if topic == "ws.heartbeat" then
+                return state
+            end
+
             broadcast_to_clients(state, topic, payload)
             return state
         end

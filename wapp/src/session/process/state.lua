@@ -180,9 +180,6 @@ function SessionState:broadcast(message, topic_suffix)
 
     -- Send to parent (which can relay to all connections)
     if self.parent_pid then
-
-        print("PARENT SNED", self.parent_pid)
-
         process.send(self.parent_pid, topic, message)
     end
 
@@ -422,7 +419,7 @@ function SessionState:execute_agent(agent_info)
     local stream_options = nil
     if self.conn_pid then
         stream_options = {
-            pid = self.conn_pid,
+            reply_to = self.conn_pid,
             topic = "update:" .. self.session_id .. ":" .. message_id
         }
     end
