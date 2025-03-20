@@ -2,7 +2,7 @@ local json = require("json")
 local actor = require("actor")
 local session_state = require("session_state")
 local loader = require("loader")
-local session_updater = require("updater")
+local session_updater = require("session_updater")
 
 -- Topic constants
 local MESSAGE_TOPIC = "message"
@@ -27,7 +27,9 @@ local CMD = {
 local ERROR_CODE = {
     FAILED = "FAILED",
     ERROR = "ERROR",
-    BUSY = "BUSY"
+    BUSY = "BUSY",
+    AGENT_ERROR = "AGENT_ERROR",
+    DB_ERROR = "DB_ERROR"
 }
 
 -- Error message constants
@@ -38,7 +40,8 @@ local ERR = {
     FAILED_COMMANDS = "Session is in failed state and cannot process commands",
     INIT_FAILED = "Session initialization failed",
     EXEC_AGENT = "Error executing agent",
-    BUSY = "Session is already processing a message"
+    BUSY = "Session is already processing a message",
+    UNSUPPORTED_COMMAND = "Unsupported command"
 }
 
 local function run(args)
@@ -83,10 +86,8 @@ local function run(args)
         -- Initialize with agent name
         local success, init_err = state:initialize_with_agent_name(loader_state.meta.agent, loader_state.meta.model)
         if not success then
-            -- Mark session as failed using state to update DB
+            -- Session state has already updated the DB status
             session_status = STATUS.FAILED
-            state:update_session_status(STATUS.FAILED, init_err)
-
             updater:session_error(ERROR_CODE.FAILED, init_err)
             error(init_err)
         end
@@ -94,10 +95,9 @@ local function run(args)
         -- For existing sessions, load message history
         local success, history_err = state:load_history()
         if not success then
-            -- Mark session as failed using state to update DB
+            -- Session state has already updated the DB status
             session_status = STATUS.FAILED
             state:update_session_status(STATUS.FAILED, history_err)
-
             updater:session_error(ERROR_CODE.FAILED, history_err)
             error(history_err)
         end
@@ -108,7 +108,7 @@ local function run(args)
         agent = loader_state.meta and loader_state.meta.agent,
         model = loader_state.meta and loader_state.meta.model,
         status = session_status,
-        last_message_date = loader_state.last_message_date
+        last_message_date = loader_state.last_message_date,
     })
 
     -- Flag to track generation stop requests
@@ -157,21 +157,18 @@ local function run(args)
             -- Update session status via session_state
             session_status = STATUS.RUNNING
             state:update_session_status(STATUS.RUNNING)
-
-            -- Update clients about status change
-            updater:update_session({
-                status = STATUS.RUNNING
-            })
+            updater:update_session({ status = STATUS.RUNNING })
 
             -- Process the message
             local next, msg_err = state:process_message(payload.data)
-            if msg_err then
+            if not next then
                 -- Handle error, reset status via session_state
                 session_status = STATUS.ERROR
                 state:update_session_status(STATUS.ERROR)
-                updater:update_session({
-                    status = STATUS.ERROR
-                })
+
+                -- Notify clients about the error
+                updater:session_error(ERROR_CODE.ERROR, msg_err)
+
                 print("Error processing message:", msg_err)
                 return actor_state
             end
@@ -182,16 +179,12 @@ local function run(args)
                 if stop_requested then
                     session_status = STATUS.IDLE
                     state:update_session_status(STATUS.IDLE)
-
-                    updater:update_session({
-                        status = STATUS.IDLE
-                    })
+                    updater:update_session({ status = STATUS.IDLE })
                     return { stopped = true }
                 end
 
                 local exec_result, exec_err = state:execute_agent(next, stop_requested)
-
-                if exec_err then
+                if not exec_result then
                     print("error executing agent:", exec_err)
                     return nil, exec_err
                 end
@@ -202,18 +195,17 @@ local function run(args)
                     print("async execution error:", error)
                     session_status = STATUS.ERROR
                     state:update_session_status(STATUS.ERROR)
-
                     updater:session_error(ERROR_CODE.ERROR, ERR.EXEC_AGENT .. ": " .. error)
+
+                    -- todo: we probably can retry, right?
+
                     return
                 end
 
                 -- Always update to idle state when complete, whether stopped or not
                 session_status = STATUS.IDLE
                 state:update_session_status(STATUS.IDLE)
-
-                updater:update_session({
-                    status = STATUS.IDLE
-                })
+                updater:update_session({ status = STATUS.IDLE })
             end)
 
             return actor_state
@@ -253,12 +245,20 @@ local function run(args)
                 end
             elseif command == CMD.MODEL then
                 if payload.data and payload.data.name then
-                    state:change_model(payload.data.name)
+                    local success, err = state:change_model(payload.data.name)
+                    if not success then
+                        updater:session_error(ERROR_CODE.ERROR, err)
+                    end
                 end
             elseif command == CMD.AGENT then
                 if payload.data and payload.data.name then
-                    state:change_agent(payload.data.name)
+                    local success, err = state:change_agent(payload.data.name)
+                    if not success then
+                        updater:session_error(ERROR_CODE.ERROR, err)
+                    end
                 end
+            else
+                updater:session_error(ERROR_CODE.ERROR, ERR.UNSUPPORTED_COMMAND)
             end
 
             return actor_state

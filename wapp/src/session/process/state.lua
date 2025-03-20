@@ -5,11 +5,8 @@ local agent_registry = require("agent_registry")
 local agent_runner = require("agent_runner")
 local prompt = require("prompt")
 
--- Constants
-local MSG_TYPE = {
-    USER = "user",
-    ASSISTANT = "assistant",
-    THINKING = "thinking",
+-- Message types for UI updates (not actual message roles)
+local UI_MSG_TYPE = {
     CONTENT = "content"
 }
 
@@ -21,14 +18,6 @@ local STATUS = {
     FAILED = "failed"
 }
 
--- Error code constants
-local ERROR_CODE = {
-    FAILED = "FAILED",
-    ERROR = "ERROR",
-    AGENT_ERROR = "AGENT_ERROR",
-    DB_ERROR = "DB_ERROR"
-}
-
 -- Error message constants
 local ERR = {
     EMPTY_MESSAGE = "Message text cannot be empty",
@@ -38,7 +27,11 @@ local ERR = {
     MESSAGE_ID_FAILED = "Failed to generate message ID",
     RESPONSE_ID_FAILED = "Failed to generate response ID",
     STORE_MESSAGE_FAILED = "Failed to store message",
-    STORE_RESPONSE_FAILED = "Failed to store response"
+    STORE_RESPONSE_FAILED = "Failed to store response",
+    AGENT_NAME_REQUIRED = "Agent name is required",
+    MODEL_NAME_REQUIRED = "Model name is required",
+    FUNCTION_NAME_REQUIRED = "Function name is required",
+    FUNCTION_RESULT_REQUIRED = "Function result is required"
 }
 
 -- SessionState class
@@ -116,7 +109,6 @@ end
 
 -- Load message history
 function session_state:load_history()
-    -- Load conversation history
     local messages, err = message_repo.list_by_session(self.session_id)
     if err then
         return nil, "Failed to load messages: " .. err
@@ -128,28 +120,44 @@ function session_state:load_history()
 
         -- Rebuild conversation history
         for _, msg in ipairs(messages) do
-            if msg.type == MSG_TYPE.USER then
+            -- Convert stored text/metadata to the appropriate prompt builder method
+            if msg.type == prompt.ROLE.SYSTEM then
+                self.prompt_builder:add_system(msg.data)
+            elseif msg.type == prompt.ROLE.USER then
                 self.prompt_builder:add_user(msg.data)
-            elseif msg.type == MSG_TYPE.ASSISTANT then
+            elseif msg.type == prompt.ROLE.ASSISTANT then
                 self.prompt_builder:add_assistant(msg.data)
+            elseif msg.type == prompt.ROLE.DEVELOPER then
+                self.prompt_builder:add_developer(msg.data)
+            elseif msg.type == prompt.ROLE.FUNCTION then
+                -- Function result messages include function name in metadata
+                local meta = msg.metadata or {}
+                self.prompt_builder:add_function_result(
+                    meta.function_name,
+                    msg.data,
+                    meta.function_call_id
+                )
+            elseif msg.type == prompt.ROLE.FUNCTION_CALL then
+                -- Function call messages have function details in metadata
+                local meta = msg.metadata or {}
+                self.prompt_builder:add_function_call(
+                    meta.function_name,
+                    msg.data, -- Contains the arguments
+                    meta.function_call_id
+                )
             end
+            -- Skip other message types as they don't belong in the prompt
         end
     end
 
     return true
 end
 
--- Mark session as permanently failed
+-- Update database with failed status (no client notifications)
 function session_state:mark_session_failed(error_message)
-    -- Update session status to FAILED in the database
+    -- Update session status to FAILED in the database only
     self.status = STATUS.FAILED
     self:update_session_status(STATUS.FAILED, error_message)
-
-    -- Notify clients about permanent failure
-    if self.updater then
-        self.updater:session_error(ERROR_CODE.FAILED, error_message)
-    end
-
     return true
 end
 
@@ -161,7 +169,7 @@ function session_state:_load_agent()
         local agent_spec, err = agent_registry.get_by_id(agent_name)
         if not agent_spec then
             local error_msg = ERR.AGENT_LOAD_FAILED .. ": " .. (err or "Unknown error")
-            self:mark_session_failed(error_msg)
+            self:update_session_status(STATUS.FAILED, error_msg)
             return nil, error_msg
         end
 
@@ -174,7 +182,7 @@ function session_state:_load_agent()
         local agent, err = agent_runner.new(agent_spec)
         if err then
             local error_msg = ERR.AGENT_LOAD_FAILED .. ": " .. err
-            self:mark_session_failed(error_msg)
+            self:update_session_status(STATUS.FAILED, error_msg)
             return nil, error_msg
         end
 
@@ -198,7 +206,7 @@ function session_state:initialize_with_agent_name(agent_name, model)
     local agent_spec, err = agent_registry.get_by_name(agent_name)
     if not agent_spec then
         local error_msg = ERR.AGENT_LOAD_FAILED .. ": " .. (err or "Unknown error")
-        self:mark_session_failed(error_msg)
+        self:update_session_status(STATUS.FAILED, error_msg)
         return nil, error_msg
     end
 
@@ -221,16 +229,8 @@ function session_state:initialize_with_agent_name(agent_name, model)
 
     if err then
         local error_msg = "Failed to update session: " .. err
-        self:mark_session_failed(error_msg)
+        self:update_session_status(STATUS.FAILED, error_msg)
         return nil, error_msg
-    end
-
-    -- Send notification about agent/model change using updater
-    if self.updater then
-        self.updater:update_session({
-            agent = agent_name,
-            model = self.model
-        })
     end
 
     return true
@@ -239,7 +239,7 @@ end
 -- Change to a different agent
 function session_state:change_agent(agent_name)
     if not agent_name then
-        return nil, "Agent name is required"
+        return nil, ERR.AGENT_NAME_REQUIRED
     end
 
     -- Reset agent instance
@@ -277,7 +277,7 @@ end
 -- Change model
 function session_state:change_model(model)
     if not model then
-        return nil, "Model name is required"
+        return nil, ERR.MODEL_NAME_REQUIRED
     end
 
     -- Update model
@@ -307,30 +307,23 @@ function session_state:change_model(model)
     return true
 end
 
--- Process incoming message
-function session_state:process_message(message_data)
-    -- Validate
-    if not message_data.text or message_data.text == "" then
-        return nil, ERR.EMPTY_MESSAGE
-    end
-
+-- Process different message types
+function session_state:add_message(message_type, message_content, metadata)
     -- Generate message ID
     local message_id, err = uuid.v7()
     if err then
         return nil, ERR.MESSAGE_ID_FAILED .. ": " .. err
     end
 
-    -- Create message in DB
-    local metadata = {
-        source = "user",
-        files = message_data.file_uuids or {}
-    }
+    -- Default metadata if not provided
+    metadata = metadata or {}
 
+    -- Create message in DB
     local msg, err = message_repo.create(
         message_id,
         self.session_id,
-        MSG_TYPE.USER,
-        message_data.text,
+        message_type,
+        message_content,
         metadata
     )
 
@@ -338,38 +331,113 @@ function session_state:process_message(message_data)
         return nil, ERR.STORE_MESSAGE_FAILED .. ": " .. err
     end
 
-    -- Add to prompt builder
-    self.prompt_builder:add_user(message_data.text)
+    -- Add to prompt builder based on message type
+    if message_type == prompt.ROLE.SYSTEM then
+        self.prompt_builder:add_system(message_content)
+    elseif message_type == prompt.ROLE.USER then
+        self.prompt_builder:add_user(message_content)
+    elseif message_type == prompt.ROLE.ASSISTANT then
+        self.prompt_builder:add_assistant(message_content)
+    elseif message_type == prompt.ROLE.DEVELOPER then
+        self.prompt_builder:add_developer(message_content)
+    elseif message_type == prompt.ROLE.FUNCTION then
+        self.prompt_builder:add_function_result(
+            metadata.function_name,
+            message_content,
+            metadata.function_call_id
+        )
+    elseif message_type == prompt.ROLE.FUNCTION_CALL then
+        self.prompt_builder:add_function_call(
+            metadata.function_name,
+            message_content, -- Contains the arguments
+            metadata.function_call_id
+        )
+    end
 
-    -- Notify clients using updater about message reception
+    return message_id
+end
+
+-- Add system message
+function session_state:add_system_message(content)
+    if not content or content == "" then
+        return nil, ERR.EMPTY_MESSAGE
+    end
+
+    return self:add_message(prompt.ROLE.SYSTEM, content)
+end
+
+-- Add developer message
+function session_state:add_developer_message(content)
+    if not content or content == "" then
+        return nil, ERR.EMPTY_MESSAGE
+    end
+
+    return self:add_message(prompt.ROLE.DEVELOPER, content)
+end
+
+-- Add function result
+function session_state:add_function_result(function_name, content, function_call_id)
+    if not function_name then
+        return nil, ERR.FUNCTION_NAME_REQUIRED
+    end
+
+    if not content then
+        return nil, ERR.FUNCTION_RESULT_REQUIRED
+    end
+
+    local metadata = {
+        function_name = function_name,
+        function_call_id = function_call_id
+    }
+
+    return self:add_message(prompt.ROLE.FUNCTION, content, metadata)
+end
+
+-- Add function call
+function session_state:add_function_call(function_name, arguments, function_call_id)
+    if not function_name then
+        return nil, ERR.FUNCTION_NAME_REQUIRED
+    end
+
+    local metadata = {
+        function_name = function_name,
+        function_call_id = function_call_id
+    }
+
+    -- Arguments are stored as the message content, typically JSON
+    return self:add_message(prompt.ROLE.FUNCTION_CALL, arguments, metadata)
+end
+
+-- Process incoming user message
+function session_state:process_message(message_data)
+    -- Validate
+    if not message_data.text or message_data.text == "" then
+        return nil, ERR.EMPTY_MESSAGE
+    end
+
+    -- Generate message ID
+    local message_id = self:add_message(prompt.ROLE.USER, message_data.text, {
+        source = "user",
+        files = message_data.file_uuids or {}
+    })
+
+    if not message_id then
+        return nil, ERR.STORE_MESSAGE_FAILED
+    end
+
+    -- Notify clients about message reception (message-specific update)
     if self.updater then
         self.updater:message_received(message_id, message_data.text)
-
-        -- Include message_id in session update so FE knows which message was accepted
-        self.updater:update_session({
-            message_id = message_id
-        })
     end
 
     -- Lazy-load agent if needed
     local agent, err = self:_load_agent()
     if err then
-        if self.updater then
-            self.updater:message_error(message_id, ERROR_CODE.AGENT_ERROR, err)
-        end
         return nil, err
     end
 
     if not agent then
-        if self.updater then
-            self.updater:message_error(message_id, ERROR_CODE.AGENT_ERROR, ERR.NO_AGENT)
-        end
         return nil, ERR.NO_AGENT
-    end
-
-    -- Send thinking notification - without unnecessary content
-    if self.updater then
-        self.updater:_send_message_update(message_id, "thinking", {})
     end
 
     -- Return message info for execution
@@ -399,18 +467,12 @@ function session_state:execute_agent(agent_info, stop_requested)
     local result, err = self.agent:step(prompt_slice, stream_options)
 
     if err then
-        if self.updater then
-            self.updater:message_error(message_id, ERROR_CODE.AGENT_ERROR, err)
-        end
         return nil, err
     end
 
     -- Generate response ID
     local response_id, err = uuid.v7()
     if err then
-        if self.updater then
-            self.updater:message_error(message_id, ERROR_CODE.ERROR, ERR.RESPONSE_ID_FAILED)
-        end
         return nil, ERR.RESPONSE_ID_FAILED
     end
 
@@ -434,24 +496,21 @@ function session_state:execute_agent(agent_info, stop_requested)
     local resp, err = message_repo.create(
         response_id,
         self.session_id,
-        MSG_TYPE.ASSISTANT,
+        prompt.ROLE.ASSISTANT,
         result.result,
         metadata
     )
 
     if err then
-        if self.updater then
-            self.updater:message_error(message_id, ERROR_CODE.DB_ERROR, ERR.STORE_RESPONSE_FAILED .. ": " .. err)
-        end
         return nil, ERR.STORE_RESPONSE_FAILED .. ": " .. err
     end
 
     -- Update prompt builder with assistant response
     self.prompt_builder:add_assistant(result.result)
 
-    -- Send content and token usage to client using updater
+    -- Send content and token usage to client (message-specific updates)
     if self.updater then
-        self.updater:_send_message_update(message_id, "content", {
+        self.updater:_send_message_update(message_id, UI_MSG_TYPE.CONTENT, {
             content = result.result
         })
 
