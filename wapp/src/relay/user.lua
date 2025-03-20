@@ -319,10 +319,8 @@ local function run(args)
                 -- Forward command to session if it exists
                 local session_pid = state.active_sessions[session_id]
                 if session_pid then
-                    process.send(session_pid, SESSION_COMMAND_TOPIC, {
-                        conn_pid = from,
-                        data = data
-                    })
+                    data["conn_pid"] = from
+                    process.send(session_pid, SESSION_COMMAND_TOPIC, data)
                 else
                     -- Send error when trying to send command to a non-existent session
                     process.send(from, CLIENT_ERROR_TOPIC, {

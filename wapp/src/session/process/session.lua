@@ -217,11 +217,6 @@ local function run(args)
                 return actor_state
             end
 
-            -- Update connection PID if provided
-            if payload.conn_pid then
-                updater.conn_pid = payload.conn_pid
-            end
-
             -- Don't process commands if session is in failed state
             if session_status == STATUS.FAILED then
                 updater:session_error(ERROR_CODE.FAILED, ERR.FAILED_COMMANDS)
@@ -244,15 +239,15 @@ local function run(args)
                     })
                 end
             elseif command == CMD.MODEL then
-                if payload.data and payload.data.name then
-                    local success, err = state:change_model(payload.data.name)
+                if  payload.name then
+                    local success, err = state:change_model(payload.name)
                     if not success then
                         updater:session_error(ERROR_CODE.ERROR, err)
                     end
                 end
             elseif command == CMD.AGENT then
-                if payload.data and payload.data.name then
-                    local success, err = state:change_agent(payload.data.name)
+                if payload.name then
+                    local success, err = state:change_agent(payload.name)
                     if not success then
                         updater:session_error(ERROR_CODE.ERROR, err)
                     end
