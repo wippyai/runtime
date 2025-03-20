@@ -111,6 +111,11 @@ local function run(args)
             return actor.exit({ status = "shutdown" })
         end,
 
+        __default = function(state, payload)
+            print("Unhandled message:", require("json").encode(payload))
+            return state
+        end,
+
         -- Handle user messages
         [SESSION_MESSAGE_TOPIC] = function(state, payload)
             if not payload or not payload.data then
@@ -144,16 +149,12 @@ local function run(args)
 
             -- Execute agent asynchronously using state.async
             state.async(function()
-                print("RUNNING AGENT")
                 local exec_result, exec_err = session:execute_agent(result)
 
                 if exec_err then
                     print("Error executing agent:", exec_err)
                     return nil, exec_err
                 end
-
-                -- Log the result for debugging
-                print(require("json").encode(exec_result))
 
                 return exec_result
             end).on_complete(function(state, result, error)

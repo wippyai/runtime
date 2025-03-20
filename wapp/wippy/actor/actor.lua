@@ -169,6 +169,7 @@ function actor.new(initial_state, handlers)
 
             local current_topic = topic
             local current_payload = payload
+            local is_default = false
 
             while true do
                 -- Get the appropriate handler
@@ -177,7 +178,7 @@ function actor.new(initial_state, handlers)
                     -- If no specific handler and we're not already trying default
                     handler = handlers.__default
                     if handler then
-                        current_topic = "__default"
+                        is_default = true
                     end
                 end
 
@@ -202,12 +203,14 @@ function actor.new(initial_state, handlers)
                     if not next_topic then
                         if handlers.__default then
                             current_topic = "__default"
+                            is_default = true
                         else
                             -- No more handlers to try
                             return nil
                         end
                     else
                         current_topic = next_topic
+                        is_default = false
                     end
                 else
                     return reply

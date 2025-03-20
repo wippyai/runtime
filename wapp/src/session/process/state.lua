@@ -180,6 +180,9 @@ function SessionState:broadcast(message, topic_suffix)
 
     -- Send to parent (which can relay to all connections)
     if self.parent_pid then
+
+        print("PARENT SNED", self.parent_pid)
+
         process.send(self.parent_pid, topic, message)
     end
 
@@ -271,7 +274,7 @@ function SessionState:change_agent(agent_name)
     self:broadcast({
         type = MSG_TYPE.SYSTEM,
         session_id = self.session_id,
-        message = "Agent changed to: " .. agent_name
+        agent = agent_name
     })
 
     return self
@@ -304,7 +307,7 @@ function SessionState:change_model(model)
     self:broadcast({
         type = MSG_TYPE.SYSTEM,
         session_id = self.session_id,
-        message = "Model changed to: " .. model
+        model = model
     })
 
     return self
@@ -374,7 +377,7 @@ function SessionState:process_message(message_data)
 
     -- Notify clients
     self:broadcast({
-        type = MSG_TYPE.SYSTEM,
+        type = MSG_TYPE.SYSTEM, -- todo use proper type
         message_id = message_id,
         session_id = self.session_id,
         status = STATUS.RUNNING,
@@ -438,93 +441,96 @@ function SessionState:execute_agent(agent_info)
         return nil, "Failed to generate response ID"
     end
 
-    -- Handle tool calls if present
-    if result.tool_calls and #result.tool_calls > 0 then
-        -- Check if this is a delegation
-        if result.delegate_target then
-            -- Store the delegation as a message
-            local delegation_metadata = {
-                agent_id = self.agent_id,
-                model = self.model,
-                tokens = result.tokens,
-                delegate_target = result.delegate_target,
-                delegate_message = result.delegate_message
-            }
+    ---- Handle tool calls if present
+    --if result.tool_calls and #result.tool_calls > 0 then
+    --    -- Check if this is a delegation
+    --    if result.delegate_target then
+    --        -- Store the delegation as a message
+    --        local delegation_metadata = {
+    --            agent_id = self.agent_id,
+    --            model = self.model,
+    --            tokens = result.tokens,
+    --            delegate_target = result.delegate_target,
+    --            delegate_message = result.delegate_message
+    --        }
+    --
+    --        local resp, err = message_repo.create(
+    --            response_id,
+    --            self.session_id,
+    --            "delegation", -- Message type for delegations
+    --            result.delegate_message,
+    --            delegation_metadata
+    --        )
+    --
+    --        if err then
+    --            self:_handle_error(message_id, "Failed to store delegation: " .. err)
+    --            return nil, "Failed to store delegation: " .. err
+    --        end
+    --
+    --        -- Broadcast delegation event
+    --        self:broadcast({
+    --            type = "delegation",
+    --            message_id = message_id,
+    --            target_agent = result.delegate_target,
+    --            message = result.delegate_message
+    --        }, message_id)
+    --
+    --        -- Update session status
+    --        self.status = STATUS.IDLE
+    --        session_repo.update_session_meta(self.session_id, { status = STATUS.IDLE })
+    --
+    --        return {
+    --            message_id = message_id,
+    --            response_id = response_id,
+    --            delegation = {
+    --                target = result.delegate_target,
+    --                message = result.delegate_message
+    --            }
+    --        }
+    --    else
+    --        -- Handle regular tool calls (placeholder implementation)
+    --        local tool_call_metadata = {
+    --            agent_id = self.agent_id,
+    --            model = self.model,
+    --            tokens = result.tokens,
+    --            tool_calls = result.tool_calls
+    --        }
+    --
+    --        local resp, err = message_repo.create(
+    --            response_id,
+    --            self.session_id,
+    --            "tool_call", -- Message type for tool calls
+    --            result.result,
+    --            tool_call_metadata
+    --        )
+    --
+    --        if err then
+    --            self:_handle_error(message_id, "Failed to store tool call: " .. err)
+    --            return nil, "Failed to store tool call: " .. err
+    --        end
+    --
+    --        -- Broadcast tool call event
+    --        for _, tool_call in ipairs(result.tool_calls) do
+    --            self:broadcast({
+    --                type = "tool_call",
+    --                message_id = message_id,
+    --                tool_name = tool_call.name,
+    --                arguments = tool_call.arguments,
+    --                tool_call_id = tool_call.id
+    --            }, message_id)
+    --        end
+    --
+    --        -- Update session status - remain in RUNNING state until tool calls are processed
+    --        return {
+    --            message_id = message_id,
+    --            response_id = response_id,
+    --            tool_calls = result.tool_calls
+    --        }
+    --    end
+    --end
 
-            local resp, err = message_repo.create(
-                response_id,
-                self.session_id,
-                "delegation", -- Message type for delegations
-                result.delegate_message,
-                delegation_metadata
-            )
-
-            if err then
-                self:_handle_error(message_id, "Failed to store delegation: " .. err)
-                return nil, "Failed to store delegation: " .. err
-            end
-
-            -- Broadcast delegation event
-            self:broadcast({
-                type = "delegation",
-                message_id = message_id,
-                target_agent = result.delegate_target,
-                message = result.delegate_message
-            }, message_id)
-
-            -- Update session status
-            self.status = STATUS.IDLE
-            session_repo.update_session_meta(self.session_id, { status = STATUS.IDLE })
-
-            return {
-                message_id = message_id,
-                response_id = response_id,
-                delegation = {
-                    target = result.delegate_target,
-                    message = result.delegate_message
-                }
-            }
-        else
-            -- Handle regular tool calls (placeholder implementation)
-            local tool_call_metadata = {
-                agent_id = self.agent_id,
-                model = self.model,
-                tokens = result.tokens,
-                tool_calls = result.tool_calls
-            }
-
-            local resp, err = message_repo.create(
-                response_id,
-                self.session_id,
-                "tool_call", -- Message type for tool calls
-                result.result,
-                tool_call_metadata
-            )
-
-            if err then
-                self:_handle_error(message_id, "Failed to store tool call: " .. err)
-                return nil, "Failed to store tool call: " .. err
-            end
-
-            -- Broadcast tool call event
-            for _, tool_call in ipairs(result.tool_calls) do
-                self:broadcast({
-                    type = "tool_call",
-                    message_id = message_id,
-                    tool_name = tool_call.name,
-                    arguments = tool_call.arguments,
-                    tool_call_id = tool_call.id
-                }, message_id)
-            end
-
-            -- Update session status - remain in RUNNING state until tool calls are processed
-            return {
-                message_id = message_id,
-                response_id = response_id,
-                tool_calls = result.tool_calls
-            }
-        end
-    end
+    -- todo: result can be empty if agent only doing tool calls
+    -- todo: WE MUST return tool ids and args and etc to parent from this method!!
 
     -- Create assistant message in DB
     local metadata = {
@@ -552,6 +558,8 @@ function SessionState:execute_agent(agent_info)
     -- Update session status
     self.status = STATUS.IDLE
     session_repo.update_session_meta(self.session_id, { status = STATUS.IDLE })
+
+    print("DONE")
 
     -- Send content to client
     self:broadcast({
