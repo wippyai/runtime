@@ -2,32 +2,49 @@ local time = require("time")
 local json = require("json")
 local actor = require("actor")
 
--- Constants
+-- Registry constants
 local CENTRAL_HUB_REGISTRY_NAME = "central_hub"
+
+-- WebSocket topics (external layer - cannot be changed)
 local WS_JOIN_TOPIC = "ws.join"
 local WS_CONTROL_TOPIC = "ws.control"
-local STATS_PING_TOPIC = "stats.ping"
+local WS_HEARTBEAT_TOPIC = "ws.heartbeat"
+
+-- Hub communication topics
+local HUB_ACTIVITY_UPDATE_TOPIC = "hub.activity_update"
+
+-- Client topics
+local CLIENT_ERROR_TOPIC = "error"
+
+-- Error codes
+local ERROR_MAX_CONNECTIONS = "max_connections_reached"
+local ERROR_MISSING_USER_ID = "missing_user_id"
+local ERROR_HUB_CREATION_FAILED = "hub_creation_failed"
+
+-- Process information
 local USER_HUB_PROCESS_ID = "app.users.relay:user"
 local USER_HUB_HOST = "app:processes"
+
+-- Time constants
 local USER_HUB_INACTIVITY_TIMEOUT = "300s"
 local GC_CHECK_INTERVAL = "120s" -- Check for inactive hubs every 120 seconds
 
+-- User limits
+local MAX_CONNECTIONS_PER_USER = 2 -- Maximum allowed connections per user
+
 -- Central Hub Process - Central hub that manages user-specific hubs
 local function run()
-    -- Define the initial state
     local initial_state = {
         user_hubs = {}, -- Map of user_id -> { hub_pid, last_ping, client_count, messages_handled }
         total_hubs = 0,
         gc_ticker = nil -- Garbage collection ticker
     }
 
-    -- Define handlers for different message topics
     local handlers = {
         -- Initialize the actor
         __init = function(state)
             -- Register this process with a name for easy discovery
             process.registry.register(CENTRAL_HUB_REGISTRY_NAME)
-            print("central hub started")
 
             -- Create garbage collection ticker
             state.gc_ticker = time.ticker(GC_CHECK_INTERVAL)
@@ -52,7 +69,6 @@ local function run()
                     -- Find which user hub this was
                     for user_id, hub_info in pairs(state.user_hubs) do
                         if hub_info.hub_pid == from_pid then
-                            print("user hub for", user_id, "has exited")
                             state.user_hubs[user_id] = nil
                             state.total_hubs = state.total_hubs - 1
                             break
@@ -66,8 +82,6 @@ local function run()
 
         -- Handle cancellation
         __on_cancel = function(state)
-            print("central hub received cancel request")
-
             for user_id, hub_info in pairs(state.user_hubs) do
                 process.cancel(hub_info.hub_pid)
             end
@@ -77,7 +91,6 @@ local function run()
                 state.gc_ticker:stop()
             end
 
-            print("central hub shutting down")
             return actor.exit({ status = "shutdown", hubs = state.total_hubs })
         end,
 
@@ -87,8 +100,8 @@ local function run()
             return state
         end,
 
-        -- Handle stats ping from user hubs
-        [STATS_PING_TOPIC] = function(state, payload)
+        -- Handle activity updates from user hubs
+        [HUB_ACTIVITY_UPDATE_TOPIC] = function(state, payload)
             local user_id = payload.user_id
 
             if user_id and state.user_hubs[user_id] then
@@ -121,21 +134,39 @@ local function run()
         -- Extract user ID from metadata
         local user_id = extract_user_id(metadata)
         if not user_id then
-            print("missing user_id in metadata, cannot route client:", client_pid)
+            -- Send error to client
+            process.send(client_pid, CLIENT_ERROR_TOPIC, {
+                error = ERROR_MISSING_USER_ID,
+                message = "User ID is required for connection"
+            })
+
             return
         end
 
-        print("handling connection for user:", user_id, "client:", client_pid)
+        -- Check if user has reached maximum connections limit
+        if state.user_hubs[user_id] and state.user_hubs[user_id].client_count >= MAX_CONNECTIONS_PER_USER then
+            -- Send error to client
+            process.send(client_pid, CLIENT_ERROR_TOPIC, {
+                error = ERROR_MAX_CONNECTIONS,
+                message = "Maximum connection limit reached (" .. MAX_CONNECTIONS_PER_USER .. " connections)"
+            })
+
+            return
+        end
 
         -- Get or create user hub for this user
         local user_hub_pid = create_user_hub(state, user_id, metadata.user_metadata)
         if not user_hub_pid then
-            print("Failed to get or create user hub for", user_id)
+            -- Send error to client
+            process.send(client_pid, CLIENT_ERROR_TOPIC, {
+                error = ERROR_HUB_CREATION_FAILED,
+                message = "Failed to create user hub"
+            })
+
             return
         end
 
         -- Send redirection control message to WebSocket relay
-        print("redirecting client", client_pid, "to user hub", user_hub_pid)
         process.send(client_pid, WS_CONTROL_TOPIC, {
             target_pid = user_hub_pid,
             metadata = metadata
@@ -155,8 +186,6 @@ local function run()
         end
 
         -- Create a new user hub for this user
-        print("creating new user hub for user:", user_id)
-
         -- Spawn a monitored user hub process
         local hub_pid, err = process.spawn_monitored(
             USER_HUB_PROCESS_ID,
@@ -170,7 +199,6 @@ local function run()
         )
 
         if not hub_pid then
-            print("failed to create user hub for", user_id, ":", err)
             return nil
         end
 
@@ -184,7 +212,6 @@ local function run()
         }
 
         state.total_hubs = state.total_hubs + 1
-        print("created user hub for", user_id, "with PID:", hub_pid)
 
         return hub_pid
     end
@@ -211,15 +238,12 @@ local function run()
 
             -- If hub has no clients and has been inactive for too long, terminate it
             if time_since_activity:seconds() > inactivity_duration:seconds() then
-                print("terminating inactive user hub for", user_id, "pid:", hub_info.hub_pid)
                 local success, err = process.cancel(hub_info.hub_pid, "10s")
 
                 if success then
                     -- Mark as being terminated to avoid repeated termination attempts
                     hub_info.terminating = true
                     hub_info.termination_started_at = now
-                else
-                    print("failed to terminate hub", hub_info.hub_pid, ":", err)
                 end
             end
 
