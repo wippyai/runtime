@@ -50,7 +50,7 @@ function agent.new(agent_spec)
         prompt_builder = nil,
         base_prompt = agent_spec.prompt or "",
         tool_ids = {},
-        tool_schemas = {},  -- Custom tool schemas
+        tool_schemas = {},   -- Custom tool schemas
         delegate_tools = {}, -- Handout tool schemas
         delegate_map = {},   -- Maps tool IDs to target agent IDs
         total_tokens = {
@@ -164,7 +164,7 @@ function agent:_build_system_prompt()
 end
 
 -- Execute the agent to get the next action
-function agent:step()
+function agent:step(stream_target)
     -- Get LLM instance
     local llm_instance = get_llm()
 
@@ -199,6 +199,8 @@ function agent:step()
     -- Get messages from prompt builder
     local messages = self.prompt_builder:get_messages()
 
+    options.stream = stream_target
+print("ASDASDASDASD")
     -- Execute LLM call
     local result, err = llm_instance.generate(messages, options)
 

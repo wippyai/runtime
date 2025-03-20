@@ -126,12 +126,64 @@ local function run(args)
                 return state
             end
 
-            -- Execute agent asynchronously
-            coroutine.spawn(function()
+            -- Execute agent asynchronously using state.async
+            state.async(function()
+                print("RUNNING AGENT")
                 local exec_result, exec_err = session:execute_agent(result)
 
                 if exec_err then
                     print("Error executing agent:", exec_err)
+                    return nil, exec_err
+                end
+
+                -- Log the result for debugging
+                print(require("json").encode(exec_result))
+
+                return exec_result
+            end).on_complete(function(state, result, error)
+                if error then
+                    print("Async execution error:", error)
+                    -- Notify clients about the error
+                    session:broadcast({
+                        type = MSG_TYPE.SYSTEM,
+                        session_id = session.session_id,
+                        status = STATUS.ERROR,
+                        message = "Error executing agent: " .. error
+                    })
+                    return
+                end
+
+                if result then
+                    if result.delegation then
+                        print("Delegation processed:", require("json").encode(result.delegation))
+                        -- Delegation has already been broadcast in execute_agent
+
+                        -- Here we would initiate the delegation to another agent
+                        -- For now, just log it
+                        console.debug("Delegation to agent:", result.delegation.target)
+                    elseif result.tool_calls then
+                        print("Tool calls need processing:", require("json").encode(result.tool_calls))
+
+                        -- In the future, we'll process tool calls here
+                        -- For each tool call:
+                        -- 1. Execute the tool
+                        -- 2. Add the result back to the conversation
+                        -- 3. Continue the conversation
+
+                        -- For now, just notify that tool calls would be processed
+                        session:broadcast({
+                            type = MSG_TYPE.SYSTEM,
+                            session_id = session.session_id,
+                            message = "Tool calls would be processed here"
+                        })
+
+                        -- Reset status to idle for now (in the future, tool processing would do this)
+                        session.status = STATUS.IDLE
+                        session_repo.update_session_meta(session.session_id, { status = STATUS.IDLE })
+                    else
+                        print("Execution completed:", require("json").encode(result))
+                        -- Regular message has already been broadcast in execute_agent
+                    end
                 end
             end)
 
