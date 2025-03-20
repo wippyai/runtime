@@ -42,6 +42,7 @@ local function run(args)
         loader_state, err = loader.create_session(args)
     else
         loader_state, err = loader.load_session(args)
+        print("LOAD")
     end
 
     if err then
@@ -65,7 +66,7 @@ local function run(args)
                 agent = loader_state.meta and loader_state.meta.agent,
                 model = loader_state.meta and loader_state.meta.model,
                 status = loader_state.status,
-                last_message_id = loader_state.last_message_id,
+                last_message_date = loader_state.last_message_date,
                 error = loader_state.error
             })
         end
@@ -97,7 +98,7 @@ local function run(args)
                 agent = loader_state.meta and loader_state.meta.agent,
                 model = loader_state.meta and loader_state.meta.model,
                 status = session.status, -- Use updated status that might be "failed"
-                last_message_id = loader_state.last_message_id,
+                last_message_date = loader_state.last_message_date,
                 error = session.status == "failed" and "Session initialization failed" or nil
             })
         end
