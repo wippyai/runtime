@@ -160,13 +160,11 @@ local function run(args)
                     upstream:command_success(payload.request_id)
                 end
             else
-                -- For errors, still use the original session_error
-                -- but also send command_error for commands with request_id
                 if payload.request_id then
                     upstream:command_error(payload.request_id, ERROR_CODE.ERROR, err or "Command failed")
-                else
-                    upstream:session_error(ERROR_CODE.ERROR, err or "Command failed")
                 end
+
+                upstream:session_error(ERROR_CODE.ERROR, err or "Command failed")
             end
 
             return actor_state

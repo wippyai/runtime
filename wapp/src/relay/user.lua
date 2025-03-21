@@ -170,6 +170,7 @@ local function run(args)
         end,
 
         -- Handle WebSocket messages
+        -- Handle WebSocket messages
         [WS_MESSAGE_TOPIC] = function(state, payload, topic, from)
             local message_data, err = json.decode(payload)
             if not message_data then
@@ -184,6 +185,7 @@ local function run(args)
             local msg_type = message_data.type
             local data = message_data.data
             local session_id = message_data.session_id
+            local request_id = message_data.request_id
 
             -- Route message based on type
             if msg_type == CMD_SESSION_OPEN then
@@ -193,7 +195,8 @@ local function run(args)
                         error = ERROR_SESSION_LIMIT,
                         message = "Maximum session limit reached (" ..
                             MAX_SESSIONS_PER_USER .. " sessions). Please close an existing session.",
-                        active_session_ids = get_active_session_ids(state)
+                        active_session_ids = get_active_session_ids(state),
+                        request_id = request_id
                     })
                     return state
                 end
@@ -205,7 +208,8 @@ local function run(args)
                     if err then
                         process.send(from, CLIENT_ERROR_TOPIC, {
                             error = ERROR_SESSION_ID_GEN,
-                            message = "Failed to generate session ID: " .. err
+                            message = "Failed to generate session ID: " .. err,
+                            request_id = request_id
                         })
                         return state
                     end
@@ -214,7 +218,8 @@ local function run(args)
                     if state.active_sessions[session_id] then
                         broadcast_to_clients(state, CLIENT_SESSION_OPENED_TOPIC, {
                             session_id = session_id,
-                            active_session_ids = get_active_session_ids(state)
+                            active_session_ids = get_active_session_ids(state),
+                            request_id = request_id
                         })
                         return state
                     end
@@ -243,7 +248,8 @@ local function run(args)
                 if err then
                     process.send(from, CLIENT_ERROR_TOPIC, {
                         error = ERROR_SESSION_SPAWN,
-                        message = "Failed to create session: " .. err
+                        message = "Failed to create session: " .. err,
+                        request_id = request_id
                     })
                     return state
                 end
@@ -253,7 +259,8 @@ local function run(args)
                     state.session_count = state.session_count + 1
                     broadcast_to_clients(state, CLIENT_SESSION_OPENED_TOPIC, {
                         session_id = session_id,
-                        active_session_ids = get_active_session_ids(state)
+                        active_session_ids = get_active_session_ids(state),
+                        request_id = request_id
                     })
                 end
             elseif msg_type == CMD_SESSION_CLOSE then
@@ -261,7 +268,8 @@ local function run(args)
                 if not session_id then
                     process.send(from, CLIENT_ERROR_TOPIC, {
                         error = ERROR_INVALID_SESSION_ID,
-                        message = "Session ID is required for closing a session"
+                        message = "Session ID is required for closing a session",
+                        request_id = request_id
                     })
                     return state
                 end
@@ -274,13 +282,15 @@ local function run(args)
                     state.session_count = state.session_count - 1
                     broadcast_to_clients(state, CLIENT_SESSION_CLOSED_TOPIC, {
                         session_id = session_id,
-                        active_session_ids = get_active_session_ids(state)
+                        active_session_ids = get_active_session_ids(state),
+                        request_id = request_id
                     })
                 else
                     -- Send error when trying to close non-existent session
                     process.send(from, CLIENT_ERROR_TOPIC, {
                         error = ERROR_SESSION_NOT_FOUND,
-                        message = "Cannot close session: session ID not found or invalid"
+                        message = "Cannot close session: session ID not found or invalid",
+                        request_id = request_id
                     })
                 end
             elseif msg_type == CMD_SESSION_MESSAGE then
@@ -288,7 +298,8 @@ local function run(args)
                 if not session_id then
                     process.send(from, CLIENT_ERROR_TOPIC, {
                         error = ERROR_INVALID_SESSION_ID,
-                        message = "Session ID is required for sending a message"
+                        message = "Session ID is required for sending a message",
+                        request_id = request_id
                     })
                     return state
                 end
@@ -298,12 +309,14 @@ local function run(args)
                 if session_pid then
                     process.send(session_pid, SESSION_MESSAGE_TOPIC, {
                         conn_pid = from,
-                        data = data
+                        data = data,
+                        request_id = request_id
                     })
                 else
                     process.send(from, CLIENT_ERROR_TOPIC, {
                         error = ERROR_SESSION_NOT_FOUND,
-                        message = "Session not found: " .. session_id
+                        message = "Session not found: " .. session_id,
+                        request_id = request_id
                     })
                 end
             elseif msg_type == CMD_SESSION_COMMAND then
@@ -311,7 +324,8 @@ local function run(args)
                 if not session_id then
                     process.send(from, CLIENT_ERROR_TOPIC, {
                         error = ERROR_INVALID_SESSION_ID,
-                        message = "Session ID is required for sending a command"
+                        message = "Session ID is required for sending a command",
+                        request_id = request_id
                     })
                     return state
                 end
@@ -320,19 +334,27 @@ local function run(args)
                 local session_pid = state.active_sessions[session_id]
                 if session_pid then
                     data["conn_pid"] = from
+
+                    -- Include request_id in the command data if available
+                    if request_id then
+                        data["request_id"] = request_id
+                    end
+
                     process.send(session_pid, SESSION_COMMAND_TOPIC, data)
                 else
                     -- Send error when trying to send command to a non-existent session
                     process.send(from, CLIENT_ERROR_TOPIC, {
                         error = ERROR_SESSION_NOT_FOUND,
-                        message = "Cannot send command: session ID not found or invalid"
+                        message = "Cannot send command: session ID not found or invalid",
+                        request_id = request_id
                     })
                 end
             else
                 -- Unrecognized message type
                 process.send(from, CLIENT_ERROR_TOPIC, {
                     error = ERROR_INVALID_MESSAGE_TYPE,
-                    message = "Unrecognized message type: " .. (msg_type or "nil")
+                    message = "Unrecognized message type: " .. (msg_type or "nil"),
+                    request_id = request_id
                 })
             end
 
