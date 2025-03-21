@@ -10,6 +10,14 @@ entries:
     mode: "0755"
     default: true
 
+  - name: core
+    kind: fs.directory
+    meta:
+      comment: "Core stuff"
+    directory: ./
+    mode: "0755"
+    default: true
+
   - name: public
     kind: fs.directory
     meta:

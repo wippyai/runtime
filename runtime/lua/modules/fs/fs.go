@@ -383,7 +383,8 @@ func fsReadFile(l *lua.LState) int {
 			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.readfile: %s", err.Error()))
 		}
 
-		return engine.NewUpdate(nil, []lua.LValue{lua.LString(buf.String())}, nil)
+		// todo: normalize
+		return engine.NewUpdate(nil, []lua.LValue{lua.LString(buf.String()), lua.LNil}, nil)
 	})
 
 	return -1 // Yield

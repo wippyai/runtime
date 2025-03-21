@@ -1,0 +1,59 @@
+version: "1.0"
+namespace: app.tools.fs
+
+meta:
+  depends_on: [ "ns:system" ]
+
+entries:
+  - name: read_file
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "File Reader"
+      llm_alias: "read_file"
+      description: "Reads the content of a file at the specified path"
+      llm_description: "Reads and returns the content of a file at the given path"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "The path to the file to read"
+            }
+          },
+          "required": ["path"]
+        }
+    source: file://read_file.lua
+    method: read
+    modules: [ fs, json ]
+
+  - name: list_dir
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Directory Lister"
+      llm_alias: "list_dir"
+      description: "Lists directory contents or creates a directory tree structure"
+      llm_description: "Lists contents of a directory with optional recursive tree view"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "The path to the directory to list (defaults to current directory if not provided)"
+            },
+            "recursive": {
+              "type": "boolean",
+              "description": "Whether to list directories recursively as a tree (defaults to false)"
+            },
+            "max_depth": {
+              "type": "integer",
+              "description": "Maximum depth for recursive listing (defaults to 3)"
+            }
+          }
+        }
+    source: file://list_dir.lua
+    method: list
+    modules: [ fs ]

@@ -75,6 +75,9 @@ entries:
       "mna-deal-manager":
         name: "to_m_n_a"
         rule: "Send user to M&A Deal Manager for M&A-related queries."
+      "fs-manager":
+        name: "to_fs_manager"
+        rule: "Send user to Filesystem Manager for file and directory operations, listing contents, reading files, and any filesystem management tasks."
 
     tools:
       - app.tools.greeting:hello_world
