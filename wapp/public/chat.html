@@ -696,6 +696,30 @@
             console.log('Agent change:', data);
             addSystemMessage(`Agent changed to: ${data.agent}`);
         }
+        // Delegation messages
+        else if (topic.includes(':message:') && data.type === 'delegation') {
+            console.log('Delegation received:', data);
+
+            let fromAgent = 'Unknown';
+            let toAgent = 'Unknown';
+
+            // Try to extract from metadata if available
+            if (data.metadata) {
+                fromAgent = data.metadata.from_agent || fromAgent;
+                toAgent = data.metadata.to_agent || toAgent;
+            }
+
+            // If data.content exists and contains delegation info
+            if (data.content && typeof data.content === 'string' && data.content.includes('Delegation from')) {
+                const delegationMatch = data.content.match(/Delegation from '(.+)' to '(.+)'/);
+                if (delegationMatch && delegationMatch.length === 3) {
+                    fromAgent = delegationMatch[1];
+                    toAgent = delegationMatch[2];
+                }
+            }
+
+            addSystemMessage(`Agent delegated from '${fromAgent}' to '${toAgent}'`);
+        }
         // Session update
         else if (topic.startsWith('session:') && !topic.includes(':message:')) {
             handleSessionUpdate(data);
@@ -754,6 +778,20 @@
         else if (topic.includes(':message:') && data.type === 'received') {
             console.log('Message received confirmation:', data);
             // We already add the user message when sending, so no need to add it again
+        }
+        // Handle delegation type system messages
+        else if (topic.includes(':message:') && data.type === 'system' && data.content && data.content.includes('Delegation from')) {
+            console.log('System delegation message:', data);
+
+            const delegationMatch = data.content.match(/Delegation from '(.+)' to '(.+)'/);
+            if (delegationMatch && delegationMatch.length === 3) {
+                const fromAgent = delegationMatch[1];
+                const toAgent = delegationMatch[2];
+                addSystemMessage(`Agent delegated from '${fromAgent}' to '${toAgent}'`);
+            } else {
+                // If we can't parse it, just show the content
+                addSystemMessage(data.content);
+            }
         }
         // Error message
         else if (topic === 'error' || (data.type === 'error')) {
@@ -1022,6 +1060,30 @@
                                 }
 
                                 addSystemMessage(`Agent changed to: ${agentName}`);
+                                return; // Skip regular message rendering
+                            }
+
+                            // Handle delegation type messages from history
+                            if (message.type === 'delegation') {
+                                let fromAgent = 'Unknown';
+                                let toAgent = 'Unknown';
+
+                                // Try to extract from the metadata first
+                                if (message.metadata) {
+                                    fromAgent = message.metadata.from_agent || fromAgent;
+                                    toAgent = message.metadata.to_agent || toAgent;
+                                }
+
+                                // If not in metadata, try to parse from the data string
+                                if (typeof message.data === 'string' && message.data.includes('Delegation from')) {
+                                    const delegationMatch = message.data.match(/Delegation from '(.+)' to '(.+)'/);
+                                    if (delegationMatch && delegationMatch.length === 3) {
+                                        fromAgent = delegationMatch[1];
+                                        toAgent = delegationMatch[2];
+                                    }
+                                }
+
+                                addSystemMessage(`Agent delegated from '${fromAgent}' to '${toAgent}'`);
                                 return; // Skip regular message rendering
                             }
 

@@ -215,8 +215,8 @@ function controller:build_prompt(message_limit)
 
                 -- Create arguments from delegation metadata
                 local delegate_args = {
-                    message = meta.message or "Continuing with specialized agent",
-                    reason = meta.reason or "Delegation requested"
+                    from = meta.from_agent,
+                    message = meta.message or "Continuing with specialized agent"
                 }
 
                 -- Use delegation message ID as the function call ID
@@ -527,7 +527,7 @@ function controller:process_delegation(result, message_id, response_id)
             delegation_id = delegation_id,
             from_agent = self.state.agent_name,
             to_agent = result.delegate_target,
-            reason = result.delegate_message,
+            message = result.delegate_message,
             had_partial_response = has_response
         }
     }

@@ -198,6 +198,7 @@ local function run(args)
 
         -- Handle controller-initiated continue actions
         [CONTINUE_TOPIC] = function(actor_state, payload)
+        print("DOING FUNC")
             if session_status == STATUS.RUNNING or session_status == STATUS.FAILED then
                 return actor_state
             end
@@ -227,6 +228,7 @@ local function run(args)
                 set_session_status(STATUS.IDLE)
 
                 if convo_controller.next_payload then
+                print("DOING NEXT")
                     -- Advance
                     actor_state.post(CONTINUE_TOPIC, convo_controller.next_payload)
                 end
