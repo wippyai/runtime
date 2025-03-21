@@ -1,0 +1,90 @@
+# Example 1: Delegate tool definition
+- name: agent_selector
+  kind: function.lua
+  meta:
+    type: "tool"
+    title: "Agent Selector"
+    llm_alias: "select_agent"
+    description: "Selects the appropriate specialized agent"
+    llm_description: "Delegate to a specialized agent for this task"
+    delegate_controller: true     # Flag indicating this is a delegate control tool
+    input_schema: |
+      {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Task to be delegated"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Domain or field of the task"
+          }
+        },
+        "required": ["task"]
+      }
+    output_schema: |
+      {
+        "type": "object",
+        "properties": {
+          "target_agent": {
+            "type": "string",
+            "description": "Name of the target agent to delegate to"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for delegation to this specific agent"
+          },
+          "message": {
+            "type": "string",
+            "description": "Optional message to pass to the delegated agent"
+          }
+        },
+        "required": ["target_agent", "reason"]
+      }
+  source: file://agent_selector.lua
+  method: select
+
+# Example 2: Model switcher tool definition
+- name: model_selector
+  kind: function.lua
+  meta:
+    type: "tool"
+    title: "Model Selector"
+    llm_alias: "select_model"
+    description: "Selects the appropriate model based on task complexity"
+    llm_description: "Switch to a different model when needed"
+    model_controller: true    # Flag indicating this is a model control tool
+    input_schema: |
+      {
+        "type": "object",
+        "properties": {
+          "task_complexity": {
+            "type": "string",
+            "enum": ["simple", "medium", "complex", "very_complex"],
+            "description": "Complexity of the current task"
+          },
+          "reasoning_required": {
+            "type": "boolean",
+            "description": "Whether deep reasoning is required"
+          }
+        },
+        "required": ["task_complexity"]
+      }
+    output_schema: |
+      {
+        "type": "object",
+        "properties": {
+          "target_model": {
+            "type": "string",
+            "description": "Name of the model to switch to"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for switching to this specific model"
+          }
+        },
+        "required": ["target_model", "reason"]
+      }
+  source: file://model_selector.lua
+  method: select

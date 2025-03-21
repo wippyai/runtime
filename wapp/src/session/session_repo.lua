@@ -1,4 +1,5 @@
 local sql = require("sql")
+local json = require("json")
 
 -- Hardcoded database resource name
 local DB_RESOURCE = "app:db"
@@ -63,6 +64,7 @@ function session_repo.create(session_id, user_id, primary_context_id, title, kin
         kind = kind,
         current_model = current_model,
         current_agent = current_agent,
+        public_meta = {}, -- Return empty table for public_meta
         start_date = now,
         last_message_date = now
     }
@@ -80,7 +82,7 @@ function session_repo.get(session_id)
     end
 
     local query = [[
-        SELECT session_id, user_id, status, primary_context_id, title, kind, current_model, current_agent, start_date, last_message_date
+        SELECT session_id, user_id, status, primary_context_id, title, kind, current_model, current_agent, public_meta, start_date, last_message_date
         FROM sessions
         WHERE session_id = ?
     ]]
@@ -96,7 +98,21 @@ function session_repo.get(session_id)
         return nil, "Session not found"
     end
 
-    return sessions[1]
+    -- Parse public_meta from JSON string to table
+    local session = sessions[1]
+    if session.public_meta and session.public_meta ~= "" then
+        local decoded, err = json.decode(session.public_meta)
+        if not err then
+            session.public_meta = decoded
+        else
+            -- Fallback to empty table if JSON parsing fails
+            session.public_meta = {}
+        end
+    else
+        session.public_meta = {}
+    end
+
+    return session
 end
 
 -- List sessions by user ID
@@ -112,7 +128,7 @@ function session_repo.list_by_user(user_id, limit, offset)
 
     local params = { user_id }
     local query = [[
-        SELECT session_id, user_id, status, primary_context_id, title, kind, current_model, current_agent, start_date, last_message_date
+        SELECT session_id, user_id, status, primary_context_id, title, kind, current_model, current_agent, public_meta, start_date, last_message_date
         FROM sessions
         WHERE user_id = ?
         ORDER BY last_message_date DESC
@@ -134,6 +150,21 @@ function session_repo.list_by_user(user_id, limit, offset)
 
     if err then
         return nil, "Failed to list sessions: " .. err
+    end
+
+    -- Parse public_meta for each session
+    for i, session in ipairs(sessions) do
+        if session.public_meta and session.public_meta ~= "" then
+            local decoded, err = json.decode(session.public_meta)
+            if not err then
+                session.public_meta = decoded
+            else
+                -- Fallback to empty table if JSON parsing fails
+                session.public_meta = {}
+            end
+        else
+            session.public_meta = {}
+        end
     end
 
     return sessions
@@ -185,6 +216,57 @@ function session_repo.update_title(session_id, title)
     }
 end
 
+-- Update session public metadata
+function session_repo.update_public_meta(session_id, public_meta)
+    if not session_id or session_id == "" then
+        return nil, "Session ID is required"
+    end
+
+    -- Default to empty table if public_meta is nil
+    public_meta = public_meta or {}
+
+    -- Encode the table as JSON
+    local encoded_meta, err = json.encode(public_meta)
+    if err then
+        return nil, "Failed to encode public_meta to JSON: " .. err
+    end
+
+    local db, err = get_db()
+    if err then
+        return nil, err
+    end
+
+    -- Check if session exists
+    local sessions, err = db:query("SELECT session_id FROM sessions WHERE session_id = ?", { session_id })
+    if err then
+        db:release()
+        return nil, "Failed to check if session exists: " .. err
+    end
+
+    if #sessions == 0 then
+        db:release()
+        return nil, "Session not found"
+    end
+
+    -- Update session public metadata
+    local result, err = db:execute(
+        "UPDATE sessions SET public_meta = ? WHERE session_id = ?",
+        { encoded_meta, session_id }
+    )
+
+    db:release()
+
+    if err then
+        return nil, "Failed to update session public metadata: " .. err
+    end
+
+    return {
+        session_id = session_id,
+        public_meta = public_meta,  -- Return the original table
+        updated = true
+    }
+end
+
 -- Update last message date
 function session_repo.update_last_message_date(session_id, date)
     if not session_id or session_id == "" then
@@ -230,7 +312,7 @@ function session_repo.update_last_message_date(session_id, date)
     }
 end
 
--- Update session metadata (model, agent, and last_message_date) in a single transaction
+-- Update session metadata (model, agent, public_meta, and last_message_date) in a single transaction
 function session_repo.update_session_meta(session_id, updates)
     if not session_id or session_id == "" then
         return nil, "Session ID is required"
@@ -279,6 +361,19 @@ function session_repo.update_session_meta(session_id, updates)
         table.insert(set_clauses, "title = ?")
         table.insert(params, updates.title)
         result.title = updates.title
+    end
+
+    if updates.public_meta ~= nil then
+        -- Encode public_meta table to JSON
+        local encoded_meta, err = json.encode(updates.public_meta)
+        if err then
+            db:release()
+            return nil, "Failed to encode public_meta to JSON: " .. err
+        end
+
+        table.insert(set_clauses, "public_meta = ?")
+        table.insert(params, encoded_meta)
+        result.public_meta = updates.public_meta  -- Keep original table in result
     end
 
     -- Always update last_message_date if requested or if any other field is updated

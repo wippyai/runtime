@@ -21,6 +21,13 @@ local MSG_TYPE = {
     FUNCTION_CALL = "function_call"
 }
 
+-- Function status constants
+local FUNC_STATUS = {
+    PENDING = "pending",
+    SUCCESS = "success",
+    ERROR = "error"
+}
+
 -- Error message constants
 local ERR = {
     EMPTY_MESSAGE = "Message text cannot be empty",
@@ -30,7 +37,8 @@ local ERR = {
     AGENT_NAME_REQUIRED = "Agent name is required",
     MODEL_NAME_REQUIRED = "Model name is required",
     FUNCTION_NAME_REQUIRED = "Function name is required",
-    FUNCTION_RESULT_REQUIRED = "Function result is required"
+    FUNCTION_RESULT_REQUIRED = "Function result is required",
+    FUNCTION_CALL_ID_REQUIRED = "Function call ID is required"
 }
 
 -- SessionState class
@@ -45,6 +53,7 @@ function session_state.new(loader_state)
     self.user_id = loader_state.user_id
     self.primary_context_id = loader_state.primary_context_id
     self.status = loader_state.status or STATUS.IDLE
+    self.public_meta = loader_state.public_meta or {} -- Initialize public_meta
 
     -- Meta information
     if loader_state.meta then
@@ -62,8 +71,8 @@ function session_state.new(loader_state)
     -- Message counts
     self.total_message_count = 0 -- Will be loaded from DB when needed
 
-    -- Minimal cache for message lookups
-    self.message_cache = {} -- Only store messages we've explicitly fetched
+    -- Message cache
+    self.message_cache = {} -- Stores messages by message_id
 
     -- Context data
     self.context_data = {
@@ -120,6 +129,60 @@ function session_state:update_session_title(title)
     if err then
         print("Failed to update session title: " .. err)
         return false
+    end
+
+    return true
+end
+
+-- Update session configuration (combined method for agent, model, and public_meta)
+function session_state:update_session_config(config)
+    if not config or type(config) ~= "table" then
+        return nil, "Configuration must be a table"
+    end
+
+    local update_data = {}
+
+    -- Handle agent name update
+    if config.agent_name then
+        self.agent_name = config.agent_name
+        self.context_data.agent_name = config.agent_name
+        update_data.current_agent = config.agent_name
+    end
+
+    -- Handle model update
+    if config.model then
+        self.model = config.model
+        self.context_data.model = config.model
+        update_data.current_model = config.model
+    end
+
+    -- Handle public_meta update
+    if config.public_meta and type(config.public_meta) == "table" then
+        self.public_meta = config.public_meta
+        update_data.public_meta = config.public_meta
+    end
+
+    -- Handle status update if included
+    if config.status then
+        self.status = config.status
+        update_data.status = config.status
+    end
+
+    -- If nothing to update, return early
+    if next(update_data) == nil then
+        return true
+    end
+
+    -- Update metadata in database
+    local update_result, err = session_repo.update_session_meta(
+        self.session_id,
+        update_data
+    )
+
+    if err then
+        local error_msg = "Failed to update session configuration: " .. err
+        self:update_session_status(STATUS.FAILED, error_msg)
+        return nil, error_msg
     end
 
     return true
@@ -278,69 +341,70 @@ function session_state:add_developer_message(content, metadata)
     return self:add_message(MSG_TYPE.DEVELOPER, content, metadata)
 end
 
-function session_state:add_function_result(function_name, content, function_call_id, metadata)
-    if not function_name then
-        return nil, ERR.FUNCTION_NAME_REQUIRED
-    end
-    if not content then
-        return nil, ERR.FUNCTION_RESULT_REQUIRED
-    end
-
-    metadata = metadata or {}
-    metadata.function_name = function_name
-    metadata.function_call_id = function_call_id
-
-    return self:add_message(MSG_TYPE.FUNCTION, content, metadata)
-end
-
-function session_state:add_function_call(function_name, arguments, function_call_id, metadata)
+-- Add a function call with pending status
+function session_state:add_function_call(function_name, arguments, metadata)
     if not function_name then
         return nil, ERR.FUNCTION_NAME_REQUIRED
     end
 
     metadata = metadata or {}
     metadata.function_name = function_name
-    metadata.function_call_id = function_call_id
+    metadata.status = FUNC_STATUS.PENDING
 
     -- Convert arguments to string if it's a table
     if type(arguments) == "table" then
-        arguments = json.encode(arguments)
+        local encoded, err = json.encode(arguments)
+        if err then
+            return nil, "Failed to encode arguments: " .. err
+        end
+        arguments = encoded
     end
 
+    -- The message_id will serve as the function call ID
     return self:add_message(MSG_TYPE.FUNCTION_CALL, arguments, metadata)
 end
 
--- Set agent configuration in state
-function session_state:set_agent_config(agent_name, model)
-    if not agent_name then
-        return nil, ERR.AGENT_NAME_REQUIRED
+-- Update function call with result
+function session_state:update_function_result(message_id, result, is_error, metadata)
+    if not message_id then
+        return nil, "Message ID is required"
     end
 
-    -- Set agent name and model
-    self.agent_name = agent_name
-    self.model = model or self.model
-
-    -- Update context data
-    self.context_data.agent_name = agent_name
-    self.context_data.model = self.model
-
-    -- Update metadata (including agent and model)
-    local update_result, err = session_repo.update_session_meta(
-        self.session_id,
-        {
-            current_agent = self.agent_name,
-            current_model = self.model,
-            status = self.status
-        }
-    )
-
-    if err then
-        local error_msg = "Failed to update session: " .. err
-        self:update_session_status(STATUS.FAILED, error_msg)
-        return nil, error_msg
+    if result == nil then
+        return nil, ERR.FUNCTION_RESULT_REQUIRED
     end
 
-    return true
+    -- Get the function call message
+    local message = self.message_cache[message_id]
+
+    -- If not found in cache, fetch from database
+    if not message then
+        local fetched_message, err = self:get_message(message_id)
+        if err or not fetched_message then
+            return nil, "Function call message not found: " .. message_id
+        end
+        message = fetched_message
+    end
+
+    -- Create a new metadata table for the update
+    local updated_metadata = {}
+    for k, v in pairs(message.metadata or {}) do
+        updated_metadata[k] = v
+    end
+
+    -- Add result information
+    updated_metadata.result = result
+    updated_metadata.status = is_error and FUNC_STATUS.ERROR or FUNC_STATUS.SUCCESS
+
+    -- Add any additional metadata
+    if metadata then
+        for k, v in pairs(metadata) do
+            updated_metadata[k] = v
+        end
+    end
+
+    -- Update the message metadata
+    return self:update_message_metadata(message_id, updated_metadata)
 end
 
 -- Load messages with limit (most recent messages)
@@ -350,6 +414,11 @@ function session_state:load_messages(limit)
     local messages, err = message_repo.list_by_session(self.session_id, limit)
     if err then
         return nil, "Failed to load messages: " .. err
+    end
+
+    -- Update cache with loaded messages
+    for _, message in ipairs(messages) do
+        self.message_cache[message.message_id] = message
     end
 
     -- Update total count if we don't have it yet

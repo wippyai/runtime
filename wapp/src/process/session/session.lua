@@ -1,13 +1,17 @@
 local json = require("json")
 local actor = require("actor")
-local controller = require("controller")
 local loader = require("loader")
+local controller = require("controller")
 local session_state = require("session_state")
 local session_upstream = require("session_upstream")
+local meta_context = require("meta_context")
 
 local MESSAGE_TOPIC = "message"
 local COMMAND_TOPIC = "command"
 local CONTINUE_TOPIC = "continue"
+local CONTEXT_TOPIC = "context"
+local TITLE_TOPIC = "title"
+local METADATA_TOPIC = "metadata"
 
 local STATUS = {
     IDLE = "idle",
@@ -59,6 +63,7 @@ local function run(args)
     local state = session_state.new(loader_state)
     local upstream = session_upstream.new(args.session_id, args.conn_pid, args.parent_pid)
     local convo_controller = controller.new(state, upstream)
+    local ctx_manager = meta_context.new(state, upstream)
 
     local function set_session_status(new_status, error_msg)
         session_status = new_status
@@ -103,6 +108,64 @@ local function run(args)
         status = session_status,
         last_message_date = loader_state.last_message_date,
     })
+
+    -- Function to start title generation coroutine
+    local function generate_title()
+        local title = "Generated title!"
+
+        -- Update title in state
+        local success, err = self.state:update_session_title(title)
+        if not success then
+            return false, err
+        end
+
+        -- Notify clients about title update
+        upstream:update_session({
+            title = title
+        })
+    end
+
+    -- Handler for context commands
+    local function handle_context_command(payload)
+        if payload.action == "write" then
+            if not payload.key then
+                return false, "Context key is required"
+            end
+            return ctx_manager:write_context(payload.key, payload.data)
+        elseif payload.action == "delete" then
+            if not payload.key then
+                return false, "Context key is required"
+            end
+            return ctx_manager:delete_context(payload.key)
+        else
+            return false, "Invalid context action"
+        end
+    end
+
+    -- Handler for metadata commands
+    local function handle_metadata_command(payload)
+        if payload.action == "update" then
+            if not payload.items then
+                return false, "Metadata items are required"
+            end
+            return ctx_manager:update_public_metadata(payload.items)
+        elseif payload.action == "remove" then
+            if not payload.ids then
+                return false, "Metadata IDs are required"
+            end
+            return ctx_manager:remove_public_metadata(payload.ids)
+        else
+            return false, "Invalid metadata action"
+        end
+    end
+
+    -- Handler for title commands
+    local function handle_title_command(payload)
+        if not payload.title then
+            return false, "Title is required"
+        end
+        return ctx_manager:update_title(payload.title)
+    end
 
     local handlers = {
         __on_cancel = function(actor_state)
@@ -152,7 +215,18 @@ local function run(args)
                 return actor_state
             end
 
-            local success, err = convo_controller:handle_command(payload.command, payload)
+            local success, err
+            -- Handle special session-level commands directly
+            if payload.command == CONTEXT_TOPIC then
+                success, err = handle_context_command(payload)
+            elseif payload.command == METADATA_TOPIC then
+                success, err = handle_metadata_command(payload)
+            elseif payload.command == TITLE_TOPIC then
+                success, err = handle_title_command(payload)
+            else
+                -- Pass other commands to controller
+                success, err = convo_controller:handle_command(payload.command, payload)
+            end
 
             if success then
                 -- Send command_success for commands with request_id
@@ -182,6 +256,14 @@ local function run(args)
 
                 if payload.type == controller.CMD.MESSAGE then
                     result, err = convo_controller:handle_message(payload.data)
+
+                    -- If message was successful and we have enough messages, start title generation
+                    if not err and result then
+                        local user_count = state:count_messages_by_type("user")
+                        if user_count >= 3 and (not state.title or state.title == "") then
+                            generate_title()
+                        end
+                    end
                 else
                     result, err = convo_controller:continue(payload)
                 end

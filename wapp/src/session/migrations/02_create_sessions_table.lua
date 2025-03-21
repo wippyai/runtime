@@ -13,6 +13,7 @@ return require("migration").define(function()
                         kind TEXT DEFAULT 'default',
                         current_model TEXT DEFAULT '',
                         current_agent TEXT DEFAULT '',
+                        public_meta TEXT DEFAULT '[]',
                         start_date INTEGER NOT NULL,
                         last_message_date INTEGER,
                         FOREIGN KEY (user_id) REFERENCES users(user_id),

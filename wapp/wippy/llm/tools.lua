@@ -124,7 +124,8 @@ function tool_resolver.get_tool_schema(tool_id)
         name = display_name,
         title = entry.meta.title or display_name,
         description = description,
-        schema = schema
+        schema = schema,
+        meta = entry.meta
     }
 
     return tool
