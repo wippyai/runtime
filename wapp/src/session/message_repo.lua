@@ -177,7 +177,7 @@ function message_repo.list_by_session(session_id, limit, offset)
         SELECT message_id, session_id, date, type, data, metadata
         FROM messages
         WHERE session_id = ?
-        ORDER BY date ASC
+        ORDER BY message_id ASC
     ]]
 
     -- Add limit and offset if provided
