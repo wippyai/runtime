@@ -4,8 +4,7 @@ local context_repo = require("context_repo")
 -- Command action constants
 local ACTIONS = {
     WRITE = "write",
-    DELETE = "delete",
-    READ = "read"
+    DELETE = "delete"
 }
 
 -- Command response types constants
@@ -47,8 +46,6 @@ function session_context:handle_command(payload)
         return self:write_context(payload.key, payload.data, payload.from_pid, payload.request_id)
     elseif payload.action == ACTIONS.DELETE then
         return self:delete_context(payload.key, payload.from_pid, payload.request_id)
-    elseif payload.action == ACTIONS.READ then
-        return self:read_context(payload.key, payload.from_pid, payload.request_id)
     else
         return false, ERR.INVALID_ACTION
     end
@@ -152,39 +149,6 @@ function session_context:delete_context(key, from_pid, request_id)
     end
 
     return true
-end
-
--- Read from context
-function session_context:read_context(key, from_pid, request_id)
-    if not key then
-        return false, ERR.CONTEXT_KEY_REQUIRED
-    end
-
-    if not self.context_id then
-        return false, ERR.CONTEXT_ID_REQUIRED
-    end
-
-    -- Get the current context data
-    local context_data, err = self:get_full_context()
-    if err then
-        return false, err
-    end
-
-    -- Get the value
-    local value = context_data[key]
-
-    -- Send direct message if from_pid provided
-    if from_pid and process and process.send then
-        process.send(from_pid, COMMANDS.COMMAND_SUCCESS, {
-            action = ACTIONS.READ,
-            key = key,
-            value = value,
-            context_id = self.context_id,
-            context = context_data
-        })
-    end
-
-    return true, value
 end
 
 -- Export constants

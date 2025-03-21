@@ -212,9 +212,11 @@ local function run(args)
             end
 
             local success, err
+
+            payload.from_pid = from
+
             -- Handle special session-level commands directly
             if payload.command == TOPICS.CONTEXT then
-                payload.from_pid = from
                 success, err = ctx_manager:handle_command(context_payload)
                 if success then
                     -- we do no announce this commands nornomally, they are not public
@@ -284,14 +286,6 @@ local function run(args)
 
             return actor_state
         end,
-
-        -- Handle responses from context manager
-        [session_context.COMMANDS.COMMAND_SUCCESS] = function(actor_state, payload)
-            if payload and payload.request_id then
-                upstream:command_success(payload.request_id, payload)
-            end
-            return actor_state
-        end
     }
 
     return actor.new(loader_state, handlers).run()
