@@ -45,7 +45,6 @@ entries:
     #      traits: [ ]
     #
     #      # Tools this agent can access
-    #      tools: [ ]
 
     # Long-term memory entries
     memory: [
@@ -72,16 +71,13 @@ entries:
     max_tokens: 4000
     temperature: 0.7
 
-    #      # Inherit capabilities from base agents
-    #      inherit: [ ]
-    #
-    #      # Traits that define this agent's capabilities
-    #      traits: [ ]
-    #
-    #      # Tools this agent can access
-    #      tools: [
-    #        # todo: add demo tools
-    #      ]
+    delegate:
+      "mna-deal-manager":
+        name: "to_m_n_a"
+        rule: "Send user to M&A Deal Manager for M&A-related queries."
+
+    tools:
+      - app.tools.greeting:hello_world
 
     # Long-term memory entries
     memory: [

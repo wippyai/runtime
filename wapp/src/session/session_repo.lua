@@ -112,7 +112,7 @@ function session_repo.list_by_user(user_id, limit, offset)
 
     local params = { user_id }
     local query = [[
-        SELECT session_id, user_id, primary_context_id, title, kind, current_model, current_agent, start_date, last_message_date
+        SELECT session_id, user_id, status, primary_context_id, title, kind, current_model, current_agent, start_date, last_message_date
         FROM sessions
         WHERE user_id = ?
         ORDER BY last_message_date DESC

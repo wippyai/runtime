@@ -1,0 +1,27 @@
+version: "1.0"
+namespace: app.tools.greeting
+
+meta:
+  depends_on: [ "ns:system" ]
+
+entries:
+  - name: hello_world
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Hello World Greeter"
+      llm_alias: "greet"
+      description: "A simple greeting tool that says hello to a provided name"
+      llm_description: "Returns a personalized greeting message to a given name"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The name to greet (defaults to 'World' if not provided)"
+            }
+          }
+        }
+    source: file://hello_world.lua
+    method: greet

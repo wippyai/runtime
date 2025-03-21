@@ -11,7 +11,7 @@ entries:
     meta:
       comment: "Minimalistic session process for message handling"
       default_host: app:processes
-      depends_on: [ "wippy.session:loader", "wippy.session:session_state", "wippy.session:session_updater" ]
+      depends_on: [ "wippy.session:loader", "wippy.session:session_state", "wippy.session:session_upstream", "wippy.session:controller" ]
     source: file://session.lua
     method: run
     modules: [ time, json ]
@@ -19,7 +19,20 @@ entries:
       actor: "wippy.actor:actor"
       loader: "wippy.session:loader"
       session_state: "wippy.session:session_state"
-      session_updater: "wippy.session:session_updater"
+      session_upstream: "wippy.session:session_upstream"
+      controller: "wippy.session:controller"
+
+  - name: controller
+    kind: library.lua
+    meta:
+      comment: "Conversation controller for handling message processing and agent interactions"
+      depends_on: [ "wippy.agents.gen1:agent", "wippy.agents.gen1:registry", "wippy.llm:prompt" ]
+    source: file://controller.lua
+    modules: [ json, uuid ]
+    imports:
+      agent_registry: "wippy.agents.gen1:registry"
+      agent_runner: "wippy.agents.gen1:agent"
+      prompt: "wippy.llm:prompt"
 
   - name: loader
     kind: library.lua
@@ -37,23 +50,20 @@ entries:
   - name: session_state
     kind: library.lua
     meta:
-      comment: "Session state management for handling conversation flow and agent interactions"
-      depends_on: [ "wippy.session:context_repo", "wippy.session:session_repo", "wippy.session:message_repo", "wippy.agents.gen1:agent", "wippy.agents.gen1:registry", "wippy.llm:prompt", "wippy.session:session_updater" ]
+      comment: "Session state management for handling conversation history and state persistence"
+      depends_on: [ "wippy.session:session_repo", "wippy.session:message_repo", "wippy.llm:prompt", "wippy.session:session_upstream" ]
     source: file://state.lua
-    modules: [ json, uuid ]
+    modules: [ uuid ]
     imports:
       session_repo: "wippy.session:session_repo"
       message_repo: "wippy.session:message_repo"
-      agent_registry: "wippy.agents.gen1:registry"
-      agent_runner: "wippy.agents.gen1:agent"
       prompt: "wippy.llm:prompt"
-      session_updater: "wippy.session:session_updater"
 
-  - name: session_updater
+  - name: session_upstream
     kind: library.lua
     meta:
-      comment: "Session updater for sending notifications and updates to clients"
+      comment: "Session upstream for sending notifications and updates to clients"
       depends_on: [ ]
-    source: file://updater.lua
+    source: file://upstream.lua
     modules: [ time ]
     imports: { }

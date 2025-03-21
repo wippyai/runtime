@@ -1,12 +1,14 @@
 local json = require("json")
 local actor = require("actor")
 local session_state = require("session_state")
+local controller = require("controller")
 local loader = require("loader")
-local session_updater = require("session_updater")
+local session_upstream = require("session_upstream")
 
 -- Topic constants
 local MESSAGE_TOPIC = "message"
 local COMMAND_TOPIC = "command"
+local CONTINUE_TOPIC = "continue"
 
 -- Session status constants
 local STATUS = {
@@ -14,13 +16,6 @@ local STATUS = {
     RUNNING = "running",
     ERROR = "error",
     FAILED = "failed"
-}
-
--- Command constants
-local CMD = {
-    STOP = "stop",
-    MODEL = "model",
-    AGENT = "agent"
 }
 
 -- Error code constants
@@ -68,57 +63,82 @@ local function run(args)
     -- Initialize session status from loader_state
     local session_status = loader_state.status or STATUS.IDLE
 
-    -- Create an updater instance
-    local updater = session_updater.new(args.session_id, args.conn_pid, args.parent_pid)
-
     -- Create session state object using the loader state data
-    -- Pass the updater by reference so we can update it without notifying session_state
-    local state = session_state.new(loader_state, updater)
+    local state = session_state.new(loader_state)
+
+    -- Create an upstream instance
+    local upstream = session_upstream.new(args.session_id, args.conn_pid, args.parent_pid)
+
+    -- Create controller instance that will manage conversation flow
+    local convo_controller = controller.new(state, upstream, {
+        -- Callback for controller to request continuation
+        ask_continue = function(payload)
+            -- Post to the continue topic to trigger further processing
+            actor.post(CONTINUE_TOPIC, payload)
+        end
+    })
+
+    -- Set session status (centralized status management)
+    local function set_session_status(new_status, error_msg)
+        -- Update local variable
+        session_status = new_status
+
+        -- Update state
+        state:update_session_status(new_status, error_msg)
+
+        -- Notify clients
+        if error_msg then
+            upstream:session_error(new_status == STATUS.FAILED and ERROR_CODE.FAILED or ERROR_CODE.ERROR, error_msg)
+        else
+            upstream:update_session({ status = new_status })
+        end
+    end
 
     -- Check if the session is already in a failed state
     if session_status == STATUS.FAILED then
-        updater:session_error(ERROR_CODE.FAILED, ERR.INIT_FAILED)
+        upstream:session_error(ERROR_CODE.FAILED, ERR.INIT_FAILED)
         error("Unable to open failed session")
     end
 
     -- Normal session initialization
     if args.create and loader_state.meta and loader_state.meta.agent then
-        -- Initialize with agent name
-        local success, init_err = state:initialize_with_agent_name(loader_state.meta.agent, loader_state.meta.model)
+        -- Set agent and model through controller
+        local success, init_err = convo_controller:init(
+            loader_state.meta.agent,
+            loader_state.meta.model
+        )
+
         if not success then
             -- Session state has already updated the DB status
             session_status = STATUS.FAILED
-            updater:session_error(ERROR_CODE.FAILED, init_err)
+            upstream:session_error(ERROR_CODE.FAILED, init_err)
             error(init_err)
         end
     else
-        -- For existing sessions, load message history
+        -- For existing sessions, load message history through state
         local success, history_err = state:load_history()
         if not success then
             -- Session state has already updated the DB status
             session_status = STATUS.FAILED
             state:update_session_status(STATUS.FAILED, history_err)
-            updater:session_error(ERROR_CODE.FAILED, history_err)
+            upstream:session_error(ERROR_CODE.FAILED, history_err)
             error(history_err)
         end
     end
 
-    -- Notify client that session is ready using updater
-    updater:update_session({
+    -- Notify client that session is ready using upstream
+    upstream:update_session({
         agent = loader_state.meta and loader_state.meta.agent,
         model = loader_state.meta and loader_state.meta.model,
         status = session_status,
         last_message_date = loader_state.last_message_date,
     })
 
-    -- Flag to track generation stop requests
-    local stop_requested = false
-
     -- Define message handlers
     local handlers = {
         -- Handle cancellation
         __on_cancel = function(actor_state)
-            -- todo: wait for agent to finish before exiting if it's still working
+            convo_controller:cancel()
             return actor.exit({ status = "shutdown" })
         end,
 
@@ -134,81 +154,24 @@ local function run(args)
                 return actor_state
             end
 
-            -- Update connection PID if provided
-            if payload.conn_pid then
-                updater.conn_pid = payload.conn_pid
-            end
-
             -- Don't process messages if session is in failed state
             if session_status == STATUS.FAILED then
-                updater:session_error(ERROR_CODE.FAILED, ERR.FAILED_STATE)
+                upstream:session_error(ERROR_CODE.FAILED, ERR.FAILED_STATE)
                 return actor_state
             end
 
             -- Don't process if already running
             if session_status == STATUS.RUNNING then
-                updater:session_error(ERROR_CODE.BUSY, ERR.BUSY)
+                upstream:session_error(ERROR_CODE.BUSY, ERR.BUSY)
                 return actor_state
             end
 
-            -- Reset stop flag when starting a new message
-            stop_requested = false
-
-            -- Update session status via session_state
-            session_status = STATUS.RUNNING
-            state:update_session_status(STATUS.RUNNING)
-            updater:update_session({ status = STATUS.RUNNING })
-
-            -- Process the message
-            local next, msg_err = state:process_message(payload.data)
-            if not next then
-                -- Handle error, reset status via session_state
-                session_status = STATUS.ERROR
-                state:update_session_status(STATUS.ERROR)
-
-                -- Notify clients about the error
-                updater:session_error(ERROR_CODE.ERROR, msg_err)
-
-                print("Error processing message:", msg_err)
-                return actor_state
+            -- Update connection PID if provided
+            if payload.conn_pid then
+                upstream.conn_pid = payload.conn_pid
             end
 
-            -- Execute agent asynchronously
-            actor_state.async(function()
-                -- Check if stop requested before execution
-                if stop_requested then
-                    session_status = STATUS.IDLE
-                    state:update_session_status(STATUS.IDLE)
-                    updater:update_session({ status = STATUS.IDLE })
-                    return { stopped = true }
-                end
-
-                local exec_result, exec_err = state:execute_agent(next, stop_requested)
-                if not exec_result then
-                    print("error executing agent:", exec_err)
-                    return nil, exec_err
-                end
-
-                return exec_result
-            end).on_complete(function(actor_state, result, error)
-                if error then
-                    print("async execution error:", error)
-                    session_status = STATUS.ERROR
-                    state:update_session_status(STATUS.ERROR)
-                    updater:session_error(ERROR_CODE.ERROR, ERR.EXEC_AGENT .. ": " .. error)
-
-                    -- todo: we probably can retry, right?
-
-                    return
-                end
-
-                -- Always update to idle state when complete, whether stopped or not
-                session_status = STATUS.IDLE
-                state:update_session_status(STATUS.IDLE)
-                updater:update_session({ status = STATUS.IDLE })
-            end)
-
-            return actor_state
+            return actor.next(CONTINUE_TOPIC, payload)
         end,
 
         -- Handle commands
@@ -217,44 +180,57 @@ local function run(args)
                 return actor_state
             end
 
+            -- Update connection PID if provided
+            if payload.conn_pid then
+                upstream.conn_pid = payload.conn_pid
+            end
+
             -- Don't process commands if session is in failed state
             if session_status == STATUS.FAILED then
-                updater:session_error(ERROR_CODE.FAILED, ERR.FAILED_COMMANDS)
+                upstream:session_error(ERROR_CODE.FAILED, ERR.FAILED_COMMANDS)
                 return actor_state
             end
 
-            local command = payload.command
+            -- Handle command through controller
+            local success, err = convo_controller:handle_command(payload.command, payload)
 
-            if command == CMD.STOP then
-                -- Set the stop flag to signal the agent to stop
-                stop_requested = true
-
-                -- If we're not in RUNNING state, also update status via session_state
-                if session_status ~= STATUS.RUNNING then
-                    session_status = STATUS.IDLE
-                    state:update_session_status(STATUS.IDLE)
-
-                    updater:update_session({
-                        status = STATUS.IDLE
-                    })
-                end
-            elseif command == CMD.MODEL then
-                if  payload.name then
-                    local success, err = state:change_model(payload.name)
-                    if not success then
-                        updater:session_error(ERROR_CODE.ERROR, err)
-                    end
-                end
-            elseif command == CMD.AGENT then
-                if payload.name then
-                    local success, err = state:change_agent(payload.name)
-                    if not success then
-                        updater:session_error(ERROR_CODE.ERROR, err)
-                    end
-                end
-            else
-                updater:session_error(ERROR_CODE.ERROR, ERR.UNSUPPORTED_COMMAND)
+            if not success then
+                upstream:session_error(ERROR_CODE.ERROR, err or "Command failed")
             end
+
+            return actor_state
+        end,
+
+        -- Handle controller-initiated continue actions
+        [CONTINUE_TOPIC] = function(actor_state, payload)
+            if session_status == STATUS.RUNNING or session_status == STATUS.FAILED then
+                return actor_state
+            end
+
+            -- Set status to running
+            set_session_status(STATUS.RUNNING)
+
+            -- Process continue action asynchronously
+            actor_state.async(function()
+                local result, err
+
+                if payload.type == controller.CMD.MESSAGE then
+                    -- Handle user message
+                    result, err = convo_controller:handle_message(payload.data)
+                else
+                    -- Handle controller-initiated action
+                    result, err = convo_controller:continue(payload)
+                end
+
+                if err then
+                    print("Error in processing:", err)
+                    set_session_status(STATUS.ERROR, err)
+                    return
+                end
+
+                -- Update session status after processing
+                set_session_status(STATUS.IDLE)
+            end)
 
             return actor_state
         end,

@@ -455,11 +455,6 @@ local function define_tests()
                                 return { success = true }
                             end)
 
-                            -- Register a callback
-                            task.on_complete(function(state, result)
-                                return nil
-                            end)
-
                             return actor.exit({ status = "initialized" })
                         end
                     }

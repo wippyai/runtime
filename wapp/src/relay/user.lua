@@ -212,9 +212,9 @@ local function run(args)
                     session_id = id
                 else
                     if state.active_sessions[session_id] then
-                        process.send(from, CLIENT_ERROR_TOPIC, {
-                            error = ERROR_SESSION_EXISTS,
-                            message = "Session already exists with ID: " .. session_id
+                        broadcast_to_clients(state, CLIENT_SESSION_OPENED_TOPIC, {
+                            session_id = session_id,
+                            active_session_ids = get_active_session_ids(state)
                         })
                         return state
                     end

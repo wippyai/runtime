@@ -1,0 +1,1268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fortress Chat</title>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 0;
+            padding: 0;
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            grid-template-rows: auto 1fr auto;
+            grid-template-areas:
+                "header header"
+                "sidebar chat"
+                "sidebar input";
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        #header {
+            grid-area: header;
+            background-color: #252526;
+            padding: 10px 20px;
+            border-bottom: 1px solid #555;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #status {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .status-connecting {
+            background-color: #664d00;
+            color: #ffcc00;
+        }
+
+        .status-connected {
+            background-color: #145214;
+            color: #4caf50;
+        }
+
+        .status-disconnected {
+            background-color: #5e1414;
+            color: #ff5252;
+        }
+
+        #sidebar {
+            grid-area: sidebar;
+            border-right: 1px solid #555;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        #sessionControls {
+            padding: 10px;
+            border-bottom: 1px solid #555;
+        }
+
+        #agentsPanel {
+            padding: 10px;
+            border-bottom: 1px solid #555;
+            overflow-y: auto;
+            max-height: 200px;
+        }
+
+        #sessionsList {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        #chat {
+            grid-area: chat;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #inputArea {
+            grid-area: input;
+            display: flex;
+            padding: 15px;
+            background-color: #252526;
+            border-top: 1px solid #555;
+        }
+
+        #messageInput {
+            flex: 1;
+            padding: 10px;
+            background-color: #333;
+            color: #e0e0e0;
+            border: 1px solid #555;
+            border-radius: 4px;
+            margin-right: 10px;
+            font-family: monospace;
+            resize: none;
+        }
+
+        button {
+            padding: 8px 15px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #3367d6;
+        }
+
+        button:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+        }
+
+        .small-button {
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+
+        .session-item {
+            padding: 10px;
+            margin-bottom: 5px;
+            background-color: #333;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            border-left: 4px solid transparent;
+            position: relative;
+        }
+
+        .session-item:hover {
+            background-color: #444;
+        }
+
+        .session-item.active {
+            background-color: #1e4273;
+            border-left-color: #64b5f6;
+        }
+
+        .session-item.closed {
+            opacity: 0.7;
+            border-left-color: #888;
+        }
+
+        .session-item.error {
+            border-left-color: #ff5252;
+        }
+
+        .session-status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+
+        .session-status.idle {
+            background-color: #145214;
+            color: #4caf50;
+        }
+
+        .session-status.running {
+            background-color: #1e4273;
+            color: #64b5f6;
+        }
+
+        .session-status.closed {
+            background-color: #555;
+            color: #ddd;
+        }
+
+        .session-status.error {
+            background-color: #5e1414;
+            color: #ff5252;
+        }
+
+        .session-title {
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .session-date {
+            font-size: 11px;
+            color: #aaa;
+        }
+
+        .agent-item {
+            padding: 8px;
+            margin-bottom: 5px;
+            background-color: #333;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .agent-item:hover {
+            background-color: #444;
+        }
+
+        .agent-title {
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .agent-model {
+            font-size: 11px;
+            color: #aaa;
+        }
+
+        .message {
+            max-width: 85%;
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 10px;
+            word-wrap: break-word;
+        }
+
+        .message-user {
+            align-self: flex-end;
+            background-color: #1e4273;
+        }
+
+        .message-agent {
+            align-self: flex-start;
+            background-color: #333;
+        }
+
+        .message-system {
+            align-self: center;
+            background-color: #664d00;
+            color: #ffcc00;
+            font-size: 12px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            margin: 5px 0;
+        }
+
+        .message-time {
+            font-size: 11px;
+            color: #aaa;
+            margin-top: 5px;
+            text-align: right;
+        }
+
+        .loading {
+            color: #aaa;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        #commandButtons {
+            padding: 10px;
+            border-top: 1px solid #555;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        .command-button {
+            font-size: 11px;
+            background-color: #2a2a2a;
+        }
+
+        .command-button:hover {
+            background-color: #444;
+        }
+
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .typing-indicator span {
+            height: 8px;
+            width: 8px;
+            margin: 0 1px;
+            background-color: #999;
+            border-radius: 50%;
+            display: inline-block;
+            animation: typing 1.5s infinite ease-in-out;
+        }
+
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0% {
+                transform: translateY(0px);
+            }
+            28% {
+                transform: translateY(-5px);
+            }
+            44% {
+                transform: translateY(0px);
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="header">
+    <div>
+        <h2>Fortress Chat</h2>
+        <div id="stats">Not connected</div>
+    </div>
+    <div id="status" class="status-disconnected">DISCONNECTED</div>
+</div>
+
+<div id="sidebar">
+    <div id="sessionControls">
+        <h3>Sessions</h3>
+        <div style="display: flex; gap: 5px; margin: 10px 0;">
+            <button id="refreshSessionsBtn">Refresh Sessions</button>
+            <button id="newSessionBtn">New Session</button>
+        </div>
+        <div style="display: flex; gap: 5px; margin: 5px 0;">
+            <label style="display: flex; align-items: center; font-size: 12px; margin-right: 10px;">
+                <input type="checkbox" id="showClosedSessions" checked>
+                <span style="margin-left: 3px;">Show Closed</span>
+            </label>
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <span class="session-status idle" style="margin: 0; font-size: 9px;">IDLE</span>
+                <span class="session-status running" style="margin: 0; font-size: 9px;">RUNNING</span>
+                <span class="session-status closed" style="margin: 0; font-size: 9px;">CLOSED</span>
+                <span class="session-status error" style="margin: 0; font-size: 9px;">ERROR</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="agentsPanel">
+        <h3>Available Agents</h3>
+        <div id="agentsContainer">
+            <div class="loading">Loading agents...</div>
+        </div>
+    </div>
+
+    <div id="sessionsList">
+        <div class="loading">Loading sessions...</div>
+    </div>
+
+    <div id="commandButtons">
+        <button class="command-button" id="stopGenerationBtn">Stop Generation</button>
+        <button class="command-button" id="switchToClaudeBtn">Switch to Claude</button>
+        <button class="command-button" id="switchToGPTBtn">Switch to GPT</button>
+        <button class="command-button" id="closeSessionBtn">Close Session</button>
+    </div>
+</div>
+
+<div id="chat">
+    <div class="message-system">Select or create a session to start chatting</div>
+</div>
+
+<div id="inputArea">
+    <textarea id="messageInput" placeholder="Type your message..." rows="3" disabled></textarea>
+    <button id="sendBtn" disabled>Send</button>
+</div>
+
+<script>
+    // Application state
+    const state = {
+        token: null,
+        socket: null,
+        connected: false,
+        authenticated: false,
+
+        // Sessions
+        sessions: [],
+        currentSessionId: null,
+        currentSessionTitle: null,
+        closedSessions: new Set(), // Track closed sessions
+        erroredSessions: new Set(), // Track errored sessions
+
+        // Agents
+        availableAgents: [],
+        selectedAgent: null,
+
+        // Chat
+        messages: [],
+        isGenerating: false,
+
+        // Streaming
+        currentResponseId: null,
+        currentResponseText: ''
+    };
+
+    // DOM elements
+    const statusElement = document.getElementById('status');
+    const statsElement = document.getElementById('stats');
+    const chatElement = document.getElementById('chat');
+    const messageInputElement = document.getElementById('messageInput');
+    const sendBtnElement = document.getElementById('sendBtn');
+    const sessionsListElement = document.getElementById('sessionsList');
+    const agentsContainerElement = document.getElementById('agentsContainer');
+    const refreshSessionsBtnElement = document.getElementById('refreshSessionsBtn');
+    const newSessionBtnElement = document.getElementById('newSessionBtn');
+    const stopGenerationBtnElement = document.getElementById('stopGenerationBtn');
+    const switchToClaudeBtnElement = document.getElementById('switchToClaudeBtn');
+    const switchToGPTBtnElement = document.getElementById('switchToGPTBtn');
+    const closeSessionBtnElement = document.getElementById('closeSessionBtn');
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        // Set up event listeners
+        sendBtnElement.addEventListener('click', sendMessage);
+        refreshSessionsBtnElement.addEventListener('click', fetchSessions);
+        newSessionBtnElement.addEventListener('click', showAgents);
+
+        stopGenerationBtnElement.addEventListener('click', stopGeneration);
+        switchToClaudeBtnElement.addEventListener('click', () => switchModel('claude-3-5-sonnet'));
+        switchToGPTBtnElement.addEventListener('click', () => switchModel('gpt-4o-mini'));
+        closeSessionBtnElement.addEventListener('click', closeSession);
+
+        messageInputElement.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Show/hide closed sessions checkbox
+        const showClosedCheckbox = document.getElementById('showClosedSessions');
+        showClosedCheckbox.addEventListener('change', function () {
+            renderSessions();
+        });
+
+        // Start authentication
+        authenticateUser();
+    });
+
+    // Helper to update connection status
+    function updateStatus(status) {
+        statusElement.className = `status-${status}`;
+        statusElement.textContent = status.toUpperCase();
+    }
+
+    // Helper to update stats display
+    function updateStats() {
+        let statsText = `Status: ${state.connected ? 'Connected' : 'Disconnected'}`;
+
+        if (state.currentSessionId) {
+            statsText += ` | Current Session: ${state.currentSessionTitle || state.currentSessionId.substr(0, 8)}`;
+        }
+
+        statsElement.textContent = statsText;
+    }
+
+    // Helper to add message to chat
+    function addMessage(type, content, timestamp = null, messageId = null) {
+        // If this message already exists (for streaming updates), update it instead of creating new
+        if (messageId) {
+            const existingMessage = document.getElementById(messageId);
+            if (existingMessage) {
+                const contentElement = existingMessage.querySelector('.message-content');
+                if (contentElement) {
+                    contentElement.textContent = content;
+                    chatElement.scrollTop = chatElement.scrollHeight;
+                    return existingMessage;
+                }
+            }
+        }
+
+        // Create new message
+        const messageElement = document.createElement('div');
+        messageElement.className = `message message-${type}`;
+        if (messageId) {
+            messageElement.id = messageId;
+        }
+
+        const contentElement = document.createElement('div');
+        contentElement.className = 'message-content';
+        contentElement.textContent = content;
+
+        messageElement.appendChild(contentElement);
+
+        if (timestamp) {
+            const timeElement = document.createElement('div');
+            timeElement.className = 'message-time';
+            timeElement.textContent = new Date(timestamp * 1000).toLocaleTimeString();
+            messageElement.appendChild(timeElement);
+        }
+
+        chatElement.appendChild(messageElement);
+        chatElement.scrollTop = chatElement.scrollHeight;
+
+        // Store message in state if it's part of the conversation
+        if (type === 'user' || type === 'agent') {
+            state.messages.push({
+                type,
+                content,
+                timestamp: timestamp || Math.floor(Date.now() / 1000),
+                messageId
+            });
+        }
+
+        return messageElement;
+    }
+
+    // Add system message
+    function addSystemMessage(content) {
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message-system';
+        messageElement.textContent = content;
+
+        chatElement.appendChild(messageElement);
+        chatElement.scrollTop = chatElement.scrollHeight;
+    }
+
+    // Show/hide typing indicator
+    function toggleTypingIndicator(show) {
+        // Remove existing typing indicator if any
+        const existingIndicator = document.querySelector('.typing-indicator');
+        if (existingIndicator) {
+            existingIndicator.remove();
+        }
+
+        if (show) {
+            const indicator = document.createElement('div');
+            indicator.className = 'typing-indicator';
+            indicator.innerHTML = `
+                <span></span>
+                <span></span>
+                <span></span>
+            `;
+
+            chatElement.appendChild(indicator);
+            chatElement.scrollTop = chatElement.scrollHeight;
+        }
+    }
+
+    // Authenticate user to get token
+    function authenticateUser() {
+        updateStatus('connecting');
+        console.log('Starting authentication...');
+
+        // Use hardcoded credentials for demo
+        const userData = {
+            user_id: 'wolfy-j',
+            sf_instance_token: 'abc',
+            metadata: {
+                role: 'tester',
+                testMode: true
+            }
+        };
+
+        // Determine API URL based on current location
+        const apiUrl = `${window.location.protocol}//${window.location.host}/api/public/user/token`;
+
+        fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(userData)
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.token) {
+                    state.token = data.token;
+                    state.authenticated = true;
+
+                    addSystemMessage('Authentication successful');
+
+                    // Connect to WebSocket
+                    connectWebSocket();
+
+                    // Fetch sessions and agents
+                    fetchSessions();
+                    fetchAgents();
+                } else {
+                    throw new Error('Token not received in response');
+                }
+            })
+            .catch(error => {
+                console.error(`Authentication failed: ${error.message}`);
+                addSystemMessage(`Authentication failed: ${error.message}`);
+                updateStatus('disconnected');
+            });
+    }
+
+    // Connect to WebSocket
+    function connectWebSocket() {
+        if (!state.token) {
+            console.error('No authentication token available');
+            return;
+        }
+
+        updateStatus('connecting');
+        console.log('Connecting to WebSocket...');
+
+        // Create WebSocket URL with token
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const wsUrl = `${protocol}://${window.location.host}/api/v1/ws/join?x-auth-token=${encodeURIComponent(state.token)}`;
+
+        try {
+            state.socket = new WebSocket(wsUrl);
+
+            // Connection opened
+            state.socket.addEventListener('open', () => {
+                state.connected = true;
+                updateStatus('connected');
+                console.log('WebSocket connected');
+                addSystemMessage('Connected to server');
+                updateStats();
+            });
+
+            // Message received
+            state.socket.addEventListener('message', (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    handleWebSocketMessage(message);
+                } catch (error) {
+                    console.error(`Failed to parse message: ${error.message}`, event.data);
+                }
+            });
+
+            // Connection closed
+            state.socket.addEventListener('close', (event) => {
+                state.connected = false;
+                updateStatus('disconnected');
+                console.log(`WebSocket disconnected. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
+                addSystemMessage(`Disconnected from server: ${event.reason || 'Connection closed'}`);
+                updateStats();
+            });
+
+            // Connection error
+            state.socket.addEventListener('error', (event) => {
+                console.error('WebSocket connection error');
+                addSystemMessage('Connection error occurred');
+            });
+
+        } catch (error) {
+            console.error(`Failed to create WebSocket: ${error.message}`);
+            addSystemMessage(`Failed to connect: ${error.message}`);
+            updateStatus('disconnected');
+        }
+    }
+
+    // Handle WebSocket messages
+    function handleWebSocketMessage(message) {
+        console.log('WebSocket message:', message);
+
+        const topic = message.topic || '';
+        const data = message.data || {};
+
+        // Welcome message
+        if (topic === 'welcome') {
+            console.log('Welcome received:', data);
+        }
+        // Session opened
+        else if (topic === 'session.opened') {
+            console.log('Session opened:', data);
+            state.currentSessionId = data.session_id;
+            fetchSessions(); // Refresh sessions to get the title
+            enableChat();
+            addSystemMessage(`Session opened: ${data.session_id}`);
+            updateStats();
+        }
+        // Session closed
+        else if (topic === 'session.closed') {
+            console.log('Session closed:', data);
+            // Add to closed sessions set
+            if (data.session_id) {
+                state.closedSessions.add(data.session_id);
+                renderSessions();
+            }
+        }
+        // Session update
+        else if (topic.startsWith('session:') && !topic.includes(':message:')) {
+            handleSessionUpdate(data);
+        }
+        // Message received
+        else if (topic.includes(':message:') && topic.includes(':response_started')) {
+            console.log('Response started:', data);
+            state.isGenerating = true;
+            toggleTypingIndicator(false); // Hide the typing indicator since we'll show actual text
+
+            // Extract the response ID from the topic or data
+            const responseId = data.response_id || extractIdFromTopic(topic);
+
+            // Create an empty message that will be filled with chunks
+            state.currentResponseId = responseId;
+            state.currentResponseText = '';
+            addMessage('agent', '', null, responseId);
+        }
+        // Message chunk
+        else if (topic.includes(':message:') && data.type === 'chunk') {
+            // Extract the message ID from the topic
+            const messageId = extractIdFromTopic(topic);
+
+            // Update the current response text with this chunk
+            state.currentResponseText += data.content || '';
+
+            // Update the message with the accumulated text
+            addMessage('agent', state.currentResponseText, null, messageId);
+        }
+        // Full message content
+        else if (topic.includes(':message:') && data.type === 'content') {
+            console.log('Full message received:', data);
+            state.isGenerating = false;
+
+            // If we received chunks, we've already built up the message
+            // If not, create a new message with the full content
+            if (!state.currentResponseText) {
+                const messageId = extractIdFromTopic(topic);
+                addMessage('agent', data.content, Math.floor(Date.now() / 1000), messageId);
+            } else {
+                // Add timestamp to the message now that it's complete
+                const messageElement = document.getElementById(state.currentResponseId);
+                if (messageElement) {
+                    const timeElement = document.createElement('div');
+                    timeElement.className = 'message-time';
+                    timeElement.textContent = new Date().toLocaleTimeString();
+                    messageElement.appendChild(timeElement);
+                }
+
+                // Reset streaming state
+                state.currentResponseId = null;
+                state.currentResponseText = '';
+            }
+        }
+        // User message received confirmation
+        else if (topic.includes(':message:') && data.type === 'received') {
+            console.log('Message received confirmation:', data);
+            // We already add the user message when sending, so no need to add it again
+        }
+        // Error message
+        else if (topic === 'error' || (data.type === 'error')) {
+            console.error('Error received:', data);
+            addSystemMessage(`Error: ${data.message || 'Unknown error'}`);
+
+            // If this error is related to a session, mark it as errored
+            if (data.session_id) {
+                state.erroredSessions.add(data.session_id);
+                renderSessions();
+            } else if (state.currentSessionId) {
+                // If no specific session ID but we have a current session, assume it's for that
+                state.erroredSessions.add(state.currentSessionId);
+                renderSessions();
+            }
+        }
+    }
+
+    // Helper to extract message ID from WebSocket topic
+    function extractIdFromTopic(topic) {
+        // Topics are in format like "session:0195b598-74a9-7072-bdad-f6cbba162b90:message:0195b598-9eb0-7d4c-9a00-8e1341c83b93"
+        const parts = topic.split(':');
+        return parts[parts.length - 1] || null;
+    }
+
+    // Handle session updates
+    function handleSessionUpdate(data) {
+        console.log('Session update:', data);
+
+        // Update session status
+        if (data.status === 'running') {
+            state.isGenerating = true;
+        } else if (data.status === 'idle') {
+            state.isGenerating = false;
+            toggleTypingIndicator(false);
+        }
+
+        // Update session model if changed
+        if (data.model) {
+            addSystemMessage(`Model switched to: ${data.model}`);
+        }
+    }
+
+    // Fetch available sessions
+    function fetchSessions() {
+        if (!state.authenticated) {
+            console.error('Not authenticated');
+            return;
+        }
+
+        console.log('Fetching sessions...');
+        sessionsListElement.innerHTML = '<div class="loading">Loading sessions...</div>';
+
+        // API URL for sessions endpoint
+        const apiUrl = `${window.location.protocol}//${window.location.host}/api/v1/sessions?limit=20&offset=0`;
+
+        fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${state.token}`
+            }
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    state.sessions = data.sessions || [];
+                    renderSessions();
+
+                    // Update current session title if we have a session open
+                    if (state.currentSessionId) {
+                        const currentSession = state.sessions.find(s => s.session_id === state.currentSessionId);
+                        if (currentSession) {
+                            state.currentSessionTitle = currentSession.title || `Session ${currentSession.session_id.substr(0, 8)}`;
+                            updateStats();
+                        }
+                    }
+                } else {
+                    throw new Error('Failed to fetch sessions: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error(`Failed to fetch sessions: ${error.message}`);
+                sessionsListElement.innerHTML = `<div class="loading">Error: ${error.message}</div>`;
+            });
+    }
+
+    // Render sessions list
+    function renderSessions() {
+        sessionsListElement.innerHTML = '';
+
+        if (state.sessions.length === 0) {
+            sessionsListElement.innerHTML = '<div class="loading">No sessions found</div>';
+            return;
+        }
+
+        // Check if closed sessions should be shown
+        const showClosedCheckbox = document.getElementById('showClosedSessions');
+        const showClosed = showClosedCheckbox.checked;
+
+        // Sort sessions by date, newest first
+        const sortedSessions = [...state.sessions].sort((a, b) => b.last_message_date - a.last_message_date);
+
+        let visibleCount = 0;
+        sortedSessions.forEach(session => {
+            // Skip closed sessions if not showing them
+            const isClosed = state.closedSessions.has(session.session_id);
+            if (isClosed && !showClosed) {
+                return;
+            }
+
+            visibleCount++;
+            const sessionElement = document.createElement('div');
+            sessionElement.className = 'session-item';
+            if (session.session_id === state.currentSessionId) {
+                sessionElement.classList.add('active');
+            }
+
+            // Check if session is closed or errored
+            if (isClosed) {
+                sessionElement.classList.add('closed');
+            }
+
+            if (state.erroredSessions.has(session.session_id)) {
+                sessionElement.classList.add('error');
+            }
+
+            const titleElement = document.createElement('div');
+            titleElement.className = 'session-title';
+            titleElement.textContent = session.title || `Session ${session.session_id.substr(0, 8)}...`;
+
+            const dateElement = document.createElement('div');
+            dateElement.className = 'session-date';
+            const lastMessageDate = new Date(session.last_message_date * 1000).toLocaleString();
+            dateElement.textContent = `${lastMessageDate}`;
+
+            const modelElement = document.createElement('div');
+            modelElement.className = 'session-date';
+            modelElement.textContent = `Model: ${session.current_model || 'Unknown'}`;
+
+            // Add status badge
+            const statusElement = document.createElement('div');
+            let statusClass = 'idle';
+            let statusText = 'IDLE';
+
+            if (session.status === 'running') {
+                statusClass = 'running';
+                statusText = 'RUNNING';
+            } else if (isClosed) {
+                statusClass = 'closed';
+                statusText = 'CLOSED';
+            } else if (state.erroredSessions.has(session.session_id)) {
+                statusClass = 'error';
+                statusText = 'ERROR';
+            }
+
+            statusElement.className = `session-status ${statusClass}`;
+            statusElement.textContent = statusText;
+
+            sessionElement.appendChild(titleElement);
+            sessionElement.appendChild(dateElement);
+            sessionElement.appendChild(modelElement);
+            sessionElement.appendChild(statusElement);
+
+            // Add click handler to load session
+            sessionElement.addEventListener('click', () => {
+                loadSession(session);
+            });
+
+            sessionsListElement.appendChild(sessionElement);
+        });
+
+        if (visibleCount === 0) {
+            sessionsListElement.innerHTML = '<div class="loading">No sessions to display</div>';
+        }
+    }
+
+    // Load session and its messages
+    function loadSession(session) {
+        if (!state.connected) {
+            addSystemMessage('Not connected to server');
+            return;
+        }
+
+        // Clear current messages
+        state.messages = [];
+        chatElement.innerHTML = '';
+        addSystemMessage(`Loading session: ${session.title || session.session_id}`);
+
+        // Open existing session
+        state.currentSessionId = session.session_id;
+        state.currentSessionTitle = session.title || `Session ${session.session_id.substr(0, 8)}`;
+
+        const sessionOpenPayload = {
+            type: "session_open",
+            session_id: session.session_id
+        };
+
+        sendToWebSocket(sessionOpenPayload);
+
+        // Fetch messages for this session
+        fetchSessionMessages(session.session_id);
+
+        // Update UI
+        renderSessions(); // To highlight the active session
+        updateStats();
+    }
+
+    // Fetch messages for a session
+    function fetchSessionMessages(sessionId) {
+        if (!state.authenticated) {
+            return;
+        }
+
+        const apiUrl = `${window.location.protocol}//${window.location.host}/api/v1/sessions/messages?session_id=${encodeURIComponent(sessionId)}&limit=50&offset=0`;
+
+        fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${state.token}`
+            }
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // Clear current messages
+                    chatElement.innerHTML = '';
+
+                    const messages = data.messages || [];
+                    if (messages.length === 0) {
+                        addSystemMessage('No previous messages');
+                    } else {
+                        // Sort messages from oldest to newest
+                        const sortedMessages = [...messages].sort((a, b) => a.date - b.date);
+
+                        // Render messages
+                        sortedMessages.forEach(message => {
+                            let messageType, messageContent;
+
+                            if (message.type === 'human' || message.type === 'user') {
+                                messageType = 'user';
+                            } else {
+                                messageType = 'agent';
+                            }
+
+                            // Extract message content
+                            if (typeof message.data === 'string') {
+                                messageContent = message.data;
+                            } else if (typeof message.data === 'object') {
+                                if (message.data.text) {
+                                    messageContent = message.data.text;
+                                } else {
+                                    messageContent = JSON.stringify(message.data, null, 2);
+                                }
+                            }
+
+                            addMessage(messageType, messageContent, message.date);
+                        });
+                    }
+
+                    enableChat();
+                } else {
+                    throw new Error('Failed to fetch messages: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error(`Failed to fetch messages: ${error.message}`);
+                addSystemMessage(`Error loading messages: ${error.message}`);
+            });
+    }
+
+    // Fetch available agents
+    function fetchAgents() {
+        if (!state.authenticated) {
+            console.error('Not authenticated');
+            return;
+        }
+
+        console.log('Fetching agents...');
+        agentsContainerElement.innerHTML = '<div class="loading">Loading agents...</div>';
+
+        // API URL for agents endpoint
+        const apiUrl = `${window.location.protocol}//${window.location.host}/api/v1/agents/list`;
+
+        fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${state.token}`
+            }
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    state.availableAgents = data.agents || [];
+                    renderAgents();
+                } else {
+                    throw new Error('Failed to fetch agents: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error(`Failed to fetch agents: ${error.message}`);
+                agentsContainerElement.innerHTML = `<div class="loading">Error: ${error.message}</div>`;
+            });
+    }
+
+    // Render agents list
+    function renderAgents() {
+        agentsContainerElement.innerHTML = '';
+
+        if (state.availableAgents.length === 0) {
+            agentsContainerElement.innerHTML = '<div class="loading">No agents available</div>';
+            return;
+        }
+
+        state.availableAgents.forEach(agent => {
+            const agentElement = document.createElement('div');
+            agentElement.className = 'agent-item';
+            agentElement.setAttribute('data-agent-name', agent.name);
+            agentElement.setAttribute('data-start-token', agent.start_token);
+
+            const titleElement = document.createElement('div');
+            titleElement.className = 'agent-title';
+            titleElement.textContent = agent.title || agent.name;
+
+            const modelElement = document.createElement('div');
+            modelElement.className = 'agent-model';
+            modelElement.textContent = agent.model || 'Unknown model';
+
+            agentElement.appendChild(titleElement);
+            agentElement.appendChild(modelElement);
+
+            // Add click handler to start a new session with this agent
+            agentElement.addEventListener('click', () => {
+                createNewSession(agent);
+            });
+
+            agentsContainerElement.appendChild(agentElement);
+        });
+    }
+
+    // Show or hide agents panel
+    function showAgents() {
+        // Toggle agents panel visibility
+        const agentsPanel = document.getElementById('agentsPanel');
+        agentsPanel.style.display = agentsPanel.style.display === 'none' ? 'block' : 'block';
+
+        // Scroll to agents panel to make sure it's visible
+        agentsPanel.scrollIntoView({behavior: 'smooth'});
+    }
+
+    // Create a new session with the selected agent
+    function createNewSession(agent) {
+        if (!state.connected) {
+            addSystemMessage('Not connected to server');
+            return;
+        }
+
+        // Clear current messages
+        state.messages = [];
+        chatElement.innerHTML = '';
+        addSystemMessage(`Creating new session with agent: ${agent.title || agent.name}`);
+
+        // Send session open command with agent's start token
+        const sessionOpenPayload = {
+            type: "session_open",
+            start_token: agent.start_token
+        };
+
+        sendToWebSocket(sessionOpenPayload);
+    }
+
+    // Enable chat interface
+    function enableChat() {
+        messageInputElement.disabled = false;
+        sendBtnElement.disabled = false;
+        messageInputElement.focus();
+    }
+
+    // Disable chat interface
+    function disableChat() {
+        messageInputElement.disabled = true;
+        sendBtnElement.disabled = true;
+    }
+
+    // Send message to current session
+    function sendMessage() {
+        const text = messageInputElement.value.trim();
+        if (!text || !state.connected || !state.currentSessionId) {
+            return;
+        }
+
+        // Add user message to chat
+        addMessage('user', text);
+
+        // Prepare message payload
+        const messagePayload = {
+            type: "session_message",
+            session_id: state.currentSessionId,
+            data: {
+                text: text,
+                file_uuids: []
+            }
+        };
+
+        // Send to WebSocket
+        sendToWebSocket(messagePayload);
+
+        // Clear input
+        messageInputElement.value = '';
+
+        // Show typing indicator
+        toggleTypingIndicator(true);
+    }
+
+    // Send payload to WebSocket
+    function sendToWebSocket(payload) {
+        if (!state.connected || !state.socket) {
+            console.error('Not connected to WebSocket');
+            addSystemMessage('Not connected to server');
+            return;
+        }
+
+        try {
+            const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
+            state.socket.send(data);
+            console.log('Sent:', payload);
+        } catch (error) {
+            console.error(`Failed to send payload: ${error.message}`);
+            addSystemMessage(`Failed to send: ${error.message}`);
+        }
+    }
+
+    // Stop message generation
+    function stopGeneration() {
+        if (!state.connected || !state.currentSessionId || !state.isGenerating) {
+            return;
+        }
+
+        const stopPayload = {
+            type: "session_command",
+            session_id: state.currentSessionId,
+            data: {
+                command: "stop"
+            }
+        };
+
+        sendToWebSocket(stopPayload);
+        addSystemMessage('Stopping generation...');
+    }
+
+    // Switch model for current session
+    function switchModel(modelName) {
+        if (!state.connected || !state.currentSessionId) {
+            return;
+        }
+
+        const modelPayload = {
+            type: "session_command",
+            session_id: state.currentSessionId,
+            data: {
+                command: "model",
+                name: modelName
+            }
+        };
+
+        sendToWebSocket(modelPayload);
+        addSystemMessage(`Switching to model: ${modelName}...`);
+    }
+
+    // Close current session
+    function closeSession() {
+        if (!state.connected || !state.currentSessionId) {
+            return;
+        }
+
+        const closePayload = {
+            type: "session_close",
+            session_id: state.currentSessionId
+        };
+
+        sendToWebSocket(closePayload);
+
+        // Add to closed sessions set
+        state.closedSessions.add(state.currentSessionId);
+
+        // Clear current session
+        state.currentSessionId = null;
+        state.currentSessionTitle = null;
+        state.messages = [];
+
+        // Update UI
+        chatElement.innerHTML = '';
+        addSystemMessage('Session closed');
+        disableChat();
+        renderSessions();
+        updateStats();
+    }
+</script>
+</body>
+</html>

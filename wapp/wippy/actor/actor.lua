@@ -133,31 +133,28 @@ function actor.new(initial_state, handlers)
             return true
         end
 
-        local function async(fn)
-            local async_task = {
-                id = tostring({}),
-                _then = nil
-            }
+        local function async(fn, callback)
+            local task_id = tostring({})
 
-            function async_task.on_complete(callback)
-                async_task._then = callback
-                return async_task
+            -- Store the callback in async_tasks if provided
+            if callback then
+                async_tasks[task_id] = {
+                    callback = callback
+                }
             end
-
-            async_tasks[async_task.id] = async_task
 
             coroutine.spawn(function()
                 local result, err = fn()
                 internal_channel:send({
                     payload = result,
                     type = "async_result",
-                    task_id = async_task.id,
+                    task_id = task_id,
                     error = err,
                     from = "async"
                 })
             end)
 
-            return async_task
+            return task_id
         end
 
         -- Process a message through topic handlers with next support
@@ -275,8 +272,8 @@ function actor.new(initial_state, handlers)
 
                 if msg_type == "async_result" and async_tasks[msg.task_id] then
                     local task = async_tasks[msg.task_id]
-                    if task._then then
-                        local reply = task._then(state, payload, msg.error, msg.task_id)
+                    if task.callback then
+                        local reply = task.callback(state, payload, msg.error, msg.task_id)
                         if is_exit(reply) then
                             return reply.result
                         end
