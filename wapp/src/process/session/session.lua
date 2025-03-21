@@ -82,6 +82,14 @@ local function run(args)
         end
     end
 
+    -- Function to check for and process any pending work in the controller
+    local function check_next_work()
+        if convo_controller:has_next() then
+            return actor.next(TOPICS.CONTINUE, convo_controller:get_next())
+        end
+        return nil
+    end
+
     if session_status == STATUS.FAILED then
         upstream:session_error(ERROR_CODE.FAILED, ERR.INIT_FAILED)
         error("Unable to open failed session")
@@ -193,8 +201,16 @@ local function run(args)
                 upstream.conn_pid = payload.conn_pid
             end
 
-            payload.type = controller.CMD.MESSAGE
-            return actor.next(TOPICS.CONTINUE, payload)
+            local result, err = convo_controller:handle_message(payload.data)
+
+            if not result then
+                if err then
+                    upstream:session_error(ERROR_CODE.ERROR, err)
+                end
+                return actor_state
+            end
+
+            return check_next_work()
         end,
 
         [TOPICS.COMMAND] = function(actor_state, payload, topic, from)
@@ -229,19 +245,21 @@ local function run(args)
                 success, err = convo_controller:handle_command(payload.command, payload)
             end
 
-            if success then
-                if payload.request_id then
-                    upstream:command_success(payload.request_id)
-                end
-            else
+            if not success then
                 if payload.request_id then
                     upstream:command_error(payload.request_id, ERROR_CODE.ERROR, err or "Command failed")
                 end
 
                 upstream:session_error(ERROR_CODE.ERROR, err or "Command failed")
+                return
             end
 
-            return actor_state
+            if payload.request_id then
+                upstream:command_success(payload.request_id)
+            end
+
+            -- Check if we need to continue processing
+            return check_next_work()
         end,
 
         [TOPICS.CONTINUE] = function(actor_state, payload)
@@ -252,24 +270,7 @@ local function run(args)
             set_session_status(STATUS.RUNNING)
 
             actor_state.async(function()
-                local result, err
-
-                if payload.type == controller.CMD.MESSAGE then
-                    result, err = convo_controller:handle_message(payload.data)
-
-                    -- If message was successful and we have enough messages, start title generation
-                    if not err and result then
-                        if
-                            state.total_message_count >= 3
-                            and (not state.title or state.title == "")
-                            and not title_requested
-                        then
-                            actor.async(generate_title)
-                        end
-                    end
-                else
-                    result, err = convo_controller:continue(payload)
-                end
+                local result, err = convo_controller:continue(payload)
 
                 if err then
                     print("error in processing:", err)
@@ -277,10 +278,20 @@ local function run(args)
                     return
                 end
 
-                set_session_status(STATUS.IDLE)
+                -- If message was successful and we have enough messages, start title generation
+                if result and state.total_message_count >= 3
+                    and (not state.title or state.title == "")
+                    and not title_requested then
+                    actor.async(generate_title)
+                end
 
-                if convo_controller.next_payload then
-                    return actor.next(TOPICS.CONTINUE, convo_controller.next_payload)
+                -- Check if we still have pending work
+                if convo_controller:has_next() then
+                    -- Keep status as RUNNING and continue with next payload
+                    return actor.next(TOPICS.CONTINUE, convo_controller:get_next())
+                else
+                    -- No more work, set status to IDLE
+                    set_session_status(STATUS.IDLE)
                 end
             end)
 

@@ -66,6 +66,18 @@ function controller.new(session_state, upstream)
     return self
 end
 
+-- Check if there's a next payload to process
+function controller:has_next()
+    return self.next_payload ~= nil
+end
+
+-- Get and clear the next payload
+function controller:get_next()
+    local payload = self.next_payload
+    self.next_payload = nil
+    return payload
+end
+
 -- Get current agent instance (lazy loading)
 function controller:get_agent()
     -- If we already have an agent, return it
@@ -109,173 +121,6 @@ function controller:get_agent()
     self.agent = agent
 
     return self.agent
-end
-
--- Process a normal agent response
-function controller:process_normal_response(result, message_id, response_id)
-    -- Check if we have tool calls to process
-    if result.tool_calls and #result.tool_calls > 0 then
-        -- Process tool calls using our unified tool_caller
-        local success, control_result = self.tool_caller:process_tool_calls(
-            result.tool_calls,
-            message_id,
-            response_id
-        )
-
-        if not success then
-            return false, "Tool call failed: " .. (control_result or "Unknown error")
-        end
-
-        -- Handle special control results (like model change)
-        if control_result and control_result.type == "model_change" then
-            -- Change the model
-            local change_success, change_err = self:change_model(
-                control_result.target_model,
-                control_result.reason
-            )
-
-            if not change_success then
-                return false, "Model change failed: " .. change_err
-            end
-        end
-
-        -- Process any text content from the agent alongside the tool calls
-        if result.result and result.result ~= "" then
-            -- Store partial response in state
-            local metadata = {
-                agent_name = self.state.agent_name,
-                model = self.state.model,
-                tokens = result.tokens,
-                has_tool_calls = true
-            }
-
-            -- Store response in state
-            local stored_response_id, err = self.state:add_assistant_message(
-                result.result,
-                metadata
-            )
-
-            if err then
-                return false, "Failed to store response: " .. err
-            end
-
-            -- Send the partial content update
-            self.upstream:send_message_update(response_id, "content", {
-                content = result.result,
-                using_tools = true
-            })
-        end
-
-        -- Get the current agent
-        local agent, err = self:get_agent()
-        if err then
-            return false, "Failed to get agent: " .. err
-        end
-
-        -- Get prompt builder with the appropriate window size including tool responses
-        local builder, prompt_err = self.prompt_builder:build_prompt()
-        if not builder then
-            return false, "Failed to build prompt after tool calls: " .. (prompt_err or "Unknown error")
-        end
-
-        -- Configure streaming if available
-        local stream_options = nil
-        if self.upstream.conn_pid then
-            stream_options = {
-                reply_to = self.upstream.conn_pid,
-                topic = self.upstream:get_message_topic(response_id)
-            }
-        end
-
-        -- Execute agent for next step with tool results
-        local next_result, exec_err = agent:step(builder, stream_options)
-
-        -- Check for errors
-        if exec_err then
-            self.upstream:message_error(message_id, "AGENT_ERROR", exec_err)
-            return false, exec_err
-        end
-
-        -- Recursively process the next result
-        if next_result.delegate_target then
-            -- Agent wants to delegate directly - not via a tool
-            return self:process_delegation(next_result, message_id, response_id)
-        elseif next_result.tool_calls and #next_result.tool_calls > 0 then
-            -- Agent is making more tool calls - recursively process
-            return self:process_normal_response(next_result, message_id, response_id)
-        else
-            -- Final response after tool calls
-            local metadata = {
-                agent_name = self.state.agent_name,
-                model = self.state.model,
-                tokens = next_result.tokens,
-                after_tool_calls = true
-            }
-
-            -- Store final response in state
-            local stored_response_id, store_err = self.state:add_assistant_message(
-                next_result.result,
-                metadata
-            )
-
-            if store_err then
-                return false, "Failed to store response: " .. store_err
-            end
-
-            -- Send the final content update
-            self.upstream:send_message_update(response_id, "content", {
-                content = next_result.result,
-                tools_completed = true
-            })
-
-            -- Clear any next payload
-            self.next_payload = nil
-
-            return true
-        end
-    end
-
-    -- Check for empty result
-    if not result.result or result.result == "" then
-        -- Still notify client that response is empty but handled
-        self.upstream:send_message_update(response_id, "content", {
-            content = "",
-            status = "empty_response",
-            agent = self.state.agent_name
-        })
-
-        -- Clear any next payload
-        self.next_payload = nil
-
-        return true
-    end
-
-    -- Normal processing for non-empty response
-    local metadata = {
-        agent_name = self.state.agent_name,
-        model = self.state.model,
-        tokens = result.tokens
-    }
-
-    -- Store response in state
-    local stored_response_id, err = self.state:add_assistant_message(
-        result.result,
-        metadata
-    )
-
-    if err then
-        return false, "Failed to store response: " .. err
-    end
-
-    -- Send the full content update
-    self.upstream:send_message_update(response_id, "content", {
-        content = result.result
-    })
-
-    -- Clear any next payload
-    self.next_payload = nil
-
-    return true
 end
 
 -- Process agent delegation (direct delegation, not via tool)
@@ -543,115 +388,153 @@ function controller:handle_message(message_data)
     -- Announce the response is beginning
     self.upstream:response_beginning(message_id, response_id)
 
+    -- Set up continuation payload instead of executing agent directly
+    self.next_payload = {
+        type = "initial",
+        message_id = message_id,
+        response_id = response_id
+    }
+
+    -- Reset processing state since continue will set it again
+    self.is_processing = false
+
+    return {
+        message_id = message_id,
+        response_id = response_id,
+        has_next_payload = true
+    }
+end
+
+-- Process a normal agent response
+function controller:process_normal_response(result, message_id, response_id)
+    -- Check if we have tool calls to process
+    if result.tool_calls and #result.tool_calls > 0 then
+        -- Process tool calls using our unified tool_caller
+        local success, control_result = self.tool_caller:process_tool_calls(
+            result.tool_calls,
+            message_id,
+            response_id
+        )
+
+        if not success then
+            return false, "Tool call failed: " .. (control_result or "Unknown error")
+        end
+
+        -- Handle special control results (like model change)
+        if control_result and control_result.type == "model_change" then
+            -- Change the model
+            local change_success, change_err = self:change_model(
+                control_result.target_model,
+                control_result.reason
+            )
+
+            if not change_success then
+                return false, "Model change failed: " .. change_err
+            end
+        end
+
+        -- Process any text content from the agent alongside the tool calls
+        if result.result and result.result ~= "" then
+            -- Store partial response in state
+            local metadata = {
+                agent_name = self.state.agent_name,
+                model = self.state.model,
+                tokens = result.tokens,
+                has_tool_calls = true
+            }
+
+            -- Store response in state
+            local stored_response_id, err = self.state:add_assistant_message(
+                result.result,
+                metadata
+            )
+
+            if err then
+                return false, "Failed to store response: " .. err
+            end
+
+            -- Send the partial content update
+            self.upstream:send_message_update(response_id, "content", {
+                content = result.result,
+                using_tools = true
+            })
+        end
+
+        -- Set up continuation payload for after tool call processing
+        self.next_payload = {
+            type = "tool_continue",
+            message_id = message_id,
+            response_id = response_id,
+            tool_calls = true
+        }
+
+        return true
+    end
+
+    -- Check for empty result
+    if not result.result or result.result == "" then
+        -- Still notify client that response is empty but handled
+        self.upstream:send_message_update(response_id, "content", {
+            content = "",
+            status = "empty_response",
+            agent = self.state.agent_name
+        })
+
+        return true
+    end
+
+    -- Normal processing for non-empty response
+    local metadata = {
+        agent_name = self.state.agent_name,
+        model = self.state.model,
+        tokens = result.tokens
+    }
+
+    -- Store response in state
+    local stored_response_id, err = self.state:add_assistant_message(
+        result.result,
+        metadata
+    )
+
+    if err then
+        return false, "Failed to store response: " .. err
+    end
+
+    -- Send the full content update
+    self.upstream:send_message_update(response_id, "content", {
+        content = result.result
+    })
+
+    return true
+end
+
+-- Continue processing with the next payload - central execution point
+function controller:continue(payload)
+    -- Validate payload
+    if not payload or not payload.message_id or not payload.response_id then
+        return false, "Invalid continuation payload"
+    end
+
+    -- Mark as processing
+    self.is_processing = true
+    self.stop_requested = false
+
+    -- Extract core info from payload
+    local message_id = payload.message_id
+    local response_id = payload.response_id
+
     -- Get the agent
     local agent, err = self:get_agent()
     if err then
         self.is_processing = false
         self.upstream:message_error(message_id, "AGENT_ERROR", err)
-        return nil, err
+        return false, err
     end
 
     -- Build prompt
     local builder, prompt_err = self.prompt_builder:build_prompt()
     if not builder then
         self.is_processing = false
-        self.upstream:message_error(message_id, "PROMPT_ERROR", prompt_err or "Failed to build prompt")
-        return nil, prompt_err or "Failed to build prompt"
-    end
-
-    -- Configure streaming if available
-    local stream_options = nil
-    if self.upstream.conn_pid then
-        stream_options = {
-            reply_to = self.upstream.conn_pid,
-            topic = self.upstream:get_message_topic(response_id)
-        }
-    end
-
-    -- Execute agent
-    local result, exec_err = agent:step(builder, stream_options)
-
-    -- Check for errors
-    if exec_err then
-        self.is_processing = false
-        self.upstream:message_error(message_id, "AGENT_ERROR", exec_err)
-        return nil, exec_err
-    end
-
-    -- Check if stop was requested during processing
-    if self.stop_requested then
-        self.is_processing = false
-        return {
-            message_id = message_id,
-            response_id = nil,
-            stopped = true
-        }
-    end
-
-    -- Process different outcomes based on result
-    local final_result = {
-        message_id = message_id,
-        response_id = response_id
-    }
-
-    if result.delegate_target then
-        -- Agent wants to delegate directly (not via tool)
-        local success, err = self:process_delegation(result, message_id, response_id)
-        if not success then
-            self.is_processing = false
-            self.upstream:message_error(message_id, "DELEGATION_ERROR", err or "Delegation failed")
-            return nil, err or ERR.DELEGATION_FAILED
-        end
-
-        -- Add next_payload info to result
-        final_result.has_next_payload = true
-    else
-        -- Normal response (could include tool calls)
-        local success, err = self:process_normal_response(result, message_id, response_id)
-        if not success then
-            self.is_processing = false
-            self.upstream:message_error(message_id, "RESPONSE_ERROR", err or "Failed to process response")
-            return nil, err or "Failed to process response"
-        end
-    end
-
-    -- Reset processing state
-    self.is_processing = false
-
-    -- Copy tokens and result text to final result
-    final_result.result = result.result
-    final_result.tokens = result.tokens
-    final_result.tool_calls = result.tool_calls and #result.tool_calls > 0
-
-    return final_result
-end
-
--- Continue processing with the next payload
-function controller:continue(payload)
-    -- We just need to process whatever is in the payload
-    if not payload or not payload.message_id or not payload.response_id then
-        return false, "Invalid continuation payload"
-    end
-
-    -- Get the original message
-    local message_id = payload.message_id
-    local response_id = payload.response_id
-
-    local message, err = self.state:get_message(message_id)
-    if not message then
-        return false, "Failed to get original message: " .. (err or "Unknown error")
-    end
-
-    -- Get the agent (should be the new delegated agent)
-    local agent, err = self:get_agent()
-    if err then
-        self.upstream:message_error(message_id, "AGENT_ERROR", err)
-        return false, err
-    end
-
-    -- Build a prompt with standard window
-    local builder, prompt_err = self.prompt_builder:build_prompt()
-    if not builder then
         self.upstream:message_error(message_id, "PROMPT_ERROR", prompt_err or "Failed to build prompt")
         return false, prompt_err or "Failed to build prompt"
     end
@@ -665,41 +548,63 @@ function controller:continue(payload)
         }
     end
 
-    -- Execute the agent
+    -- Execute the agent - THIS IS THE ONLY PLACE agent:step() IS CALLED
     local result, exec_err = agent:step(builder, stream_options)
 
     -- Check for errors
     if exec_err then
+        self.is_processing = false
         self.upstream:message_error(message_id, "AGENT_ERROR", exec_err)
         return false, exec_err
     end
 
-    -- Process the result
-    local final_result = {}
+    -- Check if stop was requested during processing
+    if self.stop_requested then
+        self.is_processing = false
+        return {
+            message_id = message_id,
+            response_id = response_id,
+            stopped = true
+        }
+    end
+
+    -- Process the result based on its type
+    local final_result = {
+        message_id = message_id,
+        response_id = response_id,
+        result = result.result,
+        tokens = result.tokens
+    }
 
     if result.delegate_target then
-        -- Agent wants to delegate again (directly)
+        -- Agent wants to delegate directly (not via tool)
         local success, err = self:process_delegation(result, message_id, response_id)
         if not success then
-            return false, err or "Delegation failed"
+            self.is_processing = false
+            self.upstream:message_error(message_id, "DELEGATION_ERROR", err or "Delegation failed")
+            return false, err or ERR.DELEGATION_FAILED
         end
 
-        -- Add delegation info to result
+        -- Flag that we have a next payload for the caller to check
         final_result.has_next_payload = true
     else
         -- Normal response (could include tool calls)
         local success, err = self:process_normal_response(result, message_id, response_id)
         if not success then
+            self.is_processing = false
+            self.upstream:message_error(message_id, "RESPONSE_ERROR", err or "Failed to process response")
             return false, err or "Failed to process response"
         end
+
+        -- Flag if we have a next payload (for tool calls)
+        final_result.has_next_payload = self:has_next()
+        final_result.tool_calls = result.tool_calls and #result.tool_calls > 0
     end
 
-    -- Copy tokens and result text to final result
-    final_result.message_id = message_id
-    final_result.response_id = response_id
-    final_result.result = result.result
-    final_result.tokens = result.tokens
-    final_result.tool_calls = result.tool_calls and #result.tool_calls > 0
+    -- Reset processing state if we don't have more work queued
+    if not self:has_next() then
+        self.is_processing = false
+    end
 
     return final_result
 end
