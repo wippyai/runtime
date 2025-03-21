@@ -1,8 +1,8 @@
 local json = require("json")
 local actor = require("actor")
-local session_state = require("session_state")
 local controller = require("controller")
 local loader = require("loader")
+local session_state = require("session_state")
 local session_upstream = require("session_upstream")
 
 -- Topic constants

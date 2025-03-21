@@ -1,7 +1,7 @@
 local uuid = require("uuid")
+local prompt = require("prompt")
 local session_repo = require("session_repo")
 local message_repo = require("message_repo")
-local prompt = require("prompt")
 
 -- Status constants
 local STATUS = {
