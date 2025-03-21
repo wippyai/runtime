@@ -254,64 +254,45 @@
 
         /* Tool call styling */
         .message-tool {
-            align-self: flex-start;
-            background-color: #2d3748;
+            display: inline-block;
+            background-color: #363636;
             border-left: 4px solid #805ad5;
-            border-radius: 4px;
-            padding: 8px 12px;
-            margin: 5px 0;
+            border-radius: 6px;
+            padding: 6px 10px;
+            margin-right: 8px;
+            margin-bottom: 8px;
             font-size: 13px;
-            display: flex;
-            align-items: center;
-            transition: background-color 0.3s, border-color 0.3s;
+            transition: border-color 0.3s;
         }
 
         .message-tool.tool-running {
             border-left-color: #805ad5;
-            background-color: #2d3748;
         }
 
         .message-tool.tool-success {
             border-left-color: #38a169;
-            background-color: #2a3f2b;
         }
 
         .message-tool.tool-error {
             border-left-color: #e53e3e;
-            background-color: #3f2a2a;
         }
 
-        .tool-icon {
-            margin-right: 10px;
-            font-size: 16px;
-            width: 20px;
-            text-align: center;
-        }
-
-        .tool-running .tool-icon::before {
-            content: "⚙️";
-        }
-
-        .tool-success .tool-icon::before {
-            content: "✅";
-        }
-
-        .tool-error .tool-icon::before {
-            content: "❌";
-        }
-
-        .tool-content {
-            flex: 1;
+        .tool-container {
+            align-self: flex-start;
+            display: flex;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            max-width: 90%;
         }
 
         .tool-name {
             font-weight: bold;
-            margin-bottom: 3px;
         }
 
         .tool-status {
             font-size: 11px;
             color: #aaa;
+            display: none;
         }
 
         .message-time {
@@ -585,15 +566,19 @@
 
     // Add tool call message
     function addToolCall(toolName, toolId) {
+        // Find or create a tool container for this message group
+        let toolContainer = document.querySelector('.tool-container:last-child');
+
+        // If no container exists or the last one is not the most recent element, create a new one
+        if (!toolContainer || toolContainer.nextElementSibling) {
+            toolContainer = document.createElement('div');
+            toolContainer.className = 'tool-container';
+            chatElement.appendChild(toolContainer);
+        }
+
         const toolCallElement = document.createElement('div');
-        toolCallElement.className = 'message message-tool tool-running';
+        toolCallElement.className = 'message-tool tool-running';
         toolCallElement.id = `tool-${toolId}`;
-
-        const iconElement = document.createElement('div');
-        iconElement.className = 'tool-icon';
-
-        const contentElement = document.createElement('div');
-        contentElement.className = 'tool-content';
 
         const nameElement = document.createElement('div');
         nameElement.className = 'tool-name';
@@ -603,13 +588,10 @@
         statusElement.className = 'tool-status';
         statusElement.textContent = 'Running...';
 
-        contentElement.appendChild(nameElement);
-        contentElement.appendChild(statusElement);
+        toolCallElement.appendChild(nameElement);
+        toolCallElement.appendChild(statusElement);
 
-        toolCallElement.appendChild(iconElement);
-        toolCallElement.appendChild(contentElement);
-
-        chatElement.appendChild(toolCallElement);
+        toolContainer.appendChild(toolCallElement);
         chatElement.scrollTop = chatElement.scrollHeight;
 
         // Store in state for tracking
@@ -628,22 +610,10 @@
         if (!toolInfo) return;
 
         const toolElement = toolInfo.element;
-        const statusElement = toolElement.querySelector('.tool-status');
 
         // Update class
         toolElement.classList.remove('tool-running', 'tool-success', 'tool-error');
         toolElement.classList.add(`tool-${status}`);
-
-        // Update status message
-        if (statusElement) {
-            if (status === 'success') {
-                statusElement.textContent = message || 'Completed successfully';
-            } else if (status === 'error') {
-                statusElement.textContent = message || 'Failed to execute';
-            } else {
-                statusElement.textContent = message || 'Running...';
-            }
-        }
 
         // Update state
         toolInfo.status = status;
@@ -835,7 +805,10 @@
             console.log('Tool call received:', data);
 
             // Generate a unique ID for this tool call if not provided
-            const toolId = data.function_call_id || `tool-${Date.now()}`;
+            const toolId = data.function_call_id || `tool-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+            // Store as active tool for tracking
+            state.activeTool = toolId;
 
             // Add tool call element to UI
             addToolCall(data.function_name, toolId);
@@ -849,7 +822,7 @@
 
             if (toolId) {
                 // Update the tool call with success status
-                updateToolCallStatus(toolId, 'success');
+                updateToolCallStatus(toolId, 'success', 'Completed successfully');
             }
         }
         // Tool error notification
@@ -1244,13 +1217,35 @@
                                 }
 
                                 // Add tool element
-                                const toolStatus = (message.metadata && message.metadata.status === 'error') ? 'error' : 'success';
-                                const toolElement = addToolCall(toolName, toolId);
-
-                                // Update status based on paired function result message (will be processed later)
-                                if (toolStatus === 'error') {
-                                    updateToolCallStatus(toolId, 'error', 'Failed to execute');
+                                // For history display, wrap tool calls in a container
+                                let toolContainer = document.querySelector('.tool-container:last-child');
+                                if (!toolContainer || toolContainer.nextElementSibling) {
+                                    toolContainer = document.createElement('div');
+                                    toolContainer.className = 'tool-container';
+                                    chatElement.appendChild(toolContainer);
                                 }
+
+                                const toolCallElement = document.createElement('div');
+                                toolCallElement.className = 'message-tool';
+                                toolCallElement.id = `tool-${toolId}`;
+
+                                const nameElement = document.createElement('div');
+                                nameElement.className = 'tool-name';
+                                nameElement.textContent = toolName;
+
+                                toolCallElement.appendChild(nameElement);
+                                toolContainer.appendChild(toolCallElement);
+
+                                // Store for tracking
+                                state.toolCalls.set(toolId, {
+                                    element: toolCallElement,
+                                    name: toolName,
+                                    status: 'running'
+                                });
+
+                                // Update status based on paired function result message
+                                const toolStatus = (message.metadata && message.metadata.status === 'error') ? 'error' : 'success';
+                                updateToolCallStatus(toolId, toolStatus);
 
                                 return; // Skip regular message rendering
                             }
