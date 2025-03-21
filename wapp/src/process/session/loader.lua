@@ -75,6 +75,7 @@ function loader.create_session(args)
             model = token_data.model,
             kind = token_data.kind or "default",
         },
+        public_meta = session.public_meta or {}, -- Include public_meta in returned state
         start_date = session.start_date,
         last_message_date = session.last_message_date,
         status = "idle"
@@ -105,7 +106,7 @@ function loader.load_session(args)
         last_message_id = latest_message.message_id
     end
 
-    -- Return state with session info
+    -- Return state with session info including public_meta
     return {
         session_id = args.session_id,
         user_id = args.user_id,
@@ -115,6 +116,7 @@ function loader.load_session(args)
             model = session.current_model,
             kind = session.kind,
         },
+        public_meta = session.public_meta or {}, -- Include public_meta in returned state
         start_date = session.start_date,
         last_message_date = session.last_message_date,
         status = session.status or "idle",

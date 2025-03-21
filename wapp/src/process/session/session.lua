@@ -4,15 +4,19 @@ local loader = require("loader")
 local controller = require("controller")
 local session_state = require("session_state")
 local session_upstream = require("session_upstream")
-local meta_context = require("meta_context")
+local session_context = require("session_context")
 
-local MESSAGE_TOPIC = "message"
-local COMMAND_TOPIC = "command"
-local CONTINUE_TOPIC = "continue"
-local CONTEXT_TOPIC = "context"
-local TITLE_TOPIC = "title"
-local METADATA_TOPIC = "metadata"
+-- Topic constants
+local TOPICS = {
+    MESSAGE = "message",
+    COMMAND = "command",
+    CONTINUE = "continue",
+    CONTEXT = "context",
+    TITLE = "title",
+    PUBLIC_META = "public_meta"
+}
 
+-- Session status constants
 local STATUS = {
     IDLE = "idle",
     RUNNING = "running",
@@ -20,6 +24,7 @@ local STATUS = {
     FAILED = "failed"
 }
 
+-- Error code constants
 local ERROR_CODE = {
     FAILED = "FAILED",
     ERROR = "ERROR",
@@ -28,6 +33,7 @@ local ERROR_CODE = {
     DB_ERROR = "DB_ERROR"
 }
 
+-- Error message constants
 local ERR = {
     MISSING_ARGS = "User ID and session ID are required",
     MISSING_TOKEN = "Start token is required for new session",
@@ -61,9 +67,9 @@ local function run(args)
     local session_status = loader_state.status or STATUS.IDLE
 
     local state = session_state.new(loader_state)
+    local ctx_manager = session_context.new(loader_state.primary_context_id)
     local upstream = session_upstream.new(args.session_id, args.conn_pid, args.parent_pid)
     local convo_controller = controller.new(state, upstream)
-    local ctx_manager = meta_context.new(state, upstream)
 
     local function set_session_status(new_status, error_msg)
         session_status = new_status
@@ -107,14 +113,22 @@ local function run(args)
         model = loader_state.meta and loader_state.meta.model,
         status = session_status,
         last_message_date = loader_state.last_message_date,
+        public_meta = loader_state.public_meta
     })
+
+    local title_requested = false
 
     -- Function to start title generation coroutine
     local function generate_title()
+        if title_requested then
+            return
+        end
+        title_requested = true
+
         local title = "Generated title!"
 
         -- Update title in state
-        local success, err = self.state:update_session_title(title)
+        local success, err = state:update_session_title(title)
         if not success then
             return false, err
         end
@@ -123,48 +137,30 @@ local function run(args)
         upstream:update_session({
             title = title
         })
+
+        return true
     end
 
-    -- Handler for context commands
-    local function handle_context_command(payload)
-        if payload.action == "write" then
-            if not payload.key then
-                return false, "Context key is required"
-            end
-            return ctx_manager:write_context(payload.key, payload.data)
-        elseif payload.action == "delete" then
-            if not payload.key then
-                return false, "Context key is required"
-            end
-            return ctx_manager:delete_context(payload.key)
-        else
-            return false, "Invalid context action"
+    -- Handler for public_meta commands
+    local function handle_public_meta_command(payload)
+        if not payload.public_meta or type(payload.public_meta) ~= "table" then
+            return false, "Public metadata must be a table"
         end
-    end
 
-    -- Handler for metadata commands
-    local function handle_metadata_command(payload)
-        if payload.action == "update" then
-            if not payload.items then
-                return false, "Metadata items are required"
-            end
-            return ctx_manager:update_public_metadata(payload.items)
-        elseif payload.action == "remove" then
-            if not payload.ids then
-                return false, "Metadata IDs are required"
-            end
-            return ctx_manager:remove_public_metadata(payload.ids)
-        else
-            return false, "Invalid metadata action"
+        -- Update public metadata in state
+        local success, err = state:update_session_config({
+            public_meta = payload.public_meta
+        })
+        if not success then
+            return false, err
         end
-    end
 
-    -- Handler for title commands
-    local function handle_title_command(payload)
-        if not payload.title then
-            return false, "Title is required"
-        end
-        return ctx_manager:update_title(payload.title)
+        -- Notify clients about metadata update
+        upstream:update_session({
+            public_meta = payload.public_meta
+        })
+
+        return true
     end
 
     local handlers = {
@@ -178,7 +174,7 @@ local function run(args)
             return actor_state
         end,
 
-        [MESSAGE_TOPIC] = function(actor_state, payload)
+        [TOPICS.MESSAGE] = function(actor_state, payload)
             if not payload or not payload.data then
                 return actor_state
             end
@@ -198,10 +194,10 @@ local function run(args)
             end
 
             payload.type = controller.CMD.MESSAGE
-            return actor.next(CONTINUE_TOPIC, payload)
+            return actor.next(TOPICS.CONTINUE, payload)
         end,
 
-        [COMMAND_TOPIC] = function(actor_state, payload)
+        [TOPICS.COMMAND] = function(actor_state, payload, topic, from)
             if not payload or not payload.command then
                 return actor_state
             end
@@ -217,19 +213,21 @@ local function run(args)
 
             local success, err
             -- Handle special session-level commands directly
-            if payload.command == CONTEXT_TOPIC then
-                success, err = handle_context_command(payload)
-            elseif payload.command == METADATA_TOPIC then
-                success, err = handle_metadata_command(payload)
-            elseif payload.command == TITLE_TOPIC then
-                success, err = handle_title_command(payload)
+            if payload.command == TOPICS.CONTEXT then
+                payload.from_pid = from
+                success, err = ctx_manager:handle_command(context_payload)
+                if success then
+                    -- we do no announce this commands nornomally, they are not public
+                    return actor_state
+                end
+            elseif payload.command == TOPICS.PUBLIC_META then
+                success, err = handle_public_meta_command(payload)
             else
                 -- Pass other commands to controller
                 success, err = convo_controller:handle_command(payload.command, payload)
             end
 
             if success then
-                -- Send command_success for commands with request_id
                 if payload.request_id then
                     upstream:command_success(payload.request_id)
                 end
@@ -244,7 +242,7 @@ local function run(args)
             return actor_state
         end,
 
-        [CONTINUE_TOPIC] = function(actor_state, payload)
+        [TOPICS.CONTINUE] = function(actor_state, payload)
             if session_status == STATUS.RUNNING or session_status == STATUS.FAILED then
                 return actor_state
             end
@@ -259,9 +257,12 @@ local function run(args)
 
                     -- If message was successful and we have enough messages, start title generation
                     if not err and result then
-                        local user_count = state:count_messages_by_type("user")
-                        if user_count >= 3 and (not state.title or state.title == "") then
-                            generate_title()
+                        if
+                            state.total_message_count >= 3
+                            and (not state.title or state.title == "")
+                            and not title_requested
+                        then
+                            actor.async(generate_title)
                         end
                     end
                 else
@@ -269,7 +270,7 @@ local function run(args)
                 end
 
                 if err then
-                    print("Error in processing:", err)
+                    print("error in processing:", err)
                     set_session_status(STATUS.ERROR, err)
                     return
                 end
@@ -277,12 +278,20 @@ local function run(args)
                 set_session_status(STATUS.IDLE)
 
                 if convo_controller.next_payload then
-                    return actor.next(CONTINUE_TOPIC, convo_controller.next_payload)
+                    return actor.next(TOPICS.CONTINUE, convo_controller.next_payload)
                 end
             end)
 
             return actor_state
         end,
+
+        -- Handle responses from context manager
+        [session_context.COMMANDS.COMMAND_SUCCESS] = function(actor_state, payload)
+            if payload and payload.request_id then
+                upstream:command_success(payload.request_id, payload)
+            end
+            return actor_state
+        end
     }
 
     return actor.new(loader_state, handlers).run()
