@@ -3,6 +3,8 @@ local agent_runner = require("agent_runner")
 local prompt = require("prompt")
 local uuid = require("uuid")
 local json = require("json")
+local funcs = require("funcs")
+local tool_resolver = require("tools")
 
 -- Status constants
 local STATUS = {
@@ -25,7 +27,9 @@ local ERR = {
     AGENT_NAME_REQUIRED = "Agent name is required",
     MODEL_NAME_REQUIRED = "Model name is required",
     BUSY = "Session is already processing a message",
-    DELEGATION_FAILED = "Failed to delegate to agent"
+    DELEGATION_FAILED = "Failed to delegate to agent",
+    TOOL_CALL_FAILED = "Failed to execute tool call",
+    TOOL_NOT_FOUND = "Tool not found"
 }
 
 -- Controller class
@@ -38,7 +42,8 @@ controller.CMD = {
     STOP = "stop",
     MODEL = "model",
     AGENT = "agent",
-    CONTINUE = "continue"
+    CONTINUE = "continue",
+    TOOLS = "tools" -- Added for tool configuration
 }
 
 -- Constructor
@@ -60,6 +65,24 @@ function controller.new(session_state, upstream)
     self.next_payload = nil
 
     return self
+end
+
+-- Set tool IDs for the agent
+function controller:set_tool_ids(tool_ids)
+    -- Store tool IDs in state
+    self.state.tool_ids = tool_ids
+
+    -- Reset agent instance to force reload with new tools
+    self.agent = nil
+
+    -- Notify clients about tool configuration
+    if self.upstream then
+        self.upstream:update_session({
+            tools = tool_ids
+        })
+    end
+
+    return true
 end
 
 -- Continue processing with the next payload
@@ -117,6 +140,9 @@ function controller:continue(payload)
     if result.delegate_target then
         -- Agent wants to delegate again
         return self:process_delegation(result, message_id, response_id)
+    elseif result.tool_calls and #result.tool_calls > 0 then
+        -- Agent wants to make tool calls
+        return self:process_normal_response(result, message_id, response_id)
     else
         -- Normal response - this is the final agent's response
         return self:process_normal_response(result, message_id, response_id)
@@ -165,6 +191,11 @@ function controller:_load_agent()
     -- Override the model if specified
     if model then
         agent_spec.model = model
+    end
+
+    -- Add tool IDs if available
+    if self.state.tool_ids and #self.state.tool_ids > 0 then
+        agent_spec.tools = self.state.tool_ids
     end
 
     -- Create new agent runner from spec
@@ -232,7 +263,7 @@ function controller:build_prompt(message_limit)
                 -- Create result content
                 local result_content = {
                     status = "accepted",
-                    message = "You are now " .. meta.to_agent
+                    message = "Delegation accepted by " .. meta.to_agent
                 }
 
                 -- Add tool result representing acceptance
@@ -279,6 +310,99 @@ function controller:build_prompt(message_limit)
     end
 
     return builder
+end
+
+-- Process tool calls and continue the conversation
+function controller:process_tool_calls(tool_calls, message_id, response_id)
+    -- Check if there are any tool calls
+    if not tool_calls or #tool_calls == 0 then
+        return true, nil
+    end
+
+    -- Initialize function executor
+    local executor = funcs.new()
+
+    -- Process each tool call sequentially
+    for i, tool_call in ipairs(tool_calls) do
+        local tool_name = tool_call.name
+        local arguments = tool_call.arguments
+        local function_call_id = tool_call.id or uuid.v7()
+
+        -- Stream only tool name to client (no IDs, no args)
+        self.upstream:send_message_update(response_id, "tool_call", {
+            function_name = tool_name
+        })
+
+        -- Store function call in session state
+        self.state:add_function_call(
+            tool_name,
+            arguments,
+            function_call_id,
+            {
+                response_id = response_id,
+                message_id = message_id
+            }
+        )
+
+        print(json.encode(tool_call))
+
+
+        -- todo dynamic tools
+
+
+        -- Execute the tool function
+        local result, err = executor:call(tool_call.registry_id, arguments)
+
+        -- Handle result or error
+        if err then
+            -- Stream minimal error to client (only tool name)
+            self.upstream:send_message_update(response_id, "tool_error", {
+                function_name = tool_name,
+                error = "Tool execution failed"
+            })
+
+            -- Store error result in session state
+            self.state:add_function_result(
+                tool_name,
+                json.encode({ error = err }),
+                function_call_id,
+                {
+                    error = true,
+                    response_id = response_id,
+                    message_id = message_id
+                }
+            )
+        else
+            -- Convert result to string if needed for storage
+            local result_content = result
+            if type(result) == "table" then
+                result_content = json.encode(result)
+            elseif type(result) ~= "string" then
+                result_content = tostring(result)
+            end
+
+            -- Stream minimal success to client (only tool name)
+            self.upstream:send_message_update(response_id, "tool_result", {
+                function_name = tool_name,
+                status = "success"
+            })
+
+            -- Store result in session state
+            self.state:add_function_result(
+                tool_name,
+                result_content,
+                function_call_id,
+                {
+                    response_id = response_id,
+                    message_id = message_id
+                }
+            )
+        end
+
+        ::continue::
+    end
+
+    return true, nil
 end
 
 -- Handle user message
@@ -389,7 +513,7 @@ function controller:handle_message(message_data)
         -- Add next_payload info to result
         final_result.has_next_payload = self.next_payload ~= nil
     else
-        -- Normal response
+        -- Normal response (could include tool calls)
         local success, err = self:process_normal_response(result, message_id, response_id)
         if not success then
             self.is_processing = false
@@ -404,12 +528,112 @@ function controller:handle_message(message_data)
     -- Copy tokens and result text to final result
     final_result.result = result.result
     final_result.tokens = result.tokens
+    final_result.tool_calls = result.tool_calls and #result.tool_calls > 0
 
     return final_result
 end
 
 -- Process a normal agent response (no delegation)
 function controller:process_normal_response(result, message_id, response_id)
+    -- Check if we have tool calls to process
+    if result.tool_calls and #result.tool_calls > 0 then
+        -- Process tool calls
+        local success, err = self:process_tool_calls(result.tool_calls, message_id, response_id)
+
+        if not success then
+            return false, ERR.TOOL_CALL_FAILED .. ": " .. (err or "Unknown error")
+        end
+
+        -- Process any text content from the agent alongside the tool calls
+        if result.result and result.result ~= "" then
+            -- Store partial response in state
+            local metadata = {
+                agent_name = self.state.agent_name,
+                model = self.state.model,
+                tokens = result.tokens,
+                has_tool_calls = true
+            }
+
+            -- Store response in state
+            local stored_response_id, err = self.state:add_assistant_message(
+                result.result,
+                metadata
+            )
+
+            if err then
+                return false, ERR.STORE_RESPONSE_FAILED .. ": " .. err
+            end
+
+            -- Send the partial content update (no detailed tool info)
+            self.upstream:send_message_update(response_id, "content", {
+                content = result.result,
+                using_tools = true
+            })
+        end
+
+        -- Get prompt builder with the appropriate window size including tool responses
+        local prompt_builder = self:build_prompt()
+        if not prompt_builder then
+            return false, "Failed to build prompt after tool calls"
+        end
+
+        -- Configure streaming if available
+        local stream_options = nil
+        if self.upstream.conn_pid then
+            stream_options = {
+                reply_to = self.upstream.conn_pid,
+                topic = self.upstream:get_message_topic(response_id)
+            }
+        end
+
+        -- Execute agent for next step with tool results
+        local next_result, err = self.agent:step(prompt_builder, stream_options)
+
+        -- Check for errors
+        if err then
+            self.upstream:message_error(message_id, "AGENT_ERROR", err)
+            return false, err
+        end
+
+        -- Recursively process the next result
+        if next_result.delegate_target then
+            -- Agent wants to delegate
+            return self:process_delegation(next_result, message_id, response_id)
+        elseif next_result.tool_calls and #next_result.tool_calls > 0 then
+            -- Agent is making more tool calls
+            return self:process_normal_response(next_result, message_id, response_id)
+        else
+            -- Final response after tool calls
+            local metadata = {
+                agent_name = self.state.agent_name,
+                model = self.state.model,
+                tokens = next_result.tokens,
+                after_tool_calls = true
+            }
+
+            -- Store final response in state
+            local stored_response_id, err = self.state:add_assistant_message(
+                next_result.result,
+                metadata
+            )
+
+            if err then
+                return false, ERR.STORE_RESPONSE_FAILED .. ": " .. err
+            end
+
+            -- Send the final content update (no detailed tool info)
+            self.upstream:send_message_update(response_id, "content", {
+                content = next_result.result,
+                tools_completed = true
+            })
+
+            -- Clear any next payload
+            self.next_payload = nil
+
+            return true
+        end
+    end
+
     -- Check for empty result
     if not result.result or result.result == "" then
         print("Warning: Agent returned empty response, skipping storage")
@@ -616,6 +840,11 @@ function controller:handle_command(command, payload)
             return self:change_agent(payload.name)
         end
         return nil, "Agent name required"
+    elseif command == controller.CMD.TOOLS then
+        if payload.tool_ids then
+            return self:set_tool_ids(payload.tool_ids)
+        end
+        return nil, "Tool IDs required"
     else
         return nil, "Unsupported command: " .. command
     end

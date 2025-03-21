@@ -33,6 +33,7 @@ entries:
       agent_registry: "wippy.agents.gen1:registry"
       agent_runner: "wippy.agents.gen1:agent"
       prompt: "wippy.llm:prompt"
+      tools: "wippy.llm:tools"
 
   - name: loader
     kind: library.lua
