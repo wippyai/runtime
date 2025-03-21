@@ -161,6 +161,65 @@ function message_repo.get(message_id)
     return message
 end
 
+-- Add this function to message_repo.lua
+
+-- Update message metadata
+function message_repo.update_metadata(message_id, metadata)
+    if not message_id or message_id == "" then
+        return nil, "Message ID is required"
+    end
+
+    if not metadata then
+        return nil, "Metadata is required"
+    end
+
+    -- Convert metadata to JSON if it's a table
+    local metadata_json = nil
+    if type(metadata) == "table" then
+        local encoded, err = json.encode(metadata)
+        if err then
+            return nil, "Failed to encode metadata: " .. err
+        end
+        metadata_json = encoded
+    else
+        metadata_json = metadata
+    end
+
+    local db, err = get_db()
+    if err then
+        return nil, err
+    end
+
+    -- Check if message exists
+    local messages, err = db:query("SELECT message_id FROM messages WHERE message_id = ?", { message_id })
+    if err then
+        db:release()
+        return nil, "Failed to check if message exists: " .. err
+    end
+
+    if #messages == 0 then
+        db:release()
+        return nil, "Message not found"
+    end
+
+    -- Update the message metadata
+    local result, err = db:execute(
+        "UPDATE messages SET metadata = ? WHERE message_id = ?",
+        { metadata_json, message_id }
+    )
+
+    db:release()
+
+    if err then
+        return nil, "Failed to update message metadata: " .. err
+    end
+
+    return {
+        message_id = message_id,
+        updated = true
+    }
+end
+
 -- List messages by session ID
 function message_repo.list_by_session(session_id, limit, offset)
     if not session_id or session_id == "" then

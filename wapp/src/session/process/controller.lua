@@ -2,6 +2,7 @@ local agent_registry = require("agent_registry")
 local agent_runner = require("agent_runner")
 local prompt = require("prompt")
 local uuid = require("uuid")
+local json = require("json")
 
 -- Status constants
 local STATUS = {
@@ -23,9 +24,8 @@ local ERR = {
     STORE_RESPONSE_FAILED = "Failed to store response",
     AGENT_NAME_REQUIRED = "Agent name is required",
     MODEL_NAME_REQUIRED = "Model name is required",
-    FUNCTION_NAME_REQUIRED = "Function name is required",
-    FUNCTION_RESULT_REQUIRED = "Function result is required",
-    BUSY = "Session is already processing a message"
+    BUSY = "Session is already processing a message",
+    DELEGATION_FAILED = "Failed to delegate to agent"
 }
 
 -- Controller class
@@ -37,19 +37,17 @@ controller.CMD = {
     MESSAGE = "message",
     STOP = "stop",
     MODEL = "model",
-    AGENT = "agent"
+    AGENT = "agent",
+    CONTINUE = "continue"
 }
 
--- Constructor - add callbacks
-function controller.new(session_state, upstream, callbacks)
+-- Constructor
+function controller.new(session_state, upstream)
     local self = setmetatable({}, controller)
 
     -- Store dependencies
     self.state = session_state
     self.upstream = upstream
-
-    -- Store callbacks for session notifications
-    self.callbacks = callbacks or {}
 
     -- Own the agent instances
     self.agent = nil -- Will be lazy-loaded
@@ -58,20 +56,71 @@ function controller.new(session_state, upstream, callbacks)
     self.is_processing = false
     self.stop_requested = false
 
+    -- Next payload for continuation (if any)
+    self.next_payload = nil
+
     return self
 end
 
--- Continue processing after a previous action
+-- Continue processing with the next payload
 function controller:continue(payload)
-    -- Placeholder for autonomous agent actions or multi-step processing
-    -- Will be expanded in future implementations
+    -- We just need to process whatever is in the payload
+    if not payload or not payload.message_id or not payload.response_id then
+        return false, "Invalid continuation payload"
+    end
 
-    -- For now, just log the continue action
-    print("Controller continue action with payload:", require("json").encode(payload or {}))
+    -- Get the original message
+    local message_id = payload.message_id
+    local response_id = payload.response_id
 
-    -- Example: could handle autonomous agent actions, multi-turn tool calls, etc.
+    local message, err = self.state:get_message(message_id)
+    if not message then
+        return false, "Failed to get original message: " .. (err or "Unknown error")
+    end
 
-    return true
+    -- Lazy-load agent (should be the new delegated agent)
+    local agent, err = self:_load_agent()
+    if err then
+        self.upstream:message_error(message_id, "AGENT_ERROR", err)
+        return false, err
+    end
+
+    -- Build a prompt with standard window
+    local prompt_builder = self:build_prompt()
+    if not prompt_builder then
+        self.upstream:message_error(message_id, "PROMPT_ERROR", "Failed to build prompt")
+        return false, "Failed to build prompt"
+    end
+
+    -- Configure streaming if available
+    local stream_options = nil
+    if self.upstream.conn_pid then
+        stream_options = {
+            reply_to = self.upstream.conn_pid,
+            topic = self.upstream:get_message_topic(response_id)
+        }
+    end
+
+    -- Execute the agent
+    local result, err = agent:step(prompt_builder, stream_options)
+
+    -- Check for errors
+    if err then
+        self.upstream:message_error(message_id, "AGENT_ERROR", err)
+        return false, err
+    end
+
+    -- Clear next payload after processing
+    self.next_payload = nil
+
+    -- Process the response based on its type
+    if result.delegate_target then
+        -- Agent wants to delegate again
+        return self:process_delegation(result, message_id, response_id)
+    else
+        -- Normal response - this is the final agent's response
+        return self:process_normal_response(result, message_id, response_id)
+    end
 end
 
 -- Set agent configuration from existing state
@@ -132,7 +181,107 @@ function controller:_load_agent()
     return self.agent
 end
 
--- Handle user message - combined process and execute
+-- Create a prompt builder from current conversation state
+function controller:build_prompt(message_limit)
+    -- Default to 50 messages if not specified
+    message_limit = message_limit or 50
+
+    -- Load messages from state
+    local messages, err = self.state:load_messages(message_limit)
+    if err then
+        return nil, "Failed to load messages: " .. err
+    end
+
+    -- Sort by date (oldest first)
+    if messages then
+        table.sort(messages, function(a, b) return a.date < b.date end)
+    else
+        messages = {}
+    end
+
+    -- Create a prompt builder
+    local builder = prompt.new()
+
+    -- Process messages to add to prompt
+    for i, msg in ipairs(messages) do
+        local meta = msg.metadata or {}
+
+        -- Special handling for delegation messages
+        if msg.type == "delegation" then
+            -- Convert delegation to tool call and result for LLM's benefit
+            if meta.from_agent and meta.to_agent then
+                -- Stable tool name based on target agent
+                local delegate_tool_name = "delegate_to_" .. meta.to_agent
+
+                -- Create arguments from delegation metadata
+                local delegate_args = {
+                    message = meta.message or "Continuing with specialized agent",
+                    reason = meta.reason or "Delegation requested"
+                }
+
+                -- Use delegation message ID as the function call ID
+                local function_call_id = msg.message_id
+
+                -- Add tool call representing the delegation action
+                builder:add_function_call(
+                    delegate_tool_name,
+                    delegate_args,
+                    function_call_id
+                )
+
+                -- Create result content
+                local result_content = {
+                    status = "accepted",
+                    message = "Delegation accepted by " .. meta.to_agent
+                }
+
+                -- Add tool result representing acceptance
+                builder:add_function_result(
+                    delegate_tool_name,
+                    json.encode(result_content),
+                    function_call_id
+                )
+            end
+        else
+            -- Normal handling for other message types
+            if msg.type == "system" then
+                builder:add_system(msg.data)
+            elseif msg.type == "user" then
+                builder:add_user(msg.data)
+            elseif msg.type == "assistant" then
+                builder:add_assistant(msg.data)
+            elseif msg.type == "developer" then
+                builder:add_developer(msg.data)
+            elseif msg.type == "function" then
+                builder:add_function_result(
+                    meta.function_name,
+                    msg.data,
+                    meta.function_call_id
+                )
+            elseif msg.type == "function_call" then
+                local args = msg.data
+
+                -- Try to parse JSON if it's a string
+                if type(args) == "string" then
+                    local success, parsed = pcall(json.decode, args)
+                    if success then
+                        args = parsed
+                    end
+                end
+
+                builder:add_function_call(
+                    meta.function_name,
+                    args,
+                    meta.function_call_id
+                )
+            end
+        end
+    end
+
+    return builder
+end
+
+-- Handle user message
 function controller:handle_message(message_data)
     -- Validate
     if not message_data.text or message_data.text == "" then
@@ -154,7 +303,7 @@ function controller:handle_message(message_data)
     self.stop_requested = false
 
     -- Store message in state and get ID
-    local message_id = self.state:add_message(prompt.ROLE.USER, message_data.text, {
+    local message_id = self.state:add_user_message(message_data.text, {
         source = "user",
         files = message_data.file_uuids or {}
     })
@@ -174,7 +323,7 @@ function controller:handle_message(message_data)
         return nil, ERR.RESPONSE_ID_FAILED
     end
 
-    -- Announce the response is starting
+    -- Announce the response is beginning
     self.upstream:response_beginning(message_id, response_id)
 
     -- Lazy-load agent
@@ -185,8 +334,13 @@ function controller:handle_message(message_data)
         return nil, err
     end
 
-    -- Get prompt slice for the agent
-    local prompt_slice = self.state.prompt_builder
+    -- Get prompt builder with the appropriate window size
+    local prompt_builder = self:build_prompt()
+    if not prompt_builder then
+        self.is_processing = false
+        self.upstream:message_error(message_id, "PROMPT_ERROR", "Failed to build prompt")
+        return nil, "Failed to build prompt"
+    end
 
     -- Configure streaming if available
     local stream_options = nil
@@ -198,7 +352,7 @@ function controller:handle_message(message_data)
     end
 
     -- Execute agent
-    local result, err = agent:step(prompt_slice, stream_options)
+    local result, err = agent:step(prompt_builder, stream_options)
 
     -- Check for errors
     if err then
@@ -217,7 +371,63 @@ function controller:handle_message(message_data)
         }
     end
 
-    -- Create metadata for the response
+    -- Process different outcomes based on result
+    local final_result = {
+        message_id = message_id,
+        response_id = response_id
+    }
+
+    if result.delegate_target then
+        -- Agent wants to delegate
+        local success, err = self:process_delegation(result, message_id, response_id)
+        if not success then
+            self.is_processing = false
+            self.upstream:message_error(message_id, "DELEGATION_ERROR", err or "Delegation failed")
+            return nil, err or ERR.DELEGATION_FAILED
+        end
+
+        -- Add next_payload info to result
+        final_result.has_next_payload = self.next_payload ~= nil
+    else
+        -- Normal response
+        local success, err = self:process_normal_response(result, message_id, response_id)
+        if not success then
+            self.is_processing = false
+            self.upstream:message_error(message_id, "RESPONSE_ERROR", err or "Failed to process response")
+            return nil, err or "Failed to process response"
+        end
+    end
+
+    -- Reset processing state
+    self.is_processing = false
+
+    -- Copy tokens and result text to final result
+    final_result.result = result.result
+    final_result.tokens = result.tokens
+
+    return final_result
+end
+
+-- Process a normal agent response (no delegation)
+function controller:process_normal_response(result, message_id, response_id)
+    -- Check for empty result
+    if not result.result or result.result == "" then
+        print("Warning: Agent returned empty response, skipping storage")
+
+        -- Still notify client that response is empty but handled
+        self.upstream:send_message_update(response_id, "content", {
+            content = "",
+            status = "empty_response",
+            agent = self.state.agent_name
+        })
+
+        -- Clear any next payload
+        self.next_payload = nil
+
+        return true
+    end
+
+    -- Normal processing for non-empty response
     local metadata = {
         agent_name = self.state.agent_name,
         model = self.state.model,
@@ -225,15 +435,13 @@ function controller:handle_message(message_data)
     }
 
     -- Store response in state
-    local stored_response_id, err = self.state:add_message(
-        prompt.ROLE.ASSISTANT,
+    local stored_response_id, err = self.state:add_assistant_message(
         result.result,
         metadata
     )
 
     if err then
-        self.is_processing = false
-        return nil, ERR.STORE_RESPONSE_FAILED .. ": " .. err
+        return false, ERR.STORE_RESPONSE_FAILED .. ": " .. err
     end
 
     -- Send the full content update
@@ -241,30 +449,100 @@ function controller:handle_message(message_data)
         content = result.result
     })
 
-    -- Handle delegate agent switching if needed
-    if result.delegate_target then
-        -- Store the response in the prompt builder
-        self.state.prompt_builder:add_assistant(result.result)
+    -- Clear any next payload
+    self.next_payload = nil
 
-        -- Switch agent for next request
-        local success, change_err = self:change_agent(result.delegate_target)
-        if not success then
-            -- Log the error but continue with the response
-            print("Failed to switch to delegate agent: " .. change_err)
-        end
-    else
-        -- Add to prompt builder if no delegation
-        self.state.prompt_builder:add_assistant(result.result)
+    return true
+end
+
+-- Process agent delegation
+function controller:process_delegation(result, message_id, response_id)
+    if not result.delegate_target then
+        return false, "No delegation target specified"
     end
 
-    -- Reset processing state
-    self.is_processing = false
+    local first_agent_response = result.result
+    local has_response = first_agent_response and #first_agent_response > 0
 
-    -- Set results
-    result.message_id = message_id
-    result.response_id = response_id
+    -- If the first agent provided a non-empty response, store it
+    if has_response then
+        -- Create metadata for the partial response
+        local metadata = {
+            agent_name = self.state.agent_name,
+            model = self.state.model,
+            tokens = result.tokens,
+            is_delegate_partial = true,
+            delegated_to = result.delegate_target
+        }
 
-    return result
+        -- Store partial response in state
+        local stored_response_id, err = self.state:add_assistant_message(
+            first_agent_response,
+            metadata
+        )
+
+        if err then
+            print("Warning: Failed to store first agent response before delegation: " .. err)
+            -- Don't fail the operation, just log the warning
+        else
+            -- Send the partial content update
+            self.upstream:send_message_update(response_id, "content", {
+                content = first_agent_response,
+                is_partial = true
+            })
+        end
+    end
+
+    -- Create delegation record with all necessary metadata
+    local delegation_metadata = {
+        system_action = "delegation",
+        from_agent = self.state.agent_name,
+        to_agent = result.delegate_target,
+        reason = result.delegate_reason,
+        message = result.delegate_message or "Continuing with specialized agent",
+        response_id = response_id
+    }
+
+    -- Add a single delegation record in state
+    local delegation_id = self.state:add_message(
+        "delegation",
+        "Delegation from '" .. self.state.agent_name .. "' to '" .. result.delegate_target .. "'",
+        delegation_metadata
+    )
+
+    -- Switch agent for next request
+    local success, change_err = self:change_agent(result.delegate_target)
+    if not success then
+        -- Log the error but continue with the response
+        print("Failed to switch to delegate agent: " .. change_err)
+        return false, "Failed to switch agent: " .. change_err
+    end
+
+    -- Create the next payload for continuation
+    self.next_payload = {
+        type = controller.CMD.CONTINUE,
+        message_id = message_id,
+        response_id = response_id, -- Reuse the same response_id
+        delegation = {
+            delegation_id = delegation_id,
+            from_agent = self.state.agent_name,
+            to_agent = result.delegate_target,
+            reason = result.delegate_reason,
+            had_partial_response = has_response
+        }
+    }
+
+    -- Announce new agent presence
+    self.upstream:update_session({
+        agent = result.delegate_target,
+        delegation = {
+            from = self.state.agent_name,
+            to = result.delegate_target,
+            reason = result.delegate_reason
+        }
+    })
+
+    return true
 end
 
 -- Change to a different agent
@@ -283,7 +561,7 @@ function controller:change_agent(agent_name)
     self.agent = nil
 
     -- Update agent name in state
-    local success, err = self.state:change_agent(agent_name)
+    local success, err = self.state:set_agent_config(agent_name, self.state.model)
     if not success then
         return nil, err
     end
@@ -298,9 +576,9 @@ function controller:change_agent(agent_name)
     return true
 end
 
--- Change model
-function controller:change_model(model)
-    if not model then
+-- Change model (implementation was missing in original)
+function controller:change_model(model_name)
+    if not model_name then
         return nil, ERR.MODEL_NAME_REQUIRED
     end
 
@@ -308,7 +586,7 @@ function controller:change_model(model)
     self.agent = nil
 
     -- Update model in state
-    local success, err = self.state:change_model(model)
+    local success, err = self.state:set_agent_config(self.state.agent_name, model_name)
     if not success then
         return nil, err
     end
@@ -316,7 +594,7 @@ function controller:change_model(model)
     -- Notify clients about model change
     if self.upstream then
         self.upstream:update_session({
-            model = model
+            model = model_name
         })
     end
 
@@ -330,6 +608,9 @@ function controller:handle_stop_command()
 
     -- If not currently processing, still mark as not processing
     self.is_processing = false
+
+    -- Clear any pending next payload
+    self.next_payload = nil
 
     return true
 end
@@ -353,11 +634,26 @@ function controller:handle_command(command, payload)
     end
 end
 
+-- Cancel processing
 function controller:cancel()
-    -- nothing for now
+    -- Mark stop requested
+    self.stop_requested = true
+
+    -- If currently processing with an agent, try to cancel its operation
+    if self.agent and self.agent.cancel then
+        self.agent:cancel()
+    end
+
+    -- Reset processing state
+    self.is_processing = false
+
+    -- Clear any pending next payload
+    self.next_payload = nil
+
+    return true
 end
 
--- Set agent and optional model
+-- Initialize controller with agent and model
 function controller:init(agent_name, model)
     -- Get agent spec
     local agent_spec, err = agent_registry.get_by_name(agent_name)

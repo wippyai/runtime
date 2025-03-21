@@ -1,7 +1,7 @@
 local uuid = require("uuid")
-local prompt = require("prompt")
 local session_repo = require("session_repo")
 local message_repo = require("message_repo")
+local json = require("json")
 
 -- Status constants
 local STATUS = {
@@ -9,6 +9,16 @@ local STATUS = {
     RUNNING = "running",
     ERROR = "error",
     FAILED = "failed"
+}
+
+-- Message type constants
+local MSG_TYPE = {
+    SYSTEM = "system",
+    USER = "user",
+    ASSISTANT = "assistant",
+    DEVELOPER = "developer",
+    FUNCTION = "function",
+    FUNCTION_CALL = "function_call"
 }
 
 -- Error message constants
@@ -49,8 +59,13 @@ function session_state.new(loader_state)
     self.last_message_date = loader_state.last_message_date
     self.last_message_id = loader_state.last_message_id
 
-    -- Conversation state
-    self.prompt_builder = prompt.new()
+    -- Message counts
+    self.total_message_count = 0 -- Will be loaded from DB when needed
+
+    -- Minimal cache for message lookups
+    self.message_cache = {} -- Only store messages we've explicitly fetched
+
+    -- Context data
     self.context_data = {
         session_id = self.session_id,
         agent_name = self.agent_name,
@@ -74,9 +89,7 @@ function session_state:update_session_status(status, error_message)
     end
 
     -- Add timestamp if needed
-    if status == STATUS.RUNNING then
-        update_data.last_message_date = os.time()
-    end
+    update_data.last_message_date = os.time()
 
     -- Update in database
     local update_result, err = session_repo.update_session_meta(
@@ -92,53 +105,27 @@ function session_state:update_session_status(status, error_message)
     return true
 end
 
--- Load message history
-function session_state:load_history()
-    local messages, err = message_repo.list_by_session(self.session_id)
-    if err then
-        return nil, "Failed to load messages: " .. err
+-- Update session title
+function session_state:update_session_title(title)
+    if not title or title == "" then
+        return false, "Title cannot be empty"
     end
 
-    -- Sort messages by date
-    if messages and #messages > 0 then
-        table.sort(messages, function(a, b) return a.date < b.date end)
+    -- Update in database
+    local update_result, err = session_repo.update_session_meta(
+        self.session_id,
+        { title = title }
+    )
 
-        -- Rebuild conversation history
-        for _, msg in ipairs(messages) do
-            -- Convert stored text/metadata to the appropriate prompt builder method
-            if msg.type == prompt.ROLE.SYSTEM then
-                self.prompt_builder:add_system(msg.data)
-            elseif msg.type == prompt.ROLE.USER then
-                self.prompt_builder:add_user(msg.data)
-            elseif msg.type == prompt.ROLE.ASSISTANT then
-                self.prompt_builder:add_assistant(msg.data)
-            elseif msg.type == prompt.ROLE.DEVELOPER then
-                self.prompt_builder:add_developer(msg.data)
-            elseif msg.type == prompt.ROLE.FUNCTION then
-                -- Function result messages include function name in metadata
-                local meta = msg.metadata or {}
-                self.prompt_builder:add_function_result(
-                    meta.function_name,
-                    msg.data,
-                    meta.function_call_id
-                )
-            elseif msg.type == prompt.ROLE.FUNCTION_CALL then
-                -- Function call messages have function details in metadata
-                local meta = msg.metadata or {}
-                self.prompt_builder:add_function_call(
-                    meta.function_name,
-                    msg.data, -- Contains the arguments
-                    meta.function_call_id
-                )
-            end
-            -- Skip other message types as they don't belong in the prompt
-        end
+    if err then
+        print("Failed to update session title: " .. err)
+        return false
     end
 
     return true
 end
 
--- Update database with failed status (no client notifications)
+-- Mark session as failed
 function session_state:mark_session_failed(error_message)
     -- Update session status to FAILED in the database only
     self.status = STATUS.FAILED
@@ -146,7 +133,44 @@ function session_state:mark_session_failed(error_message)
     return true
 end
 
--- Process different message types
+-- Get message by ID (with minimal caching)
+function session_state:get_message(message_id)
+    if not message_id then
+        return nil, "Message ID is required"
+    end
+
+    -- Check cache first
+    if self.message_cache[message_id] then
+        return self.message_cache[message_id]
+    end
+
+    -- If not in cache, fetch from database
+    local message, err = message_repo.get(message_id)
+    if err then
+        return nil, "Failed to get message: " .. err
+    end
+
+    -- Add to cache
+    if message then
+        self.message_cache[message_id] = message
+    end
+
+    return message
+end
+
+-- Count all messages in the session
+function session_state:count_all_messages()
+    local count, err = message_repo.count_by_session(self.session_id)
+    if err then
+        print("Failed to count messages: " .. err)
+        return 0
+    end
+
+    self.total_message_count = count
+    return count
+end
+
+-- Add a message to the database
 function session_state:add_message(message_type, message_content, metadata)
     -- Generate message ID
     local message_id, err = uuid.v7()
@@ -156,6 +180,15 @@ function session_state:add_message(message_type, message_content, metadata)
 
     -- Default metadata if not provided
     metadata = metadata or {}
+
+    -- Add agent information to metadata
+    if not metadata.agent_name and self.agent_name then
+        metadata.agent_name = self.agent_name
+    end
+
+    if not metadata.model and self.model then
+        metadata.model = self.model
+    end
 
     -- Create message in DB
     local msg, err = message_repo.create(
@@ -170,81 +203,111 @@ function session_state:add_message(message_type, message_content, metadata)
         return nil, ERR.STORE_MESSAGE_FAILED .. ": " .. err
     end
 
-    -- Add to prompt builder based on message type
-    if message_type == prompt.ROLE.SYSTEM then
-        self.prompt_builder:add_system(message_content)
-    elseif message_type == prompt.ROLE.USER then
-        self.prompt_builder:add_user(message_content)
-    elseif message_type == prompt.ROLE.ASSISTANT then
-        self.prompt_builder:add_assistant(message_content)
-    elseif message_type == prompt.ROLE.DEVELOPER then
-        self.prompt_builder:add_developer(message_content)
-    elseif message_type == prompt.ROLE.FUNCTION then
-        self.prompt_builder:add_function_result(
-            metadata.function_name,
-            message_content,
-            metadata.function_call_id
-        )
-    elseif message_type == prompt.ROLE.FUNCTION_CALL then
-        self.prompt_builder:add_function_call(
-            metadata.function_name,
-            message_content, -- Contains the arguments
-            metadata.function_call_id
-        )
-    end
+    -- Store in cache (with metadata attached)
+    local cached_msg = {
+        message_id = message_id,
+        session_id = self.session_id,
+        date = os.time(),
+        type = message_type,
+        data = message_content,
+        metadata = metadata
+    }
+    self.message_cache[message_id] = cached_msg
+
+    -- Increment total message count
+    self.total_message_count = self.total_message_count + 1
 
     return message_id
 end
 
--- Add system message
-function session_state:add_system_message(content)
+-- Update message metadata
+function session_state:update_message_metadata(message_id, metadata)
+    if not message_id then
+        return nil, "Message ID is required"
+    end
+
+    if not metadata then
+        return nil, "Metadata is required"
+    end
+
+    -- Update in database
+    local result, err = message_repo.update_metadata(message_id, metadata)
+    if err then
+        return nil, "Failed to update message metadata: " .. err
+    end
+
+    -- Update in cache if present
+    if self.message_cache[message_id] then
+        self.message_cache[message_id].metadata = metadata
+    end
+
+    return true
+end
+
+-- Convenience methods for adding different message types
+
+function session_state:add_system_message(content, metadata)
     if not content or content == "" then
         return nil, ERR.EMPTY_MESSAGE
     end
-
-    return self:add_message(prompt.ROLE.SYSTEM, content)
+    metadata = metadata or {}
+    return self:add_message(MSG_TYPE.SYSTEM, content, metadata)
 end
 
--- Add developer message
-function session_state:add_developer_message(content)
+function session_state:add_user_message(content, metadata)
     if not content or content == "" then
         return nil, ERR.EMPTY_MESSAGE
     end
-
-    return self:add_message(prompt.ROLE.DEVELOPER, content)
+    metadata = metadata or {}
+    return self:add_message(MSG_TYPE.USER, content, metadata)
 end
 
--- Add function result
-function session_state:add_function_result(function_name, content, function_call_id)
+function session_state:add_assistant_message(content, metadata)
+    if not content or content == "" then
+        return nil, ERR.EMPTY_MESSAGE
+    end
+    metadata = metadata or {}
+    return self:add_message(MSG_TYPE.ASSISTANT, content, metadata)
+end
+
+function session_state:add_developer_message(content, metadata)
+    if not content or content == "" then
+        return nil, ERR.EMPTY_MESSAGE
+    end
+    metadata = metadata or {}
+    return self:add_message(MSG_TYPE.DEVELOPER, content, metadata)
+end
+
+function session_state:add_function_result(function_name, content, function_call_id, metadata)
     if not function_name then
         return nil, ERR.FUNCTION_NAME_REQUIRED
     end
-
     if not content then
         return nil, ERR.FUNCTION_RESULT_REQUIRED
     end
 
-    local metadata = {
-        function_name = function_name,
-        function_call_id = function_call_id
-    }
+    metadata = metadata or {}
+    metadata.function_name = function_name
+    metadata.function_call_id = function_call_id
 
-    return self:add_message(prompt.ROLE.FUNCTION, content, metadata)
+    return self:add_message(MSG_TYPE.FUNCTION, content, metadata)
 end
 
--- Add function call
-function session_state:add_function_call(function_name, arguments, function_call_id)
+function session_state:add_function_call(function_name, arguments, function_call_id, metadata)
     if not function_name then
         return nil, ERR.FUNCTION_NAME_REQUIRED
     end
 
-    local metadata = {
-        function_name = function_name,
-        function_call_id = function_call_id
-    }
+    metadata = metadata or {}
+    metadata.function_name = function_name
+    metadata.function_call_id = function_call_id
 
-    -- Arguments are stored as the message content, typically JSON
-    return self:add_message(prompt.ROLE.FUNCTION_CALL, arguments, metadata)
+    -- Convert arguments to string if it's a table
+    if type(arguments) == "table" then
+        arguments = json.encode(arguments)
+    end
+
+    return self:add_message(MSG_TYPE.FUNCTION_CALL, arguments, metadata)
 end
 
 -- Set agent configuration in state
@@ -256,6 +319,10 @@ function session_state:set_agent_config(agent_name, model)
     -- Set agent name and model
     self.agent_name = agent_name
     self.model = model or self.model
+
+    -- Update context data
+    self.context_data.agent_name = agent_name
+    self.context_data.model = self.model
 
     -- Update metadata (including agent and model)
     local update_result, err = session_repo.update_session_meta(
@@ -276,49 +343,21 @@ function session_state:set_agent_config(agent_name, model)
     return true
 end
 
--- Change to a different agent
-function session_state:change_agent(agent_name)
-    if not agent_name then
-        return nil, ERR.AGENT_NAME_REQUIRED
-    end
+-- Load messages with limit (most recent messages)
+function session_state:load_messages(limit)
+    limit = limit or 50 -- Default to 50 messages
 
-    -- Update agent name
-    self.agent_name = agent_name
-
-    -- Update metadata
-    local update_result, err = session_repo.update_session_meta(
-        self.session_id,
-        { current_agent = self.agent_name }
-    )
-
+    local messages, err = message_repo.list_by_session(self.session_id, limit)
     if err then
-        return nil, "Failed to update session: " .. err
+        return nil, "Failed to load messages: " .. err
     end
 
-    return true
-end
-
--- Change model
-function session_state:change_model(model)
-    if not model then
-        return nil, ERR.MODEL_NAME_REQUIRED
+    -- Update total count if we don't have it yet
+    if self.total_message_count == 0 then
+        self.total_message_count = message_repo.count_by_session(self.session_id) or 0
     end
 
-    -- Update model
-    self.model = model
-    self.context_data.model = model
-
-    -- Update metadata
-    local update_result, err = session_repo.update_session_meta(
-        self.session_id,
-        { current_model = model }
-    )
-
-    if err then
-        return nil, "Failed to update model: " .. err
-    end
-
-    return true
+    return messages
 end
 
 return session_state

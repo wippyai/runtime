@@ -69,14 +69,8 @@ local function run(args)
     -- Create an upstream instance
     local upstream = session_upstream.new(args.session_id, args.conn_pid, args.parent_pid)
 
-    -- Create controller instance that will manage conversation flow
-    local convo_controller = controller.new(state, upstream, {
-        -- Callback for controller to request continuation
-        ask_continue = function(payload)
-            -- Post to the continue topic to trigger further processing
-            actor.post(CONTINUE_TOPIC, payload)
-        end
-    })
+    -- Create the controller instance
+    local convo_controller = controller.new(state, upstream)
 
     -- Set session status (centralized status management)
     local function set_session_status(new_status, error_msg)
@@ -115,9 +109,9 @@ local function run(args)
             error(init_err)
         end
     else
-        -- For existing sessions, load message history through state
-        local success, history_err = state:load_history()
-        if not success then
+        -- For existing sessions, load recent messages
+        local messages, history_err = state:load_messages(50)
+        if history_err then
             -- Session state has already updated the DB status
             session_status = STATUS.FAILED
             state:update_session_status(STATUS.FAILED, history_err)
@@ -231,6 +225,11 @@ local function run(args)
 
                 -- Update session status after processing
                 set_session_status(STATUS.IDLE)
+
+                if convo_controller.next_payload then
+                    -- Advance
+                    actor_state.post(CONTINUE_TOPIC, convo_controller.next_payload)
+                end
             end)
 
             return actor_state

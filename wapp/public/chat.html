@@ -691,6 +691,11 @@
                 renderSessions();
             }
         }
+        // Agent change notification
+        else if (topic.startsWith('session:') && data.type === 'update' && data.agent) {
+            console.log('Agent change:', data);
+            addSystemMessage(`Agent changed to: ${data.agent}`);
+        }
         // Session update
         else if (topic.startsWith('session:') && !topic.includes(':message:')) {
             handleSessionUpdate(data);
@@ -997,6 +1002,29 @@
 
                         // Render messages
                         sortedMessages.forEach(message => {
+                            // Handle agent_change type messages from history
+                            if (message.type === 'agent_change') {
+                                let agentName = 'Unknown';
+
+                                // Extract agent name from message data
+                                if (typeof message.data === 'object' && message.data && message.data.agent) {
+                                    agentName = message.data.agent;
+                                } else if (typeof message.data === 'string') {
+                                    try {
+                                        const parsedData = JSON.parse(message.data);
+                                        if (parsedData && parsedData.agent) {
+                                            agentName = parsedData.agent;
+                                        }
+                                    } catch (e) {
+                                        // If not valid JSON, use as is
+                                        agentName = message.data || 'Unknown';
+                                    }
+                                }
+
+                                addSystemMessage(`Agent changed to: ${agentName}`);
+                                return; // Skip regular message rendering
+                            }
+
                             let messageType, messageContent;
 
                             if (message.type === 'human' || message.type === 'user') {
