@@ -252,6 +252,68 @@
             margin: 5px 0;
         }
 
+        /* Tool call styling */
+        .message-tool {
+            align-self: flex-start;
+            background-color: #2d3748;
+            border-left: 4px solid #805ad5;
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin: 5px 0;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+
+        .message-tool.tool-running {
+            border-left-color: #805ad5;
+            background-color: #2d3748;
+        }
+
+        .message-tool.tool-success {
+            border-left-color: #38a169;
+            background-color: #2a3f2b;
+        }
+
+        .message-tool.tool-error {
+            border-left-color: #e53e3e;
+            background-color: #3f2a2a;
+        }
+
+        .tool-icon {
+            margin-right: 10px;
+            font-size: 16px;
+            width: 20px;
+            text-align: center;
+        }
+
+        .tool-running .tool-icon::before {
+            content: "⚙️";
+        }
+
+        .tool-success .tool-icon::before {
+            content: "✅";
+        }
+
+        .tool-error .tool-icon::before {
+            content: "❌";
+        }
+
+        .tool-content {
+            flex: 1;
+        }
+
+        .tool-name {
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+
+        .tool-status {
+            font-size: 11px;
+            color: #aaa;
+        }
+
         .message-time {
             font-size: 11px;
             color: #aaa;
@@ -402,7 +464,11 @@
 
         // Streaming
         currentResponseId: null,
-        currentResponseText: ''
+        currentResponseText: '',
+
+        // Tool tracking
+        activeTool: null,
+        toolCalls: new Map() // Map to track tool calls by ID
     };
 
     // DOM elements
@@ -515,6 +581,74 @@
         }
 
         return messageElement;
+    }
+
+    // Add tool call message
+    function addToolCall(toolName, toolId) {
+        const toolCallElement = document.createElement('div');
+        toolCallElement.className = 'message message-tool tool-running';
+        toolCallElement.id = `tool-${toolId}`;
+
+        const iconElement = document.createElement('div');
+        iconElement.className = 'tool-icon';
+
+        const contentElement = document.createElement('div');
+        contentElement.className = 'tool-content';
+
+        const nameElement = document.createElement('div');
+        nameElement.className = 'tool-name';
+        nameElement.textContent = toolName;
+
+        const statusElement = document.createElement('div');
+        statusElement.className = 'tool-status';
+        statusElement.textContent = 'Running...';
+
+        contentElement.appendChild(nameElement);
+        contentElement.appendChild(statusElement);
+
+        toolCallElement.appendChild(iconElement);
+        toolCallElement.appendChild(contentElement);
+
+        chatElement.appendChild(toolCallElement);
+        chatElement.scrollTop = chatElement.scrollHeight;
+
+        // Store in state for tracking
+        state.toolCalls.set(toolId, {
+            element: toolCallElement,
+            name: toolName,
+            status: 'running'
+        });
+
+        return toolCallElement;
+    }
+
+    // Update tool call status
+    function updateToolCallStatus(toolId, status, message = null) {
+        const toolInfo = state.toolCalls.get(toolId);
+        if (!toolInfo) return;
+
+        const toolElement = toolInfo.element;
+        const statusElement = toolElement.querySelector('.tool-status');
+
+        // Update class
+        toolElement.classList.remove('tool-running', 'tool-success', 'tool-error');
+        toolElement.classList.add(`tool-${status}`);
+
+        // Update status message
+        if (statusElement) {
+            if (status === 'success') {
+                statusElement.textContent = message || 'Completed successfully';
+            } else if (status === 'error') {
+                statusElement.textContent = message || 'Failed to execute';
+            } else {
+                statusElement.textContent = message || 'Running...';
+            }
+        }
+
+        // Update state
+        toolInfo.status = status;
+
+        chatElement.scrollTop = chatElement.scrollHeight;
     }
 
     // Add system message
@@ -695,6 +829,40 @@
         else if (topic.startsWith('session:') && data.type === 'update' && data.agent) {
             console.log('Agent change:', data);
             addSystemMessage(`Agent changed to: ${data.agent}`);
+        }
+        // Tool call notification
+        else if (topic.includes(':message:') && data.type === 'tool_call') {
+            console.log('Tool call received:', data);
+
+            // Generate a unique ID for this tool call if not provided
+            const toolId = data.function_call_id || `tool-${Date.now()}`;
+
+            // Add tool call element to UI
+            addToolCall(data.function_name, toolId);
+        }
+        // Tool result notification
+        else if (topic.includes(':message:') && data.type === 'tool_result') {
+            console.log('Tool result received:', data);
+
+            // Get tool ID from the message
+            const toolId = data.function_call_id || state.activeTool;
+
+            if (toolId) {
+                // Update the tool call with success status
+                updateToolCallStatus(toolId, 'success');
+            }
+        }
+        // Tool error notification
+        else if (topic.includes(':message:') && data.type === 'tool_error') {
+            console.log('Tool error received:', data);
+
+            // Get tool ID from the message
+            const toolId = data.function_call_id || state.activeTool;
+
+            if (toolId) {
+                // Update the tool call with error status
+                updateToolCallStatus(toolId, 'error', data.error || 'Tool execution failed');
+            }
         }
         // Delegation messages
         else if (topic.includes(':message:') && data.type === 'delegation') {
@@ -1030,6 +1198,8 @@
                 if (data.success) {
                     // Clear current messages
                     chatElement.innerHTML = '';
+                    // Clear tool calls tracking
+                    state.toolCalls.clear();
 
                     const messages = data.messages || [];
                     if (messages.length === 0) {
@@ -1060,6 +1230,52 @@
                                 }
 
                                 addSystemMessage(`Agent changed to: ${agentName}`);
+                                return; // Skip regular message rendering
+                            }
+
+                            // Handle tool call messages from history
+                            if (message.type === 'function_call') {
+                                let toolName = 'Unknown Tool';
+                                let toolId = message.message_id || `hist-tool-${Date.now()}`;
+
+                                // Extract tool name from metadata
+                                if (message.metadata && message.metadata.function_name) {
+                                    toolName = message.metadata.function_name;
+                                }
+
+                                // Add tool element
+                                const toolStatus = (message.metadata && message.metadata.status === 'error') ? 'error' : 'success';
+                                const toolElement = addToolCall(toolName, toolId);
+
+                                // Update status based on paired function result message (will be processed later)
+                                if (toolStatus === 'error') {
+                                    updateToolCallStatus(toolId, 'error', 'Failed to execute');
+                                }
+
+                                return; // Skip regular message rendering
+                            }
+
+                            // Handle tool result messages from history
+                            if (message.type === 'function') {
+                                let toolName = 'Unknown Tool';
+                                let toolId = null;
+
+                                // Extract function info from metadata
+                                if (message.metadata) {
+                                    if (message.metadata.function_name) {
+                                        toolName = message.metadata.function_name;
+                                    }
+                                    if (message.metadata.function_call_id) {
+                                        toolId = message.metadata.function_call_id;
+                                    }
+                                }
+
+                                // If we have a tool ID and it exists in our tracking, update its status
+                                if (toolId && state.toolCalls.has(toolId)) {
+                                    const status = (message.metadata && message.metadata.error) ? 'error' : 'success';
+                                    updateToolCallStatus(toolId, status);
+                                }
+
                                 return; // Skip regular message rendering
                             }
 
