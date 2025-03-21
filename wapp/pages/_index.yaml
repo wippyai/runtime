@@ -11,6 +11,6 @@ entries:
       type: "virtual.page"
       name: "welcome"
       title: "Welcome"
-      icon: "icon-home"
+      icon: "tabler:accessible-filled"
       content_type: "text/html"
     source: file://welcome.html

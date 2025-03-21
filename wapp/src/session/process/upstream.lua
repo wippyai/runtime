@@ -66,6 +66,24 @@ function session_upstream:message_error(message_id, code, message)
     })
 end
 
+-- Report command success with request_id
+function session_upstream:command_success(request_id)
+    self:_send_session_update("command_response", {
+        request_id = request_id,
+        success = true
+    })
+end
+
+-- Report command error with request_id
+function session_upstream:command_error(request_id, code, message)
+    self:_send_session_update("command_response", {
+        request_id = request_id,
+        success = false,
+        code = code,
+        message = message
+    })
+end
+
 -- PRIVATE METHODS --
 
 -- Send session-level update

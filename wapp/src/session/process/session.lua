@@ -154,8 +154,19 @@ local function run(args)
 
             local success, err = convo_controller:handle_command(payload.command, payload)
 
-            if not success then
-                upstream:session_error(ERROR_CODE.ERROR, err or "Command failed")
+            if success then
+                -- Send command_success for commands with request_id
+                if payload.request_id then
+                    upstream:command_success(payload.request_id)
+                end
+            else
+                -- For errors, still use the original session_error
+                -- but also send command_error for commands with request_id
+                if payload.request_id then
+                    upstream:command_error(payload.request_id, ERROR_CODE.ERROR, err or "Command failed")
+                else
+                    upstream:session_error(ERROR_CODE.ERROR, err or "Command failed")
+                end
             end
 
             return actor_state
