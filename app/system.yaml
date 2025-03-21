@@ -2,6 +2,13 @@ version: "1.0"
 namespace: system
 
 entries:
+  - name: test_s3
+    kind: cloudstorage.s3
+    meta:
+      comment: "Cloud Storage S3"
+    bucket: mybucket
+    region: us-east-1
+
   - name: root
     kind: fs.directory
     meta:

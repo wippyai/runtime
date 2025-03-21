@@ -5,6 +5,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/modules/cloudstorage"
+	"github.com/ponyruntime/pony/service/s3"
 	httpbase "net/http"
 	"os"
 	"os/signal"
@@ -526,6 +528,7 @@ func main() {
 		WithProcessSupervisor(app),
 		WithEphemeralHost(app),
 		WithSQLManager(app),
+		WithS3Manager(app),
 	)...)
 	// --------------------------------------------------
 
@@ -697,6 +700,14 @@ func WithDirectoryManager(a *App) eventbus.EventHandler {
 	))
 }
 
+func WithS3Manager(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("cloudstorage.s3", s3.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("cloudstorage.s3"),
+	))
+}
+
 func WithSQLManager(a *App) eventbus.EventHandler {
 	// Create manager with required dependencies
 	manager, err := sql.NewManager(
@@ -757,6 +768,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				btea.NewBteaModule(a.logger.Named("btea")),
 				sqlmod.NewSQLModule(a.logger.Named("sql")),
 				excel.NewModule(a.logger.Named("excel")),
+				cloudstorage.NewModule(),
 			},
 			ProtoCacheSize: 600,
 			MainCacheSize:  100,
