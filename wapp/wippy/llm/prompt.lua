@@ -77,16 +77,44 @@ function prompt.new(messages)
     -- Add a message with specified role and content parts
     builder.add_message = function(self, role, content_parts, name)
         if role and content_parts and #content_parts > 0 then
-            local message = {
-                role = role,
-                content = content_parts
+            local mergeable_roles = {
+                [prompt.ROLE.USER] = true,
+                [prompt.ROLE.SYSTEM] = true,
+                [prompt.ROLE.ASSISTANT] = true,
+                [prompt.ROLE.DEVELOPER] = true
             }
 
-            if name then
-                message.name = name
-            end
+            -- Check if we can merge with the last message
+            local last_msg = self.messages[#self.messages]
+            if last_msg and mergeable_roles[role] and last_msg.role == role and
+                (not name or name == last_msg.name) then
+                -- Same mergeable role, merge content
+                for _, part in ipairs(content_parts) do
+                    -- For text content, merge with previous text content if present
+                    if part.type == prompt.CONTENT_TYPE.TEXT and
+                        last_msg.content[#last_msg.content] and
+                        last_msg.content[#last_msg.content].type == prompt.CONTENT_TYPE.TEXT then
+                        -- Merge text with newline separator
+                        last_msg.content[#last_msg.content].text =
+                            last_msg.content[#last_msg.content].text .. "\n\n" .. part.text
+                    else
+                        -- Add as new content part
+                        table.insert(last_msg.content, part)
+                    end
+                end
+            else
+                -- Create new message
+                local message = {
+                    role = role,
+                    content = content_parts
+                }
 
-            table.insert(self.messages, message)
+                if name then
+                    message.name = name
+                end
+
+                table.insert(self.messages, message)
+            end
         end
         return self
     end
