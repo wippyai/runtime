@@ -527,20 +527,10 @@ function controller:process_delegation(result, message_id, response_id)
             delegation_id = delegation_id,
             from_agent = self.state.agent_name,
             to_agent = result.delegate_target,
-            reason = result.delegate_reason,
+            reason = result.delegate_message,
             had_partial_response = has_response
         }
     }
-
-    -- Announce new agent presence
-    self.upstream:update_session({
-        agent = result.delegate_target,
-        delegation = {
-            from = self.state.agent_name,
-            to = result.delegate_target,
-            reason = result.delegate_reason
-        }
-    })
 
     return true
 end
@@ -606,9 +596,6 @@ function controller:handle_stop_command()
     -- Mark stop requested - will be checked during processing
     self.stop_requested = true
 
-    -- If not currently processing, still mark as not processing
-    self.is_processing = false
-
     -- Clear any pending next payload
     self.next_payload = nil
 
@@ -671,14 +658,6 @@ function controller:init(agent_name, model)
 
     -- Reset agent instance to force reload
     self.agent = nil
-
-    -- Notify clients about agent change
-    if self.upstream then
-        self.upstream:update_session({
-            agent = agent_name,
-            model = model
-        })
-    end
 
     return true
 end
