@@ -28,7 +28,7 @@ entries:
       comment: "Conversation controller for handling message processing and agent interactions"
       depends_on: [ "wippy.agents.gen1:agent", "wippy.agents.gen1:registry", "wippy.llm:prompt" ]
     source: file://controller.lua
-    modules: [ json, uuid ]
+    modules: [ json, uuid, funcs ]
     imports:
       agent_registry: "wippy.agents.gen1:registry"
       agent_runner: "wippy.agents.gen1:agent"

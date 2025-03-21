@@ -232,7 +232,7 @@ function controller:build_prompt(message_limit)
                 -- Create result content
                 local result_content = {
                     status = "accepted",
-                    message = "Delegation accepted by " .. meta.to_agent
+                    message = "You are now " .. meta.to_agent
                 }
 
                 -- Add tool result representing acceptance
