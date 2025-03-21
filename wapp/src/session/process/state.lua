@@ -98,7 +98,7 @@ function session_state:load_history()
     if err then
         return nil, "Failed to load messages: " .. err
     end
-print(require("json").encode(messages))
+
     -- Sort messages by date
     if messages and #messages > 0 then
         table.sort(messages, function(a, b) return a.date < b.date end)

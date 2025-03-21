@@ -61,21 +61,6 @@ function controller.new(session_state, upstream, callbacks)
     return self
 end
 
--- Request continuation of processing via session
-function controller:request_continue(payload)
-    -- Post a message to the continue topic if we have a callback
-    if self.callbacks.ask_continue then
-        -- Default payload type if not specified
-        if payload and not payload.type then
-            payload.type = "continue"
-        end
-
-        self.callbacks.ask_continue(payload or { type = "continue" })
-        return true
-    end
-    return false
-end
-
 -- Continue processing after a previous action
 function controller:continue(payload)
     -- Placeholder for autonomous agent actions or multi-step processing

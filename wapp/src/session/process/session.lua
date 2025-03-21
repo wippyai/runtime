@@ -171,6 +171,7 @@ local function run(args)
                 upstream.conn_pid = payload.conn_pid
             end
 
+            payload.type = controller.CMD.MESSAGE
             return actor.next(CONTINUE_TOPIC, payload)
         end,
 
