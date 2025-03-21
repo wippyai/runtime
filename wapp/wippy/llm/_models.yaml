@@ -8,6 +8,7 @@ entries:
     meta:
       type: "llm.model"
       name: "gpt-4o"
+      title: "GPT-4o"
       comment: "Fast, intelligent, flexible GPT model with text and image input capabilities"
       capabilities: [ "tool_use", "vision", "generate" ]
     provider_model: "gpt-4o-2024-11-20"
@@ -27,6 +28,7 @@ entries:
     meta:
       type: "llm.model"
       name: "gpt-4o-mini"
+      title: "GPT-4o Mini"
       comment: "Fast, affordable small model for focused tasks with text and image input"
       capabilities: [ "tool_use", "vision", "generate" ]
     provider_model: "gpt-4o-mini-2024-07-18"
@@ -46,6 +48,7 @@ entries:
     meta:
       type: "llm.model"
       name: "o3-mini"
+      title: "O3 Mini"
       comment: "Fast, flexible intelligent reasoning model for complex, multi-step tasks"
       capabilities: [ "tool_use", "thinking", "generate" ]
     provider_model: "o3-mini-2025-01-31"
@@ -66,6 +69,7 @@ entries:
     meta:
       type: "llm.model"
       name: "claude-3-7-sonnet"
+      title: "Claude 3.7 Sonnet"
       comment: "Anthropic's most intelligent model with extended thinking capabilities for complex reasoning"
       capabilities: [ "tool_use", "vision", "thinking", "caching", "generate" ]
     provider_model: "claude-3-7-sonnet-20250219"
@@ -84,6 +88,7 @@ entries:
     meta:
       type: "llm.model"
       name: "claude-3-5-sonnet"
+      title: "Claude 3.5 Sonnet"
       comment: "High-performance Claude model with strong reasoning and multimodal capabilities"
       capabilities: [ "tool_use", "vision", "caching", "generate" ]
     provider_model: "claude-3-5-sonnet-20241022"
@@ -102,6 +107,7 @@ entries:
     meta:
       type: "llm.model"
       name: "claude-3-5-haiku"
+      title: "Claude 3.5 Haiku"
       comment: "Fastest Claude model optimized for speed while maintaining high intelligence"
       capabilities: [ "tool_use", "vision", "caching", "generate" ]
     provider_model: "claude-3-5-haiku-20241022"

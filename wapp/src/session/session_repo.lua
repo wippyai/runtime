@@ -80,7 +80,7 @@ function session_repo.get(session_id)
     end
 
     local query = [[
-        SELECT session_id, user_id, primary_context_id, title, kind, current_model, current_agent, start_date, last_message_date
+        SELECT session_id, user_id, status, primary_context_id, title, kind, current_model, current_agent, start_date, last_message_date
         FROM sessions
         WHERE session_id = ?
     ]]

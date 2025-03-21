@@ -9,7 +9,7 @@ entries:
     kind: function.lua
     meta:
       type: "tool"
-      name: "Hello World Greeter"
+      title: "Hello World Greeter"
       llm_alias: "greet"
       description: "A simple greeting tool that says hello to a provided name"
       llm_description: "Returns a personalized greeting message to a given name"

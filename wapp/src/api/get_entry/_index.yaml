@@ -1,0 +1,87 @@
+version: "1.0"
+namespace: app.agents.api
+
+meta:
+  depends_on: [ ns:app, ns:app.user.auth ]
+  description: "Agent API endpoints"
+  router: app:api
+
+entries:
+  # Endpoint to get list of agents with limited metadata
+  - name: list_agents
+    kind: function.lua
+    meta:
+      comment: "Lists all agents with limited metadata (name, title, group, comment, icon, tags)"
+      depends_on: [ ns:wippy.session ]
+    source: file://list_agents_endpoint.lua
+    method: handler
+    modules: [ http, json, registry ]
+    imports:
+      "start_tokens": "wippy.session:start_tokens"
+
+  - name: list_agents.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Protected endpoint that provides list of agents with limited metadata"
+      depends_on: [ app:api ]
+    method: GET
+    path: /agents/list
+    func: list_agents
+
+  # New endpoint to get model info by names
+  - name: models_by_name
+    kind: function.lua
+    meta:
+      comment: "Gets model information by their names"
+    source: file://models_by_name_endpoint.lua
+    method: handler
+    modules: [ http, json ]
+    imports:
+      models: "wippy.llm:models"
+
+  - name: models_by_name.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Endpoint that returns model information by their names"
+      depends_on: [ app:api ]
+    method: GET
+    path: /models/by-name
+    func: models_by_name
+
+  # New endpoint to get tool titles by names
+  - name: tools_by_name
+    kind: function.lua
+    meta:
+      comment: "Gets tool titles by their names"
+    source: file://tools_by_name_endpoint.lua
+    method: handler
+    modules: [ http, json ]
+    imports:
+      "tools_reg": "wippy.llm:tools"
+
+  - name: tools_by_name.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Endpoint that returns tool titles by their names"
+      depends_on: [ app:api ]
+    method: GET
+    path: /tools/by-name
+    func: tools_by_name
+
+  # New endpoint to get agent titles by names
+  - name: agents_by_name
+    kind: function.lua
+    meta:
+      comment: "Gets agent titles by their names"
+    source: file://agents_by_name_endpoint.lua
+    method: handler
+    modules: [ http, json, registry ]
+
+  - name: agents_by_name.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Protected endpoint that returns agent titles by their names"
+      depends_on: [ app:api ]
+    method: GET
+    path: /agents/by-name
+    func: agents_by_name

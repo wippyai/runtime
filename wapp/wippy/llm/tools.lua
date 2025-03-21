@@ -122,6 +122,7 @@ function tool_resolver.get_tool_schema(tool_id)
     local tool = {
         id = tool_id,
         name = display_name,
+        title = entry.meta.title or display_name,
         description = description,
         schema = schema
     }

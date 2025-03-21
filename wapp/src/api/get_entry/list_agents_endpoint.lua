@@ -1,6 +1,5 @@
 local http = require("http")
 local json = require("json")
-local security = require("security")
 local start_tokens = require("start_tokens")
 
 local function handler()
@@ -9,18 +8,6 @@ local function handler()
     local req = http.request()
     if not res or not req then
         return nil, "Failed to get HTTP context"
-    end
-
-    -- Security check - ensure user is authenticated
-    local actor = security.actor()
-    if not actor then
-        res:set_status(http.STATUS.UNAUTHORIZED)
-        res:write_json({
-            success = false,
-            error = "Authentication required",
-            details = "This endpoint requires valid authentication"
-        })
-        return
     end
 
     -- Import the registry

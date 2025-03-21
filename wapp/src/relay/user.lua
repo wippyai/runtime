@@ -170,7 +170,6 @@ local function run(args)
         end,
 
         -- Handle WebSocket messages
-        -- Handle WebSocket messages
         [WS_MESSAGE_TOPIC] = function(state, payload, topic, from)
             local message_data, err = json.decode(payload)
             if not message_data then

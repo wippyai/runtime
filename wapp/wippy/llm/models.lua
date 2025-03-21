@@ -139,6 +139,7 @@ function models._build_model_card(entry)
     local model_card = {
         id = entry.id or "",
         name = (entry.meta and entry.meta.name) or (data.meta and data.meta.name) or "",
+        title = (entry.meta and entry.meta.title) or (data.meta and data.meta.title) or "",
         provider_model = data.provider_model or "",
         description = (entry.meta and entry.meta.comment) or (data.meta and data.meta.comment) or "",
         capabilities = (entry.meta and entry.meta.capabilities) or (data.meta and data.meta.capabilities) or {},
