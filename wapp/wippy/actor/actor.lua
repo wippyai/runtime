@@ -18,14 +18,11 @@ function actor.exit(result)
     }
 end
 
--- Function to pass control to another handler
--- topic: The next handler to call (required)
--- payload: Optional payload override (default: use original payload)
 function actor.next(topic, payload)
     return {
         _actor_next = true,
         next_topic = topic,
-        payload = payload -- If nil, original payload will be used
+        payload = payload
     }
 end
 
@@ -63,7 +60,6 @@ function actor.new(initial_state, handlers)
 
         local registered_channels = {}
         local channel_to_id = {}
-        local async_tasks = {}
 
         local select_cases = {
             inbox:case_receive(),
@@ -124,90 +120,68 @@ function actor.new(initial_state, handlers)
             return false
         end
 
-        local function post(payload, msg_type, source)
+        local function next_topic(topic, payload)
+            if not topic then
+                error("Topic must be provided to next_topic")
+            end
+
             internal_channel:send({
+                type = "__next",
+                topic = topic,
                 payload = payload,
-                type = msg_type,
-                from = source or "self"
+                from = "internal"
             })
             return true
         end
 
-        local function async(fn, callback)
-            local task_id = tostring({})
-
-            -- Store the callback in async_tasks if provided
-            if callback then
-                async_tasks[task_id] = {
-                    callback = callback
-                }
-            end
-
+        local function async(fn)
             coroutine.spawn(function()
-                local result, err = fn()
-                internal_channel:send({
-                    payload = result,
-                    type = "async_result",
-                    task_id = task_id,
-                    error = err,
-                    from = "async"
-                })
+                local result = fn()
+
+                if is_next(result) then
+                    internal_channel:send({
+                        type = "__next",
+                        topic = result.next_topic,
+                        payload = result.payload,
+                        from = "async"
+                    })
+                end
             end)
 
-            return task_id
+            return true
         end
 
-        -- Process a message through topic handlers with next support
-        local function process_inbox_message(msg)
-            local from = msg:from()
-            local topic = msg:topic()
-            local payload_ud = msg:payload()
-            local payload = payload_ud:data()
-
+        local function process_topic_message(topic, payload, from)
             local current_topic = topic
             local current_payload = payload
-            local is_default = false
 
             while true do
-                -- Get the appropriate handler
                 local handler = topic_handlers[current_topic]
                 if not handler and current_topic ~= "__default" then
-                    -- If no specific handler and we're not already trying default
                     handler = handlers.__default
-                    if handler then
-                        is_default = true
-                    end
                 end
 
                 if not handler then
-                    -- No handler found at all
                     return nil
                 end
 
-                -- Call the handler
                 local reply = handler(state, current_payload, current_topic, from)
 
                 if is_next(reply) then
-                    -- Chain to the next handler
                     local next_topic = reply.next_topic
 
-                    -- Update payload if provided, otherwise keep current
                     if reply.payload ~= nil then
                         current_payload = reply.payload
                     end
 
-                    -- If no topic, try default handler if available
                     if not next_topic then
                         if handlers.__default then
                             current_topic = "__default"
-                            is_default = true
                         else
-                            -- No more handlers to try
                             return nil
                         end
                     else
                         current_topic = next_topic
-                        is_default = false
                     end
                 else
                     return reply
@@ -219,7 +193,7 @@ function actor.new(initial_state, handlers)
         state.unregister_channel = unregister_channel
         state.add_handler = add_handler
         state.remove_handler = remove_handler
-        state.post = post
+        state.next = next_topic
         state.async = async
 
         if handlers.__init then
@@ -240,7 +214,6 @@ function actor.new(initial_state, handlers)
                 local event_kind = event.kind
                 local from = event.from
 
-                -- Handle general events
                 if handlers.__on_event then
                     local exit_result = handlers.__on_event(state, event, event_kind, from)
                     if is_exit(exit_result) then
@@ -248,7 +221,6 @@ function actor.new(initial_state, handlers)
                     end
                 end
 
-                -- Handle specific cancel events
                 if event_kind == proc.event.CANCEL and handlers.__on_cancel then
                     local exit_result = handlers.__on_cancel(state, event, event_kind, from)
                     if is_exit(exit_result) then
@@ -258,7 +230,8 @@ function actor.new(initial_state, handlers)
             end
 
             if result.channel == inbox and result.value then
-                local exit_result = process_inbox_message(result.value)
+                local msg = result.value
+                local exit_result = process_topic_message(msg:topic(), msg:payload():data(), msg:from())
                 if is_exit(exit_result) then
                     return exit_result.result
                 end
@@ -266,23 +239,16 @@ function actor.new(initial_state, handlers)
 
             if result.channel == internal_channel and result.value then
                 local msg = result.value
-                local payload = msg.payload
-                local msg_type = msg.type
-                local from = msg.from or "internal"
 
-                if msg_type == "async_result" and async_tasks[msg.task_id] then
-                    local task = async_tasks[msg.task_id]
-                    if task.callback then
-                        local reply = task.callback(state, payload, msg.error, msg.task_id)
-                        if is_exit(reply) then
-                            return reply.result
-                        end
+                if msg.type == "__next" and msg.topic then
+                    local exit_result = process_topic_message(msg.topic, msg.payload, msg.from)
+                    if is_exit(exit_result) then
+                        return exit_result.result
                     end
-                    async_tasks[msg.task_id] = nil
                 elseif handlers.__on_internal_message then
-                    local reply = handlers.__on_internal_message(state, payload, msg_type, from)
-                    if is_exit(reply) then
-                        return reply.result
+                    local exit_result = handlers.__on_internal_message(state, msg.payload, msg.type, msg.from)
+                    if is_exit(exit_result) then
+                        return exit_result.result
                     end
                 end
             end
