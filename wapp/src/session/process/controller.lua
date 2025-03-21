@@ -346,10 +346,6 @@ function controller:process_tool_calls(tool_calls, message_id, response_id)
 
         print(json.encode(tool_call))
 
-
-        -- todo dynamic tools
-
-
         -- Execute the tool function
         local result, err = executor:call(tool_call.registry_id, arguments)
 
@@ -700,7 +696,7 @@ function controller:process_delegation(result, message_id, response_id)
         }
 
         -- Store partial response in state
-        local stored_response_id, err = self.state:add_assistant_message(
+        local stored_response_id,a err = self.state:add_assistant_message(
             first_agent_response,
             metadata
         )
@@ -717,6 +713,12 @@ function controller:process_delegation(result, message_id, response_id)
         end
     end
 
+    -- Generate a new response ID for the delegated agent response
+    local delegated_response_id, err = uuid.v7()
+    if err then
+        return false, "Failed to generate delegated response ID: " .. err
+    end
+
     -- Create delegation record with all necessary metadata
     local delegation_metadata = {
         system_action = "delegation",
@@ -724,7 +726,8 @@ function controller:process_delegation(result, message_id, response_id)
         to_agent = result.delegate_target,
         reason = result.delegate_reason,
         message = result.delegate_message or "Continuing with specialized agent",
-        response_id = response_id
+        original_response_id = response_id,
+        delegated_response_id = delegated_response_id
     }
 
     -- Add a single delegation record in state
@@ -742,11 +745,12 @@ function controller:process_delegation(result, message_id, response_id)
         return false, "Failed to switch agent: " .. change_err
     end
 
-    -- Create the next payload for continuation
+    -- Create the next payload for continuation with the NEW response ID
     self.next_payload = {
         type = controller.CMD.CONTINUE,
         message_id = message_id,
-        response_id = response_id, -- Reuse the same response_id
+        response_id = delegated_response_id, -- Use new response_id
+        original_response_id = response_id,  -- Keep track of original for reference
         delegation = {
             delegation_id = delegation_id,
             from_agent = self.state.agent_name,
@@ -755,6 +759,9 @@ function controller:process_delegation(result, message_id, response_id)
             had_partial_response = has_response
         }
     }
+
+    -- Announce the beginning of the delegated response
+    self.upstream:response_beginning(message_id, delegated_response_id)
 
     return true
 end
