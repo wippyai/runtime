@@ -1,0 +1,26 @@
+version: "1.0"
+namespace: app.api.dockling
+
+meta:
+  depends_on: [ ns:app ]
+  router: "app:public_api"
+  description: "Dockling API integration endpoints"
+
+entries:
+  # Handler function to convert PDF to text using Dockling API
+  - name: convert_pdf
+    kind: function.lua
+    meta:
+      comment: "Extracts text from sample.pdf using Dockling API"
+    source: file://upload.lua
+    method: handler
+    modules: [ http, json, fs, http_client ]
+
+  # HTTP endpoint definition
+  - name: convert_pdf.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Endpoint to extract text from sample.pdf using Dockling API"
+    method: GET
+    path: /convert/pdf
+    func: convert_pdf

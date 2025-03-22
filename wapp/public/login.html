@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        gray: {
+                            850: '#1a1d23',
+                            950: '#0a0c10'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-950 text-gray-200 flex items-center justify-center min-h-screen">
+<div class="max-w-md w-full mx-auto p-8">
+    <!-- Logo/Brand -->
+    <div class="text-center mb-10">
+        <div class="inline-block p-4 rounded-full bg-blue-600 bg-opacity-20 mb-4">
+            <i class="fas fa-unlock-alt text-blue-400 text-4xl"></i>
+        </div>
+        <h1 class="text-3xl font-bold text-white">Welcome Back</h1>
+        <p class="text-gray-400 mt-2">Sign in to continue</p>
+    </div>
+
+    <!-- Login Form -->
+    <div class="bg-gray-850 rounded-xl shadow-xl p-8 border border-gray-800">
+        <div class="space-y-6">
+            <div>
+                <label class="block text-sm font-medium mb-2 text-gray-300">Username</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fas fa-user text-gray-500"></i>
+                    </div>
+                    <input
+                            type="text"
+                            id="username"
+                            class="w-full pl-10 pr-3 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="Enter your username">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium mb-2 text-gray-300">SF Token</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fas fa-key text-gray-500"></i>
+                    </div>
+                    <input
+                            type="text"
+                            id="sf-token"
+                            value="none"
+                            class="w-full pl-10 pr-3 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="Enter SF token">
+                </div>
+            </div>
+
+            <button
+                    id="login-btn"
+                    class="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 text-white font-semibold rounded-lg shadow transition-colors flex items-center justify-center">
+                <span>Sign In</span>
+                <i class="fas fa-arrow-right ml-2"></i>
+            </button>
+
+            <div id="error-message" class="hidden p-3 bg-red-900 bg-opacity-50 border border-red-800 rounded-lg text-red-300 text-sm">
+            </div>
+
+            <div id="loading" class="hidden flex items-center justify-center">
+                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
+                <span class="ml-2 text-gray-400">Processing...</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // API configuration
+    const API_URL = 'http://localhost:8080/api/public/user/token';
+    const REDIRECT_URL = 'http://localhost:5174/iframe.html?persist=1&token=';
+
+    // DOM elements
+    const usernameInput = document.getElementById('username');
+    const sfTokenInput = document.getElementById('sf-token');
+    const loginBtn = document.getElementById('login-btn');
+    const errorMessage = document.getElementById('error-message');
+    const loading = document.getElementById('loading');
+
+    // Show error message
+    function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.classList.remove('hidden');
+        loading.classList.add('hidden');
+        loginBtn.disabled = false;
+    }
+
+    // Handle login
+    loginBtn.addEventListener('click', async () => {
+        // Clear previous errors
+        errorMessage.classList.add('hidden');
+
+        // Show loading state
+        loading.classList.remove('hidden');
+        loginBtn.disabled = true;
+
+        const user_id = usernameInput.value.trim();
+        const sf_instance_token = sfTokenInput.value.trim();
+
+        // Validation
+        if (!user_id) {
+            return showError('Username is required');
+        }
+
+        try {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    user_id,
+                    sf_instance_token,
+                    metadata: { role: "user" }
+                })
+            });
+
+            const result = await response.json();
+
+            if (!result.success) {
+                return showError(result.error || 'Authentication failed');
+            }
+
+            if (result.token) {
+                // Redirect to the UI with the token
+                window.location.href = REDIRECT_URL + encodeURIComponent(result.token);
+            } else {
+                showError('No token received from server');
+            }
+
+        } catch (error) {
+            showError('Connection error: ' + error.message);
+        }
+    });
+
+    // Allow Enter key to submit
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            loginBtn.click();
+        }
+    });
+
+    // Focus on username field on load
+    window.addEventListener('load', () => {
+        usernameInput.focus();
+    });
+</script>
+</body>
+</html>
