@@ -37,7 +37,7 @@ local function handler()
         })
         return
     end
-
+print(json.encode(entry))
     -- Verify it's a virtual page
     if not entry.meta or entry.meta.type ~= "virtual.page" then
         res:set_status(http.STATUS.BAD_REQUEST)
