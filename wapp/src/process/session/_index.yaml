@@ -21,25 +21,30 @@ entries:
       session_state: "wippy.session:session_state"
       session_upstream: "wippy.session:session_upstream"
       controller: "wippy.session:controller"
+      consts: "wippy.session:consts"
+      session_context: "wippy.session:session_context"
 
   - name: controller
     kind: library.lua
     meta:
       comment: "Conversation controller for handling message processing and agent interactions"
-      depends_on: [ "wippy.agents.gen1:agent", "wippy.agents.gen1:registry", "wippy.llm:prompt" ]
+      depends_on: [ "wippy.agents.gen1:agent", "wippy.agents.gen1:registry", "wippy.llm:prompt", "wippy.llm:tools", "wippy.session:consts", "wippy.session:queue", "wippy:funcs" ]
     source: file://controller.lua
     modules: [ json, uuid, funcs ]
     imports:
       agent_registry: "wippy.agents.gen1:registry"
       agent_runner: "wippy.agents.gen1:agent"
-      prompt: "wippy.llm:prompt"
+      prompt_builder: "wippy.session:prompt_builder"
       tools: "wippy.llm:tools"
+      consts: "wippy.session:consts"
+      queue: "wippy.session:queue"
+      tool_caller: "wippy.session:tool_caller"
 
   - name: loader
     kind: library.lua
     meta:
       comment: "Session state loader for initializing and loading session states"
-      depends_on: [ "wippy.session:context_repo", "wippy.session:session_repo", "wippy.session:message_repo","wippy.session:start_tokens" ]
+      depends_on: [ "wippy.session:context_repo", "wippy.session:session_repo", "wippy.session:message_repo", "wippy.session:start_tokens" ]
     source: file://loader.lua
     modules: [ time, json, uuid ]
     imports:
@@ -52,13 +57,13 @@ entries:
     kind: library.lua
     meta:
       comment: "Session state management for handling conversation history and state persistence"
-      depends_on: [ "wippy.session:session_repo", "wippy.session:message_repo", "wippy.llm:prompt", "wippy.session:session_upstream" ]
+      depends_on: [ "wippy.session:session_repo", "wippy.session:message_repo", "wippy.llm:prompt", "wippy.session:consts" ]
     source: file://state.lua
-    modules: [ uuid ]
+    modules: [ uuid, json ]
     imports:
       session_repo: "wippy.session:session_repo"
       message_repo: "wippy.session:message_repo"
-      prompt: "wippy.llm:prompt"
+      consts: "wippy.session:consts"
 
   - name: session_upstream
     kind: library.lua
@@ -68,3 +73,47 @@ entries:
     source: file://upstream.lua
     modules: [ time ]
     imports: { }
+
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: "System-wide constants and error messages"
+      depends_on: [ ]
+    source: file://consts.lua
+
+  - name: session_context
+    kind: library.lua
+    meta:
+      comment: "Context manager for session data"
+      depends_on: [ "wippy.session:context_repo" ]
+    source: file://context.lua
+    modules: [ json ]
+    imports:
+      context_repo: "wippy.session:context_repo"
+
+  - name: queue
+    kind: library.lua
+    meta:
+      comment: "Simple queue implementation for task management"
+      depends_on: [ ]
+    source: file://queue.lua
+
+  - name: tool_caller
+    kind: library.lua
+    meta:
+      comment: "Tool execution and validation handler"
+      depends_on: [ "wippy.llm:tools" ]
+    source: file://tool_caller.lua
+    modules: [ json, uuid, funcs ]
+    imports:
+      tools: "wippy.llm:tools"
+
+  - name: prompt_builder
+    kind: library.lua
+    meta:
+      comment: "update"
+      depends_on: [ "wippy.llm:prompt" ]
+    source: file://prompt_builder.lua
+    modules: [ json ]
+    imports:
+      prompt: "wippy.llm:prompt"

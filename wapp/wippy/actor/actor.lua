@@ -120,20 +120,6 @@ function actor.new(initial_state, handlers)
             return false
         end
 
-        local function next_topic(topic, payload)
-            if not topic then
-                error("Topic must be provided to next_topic")
-            end
-
-            internal_channel:send({
-                type = "__next",
-                topic = topic,
-                payload = payload,
-                from = "internal"
-            })
-            return true
-        end
-
         local function async(fn)
             coroutine.spawn(function()
                 local result = fn()

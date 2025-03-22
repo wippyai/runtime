@@ -1,6 +1,11 @@
 local prompt = require("prompt")
 local json = require("json")
-local tool_caller = require("tool_caller")
+
+local FUNC_STATUS = {
+    PENDING = "pending",
+    SUCCESS = "success",
+    ERROR = "error"
+}
 
 -- PromptBuilder component
 local prompt_builder = {}
@@ -12,26 +17,19 @@ function prompt_builder.new(session_state)
 
     -- Store dependencies
     self.state = session_state
-
+print("NEW")
     return self
 end
 
 -- Build a prompt from conversation history
 function prompt_builder:build_prompt(message_limit)
     -- Default to 50 messages if not specified
-    message_limit = message_limit or 50
+    message_limit = message_limit or 250
 
     -- Load messages from state
     local messages, err = self.state:load_messages(message_limit)
     if err then
         return nil, "Failed to load messages: " .. err
-    end
-
-    -- Sort by date (oldest first)
-    if messages then
-        table.sort(messages, function(a, b) return a.date < b.date end)
-    else
-        messages = {}
     end
 
     -- Create a prompt builder
@@ -45,37 +43,14 @@ function prompt_builder:build_prompt(message_limit)
         if msg.type == "delegation" then
             -- Convert delegation to tool call and result for LLM's benefit
             if meta.from_agent and meta.to_agent then
-                -- Stable tool name based on target agent
-                local delegate_tool_name = "delegate_to_" .. meta.to_agent
-
-                -- Create arguments from delegation metadata
                 local delegate_args = {
                     from = meta.from_agent,
+                    to = meta.to_agent,
                     message = meta.message or "Continuing with specialized agent"
                 }
 
-                -- Use delegation message ID as the function call ID
-                local function_call_id = msg.message_id
-
-                -- Add tool call representing the delegation action
-                builder:add_function_call(
-                    delegate_tool_name,
-                    delegate_args,
-                    function_call_id
-                )
-
-                -- Create result content
-                local result_content = {
-                    status = "accepted",
-                    message = "Delegation accepted by " .. meta.to_agent
-                }
-
-                -- Add tool result representing acceptance
-                builder:add_function_result(
-                    delegate_tool_name,
-                    json.encode(result_content),
-                    function_call_id
-                )
+                builder:add_function_call(meta.function_name, delegate_args, msg.message_id)
+                builder:add_function_result(meta.function_name, "redirected to " .. meta.to_agent, msg.message_id)
             end
         else
             -- Normal handling for other message types
@@ -90,30 +65,21 @@ function prompt_builder:build_prompt(message_limit)
             elseif msg.type == "function" then
                 -- For function messages that contain both call and result
                 if meta.function_name and meta.status then
-                    if meta.status == tool_caller.FUNC_STATUS.PENDING then
-                        -- This is a function call
-                        local args = msg.data
-                        -- Try to parse JSON if it's a string
-                        if type(args) == "string" then
-                            local parsed, parse_err = json.decode(args)
-                            if not parse_err then
-                                args = parsed
-                            end
+                    local args = msg.data
+                    if type(args) == "string" then
+                        local parsed, parse_err = json.decode(args)
+                        if not parse_err then
+                            args = parsed
                         end
+                    end
 
-                        builder:add_function_call(
-                            meta.function_name,
-                            args,
-                            meta.function_call_id
-                        )
-                    elseif meta.status == tool_caller.FUNC_STATUS.SUCCESS or
-                        meta.status == tool_caller.FUNC_STATUS.ERROR then
-                        -- This is a function result
-                        builder:add_function_result(
-                            meta.function_name,
-                            msg.data,
-                            meta.function_call_id
-                        )
+                    builder:add_function_call(meta.function_name, args, msg.message_id)
+
+                    if meta.status == FUNC_STATUS.PENDING then
+                        builder:add_function_result(meta.function_name, "incomplete", msg.message_id)
+                    elseif meta.status == FUNC_STATUS.SUCCESS or
+                        meta.status == FUNC_STATUS.ERROR then
+                        builder:add_function_result(meta.function_name, meta.result, msg.message_id)
                     end
                 end
             end

@@ -31,6 +31,7 @@ entries:
     host: app:processes
     lifecycle:
       auto_start: true
+      depends_on: [ "app:processes" ]
 
   - name: central
     kind: process.lua

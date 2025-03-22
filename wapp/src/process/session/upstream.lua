@@ -40,10 +40,10 @@ end
 -- MESSAGE-LEVEL UPDATES --
 
 -- Announce new assistant response beginning
-function session_upstream:response_beginning(message_id, response_id)
-    self:send_message_update(message_id, "response_started", {
-        message_id = message_id,
+function session_upstream:response_beginning(response_id, message_id)
+    self:send_message_update(response_id, "response_started", {
         response_id = response_id,
+        message_id = message_id,
         timestamp = os.time()
     })
 end
@@ -63,6 +63,14 @@ function session_upstream:message_error(message_id, code, message)
         message_id = message_id,
         code = code,
         message = message
+    })
+end
+
+-- Invalidate
+function session_upstream:invalidate_message(message_id, reason)
+    self:send_message_update(message_id, "invalidate", {
+        response_id = message_id,
+        reason = reason
     })
 end
 

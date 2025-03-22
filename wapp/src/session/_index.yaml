@@ -20,7 +20,7 @@ entries:
       comment: "Session repository for managing user sessions"
       depends_on: [ context_repo ]
     source: file://session_repo.lua
-    modules: [ sql ]
+    modules: [ sql, json ]
 
   - name: message_repo
     kind: library.lua

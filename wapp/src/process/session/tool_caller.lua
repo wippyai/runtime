@@ -15,134 +15,130 @@ local tool_caller = {}
 tool_caller.__index = tool_caller
 
 -- Constructor
-function tool_caller.new(session_state, upstream)
+function tool_caller.new()
     local self = setmetatable({}, tool_caller)
-
-    -- Store dependencies
-    self.state = session_state
-    self.upstream = upstream
     self.executor = funcs.new()
-
     return self
 end
 
--- Process a list of tool calls
-function tool_caller:process_tool_calls(tool_calls, message_id, response_id)
+-- Validate tool calls and return enriched data
+function tool_caller:validate(tool_calls)
     -- Check if there are any tool calls
     if not tool_calls or #tool_calls == 0 then
-        return true, nil
+        return {}, nil
     end
 
-    -- Process each tool call sequentially
+    local validated_tools = {}
+    local has_exclusive = false
+    local exclusive_tool = nil
+
+    -- First pass: check for exclusive tools and get metadata
     for _, tool_call in ipairs(tool_calls) do
         local tool_name = tool_call.name
         local arguments = tool_call.arguments
         local registry_id = tool_call.registry_id
-        local function_call_id = tool_call.id or uuid.v7()
+        local function_call_id = uuid.v7()
 
-        -- Notify client about tool call
-        self.upstream:send_message_update(response_id, "tool_call", {
-            function_name = tool_name
-        })
-
-        -- Store function call in session state
-        local metadata = {
-            function_name = tool_name,
-            function_call_id = function_call_id,
-            registry_id = registry_id,
-            status = FUNC_STATUS.PENDING,
-            response_id = response_id,
-            message_id = message_id
-        }
-
-        self.state:add_message(
-            "function",
-            arguments,
-            metadata
-        )
-
-        -- Execute the tool
-        local result, err = self.executor:call(registry_id, arguments)
-
-        -- Handle error case
+        -- Get tool schema with metadata
+        local schema, err = tools.get_tool_schema(registry_id)
         if err then
-            -- Update metadata with error status
-            metadata.status = FUNC_STATUS.ERROR
-            metadata.error = err
-
-            -- Notify client about error
-            self.upstream:send_message_update(response_id, "tool_error", {
-                function_name = tool_name,
-                error = "Tool execution failed"
-            })
-
-            -- Update the function message
-            self.state:update_message_metadata(function_call_id, metadata)
-            self.state:update_message_data(function_call_id, json.encode({ error = err }))
-
+            -- Add to validated tools with error
+            validated_tools[function_call_id] = {
+                call_id = function_call_id,
+                name = tool_name,
+                args = arguments,
+                registry_id = registry_id,
+                meta = {},
+                error = "Failed to get tool schema: " .. err,
+                valid = false
+            }
             goto continue
         end
 
-        -- Handle success case
-        -- Get tool schema to check if this is a special control tool
-        local schema, _ = tools.get_tool_schema(registry_id)
-        local control_result = nil
+        local meta = schema and schema.meta or {}
 
-        -- Set success status
-        metadata.status = FUNC_STATUS.SUCCESS
-
-        -- Parse string results if needed
-        if type(result) == "string" then
-            local parsed, parse_err = json.decode(result)
-            if not parse_err then
-                result = parsed
+        -- Check if this is an exclusive tool
+        if meta.exclusive then
+            if has_exclusive then
+                -- Multiple exclusive tools found - error
+                return {}, "Multiple exclusive tools found, cannot process"
             end
+
+            has_exclusive = true
+            exclusive_tool = function_call_id
         end
 
-        -- For model_controller tools
-        if schema and schema.meta and schema.meta.model_controller and type(result) == "table" then
-            if result.target_model then
-                metadata.control_type = "model_change"
-                metadata.target_model = result.target_model
-                metadata.reason = result.reason
-
-                control_result = {
-                    type = "model_change",
-                    target_model = result.target_model,
-                    reason = result.reason or "Model change requested"
-                }
-            else
-                metadata.error = "Invalid model change result: missing target_model"
-            end
-        end
-
-        -- Convert result to string for storage
-        local result_content = result
-        if type(result) == "table" then
-            result_content = json.encode(result)
-        elseif type(result) ~= "string" then
-            result_content = tostring(result)
-        end
-
-        -- Notify client about success
-        self.upstream:send_message_update(response_id, "tool_result", {
-            function_name = tool_name,
-            status = "success"
-        })
-
-        -- Update the function message
-        self.state:update_message_metadata(function_call_id, metadata)
-        self.state:update_message_data(function_call_id, result_content)
-
-        -- Return control result if any
-        if control_result then
-            return true, control_result
-        end
+        -- Add to validated tools
+        validated_tools[function_call_id] = {
+            call_id = function_call_id,
+            name = tool_name,
+            args = arguments,
+            registry_id = registry_id,
+            meta = meta,
+            valid = true
+        }
 
         ::continue::
     end
 
-    return true, nil
+    -- Second pass: if we have an exclusive tool, only keep that one
+    if has_exclusive and #tool_calls > 1 then
+        local exclusive_data = validated_tools[exclusive_tool]
+        local result = {}
+        result[exclusive_tool] = exclusive_data
+
+        -- Return only the exclusive tool and a message about the others being skipped
+        return result, "Exclusive tool found, other tools skipped"
+    end
+
+    return validated_tools, nil
+end
+
+-- Execute validated tools
+function tool_caller:execute(validated_tools)
+    local results = {}
+
+    for call_id, tool_call in pairs(validated_tools) do
+        if not tool_call.valid then
+            -- doing nothing
+            goto continue
+        end
+
+        local registry_id = tool_call.registry_id
+        local args = tool_call.args
+
+        if type(args) == "string" then
+            local parsed_args, err = json.decode(args)
+            if err then
+                results[call_id] = {
+                    error = "Failed to parse arguments: " .. err,
+                    call = tool_call
+                }
+                goto continue
+            end
+            args = parsed_args
+        end
+
+        -- Execute the tool
+        local result, err = self.executor:call(registry_id, args)
+        if err then
+            -- Record error
+            results[call_id] = {
+                error = err,
+                call = tool_call
+            }
+            goto continue
+        end
+
+        results[call_id] = {
+            result = result,
+            call = tool_call
+        }
+
+        ::continue::
+    end
+
+    return results
 end
 
 -- Export constants

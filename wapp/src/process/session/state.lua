@@ -2,44 +2,13 @@ local uuid = require("uuid")
 local session_repo = require("session_repo")
 local message_repo = require("message_repo")
 local json = require("json")
+local consts = require("consts")
 
--- Status constants
-local STATUS = {
-    IDLE = "idle",
-    RUNNING = "running",
-    ERROR = "error",
-    FAILED = "failed"
-}
-
--- Message type constants
-local MSG_TYPE = {
-    SYSTEM = "system",
-    USER = "user",
-    ASSISTANT = "assistant",
-    DEVELOPER = "developer",
-    FUNCTION = "function",
-    FUNCTION_CALL = "function_call"
-}
-
--- Function status constants
-local FUNC_STATUS = {
-    PENDING = "pending",
-    SUCCESS = "success",
-    ERROR = "error"
-}
-
--- Error message constants
-local ERR = {
-    EMPTY_MESSAGE = "Message text cannot be empty",
-    FAILED_STATUS = "Session is in a failed state and cannot process messages",
-    MESSAGE_ID_FAILED = "Failed to generate message ID",
-    STORE_MESSAGE_FAILED = "Failed to store message",
-    AGENT_NAME_REQUIRED = "Agent name is required",
-    MODEL_NAME_REQUIRED = "Model name is required",
-    FUNCTION_NAME_REQUIRED = "Function name is required",
-    FUNCTION_RESULT_REQUIRED = "Function result is required",
-    FUNCTION_CALL_ID_REQUIRED = "Function call ID is required"
-}
+-- Use constants from consts package
+local STATUS = consts.STATUS
+local MSG_TYPE = consts.MSG_TYPE
+local FUNC_STATUS = consts.FUNC_STATUS
+local ERR = consts.ERR
 
 -- SessionState class
 local session_state = {}
@@ -188,6 +157,21 @@ function session_state:update_session_config(config)
     return true
 end
 
+-- Set agent configuration for agent and model
+function session_state:set_agent_config(agent_name, model)
+    local config = {}
+
+    if agent_name then
+        config.agent_name = agent_name
+    end
+
+    if model then
+        config.model = model
+    end
+
+    return self:update_session_config(config)
+end
+
 -- Mark session as failed
 function session_state:mark_session_failed(error_message)
     -- Update session status to FAILED in the database only
@@ -215,7 +199,7 @@ function session_state:get_message(message_id)
 
     -- Add to cache
     if message then
-        self.message_cache[message_id] = message
+        self.message_cache[message.message_id] = message
     end
 
     return message
@@ -233,16 +217,26 @@ function session_state:count_all_messages()
     return count
 end
 
--- Add a message to the database
+-- Add a message to the database with optional predefined ID
 function session_state:add_message(message_type, message_content, metadata)
-    -- Generate message ID
-    local message_id, err = uuid.v7()
-    if err then
-        return nil, ERR.MESSAGE_ID_FAILED .. ": " .. err
-    end
-
     -- Default metadata if not provided
     metadata = metadata or {}
+
+    -- Check if a message_id was provided in metadata
+    local message_id
+    if metadata.message_id then
+        -- Use the provided message_id
+        message_id = metadata.message_id
+        -- Remove message_id from metadata to avoid duplication
+        metadata.message_id = nil
+    else
+        -- Generate message ID
+        local err
+        message_id, err = uuid.v7()
+        if err then
+            return nil, ERR.MESSAGE_ID_FAILED .. ": " .. err
+        end
+    end
 
     -- Add agent information to metadata
     if not metadata.agent_name and self.agent_name then
@@ -365,7 +359,7 @@ function session_state:add_function_call(function_name, arguments, metadata)
 end
 
 -- Update function call with result
-function session_state:update_function_result(message_id, result, is_error, metadata)
+function session_state:update_function_result(message_id, result, ok, metadata)
     if not message_id then
         return nil, "Message ID is required"
     end
@@ -386,31 +380,30 @@ function session_state:update_function_result(message_id, result, is_error, meta
         message = fetched_message
     end
 
-    -- Create a new metadata table for the update
-    local updated_metadata = {}
-    for k, v in pairs(message.metadata or {}) do
-        updated_metadata[k] = v
-    end
-
     -- Add result information
-    updated_metadata.result = result
-    updated_metadata.status = is_error and FUNC_STATUS.ERROR or FUNC_STATUS.SUCCESS
+    message.metadata.result = result
+    if not ok then
+        message.metadata.status = FUNC_STATUS.ERROR
+    else
+        message.metadata.status = FUNC_STATUS.SUCCESS
+    end
 
     -- Add any additional metadata
     if metadata then
         for k, v in pairs(metadata) do
-            updated_metadata[k] = v
+            message.metadata[k] = v
         end
     end
 
     -- Update the message metadata
-    return self:update_message_metadata(message_id, updated_metadata)
+    return self:update_message_metadata(message_id, message.metadata)
 end
 
 -- Load messages with limit (most recent messages)
 function session_state:load_messages(limit)
-    limit = limit or 50 -- Default to 50 messages
+    limit = limit or 500
 
+    -- todo: must load from the END of session
     local messages, err = message_repo.list_by_session(self.session_id, limit)
     if err then
         return nil, "Failed to load messages: " .. err

@@ -1,49 +1,18 @@
 local json = require("json")
 local actor = require("actor")
+local consts = require("consts")
 local loader = require("loader")
 local controller = require("controller")
 local session_state = require("session_state")
 local session_upstream = require("session_upstream")
 local session_context = require("session_context")
 
--- Topic constants
-local TOPICS = {
-    MESSAGE = "message",
-    COMMAND = "command",
-    CONTINUE = "continue",
-    CONTEXT = "context",
-    TITLE = "title",
-    PUBLIC_META = "public_meta"
-}
-
--- Session status constants
-local STATUS = {
-    IDLE = "idle",
-    RUNNING = "running",
-    ERROR = "error",
-    FAILED = "failed"
-}
-
--- Error code constants
-local ERROR_CODE = {
-    FAILED = "FAILED",
-    ERROR = "ERROR",
-    BUSY = "BUSY",
-    AGENT_ERROR = "AGENT_ERROR",
-    DB_ERROR = "DB_ERROR"
-}
-
--- Error message constants
-local ERR = {
-    MISSING_ARGS = "User ID and session ID are required",
-    MISSING_TOKEN = "Start token is required for new session",
-    FAILED_STATE = "Session is in failed state and cannot process messages",
-    FAILED_COMMANDS = "Session is in failed state and cannot process commands",
-    INIT_FAILED = "Session initialization failed",
-    EXEC_AGENT = "Error executing agent",
-    BUSY = "Session is already processing a message",
-    UNSUPPORTED_COMMAND = "Unsupported command"
-}
+-- Use constants from consts package
+local STATUS = consts.STATUS
+local TOPICS = consts.TOPICS
+local ERROR_CODE = consts.ERROR_CODE
+local ERR = consts.ERR
+local TASK_TYPE = consts.TASK_TYPE
 
 local function run(args)
     if not args or not args.user_id or not args.session_id then
@@ -85,7 +54,7 @@ local function run(args)
     -- Function to check for and process any pending work in the controller
     local function check_next_work()
         if convo_controller:has_next() then
-            return actor.next(TOPICS.CONTINUE, convo_controller:get_next())
+            return actor.next(TOPICS.CONTINUE)
         end
         return nil
     end
@@ -106,14 +75,6 @@ local function run(args)
             upstream:session_error(ERROR_CODE.FAILED, init_err)
             error(init_err)
         end
-    else
-        local messages, history_err = state:load_messages(50)
-        if history_err then
-            session_status = STATUS.FAILED
-            state:update_session_status(STATUS.FAILED, history_err)
-            upstream:session_error(ERROR_CODE.FAILED, history_err)
-            error(history_err)
-        end
     end
 
     upstream:update_session({
@@ -125,8 +86,6 @@ local function run(args)
     })
 
     local title_requested = false
-
-    -- Function to start title generation coroutine
     local function generate_title()
         if title_requested then
             return
@@ -235,7 +194,7 @@ local function run(args)
             if payload.command == TOPICS.CONTEXT then
                 success, err = ctx_manager:handle_command(context_payload)
                 if success then
-                    -- we do no announce this commands nornomally, they are not public
+                    -- we do no announce this commands normally, they are not public
                     return actor_state
                 end
             elseif payload.command == TOPICS.PUBLIC_META then
@@ -251,7 +210,7 @@ local function run(args)
                 end
 
                 upstream:session_error(ERROR_CODE.ERROR, err or "Command failed")
-                return
+                return actor_state
             end
 
             if payload.request_id then
@@ -263,32 +222,30 @@ local function run(args)
         end,
 
         [TOPICS.CONTINUE] = function(actor_state, payload)
-            if session_status == STATUS.RUNNING or session_status == STATUS.FAILED then
+            if session_status == STATUS.FAILED then
                 return actor_state
             end
 
             set_session_status(STATUS.RUNNING)
 
             actor_state.async(function()
-                local result, err = convo_controller:continue(payload)
-
+                local result, err = convo_controller:process_next()
                 if err then
                     print("error in processing:", err)
                     set_session_status(STATUS.ERROR, err)
-                    return
                 end
 
                 -- If message was successful and we have enough messages, start title generation
-                if result and state.total_message_count >= 3
+                if result and state.total_message_count >= 5
                     and (not state.title or state.title == "")
                     and not title_requested then
-                    actor.async(generate_title)
+                    actor_state.async(generate_title)
                 end
 
                 -- Check if we still have pending work
                 if convo_controller:has_next() then
-                    -- Keep status as RUNNING and continue with next payload
-                    return actor.next(TOPICS.CONTINUE, convo_controller:get_next())
+                    -- Keep status as RUNNING and continue with next task
+                    return actor.next(TOPICS.CONTINUE, true)
                 else
                     -- No more work, set status to IDLE
                     set_session_status(STATUS.IDLE)
