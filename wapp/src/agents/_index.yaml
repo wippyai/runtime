@@ -45,6 +45,10 @@ entries:
     #      traits: [ ]
     #
     #      # Tools this agent can access
+    delegate:
+      "navigator-manager":
+        name: "to_navigator"
+        rule: "Whenever you can not complete a task, send the user to the Navigator Manager for further assistance."
 
     # Long-term memory entries
     memory: [

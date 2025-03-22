@@ -270,7 +270,6 @@ local function handler(args)
                     system_content[pos].cache_control = {
                         type = "ephemeral"
                     }
-                    print("Applied cache_control to system block at position " .. pos)
                 end
             end
         end
@@ -384,7 +383,6 @@ local function handler(args)
     -- Only add system content if we have any
     if #system_content > 0 then
         payload.system = system_content
-        print("Adding system content to payload, count:", #system_content)
     elseif has_system_content then
         print("WARNING: System content was detected but not added to payload")
     end

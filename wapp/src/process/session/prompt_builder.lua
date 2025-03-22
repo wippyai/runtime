@@ -50,7 +50,6 @@ function prompt_builder:build_prompt(message_limit)
                 }
                 builder:add_function_call(meta.function_name, delegate_args, msg.message_id)
                 builder:add_function_result(meta.function_name, "redirected to " .. meta.to_agent, msg.message_id)
-                print("ADD DELEGATE")
             end
         else
             -- Normal handling for other message types
