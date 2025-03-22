@@ -449,7 +449,10 @@
 
         // Tool tracking
         activeTool: null,
-        toolCalls: new Map() // Map to track tool calls by ID
+        toolCalls: new Map(), // Map to track tool calls by ID
+
+        // Pending messages tracking
+        pendingMessages: new Map() // Track messages that are waiting for responses
     };
 
     // DOM elements
@@ -513,27 +516,33 @@
         statsElement.textContent = statsText;
     }
 
+    // Generate a unique ID for elements if one is not provided
+    function generateUniqueId(prefix = 'id') {
+        return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    }
+
     // Helper to add message to chat
     function addMessage(type, content, timestamp = null, messageId = null) {
+        // If no message ID provided, generate one
+        if (!messageId) {
+            messageId = generateUniqueId('msg');
+        }
+
         // If this message already exists (for streaming updates), update it instead of creating new
-        if (messageId) {
-            const existingMessage = document.getElementById(messageId);
-            if (existingMessage) {
-                const contentElement = existingMessage.querySelector('.message-content');
-                if (contentElement) {
-                    contentElement.textContent = content;
-                    chatElement.scrollTop = chatElement.scrollHeight;
-                    return existingMessage;
-                }
+        const existingMessage = document.getElementById(messageId);
+        if (existingMessage) {
+            const contentElement = existingMessage.querySelector('.message-content');
+            if (contentElement) {
+                contentElement.textContent = content;
+                chatElement.scrollTop = chatElement.scrollHeight;
+                return existingMessage;
             }
         }
 
         // Create new message
         const messageElement = document.createElement('div');
         messageElement.className = `message message-${type}`;
-        if (messageId) {
-            messageElement.id = messageId;
-        }
+        messageElement.id = messageId;
 
         const contentElement = document.createElement('div');
         contentElement.className = 'message-content';
@@ -566,6 +575,11 @@
 
     // Add tool call message
     function addToolCall(toolName, toolId) {
+        // If no tool ID provided, generate one
+        if (!toolId) {
+            toolId = generateUniqueId('tool');
+        }
+
         // Find or create a tool container for this message group
         let toolContainer = document.querySelector('.tool-container:last-child');
 
@@ -606,8 +620,21 @@
 
     // Update tool call status
     function updateToolCallStatus(toolId, status, message = null) {
+        // Handle missing tool ID
+        if (!toolId && state.activeTool) {
+            toolId = state.activeTool;
+        }
+
+        if (!toolId) {
+            console.warn('No tool ID provided and no active tool found');
+            return;
+        }
+
         const toolInfo = state.toolCalls.get(toolId);
-        if (!toolInfo) return;
+        if (!toolInfo) {
+            console.warn(`Tool call with ID ${toolId} not found`);
+            return;
+        }
 
         const toolElement = toolInfo.element;
 
@@ -617,6 +644,14 @@
 
         // Update state
         toolInfo.status = status;
+
+        if (message) {
+            const statusElement = toolElement.querySelector('.tool-status');
+            if (statusElement) {
+                statusElement.textContent = message;
+                statusElement.style.display = 'block';
+            }
+        }
 
         chatElement.scrollTop = chatElement.scrollHeight;
     }
@@ -751,6 +786,14 @@
                 console.log(`WebSocket disconnected. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
                 addSystemMessage(`Disconnected from server: ${event.reason || 'Connection closed'}`);
                 updateStats();
+
+                // Attempt to reconnect after a delay
+                setTimeout(() => {
+                    if (!state.connected) {
+                        addSystemMessage('Attempting to reconnect...');
+                        connectWebSocket();
+                    }
+                }, 5000);
             });
 
             // Connection error
@@ -800,41 +843,56 @@
             console.log('Agent change:', data);
             addSystemMessage(`Agent changed to: ${data.agent}`);
         }
-        // Tool call notification
-        else if (topic.includes(':message:') && data.type === 'tool_call') {
-            console.log('Tool call received:', data);
+        // Tool call notification - using function_call type
+        else if (topic.includes(':message:') && (data.type === 'tool_call' || data.type === 'function_call')) {
+            console.log('Tool/Function call received:', data);
 
-            // Generate a unique ID for this tool call if not provided
-            const toolId = data.function_call_id || `tool-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+            // Get or generate a function call ID
+            const functionCallId = data.function_call_id || data.call_id || generateUniqueId('func');
+
+            // Get the function name
+            const functionName = data.function_name || 'Unknown Function';
 
             // Store as active tool for tracking
-            state.activeTool = toolId;
+            state.activeTool = functionCallId;
 
             // Add tool call element to UI
-            addToolCall(data.function_name, toolId);
+            addToolCall(functionName, functionCallId);
         }
-        // Tool result notification
-        else if (topic.includes(':message:') && data.type === 'tool_result') {
-            console.log('Tool result received:', data);
+        // Tool result notification - using function_success type
+        else if (topic.includes(':message:') && (data.type === 'tool_result' || data.type === 'function_success')) {
+            console.log('Tool/Function success received:', data);
 
             // Get tool ID from the message
-            const toolId = data.function_call_id || state.activeTool;
+            const toolId = data.function_call_id || data.call_id || state.activeTool;
 
             if (toolId) {
                 // Update the tool call with success status
                 updateToolCallStatus(toolId, 'success', 'Completed successfully');
+            } else {
+                console.warn('Tool/Function success received but no tool ID found');
+                // Create a dummy success indicator if needed
+                const dummyId = generateUniqueId('tool');
+                addToolCall(data.function_name || 'Unknown Function', dummyId);
+                updateToolCallStatus(dummyId, 'success', 'Completed successfully');
             }
         }
         // Tool error notification
-        else if (topic.includes(':message:') && data.type === 'tool_error') {
-            console.log('Tool error received:', data);
+        else if (topic.includes(':message:') && (data.type === 'tool_error' || data.type === 'function_error')) {
+            console.log('Tool/Function error received:', data);
 
             // Get tool ID from the message
-            const toolId = data.function_call_id || state.activeTool;
+            const toolId = data.function_call_id || data.call_id || state.activeTool;
 
             if (toolId) {
                 // Update the tool call with error status
                 updateToolCallStatus(toolId, 'error', data.error || 'Tool execution failed');
+            } else {
+                console.warn('Tool/Function error received but no tool ID found');
+                // Create a dummy error indicator if needed
+                const dummyId = generateUniqueId('tool');
+                addToolCall(data.function_name || 'Unknown Function', dummyId);
+                updateToolCallStatus(dummyId, 'error', data.error || 'Tool execution failed');
             }
         }
         // Delegation messages
@@ -865,7 +923,19 @@
         else if (topic.startsWith('session:') && !topic.includes(':message:')) {
             handleSessionUpdate(data);
         }
-        // Message received
+        // Message received confirmation
+        else if (topic.includes(':message:') && data.type === 'received') {
+            console.log('Message received confirmation:', data);
+            // We already add the user message when sending, so no need to add it again
+            // But we can mark this message as pending a response
+            if (data.message_id) {
+                state.pendingMessages.set(data.message_id, {
+                    timestamp: data.timestamp || Math.floor(Date.now() / 1000),
+                    text: data.text || ''
+                });
+            }
+        }
+        // Response started notification
         else if (topic.includes(':message:') && topic.includes(':response_started')) {
             console.log('Response started:', data);
             state.isGenerating = true;
@@ -874,10 +944,35 @@
             // Extract the response ID from the topic or data
             const responseId = data.response_id || extractIdFromTopic(topic);
 
+            // Get the message ID this is responding to
+            const messageId = data.message_id || null;
+
             // Create an empty message that will be filled with chunks
             state.currentResponseId = responseId;
             state.currentResponseText = '';
             addMessage('agent', '', null, responseId);
+
+            // Remove from pending messages if it was tracked
+            if (messageId && state.pendingMessages.has(messageId)) {
+                state.pendingMessages.delete(messageId);
+            }
+        }
+        // Response invalidation (e.g., when switching to a tool call)
+        else if (topic.includes(':message:') && data.type === 'invalidate') {
+            console.log('Response invalidated:', data);
+
+            // Remove the message if it exists
+            const responseId = data.response_id || extractIdFromTopic(topic);
+            const messageElement = document.getElementById(responseId);
+            if (messageElement) {
+                messageElement.remove();
+            }
+
+            // Reset streaming state if this was the current response
+            if (state.currentResponseId === responseId) {
+                state.currentResponseId = null;
+                state.currentResponseText = '';
+            }
         }
         // Message chunk
         else if (topic.includes(':message:') && data.type === 'chunk') {
@@ -897,10 +992,10 @@
 
             // If we received chunks, we've already built up the message
             // If not, create a new message with the full content
-            if (!state.currentResponseText) {
-                const messageId = extractIdFromTopic(topic);
+            if (!state.currentResponseText && data.content) {
+                const messageId = data.response_id || extractIdFromTopic(topic);
                 addMessage('agent', data.content, Math.floor(Date.now() / 1000), messageId);
-            } else {
+            } else if (state.currentResponseId) {
                 // Add timestamp to the message now that it's complete
                 const messageElement = document.getElementById(state.currentResponseId);
                 if (messageElement) {
@@ -914,11 +1009,6 @@
                 state.currentResponseId = null;
                 state.currentResponseText = '';
             }
-        }
-        // User message received confirmation
-        else if (topic.includes(':message:') && data.type === 'received') {
-            console.log('Message received confirmation:', data);
-            // We already add the user message when sending, so no need to add it again
         }
         // Handle delegation type system messages
         else if (topic.includes(':message:') && data.type === 'system' && data.content && data.content.includes('Delegation from')) {
@@ -948,6 +1038,12 @@
                 state.erroredSessions.add(state.currentSessionId);
                 renderSessions();
             }
+
+            // If the error is about a missing message ID, try to correlate it with a pending message
+            if (data.message && data.message.includes('Message ID not set') && state.pendingMessages.size > 0) {
+                // Just log this for debugging - we'll handle these errors better now
+                console.log('Message ID error with pending messages:', Array.from(state.pendingMessages.entries()));
+            }
         }
     }
 
@@ -961,6 +1057,12 @@
     // Handle session updates
     function handleSessionUpdate(data) {
         console.log('Session update:', data);
+
+        // Update session title if available
+        if (data.title && state.currentSessionId === data.session_id) {
+            state.currentSessionTitle = data.title;
+            updateStats();
+        }
 
         // Update session status
         if (data.status === 'running') {
@@ -1317,7 +1419,10 @@
                                 }
                             }
 
-                            addMessage(messageType, messageContent, message.date);
+                            // Make sure we have a valid message ID
+                            const messageId = message.message_id || generateUniqueId('hist');
+
+                            addMessage(messageType, messageContent, message.date, messageId);
                         });
                     }
 
@@ -1458,13 +1563,17 @@
             return;
         }
 
+        // Generate a message ID for tracking
+        const messageId = generateUniqueId('msg');
+
         // Add user message to chat
-        addMessage('user', text);
+        addMessage('user', text, null, messageId);
 
         // Prepare message payload
         const messagePayload = {
             type: "session_message",
             session_id: state.currentSessionId,
+            message_id: messageId,  // Include a message ID explicitly
             data: {
                 text: text,
                 file_uuids: []
@@ -1487,6 +1596,11 @@
             console.error('Not connected to WebSocket');
             addSystemMessage('Not connected to server');
             return;
+        }
+
+        // Ensure we have a message ID if this is a session_message
+        if (payload.type === "session_message" && !payload.message_id) {
+            payload.message_id = generateUniqueId('msg');
         }
 
         try {

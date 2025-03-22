@@ -355,7 +355,7 @@ function session_state:add_function_call(function_name, arguments, metadata)
     end
 
     -- The message_id will serve as the function call ID
-    return self:add_message(MSG_TYPE.FUNCTION_CALL, arguments, metadata)
+    return self:add_message(MSG_TYPE.FUNCTION, arguments, metadata)
 end
 
 -- Update function call with result

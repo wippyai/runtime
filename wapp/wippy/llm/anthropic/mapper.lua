@@ -183,7 +183,7 @@ function mapper.process_messages(messages)
                 end
                 prev_msg_idx = prev_msg_idx - 1
             end
-        elseif msg.role == prompt.ROLE.FUNCTION then
+        elseif msg.role == prompt.ROLE.FUNCTION_RESULT then
             -- Handle function results - convert to Claude's tool_result format
             local function_name = msg.name
             local result_content = ""

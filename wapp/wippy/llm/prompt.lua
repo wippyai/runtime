@@ -14,8 +14,8 @@ prompt.ROLE = {
     USER = "user",
     ASSISTANT = "assistant",
     DEVELOPER = "developer",
-    FUNCTION = "function",
-    FUNCTION_CALL = "function_call"
+    FUNCTION_CALL = "function",
+    FUNCTION_RESULT = "function_result"
 }
 
 -- Content types
@@ -152,24 +152,6 @@ function prompt.new(messages)
         return self
     end
 
-    -- Add a function result message
-    builder.add_function_result = function(self, name, content, function_call_id)
-        if name and content then
-            local message = {
-                role = prompt.ROLE.FUNCTION,
-                name = name,
-                content = { prompt.text(content) }
-            }
-
-            if function_call_id then
-                message.function_call_id = function_call_id
-            end
-
-            table.insert(self.messages, message)
-        end
-        return self
-    end
-
     -- Add a function call by assistant
     builder.add_function_call = function(self, function_name, arguments, function_call_id)
         if function_name and arguments then
@@ -184,6 +166,24 @@ function prompt.new(messages)
 
             if function_call_id then
                 message.function_call.id = function_call_id
+            end
+
+            table.insert(self.messages, message)
+        end
+        return self
+    end
+
+    -- Add a function result message
+    builder.add_function_result = function(self, name, content, function_call_id)
+        if name and content then
+            local message = {
+                role = prompt.ROLE.FUNCTION_RESULT,
+                name = name,
+                content = { prompt.text(content) }
+            }
+
+            if function_call_id then
+                message.function_call_id = function_call_id
             end
 
             table.insert(self.messages, message)

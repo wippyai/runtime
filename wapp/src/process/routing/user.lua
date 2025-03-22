@@ -46,7 +46,7 @@ local ERROR_SESSION_NOT_FOUND = "session_not_found"
 local ERROR_INVALID_MESSAGE_TYPE = "invalid_message_type"
 
 -- Session constants
-local MAX_SESSIONS_PER_USER = 3 -- Maximum allowed sessions per user
+local MAX_SESSIONS_PER_USER = 300 -- Maximum allowed sessions per user (todo: downgrade)
 
 -- User Hub Process - Handles WebSocket connections and session management
 local function run(args)
