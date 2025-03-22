@@ -3,20 +3,15 @@ package httpclient
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"io"
 	"net/http"
-	"time"
-
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
-
-// DefaultTimeout is the default timeout for HTTP requests.
-const DefaultTimeout = 90 * time.Second
 
 var (
 	// ErrInvalidAuth is returned when authentication credentials are missing or invalid

@@ -425,6 +425,7 @@ func fsWriteFile(l *lua.LState) int {
 		return 0
 	}
 
+	// todo: we can remove coroutine here
 	coroutine.Wrap(l, func() *engine.Update {
 		// Open destination file
 		dstFile, err := fsInst.fs.OpenFile(resolved, flag, 0644)
