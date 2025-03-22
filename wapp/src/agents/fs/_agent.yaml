@@ -13,7 +13,7 @@ entries:
       title: "Filesystem Manager"
       group: [ "System Utilities" ]
       comment: "Specialized agent for filesystem operations and management"
-      icon: "icon-folder"
+      icon: "folder"
       tags: [ "filesystem", "files", "directories", "storage" ]
 
     prompt: |
@@ -38,6 +38,11 @@ entries:
     tools:
       - app.tools.fs:read_file
       - app.tools.fs:list_dir
+
+    delegate:
+      "navigator-manager":
+        name: "to_navigator"
+        rule: "Whenever you can not complete a task, send the user to the Navigator Manager for further assistance."
 
     # Minimal memory entries
     memory: [

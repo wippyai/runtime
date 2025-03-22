@@ -10,7 +10,7 @@ entries:
     meta:
       type: "virtual.page"
       name: "welcome"
-      title: "Welcome"
-      icon: "tabler:accessible-filled"
+      title: "Dashboard"
+      icon: "tabler:home"
       content_type: "text/html"
     source: file://welcome.html

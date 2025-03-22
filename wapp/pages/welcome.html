@@ -1,54 +1,401 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Welcome to Fortress</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        h1 {
-            color: #2c3e50;
-            margin-bottom: 20px;
-        }
-        .card {
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 15px;
-            margin-bottom: 20px;
-            background-color: #f9f9f9;
-        }
-        .btn {
-            display: inline-block;
-            background-color: #3498db;
-            color: white;
-            padding: 8px 16px;
-            text-decoration: none;
-            border-radius: 4px;
-            margin-top: 10px;
-        }
-        .btn:hover {
-            background-color: #2980b9;
-        }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fortress Legal Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="http://localhost:5173/proxy.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
 </head>
-<body>
-<h1>Welcome to Fortress</h1>
+<body class="bg-gray-50">
+<div class="min-h-screen">
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        <!-- Page Header -->
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold text-gray-900">Fortress Legal Portal</h1>
+            <p class="mt-1 text-sm text-gray-500">
+                Access specialized legal agents and manage your workflows
+            </p>
+        </div>
 
-<div class="card">
-    <h2>Getting Started</h2>
-    <p>Welcome to the Fortress platform. This system provides tools to streamline your workflow.</p>
-    <a href="/agents" class="btn">Explore Agents</a>
+        <div class="flex flex-col md:flex-row gap-6">
+            <!-- Agent List Section -->
+            <div class="flex-1">
+                <div class="bg-white shadow rounded-lg overflow-hidden">
+                    <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">Available Agents</h3>
+                        <p class="mt-1 text-sm text-gray-500">Select an agent to begin working with specialized tools</p>
+                        <div class="mt-4 relative">
+                            <input type="text" id="agentSearch" class="block w-full pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md" placeholder="Search agents...">
+                            <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                <i class="fas fa-search text-gray-400"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="divide-y divide-gray-200" id="agentList">
+                        <!-- Agent list will be dynamically populated here -->
+                        <div class="px-4 py-3 text-center text-sm text-gray-500">
+                            Loading available agents...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Sessions Section -->
+            <div class="md:w-96">
+                <div class="bg-white shadow rounded-lg">
+                    <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">Recent Sessions</h3>
+                        <p class="mt-1 text-sm text-gray-500">Your latest conversations</p>
+                    </div>
+                    <div class="px-4 py-4 sm:p-6">
+                        <div id="sessionsList" class="divide-y divide-gray-200">
+                            <div class="text-center text-sm text-gray-500 py-4">
+                                Loading recent sessions...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
 </div>
 
-<div class="card">
-    <h2>Need Help?</h2>
-    <p>Contact our support team or check out our documentation for assistance.</p>
-    <a href="/help" class="btn">Help Center</a>
-</div>
+<script>
+    // Global variables for agent data
+    let allAgents = [];
+    let groupedAgentsByCategory = {};
+    let api;
+    let config;
+
+    // Initialize the app
+    init().then((result) => {
+        api = result.api;
+        config = result.config;
+        console.log('App API is ready', api, config);
+
+        // Set up search functionality
+        document.getElementById('agentSearch').addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase().trim();
+            filterAndRenderAgents(searchTerm);
+        });
+
+        // Fetch and display agents
+        fetchAgents(api, config);
+
+        // Fetch and display recent sessions
+        fetchSessions(api, config);
+
+    }).catch((err) => {
+        console.error('Failed to initialize app', err);
+        document.getElementById('agentList').innerHTML = `
+                <div class="px-4 py-5 text-center">
+                    <p class="text-red-500">Failed to initialize app: ${err.message}</p>
+                </div>
+            `;
+    });
+
+    // Function to fetch and display agents
+    async function fetchAgents(api, config) {
+        try {
+            console.log("Fetching agents with auth token");
+
+            // Fetch agents using the browser fetch API with the auth token
+            const response = await fetch('http://localhost:8080/api/v1/agents/list', {
+                headers: {
+                    'Authorization': `Bearer ${config.auth.token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log("Agent data received:", data);
+
+            if (!data.success) {
+                throw new Error('Failed to fetch agents: ' + (data.error || 'Unknown error'));
+            }
+
+            // Store all agents and their groupings for search functionality
+            allAgents = data.agents || [];
+            groupedAgentsByCategory = data.grouped || {};
+
+            console.log(`Loaded ${allAgents.length} agents in ${Object.keys(groupedAgentsByCategory).length} groups`);
+
+            // Render the initial view
+            renderAgentList(groupedAgentsByCategory, '');
+
+        } catch (error) {
+            console.error('Error fetching agents:', error);
+            document.getElementById('agentList').innerHTML = `
+                    <div class="px-4 py-5 text-center">
+                        <p class="text-red-500">Failed to load agents: ${error.message}</p>
+                    </div>
+                `;
+        }
+    }
+
+    // Function to filter agents based on search term
+    function filterAndRenderAgents(searchTerm) {
+        if (!searchTerm) {
+            // If no search term, show all agents grouped by category
+            renderAgentList(groupedAgentsByCategory, '');
+            return;
+        }
+
+        // Filter agents by search term
+        const filteredAgents = allAgents.filter(agent => {
+            // Check if properties exist before trying to search in them
+            const titleMatch = agent.title && typeof agent.title === 'string' &&
+                agent.title.toLowerCase().includes(searchTerm);
+            const commentMatch = agent.comment && typeof agent.comment === 'string' &&
+                agent.comment.toLowerCase().includes(searchTerm);
+            const nameMatch = agent.name && typeof agent.name === 'string' &&
+                agent.name.toLowerCase().includes(searchTerm);
+
+            // Search in tags if they exist and are an array
+            let tagMatch = false;
+            if (agent.tags && Array.isArray(agent.tags)) {
+                tagMatch = agent.tags.some(tag =>
+                    typeof tag === 'string' && tag.toLowerCase().includes(searchTerm)
+                );
+            }
+
+            return titleMatch || commentMatch || nameMatch || tagMatch;
+        });
+
+        // Create a flat list view for search results
+        renderAgentList(null, searchTerm, filteredAgents);
+    }
+
+    // Function to render the agent list
+    function renderAgentList(groupedAgents, searchTerm, filteredAgents = null) {
+        // Clear the agent list
+        document.getElementById('agentList').innerHTML = '';
+
+        // If we have a search term and filtered agents
+        if (searchTerm && filteredAgents !== null) {
+            if (filteredAgents.length === 0) {
+                document.getElementById('agentList').innerHTML = `
+                        <div class="px-4 py-5 text-center">
+                            <p class="text-gray-500">No agents match '${searchTerm}'</p>
+                        </div>
+                    `;
+                return;
+            }
+
+            // Create a search results header
+            const searchHeader = document.createElement('div');
+            searchHeader.className = 'px-4 py-3 bg-gray-50';
+            searchHeader.innerHTML = `
+                    <h4 class="text-sm font-medium text-gray-900">Search Results (${filteredAgents.length})</h4>
+                `;
+            document.getElementById('agentList').appendChild(searchHeader);
+
+            // Add filtered agents
+            filteredAgents.forEach(agent => {
+                addAgentCard(agent);
+            });
+
+            // Add event listeners after all cards are added
+            addEventListenersToButtons();
+            return;
+        }
+
+        // Standard grouped view without search
+        if (!groupedAgents || Object.keys(groupedAgents).length === 0) {
+            document.getElementById('agentList').innerHTML = `
+                    <div class="px-4 py-5 text-center">
+                        <p class="text-gray-500">No agents available</p>
+                    </div>
+                `;
+            return;
+        }
+
+        // Render by groups
+        Object.keys(groupedAgents).sort().forEach(groupName => {
+            const groupAgents = groupedAgents[groupName];
+
+            // Add group header
+            const groupHeader = document.createElement('div');
+            groupHeader.className = 'px-4 py-3 bg-gray-50';
+            groupHeader.innerHTML = `
+                    <h4 class="text-sm font-medium text-gray-900">${groupName}</h4>
+                `;
+            document.getElementById('agentList').appendChild(groupHeader);
+
+            // Add agents in this group
+            groupAgents.forEach(agent => {
+                addAgentCard(agent);
+            });
+        });
+
+        // Add event listeners after all cards are added
+        addEventListenersToButtons();
+    }
+
+    // Helper function to add an agent card to the list
+    function addAgentCard(agent) {
+        const agentCard = document.createElement('div');
+        agentCard.className = 'px-4 py-4 hover:bg-gray-50 transition-colors duration-150';
+
+        // Construct tags HTML
+        let tagsHtml = '';
+        if (agent.tags && Array.isArray(agent.tags) && agent.tags.length > 0) {
+            tagsHtml = agent.tags
+                .filter(tag => typeof tag === 'string')
+                .map(tag =>
+                    `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 mr-2">${tag}</span>`
+                ).join('');
+        }
+
+        // Get icon from agent data
+        const iconClass = agent.icon ? agent.icon.replace('icon-', '') : 'robot';
+
+        agentCard.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <span class="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center">
+                                <i class="fas fa-${iconClass} text-indigo-600"></i>
+                            </span>
+                        </div>
+                        <div class="ml-4">
+                            <h3 class="text-sm font-medium text-gray-900">${agent.title || 'Unnamed Agent'}</h3>
+                            ${agent.comment ? `<p class="text-xs text-gray-500">${agent.comment}</p>` : ''}
+                            <div class="mt-1">
+                                ${tagsHtml}
+                            </div>
+                        </div>
+                    </div>
+                    <button data-token="${agent.start_token}" class="start-agent-btn inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Start Chat
+                    </button>
+                </div>
+            `;
+
+        document.getElementById('agentList').appendChild(agentCard);
+    }
+
+    // Function to add event listeners to all agent buttons
+    function addEventListenersToButtons() {
+        // Add event listeners to all start agent buttons
+        document.querySelectorAll('.start-agent-btn').forEach(button => {
+            button.addEventListener('click', async (e) => {
+                const token = e.target.getAttribute('data-token');
+                try {
+                    console.log('Starting chat with token:', token);
+                    const chat = await api.startChat(token);
+                    console.log('Chat started:', chat);
+                } catch (err) {
+                    console.error('Failed to start chat:', err);
+                    alert(`Failed to start chat: ${err.message}`);
+                }
+            });
+        });
+    }
+
+    // Function to fetch and display recent sessions
+    async function fetchSessions(api, config) {
+        try {
+            console.log("Fetching recent sessions");
+
+            // Fetch sessions using the browser fetch API with the auth token
+            const response = await fetch('http://localhost:8080/api/v1/sessions?limit=10', {
+                headers: {
+                    'Authorization': `Bearer ${config.auth.token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log("Sessions data received:", data);
+
+            // Clear loading message
+            document.getElementById('sessionsList').innerHTML = '';
+
+            if (!data.success || !data.sessions || data.sessions.length === 0) {
+                document.getElementById('sessionsList').innerHTML = `
+                        <div class="py-4 text-center">
+                            <p class="text-gray-500">No recent sessions found</p>
+                        </div>
+                    `;
+                return;
+            }
+
+            // Render the sessions
+            data.sessions.forEach(session => {
+                const sessionItem = document.createElement('div');
+                sessionItem.className = 'py-3';
+
+                // Format date - handle different date formats safely
+                let sessionDate;
+                try {
+                    sessionDate = new Date(session.created_at || session.timestamp || Date.now());
+                    // Check if date is valid
+                    if (isNaN(sessionDate.getTime())) {
+                        sessionDate = new Date(); // Fallback to current date if invalid
+                    }
+                } catch (e) {
+                    console.warn("Invalid date format in session data:", e);
+                    sessionDate = new Date(); // Fallback to current date on error
+                }
+
+                const formattedDate = sessionDate.toLocaleDateString() + ' ' +
+                    sessionDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+                sessionItem.innerHTML = `
+                        <div class="flex items-center space-x-4">
+                            <div class="flex-shrink-0">
+                                <span class="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center">
+                                    <i class="fas fa-comments text-gray-500"></i>
+                                </span>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-gray-900 truncate">
+                                    ${session.title || session.agent_name || 'Unnamed Session'}
+                                </p>
+                                <p class="text-sm text-gray-500 truncate">
+                                    ${formattedDate}
+                                </p>
+                            </div>
+                            <button data-session-id="${session.id}" class="resume-session-btn text-indigo-600 hover:text-indigo-900 text-xs font-medium">
+                                Resume
+                            </button>
+                        </div>
+                    `;
+
+                document.getElementById('sessionsList').appendChild(sessionItem);
+            });
+
+            // Add event listeners to all resume buttons
+            document.querySelectorAll('.resume-session-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const sessionId = e.target.getAttribute('data-session-id');
+                    console.log('Resuming session:', sessionId);
+                    api.navigate(`/sessions/${sessionId}`);
+                });
+            });
+
+        } catch (error) {
+            console.error('Error fetching sessions:', error);
+            document.getElementById('sessionsList').innerHTML = `
+                    <div class="py-4 text-center">
+                        <p class="text-red-500">Failed to load sessions: ${error.message}</p>
+                    </div>
+                `;
+        }
+    }
+</script>
 </body>
 </html>

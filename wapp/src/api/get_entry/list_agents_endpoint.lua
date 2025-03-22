@@ -33,7 +33,7 @@ local function handler()
     for _, entry in ipairs(all_entries) do
         if entry.meta then
             -- Extract the model information
-            local model = entry.meta.model or "gpt-4o-mini"
+            local model = entry.meta.model or "gpt-4o"
 
             -- Extract the session kind (default to "default" if not specified)
             local kind = entry.meta.session_kind or "default"
@@ -42,6 +42,7 @@ local function handler()
             local agent = {
                 name = entry.meta.name or "",
                 title = entry.meta.title or entry.meta.name or "",
+                comment = entry.meta.comment or "",
                 group = entry.meta.group or {},
                 icon = entry.meta.icon or "",
                 tags = entry.meta.tags or {},

@@ -311,6 +311,8 @@ function controller:handle_delegation(result, enqueue)
         return false, "No delegation target specified"
     end
 
+    -- todo: add proper loop detection
+
     -- Add a delegation record in state
     local delegation_id = self.state:add_message(MSG_TYPE.DELEGATION, "", {
         from_agent = self.state.agent_name,
