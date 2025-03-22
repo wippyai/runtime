@@ -88,8 +88,6 @@ function prompt_builder:build_prompt(message_limit)
         end
     end
 
-    print(">>>>>>>>>>>>>>>", json.encode(builder:get_messages()))
-
     return builder
 end
 

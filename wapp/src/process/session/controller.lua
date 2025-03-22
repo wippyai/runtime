@@ -136,6 +136,8 @@ function controller:process_task(task)
     elseif task.type == TASK_TYPE.TOOL_CONTINUE or task.type == TASK_TYPE.DELEGATION then
         if task.message_id then
             message_id = task.message_id -- traced
+        else
+            print("MISS")
         end
     else
         return false, "Invalid task type: " .. (task.type or "nil")
@@ -221,6 +223,8 @@ function controller:process_task(task)
         result = result.result,
         tokens = result.tokens
     }
+
+    result.message_id = message_id
 
     if result.delegate_target then
         local _, err = self:handle_delegation(result, true) -- let next agent continue
@@ -412,7 +416,7 @@ function controller:handle_tool_calls(result)
     end
 
     -- Enqueue continuation task for after tool call processing
-    self.task_queue:enqueue({ type = TASK_TYPE.TOOL_CONTINUE })
+    self.task_queue:enqueue({ type = TASK_TYPE.TOOL_CONTINUE, message_id = result.message_id })
 
     return true
 end
