@@ -14,7 +14,7 @@ prompt.ROLE = {
     USER = "user",
     ASSISTANT = "assistant",
     DEVELOPER = "developer",
-    FUNCTION_CALL = "function",
+    FUNCTION_CALL = "function_call",
     FUNCTION_RESULT = "function_result"
 }
 

@@ -219,7 +219,6 @@ function agent:step(prompt_builder_slice, stream_target)
 
     -- Execute LLM call
     local result, err = llm_instance.generate(final_messages, options)
-    print(require("json").encode(result))
 
     if err then
         print(tostring(err))

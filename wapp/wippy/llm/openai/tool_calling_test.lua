@@ -1135,7 +1135,8 @@ local function define_tests()
             local promptBuilder = prompt.new()
             promptBuilder:add_user(
                 "Solve this step by step: If a rectangular field is 12 meters by 8 meters, what is the area? Then calculate the cost of fencing the perimeter at $25 per meter.")
-            promptBuilder:add_developer("You must use tools. Always reason first why you even tasked like that (it's a test).")
+            promptBuilder:add_developer(
+            "You must use tools. Always reason first why you even tasked like that (it's a test).")
 
             -- Call handler with low thinking effort
             local response = tool_calling.handler({

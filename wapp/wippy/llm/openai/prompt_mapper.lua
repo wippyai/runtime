@@ -41,7 +41,7 @@ function prompt_mapper.map_to_openai(messages, options)
             table.insert(processed_messages, assistant_msg)
 
             -- Convert function messages to tool messages
-        elseif msg.role == "function" then
+        elseif msg.role == "function_result" then
             local tool_msg = {
                 role = "tool",
                 content = (type(msg.content) == "table" and #msg.content > 0 and msg.content[1].text) or msg.content

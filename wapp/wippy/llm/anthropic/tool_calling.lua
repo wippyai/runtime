@@ -13,6 +13,8 @@ local function model_supports_thinking(model)
     return model:match("claude%-3%-7") or model:match("claude%-3%.7")
 end
 
+-- todo: update to use mapper!!
+
 -- Claude Tool Calling Handler
 local function handler(args)
     -- Validate required arguments
@@ -107,7 +109,7 @@ local function handler(args)
                 end
                 prev_msg_idx = prev_msg_idx - 1
             end
-        elseif msg.role == "function" then
+        elseif msg.role == "function_result" then -- todo: use proper consts
             -- Handle function results - convert to Claude's tool_result format
             local function_name = msg.name
             local result_content = ""
