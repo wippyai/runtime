@@ -54,9 +54,8 @@ local function handler(params)
         local entry = entries[i]
         -- Create a clean representation of the entry
         local result = {
-            id = entry.id.name,
-            full_id = entry.id.ns .. ":" .. entry.id.name,
-            namespace = entry.id.ns,
+            id = entry.meta.name or entry.id,
+            full_id = entry.id,
             kind = entry.kind,
             meta = entry.meta and {
                 type = entry.meta.type,

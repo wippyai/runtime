@@ -31,7 +31,7 @@ local function handler(params)
         entries = snapshot:namespace(params.namespace)
     else
         -- Otherwise, get all entries matching criteria
-        entries, err = snapshot:entries({limit = 10000}) -- Get a large number to search through
+        entries, err = snapshot:entries({ limit = 10000 }) -- Get a large number to search through
 
         if err then
             return {
@@ -68,9 +68,8 @@ local function handler(params)
     for i = offset + 1, end_index do
         local entry = entries[i]
         local header = {
-            namespace = entry.id.ns,
-            name = entry.id.name,
-            full_id = entry.id.ns .. ":" .. entry.id.name,
+            name = entry.meta.name or entry.id,
+            full_id = entry.id,
             kind = entry.kind,
             comment = entry.meta and entry.meta.comment or nil
         }

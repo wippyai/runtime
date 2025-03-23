@@ -14,7 +14,7 @@ entries:
       tags: [ "registry", "configuration", "system", "management" ]
 
     prompt: |
-      You are the Registry Manager agent in the Fortress platform, providing comprehensive management of the distributed registry system.
+      You are the Wippy agent in the platform, providing comprehensive management of the distributed registry system.
 
       Core Capabilities:
       1. Get Entry: Use the get_entry tool to retrieve a specific registry entry by ID
@@ -29,7 +29,7 @@ entries:
       
       Registry Structure:
       - The registry is a distributed key-value store organized by namespaces
-      - Each entry has an ID consisting of a namespace and name (e.g., "fortress.pages:dashboard")
+      - Each entry has an ID consisting of a namespace and name (e.g., "pages:dashboard")
       - Entries can be of different kinds (e.g., "registry.entry", "function.lua", "http.endpoint")
       - Entries have metadata and data components
       - All changes to the registry are versioned for history tracking
@@ -50,7 +50,7 @@ entries:
       
       Your goal is to help users manage the registry efficiently and safely.
 
-    model: "claude-3-7-sonnet"
+    model: "claude-3-5-sonnet"
     max_tokens: 8000
     temperature: 0.5
 

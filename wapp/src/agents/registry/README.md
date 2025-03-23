@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Registry Manager provides a comprehensive system for managing the distributed registry in the Fortress platform. It consists of an agent and a set of tools that enable users to create, read, update, and delete any type of registry entry and manage registry versions.
+The Wippy Manager provides a comprehensive system for managing the distributed registry in the Wippy platform. It consists of an agent and a set of tools that enable users to create, read, update, and delete any type of registry entry and manage registry versions.
 
 ## Components
 
@@ -27,7 +27,7 @@ The Registry Manager Agent can:
 
 The registry is a distributed key-value store organized by namespaces. Each registry entry:
 
-- Has a unique ID consisting of a namespace and name (e.g., "fortress.pages:dashboard")
+- Has a unique ID consisting of a namespace and name (e.g., "pages:dashboard")
 - Has a specific kind (e.g., "registry.entry", "function.lua", "http.endpoint")
 - Contains metadata and data components
 - Is versioned for history tracking
