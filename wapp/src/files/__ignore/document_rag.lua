@@ -34,28 +34,6 @@ local function generate_embedding(text)
     return "[" .. table.concat(response.result, ",") .. "]"
 end
 
--- Format path for citation reference
-local function format_citation(path)
-    -- Check if path is a string or table
-    if type(path) == "string" then
-        -- Try to decode JSON string first
-        local success, decoded = pcall(json.decode, path)
-        if success and type(decoded) == "table" then
-            -- Join path elements with ">"
-            return table.concat(decoded, " > ")
-        else
-            -- Return as is if not a JSON string
-            return path
-        end
-    elseif type(path) == "table" then
-        -- Join path elements with ">"
-        return table.concat(path, " > ")
-    else
-        -- Default to "Document" if path is nil or unexpected type
-        return "Document"
-    end
-end
-
 -- Search for relevant chunks in a file
 local function search_chunks(file_id, query_text, limit)
     if not file_id or file_id == "" then
@@ -91,7 +69,6 @@ local function search_chunks(file_id, query_text, limit)
             section_id,
             content,
             type,
-            path,
             distance  -- Similarity score
         FROM file_chunks
         WHERE file_id = ?
@@ -120,8 +97,7 @@ local function query_llm(query_text, chunks, file_info)
     local references = {}
 
     for i, chunk in ipairs(chunks) do
-        -- Format citation reference
-        local citation = format_citation(chunk.path)
+        -- Use chunk_id as reference
         local ref_id = "[" .. i .. "]"
 
         -- Add to context with reference ID
@@ -130,7 +106,7 @@ local function query_llm(query_text, chunks, file_info)
         -- Save reference information
         table.insert(references, {
             id = ref_id,
-            source = citation
+            source = "Document Chunk " .. i
         })
     end
 

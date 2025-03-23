@@ -133,12 +133,6 @@ function setupEventListeners() {
             filterAndRenderDocuments(searchTerm);
         });
     }
-
-    // RAG query form submission
-    const ragQueryForm = document.getElementById('ragQueryForm');
-    if (ragQueryForm) {
-        ragQueryForm.addEventListener('submit', handleDocumentQuery);
-    }
 }
 
 /**
@@ -178,27 +172,7 @@ async function handleFileUpload(e) {
     }
 
     // Get auth token from different possible sources
-    let authToken = null;
-
-    // Try to get from config
-    if (config && config.auth && config.auth.token) {
-        authToken = config.auth.token;
-        console.log('Using token from config');
-    }
-    // Try to get from window.appConfig
-    else if (window.appConfig && window.appConfig.auth && window.appConfig.auth.token) {
-        authToken = window.appConfig.auth.token;
-        console.log('Using token from window.appConfig');
-    }
-    // Try to get from localStorage
-    else {
-        const storedToken = localStorage.getItem('auth_token');
-        if (storedToken) {
-            authToken = storedToken;
-            console.log('Using token from localStorage');
-        }
-    }
-
+    let authToken = getAuthToken();
     if (!authToken) {
         updateStatusMessage('Authentication failed - no token available', 'error');
         console.log('Authentication token is missing');
@@ -357,25 +331,8 @@ async function fetchDocuments() {
             </div>
         `;
 
-        // Get auth token from different possible sources
-        let authToken = null;
-
-        // Try to get from config
-        if (config && config.auth && config.auth.token) {
-            authToken = config.auth.token;
-        }
-        // Try to get from window.appConfig
-        else if (window.appConfig && window.appConfig.auth && window.appConfig.auth.token) {
-            authToken = window.appConfig.auth.token;
-        }
-        // Try to get from localStorage
-        else {
-            const storedToken = localStorage.getItem('auth_token');
-            if (storedToken) {
-                authToken = storedToken;
-            }
-        }
-
+        // Get auth token
+        const authToken = getAuthToken();
         if (!authToken) {
             throw new Error('Authentication token is missing');
         }
@@ -401,9 +358,6 @@ async function fetchDocuments() {
         // Store all documents for search functionality
         allDocuments = data.files || [];
 
-        // Populate document select dropdown
-        populateDocumentSelect(allDocuments);
-
         // Render document list
         renderDocumentList(allDocuments);
 
@@ -416,29 +370,6 @@ async function fetchDocuments() {
             </div>
         `;
     }
-}
-
-/**
- * Populate document select dropdown
- */
-function populateDocumentSelect(documents) {
-    const select = document.getElementById('documentSelect');
-    if (!select) return;
-
-    // Clear current options (except the first placeholder)
-    while (select.options.length > 1) {
-        select.remove(1);
-    }
-
-    // Add documents to select
-    documents.forEach(doc => {
-        if (doc.status === 'ready') { // Only show ready documents
-            const option = document.createElement('option');
-            option.value = doc.file_id;
-            option.textContent = doc.filename;
-            select.appendChild(option);
-        }
-    });
 }
 
 /**
@@ -596,7 +527,7 @@ function renderDocumentList(documents) {
 }
 
 /**
- * View document details - using new enhanced endpoint
+ * View document details
  */
 async function viewDocumentDetails(fileId) {
     try {
@@ -631,8 +562,8 @@ async function viewDocumentDetails(fileId) {
             throw new Error('Authentication token is missing');
         }
 
-        // Fetch document details with our enhanced endpoint
-        const response = await fetch(`http://localhost:8080/api/v1/files/${fileId}?include_facts=true`, {
+        // Use query parameter instead of path
+        const response = await fetch(`http://localhost:8080/api/v1/files/get?file_id=${fileId}`, {
             headers: {
                 'Authorization': `Bearer ${authToken}`,
                 'Content-Type': 'application/json'
@@ -652,12 +583,6 @@ async function viewDocumentDetails(fileId) {
         // Store current file
         currentFile = data.file;
 
-        // Update the select dropdown
-        const documentSelect = document.getElementById('documentSelect');
-        if (documentSelect) {
-            documentSelect.value = fileId;
-        }
-
         // Update document details section
         if (detailTitle) {
             detailTitle.textContent = data.file.filename;
@@ -667,13 +592,9 @@ async function viewDocumentDetails(fileId) {
             detailSubtitle.textContent = `File uploaded on ${new Date(data.file.created_at).toLocaleString()}`;
         }
 
-        // Render document details
-        if (data.file.status === 'ready') {
-            if (data.structure && data.structure.length > 0) {
-                renderDocumentWithStructure(data.file, data.sections, data.structure, data.facts);
-            } else {
-                renderDocumentBasicDetails(data.file, data.facts);
-            }
+        // Render document details with markdown content if available
+        if (data.file.status === 'ready' && data.content) {
+            renderDocumentWithContent(data.file, data.content);
         } else {
             renderDocumentBasicDetails(data.file);
         }
@@ -714,7 +635,7 @@ async function viewDocumentDetails(fileId) {
 /**
  * Render document basic details
  */
-function renderDocumentBasicDetails(file, facts = null) {
+function renderDocumentBasicDetails(file) {
     const detail = document.getElementById('documentDetail');
     if (!detail) return;
 
@@ -760,23 +681,6 @@ function renderDocumentBasicDetails(file, facts = null) {
         </div>
     `;
 
-    // If document has facts/Q&A history and status is ready, show that too
-    if (facts && facts.length > 0 && file.status === 'ready') {
-        detail.innerHTML += `
-            <div class="mt-6 border-t border-gray-200 pt-4">
-                <h4 class="text-md font-medium text-gray-900">Previous Q&A</h4>
-                <div id="factsAccordion" class="mt-4 divide-y divide-gray-200">
-                    <!-- Facts will be rendered here -->
-                </div>
-            </div>
-        `;
-
-        const accordion = document.getElementById('factsAccordion');
-        if (accordion) {
-            renderFactsAccordion(facts, accordion);
-        }
-    }
-
     // Show message for processing documents
     if (file.status === 'processing') {
         detail.innerHTML += `
@@ -812,180 +716,81 @@ function renderDocumentBasicDetails(file, facts = null) {
 }
 
 /**
- * Render document with structure
+ * Render document with content
  */
-function renderDocumentWithStructure(file, sections, structure, facts = null) {
+function renderDocumentWithContent(file, content) {
     const detail = document.getElementById('documentDetail');
     if (!detail) return;
 
-    // Basic file info
-    detail.innerHTML = `
-        <div class="space-y-4">
-            <div class="flex justify-between items-center">
+    // Add a dynamic script to load the Marked.js library
+    if (!window.marked) {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js';
+        script.onload = function() {
+            // Once Marked is loaded, render the content
+            renderMarkdownContent(detail, file, content);
+        };
+        document.head.appendChild(script);
+    } else {
+        // If Marked is already loaded, render directly
+        renderMarkdownContent(detail, file, content);
+    }
+}
+
+/**
+ * Render markdown content with Marked
+ */
+function renderMarkdownContent(detail, file, content) {
+    // First add file metadata
+    const createdDate = new Date(file.created_at).toLocaleString();
+    const updatedDate = new Date(file.updated_at).toLocaleString();
+
+    // Create metadata section
+    const metadataHtml = `
+        <div class="mb-6 bg-gray-50 p-4 rounded-md">
+            <div class="flex justify-between items-center mb-2">
                 <div>
                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
         file.status === 'ready' ? 'bg-green-100 text-green-800' :
-            file.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
-                file.status === 'error' ? 'bg-red-100 text-red-800' :
-                    'bg-gray-100 text-gray-800'
+            'bg-gray-100 text-gray-800'
     }">
                         ${file.status}
                     </span>
                     <span class="ml-2 text-sm text-gray-500">${formatFileSize(file.size)}</span>
                 </div>
+                <div class="text-sm text-gray-500">
+                    Created: ${createdDate}
+                </div>
             </div>
-
-            <div class="border-t border-gray-200 pt-4">
-                <h4 class="text-md font-medium text-gray-900">Document Structure</h4>
-            </div>
-
-            <div class="bg-gray-50 p-4 rounded-md">
-                <ul id="sectionTree" class="space-y-2">
-                    <!-- Section hierarchy will be rendered here -->
-                </ul>
+            <div class="flex justify-between items-center">
+                <div class="text-sm text-gray-500">
+                    Type: ${file.mime_type}
+                </div>
+                <div class="text-sm text-gray-500">
+                    Last updated: ${updatedDate}
+                </div>
             </div>
         </div>
     `;
 
-    // Build section tree recursively
-    const sectionTree = document.getElementById('sectionTree');
-    if (!sectionTree) return;
-
-    if (!structure || structure.length === 0) {
-        sectionTree.innerHTML = '<li class="text-sm text-gray-500">No structure found in document</li>';
-    } else {
-        renderSectionHierarchy(sectionTree, structure, sections);
+    // Then render markdown content
+    let renderedContent;
+    try {
+        renderedContent = marked.parse(content);
+    } catch (e) {
+        console.error('Failed to parse markdown:', e);
+        renderedContent = `<pre class="whitespace-pre-wrap">${content}</pre>`;
     }
 
-    // If document has facts/Q&A history, show that too
-    if (facts && facts.length > 0) {
-        detail.innerHTML += `
-            <div class="mt-6 border-t border-gray-200 pt-4">
-                <h4 class="text-md font-medium text-gray-900">Previous Q&A</h4>
-                <div id="factsAccordion" class="mt-4 divide-y divide-gray-200">
-                    <!-- Facts will be rendered here -->
-                </div>
+    detail.innerHTML = `
+        ${metadataHtml}
+        <div class="border-t border-gray-200 pt-4">
+            <h4 class="text-lg font-medium text-gray-900 mb-4">Document Content</h4>
+            <div class="prose prose-indigo max-w-none">
+                ${renderedContent}
             </div>
-        `;
-
-        const accordion = document.getElementById('factsAccordion');
-        if (accordion) {
-            renderFactsAccordion(facts, accordion);
-        }
-    }
-}
-
-/**
- * Render section hierarchy recursively
- */
-function renderSectionHierarchy(container, items, allSections) {
-    items.forEach(item => {
-        const li = document.createElement('li');
-
-        // Find section by ID if available
-        let section = null;
-        if (item.section_id) {
-            section = allSections.find(s => s.section_id === item.section_id);
-        }
-
-        // Use section data if available, otherwise use hierarchy item
-        const title = section ? section.title : item.title || item.text || 'Unnamed Section';
-        const level = section ? section.level : item.level || 0;
-
-        // Set indentation based on level
-        const indentClass = level > 0 ? `ml-${Math.min(level * 4, 12)}` : '';
-
-        // Create list item with appropriate styling based on level
-        li.className = `flex items-center ${indentClass}`;
-
-        // Icon based on level
-        const icon = level === 0 ? 'fa-file-alt' :
-            level === 1 ? 'fa-heading' :
-                'fa-paragraph';
-
-        li.innerHTML = `
-            <i class="fas ${icon} text-indigo-500 mr-2"></i>
-            <span class="text-sm ${level === 0 ? 'font-medium text-gray-900' : 'text-gray-700'}">${title}</span>
-        `;
-
-        container.appendChild(li);
-
-        // Render children recursively if available
-        if (item.children && item.children.length > 0) {
-            const childrenContainer = document.createElement('ul');
-            childrenContainer.className = 'mt-2 space-y-2';
-            renderSectionHierarchy(childrenContainer, item.children, allSections);
-            li.appendChild(childrenContainer);
-        }
-    });
-}
-
-/**
- * Render facts in accordion
- */
-function renderFactsAccordion(facts, accordion) {
-    facts.forEach((fact, index) => {
-        const factItem = document.createElement('div');
-        factItem.className = 'py-4';
-
-        // Format date
-        let factDate;
-        try {
-            factDate = new Date(fact.created_at || Date.now());
-            if (isNaN(factDate.getTime())) {
-                factDate = new Date();
-            }
-        } catch (e) {
-            factDate = new Date();
-        }
-
-        const formattedDate = factDate.toLocaleDateString() + ' ' +
-            factDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-
-        // Create unique IDs for accordion
-        const headingId = `fact-heading-${index}`;
-        const contentId = `fact-content-${index}`;
-
-        factItem.innerHTML = `
-            <div>
-                <h3 class="text-sm font-medium text-gray-900">
-                    <button id="${headingId}" class="flex justify-between items-center w-full text-left focus:outline-none" aria-expanded="false" aria-controls="${contentId}">
-                        <span>${fact.query}</span>
-                        <span class="text-xs text-gray-500 ml-2">${formattedDate}</span>
-                        <i class="fas fa-chevron-down text-gray-400 transition-transform duration-200"></i>
-                    </button>
-                </h3>
-                <div id="${contentId}" class="mt-2 hidden">
-                    <div class="prose prose-sm max-w-none">
-                        ${fact.edited_response || fact.original_response}
-                    </div>
-                </div>
-            </div>
-        `;
-
-        accordion.appendChild(factItem);
-
-        // Add event listener to toggle accordion
-        const headingButton = document.getElementById(headingId);
-        if (headingButton) {
-            headingButton.addEventListener('click', (e) => {
-                const button = e.currentTarget;
-                const content = document.getElementById(contentId);
-                if (!content) return;
-
-                const isExpanded = button.getAttribute('aria-expanded') === 'true';
-
-                button.setAttribute('aria-expanded', !isExpanded);
-                content.classList.toggle('hidden', isExpanded);
-
-                // Rotate chevron
-                const chevron = button.querySelector('i');
-                if (chevron) {
-                    chevron.style.transform = isExpanded ? '' : 'rotate(180deg)';
-                }
-            });
-        }
-    });
+        </div>
+    `;
 }
 
 /**
@@ -1005,8 +810,8 @@ async function deleteDocument(fileId) {
             throw new Error('Authentication token is missing');
         }
 
-        // Delete document
-        const response = await fetch(`http://localhost:8080/api/v1/files/${fileId}`, {
+        // Delete document - use query param instead of path
+        const response = await fetch(`http://localhost:8080/api/v1/files?file_id=${fileId}`, {
             method: 'DELETE',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
@@ -1042,192 +847,6 @@ async function deleteDocument(fileId) {
 }
 
 /**
- * Handle document query
- */
-async function handleDocumentQuery(e) {
-    e.preventDefault();
-
-    const documentSelect = document.getElementById('documentSelect');
-    const queryInput = document.getElementById('queryInput');
-
-    if (!documentSelect || !queryInput) return;
-
-    const fileId = documentSelect.value;
-    const query = queryInput.value.trim();
-
-    if (!fileId) {
-        alert('Please select a document to query');
-        return;
-    }
-
-    if (!query) {
-        alert('Please enter a question');
-        return;
-    }
-
-    try {
-        console.log(`Querying document ${fileId}: "${query}"`);
-
-        // Show loading state
-        const detailSection = document.getElementById('documentDetailSection');
-        if (detailSection) {
-            detailSection.classList.remove('hidden');
-        }
-
-        const detailTitle = document.getElementById('detailTitle');
-        if (detailTitle) {
-            detailTitle.textContent = 'Processing Query';
-        }
-
-        const detailSubtitle = document.getElementById('detailSubtitle');
-        if (detailSubtitle) {
-            detailSubtitle.textContent = 'Analyzing document and generating answer...';
-        }
-
-        const documentDetail = document.getElementById('documentDetail');
-        if (documentDetail) {
-            documentDetail.innerHTML = `
-                <div class="text-center py-4">
-                    <i class="fas fa-spinner fa-spin text-indigo-500 text-2xl"></i>
-                    <p class="mt-2 text-sm text-gray-500">This may take a moment</p>
-                </div>
-            `;
-        }
-
-        // Get auth token
-        const authToken = getAuthToken();
-        if (!authToken) {
-            throw new Error('Authentication token is missing');
-        }
-
-        // Query the document
-        const response = await fetch('http://localhost:8080/api/v1/files/query', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${authToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                file_id: fileId,
-                query: query
-            })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok || !data.success) {
-            throw new Error(data.error || 'Query failed');
-        }
-
-        console.log(`Query completed successfully`);
-
-        // Find file details
-        const file = allDocuments.find(doc => doc.file_id === fileId);
-
-        // Update document details section
-        if (detailTitle) {
-            detailTitle.textContent = 'Answer';
-        }
-
-        if (detailSubtitle) {
-            detailSubtitle.textContent = `Q: ${query}`;
-        }
-
-        if (!documentDetail) return;
-
-        documentDetail.innerHTML = `
-            <div class="prose prose-indigo max-w-none">
-                ${data.answer}
-            </div>
-
-            <div class="mt-6 border-t border-gray-200 pt-4">
-                <h4 class="text-sm font-medium text-gray-900">Referenced Passages</h4>
-                <div class="mt-2 space-y-3">
-                    ${data.chunks && data.chunks.length > 0 ?
-            data.chunks.map((chunk, i) => `
-                        <div class="bg-gray-50 p-3 rounded-md">
-                            <p class="text-xs font-medium text-gray-500 mb-1">Passage ${i+1}</p>
-                            <p class="text-sm text-gray-700">${chunk.content}</p>
-                        </div>
-                      `).join('') :
-            '<p class="text-sm text-gray-500">No specific passages referenced</p>'
-        }
-                </div>
-            </div>
-
-            <div class="mt-6 flex justify-end">
-                <button id="newQueryBtn" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                    Ask Another Question
-                </button>
-            </div>
-        `;
-
-        // Add event listener to new query button
-        const newQueryBtn = document.getElementById('newQueryBtn');
-        if (newQueryBtn) {
-            newQueryBtn.addEventListener('click', () => {
-                queryInput.value = '';
-                queryInput.focus();
-            });
-        }
-
-        // Reset query input
-        const ragQueryForm = document.getElementById('ragQueryForm');
-        if (ragQueryForm) {
-            ragQueryForm.reset();
-            documentSelect.value = fileId; // Keep the same document selected
-        }
-
-    } catch (error) {
-        console.error('Query error:', error);
-        console.log(`Error querying document: ${error.message}`);
-
-        const detailTitle = document.getElementById('detailTitle');
-        if (detailTitle) {
-            detailTitle.textContent = 'Query Error';
-        }
-
-        const detailSubtitle = document.getElementById('detailSubtitle');
-        if (detailSubtitle) {
-            detailSubtitle.textContent = 'Failed to process your question';
-        }
-
-        const documentDetail = document.getElementById('documentDetail');
-        if (documentDetail) {
-            documentDetail.innerHTML = `
-                <div class="bg-red-50 border-l-4 border-red-400 p-4">
-                    <div class="flex">
-                        <div class="flex-shrink-0">
-                            <i class="fas fa-exclamation-triangle text-red-400"></i>
-                        </div>
-                        <div class="ml-3">
-                            <p class="text-sm text-red-700">
-                                ${error.message}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-                <div class="mt-4 text-center">
-                    <button id="tryAgainBtn" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                        Try Again
-                    </button>
-                </div>
-            `;
-
-            const tryAgainBtn = document.getElementById('tryAgainBtn');
-            if (tryAgainBtn) {
-                tryAgainBtn.addEventListener('click', () => {
-                    const detailSection = document.getElementById('documentDetailSection');
-                    if (detailSection) {
-                        detailSection.classList.add('hidden');
-                    }
-                });
-            }
-        }
-    }
-}
-
-/**
  * Helper function to get auth token from various sources
  */
 function getAuthToken() {
@@ -1258,8 +877,7 @@ window.documentUpload = {
     handleFileUpload,
     updateStatusMessage,
     viewDocumentDetails,
-    deleteDocument,
-    handleDocumentQuery
+    deleteDocument
 };
 
 // Log that script has loaded successfully

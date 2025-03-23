@@ -20,14 +20,6 @@ entries:
     imports:
       migration: "wippy.migration:migration"
 
-  # Libraries and Repositories
-  - name: markdown_processor
-    kind: library.lua
-    meta:
-      comment: "Markdown chunking and semantic parsing library"
-    source: file://markdown_processor.lua
-    modules: [ json ]
-
   - name: file_repo
     kind: library.lua
     meta:
@@ -39,12 +31,11 @@ entries:
     kind: library.lua
     meta:
       comment: "File processor for document parsing and embedding generation"
-      depends_on: [ file_repo, markdown_processor ]
+      depends_on: [ file_repo ]
     source: file://file_processor.lua
     modules: [ fs, json, time, http_client ]
     imports:
       file_repo: "app.files:file_repo"
-      markdown_processor: "app.files:markdown_processor"
       llm: "wippy.llm:llm"
 
   # File Processor Process Definition
@@ -52,7 +43,7 @@ entries:
     kind: process.lua
     meta:
       comment: "Process for handling file processing in background"
-      depends_on: [ file_repo, file_processor, markdown_processor ]
+      depends_on: [ file_repo, file_processor ]
       default_host: app:processes
     source: file://file_processor.lua
     method: run
@@ -60,7 +51,6 @@ entries:
     imports:
       file_repo: "app.files:file_repo"
       file_processor: "app.files:file_processor"
-      markdown_processor: "app.files:markdown_processor"
       llm: "wippy.llm:llm"
 
   # File Processor Service Definition
@@ -135,7 +125,7 @@ entries:
       comment: "Get file endpoint"
       router: app:api
     method: GET
-    path: /files/:file_id
+    path: /files/get
     func: get_file_handler
 
   # Delete file handler
@@ -158,58 +148,3 @@ entries:
     method: DELETE
     path: /files/:file_id
     func: delete_file_handler
-
-  # Document RAG process
-  - name: document_rag
-    kind: process.lua
-    meta:
-      comment: "Document RAG process for answering questions about documents"
-      depends_on: [ file_repo, markdown_processor ]
-      default_host: "app:processes"
-      input_schema: {
-        "type": "object",
-        "required": [ "file_id", "query", "user_id" ],
-        "properties": {
-          "file_id": {
-            "type": "string",
-            "description": "ID of the file to query"
-          },
-          "query": {
-            "type": "string",
-            "description": "Question to ask about the document"
-          },
-          "user_id": {
-            "type": "string",
-            "description": "ID of the user making the query (for access control)"
-          }
-        }
-      }
-    source: file://document_rag.lua
-    method: run
-    modules: [ json, sql ]
-    imports:
-      file_repo: "app.files:file_repo"
-      markdown_processor: "app.files:markdown_processor"
-      llm: "wippy.llm:llm"
-      prompt: "wippy.llm:prompt"
-
-  # Document query handler (HTTP interface)
-  - name: query_document_handler
-    kind: function.lua
-    meta:
-      comment: "Query document handler"
-      depends_on: [ file_repo ]
-    source: file://query_handler.lua
-    method: query_handler
-    modules: [ http, security, funcs, process ]
-    imports:
-      file_repo: "app.files:file_repo"
-
-  - name: query_document.endpoint
-    kind: http.endpoint
-    meta:
-      comment: "Query document endpoint"
-      router: app:api
-    method: POST
-    path: /files/query
-    func: query_document_handler

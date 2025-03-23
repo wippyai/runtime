@@ -69,23 +69,13 @@ local function get_handler()
 
     -- Get additional file information if file is ready
     local content = nil
-    local sections = nil
     local facts = nil
 
     if file.status == "ready" then
-        -- Get file content (optional, could be large)
-        local include_content = req:query("include_content") == "true"
-        if include_content then
-            content, err = file_repo.get_content(file_id)
-            if err then
-                print("Warning: Failed to get file content: " .. err)
-            end
-        end
-
-        -- Always try to get file structure (main sections)
-        sections, err = file_repo.get_sections(file_id)
+        -- Always get the markdown content for ready files
+        content, err = file_repo.get_content(file_id)
         if err then
-            print("Warning: Failed to get file sections: " .. err)
+            print("Warning: Failed to get file content: " .. err)
         end
 
         -- Get facts/Q&A history
@@ -106,35 +96,6 @@ local function get_handler()
 
     if content then
         response.content = content
-    end
-
-    if sections and #sections > 0 then
-        -- Build section hierarchy
-        local root_sections = {}
-        local section_map = {}
-
-        -- First pass: map all sections by ID
-        for _, section in ipairs(sections) do
-            section.children = {}
-            section_map[section.section_id] = section
-        end
-
-        -- Second pass: build hierarchy
-        for _, section in ipairs(sections) do
-            if section.parent_id then
-                local parent = section_map[section.parent_id]
-                if parent then
-                    table.insert(parent.children, section)
-                else
-                    table.insert(root_sections, section)
-                end
-            else
-                table.insert(root_sections, section)
-            end
-        end
-
-        response.sections = sections
-        response.structure = root_sections
     end
 
     if facts then
