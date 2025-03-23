@@ -1,0 +1,215 @@
+version: "1.0"
+namespace: app.files
+
+meta:
+  depends_on: [ ns:app, ns:app.user.auth ]
+  description: "File upload and document processing system"
+
+entries:
+  # Database migrations
+  - name: migrations.create_file_tables
+    kind: function.lua
+    meta:
+      description: "Create file upload and document processing tables"
+      timestamp: "2025-03-23T10:00:00Z"
+      tags: [ "files" ]
+      type: "migration"
+      target_db: "app:db"
+    source: file://migrations/create_file_tables.lua
+    method: migrate
+    imports:
+      migration: "wippy.migration:migration"
+
+  # Libraries and Repositories
+  - name: markdown_processor
+    kind: library.lua
+    meta:
+      comment: "Markdown chunking and semantic parsing library"
+    source: file://markdown_processor.lua
+    modules: [ json ]
+
+  - name: file_repo
+    kind: library.lua
+    meta:
+      comment: "File repository for managing file uploads and document processing"
+    source: file://file_repo.lua
+    modules: [ sql, json, uuid ]
+
+  - name: file_processor
+    kind: library.lua
+    meta:
+      comment: "File processor for document parsing and embedding generation"
+      depends_on: [ file_repo, markdown_processor ]
+    source: file://file_processor.lua
+    modules: [ fs, json, time, http_client ]
+    imports:
+      file_repo: "app.files:file_repo"
+      markdown_processor: "app.files:markdown_processor"
+      llm: "wippy.llm:llm"
+
+  # File Processor Process Definition
+  - name: file_processor.process
+    kind: process.lua
+    meta:
+      comment: "Process for handling file processing in background"
+      depends_on: [ file_repo, file_processor, markdown_processor ]
+      default_host: app:processes
+    source: file://file_processor.lua
+    method: run
+    modules: [ fs, json, time, http_client ]
+    imports:
+      file_repo: "app.files:file_repo"
+      file_processor: "app.files:file_processor"
+      markdown_processor: "app.files:markdown_processor"
+      llm: "wippy.llm:llm"
+
+  # File Processor Service Definition
+  - name: file_processor.service
+    kind: process.service
+    meta:
+      comment: "File processing service"
+    process: file_processor.process
+    host: app:processes
+    lifecycle:
+      auto_start: true
+      depends_on: [ "app:processes" ]
+
+  # API endpoints for file operations
+  - name: upload_handler
+    kind: function.lua
+    meta:
+      comment: "File upload API handler"
+      depends_on: [ file_repo, file_processor ]
+    source: file://upload_handler.lua
+    method: handler
+    modules: [ http, security, fs, uuid ]
+    imports:
+      file_repo: "app.files:file_repo"
+      file_processor: "app.files:file_processor"
+
+  - name: upload_handler.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "File upload endpoint"
+      router: app:api
+    method: POST
+    path: /files/upload
+    func: upload_handler
+
+  # File list handler
+  - name: list_files_handler
+    kind: function.lua
+    meta:
+      comment: "List files handler"
+      depends_on: [ file_repo ]
+    source: file://list_handler.lua
+    method: list_handler
+    modules: [ http, security, json ]
+    imports:
+      file_repo: "app.files:file_repo"
+
+  - name: list_files.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "List files endpoint"
+      router: app:api
+    method: GET
+    path: /files
+    func: list_files_handler
+
+  # Get file handler
+  - name: get_file_handler
+    kind: function.lua
+    meta:
+      comment: "Get file handler"
+      depends_on: [ file_repo ]
+    source: file://get_handler.lua
+    method: get_handler
+    modules: [ http, security, json ]
+    imports:
+      file_repo: "app.files:file_repo"
+
+  - name: get_file.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Get file endpoint"
+      router: app:api
+    method: GET
+    path: /files/:file_id
+    func: get_file_handler
+
+  # Delete file handler
+  - name: delete_file_handler
+    kind: function.lua
+    meta:
+      comment: "Delete file handler"
+      depends_on: [ file_repo ]
+    source: file://delete_handler.lua
+    method: delete_handler
+    modules: [ http, security, fs ]
+    imports:
+      file_repo: "app.files:file_repo"
+
+  - name: delete_file.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Delete file endpoint"
+      router: app:api
+    method: DELETE
+    path: /files/:file_id
+    func: delete_file_handler
+
+  # Document RAG process
+  - name: document_rag
+    kind: process.lua
+    meta:
+      comment: "Document RAG process for answering questions about documents"
+      depends_on: [ file_repo, markdown_processor ]
+      default_host: "app:processes"
+      input_schema: {
+        "type": "object",
+        "required": [ "file_id", "query", "user_id" ],
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "description": "ID of the file to query"
+          },
+          "query": {
+            "type": "string",
+            "description": "Question to ask about the document"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "ID of the user making the query (for access control)"
+          }
+        }
+      }
+    source: file://document_rag.lua
+    method: run
+    modules: [ json, sql ]
+    imports:
+      file_repo: "app.files:file_repo"
+      markdown_processor: "app.files:markdown_processor"
+      llm: "wippy.llm:llm"
+      prompt: "wippy.llm:prompt"
+
+  # Document query handler (HTTP interface)
+  - name: query_document_handler
+    kind: function.lua
+    meta:
+      comment: "Query document handler"
+      depends_on: [ file_repo ]
+    source: file://query_handler.lua
+    method: query_handler
+    modules: [ http, security, funcs, process ]
+    imports:
+      file_repo: "app.files:file_repo"
+
+  - name: query_document.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Query document endpoint"
+      router: app:api
+    method: POST
+    path: /files/query
+    func: query_document_handler

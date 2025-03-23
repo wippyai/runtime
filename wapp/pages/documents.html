@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Management - Fortress Legal Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="http://localhost:5173/proxy.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <style>
+        .upload-drop-area {
+            border: 2px dashed #e5e7eb;
+            border-radius: 0.375rem;
+            transition: all 0.2s ease-in-out;
+        }
+
+        .upload-drop-area-active {
+            border-color: #6366f1;
+            background-color: #eef2ff;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 6px;
+            background-color: #e5e7eb;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: #6366f1;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+    </style>
+    <!-- Add fallback token in case proxy.js fails to initialize -->
+    <script>
+        window.appConfig = window.appConfig || {
+            auth: {
+                token: 'test-token-for-upload'
+            }
+        };
+        console.log('Window appConfig initialized');
+    </script>
+</head>
+<body class="bg-gray-50">
+<div class="min-h-screen">
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        <!-- Page Header -->
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold text-gray-900">Document Management</h1>
+            <p class="mt-1 text-sm text-gray-500">
+                Upload, manage, and query your documents
+            </p>
+        </div>
+
+        <div class="flex flex-col md:flex-row gap-6">
+            <!-- File Upload Section -->
+            <div class="md:w-96">
+                <div class="bg-white shadow rounded-lg overflow-hidden">
+                    <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">Upload Document</h3>
+                        <p class="mt-1 text-sm text-gray-500">Add a new file to your document library</p>
+                    </div>
+                    <div class="px-4 py-5">
+                        <form id="uploadForm" class="space-y-4">
+                            <div>
+                                <label for="fileInput" class="block text-sm font-medium text-gray-700">Select
+                                    file</label>
+                                <div class="mt-1 upload-drop-area flex justify-center px-6 pt-5 pb-6 rounded-md">
+                                    <div class="space-y-1 text-center">
+                                        <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none"
+                                             viewBox="0 0 48 48" aria-hidden="true">
+                                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4h-12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                                                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        </svg>
+                                        <div class="flex text-sm text-gray-600">
+                                            <label for="fileInput"
+                                                   class="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
+                                                <span>Upload a file</span>
+                                                <input id="fileInput" name="file" type="file" class="sr-only">
+                                            </label>
+                                            <p class="pl-1">or drag and drop</p>
+                                        </div>
+                                        <p class="text-xs text-gray-500">
+                                            PDF, DOCX, TXT, MD up to 100MB
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- File Info Section (Hidden by default) -->
+                            <div id="fileInfoSection" class="bg-gray-50 p-3 rounded-md hidden">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p id="selectedFileName" class="text-sm font-medium text-gray-900">No file
+                                            selected</p>
+                                        <p id="selectedFileSize" class="text-xs text-gray-500">0 KB</p>
+                                    </div>
+                                    <button type="button"
+                                            onclick="document.getElementById('fileInput').value = ''; document.getElementById('fileInfoSection').classList.add('hidden');"
+                                            class="text-gray-400 hover:text-gray-500">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Upload Progress -->
+                            <div id="uploadProgressContainer" class="hidden">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Upload Progress</label>
+                                <div class="progress-container">
+                                    <div id="uploadProgressBar" class="progress-bar" style="width: 0%"></div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <button type="submit" id="uploadButton"
+                                        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                    Upload Document
+                                </button>
+                            </div>
+                            <div id="uploadStatus" class="text-sm text-center"></div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- RAG Query Section -->
+                <div class="mt-6 bg-white shadow rounded-lg overflow-hidden">
+                    <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">Ask Your Document</h3>
+                        <p class="mt-1 text-sm text-gray-500">Query your selected document</p>
+                    </div>
+                    <div class="px-4 py-5">
+                        <form id="ragQueryForm" class="space-y-4">
+                            <div>
+                                <label for="documentSelect" class="block text-sm font-medium text-gray-700">Select
+                                    document</label>
+                                <select id="documentSelect" name="documentSelect"
+                                        class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                                    <option value="">Select a document</option>
+                                    <!-- Options will be populated dynamically -->
+                                </select>
+                            </div>
+                            <div>
+                                <label for="queryInput" class="block text-sm font-medium text-gray-700">Your
+                                    question</label>
+                                <textarea id="queryInput" name="query" rows="3"
+                                          class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></textarea>
+                            </div>
+                            <div>
+                                <button type="submit"
+                                        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                    Ask Question
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Document List Section -->
+            <div class="flex-1">
+                <div class="bg-white shadow rounded-lg overflow-hidden">
+                    <div class="px-4 py-5 border-b border-gray-200 sm:px-6 flex justify-between items-center">
+                        <div>
+                            <h3 class="text-lg leading-6 font-medium text-gray-900">Your Documents</h3>
+                            <p class="mt-1 text-sm text-gray-500">Manage your uploaded documents</p>
+                        </div>
+                        <div class="relative">
+                            <input type="text" id="documentSearch"
+                                   class="block w-full pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                                   placeholder="Search documents...">
+                            <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                <i class="fas fa-search text-gray-400"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="documentList" class="overflow-hidden">
+                        <!-- Document list will be dynamically populated here -->
+                        <div class="px-4 py-3 text-center text-sm text-gray-500">
+                            Loading documents...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Document Details/Answer Section -->
+                <div id="documentDetailSection" class="mt-6 bg-white shadow rounded-lg overflow-hidden hidden">
+                    <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
+                        <h3 id="detailTitle" class="text-lg leading-6 font-medium text-gray-900">Document Details</h3>
+                        <p id="detailSubtitle" class="mt-1 text-sm text-gray-500">Viewing document information</p>
+                    </div>
+                    <div id="documentDetail" class="px-4 py-5">
+                        <!-- Document details or RAG answer will appear here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Add console debug message to verify script loading -->
+<script>
+    console.log('HTML document fully loaded');
+</script>
+
+<!-- Load our modified upload.js script -->
+<script src="http://localhost:8080/scripts/upload.js"></script>
+</body>
+</html>

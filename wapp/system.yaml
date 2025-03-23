@@ -22,9 +22,14 @@ entries:
     kind: fs.directory
     meta:
       comment: "Public filesystem and frontend"
-      depends_on:
-        - root
     directory: ./wapp/public/
+    mode: "0755"
+
+  - name: uploads
+    kind: fs.directory
+    meta:
+      comment: "Directory for uploads"
+    directory: ./wapp/data/uploads/
     mode: "0755"
 
   - name: gateway

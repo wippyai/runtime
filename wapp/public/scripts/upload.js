@@ -1,0 +1,1266 @@
+/**
+ * upload.js - Document upload functionality for Fortress Legal Portal
+ */
+
+// Global state
+let api;
+let config;
+let currentFile = null;
+let allDocuments = [];
+let uploadInProgress = false;
+
+// Initialize when DOM is fully loaded
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('Upload module initializing...');
+    initializeUploadModule();
+});
+
+/**
+ * Initialize the upload module
+ */
+async function initializeUploadModule() {
+    try {
+        // Initialize app and get API and config
+        const result = await init();
+        api = result.api;
+        config = result.config;
+        console.log('App API is ready for upload module');
+
+        // Set up event listeners
+        setupEventListeners();
+
+        // Fetch and display documents
+        await fetchDocuments();
+
+        // Show ready state
+        updateStatusMessage('Upload module ready', 'info', 3000);
+    } catch (err) {
+        console.error('Failed to initialize upload module', err);
+        document.getElementById('documentList').innerHTML = `
+            <div class="px-4 py-5 text-center">
+                <p class="text-red-500">Failed to initialize app: ${err.message}</p>
+            </div>
+        `;
+        updateStatusMessage('Failed to initialize upload module: ' + err.message, 'error');
+    }
+}
+
+/**
+ * Set up all event listeners
+ */
+function setupEventListeners() {
+    // File upload form submission
+    const uploadForm = document.getElementById('uploadForm');
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', handleFileUpload);
+    }
+
+    // Direct event handler for upload button as a fallback
+    const uploadButton = document.getElementById('uploadButton');
+    if (uploadButton) {
+        uploadButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            handleFileUpload(new Event('submit'));
+        });
+    }
+
+    // File input change event to show selected file
+    const fileInput = document.getElementById('fileInput');
+    if (fileInput) {
+        fileInput.addEventListener('change', (e) => {
+            const fileName = e.target.files[0]?.name || 'No file selected';
+            const fileSize = e.target.files[0]?.size || 0;
+            const fileLabel = document.getElementById('selectedFileName');
+
+            if (fileLabel) {
+                fileLabel.textContent = fileName;
+                fileLabel.classList.remove('text-gray-500');
+                fileLabel.classList.add('text-gray-900');
+            }
+
+            const fileSizeLabel = document.getElementById('selectedFileSize');
+            if (fileSizeLabel) {
+                fileSizeLabel.textContent = formatFileSize(fileSize);
+            }
+
+            // Show the file info section
+            const fileInfoSection = document.getElementById('fileInfoSection');
+            if (fileInfoSection) {
+                fileInfoSection.classList.remove('hidden');
+            }
+        });
+    }
+
+    // File drag and drop
+    const dropArea = document.querySelector('.upload-drop-area');
+    if (dropArea) {
+        // Prevent default drag behaviors
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+
+        // Highlight drop area when item is dragged over it
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, () => {
+                dropArea.classList.add('upload-drop-area-active');
+            }, false);
+        });
+
+        // Remove highlight when item is dragged out or dropped
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, () => {
+                dropArea.classList.remove('upload-drop-area-active');
+            }, false);
+        });
+
+        // Handle dropped files
+        dropArea.addEventListener('drop', (e) => {
+            if (e.dataTransfer.files.length) {
+                document.getElementById('fileInput').files = e.dataTransfer.files;
+
+                // Trigger change event to update UI
+                const changeEvent = new Event('change', { bubbles: true });
+                document.getElementById('fileInput').dispatchEvent(changeEvent);
+            }
+        }, false);
+    }
+
+    // Document search
+    const documentSearch = document.getElementById('documentSearch');
+    if (documentSearch) {
+        documentSearch.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase().trim();
+            filterAndRenderDocuments(searchTerm);
+        });
+    }
+
+    // RAG query form submission
+    const ragQueryForm = document.getElementById('ragQueryForm');
+    if (ragQueryForm) {
+        ragQueryForm.addEventListener('submit', handleDocumentQuery);
+    }
+}
+
+/**
+ * Prevent default behaviors for drag and drop events
+ */
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+/**
+ * Handle file upload
+ */
+async function handleFileUpload(e) {
+    e.preventDefault();
+
+    if (uploadInProgress) {
+        updateStatusMessage('Upload already in progress', 'warning');
+        return;
+    }
+
+    const fileInput = document.getElementById('fileInput');
+    if (!fileInput.files || fileInput.files.length === 0) {
+        updateStatusMessage('Please select a file to upload', 'error');
+        console.log('No file selected');
+        return;
+    }
+
+    const file = fileInput.files[0];
+    console.log(`Selected file: ${file.name} (${formatFileSize(file.size)})`);
+
+    // Check file size (100MB limit)
+    if (file.size > 100 * 1024 * 1024) {
+        updateStatusMessage('File size exceeds 100MB limit', 'error');
+        console.log('File size exceeds 100MB limit');
+        return;
+    }
+
+    // Get auth token from different possible sources
+    let authToken = null;
+
+    // Try to get from config
+    if (config && config.auth && config.auth.token) {
+        authToken = config.auth.token;
+        console.log('Using token from config');
+    }
+    // Try to get from window.appConfig
+    else if (window.appConfig && window.appConfig.auth && window.appConfig.auth.token) {
+        authToken = window.appConfig.auth.token;
+        console.log('Using token from window.appConfig');
+    }
+    // Try to get from localStorage
+    else {
+        const storedToken = localStorage.getItem('auth_token');
+        if (storedToken) {
+            authToken = storedToken;
+            console.log('Using token from localStorage');
+        }
+    }
+
+    if (!authToken) {
+        updateStatusMessage('Authentication failed - no token available', 'error');
+        console.log('Authentication token is missing');
+        return;
+    }
+
+    // Create FormData
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Show upload status
+    updateStatusMessage('Uploading file...', 'info');
+    uploadInProgress = true;
+    console.log('Upload started');
+
+    try {
+        updateUploadProgress(10);
+        console.log(`Sending request to: http://localhost:8080/api/v1/files/upload`);
+
+        // Upload file with fetch API
+        const response = await fetch('http://localhost:8080/api/v1/files/upload', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: formData
+        });
+
+        updateUploadProgress(70);
+        console.log(`Server responded with status: ${response.status}`);
+
+        if (!response.ok) {
+            throw new Error(`Server returned error status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        updateUploadProgress(90);
+
+        if (!data.success) {
+            throw new Error(data.error || 'Upload failed');
+        }
+
+        console.log(`Upload successful! File ID: ${data.file.file_id}`);
+        updateStatusMessage(`File "${file.name}" uploaded successfully!`, 'success');
+        updateUploadProgress(100);
+
+        // Reset form
+        document.getElementById('uploadForm').reset();
+
+        // Hide file info section
+        const fileInfoSection = document.getElementById('fileInfoSection');
+        if (fileInfoSection) {
+            fileInfoSection.classList.add('hidden');
+        }
+
+        // Refresh document list
+        setTimeout(() => {
+            fetchDocuments();
+        }, 1000);
+
+    } catch (error) {
+        console.error('Upload error:', error);
+        console.log(`Error during upload: ${error.message}`);
+        updateStatusMessage(`Upload failed: ${error.message}`, 'error');
+    } finally {
+        uploadInProgress = false;
+    }
+}
+
+/**
+ * Update the upload progress indicator
+ */
+function updateUploadProgress(percent) {
+    const progressBar = document.getElementById('uploadProgressBar');
+    if (progressBar) {
+        progressBar.style.width = `${percent}%`;
+
+        // Hide progress when complete
+        if (percent >= 100) {
+            setTimeout(() => {
+                const progressContainer = document.getElementById('uploadProgressContainer');
+                if (progressContainer) {
+                    progressContainer.classList.add('hidden');
+                }
+                progressBar.style.width = '0%';
+            }, 2000);
+        } else {
+            // Make sure it's visible
+            const progressContainer = document.getElementById('uploadProgressContainer');
+            if (progressContainer) {
+                progressContainer.classList.remove('hidden');
+            }
+        }
+    }
+}
+
+/**
+ * Show upload status message
+ */
+function updateStatusMessage(message, type = 'info', autoDismiss = 0) {
+    const statusElement = document.getElementById('uploadStatus');
+    if (!statusElement) return;
+
+    statusElement.textContent = message;
+    statusElement.className = 'mt-2 text-sm'; // Reset classes
+
+    switch (type) {
+        case 'success':
+            statusElement.classList.add('text-green-600');
+            break;
+        case 'error':
+            statusElement.classList.add('text-red-600');
+            break;
+        case 'warning':
+            statusElement.classList.add('text-yellow-600');
+            break;
+        default:
+            statusElement.classList.add('text-gray-600');
+    }
+
+    statusElement.classList.remove('hidden');
+
+    // Auto-dismiss if specified
+    if (autoDismiss > 0) {
+        setTimeout(() => {
+            statusElement.classList.add('hidden');
+        }, autoDismiss);
+    }
+}
+
+/**
+ * Format file size for display
+ */
+function formatFileSize(bytes) {
+    if (!bytes) return '0 Bytes';
+
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+/**
+ * Fetch documents from the API
+ */
+async function fetchDocuments() {
+    try {
+        console.log("Fetching document list");
+
+        // Show loading state
+        document.getElementById('documentList').innerHTML = `
+            <div class="px-4 py-3 text-center text-sm text-gray-500">
+                Loading documents...
+            </div>
+        `;
+
+        // Get auth token from different possible sources
+        let authToken = null;
+
+        // Try to get from config
+        if (config && config.auth && config.auth.token) {
+            authToken = config.auth.token;
+        }
+        // Try to get from window.appConfig
+        else if (window.appConfig && window.appConfig.auth && window.appConfig.auth.token) {
+            authToken = window.appConfig.auth.token;
+        }
+        // Try to get from localStorage
+        else {
+            const storedToken = localStorage.getItem('auth_token');
+            if (storedToken) {
+                authToken = storedToken;
+            }
+        }
+
+        if (!authToken) {
+            throw new Error('Authentication token is missing');
+        }
+
+        const response = await fetch('http://localhost:8080/api/v1/files', {
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log(`Received ${data.files?.length || 0} documents`);
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to fetch documents');
+        }
+
+        // Store all documents for search functionality
+        allDocuments = data.files || [];
+
+        // Populate document select dropdown
+        populateDocumentSelect(allDocuments);
+
+        // Render document list
+        renderDocumentList(allDocuments);
+
+    } catch (error) {
+        console.error('Error fetching documents:', error);
+        console.log(`Error fetching documents: ${error.message}`);
+        document.getElementById('documentList').innerHTML = `
+            <div class="px-4 py-5 text-center">
+                <p class="text-red-500">Failed to load documents: ${error.message}</p>
+            </div>
+        `;
+    }
+}
+
+/**
+ * Populate document select dropdown
+ */
+function populateDocumentSelect(documents) {
+    const select = document.getElementById('documentSelect');
+    if (!select) return;
+
+    // Clear current options (except the first placeholder)
+    while (select.options.length > 1) {
+        select.remove(1);
+    }
+
+    // Add documents to select
+    documents.forEach(doc => {
+        if (doc.status === 'ready') { // Only show ready documents
+            const option = document.createElement('option');
+            option.value = doc.file_id;
+            option.textContent = doc.filename;
+            select.appendChild(option);
+        }
+    });
+}
+
+/**
+ * Filter and render documents based on search term
+ */
+function filterAndRenderDocuments(searchTerm) {
+    if (!searchTerm) {
+        renderDocumentList(allDocuments);
+        return;
+    }
+
+    // Filter documents by search term
+    const filtered = allDocuments.filter(doc => {
+        return doc.filename.toLowerCase().includes(searchTerm);
+    });
+
+    renderDocumentList(filtered);
+}
+
+/**
+ * Render document list
+ */
+function renderDocumentList(documents) {
+    const documentList = document.getElementById('documentList');
+    if (!documentList) return;
+
+    documentList.innerHTML = '';
+
+    if (!documents || documents.length === 0) {
+        documentList.innerHTML = `
+            <div class="px-4 py-5 text-center">
+                <p class="text-gray-500">No documents found</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Create document list table
+    const table = document.createElement('table');
+    table.className = 'min-w-full divide-y divide-gray-200';
+
+    // Create table header
+    const thead = document.createElement('thead');
+    thead.className = 'bg-gray-50';
+    thead.innerHTML = `
+        <tr>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Document
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Status
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Size
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Date
+            </th>
+            <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Actions
+            </th>
+        </tr>
+    `;
+
+    // Create table body
+    const tbody = document.createElement('tbody');
+    tbody.className = 'bg-white divide-y divide-gray-200';
+
+    // Add document rows
+    documents.forEach((doc, index) => {
+        const tr = document.createElement('tr');
+        tr.className = index % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+
+        // Format date
+        let documentDate;
+        try {
+            documentDate = new Date(doc.created_at || Date.now());
+            if (isNaN(documentDate.getTime())) {
+                documentDate = new Date();
+            }
+        } catch (e) {
+            documentDate = new Date();
+        }
+
+        const formattedDate = documentDate.toLocaleDateString() + ' ' +
+            documentDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+        // Format file size
+        const formattedSize = formatFileSize(doc.size);
+
+        // Status badge color
+        let statusColor = 'bg-gray-100 text-gray-800'; // default
+        if (doc.status === 'ready') {
+            statusColor = 'bg-green-100 text-green-800';
+        } else if (doc.status === 'processing') {
+            statusColor = 'bg-yellow-100 text-yellow-800';
+        } else if (doc.status === 'error') {
+            statusColor = 'bg-red-100 text-red-800';
+        }
+
+        tr.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0 h-10 w-10 flex items-center justify-center">
+                        <i class="fas fa-file-alt text-indigo-500 text-xl"></i>
+                    </div>
+                    <div class="ml-4">
+                        <div class="text-sm font-medium text-gray-900">${doc.filename}</div>
+                        <div class="text-sm text-gray-500">${doc.mime_type || 'Unknown type'}</div>
+                    </div>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">
+                    ${doc.status}
+                </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                ${formattedSize}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                ${formattedDate}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <button data-file-id="${doc.file_id}" class="text-indigo-600 hover:text-indigo-900 view-details-btn">
+                    View
+                </button>
+                <button data-file-id="${doc.file_id}" class="ml-3 text-red-600 hover:text-red-900 delete-file-btn">
+                    Delete
+                </button>
+            </td>
+        `;
+
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    documentList.appendChild(table);
+
+    // Add event listeners to buttons
+    document.querySelectorAll('.view-details-btn').forEach(button => {
+        button.addEventListener('click', () => {
+            const fileId = button.getAttribute('data-file-id');
+            viewDocumentDetails(fileId);
+        });
+    });
+
+    document.querySelectorAll('.delete-file-btn').forEach(button => {
+        button.addEventListener('click', () => {
+            const fileId = button.getAttribute('data-file-id');
+            deleteDocument(fileId);
+        });
+    });
+}
+
+/**
+ * View document details - using new enhanced endpoint
+ */
+async function viewDocumentDetails(fileId) {
+    try {
+        // Show loading state
+        const detailSection = document.getElementById('documentDetailSection');
+        if (detailSection) {
+            detailSection.classList.remove('hidden');
+        }
+
+        const detailTitle = document.getElementById('detailTitle');
+        if (detailTitle) {
+            detailTitle.textContent = 'Document Details';
+        }
+
+        const detailSubtitle = document.getElementById('detailSubtitle');
+        if (detailSubtitle) {
+            detailSubtitle.textContent = 'Loading document information...';
+        }
+
+        const documentDetail = document.getElementById('documentDetail');
+        if (documentDetail) {
+            documentDetail.innerHTML = `
+                <div class="text-center py-4">
+                    <i class="fas fa-spinner fa-spin text-indigo-500 text-2xl"></i>
+                </div>
+            `;
+        }
+
+        // Get auth token
+        const authToken = getAuthToken();
+        if (!authToken) {
+            throw new Error('Authentication token is missing');
+        }
+
+        // Fetch document details with our enhanced endpoint
+        const response = await fetch(`http://localhost:8080/api/v1/files/${fileId}?include_facts=true`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to fetch document details');
+        }
+
+        // Store current file
+        currentFile = data.file;
+
+        // Update the select dropdown
+        const documentSelect = document.getElementById('documentSelect');
+        if (documentSelect) {
+            documentSelect.value = fileId;
+        }
+
+        // Update document details section
+        if (detailTitle) {
+            detailTitle.textContent = data.file.filename;
+        }
+
+        if (detailSubtitle) {
+            detailSubtitle.textContent = `File uploaded on ${new Date(data.file.created_at).toLocaleString()}`;
+        }
+
+        // Render document details
+        if (data.file.status === 'ready') {
+            if (data.structure && data.structure.length > 0) {
+                renderDocumentWithStructure(data.file, data.sections, data.structure, data.facts);
+            } else {
+                renderDocumentBasicDetails(data.file, data.facts);
+            }
+        } else {
+            renderDocumentBasicDetails(data.file);
+        }
+
+    } catch (error) {
+        console.error('Error fetching document details:', error);
+
+        const detailTitle = document.getElementById('detailTitle');
+        if (detailTitle) {
+            detailTitle.textContent = 'Error';
+        }
+
+        const detailSubtitle = document.getElementById('detailSubtitle');
+        if (detailSubtitle) {
+            detailSubtitle.textContent = 'Failed to load document details';
+        }
+
+        const documentDetail = document.getElementById('documentDetail');
+        if (documentDetail) {
+            documentDetail.innerHTML = `
+                <div class="bg-red-50 border-l-4 border-red-400 p-4">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-exclamation-triangle text-red-400"></i>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm text-red-700">
+                                ${error.message}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    }
+}
+
+/**
+ * Render document basic details
+ */
+function renderDocumentBasicDetails(file, facts = null) {
+    const detail = document.getElementById('documentDetail');
+    if (!detail) return;
+
+    // Format date
+    const createdDate = new Date(file.created_at).toLocaleString();
+    const updatedDate = new Date(file.updated_at).toLocaleString();
+
+    detail.innerHTML = `
+        <div class="space-y-4">
+            <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                <dt class="text-sm font-medium text-gray-500">File name</dt>
+                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">${file.filename}</dd>
+            </div>
+            <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                <dt class="text-sm font-medium text-gray-500">Type</dt>
+                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">${file.mime_type}</dd>
+            </div>
+            <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                <dt class="text-sm font-medium text-gray-500">Size</dt>
+                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">${formatFileSize(file.size)}</dd>
+            </div>
+            <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                <dt class="text-sm font-medium text-gray-500">Status</dt>
+                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+        file.status === 'ready' ? 'bg-green-100 text-green-800' :
+            file.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
+                file.status === 'error' ? 'bg-red-100 text-red-800' :
+                    'bg-gray-100 text-gray-800'
+    }">
+                        ${file.status}
+                    </span>
+                </dd>
+            </div>
+            <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                <dt class="text-sm font-medium text-gray-500">Created</dt>
+                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">${createdDate}</dd>
+            </div>
+            <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                <dt class="text-sm font-medium text-gray-500">Last updated</dt>
+                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">${updatedDate}</dd>
+            </div>
+        </div>
+    `;
+
+    // If document has facts/Q&A history and status is ready, show that too
+    if (facts && facts.length > 0 && file.status === 'ready') {
+        detail.innerHTML += `
+            <div class="mt-6 border-t border-gray-200 pt-4">
+                <h4 class="text-md font-medium text-gray-900">Previous Q&A</h4>
+                <div id="factsAccordion" class="mt-4 divide-y divide-gray-200">
+                    <!-- Facts will be rendered here -->
+                </div>
+            </div>
+        `;
+
+        const accordion = document.getElementById('factsAccordion');
+        if (accordion) {
+            renderFactsAccordion(facts, accordion);
+        }
+    }
+
+    // Show message for processing documents
+    if (file.status === 'processing') {
+        detail.innerHTML += `
+            <div class="mt-4 bg-yellow-50 border-l-4 border-yellow-400 p-4">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-exclamation-circle text-yellow-400"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-yellow-700">
+                            This document is still being processed. Please check back later.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        `;
+    } else if (file.status === 'error') {
+        detail.innerHTML += `
+            <div class="mt-4 bg-red-50 border-l-4 border-red-400 p-4">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-exclamation-triangle text-red-400"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-red-700">
+                            An error occurred while processing this document.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+}
+
+/**
+ * Render document with structure
+ */
+function renderDocumentWithStructure(file, sections, structure, facts = null) {
+    const detail = document.getElementById('documentDetail');
+    if (!detail) return;
+
+    // Basic file info
+    detail.innerHTML = `
+        <div class="space-y-4">
+            <div class="flex justify-between items-center">
+                <div>
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+        file.status === 'ready' ? 'bg-green-100 text-green-800' :
+            file.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
+                file.status === 'error' ? 'bg-red-100 text-red-800' :
+                    'bg-gray-100 text-gray-800'
+    }">
+                        ${file.status}
+                    </span>
+                    <span class="ml-2 text-sm text-gray-500">${formatFileSize(file.size)}</span>
+                </div>
+            </div>
+
+            <div class="border-t border-gray-200 pt-4">
+                <h4 class="text-md font-medium text-gray-900">Document Structure</h4>
+            </div>
+
+            <div class="bg-gray-50 p-4 rounded-md">
+                <ul id="sectionTree" class="space-y-2">
+                    <!-- Section hierarchy will be rendered here -->
+                </ul>
+            </div>
+        </div>
+    `;
+
+    // Build section tree recursively
+    const sectionTree = document.getElementById('sectionTree');
+    if (!sectionTree) return;
+
+    if (!structure || structure.length === 0) {
+        sectionTree.innerHTML = '<li class="text-sm text-gray-500">No structure found in document</li>';
+    } else {
+        renderSectionHierarchy(sectionTree, structure, sections);
+    }
+
+    // If document has facts/Q&A history, show that too
+    if (facts && facts.length > 0) {
+        detail.innerHTML += `
+            <div class="mt-6 border-t border-gray-200 pt-4">
+                <h4 class="text-md font-medium text-gray-900">Previous Q&A</h4>
+                <div id="factsAccordion" class="mt-4 divide-y divide-gray-200">
+                    <!-- Facts will be rendered here -->
+                </div>
+            </div>
+        `;
+
+        const accordion = document.getElementById('factsAccordion');
+        if (accordion) {
+            renderFactsAccordion(facts, accordion);
+        }
+    }
+}
+
+/**
+ * Render section hierarchy recursively
+ */
+function renderSectionHierarchy(container, items, allSections) {
+    items.forEach(item => {
+        const li = document.createElement('li');
+
+        // Find section by ID if available
+        let section = null;
+        if (item.section_id) {
+            section = allSections.find(s => s.section_id === item.section_id);
+        }
+
+        // Use section data if available, otherwise use hierarchy item
+        const title = section ? section.title : item.title || item.text || 'Unnamed Section';
+        const level = section ? section.level : item.level || 0;
+
+        // Set indentation based on level
+        const indentClass = level > 0 ? `ml-${Math.min(level * 4, 12)}` : '';
+
+        // Create list item with appropriate styling based on level
+        li.className = `flex items-center ${indentClass}`;
+
+        // Icon based on level
+        const icon = level === 0 ? 'fa-file-alt' :
+            level === 1 ? 'fa-heading' :
+                'fa-paragraph';
+
+        li.innerHTML = `
+            <i class="fas ${icon} text-indigo-500 mr-2"></i>
+            <span class="text-sm ${level === 0 ? 'font-medium text-gray-900' : 'text-gray-700'}">${title}</span>
+        `;
+
+        container.appendChild(li);
+
+        // Render children recursively if available
+        if (item.children && item.children.length > 0) {
+            const childrenContainer = document.createElement('ul');
+            childrenContainer.className = 'mt-2 space-y-2';
+            renderSectionHierarchy(childrenContainer, item.children, allSections);
+            li.appendChild(childrenContainer);
+        }
+    });
+}
+
+/**
+ * Render facts in accordion
+ */
+function renderFactsAccordion(facts, accordion) {
+    facts.forEach((fact, index) => {
+        const factItem = document.createElement('div');
+        factItem.className = 'py-4';
+
+        // Format date
+        let factDate;
+        try {
+            factDate = new Date(fact.created_at || Date.now());
+            if (isNaN(factDate.getTime())) {
+                factDate = new Date();
+            }
+        } catch (e) {
+            factDate = new Date();
+        }
+
+        const formattedDate = factDate.toLocaleDateString() + ' ' +
+            factDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+        // Create unique IDs for accordion
+        const headingId = `fact-heading-${index}`;
+        const contentId = `fact-content-${index}`;
+
+        factItem.innerHTML = `
+            <div>
+                <h3 class="text-sm font-medium text-gray-900">
+                    <button id="${headingId}" class="flex justify-between items-center w-full text-left focus:outline-none" aria-expanded="false" aria-controls="${contentId}">
+                        <span>${fact.query}</span>
+                        <span class="text-xs text-gray-500 ml-2">${formattedDate}</span>
+                        <i class="fas fa-chevron-down text-gray-400 transition-transform duration-200"></i>
+                    </button>
+                </h3>
+                <div id="${contentId}" class="mt-2 hidden">
+                    <div class="prose prose-sm max-w-none">
+                        ${fact.edited_response || fact.original_response}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        accordion.appendChild(factItem);
+
+        // Add event listener to toggle accordion
+        const headingButton = document.getElementById(headingId);
+        if (headingButton) {
+            headingButton.addEventListener('click', (e) => {
+                const button = e.currentTarget;
+                const content = document.getElementById(contentId);
+                if (!content) return;
+
+                const isExpanded = button.getAttribute('aria-expanded') === 'true';
+
+                button.setAttribute('aria-expanded', !isExpanded);
+                content.classList.toggle('hidden', isExpanded);
+
+                // Rotate chevron
+                const chevron = button.querySelector('i');
+                if (chevron) {
+                    chevron.style.transform = isExpanded ? '' : 'rotate(180deg)';
+                }
+            });
+        }
+    });
+}
+
+/**
+ * Delete document
+ */
+async function deleteDocument(fileId) {
+    if (!confirm('Are you sure you want to delete this document? This action cannot be undone.')) {
+        return;
+    }
+
+    try {
+        console.log(`Deleting document ${fileId}`);
+
+        // Get auth token
+        const authToken = getAuthToken();
+        if (!authToken) {
+            throw new Error('Authentication token is missing');
+        }
+
+        // Delete document
+        const response = await fetch(`http://localhost:8080/api/v1/files/${fileId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Delete failed');
+        }
+
+        console.log(`Document deleted successfully`);
+
+        // Hide detail section if this was the current file
+        if (currentFile && currentFile.file_id === fileId) {
+            const detailSection = document.getElementById('documentDetailSection');
+            if (detailSection) {
+                detailSection.classList.add('hidden');
+            }
+            currentFile = null;
+        }
+
+        // Refresh document list
+        fetchDocuments();
+
+    } catch (error) {
+        console.error('Delete error:', error);
+        console.log(`Error deleting document: ${error.message}`);
+        alert(`Failed to delete document: ${error.message}`);
+    }
+}
+
+/**
+ * Handle document query
+ */
+async function handleDocumentQuery(e) {
+    e.preventDefault();
+
+    const documentSelect = document.getElementById('documentSelect');
+    const queryInput = document.getElementById('queryInput');
+
+    if (!documentSelect || !queryInput) return;
+
+    const fileId = documentSelect.value;
+    const query = queryInput.value.trim();
+
+    if (!fileId) {
+        alert('Please select a document to query');
+        return;
+    }
+
+    if (!query) {
+        alert('Please enter a question');
+        return;
+    }
+
+    try {
+        console.log(`Querying document ${fileId}: "${query}"`);
+
+        // Show loading state
+        const detailSection = document.getElementById('documentDetailSection');
+        if (detailSection) {
+            detailSection.classList.remove('hidden');
+        }
+
+        const detailTitle = document.getElementById('detailTitle');
+        if (detailTitle) {
+            detailTitle.textContent = 'Processing Query';
+        }
+
+        const detailSubtitle = document.getElementById('detailSubtitle');
+        if (detailSubtitle) {
+            detailSubtitle.textContent = 'Analyzing document and generating answer...';
+        }
+
+        const documentDetail = document.getElementById('documentDetail');
+        if (documentDetail) {
+            documentDetail.innerHTML = `
+                <div class="text-center py-4">
+                    <i class="fas fa-spinner fa-spin text-indigo-500 text-2xl"></i>
+                    <p class="mt-2 text-sm text-gray-500">This may take a moment</p>
+                </div>
+            `;
+        }
+
+        // Get auth token
+        const authToken = getAuthToken();
+        if (!authToken) {
+            throw new Error('Authentication token is missing');
+        }
+
+        // Query the document
+        const response = await fetch('http://localhost:8080/api/v1/files/query', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                file_id: fileId,
+                query: query
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Query failed');
+        }
+
+        console.log(`Query completed successfully`);
+
+        // Find file details
+        const file = allDocuments.find(doc => doc.file_id === fileId);
+
+        // Update document details section
+        if (detailTitle) {
+            detailTitle.textContent = 'Answer';
+        }
+
+        if (detailSubtitle) {
+            detailSubtitle.textContent = `Q: ${query}`;
+        }
+
+        if (!documentDetail) return;
+
+        documentDetail.innerHTML = `
+            <div class="prose prose-indigo max-w-none">
+                ${data.answer}
+            </div>
+
+            <div class="mt-6 border-t border-gray-200 pt-4">
+                <h4 class="text-sm font-medium text-gray-900">Referenced Passages</h4>
+                <div class="mt-2 space-y-3">
+                    ${data.chunks && data.chunks.length > 0 ?
+            data.chunks.map((chunk, i) => `
+                        <div class="bg-gray-50 p-3 rounded-md">
+                            <p class="text-xs font-medium text-gray-500 mb-1">Passage ${i+1}</p>
+                            <p class="text-sm text-gray-700">${chunk.content}</p>
+                        </div>
+                      `).join('') :
+            '<p class="text-sm text-gray-500">No specific passages referenced</p>'
+        }
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end">
+                <button id="newQueryBtn" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    Ask Another Question
+                </button>
+            </div>
+        `;
+
+        // Add event listener to new query button
+        const newQueryBtn = document.getElementById('newQueryBtn');
+        if (newQueryBtn) {
+            newQueryBtn.addEventListener('click', () => {
+                queryInput.value = '';
+                queryInput.focus();
+            });
+        }
+
+        // Reset query input
+        const ragQueryForm = document.getElementById('ragQueryForm');
+        if (ragQueryForm) {
+            ragQueryForm.reset();
+            documentSelect.value = fileId; // Keep the same document selected
+        }
+
+    } catch (error) {
+        console.error('Query error:', error);
+        console.log(`Error querying document: ${error.message}`);
+
+        const detailTitle = document.getElementById('detailTitle');
+        if (detailTitle) {
+            detailTitle.textContent = 'Query Error';
+        }
+
+        const detailSubtitle = document.getElementById('detailSubtitle');
+        if (detailSubtitle) {
+            detailSubtitle.textContent = 'Failed to process your question';
+        }
+
+        const documentDetail = document.getElementById('documentDetail');
+        if (documentDetail) {
+            documentDetail.innerHTML = `
+                <div class="bg-red-50 border-l-4 border-red-400 p-4">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-exclamation-triangle text-red-400"></i>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm text-red-700">
+                                ${error.message}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-4 text-center">
+                    <button id="tryAgainBtn" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Try Again
+                    </button>
+                </div>
+            `;
+
+            const tryAgainBtn = document.getElementById('tryAgainBtn');
+            if (tryAgainBtn) {
+                tryAgainBtn.addEventListener('click', () => {
+                    const detailSection = document.getElementById('documentDetailSection');
+                    if (detailSection) {
+                        detailSection.classList.add('hidden');
+                    }
+                });
+            }
+        }
+    }
+}
+
+/**
+ * Helper function to get auth token from various sources
+ */
+function getAuthToken() {
+    let authToken = null;
+
+    // Try to get from config
+    if (config && config.auth && config.auth.token) {
+        authToken = config.auth.token;
+    }
+    // Try to get from window.appConfig
+    else if (window.appConfig && window.appConfig.auth && window.appConfig.auth.token) {
+        authToken = window.appConfig.auth.token;
+    }
+    // Try to get from localStorage
+    else {
+        const storedToken = localStorage.getItem('auth_token');
+        if (storedToken) {
+            authToken = storedToken;
+        }
+    }
+
+    return authToken;
+}
+
+// Export functions that might be needed externally
+window.documentUpload = {
+    fetchDocuments,
+    handleFileUpload,
+    updateStatusMessage,
+    viewDocumentDetails,
+    deleteDocument,
+    handleDocumentQuery
+};
+
+// Log that script has loaded successfully
+console.log('upload.js script loaded successfully');

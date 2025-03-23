@@ -261,7 +261,8 @@ entries:
               "type": "integer",
               "description": "Offset for pagination (default: 0)"
             }
-          }
+          },
+          "required": ["limit"]
         }
     source: file://get_headers.lua
     method: handler
