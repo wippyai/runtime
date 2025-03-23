@@ -87,6 +87,10 @@ entries:
       "page-manager":
         name: "to_page_manager"
         rule: "Send user to Page Manager for managing dynamic web pages."
+      "wippy-manager":
+        name: "to_wippy_manager"
+        rule: "When user want to change system behaviour or any of the component, this agent manages all the code of software."
+
     tools:
       - app.tools.greeting:hello_world
 

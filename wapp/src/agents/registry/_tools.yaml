@@ -1,0 +1,268 @@
+version: "1.0"
+namespace: app.registry
+
+entries:
+  - name: get_entry
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Get Entry"
+      llm_alias: "get_entry"
+      description: "Retrieves a specific registry entry by ID"
+      llm_description: "Gets a registry entry by its ID and returns its complete structure"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The ID of the registry entry to retrieve in the format 'namespace:name'"
+            }
+          },
+          "required": ["id"]
+        }
+    source: file://get_entry.lua
+    method: handler
+    modules: [ json, registry ]
+
+  - name: find_entries
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Find Entries"
+      llm_alias: "find_entries"
+      description: "Searches for registry entries using criteria"
+      llm_description: "Finds registry entries matching specified criteria"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "criteria": {
+              "type": "object",
+              "description": "Search criteria for finding registry entries (e.g., {'.kind': 'registry.entry', 'meta.type': 'virtual.page'})"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum number of entries to return (optional, default: 100)"
+            },
+            "offset": {
+              "type": "integer",
+              "description": "Offset for pagination (optional, default: 0)"
+            }
+          },
+          "required": ["criteria"]
+        }
+    source: file://find_entries.lua
+    method: handler
+    modules: [ json, registry ]
+
+  - name: create_entry
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Create Entry"
+      llm_alias: "create_entry"
+      description: "Creates a new registry entry"
+      llm_description: "Adds a new entry to the registry with specified namespace, name, kind, metadata, and data"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "type": "string",
+              "description": "The namespace for the new entry"
+            },
+            "name": {
+              "type": "string",
+              "description": "The name for the new entry"
+            },
+            "kind": {
+              "type": "string",
+              "description": "The kind of entry (e.g., 'registry.entry', 'function.lua')"
+            },
+            "meta": {
+              "type": "object",
+              "description": "Metadata for the entry"
+            },
+            "data": {
+              "type": "object",
+              "description": "Data payload for the entry"
+            }
+          },
+          "required": ["namespace", "name", "kind"]
+        }
+    source: file://create_entry.lua
+    method: handler
+    modules: [ json, registry ]
+
+  - name: update_entry
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Update Entry"
+      llm_alias: "update_entry"
+      description: "Updates an existing registry entry"
+      llm_description: "Modifies an existing registry entry with new metadata or data"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The ID of the registry entry to update in the format 'namespace:name'"
+            },
+            "kind": {
+              "type": "string",
+              "description": "Updated kind for the entry (optional)"
+            },
+            "meta": {
+              "type": "object",
+              "description": "Updated metadata for the entry (optional)"
+            },
+            "data": {
+              "type": "object",
+              "description": "Updated data payload for the entry (optional)"
+            },
+            "merge": {
+              "type": "boolean",
+              "description": "Whether to merge the updates with existing values (true) or replace them (false, default)"
+            }
+          },
+          "required": ["id"]
+        }
+    source: file://update_entry.lua
+    method: handler
+    modules: [ json, registry ]
+
+  - name: delete_entry
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Delete Entry"
+      llm_alias: "delete_entry"
+      description: "Deletes a registry entry"
+      llm_description: "Permanently removes an entry from the registry"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The ID of the registry entry to delete in the format 'namespace:name'"
+            }
+          },
+          "required": ["id"]
+        }
+    source: file://delete_entry.lua
+    method: handler
+    modules: [ json, registry ]
+
+  - name: list_namespace
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "List Namespace"
+      llm_alias: "list_namespace"
+      description: "Lists all entries in a specific namespace"
+      llm_description: "Returns all registry entries within a specified namespace"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "type": "string",
+              "description": "The namespace to list entries from"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum number of entries to return (optional, default: 100)"
+            },
+            "offset": {
+              "type": "integer",
+              "description": "Offset for pagination (optional, default: 0)"
+            }
+          },
+          "required": ["namespace"]
+        }
+    source: file://list_namespace.lua
+    method: handler
+    modules: [ json, registry ]
+
+  - name: get_versions
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Get Versions"
+      llm_alias: "get_versions"
+      description: "Retrieves registry version history"
+      llm_description: "Gets the version history of the registry with details about each version"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "description": "Maximum number of versions to return (optional, default: 20)"
+            }
+          }
+        }
+    source: file://get_versions.lua
+    method: handler
+    modules: [ json, registry ]
+
+  - name: apply_version
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Apply Version"
+      llm_alias: "apply_version"
+      description: "Applies (rolls back to) a specific registry version"
+      llm_description: "Reverts the registry to a specific historical version"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "version_id": {
+              "type": "integer",
+              "description": "The version ID to apply"
+            }
+          },
+          "required": ["version_id"]
+        }
+    source: file://apply_version.lua
+    method: handler
+    modules: [ json, registry ]
+
+  - name: get_headers
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Get Headers"
+      llm_alias: "get_headers"
+      description: "Gets minimal header information for registry entries"
+      llm_description: "Returns namespace, kind, name, and comment for entries without full metadata or data"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "type": "string",
+              "description": "Optional namespace to filter entries (if not provided, returns entries from all namespaces)"
+            },
+            "kind": {
+              "type": "string",
+              "description": "Optional kind to filter entries (e.g., 'registry.entry', 'function.lua')"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum number of entries to return (default: 100)"
+            },
+            "offset": {
+              "type": "integer",
+              "description": "Offset for pagination (default: 0)"
+            }
+          }
+        }
+    source: file://get_headers.lua
+    method: handler
+    modules: [ json, registry ]
