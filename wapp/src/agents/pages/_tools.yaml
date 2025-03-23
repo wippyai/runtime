@@ -1,0 +1,136 @@
+version: "1.0"
+namespace: app.pages
+
+entries:
+  - name: list_pages
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "List Pages"
+      llm_alias: "list_pages"
+      description: "Lists all dynamic web pages with their metadata"
+      llm_description: "Returns a list of all dynamic pages with metadata like id, title, name, and icon"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {}
+        }
+    source: file://list_pages.lua
+    method: handler
+    modules: [ http, json, registry ]
+
+  - name: get_page
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Get Page"
+      llm_alias: "get_page"
+      description: "Gets the content of a specific page by ID"
+      llm_description: "Retrieves the complete content and metadata of a specific page"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The ID of the page to retrieve (e.g., 'simple-text-page-123456789')"
+            }
+          },
+          "required": ["id"]
+        }
+    source: file://get_page.lua
+    method: handler
+    modules: [ http, json, registry ]
+
+  - name: create_page
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Create Page"
+      llm_alias: "create_page"
+      description: "Creates a new dynamic page with specified content and metadata"
+      llm_description: "Creates a new HTML page with custom content and metadata"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "The title of the page"
+            },
+            "name": {
+              "type": "string",
+              "description": "The name identifier for the page (e.g., 'dashboard', 'user-guide')"
+            },
+            "icon": {
+              "type": "string",
+              "description": "The icon name for the page (e.g., 'tabler:home', 'tabler:file-text')"
+            },
+            "content": {
+              "type": "string",
+              "description": "The HTML content of the page"
+            }
+          },
+          "required": ["title", "name", "content"]
+        }
+    source: file://create_page.lua
+    method: handler
+    modules: [ http, json, registry ]
+
+  - name: update_page
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Update Page"
+      llm_alias: "update_page"
+      description: "Updates an existing page with new content or metadata"
+      llm_description: "Modifies the content or metadata of an existing page"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The ID of the page to update"
+            },
+            "title": {
+              "type": "string",
+              "description": "The new title of the page (optional)"
+            },
+            "icon": {
+              "type": "string",
+              "description": "The new icon name for the page (optional)"
+            },
+            "content": {
+              "type": "string",
+              "description": "The new HTML content for the page (optional)"
+            }
+          },
+          "required": ["id"]
+        }
+    source: file://update_page.lua
+    method: handler
+    modules: [ http, json, registry ]
+
+  - name: delete_page
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Delete Page"
+      llm_alias: "delete_page"
+      description: "Deletes a specific page by ID"
+      llm_description: "Permanently removes a page from the system"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The ID of the page to delete"
+            }
+          },
+          "required": ["id"]
+        }
+    source: file://delete_page.lua
+    method: handler
+    modules: [ http, json, registry ]

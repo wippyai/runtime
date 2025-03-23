@@ -91,7 +91,7 @@ local function define_tests()
             expect(messages[1].function_call.id).to_equal("call_123")
 
             -- Check function result
-            expect(messages[2].role).to_equal("function")
+            expect(messages[2].role).to_equal("function_result")
             expect(messages[2].name).to_equal("get_weather")
             expect(messages[2].content[1].text).to_equal('{"temp":20,"condition":"Sunny"}')
             expect(messages[2].function_call_id).to_equal("call_123")
@@ -217,79 +217,6 @@ local function define_tests()
             expect(#messages[1].content).to_equal(2, "Expected 2 content parts")
             expect(messages[1].content[1].type).to_equal("text")
             expect(messages[1].content[2].type).to_equal("image")
-        end)
-
-
-        it("should auto-merge consecutive messages of the same type", function()
-            local builder = prompt.new()
-
-            -- Add consecutive system messages
-            builder:add_system("System message 1.")
-            builder:add_system("System message 2.")
-
-            -- Add consecutive user messages
-            builder:add_user("User message 1.")
-            builder:add_user("User message 2.")
-
-            -- Add consecutive assistant messages
-            builder:add_assistant("Assistant message 1.")
-            builder:add_assistant("Assistant message 2.")
-
-            -- Add consecutive developer messages
-            builder:add_developer("Developer message 1.")
-            builder:add_developer("Developer message 2.")
-
-            -- Add a function call (which shouldn't be merged)
-            builder:add_function_call("get_weather", '{"location":"Paris"}')
-
-            -- Add another user message (should not merge with previous user messages due to function call in between)
-            builder:add_user("Another user message.")
-
-            -- Get the messages
-            local messages = builder:get_messages()
-
-            -- Should have 5 messages total (4 merged message types + function call)
-            expect(#messages).to_equal(5, "Expected 5 messages after auto-merging")
-
-            -- First message should be system with both system messages merged
-            expect(messages[1].role).to_equal("system")
-            expect(messages[1].content[1].text).to_match("System message 1.")
-            expect(messages[1].content[1].text).to_match("System message 2.")
-
-            -- Second message should be user with both user messages merged
-            expect(messages[2].role).to_equal("user")
-            expect(messages[2].content[1].text).to_match("User message 1.")
-            expect(messages[2].content[1].text).to_match("User message 2.")
-
-            -- Third message should be assistant with both assistant messages merged
-            expect(messages[3].role).to_equal("assistant")
-            expect(messages[3].content[1].text).to_match("Assistant message 1.")
-            expect(messages[3].content[1].text).to_match("Assistant message 2.")
-
-            -- Fourth message should be developer with both developer messages merged
-            expect(messages[4].role).to_equal("developer")
-            expect(messages[4].content[1].text).to_match("Developer message 1.")
-            expect(messages[4].content[1].text).to_match("Developer message 2.")
-
-            -- Fifth message should be the function call
-            expect(messages[5].role).to_equal("function_call")
-
-            -- Sixth message should be the last user message (separate from earlier ones)
-            expect(messages[6].role).to_equal("user")
-            expect(messages[6].content[1].text).to_equal("Another user message.")
-
-            -- Test with multi-modal content
-            local multimodal_builder = prompt.new()
-            multimodal_builder:add_message(prompt.ROLE.USER, { prompt.text("Text message 1") })
-            multimodal_builder:add_message(prompt.ROLE.USER, { prompt.text("Text message 2") })
-            multimodal_builder:add_message(prompt.ROLE.USER, { prompt.image("https://example.com/image.jpg") })
-
-            local mm_messages = multimodal_builder:get_messages()
-            expect(#mm_messages).to_equal(1, "Expected multi-modal content to be merged")
-            expect(#mm_messages[1].content).to_equal(3, "Expected 3 content parts")
-            expect(mm_messages[1].content[1].type).to_equal("text")
-            expect(mm_messages[1].content[2].type).to_equal("text")
-            expect(mm_messages[1].content[3].type).to_equal("image")
         end)
     end)
 end

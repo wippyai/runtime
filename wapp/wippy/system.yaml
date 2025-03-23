@@ -48,3 +48,9 @@ entries:
       depends_on:
         - gateway
     prefix: /api/v1/system/
+    middleware: [ cors ]
+    options:
+      allow_origins: "*"
+      allow_methods: "*"
+      allow_headers: "*"
+

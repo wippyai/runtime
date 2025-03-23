@@ -9,8 +9,20 @@ entries:
     kind: registry.entry
     meta:
       type: "virtual.page"
+      order: 0
       name: "welcome"
       title: "Dashboard"
       icon: "tabler:home"
       content_type: "text/html"
     source: file://welcome.html
+
+  - name: test
+    kind: registry.entry
+    meta:
+      type: "virtual.page"
+      order: 100
+      name: "test"
+      title: "Application Tests"
+      icon: "tabler:test"
+      content_type: "text/html"
+    source: file://test.html

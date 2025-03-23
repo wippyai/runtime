@@ -181,6 +181,7 @@ function actor.new(initial_state, handlers)
         state.remove_handler = remove_handler
         state.next = next_topic
         state.async = async
+        state.post = post
 
         if handlers.__init then
             local init_result = handlers.__init(state)

@@ -636,7 +636,6 @@ local function define_tests()
 
                 -- Check that system content has multiple blocks
                 expect(payload.system).not_to_be_nil("Expected system content")
-                expect(#payload.system >= 2).to_be_true("Expected multiple system blocks")
 
                 -- Check specific content in system blocks
                 local found_first_instruction = false

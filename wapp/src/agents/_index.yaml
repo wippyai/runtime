@@ -58,7 +58,7 @@ entries:
     ]
 
   # Navigator Manager Agent
-  - name: sf_navigator
+  - name: navigator
     kind: registry.entry
     meta:
       type: "agent.gen1"
@@ -84,7 +84,9 @@ entries:
       "fs-manager":
         name: "to_fs_manager"
         rule: "Send user to Filesystem Manager for file and directory operations, listing contents, reading files, and any filesystem management tasks."
-
+      "page-manager":
+        name: "to_page_manager"
+        rule: "Send user to Page Manager for managing dynamic web pages."
     tools:
       - app.tools.greeting:hello_world
 
