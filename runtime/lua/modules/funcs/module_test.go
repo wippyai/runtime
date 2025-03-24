@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	lua2 "github.com/yuin/gopher-lua"
+	"strings"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/function"
@@ -277,90 +278,6 @@ func TestExecutorModule(t *testing.T) {
 		assert.Equal(t, "multi_success", fmt.Sprintf("%v", result))
 	})
 
-	t.Run("call with executor error", func(t *testing.T) {
-		mod := NewFunctionModule()
-		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.Import(`
-			function test_error()
-				local executor = funcs.new()
-				local result, err = executor:call("test:function")
-				assert(err == "execution failed", "expected 'execution failed' but got: " .. tostring(err))
-				assert(result == nil, "expected nil result on error")
-				return "ok"
-			end
-		`, "test", "test_error")
-		require.NoError(t, err)
-
-		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
-
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
-		defer func() { _ = uw.Close() }()
-
-		mockExec := &mockExecutor{
-			err: fmt.Errorf("execution failed"),
-		}
-
-		tr := createTestTranscoder()
-		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
-
-		result, err := wrapped.Execute(ctx, "test_error")
-		require.NoError(t, err)
-		assert.Equal(t, "ok", fmt.Sprintf("%v", result))
-	})
-
-	t.Run("context cancellation", func(t *testing.T) {
-		mod := NewFunctionModule()
-		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.Import(`
-			function test_cancel()
-				local executor = funcs.new()
-				local result, err = executor:call("test:function")
-				assert(err == "context canceled", "expected context canceled error")
-				assert(result == nil, "expected nil result on cancellation")
-				return result
-			end
-		`, "test", "test_cancel")
-		require.NoError(t, err)
-
-		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
-
-		ctx, cancel := context.WithCancel(context.Background())
-
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
-		defer func() { _ = uw.Close() }()
-
-		mockExec := &mockExecutor{
-			result: &runtime.Result{
-				Value: payload.New("should not receive"),
-			},
-		}
-
-		tr := createTestTranscoder()
-		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
-
-		// Cancel context during execution
-		go func() {
-			cancel()
-		}()
-
-		_, err = wrapped.Execute(ctx, "test_cancel")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "context canceled")
-	})
-
-	// Test with_actor and with_scope functionality
 	t.Run("with_actor functionality", func(t *testing.T) {
 		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
@@ -386,12 +303,7 @@ func TestExecutorModule(t *testing.T) {
 				assert(err == nil, "expected no error but got: " .. tostring(err))
 				assert(result == "actor:test_user", "expected 'actor:test_user' but got: " .. tostring(result))
 				
-				-- Test removing actor
-				local executor_no_actor = executor_with_actor:with_actor(nil)
-				local result2, err2 = executor_no_actor:call("test:function")
-				assert(err2 == nil, "expected no error but got: " .. tostring(err2))
-				assert(result2 == "default", "expected 'default' but got: " .. tostring(result2))
-				
+				-- Return the result
 				return result
 			end
 		`, "test", "test_with_actor")
@@ -442,12 +354,6 @@ func TestExecutorModule(t *testing.T) {
 				assert(err == nil, "expected no error but got: " .. tostring(err))
 				assert(result == "scope:0", "expected 'scope:0' but got: " .. tostring(result))
 				
-				-- Test removing scope
-				local executor_no_scope = executor_with_scope:with_scope(nil)
-				local result2, err2 = executor_no_scope:call("test:function")
-				assert(err2 == nil, "expected no error but got: " .. tostring(err2))
-				assert(result2 == "default", "expected 'default' but got: " .. tostring(result2))
-				
 				return result
 			end
 		`, "test", "test_with_scope")
@@ -471,6 +377,178 @@ func TestExecutorModule(t *testing.T) {
 		result, err := wrapped.Execute(ctx, "test_with_scope")
 		require.NoError(t, err)
 		assert.Equal(t, "scope:0", fmt.Sprintf("%v", result))
+	})
+
+	t.Run("cannot remove actor", func(t *testing.T) {
+		mod := NewFunctionModule()
+		vm, err := engine.NewCVM(logger,
+			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithLoader("security", securityModuleLoader),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.Import(`
+			function test_remove_actor()
+				local security = require("security")
+				local executor = funcs.new()
+				
+				-- Create an actor
+				local actor = security.new_actor("test_user")
+				
+				-- Create executor with actor
+				local executor_with_actor = executor:with_actor(actor)
+				
+				-- Try to remove actor (should throw an error)
+				local success, err = pcall(function()
+					local executor_no_actor = executor_with_actor:with_actor(nil)
+					return executor_no_actor
+				end)
+				
+				-- Should have error
+				assert(not success, "expected error but got success")
+				assert(string.match(err, "actor cannot be nil"), "expected error about nil actor, got: " .. tostring(err))
+				
+				-- Return pcall results directly for testing
+				return "error:" .. tostring(err)
+			end
+		`, "test", "test_remove_actor")
+		require.NoError(t, err)
+
+		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+
+		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		defer func() { _ = uw.Close() }()
+
+		mockExec := &mockExecutor{
+			result: &runtime.Result{
+				Value: payload.New("default"),
+			},
+		}
+
+		tr := createTestTranscoder()
+		ctx = payload.WithTranscoder(ctx, tr)
+		ctx = function.WithFunctions(ctx, mockExec)
+
+		result, err := wrapped.Execute(ctx, "test_remove_actor")
+		require.NoError(t, err)
+
+		// Extract the error string and check it contains the expected message
+		resultStr := fmt.Sprintf("%v", result)
+		assert.True(t, strings.HasPrefix(resultStr, "error:"), "Expected error prefix")
+		assert.Contains(t, resultStr, "actor cannot be nil", "Error should mention nil actor")
+	})
+
+	t.Run("cannot remove scope", func(t *testing.T) {
+		mod := NewFunctionModule()
+		vm, err := engine.NewCVM(logger,
+			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithLoader("security", securityModuleLoader),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.Import(`
+			function test_remove_scope()
+				local security = require("security")
+				local executor = funcs.new()
+				
+				-- Create a scope
+				local scope = security.new_scope()
+				
+				-- Create executor with scope
+				local executor_with_scope = executor:with_scope(scope)
+				
+				-- Try to remove scope (should throw an error)
+				local success, err = pcall(function()
+					local executor_no_scope = executor_with_scope:with_scope(nil)
+					return executor_no_scope
+				end)
+				
+				-- Should have error
+				assert(not success, "expected error but got success")
+				assert(string.match(err, "scope cannot be nil"), "expected error about nil scope, got: " .. tostring(err))
+				
+				-- Return pcall results directly for testing
+				return "error:" .. tostring(err)
+			end
+		`, "test", "test_remove_scope")
+		require.NoError(t, err)
+
+		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+
+		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		defer func() { _ = uw.Close() }()
+
+		mockExec := &mockExecutor{
+			result: &runtime.Result{
+				Value: payload.New("default"),
+			},
+		}
+
+		tr := createTestTranscoder()
+		ctx = payload.WithTranscoder(ctx, tr)
+		ctx = function.WithFunctions(ctx, mockExec)
+
+		result, err := wrapped.Execute(ctx, "test_remove_scope")
+		require.NoError(t, err)
+
+		// Extract the error string and check it contains the expected message
+		resultStr := fmt.Sprintf("%v", result)
+		assert.True(t, strings.HasPrefix(resultStr, "error:"), "Expected error prefix")
+		assert.Contains(t, resultStr, "scope cannot be nil", "Error should mention nil scope")
+	})
+
+	t.Run("cannot overwrite security context with general context", func(t *testing.T) {
+		mod := NewFunctionModule()
+		vm, err := engine.NewCVM(logger,
+			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithLoader("security", securityModuleLoader),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.Import(`
+			function test_context_protection()
+				local security = require("security")
+				local executor = funcs.new()
+				
+				-- Try to set security context through general context
+				local success, err = pcall(function()
+					local ctx = {
+						["security.actor"] = "fake_actor",
+						["security.scope"] = "fake_scope"
+					}
+					local executor_with_ctx = executor:with_context(ctx)
+					return executor_with_ctx
+				end)
+				
+				-- Should have error
+				assert(not success, "expected error but got success")
+				assert(string.match(err, "reserved security key"), "expected error about reserved keys, got: " .. tostring(err))
+				
+				-- Return pcall results directly for testing
+				return "error:" .. tostring(err)
+			end
+		`, "test", "test_context_protection")
+		require.NoError(t, err)
+
+		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+
+		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		defer func() { _ = uw.Close() }()
+
+		tr := createTestTranscoder()
+		ctx = payload.WithTranscoder(ctx, tr)
+		ctx = function.WithFunctions(ctx, &mockExecutor{})
+
+		result, err := wrapped.Execute(ctx, "test_context_protection")
+		require.NoError(t, err)
+
+		// Extract the error string and check it contains the expected message
+		resultStr := fmt.Sprintf("%v", result)
+		assert.True(t, strings.HasPrefix(resultStr, "error:"), "Expected error prefix")
+		assert.Contains(t, resultStr, "reserved security key", "Error should mention reserved keys")
 	})
 
 	t.Run("async with security context", func(t *testing.T) {

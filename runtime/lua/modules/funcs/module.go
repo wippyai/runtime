@@ -20,12 +20,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Constants for context keys
-const (
-	actorKey = "security.actor"
-	scopeKey = "security.scope"
-)
-
 // Module represents the function module
 type Module struct{}
 
@@ -34,6 +28,12 @@ type Functions struct {
 	funcs  function.Registry
 	dtt    payload.Transcoder
 	values *contextapi.Contexter[interface{}]
+
+	// Dedicated fields for security context to prevent overwriting/conflicting with user values
+	actor    secapi.Actor
+	hasActor bool
+	scope    secapi.Scope
+	hasScope bool
 }
 
 // NewFunctionModule creates a new function module
@@ -96,9 +96,11 @@ func (m *Module) new(l *lua.LState) int {
 	}
 
 	functions := &Functions{
-		funcs:  funcs,
-		dtt:    dtt,
-		values: contextapi.NewContexter[any](),
+		funcs:    funcs,
+		dtt:      dtt,
+		values:   contextapi.NewContexter[any](),
+		hasActor: false,
+		hasScope: false,
 	}
 
 	ud := l.NewUserData()
@@ -134,14 +136,26 @@ func (m *Module) withContext(l *lua.LState) int {
 			l.ArgError(2, "context keys must be strings")
 			return
 		}
-		newValues.SetValue(string(key), luaconv.ToGoAny(v))
+
+		// Don't allow overwriting security-specific keys through general context
+		keyStr := string(key)
+		if keyStr == "security.actor" || keyStr == "security.scope" {
+			l.ArgError(2, fmt.Sprintf("reserved security key '%s' cannot be set through with_context", keyStr))
+			return
+		}
+
+		newValues.SetValue(keyStr, luaconv.ToGoAny(v))
 	})
 
-	// Create new Functions instance
+	// Create new Functions instance with copied security context
 	newFunctions := &Functions{
-		funcs:  functions.funcs,
-		dtt:    functions.dtt,
-		values: newValues,
+		funcs:    functions.funcs,
+		dtt:      functions.dtt,
+		values:   newValues,
+		actor:    functions.actor,
+		hasActor: functions.hasActor,
+		scope:    functions.scope,
+		hasScope: functions.hasScope,
 	}
 
 	// Create new userdata with the new Functions instance
@@ -162,36 +176,29 @@ func (m *Module) withActor(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new contexter and copy existing values
-	newValues := contextapi.NewContexter[any]()
-	if functions.values != nil {
-		functions.values.Iterate(func(key string, value any) {
-			// Skip the actor key as we'll set it explicitly
-			if key != actorKey {
-				newValues.SetValue(key, value)
-			}
-		})
-	}
-
-	// Check if we're setting or removing the actor
+	// Check if we're setting actor
 	if l.Get(2).Type() == lua.LTNil {
-		// Removing actor by not setting it in newValues
-	} else {
-		// Setting actor
-		actorUD := l.CheckUserData(2)
-		actor, ok := actorUD.Value.(secapi.Actor)
-		if !ok {
-			l.ArgError(2, "Actor expected")
-			return 0
-		}
-		newValues.SetValue(actorKey, actor)
+		l.ArgError(2, "actor cannot be nil - security context cannot be removed")
+		return 0
 	}
 
-	// Create new Functions instance
+	// Get actor
+	actorUD := l.CheckUserData(2)
+	actor, ok := actorUD.Value.(secapi.Actor)
+	if !ok {
+		l.ArgError(2, "Actor expected")
+		return 0
+	}
+
+	// Create new Functions instance with copied values and new actor
 	newFunctions := &Functions{
-		funcs:  functions.funcs,
-		dtt:    functions.dtt,
-		values: newValues,
+		funcs:    functions.funcs,
+		dtt:      functions.dtt,
+		values:   functions.values.Clone(), // Clone the values
+		actor:    actor,
+		hasActor: true,
+		scope:    functions.scope,
+		hasScope: functions.hasScope,
 	}
 
 	// Create new userdata with the new Functions instance
@@ -212,36 +219,29 @@ func (m *Module) withScope(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new contexter and copy existing values
-	newValues := contextapi.NewContexter[any]()
-	if functions.values != nil {
-		functions.values.Iterate(func(key string, value any) {
-			// Skip the scope key as we'll set it explicitly
-			if key != scopeKey {
-				newValues.SetValue(key, value)
-			}
-		})
-	}
-
-	// Check if we're setting or removing the scope
+	// Check if we're setting scope
 	if l.Get(2).Type() == lua.LTNil {
-		// Removing scope by not setting it in newValues
-	} else {
-		// Setting scope
-		scopeUD := l.CheckUserData(2)
-		scope, ok := scopeUD.Value.(secapi.Scope)
-		if !ok {
-			l.ArgError(2, "Scope expected")
-			return 0
-		}
-		newValues.SetValue(scopeKey, scope)
+		l.ArgError(2, "scope cannot be nil - security context cannot be removed")
+		return 0
 	}
 
-	// Create new Functions instance
+	// Get scope
+	scopeUD := l.CheckUserData(2)
+	scope, ok := scopeUD.Value.(secapi.Scope)
+	if !ok {
+		l.ArgError(2, "Scope expected")
+		return 0
+	}
+
+	// Create new Functions instance with copied values and new scope
 	newFunctions := &Functions{
-		funcs:  functions.funcs,
-		dtt:    functions.dtt,
-		values: newValues,
+		funcs:    functions.funcs,
+		dtt:      functions.dtt,
+		values:   functions.values.Clone(), // Clone the values
+		actor:    functions.actor,
+		hasActor: functions.hasActor,
+		scope:    scope,
+		hasScope: true,
 	}
 
 	// Create new userdata with the new Functions instance
@@ -390,22 +390,14 @@ func (m *Module) async(l *lua.LState) int {
 
 // applySecurityContext applies the actor and scope values to the context
 func (f *Functions) applySecurityContext(ctx context.Context) context.Context {
-	if f.values == nil {
-		return ctx
-	}
-
 	// Apply actor if set
-	if actorValue, ok := f.values.Value(actorKey); ok {
-		if actor, ok := actorValue.(secapi.Actor); ok {
-			ctx = secapi.WithActor(ctx, actor)
-		}
+	if f.hasActor {
+		ctx = secapi.WithActor(ctx, f.actor)
 	}
 
 	// Apply scope if set
-	if scopeValue, ok := f.values.Value(scopeKey); ok {
-		if scope, ok := scopeValue.(secapi.Scope); ok {
-			ctx = secapi.WithScope(ctx, scope)
-		}
+	if f.hasScope {
+		ctx = secapi.WithScope(ctx, f.scope)
 	}
 
 	return ctx
