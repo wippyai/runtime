@@ -35,7 +35,8 @@ local function handler()
                 id = entry.id,
                 name = entry.meta.name or "",
                 title = entry.meta.title or "",
-                icon = entry.meta.icon or ""
+                icon = entry.meta.icon or "",
+                order = entry.meta.order or 0,
             }
 
             table.insert(pages, page)

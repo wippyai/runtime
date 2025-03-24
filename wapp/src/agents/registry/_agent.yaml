@@ -50,7 +50,7 @@ entries:
       
       Your goal is to help users manage the registry efficiently and safely.
 
-    model: "claude-3-5-sonnet"
+    model: "claude-3-7-sonnet"
     max_tokens: 8000
     temperature: 0.5
 

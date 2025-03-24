@@ -57,22 +57,21 @@ function chunk_query.query(file_id, query_string, limit)
         return nil, err
     end
 
-    -- Perform vector similarity search filtered by file_id
-    -- Using the vec0 table's MATCH capability with file_id partition key
     local query = [[
         SELECT
+            file_id,
             chunk_id,
             content,
             path,
             distance
         FROM file_chunks
-        WHERE file_id = ?
-        AND embedding MATCH ?
+        WHERE embedding MATCH ?
         AND k = ?
+
         ORDER BY distance
     ]]
 
-    local chunks, err = db:query(query, { file_id, embedding, sql.as.int(limit) })
+    local chunks, err = db:query(query, { embedding, sql.as.int(limit) })
     db:release()
 
     if err then
@@ -81,6 +80,7 @@ function chunk_query.query(file_id, query_string, limit)
 
     -- Parse JSON paths for better usability
     for i, chunk in ipairs(chunks) do
+        print(jso)
         local success, path_obj = pcall(json.decode, chunk.path)
         if success then
             chunk.path_object = path_obj

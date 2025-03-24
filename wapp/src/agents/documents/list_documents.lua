@@ -14,7 +14,7 @@ local function handler(params)
     --end
 
     -- Get user ID from actor
-    local user_id = "test" --actor:id() todo; fix scope passing
+    local user_id = "test3" --actor:id() todo; fix scope passing
     if not user_id or user_id == "" then
         return {
             success = false,
