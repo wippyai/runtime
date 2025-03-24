@@ -5,23 +5,6 @@ import (
 	"context"
 	"io"
 	"time"
-
-	"github.com/ponyruntime/pony/api/event"
-)
-
-const (
-	// System represents the cloud storage system identifier.
-	System event.System = "cloudstorage"
-
-	// Register is the event type for registering a new storage provider.
-	Register event.Kind = "cloudstorage.register"
-	// Delete is the event type for removing a storage provider.
-	Delete event.Kind = "cloudstorage.delete"
-
-	// Accept is the event type for accepting a storage operation.
-	Accept event.Kind = "cloudstorage.accept"
-	// Reject is the event type for rejecting a storage operation.
-	Reject event.Kind = "cloudstorage.reject"
 )
 
 type (
