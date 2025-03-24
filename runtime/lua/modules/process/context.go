@@ -2,11 +2,13 @@ package process
 
 import (
 	contextbase "context"
+	"fmt"
 	"github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	secapi "github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
@@ -17,6 +19,12 @@ import (
 type WithContext struct {
 	module *Module
 	values *context.Contexter[any]
+
+	// Dedicated fields for security context to prevent overwriting/conflicting with user values
+	actor    secapi.Actor
+	hasActor bool
+	scope    secapi.Scope
+	hasScope bool
 }
 
 // withContext creates a new process spawner with context values
@@ -48,13 +56,25 @@ func (m *Module) withContext(l *lua.LState) int {
 				l.ArgError(2, "context keys must be strings")
 				return
 			}
+
+			// Don't allow overwriting security-specific keys through general context
+			keyStr := string(key)
+			if keyStr == "security.actor" || keyStr == "security.scope" {
+				l.ArgError(2, fmt.Sprintf("reserved security key '%s' cannot be set through with_context", keyStr))
+				return
+			}
+
 			newValues.SetValue(string(key), luaconv.ToGoAny(v))
 		})
 
-		// Create new spawner with merged context
+		// Create new spawner with merged context, preserving security context
 		newSpawner := &WithContext{
-			module: m,
-			values: newValues,
+			module:   m,
+			values:   newValues,
+			actor:    spawner.actor,
+			hasActor: spawner.hasActor,
+			scope:    spawner.scope,
+			hasScope: spawner.hasScope,
 		}
 
 		// Create userdata with the new spawner
@@ -78,13 +98,23 @@ func (m *Module) withContext(l *lua.LState) int {
 			l.ArgError(1, "context keys must be strings")
 			return
 		}
+
+		// Don't allow setting security-specific keys through general context
+		keyStr := string(key)
+		if keyStr == "security.actor" || keyStr == "security.scope" {
+			l.ArgError(1, fmt.Sprintf("reserved security key '%s' cannot be set through with_context", keyStr))
+			return
+		}
+
 		values.SetValue(string(key), luaconv.ToGoAny(v))
 	})
 
 	// Create new spawner with context
 	spawner := &WithContext{
-		module: m,
-		values: values,
+		module:   m,
+		values:   values,
+		hasActor: false,
+		hasScope: false,
 	}
 
 	// Create userdata with metatable for method chaining
@@ -96,13 +126,115 @@ func (m *Module) withContext(l *lua.LState) int {
 	return 1
 }
 
+// withActor creates a new process spawner with a specific actor
+func (m *Module) withActor(l *lua.LState) int {
+	// Check if this is a chained call on an existing WithContext
+	ud := l.CheckUserData(1)
+	spawner, ok := ud.Value.(*WithContext)
+	if !ok {
+		l.ArgError(1, "process spawner expected")
+		return 0
+	}
+
+	// Check if we're setting actor
+	if l.Get(2).Type() == lua.LTNil {
+		l.ArgError(2, "actor cannot be nil - security context cannot be removed")
+		return 0
+	}
+
+	// Get actor
+	actorUD := l.CheckUserData(2)
+	actor, ok := actorUD.Value.(secapi.Actor)
+	if !ok {
+		l.ArgError(2, "Actor expected")
+		return 0
+	}
+
+	// Create new spawner with copied values and new actor
+	newSpawner := &WithContext{
+		module:   spawner.module,
+		values:   spawner.values.Clone(), // Clone the values
+		actor:    actor,
+		hasActor: true,
+		scope:    spawner.scope,
+		hasScope: spawner.hasScope,
+	}
+
+	// Create userdata with the new spawner
+	newUd := l.NewUserData()
+	newUd.Value = newSpawner
+	newUd.Metatable = value.GetTypeMetatable(l, "process.WithContext")
+	l.Push(newUd)
+
+	return 1
+}
+
+// withScope creates a new process spawner with a specific scope
+func (m *Module) withScope(l *lua.LState) int {
+	// Check if this is a chained call on an existing WithContext
+	ud := l.CheckUserData(1)
+	spawner, ok := ud.Value.(*WithContext)
+	if !ok {
+		l.ArgError(1, "process spawner expected")
+		return 0
+	}
+
+	// Check if we're setting scope
+	if l.Get(2).Type() == lua.LTNil {
+		l.ArgError(2, "scope cannot be nil - security context cannot be removed")
+		return 0
+	}
+
+	// Get scope
+	scopeUD := l.CheckUserData(2)
+	scope, ok := scopeUD.Value.(secapi.Scope)
+	if !ok {
+		l.ArgError(2, "Scope expected")
+		return 0
+	}
+
+	// Create new spawner with copied values and new scope
+	newSpawner := &WithContext{
+		module:   spawner.module,
+		values:   spawner.values.Clone(), // Clone the values
+		actor:    spawner.actor,
+		hasActor: spawner.hasActor,
+		scope:    scope,
+		hasScope: true,
+	}
+
+	// Create userdata with the new spawner
+	newUd := l.NewUserData()
+	newUd.Value = newSpawner
+	newUd.Metatable = value.GetTypeMetatable(l, "process.WithContext")
+	l.Push(newUd)
+
+	return 1
+}
+
 // applyContextToProcess applies context values from a Contexter to a process context
-func applyContextToProcess(ctx contextbase.Context, contextValues *context.Contexter[any]) contextbase.Context {
-	if contextValues == nil || contextValues.Len() == 0 {
+func applyContextToProcess(ctx contextbase.Context, spawner *WithContext) contextbase.Context {
+	if spawner == nil {
 		return ctx
 	}
 
-	// todo: implement
+	// Apply regular context values
+	if spawner.values != nil && spawner.values.Len() > 0 {
+		spawner.values.Iterate(func(key string, value any) {
+			ctx = contextbase.WithValue(ctx, key, value)
+		})
+	}
+
+	// Apply actor if set
+	if spawner.hasActor {
+		ctx = secapi.WithActor(ctx, spawner.actor)
+	}
+
+	// Apply scope if set
+	if spawner.hasScope {
+		ctx = secapi.WithScope(ctx, spawner.scope)
+	}
+
 	return ctx
 }
 
@@ -133,8 +265,8 @@ func (m *Module) contextSpawn(l *lua.LState) int {
 		return 0
 	}
 
-	// Apply context values using the Contexter pattern
-	ctx = applyContextToProcess(ctx, spawner.values)
+	// Apply context values using the updated function
+	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
 	manager := process.GetProcesses(ctx)
@@ -210,8 +342,8 @@ func (m *Module) contextSpawnMonitored(l *lua.LState) int {
 		return 0
 	}
 
-	// Apply context values using the Contexter pattern
-	ctx = applyContextToProcess(ctx, spawner.values)
+	// Apply context values using the updated function
+	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
 	manager := process.GetProcesses(ctx)
@@ -287,8 +419,8 @@ func (m *Module) contextSpawnLinked(l *lua.LState) int {
 		return 0
 	}
 
-	// Apply context values using the Contexter pattern
-	ctx = applyContextToProcess(ctx, spawner.values)
+	// Apply context values using the updated function
+	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
 	manager := process.GetProcesses(ctx)
@@ -364,8 +496,8 @@ func (m *Module) contextSpawnLinkedMonitored(l *lua.LState) int {
 		return 0
 	}
 
-	// Apply context values using the Contexter pattern
-	ctx = applyContextToProcess(ctx, spawner.values)
+	// Apply context values using the updated function
+	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
 	manager := process.GetProcesses(ctx)
@@ -419,6 +551,8 @@ func (m *Module) registerContextType(l *lua.LState) {
 	// Register WithContext type
 	value.RegisterTypeMethods(l, "process.WithContext", nil, map[string]lua.LGFunction{
 		"with_context":           m.withContext,
+		"with_actor":             m.withActor,
+		"with_scope":             m.withScope,
 		"spawn":                  m.contextSpawn,
 		"spawn_monitored":        m.contextSpawnMonitored,
 		"spawn_linked":           m.contextSpawnLinked,
