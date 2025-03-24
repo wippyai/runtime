@@ -11,12 +11,19 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
+	secapi "github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/runtime/lua/command"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
+)
+
+// Constants for context keys
+const (
+	actorKey = "security.actor"
+	scopeKey = "security.scope"
 )
 
 // Module represents the function module
@@ -44,6 +51,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Register the function executor methods
 	value.RegisterTypeMethods(l, "function.Executor", nil, map[string]lua.LGFunction{
 		"with_context": m.withContext,
+		"with_actor":   m.withActor,
+		"with_scope":   m.withScope,
 		"call":         m.call,
 		"async":        m.async,
 	})
@@ -144,6 +153,106 @@ func (m *Module) withContext(l *lua.LState) int {
 	return 1
 }
 
+// withActor creates a new executor with a specific actor
+func (m *Module) withActor(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	functions, ok := ud.Value.(*Functions)
+	if !ok {
+		l.ArgError(1, "functions executor expected")
+		return 0
+	}
+
+	// Create new contexter and copy existing values
+	newValues := contextapi.NewContexter[any]()
+	if functions.values != nil {
+		functions.values.Iterate(func(key string, value any) {
+			// Skip the actor key as we'll set it explicitly
+			if key != actorKey {
+				newValues.SetValue(key, value)
+			}
+		})
+	}
+
+	// Check if we're setting or removing the actor
+	if l.Get(2).Type() == lua.LTNil {
+		// Removing actor by not setting it in newValues
+	} else {
+		// Setting actor
+		actorUD := l.CheckUserData(2)
+		actor, ok := actorUD.Value.(secapi.Actor)
+		if !ok {
+			l.ArgError(2, "Actor expected")
+			return 0
+		}
+		newValues.SetValue(actorKey, actor)
+	}
+
+	// Create new Functions instance
+	newFunctions := &Functions{
+		funcs:  functions.funcs,
+		dtt:    functions.dtt,
+		values: newValues,
+	}
+
+	// Create new userdata with the new Functions instance
+	newUd := l.NewUserData()
+	newUd.Value = newFunctions
+	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
+	l.Push(newUd)
+
+	return 1
+}
+
+// withScope creates a new executor with a specific scope
+func (m *Module) withScope(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	functions, ok := ud.Value.(*Functions)
+	if !ok {
+		l.ArgError(1, "functions executor expected")
+		return 0
+	}
+
+	// Create new contexter and copy existing values
+	newValues := contextapi.NewContexter[any]()
+	if functions.values != nil {
+		functions.values.Iterate(func(key string, value any) {
+			// Skip the scope key as we'll set it explicitly
+			if key != scopeKey {
+				newValues.SetValue(key, value)
+			}
+		})
+	}
+
+	// Check if we're setting or removing the scope
+	if l.Get(2).Type() == lua.LTNil {
+		// Removing scope by not setting it in newValues
+	} else {
+		// Setting scope
+		scopeUD := l.CheckUserData(2)
+		scope, ok := scopeUD.Value.(secapi.Scope)
+		if !ok {
+			l.ArgError(2, "Scope expected")
+			return 0
+		}
+		newValues.SetValue(scopeKey, scope)
+	}
+
+	// Create new Functions instance
+	newFunctions := &Functions{
+		funcs:  functions.funcs,
+		dtt:    functions.dtt,
+		values: newValues,
+	}
+
+	// Create new userdata with the new Functions instance
+	newUd := l.NewUserData()
+	newUd.Value = newFunctions
+	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
+	l.Push(newUd)
+
+	return 1
+}
+
 // validateRegistryID validates a registry ID
 func validateRegistryID(id registry.ID) error {
 	if id.NS == "" {
@@ -181,7 +290,11 @@ func (m *Module) call(l *lua.LState) int {
 
 	// Wrap in coroutine for execution
 	coroutine.Wrap(l, func() *engine.Update {
-		resultChan, err := functions.funcs.Call(engine.DetachUnitOfWork(uw.Context()), t)
+		// Create execution context with security context values
+		execCtx := engine.DetachUnitOfWork(uw.Context())
+		execCtx = functions.applySecurityContext(execCtx)
+
+		resultChan, err := functions.funcs.Call(execCtx, t)
 		if err != nil {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
@@ -234,7 +347,11 @@ func (m *Module) async(l *lua.LState) int {
 		return 0
 	}
 
-	ctx, cancel := context.WithCancel(engine.DetachUnitOfWork(uw.Context()))
+	baseCtx := engine.DetachUnitOfWork(uw.Context())
+
+	// Apply security context
+	execCtx := functions.applySecurityContext(baseCtx)
+	ctx, cancel := context.WithCancel(execCtx)
 
 	// Create a Command for the function call with the task's params
 	cmd := command.NewCommand(
@@ -269,6 +386,29 @@ func (m *Module) async(l *lua.LState) int {
 	// Return the command object
 	l.Push(command.WrapCommand(l, cmd))
 	return 1
+}
+
+// applySecurityContext applies the actor and scope values to the context
+func (f *Functions) applySecurityContext(ctx context.Context) context.Context {
+	if f.values == nil {
+		return ctx
+	}
+
+	// Apply actor if set
+	if actorValue, ok := f.values.Value(actorKey); ok {
+		if actor, ok := actorValue.(secapi.Actor); ok {
+			ctx = secapi.WithActor(ctx, actor)
+		}
+	}
+
+	// Apply scope if set
+	if scopeValue, ok := f.values.Value(scopeKey); ok {
+		if scope, ok := scopeValue.(secapi.Scope); ok {
+			ctx = secapi.WithScope(ctx, scope)
+		}
+	}
+
+	return ctx
 }
 
 // createTask creates a runtime.Task from Lua parameters
