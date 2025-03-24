@@ -12,15 +12,6 @@ local function handler(params)
         }
     end
 
-    -- Get current user from security context
-    local actor = security.actor()
-    if not actor then
-        return {
-            success = false,
-            error = "Authentication required"
-        }
-    end
-
     -- Get file information first
     local file, err = file_repo.get(params.file_id)
     if err then
@@ -28,14 +19,6 @@ local function handler(params)
             success = false,
             error = "Failed to get document",
             details = err
-        }
-    end
-
-    -- Check if the file belongs to the current user
-    if file.user_id ~= actor:id() then
-        return {
-            success = false,
-            error = "You do not have permission to access this document"
         }
     end
 

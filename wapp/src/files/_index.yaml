@@ -144,10 +144,10 @@ entries:
   - name: delete_file.endpoint
     kind: http.endpoint
     meta:
-      comment: "Delete file endpoint"
+      comment: "Delete file endpoint, file_id as query parameter"
       router: app:api
     method: DELETE
-    path: /files/:file_id
+    path: /files
     func: delete_file_handler
 
   - name: chunk_query

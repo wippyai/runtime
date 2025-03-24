@@ -409,7 +409,7 @@ function renderDocumentList(documents) {
 
     // Create document list table
     const table = document.createElement('table');
-    table.className = 'min-w-full divide-y divide-gray-200';
+    table.className = 'min-w-full divide-y divide-gray-200 document-table';
 
     // Create table header
     const thead = document.createElement('thead');
@@ -471,14 +471,14 @@ function renderDocumentList(documents) {
         }
 
         tr.innerHTML = `
-            <td class="px-6 py-4 whitespace-nowrap">
+            <td class="px-6 py-4 file-name-cell">
                 <div class="flex items-center">
                     <div class="flex-shrink-0 h-10 w-10 flex items-center justify-center">
                         <i class="fas fa-file-alt text-indigo-500 text-xl"></i>
                     </div>
-                    <div class="ml-4">
-                        <div class="text-sm font-medium text-gray-900">${doc.filename}</div>
-                        <div class="text-sm text-gray-500">${doc.mime_type || 'Unknown type'}</div>
+                    <div class="ml-4 overflow-hidden">
+                        <div class="text-sm font-medium text-gray-900 truncate file-name" title="${doc.filename}">${doc.filename}</div>
+                        <div class="text-sm text-gray-500 truncate">${doc.mime_type || 'Unknown type'}</div>
                     </div>
                 </div>
             </td>
@@ -540,6 +540,7 @@ async function viewDocumentDetails(fileId) {
         const detailTitle = document.getElementById('detailTitle');
         if (detailTitle) {
             detailTitle.textContent = 'Document Details';
+            detailTitle.className = "text-lg leading-6 font-medium text-gray-900";
         }
 
         const detailSubtitle = document.getElementById('detailSubtitle');
@@ -562,7 +563,7 @@ async function viewDocumentDetails(fileId) {
             throw new Error('Authentication token is missing');
         }
 
-        // Use query parameter instead of path
+        // Use query parameter
         const response = await fetch(`http://localhost:8080/api/v1/files/get?file_id=${fileId}`, {
             headers: {
                 'Authorization': `Bearer ${authToken}`,
@@ -586,6 +587,8 @@ async function viewDocumentDetails(fileId) {
         // Update document details section
         if (detailTitle) {
             detailTitle.textContent = data.file.filename;
+            detailTitle.title = data.file.filename; // Add title for tooltip on hover
+            detailTitle.className = "text-lg leading-6 font-medium text-gray-900 truncate max-w-full";
         }
 
         if (detailSubtitle) {
@@ -647,7 +650,7 @@ function renderDocumentBasicDetails(file) {
         <div class="space-y-4">
             <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
                 <dt class="text-sm font-medium text-gray-500">File name</dt>
-                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">${file.filename}</dd>
+                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2 break-words">${file.filename}</dd>
             </div>
             <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
                 <dt class="text-sm font-medium text-gray-500">Type</dt>
@@ -749,7 +752,7 @@ function renderMarkdownContent(detail, file, content) {
     const metadataHtml = `
         <div class="mb-6 bg-gray-50 p-4 rounded-md">
             <div class="flex justify-between items-center mb-2">
-                <div>
+                <div class="truncate max-w-[70%]" title="${file.filename}">
                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
         file.status === 'ready' ? 'bg-green-100 text-green-800' :
             'bg-gray-100 text-gray-800'
@@ -763,7 +766,7 @@ function renderMarkdownContent(detail, file, content) {
                 </div>
             </div>
             <div class="flex justify-between items-center">
-                <div class="text-sm text-gray-500">
+                <div class="text-sm text-gray-500 truncate max-w-[70%]">
                     Type: ${file.mime_type}
                 </div>
                 <div class="text-sm text-gray-500">
@@ -810,8 +813,11 @@ async function deleteDocument(fileId) {
             throw new Error('Authentication token is missing');
         }
 
-        // Delete document - use query param instead of path
-        const response = await fetch(`http://localhost:8080/api/v1/files?file_id=${fileId}`, {
+        // DELETE request with the file_id as a query parameter
+        const url = `http://localhost:8080/api/v1/files?file_id=${fileId}`;
+        console.log(`Sending DELETE request to: ${url}`);
+
+        const response = await fetch(url, {
             method: 'DELETE',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
@@ -819,9 +825,16 @@ async function deleteDocument(fileId) {
             }
         });
 
-        const data = await response.json();
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Server error response:', errorText);
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
 
-        if (!response.ok || !data.success) {
+        const data = await response.json();
+        console.log('Delete response:', data);
+
+        if (!data.success) {
             throw new Error(data.error || 'Delete failed');
         }
 
@@ -836,13 +849,16 @@ async function deleteDocument(fileId) {
             currentFile = null;
         }
 
+        // Show success message
+        updateStatusMessage('Document deleted successfully', 'success', 3000);
+
         // Refresh document list
         fetchDocuments();
 
     } catch (error) {
         console.error('Delete error:', error);
         console.log(`Error deleting document: ${error.message}`);
-        alert(`Failed to delete document: ${error.message}`);
+        updateStatusMessage(`Failed to delete document: ${error.message}`, 'error');
     }
 }
 
