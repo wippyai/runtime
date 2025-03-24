@@ -65,7 +65,7 @@ function handler()
         metadata = {
             user_id = user_id,
             user_metadata = metadata,
-            auth_time = os.time()
+            auth_time = os.time(),
         }
     }
 

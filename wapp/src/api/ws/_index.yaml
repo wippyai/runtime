@@ -1,0 +1,24 @@
+version: "1.0"
+namespace: app.users.relay
+
+meta:
+  depends_on: [ "ns:app", "ns:app.user.auth" ]
+  comment: "User WebSocket Relay System"
+
+entries:
+  - name: ws_endpoint
+    kind: function.lua
+    meta:
+      comment: "WebSocket authentication and join endpoint"
+    source: file://ws_endpoint.lua
+    method: handler
+    modules: [ http, security, json ]
+
+  - name: ws_endpoint.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "WebSocket join endpoint"
+      router: app:api
+    method: GET
+    path: /ws/join
+    func: ws_endpoint

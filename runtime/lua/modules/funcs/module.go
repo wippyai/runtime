@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
-
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
@@ -17,6 +15,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 

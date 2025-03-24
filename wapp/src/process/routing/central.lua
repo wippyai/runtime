@@ -1,6 +1,7 @@
 local time = require("time")
 local json = require("json")
 local actor = require("actor")
+local security = require("security")
 
 -- Registry constants
 local CENTRAL_HUB_REGISTRY_NAME = "central_hub"
@@ -155,7 +156,7 @@ local function run()
         end
 
         -- Get or create user hub for this user
-        local user_hub_pid = create_user_hub(state, user_id, metadata.user_metadata)
+        local user_hub_pid = create_user_hub(state, user_id, metadata)
         if not user_hub_pid then
             -- Send error to client
             process.send(client_pid, CLIENT_ERROR_TOPIC, {
@@ -179,22 +180,37 @@ local function run()
     end
 
     -- Function to create a new user hub for a specific user
-    function create_user_hub(state, user_id, user_metadata)
+    function create_user_hub(state, user_id, metadata)
         -- Check if a hub already exists for this user
         if state.user_hubs[user_id] and state.user_hubs[user_id].hub_pid then
             return state.user_hubs[user_id].hub_pid
         end
 
+        -- User metadata
+        local user_metadata = metadata.user_metadata or {}
+
+        -- Create a new actor for this user
+        local user_actor = security.new_actor(user_id, user_metadata)
+
+        -- Get the user scope
+        local USER_SCOPE = "app:user"
+        local user_scope, scope_err = security.named_scope(USER_SCOPE)
+
+        -- todo: handle error properly
+
         -- Create a new user hub for this user
-        -- Spawn a monitored user hub process
-        local hub_pid, err = process.spawn_monitored(
+        -- Spawn a monitored user hub process with actor and scope
+        local hub_pid, err = process.with_context({}):with_scope(user_scope):with_actor(user_actor):spawn_monitored(
             USER_HUB_PROCESS_ID,
             USER_HUB_HOST,
             {
                 user_id = user_id,
                 user_metadata = user_metadata,
                 inactivity_timeout = USER_HUB_INACTIVITY_TIMEOUT,
-                central_hub_pid = process.pid()
+                central_hub_pid = process.pid(),
+                actor_id = current_actor and current_actor:id() or nil,
+                actor_scope = actor_scope,
+                actor = current_actor
             }
         )
 

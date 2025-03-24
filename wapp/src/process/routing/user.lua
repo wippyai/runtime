@@ -3,6 +3,7 @@ local json = require("json")
 local actor = require("actor")
 local uuid = require("uuid")
 local funcs = require("funcs")
+local security = require("security")
 
 -- Registry constants
 local USER_HUB_REGISTRY_PREFIX = "user_hub."
