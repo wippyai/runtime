@@ -7,8 +7,6 @@ import (
 	"time"
 
 	csapi "github.com/ponyruntime/pony/api/cloudstorage"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -37,40 +35,40 @@ func registerCloudStorage(l *lua.LState) {
 		"presigned_put_url": storagePresignedPutURL,
 	}
 
-	// Register the type with methods
 	value.RegisterTypeMethods(l, "cloudstorage.Storage", nil, methods)
 }
 
-// storageListObjects lists objects in cloud storage with the given options.
 func storageListObjects(l *lua.LState) int {
 	cs := CheckCloudStorage(l, 1)
 
-	// Get options table (optional)
-	optsTable := l.OptTable(2, l.NewTable())
+	opts := &csapi.ListObjectsOptions{}
+	if l.Get(2) != lua.LNil {
+		optsTable := l.CheckTable(2)
 
-	// Parse options
-	opts := &csapi.ListObjectsOptions{
-		Prefix:            optsTable.RawGetString("prefix").String(),
-		MaxKeys:           int(lua.LVAsNumber(optsTable.RawGetString("max_keys"))),
-		ContinuationToken: optsTable.RawGetString("continuation_token").String(),
-	}
-
-	// Get context from Lua state
-	ctx := l.Context()
-
-	coroutine.Wrap(l, func() *engine.Update {
-		result, err := cs.storage.ListObjects(ctx, opts)
-		if err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("cloudstorage.list_objects: %s", err.Error()))
+		if prefix := optsTable.RawGetString("prefix"); prefix != lua.LNil {
+			opts.Prefix = prefix.String()
 		}
 
-		return engine.NewUpdate(nil, []lua.LValue{pushListObjectsResult(l, result)}, nil)
-	})
+		if maxKeys := optsTable.RawGetString("max_keys"); maxKeys != lua.LNil {
+			opts.MaxKeys = int(lua.LVAsNumber(maxKeys))
+		}
 
-	return -1 // Yield
+		if token := optsTable.RawGetString("continuation_token"); token != lua.LNil {
+			opts.ContinuationToken = token.String()
+		}
+	}
+
+	result, err := cs.storage.ListObjects(l.Context(), opts)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("cloudstorage.list_objects: %s", err.Error())))
+		return 2
+	}
+
+	l.Push(pushListObjectsResult(l, result))
+	return 1
 }
 
-// storageDownloadObject downloads an object from cloud storage.
 func storageDownloadObject(l *lua.LState) int {
 	cs := CheckCloudStorage(l, 1)
 	key := l.CheckString(2)
@@ -79,43 +77,33 @@ func storageDownloadObject(l *lua.LState) int {
 		return 0
 	}
 
-	// Check if the third argument is a writable userdata type
-	//if !lua.LVCanWrite(l.Get(3)) {
-	//	l.RaiseError("third argument must be a writable target (like a file)")
-	//	return 0
-	//}
-
-	// Get the writer from the userdata
-	writer, ok := l.Get(3).(io.Writer)
+	// Properly extract io.Writer from userdata
+	ud := l.CheckUserData(3)
+	writer, ok := ud.Value.(io.Writer)
 	if !ok {
 		l.RaiseError("third argument must implement io.Writer")
 		return 0
 	}
 
-	// Get options table (optional)
-	optsTable := l.OptTable(4, l.NewTable())
-
-	// Parse options
-	opts := &csapi.DownloadOptions{
-		Range: optsTable.RawGetString("range").String(),
+	opts := &csapi.DownloadOptions{}
+	if l.Get(4) != lua.LNil {
+		optsTable := l.CheckTable(4)
+		if rang := optsTable.RawGetString("range"); rang != lua.LNil {
+			opts.Range = rang.String()
+		}
 	}
 
-	// Get context from Lua state
-	ctx := l.Context()
+	err := cs.storage.DownloadObject(l.Context(), key, writer, opts)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("cloudstorage.download_object: %s", err.Error())))
+		return 2
+	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		err := cs.storage.DownloadObject(ctx, key, writer, opts)
-		if err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("cloudstorage.download_object: %s", err.Error()))
-		}
-
-		return engine.NewUpdate(nil, []lua.LValue{lua.LBool(true)}, nil)
-	})
-
-	return -1 // Yield
+	l.Push(lua.LBool(true))
+	return 1
 }
 
-// storageUploadObject uploads an object to cloud storage.
 func storageUploadObject(l *lua.LState) int {
 	cs := CheckCloudStorage(l, 1)
 	key := l.CheckString(2)
@@ -124,81 +112,65 @@ func storageUploadObject(l *lua.LState) int {
 		return 0
 	}
 
-	// Validate third argument is present and can be read from
 	if l.Get(3) == lua.LNil {
 		l.RaiseError("content argument required")
 		return 0
 	}
 
 	v := l.Get(3)
+	var reader io.Reader
 
-	// Get context from Lua state
-	ctx := l.Context()
-
-	coroutine.Wrap(l, func() *engine.Update {
-		// Determine the reader based on input type
-		var reader io.Reader
-
-		switch v := v.(type) {
-		case lua.LString:
-			reader = bytes.NewReader([]byte(string(v)))
-
-		case *lua.LUserData:
-			// Check if the userdata implements io.Reader
-			if r, ok := v.Value.(io.Reader); ok {
-				reader = r
-			} else {
-				return engine.NewUpdate(nil, nil, fmt.Errorf("cloudstorage.upload_object: input does not implement io.Reader"))
-			}
-
-		default:
-			return engine.NewUpdate(nil, nil, fmt.Errorf("cloudstorage.upload_object: invalid input type, expected string or Reader"))
+	switch v := v.(type) {
+	case lua.LString:
+		reader = bytes.NewReader([]byte(v))
+	case *lua.LUserData:
+		if r, ok := v.Value.(io.Reader); ok {
+			reader = r
+		} else {
+			l.RaiseError("input does not implement io.Reader")
+			return 0
 		}
+	default:
+		l.RaiseError("invalid input type, expected string or Reader")
+		return 0
+	}
 
-		err := cs.storage.UploadObject(ctx, key, reader)
-		if err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("cloudstorage.upload_object: %s", err.Error()))
-		}
+	err := cs.storage.UploadObject(l.Context(), key, reader)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("cloudstorage.upload_object: %s", err.Error())))
+		return 2
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{lua.LBool(true)}, nil)
-	})
-
-	return -1 // Yield
+	l.Push(lua.LBool(true))
+	return 1
 }
 
-// storageDeleteObjects deletes objects from cloud storage.
 func storageDeleteObjects(l *lua.LState) int {
 	cs := CheckCloudStorage(l, 1)
-
-	// Extract keys from the keys table
 	keysTable := l.CheckTable(2)
-	keys := make([]string, keysTable.Len())
 
+	keys := make([]string, keysTable.Len())
 	keysTable.ForEach(func(idx, value lua.LValue) {
 		if idx.Type() == lua.LTNumber {
-			i := int(lua.LVAsNumber(idx)) - 1 // Lua tables start at 1
+			i := int(lua.LVAsNumber(idx)) - 1
 			if i >= 0 && i < len(keys) {
 				keys[i] = value.String()
 			}
 		}
 	})
 
-	// Get context from Lua state
-	ctx := l.Context()
+	err := cs.storage.DeleteObjects(l.Context(), keys)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("cloudstorage.delete_objects: %s", err.Error())))
+		return 2
+	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		err := cs.storage.DeleteObjects(ctx, keys)
-		if err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("cloudstorage.delete_objects: %s", err.Error()))
-		}
-
-		return engine.NewUpdate(nil, []lua.LValue{lua.LBool(true)}, nil)
-	})
-
-	return -1 // Yield
+	l.Push(lua.LBool(true))
+	return 1
 }
 
-// storagePresignedGetURL generates a presigned URL for downloading an object.
 func storagePresignedGetURL(l *lua.LState) int {
 	cs := CheckCloudStorage(l, 1)
 	key := l.CheckString(2)
@@ -207,35 +179,28 @@ func storagePresignedGetURL(l *lua.LState) int {
 		return 0
 	}
 
-	// Get options table (optional)
-	optsTable := l.OptTable(3, l.NewTable())
-
-	// Parse options
-	expirationSeconds := lua.LVAsNumber(optsTable.RawGetString("expiration"))
-	if expirationSeconds <= 0 {
-		expirationSeconds = 3600 // Default to 1 hour
-	}
-
 	opts := &csapi.PresignedGetOptions{
-		Expiration: time.Duration(expirationSeconds) * time.Second,
+		Expiration: time.Hour, // Default 1 hour
 	}
 
-	// Get context from Lua state
-	ctx := l.Context()
-
-	coroutine.Wrap(l, func() *engine.Update {
-		url, err := cs.storage.PresignedGetURL(ctx, key, opts)
-		if err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("cloudstorage.presigned_get_url: %s", err.Error()))
+	if l.Get(3) != lua.LNil {
+		optsTable := l.CheckTable(3)
+		if exp := optsTable.RawGetString("expiration"); exp != lua.LNil {
+			opts.Expiration = time.Duration(lua.LVAsNumber(exp)) * time.Second
 		}
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{lua.LString(url)}, nil)
-	})
+	url, err := cs.storage.PresignedGetURL(l.Context(), key, opts)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("cloudstorage.presigned_get_url: %s", err.Error())))
+		return 2
+	}
 
-	return -1 // Yield
+	l.Push(lua.LString(url))
+	return 1
 }
 
-// storagePresignedPutURL generates a presigned URL for uploading an object.
 func storagePresignedPutURL(l *lua.LState) int {
 	cs := CheckCloudStorage(l, 1)
 	key := l.CheckString(2)
@@ -244,32 +209,30 @@ func storagePresignedPutURL(l *lua.LState) int {
 		return 0
 	}
 
-	// Get options table (optional)
-	optsTable := l.OptTable(3, l.NewTable())
-
-	// Parse options
-	expirationSeconds := lua.LVAsNumber(optsTable.RawGetString("expiration"))
-	if expirationSeconds <= 0 {
-		expirationSeconds = 3600 // Default to 1 hour
-	}
-
 	opts := &csapi.PresignedPutOptions{
-		Expiration:    time.Duration(expirationSeconds) * time.Second,
-		ContentType:   optsTable.RawGetString("content_type").String(),
-		ContentLength: int64(lua.LVAsNumber(optsTable.RawGetString("content_length"))),
+		Expiration: time.Hour, // Default 1 hour
 	}
 
-	// Get context from Lua state
-	ctx := l.Context()
-
-	coroutine.Wrap(l, func() *engine.Update {
-		url, err := cs.storage.PresignedPutURL(ctx, key, opts)
-		if err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("cloudstorage.presigned_put_url: %s", err.Error()))
+	if l.Get(3) != lua.LNil {
+		optsTable := l.CheckTable(3)
+		if exp := optsTable.RawGetString("expiration"); exp != lua.LNil {
+			opts.Expiration = time.Duration(lua.LVAsNumber(exp)) * time.Second
 		}
+		if contentType := optsTable.RawGetString("content_type"); contentType != lua.LNil {
+			opts.ContentType = contentType.String()
+		}
+		if contentLength := optsTable.RawGetString("content_length"); contentLength != lua.LNil {
+			opts.ContentLength = int64(lua.LVAsNumber(contentLength))
+		}
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{lua.LString(url)}, nil)
-	})
+	url, err := cs.storage.PresignedPutURL(l.Context(), key, opts)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("cloudstorage.presigned_put_url: %s", err.Error())))
+		return 2
+	}
 
-	return -1 // Yield
+	l.Push(lua.LString(url))
+	return 1
 }
