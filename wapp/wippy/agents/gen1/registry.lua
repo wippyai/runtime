@@ -169,7 +169,7 @@ function agent_registry._build_agent_spec(entry, visited_ids)
         memory = {},
         delegates = {}
     }
-print(require("json").encode(agent_spec))
+
     -- Mark this ID as visited
     visited_ids[entry.id] = true
 

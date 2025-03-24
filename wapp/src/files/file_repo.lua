@@ -324,8 +324,8 @@ function file_repo.add_chunk(file_id, section_id, content, chunk_type, path, emb
     }
 end
 
--- Get chunks for a file
-function file_repo.get_chunks(file_id)
+-- Enhanced get_chunks function with pagination and ordering
+function file_repo.get_chunks(file_id, limit, offset, order_by)
     if not file_id or file_id == "" then
         return nil, "File ID is required"
     end
@@ -335,14 +335,28 @@ function file_repo.get_chunks(file_id)
         return nil, err
     end
 
+    limit = limit or 20
+    offset = offset or 0
+
+    -- Validate order_by to prevent SQL injection
+    local valid_orders = {
+        ["created_at ASC"] = true,
+        ["created_at DESC"] = true
+    }
+
+    if not order_by or not valid_orders[order_by] then
+        order_by = "created_at ASC" -- Default to safe value
+    end
+
     local query = [[
         SELECT chunk_id, file_id, section_id, content, type, path
         FROM file_chunks
         WHERE file_id = ?
-        ORDER BY created_at ASC
+        ORDER BY ]] .. order_by .. [[
+        LIMIT ? OFFSET ?
     ]]
 
-    local chunks, err = db:query(query, { file_id })
+    local chunks, err = db:query(query, { file_id, sql.as.int(limit), sql.as.int(offset) })
     db:release()
 
     if err then

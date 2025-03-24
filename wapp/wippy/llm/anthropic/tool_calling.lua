@@ -155,6 +155,11 @@ local function handler(args)
                 end
             end
 
+            if next(arguments) == nil then
+                -- todo add test
+                arguments = { run = true }
+            end
+
             -- Create an assistant message with tool_use content block
             table.insert(processed_messages, {
                 role = "assistant",

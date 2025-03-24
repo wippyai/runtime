@@ -136,15 +136,13 @@ function controller:process_task(task)
     elseif task.type == TASK_TYPE.TOOL_CONTINUE or task.type == TASK_TYPE.DELEGATION then
         if task.message_id then
             message_id = task.message_id -- traced
-        else
-            print("MISS")
         end
     else
         return false, "Invalid task type: " .. (task.type or "nil")
     end
 
     if not message_id then
-        print(json.encode(task))
+        --print(json.encode(task))
         return false, "Message ID not set"
     end
 

@@ -27,15 +27,27 @@ entries:
     source: file://file_repo.lua
     modules: [ sql, json, uuid ]
 
+  - name: chunk_embed_processor
+    kind: library.lua
+    meta:
+      comment: "Processor for chunking markdown and generating embeddings"
+      depends_on: [ file_repo ]
+    source: file://chunk_embed_processor.lua
+    modules: [ fs, json, time ]
+    imports:
+      file_repo: "app.files:file_repo"
+      llm: "wippy.llm:llm"
+
   - name: file_processor
     kind: library.lua
     meta:
       comment: "File processor for document parsing and embedding generation"
-      depends_on: [ file_repo ]
+      depends_on: [ file_repo, chunk_embed_processor ]
     source: file://file_processor.lua
     modules: [ fs, json, time, http_client ]
     imports:
       file_repo: "app.files:file_repo"
+      chunk_embed_processor: "app.files:chunk_embed_processor"
       llm: "wippy.llm:llm"
 
   # File Processor Process Definition
@@ -43,26 +55,15 @@ entries:
     kind: process.lua
     meta:
       comment: "Process for handling file processing in background"
-      depends_on: [ file_repo, file_processor ]
+      depends_on: [ file_repo, file_processor,chunk_embed_processor ]
       default_host: app:processes
     source: file://file_processor.lua
     method: run
     modules: [ fs, json, time, http_client ]
     imports:
       file_repo: "app.files:file_repo"
-      file_processor: "app.files:file_processor"
+      chunk_embed_processor: "app.files:chunk_embed_processor"
       llm: "wippy.llm:llm"
-
-  # File Processor Service Definition
-  - name: file_processor.service
-    kind: process.service
-    meta:
-      comment: "File processing service"
-    process: file_processor.process
-    host: app:processes
-    lifecycle:
-      auto_start: true
-      depends_on: [ "app:processes" ]
 
   # API endpoints for file operations
   - name: upload_handler
@@ -148,3 +149,13 @@ entries:
     method: DELETE
     path: /files/:file_id
     func: delete_file_handler
+
+  - name: chunk_query
+    kind: library.lua
+    meta:
+      comment: "Library for semantic search within document chunks"
+      depends_on: [ file_repo ]
+    source: file://chunk_query.lua
+    modules: [ sql, json ]
+    imports:
+      llm: "wippy.llm:llm"

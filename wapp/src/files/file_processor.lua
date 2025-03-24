@@ -3,7 +3,7 @@ local llm = require("llm")
 local json = require("json")
 local time = require("time")
 local http_client = require("http_client")
-
+local chunk_embed_processor = require("chunk_embed_processor")
 local file_repo = require("file_repo")
 
 local file_processor = {}
@@ -11,11 +11,25 @@ local file_processor = {}
 -- Maximum tokens for embedding model
 local MAX_EMBEDDING_TOKENS = 8000 -- Set a safe limit below the 8192 maximum
 
--- Process embeddings (simplified for testing)
+-- Process embeddings (updated to use chunking process)
 function file_processor.process_embeddings(file_id, content)
-    print("DOING EMBEDDINGS for file " .. file_id)
-    -- Mark as ready since we're skipping the actual embedding process
-    file_repo.update_status(file_id, "ready")
+    print("Starting embedding process for file " .. file_id)
+
+
+
+    -- We can run this in blocking mode since we're already in a separate process
+    local result, err = chunk_embed_processor.process(file_id)
+
+    if err then
+        print("Error during chunking and embedding: " .. err)
+        file_repo.update_status(file_id, "error")
+        return false, err
+    end
+
+    print(string.format("File %s successfully chunked and embedded: %d chunks created, %d embedded, %d saved",
+        file_id, result.chunks_created, result.chunks_embedded, result.chunks_saved))
+
+    -- The chunk_embed_processor already updates status to "ready"
     return true
 end
 
