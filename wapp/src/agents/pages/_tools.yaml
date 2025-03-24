@@ -8,6 +8,7 @@ entries:
       type: "tool"
       name: "List Pages"
       llm_alias: "list_pages"
+      title: "List Pages"
       description: "Lists all dynamic web pages with their metadata"
       llm_description: "Returns a list of all dynamic pages with metadata like id, title, name, and icon"
       input_schema: |
@@ -25,6 +26,7 @@ entries:
       type: "tool"
       name: "Get Page"
       llm_alias: "get_page"
+      title: "Get Page"
       description: "Gets the content of a specific page by ID"
       llm_description: "Retrieves the complete content and metadata of a specific page"
       input_schema: |
@@ -48,6 +50,7 @@ entries:
       type: "tool"
       name: "Create Page"
       llm_alias: "create_page"
+      title: "Create Page"
       description: "Creates a new dynamic page with specified content and metadata"
       llm_description: "Creates a new HTML page with custom content and metadata"
       input_schema: |
@@ -83,6 +86,7 @@ entries:
       type: "tool"
       name: "Update Page"
       llm_alias: "update_page"
+      title: "Update Page"
       description: "Updates an existing page with new content or metadata"
       llm_description: "Modifies the content or metadata of an existing page"
       input_schema: |
@@ -118,6 +122,7 @@ entries:
       type: "tool"
       name: "Delete Page"
       llm_alias: "delete_page"
+      title: "Delete Page"
       description: "Deletes a specific page by ID"
       llm_description: "Permanently removes a page from the system"
       input_schema: |

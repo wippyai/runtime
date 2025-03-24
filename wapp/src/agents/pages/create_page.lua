@@ -54,7 +54,8 @@ local function handler(params)
             title = params.title,
             icon = icon,
             content_type = "text/html",
-            created_at = timestamp
+            created_at = timestamp,
+            order = 100
         },
         data = {
             source = params.content
