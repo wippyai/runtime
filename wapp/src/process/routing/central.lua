@@ -27,8 +27,8 @@ local USER_HUB_PROCESS_ID = "app.users.relay:user"
 local USER_HUB_HOST = "app:processes"
 
 -- Time constants
-local USER_HUB_INACTIVITY_TIMEOUT = "30s"
-local GC_CHECK_INTERVAL = "12s" -- Check for inactive hubs every 120 seconds
+local USER_HUB_INACTIVITY_TIMEOUT = "300s"
+local GC_CHECK_INTERVAL = "120s" -- Check for inactive hubs every 120 seconds
 
 -- User limits
 local MAX_CONNECTIONS_PER_USER = 2 -- Maximum allowed connections per user
