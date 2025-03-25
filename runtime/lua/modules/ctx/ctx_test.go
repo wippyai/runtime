@@ -21,7 +21,7 @@ func TestCtxModule(t *testing.T) {
 		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
 
 		// Spawn a new Lua VM with the context module
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -99,7 +99,7 @@ func TestCtxModule(t *testing.T) {
 	})
 
 	t.Run("get and set with no contexter", func(t *testing.T) {
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -125,7 +125,7 @@ func TestCtxModule(t *testing.T) {
 	})
 
 	t.Run("get and set with invalid contexter type", func(t *testing.T) {
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -154,7 +154,7 @@ func TestCtxModule(t *testing.T) {
 		contexter := ctxapi.NewContexter[any]()
 		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
 
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -171,7 +171,7 @@ func TestCtxModule(t *testing.T) {
 		contexter := ctxapi.NewContexter[any]()
 		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
 
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -188,7 +188,7 @@ func TestCtxModule(t *testing.T) {
 		contexter := ctxapi.NewContexter[any]()
 		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
 
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()

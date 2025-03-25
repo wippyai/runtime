@@ -59,7 +59,7 @@ func (m *Module) withContext(l *lua.LState) int {
 
 			// Don't allow overwriting security-specific keys through general context
 			keyStr := string(key)
-			if keyStr == "security.actor" || keyStr == "security.scope" {
+			if keyStr == "security.actor" || keyStr == "security.scope" { // todo: not sure we need it
 				l.ArgError(2, fmt.Sprintf("reserved security key '%s' cannot be set through with_context", keyStr))
 				return
 			}
@@ -88,6 +88,11 @@ func (m *Module) withContext(l *lua.LState) int {
 	// First call - create a new contexter
 	values := context.NewContexter[any]()
 
+	// check existing
+	if ctxr, ok := l.Context().Value(context.ValuesCtx).(*context.Contexter[any]); ok {
+		values = ctxr.Clone()
+	}
+
 	// Get context table from first argument
 	ctxTable := l.CheckTable(1)
 
@@ -101,7 +106,7 @@ func (m *Module) withContext(l *lua.LState) int {
 
 		// Don't allow setting security-specific keys through general context
 		keyStr := string(key)
-		if keyStr == "security.actor" || keyStr == "security.scope" {
+		if keyStr == "security.actor" || keyStr == "security.scope" { // todo: drop it
 			l.ArgError(1, fmt.Sprintf("reserved security key '%s' cannot be set through with_context", keyStr))
 			return
 		}
@@ -220,9 +225,7 @@ func applyContextToProcess(ctx contextbase.Context, spawner *WithContext) contex
 
 	// Apply regular context values
 	if spawner.values != nil && spawner.values.Len() > 0 {
-		spawner.values.Iterate(func(key string, value any) {
-			ctx = contextbase.WithValue(ctx, key, value)
-		})
+		ctx = contextbase.WithValue(ctx, context.ValuesCtx, spawner.values)
 	}
 
 	// Apply actor if set

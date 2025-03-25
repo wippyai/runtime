@@ -22,6 +22,10 @@ local function handler(params)
         }
     end
 
+    -- todo: see how it's done!
+    print(require("ctx").get("session_id"))
+
+    process.send("user_hub." .. user_id, "pages", true)
 
     -- Get parameters
     local limit = tonumber(params.limit) or 100

@@ -94,10 +94,15 @@ func (m *Module) new(l *lua.LState) int {
 		return 0
 	}
 
+	values := contextapi.NewContexter[any]()
+	if ctxr, ok := l.Context().Value(contextapi.ValuesCtx).(*contextapi.Contexter[any]); ok {
+		values = ctxr.Clone()
+	}
+
 	functions := &Functions{
 		funcs:    funcs,
 		dtt:      dtt,
-		values:   contextapi.NewContexter[any](),
+		values:   values,
 		hasActor: false,
 		hasScope: false,
 	}
@@ -292,6 +297,7 @@ func (m *Module) call(l *lua.LState) int {
 		// Create execution context with security context values
 		execCtx := engine.DetachUnitOfWork(uw.Context())
 		execCtx = functions.applySecurityContext(execCtx)
+		execCtx = context.WithValue(execCtx, contextapi.ValuesCtx, functions.values)
 
 		resultChan, err := functions.funcs.Call(execCtx, t)
 		if err != nil {
@@ -350,6 +356,8 @@ func (m *Module) async(l *lua.LState) int {
 
 	// Apply security context
 	execCtx := functions.applySecurityContext(baseCtx)
+	execCtx = context.WithValue(execCtx, contextapi.ValuesCtx, functions.values)
+
 	ctx, cancel := context.WithCancel(execCtx)
 
 	// Create a Command for the function call with the task's params

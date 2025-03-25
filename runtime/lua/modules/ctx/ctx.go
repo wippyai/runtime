@@ -12,8 +12,8 @@ type Module struct {
 	log *zap.Logger
 }
 
-// New creates a new context module with the specified logger.
-func New(log *zap.Logger) *Module {
+// NewCtxModule creates a new context module with the specified logger.
+func NewCtxModule(log *zap.Logger) *Module {
 	return &Module{
 		log: log,
 	}

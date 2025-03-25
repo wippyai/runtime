@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
 	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
 	"github.com/ponyruntime/pony/runtime/lua/modules/store"
 	"github.com/ponyruntime/pony/service/http/cors"
@@ -824,6 +825,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				task.NewTaskModule(),
 				hash.NewHashModule(),
 				command.NewCommandModule(),
+				ctx.NewCtxModule(a.logger.Named("ctx")),
 				store.NewStoreModule(a.logger.Named("store")),
 				securitymod.NewSecurityModule(a.logger.Named("security")),
 				registrymod.NewRegistryModule(a.logger.Named("registry")),

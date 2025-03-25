@@ -239,7 +239,10 @@ local function run(args)
                 }
 
                 -- Spawn session process
-                local session_pid, err = process.spawn_linked(
+                local session_pid, err = process.with_context({
+                    session_id = session_id,
+                    user_id = state.user_id,
+                }):spawn_linked(
                     SESSION_PROCESS_ID,
                     SESSION_HOST,
                     session_init

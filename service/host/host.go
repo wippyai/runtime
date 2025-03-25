@@ -167,6 +167,12 @@ func (h *Host) getQueueForPID(pid pubsub.PID) chan *pubsub.Package {
 func (h *Host) prepareContext(ctx context.Context, pid pubsub.PID, lifecycle process.Lifecycle) context.Context {
 	pCtx := security.CopyContext(ctx, h.ctx)
 
+	// check for ctx
+	contexter := ctx.Value(ctxapi.ValuesCtx)
+	if ctxr, ok := contexter.(*ctxapi.Contexter[any]); ok {
+		pCtx = context.WithValue(pCtx, ctxapi.ValuesCtx, ctxr)
+	}
+
 	// global lifecycle
 	pCtx = process.GetProcesses(ctx).AttachLifecycle(pCtx, lifecycle)
 

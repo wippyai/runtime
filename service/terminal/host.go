@@ -3,6 +3,7 @@ package terminal
 import (
 	"context"
 	"errors"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/security"
 	"os"
 	"sync/atomic"
@@ -168,6 +169,11 @@ func (t *Terminal) prepareContext(
 	lifecycle process.Lifecycle,
 ) context.Context {
 	pCtx := security.CopyContext(ctx, t.ctx)
+
+	contexter := ctx.Value(ctxapi.ValuesCtx)
+	if ctxr, ok := contexter.(*ctxapi.Contexter[any]); ok {
+		pCtx = context.WithValue(pCtx, ctxapi.ValuesCtx, ctxr)
+	}
 
 	// global lifecycle
 	pCtx = process.GetProcesses(ctx).AttachLifecycle(ctx, lifecycle)

@@ -27,7 +27,7 @@ entries:
         }
     source: file://list_documents.lua
     method: handler
-    modules: [ http, security, json ]
+    modules: [ http, security, json, ctx ]
     imports:
       file_repo: "app.files:file_repo"
 
