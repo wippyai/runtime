@@ -124,17 +124,16 @@ local function run(args)
 
         -- Call the LLM to generate a title
         local response = llm.generate(builder, {
-            model = state.model or "claude-3-5-haiku", -- Use session's model or fallback
+            model = "gpt-4o-mini", -- Use session's model or fallback
             options = {
                 temperature = 0.7,
-                max_tokens = 20 -- Keep response short
+                max_tokens = 50 -- Keep response short
             }
         })
 
         if response.error then
             return false, "Title generation failed: " .. response.error_message
         end
-
 
         -- Clean up the response to get just the title
         local title = response.result:gsub("^[%s\"']*(.-)%s*[%s\"']*$", "%1")

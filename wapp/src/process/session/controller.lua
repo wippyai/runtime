@@ -79,7 +79,7 @@ end
 -- Process next task from the queue
 function controller:process_next()
     if self.task_queue:is_empty() then
-        return nil, ERR.QUEUE_EMPTY
+        return nil, nil
     end
 
     local task = self.task_queue:dequeue()
