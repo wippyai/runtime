@@ -161,8 +161,6 @@ function message_repo.get(message_id)
     return message
 end
 
--- Add this function to message_repo.lua
-
 -- Update message metadata
 function message_repo.update_metadata(message_id, metadata)
     if not message_id or message_id == "" then
@@ -221,6 +219,7 @@ function message_repo.update_metadata(message_id, metadata)
 end
 
 -- List messages by session ID
+-- When limit and offset are specified, messages are retrieved from the end of chat
 function message_repo.list_by_session(session_id, limit, offset)
     if not session_id or session_id == "" then
         return nil, "Session ID is required"
@@ -236,7 +235,7 @@ function message_repo.list_by_session(session_id, limit, offset)
         SELECT message_id, session_id, date, type, data, metadata
         FROM messages
         WHERE session_id = ?
-        ORDER BY message_id ASC
+        ORDER BY message_id DESC
     ]]
 
     -- Add limit and offset if provided
@@ -266,10 +265,17 @@ function message_repo.list_by_session(session_id, limit, offset)
         end
     end
 
-    return messages
+    -- Reverse the order to maintain chronological order in the result
+    local reversed = {}
+    for i = #messages, 1, -1 do
+        table.insert(reversed, messages[i])
+    end
+
+    return reversed
 end
 
 -- List messages by type within a session
+-- When limit and offset are specified, messages are retrieved from the end of chat
 function message_repo.list_by_type(session_id, msg_type, limit, offset)
     if not session_id or session_id == "" then
         return nil, "Session ID is required"
@@ -289,7 +295,7 @@ function message_repo.list_by_type(session_id, msg_type, limit, offset)
         SELECT message_id, session_id, date, type, data, metadata
         FROM messages
         WHERE session_id = ? AND type = ?
-        ORDER BY date ASC
+        ORDER BY date DESC
     ]]
 
     -- Add limit and offset if provided
@@ -319,7 +325,13 @@ function message_repo.list_by_type(session_id, msg_type, limit, offset)
         end
     end
 
-    return messages
+    -- Reverse the order to maintain chronological order in the result
+    local reversed = {}
+    for i = #messages, 1, -1 do
+        table.insert(reversed, messages[i])
+    end
+
+    return reversed
 end
 
 -- Get the latest message in a session
