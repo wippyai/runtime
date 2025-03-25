@@ -27,8 +27,8 @@ local USER_HUB_PROCESS_ID = "app.users.relay:user"
 local USER_HUB_HOST = "app:processes"
 
 -- Time constants
-local USER_HUB_INACTIVITY_TIMEOUT = "300s"
-local GC_CHECK_INTERVAL = "120s" -- Check for inactive hubs every 120 seconds
+local USER_HUB_INACTIVITY_TIMEOUT = "30s"
+local GC_CHECK_INTERVAL = "12s" -- Check for inactive hubs every 120 seconds
 
 -- User limits
 local MAX_CONNECTIONS_PER_USER = 2 -- Maximum allowed connections per user
@@ -255,7 +255,7 @@ local function run()
             -- If hub has no clients and has been inactive for too long, terminate it
             if time_since_activity:seconds() > inactivity_duration:seconds() then
                 local success, err = process.cancel(hub_info.hub_pid, "10s")
-
+                print("terminating user hub", user_id)
                 if success then
                     -- Mark as being terminated to avoid repeated termination attempts
                     hub_info.terminating = true

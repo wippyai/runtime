@@ -207,6 +207,9 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 func (a *App) Initialize() error {
 	debug.SetTraceback("single")
 
+	// 50mb
+	debug.SetMemoryLimit(50 * 1024 * 1024)
+
 	// LaunchProcess log manager first for proper logging
 	if err := a.logManager.Start(a.ctx); err != nil {
 		return fmt.Errorf("failed to start log manager: %w", err)

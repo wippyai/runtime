@@ -22,10 +22,24 @@ local function handler(params)
         }
     end
 
+    local session_id = require("ctx").get("session_id")
+
     -- todo: see how it's done!
     print(require("ctx").get("session_id"))
 
     process.send("user_hub." .. user_id, "pages", true)
+
+    process.send("session." .. session_id, "command", {
+        command = "public_meta",
+        public_meta = {
+            {
+                id = "abc123",
+                icon = "tabler:handshake",
+                title = "Very nice deal",
+                url = "https://google.com"
+            }
+        }
+    })
 
     -- Get parameters
     local limit = tonumber(params.limit) or 100
