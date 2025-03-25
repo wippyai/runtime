@@ -40,14 +40,14 @@ function prompt_builder:build_prompt(message_limit)
 
         -- Special handling for delegation messages
         if msg.type == "delegation" then
-           -- Convert delegation to tool call and result for LLM's benefit
+            -- Convert delegation to tool call and result for LLM's benefit
             if meta.from_agent and meta.to_agent then
-
                 local delegate_args = {
                     from = meta.from_agent,
                     to = meta.to_agent,
                     message = meta.message or "Continuing with specialized agent"
                 }
+
                 builder:add_function_call(meta.function_name, delegate_args, msg.message_id)
                 builder:add_function_result(meta.function_name, "redirected to " .. meta.to_agent, msg.message_id)
             end
@@ -62,8 +62,6 @@ function prompt_builder:build_prompt(message_limit)
             elseif msg.type == "developer" then
                 builder:add_developer(msg.data)
             elseif msg.type == "function" then
-
-
                 -- For function messages that contain both call and result
                 if meta.function_name and meta.status then
                     local args = msg.data

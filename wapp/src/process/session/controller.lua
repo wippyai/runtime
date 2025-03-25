@@ -142,7 +142,6 @@ function controller:process_task(task)
     end
 
     if not message_id then
-        --print(json.encode(task))
         return false, "Message ID not set"
     end
 
@@ -173,6 +172,8 @@ function controller:process_task(task)
             topic = self.upstream:get_message_topic(response_id)
         }
     end
+
+    -- Actual execution is here!
 
     -- Execute the agent
     local result, exec_err = agent:step(builder, stream_options)
@@ -315,6 +316,7 @@ function controller:handle_delegation(result, enqueue)
     local delegation_id = self.state:add_message(MSG_TYPE.DELEGATION, "", {
         from_agent = self.state.agent_name,
         to_agent = result.delegate_target,
+        function_name = result.function_name,
         message = result.delegate_message or "Continuing with specialized agent"
     })
 
@@ -403,6 +405,7 @@ function controller:handle_tool_calls(result)
         -- Check for delegate controller tool
         if meta.delegate_controller and type(tool_result) == "table" and tool_result.target_agent then
             local success, err = self:handle_delegation({
+                function_name = result_data.call.name,
                 delegate_target = tool_result.target_agent,
                 delegate_message = tool_result.message
             }, false)

@@ -249,6 +249,7 @@ function agent:step(prompt_builder_slice, stream_target)
             -- Check if this tool call is for a delegate
             if self.delegate_map[tool_call.name] then
                 -- Mark that this is a delegate call
+                response.function_name = tool_call.name
                 response.delegate_target = self.delegate_map[tool_call.name]
                 response.delegate_message = tool_call.arguments.message
                 response.tool_calls = nil -- delegate intercept tools calls
