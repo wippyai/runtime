@@ -56,7 +56,7 @@ function chunk_query.query(file_id, query_string, limit)
     if err then
         return nil, err
     end
-
+print(file_id)
     local query = [[
         SELECT
             file_id,
@@ -80,7 +80,6 @@ function chunk_query.query(file_id, query_string, limit)
 
     -- Parse JSON paths for better usability
     for i, chunk in ipairs(chunks) do
-        print(jso)
         local success, path_obj = pcall(json.decode, chunk.path)
         if success then
             chunk.path_object = path_obj

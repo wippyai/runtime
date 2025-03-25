@@ -5,6 +5,8 @@ local file_repo = require("file_repo")
 local chunk_query = require("chunk_query")
 
 local function handler(params)
+   -- todo: fix security!
+
     -- Validate required parameters
     if not params.file_id or params.file_id == "" then
         return {
@@ -56,6 +58,7 @@ local function handler(params)
     -- Format results for better readability
     local formatted_results = {}
     for i, chunk in ipairs(results) do
+    print(json.encode(chunk))
         local path_info = chunk.path_object or {}
 
         formatted_results[i] = {

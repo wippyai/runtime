@@ -123,7 +123,13 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		return nil, fmt.Errorf("failed to get versions from history: %w", err)
 	}
 
+	var first registry.Version
+
 	for _, v := range versions {
+		if first == nil || first.ID() > v.ID() {
+			first = v
+		}
+
 		err := vm.Add(v)
 		if err != nil {
 			b.log.Error("failed to add version to version map",
@@ -133,7 +139,11 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		}
 	}
 
-	path, err := vm.Path(version.New(registry.RootVersion), targetVersion)
+	if first == nil {
+		return nil, fmt.Errorf("no versions found in history")
+	}
+
+	path, err := vm.Path(first, targetVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get path from root to version %v: %w", targetVersion, err)
 	}
