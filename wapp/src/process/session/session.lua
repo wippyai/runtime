@@ -6,6 +6,8 @@ local controller = require("controller")
 local session_state = require("session_state")
 local session_upstream = require("session_upstream")
 local session_context = require("session_context")
+local llm = require("llm")
+local prompt = require("prompt")
 
 -- Use constants from consts package
 local STATUS = consts.STATUS
@@ -92,7 +94,55 @@ local function run(args)
         end
         title_requested = true
 
-        local title = "Generated title!"
+        -- Load recent messages from the session for context
+        local messages, err = state:load_messages(5)
+        if err then
+            return false, "Failed to load messages: " .. err
+        end
+
+        -- Create a prompt for title generation
+        local builder = prompt.new()
+        builder:add_system(
+            "You are a helpful assistant that generates concise, descriptive titles for conversations. Create a short title (3-5 words) that captures the main topic or purpose of this conversation.")
+
+        -- Add the first few messages to provide context
+        for i, msg in ipairs(messages) do
+            if msg.type == "user" then
+                builder:add_user(msg.data)
+            elseif msg.type == "assistant" then
+                builder:add_assistant(msg.data)
+            end
+
+            -- Only include up to 3 messages for context
+            if i >= 3 then
+                break
+            end
+        end
+
+        -- Add the specific instruction for generating a title
+        builder:add_user("Based on the conversation above, generate a short, descriptive title.")
+
+        -- Call the LLM to generate a title
+        local response = llm.generate(builder, {
+            model = state.model or "claude-3-5-haiku", -- Use session's model or fallback
+            options = {
+                temperature = 0.7,
+                max_tokens = 20 -- Keep response short
+            }
+        })
+
+        if response.error then
+            return false, "Title generation failed: " .. response.error_message
+        end
+
+
+        -- Clean up the response to get just the title
+        local title = response.result:gsub("^[%s\"']*(.-)%s*[%s\"']*$", "%1")
+
+        -- Ensure the title isn't too long
+        if #title > 50 then
+            title = title:sub(1, 47) .. "..."
+        end
 
         -- Update title in state
         local success, err = state:update_session_title(title)

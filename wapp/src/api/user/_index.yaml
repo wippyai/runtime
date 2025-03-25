@@ -30,7 +30,7 @@ entries:
     kind: function.lua
     meta:
       comment: "User Token API"
-      depends_on: [ user_repo ]
+      depends_on: [ app.user.auth:user_repo ]
     source: file://user_api.lua
     method: handler
     modules: [ http, security, json, time ]
