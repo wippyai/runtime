@@ -22,6 +22,7 @@ local function handler(params)
         }
     end
 
+
     -- Get parameters
     local limit = tonumber(params.limit) or 100
     local offset = tonumber(params.offset) or 0

@@ -71,6 +71,9 @@ local function handler(params)
         }
     end
 
+    -- todo: add notification!
+    --process.send("user_hub." .. actor:id(), "pages", true)
+
     -- Return success response with page details
     return {
         success = true,
