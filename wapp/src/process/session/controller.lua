@@ -482,15 +482,17 @@ function controller:change_agent(agent_name, init)
     -- Reset agent instance
     self.agent = nil
 
-    -- Update agent name in state
-    local success, err = self.state:set_agent_config(agent_name, self.state.model)
-    if not success then
-        return false, err
-    end
+    local model = self.state.model
 
     -- Get the model from agent spec if it has one and current model is empty
-    if agent_spec.model and (not self.state.model or self.state.model == "") then
-        self:change_model(agent_spec.model)
+    if agent_spec.model and (self.state.model ~= agent_spec.model) then
+        model = agent_spec.model
+    end
+
+    -- Update agent name in state
+    local success, err = self.state:set_agent_config(agent_name, model)
+    if not success then
+        return false, err
     end
 
     -- Record the agent change if previous agent was set
@@ -498,7 +500,7 @@ function controller:change_agent(agent_name, init)
         if self.upstream and not init then
             self.upstream:update_session({
                 agent = agent_name,
-                model = self.state.model,
+                model = model,
             })
         end
 

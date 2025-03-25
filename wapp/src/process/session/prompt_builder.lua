@@ -48,8 +48,16 @@ function prompt_builder:build_prompt(message_limit)
                     message = meta.message or "Continuing with specialized agent"
                 }
 
-                builder:add_function_call(meta.function_name, delegate_args, msg.message_id)
-                builder:add_function_result(meta.function_name, "redirected to " .. meta.to_agent, msg.message_id)
+                builder:add_function_call(
+                    meta.function_name,
+                    delegate_args,
+                    msg.message_id
+                )
+                builder:add_function_result(
+                    meta.function_name,
+                    "Successfully redirected to " .. meta.to_agent .. ". You are currently " .. meta.to_agent,
+                    msg.message_id
+                )
             end
         else
             -- Normal handling for other message types

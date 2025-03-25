@@ -113,7 +113,6 @@ local function run(args)
         if not payload.public_meta or type(payload.public_meta) ~= "table" then
             return false, "Public metadata must be a table"
         end
-            print("OKK")
 
         -- Update public metadata in state
         local success, err = state:update_session_config({

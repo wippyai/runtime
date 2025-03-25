@@ -6,26 +6,6 @@ meta:
   description: "User authentication and token management"
 
 entries:
-  - name: api
-    kind: function.lua
-    meta:
-      comment: "User Token API"
-      depends_on: [ user_repo ]
-    source: file://user_api.lua
-    method: handler
-    modules: [ http, security, json, time ]
-    imports:
-      user_repo: "app.user.auth:user_repo"
-
-  - name: api.endpoint
-    kind: http.endpoint
-    meta:
-      comment: "User Token API Endpoint"
-      router: app:public_api
-    method: POST
-    path: /user/token
-    func: api
-
   - name: user_repo
     kind: library.lua
     meta:
