@@ -428,8 +428,9 @@ func processWait(l *lua.LState) int {
 	}
 
 	if handle == nil {
-		l.RaiseError("internal error: process handle is nil but not marked closed")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("internal error: process handle is nil but not marked closed"))
+		return 2
 	}
 
 	coroutine.Wrap(l, func() *engine.Update {

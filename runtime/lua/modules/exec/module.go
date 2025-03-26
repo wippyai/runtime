@@ -64,8 +64,8 @@ func (m *Module) Loader(l *lua.LState) int {
 // registerExecutor registers methods for the Executor factory type
 func registerExecutor(l *lua.LState) {
 	methods := map[string]lua.LGFunction{
-		"exec":    executorNewProcess,
-		"release": executorRelease, // Keep release for factory resource
+		"exec":    executorNewProcess, // todo: do not allow release while running processes, make error
+		"release": executorRelease,    // Keep release for factory resource
 	}
 	value.RegisterMethods(l, executorMetatable, methods)
 }
