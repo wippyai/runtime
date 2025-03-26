@@ -11,6 +11,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
 	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
 	"github.com/ponyruntime/pony/runtime/lua/modules/store"
+	yamlmod "github.com/ponyruntime/pony/runtime/lua/modules/yaml"
 	native "github.com/ponyruntime/pony/service/exec"
 	"github.com/ponyruntime/pony/service/http/cors"
 	"github.com/ponyruntime/pony/service/http/firewall"
@@ -882,6 +883,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				task.NewTaskModule(),
 				hash.NewHashModule(),
 				command.NewCommandModule(),
+				yamlmod.NewYAMLModule(),
 				exec.NewExecModule(a.logger.Named("exec")),
 				ctx.NewCtxModule(a.logger.Named("ctx")),
 				store.NewStoreModule(a.logger.Named("store")),
