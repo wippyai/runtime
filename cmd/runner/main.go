@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
+	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
 	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
 	"github.com/ponyruntime/pony/runtime/lua/modules/store"
+	native "github.com/ponyruntime/pony/service/exec"
 	"github.com/ponyruntime/pony/service/http/cors"
 	"github.com/ponyruntime/pony/service/http/firewall"
 	"github.com/ponyruntime/pony/service/processfunc"
@@ -541,6 +543,7 @@ func main() {
 		WithSQLManager(app),
 		WithMemStore(app),
 		WithProcessFunctionBridge(app),
+		WithNativeExecutor(app),
 	)...)
 	// --------------------------------------------------
 
@@ -557,7 +560,7 @@ func main() {
 		app.logger.Fatal("failed to start application", zap.Error(err))
 	}
 
-	app.logger.Info("application started successfully")
+	app.logger.Named("wippy").Info("application started successfully")
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
@@ -650,7 +653,7 @@ func WithTokenStoreManager(a *App) eventbus.EventHandler {
 		a.dtt,
 		a.resources,
 		a.security,
-		a.logger.Named("tokenstore"),
+		a.logger.Named("tstore"),
 	)
 
 	// Register manager for token store related entries
@@ -797,6 +800,17 @@ func WithMemStore(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("store.memory", manager)
 }
 
+func WithNativeExecutor(a *App) eventbus.EventHandler {
+	// Create manager with required dependencies
+	manager := native.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("exec"),
+	)
+
+	return reghandler.NewRegistryHandler("exec.native", manager)
+}
+
 func WithProcessFunctionBridge(a *App) eventbus.EventHandler {
 	return processfunc.WithProcessFunctionBridge(
 		a.logger.Named("pfunc"),
@@ -828,6 +842,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				task.NewTaskModule(),
 				hash.NewHashModule(),
 				command.NewCommandModule(),
+				exec.NewExecModule(a.logger.Named("exec")),
 				ctx.NewCtxModule(a.logger.Named("ctx")),
 				store.NewStoreModule(a.logger.Named("store")),
 				securitymod.NewSecurityModule(a.logger.Named("security")),

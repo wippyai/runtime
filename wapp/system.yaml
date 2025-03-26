@@ -95,3 +95,8 @@ entries:
       max_processes: 1000
     lifecycle:
       auto_start: true
+
+  - name: native_executor
+    kind: exec.native
+    meta:
+      comment: "Native process execution service"
