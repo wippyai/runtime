@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/joho/godotenv"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
 	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
 	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
@@ -18,6 +19,7 @@ import (
 	httpbase "net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
@@ -498,8 +500,43 @@ func (a *App) StartProfiler() {
 	}()
 }
 
+// loadDotEnv loads environment variables from .env files
+func loadDotEnv(logger *zap.Logger, paths ...string) {
+	// First try explicitly provided paths
+	for _, path := range paths {
+		envPath := filepath.Join(path, ".env")
+		err := godotenv.Load(envPath)
+		if err == nil {
+			if logger != nil {
+				logger.Info(".env file loaded successfully", zap.String("path", envPath))
+			} else {
+				fmt.Printf(".env file loaded successfully from: %s\n", envPath)
+			}
+			return // Found and loaded a .env file, no need to try others
+		}
+	}
+
+	// If no specific paths provided or none worked, try the default location
+	err := godotenv.Load()
+	if err != nil {
+		// Not finding the file is not a critical error, just log it at debug level
+		if logger != nil {
+			logger.Debug("Could not load .env file from default location", zap.Error(err))
+		}
+	} else {
+		if logger != nil {
+			logger.Info(".env file loaded successfully from default location")
+		} else {
+			fmt.Println(".env file loaded successfully from default location")
+		}
+	}
+}
+
 func main() {
 	sqlite_vec.Auto()
+
+	// Load environment variables from .env files
+	loadDotEnv(nil)
 
 	// Parse command line flags
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
@@ -514,6 +551,9 @@ func main() {
 	}
 
 	folderPath := args[0]
+
+	// Also try to load .env from the specified folder
+	loadDotEnv(nil, folderPath)
 
 	// Spawn and initialize application
 	app, err := NewApp(
