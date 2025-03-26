@@ -43,7 +43,7 @@ Closes the stream.
 
 Returns:
 
-- `nil` on success
+- `bool` on success
 - `string`: An error message if the operation failed
 
 ### Stream:bytes_read()

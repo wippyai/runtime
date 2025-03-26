@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
+	"io"
 )
 
 // LuaStream wraps Stream for Lua and implements io.ReadCloser interface
@@ -146,6 +145,7 @@ func streamReadAsync(l *lua.LState) int {
 	}
 
 	coroutine.Wrap(l, func() *engine.Update {
+
 		chunk, err := stream.ReadChunk(chunkSize)
 		if errors.Is(err, io.EOF) {
 			_ = stream.Close()
@@ -203,16 +203,19 @@ func streamRead(l *lua.LState) int {
 func streamClose(l *lua.LState) int {
 	stream, err := checkStream(l)
 	if err != nil {
+		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
-		return 1
+		return 2
 	}
 
 	if err := stream.Close(); err != nil {
+		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
-		return 1
+		return 2
 	}
 
-	return 0
+	l.Push(lua.LBool(true))
+	return 1
 }
 
 // streamBytesRead implements the bytes_read() method in Lua

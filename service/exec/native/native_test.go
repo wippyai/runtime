@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ponyruntime/pony/api/service/exec"
 	mocklogger "github.com/ponyruntime/pony/tests/mock"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -35,10 +36,17 @@ func TestExecutor_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := zap.NewDevelopment()
-			executor := NewNativeExecutor(logger, WithCmd(tt.command))
-			err := executor.Start()
+
+			// Create the process
+			nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+			process, err := nativeExecutor.NewProcess(tt.command, exec.ProcessOptions{})
+			assert.NoError(t, err)
+
+			// Start the process
+			err = process.Start()
+
 			go func() {
-				executor.Wait()
+				process.Wait()
 			}()
 
 			if tt.wantErr {
@@ -46,32 +54,43 @@ func TestExecutor_Execute(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
-			executor.Stop()
+
+			// Stop the process
+			processExecutor, ok := process.(*ProcessExecutor)
+			assert.True(t, ok)
+			processExecutor.Stop()
 		})
 	}
 }
 
 func TestExecutor_MegaCommand(t *testing.T) {
 	logger := zap.NewNop()
-	executor := NewNativeExecutor(logger, WithCmd("cat /dev/urandom | hexdump -C"))
 
-	err := executor.Start()
+	// Create the process
+	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+	process, err := nativeExecutor.NewProcess("cat /dev/urandom | hexdump -C", exec.ProcessOptions{})
+	assert.NoError(t, err)
+
+	processExecutor, ok := process.(*ProcessExecutor)
+	assert.True(t, ok)
+
+	err = process.Start()
 	assert.NoError(t, err)
 
 	go func() {
-		executor.Wait()
+		process.Wait()
 	}()
 
 	go func() {
 		time.Sleep(time.Second * 5)
-		executor.Stop()
+		processExecutor.Stop()
 	}()
 
 	sb := new(strings.Builder)
 	for {
 		// we don't care about the perf here
 		buf := make([]byte, 65536)
-		_, err = executor.StdoutReader().Read(buf)
+		_, err = process.Stdout().Read(buf)
 		if err != nil {
 			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
@@ -91,24 +110,31 @@ func TestExecutor_MegaCommand(t *testing.T) {
 
 func TestExecutor_Stdout(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	executor := NewNativeExecutor(logger, WithCmd("sleep 1 && echo 'hello world'"))
 
-	err := executor.Start()
+	// Create the process
+	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+	process, err := nativeExecutor.NewProcess("sleep 1 && echo 'hello world'", exec.ProcessOptions{})
+	assert.NoError(t, err)
+
+	processExecutor, ok := process.(*ProcessExecutor)
+	assert.True(t, ok)
+
+	err = process.Start()
 	assert.NoError(t, err)
 
 	go func() {
-		executor.Wait()
-		assert.Equal(t, "terminated", executor.State())
+		process.Wait()
+		assert.Equal(t, "terminated", processExecutor.State())
 	}()
 
-	assert.Equal(t, "running", executor.State())
+	assert.Equal(t, "running", processExecutor.State())
 
 	sb := new(strings.Builder)
 
 	for {
 		// we don't care about the perf here
 		buf := make([]byte, 65536)
-		_, err = executor.StdoutReader().Read(buf)
+		_, err = process.Stdout().Read(buf)
 		if err != nil {
 			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
@@ -125,12 +151,17 @@ func TestExecutor_Stdout(t *testing.T) {
 
 func TestExecutor_EmptyCmd(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	executor := NewNativeExecutor(logger, WithCmd(""))
 
-	err := executor.Start()
+	// Create the process
+	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+	process, err := nativeExecutor.NewProcess("", exec.ProcessOptions{})
 	assert.NoError(t, err)
+
+	err = process.Start()
+	assert.NoError(t, err)
+
 	go func() {
-		executor.Wait()
+		process.Wait()
 	}()
 
 	sb := new(strings.Builder)
@@ -138,7 +169,7 @@ func TestExecutor_EmptyCmd(t *testing.T) {
 	for {
 		// we don't care about the perf here
 		buf := make([]byte, 65536)
-		_, err = executor.StderrReader().Read(buf)
+		_, err = process.Stderr().Read(buf)
 		if err != nil {
 			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
@@ -155,12 +186,17 @@ func TestExecutor_EmptyCmd(t *testing.T) {
 
 func TestExecutor_Stderr(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	executor := NewNativeExecutor(logger, WithCmd("sleep 1 && echo 'error message' >&2"))
 
-	err := executor.Start()
+	// Create the process
+	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+	process, err := nativeExecutor.NewProcess("sleep 1 && echo 'error message' >&2", exec.ProcessOptions{})
 	assert.NoError(t, err)
+
+	err = process.Start()
+	assert.NoError(t, err)
+
 	go func() {
-		executor.Wait()
+		process.Wait()
 	}()
 
 	sb := new(strings.Builder)
@@ -168,7 +204,7 @@ func TestExecutor_Stderr(t *testing.T) {
 	for {
 		// we don't care about the perf here
 		buf := make([]byte, 65536)
-		_, err = executor.StderrReader().Read(buf)
+		_, err = process.Stderr().Read(buf)
 		if err != nil {
 			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
@@ -187,13 +223,17 @@ func TestExecutor_Stderr(t *testing.T) {
 
 func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 	l, oLogger := mocklogger.ZapTestLogger(zap.DebugLevel)
-	executor := NewNativeExecutor(l, WithCmd("sleep 1 && invalidcommand"))
 
-	err := executor.Start()
+	// Create the process
+	nativeExecutor := NewNativeExecutor(l, &exec.NativeExecutorConfig{})
+	process, err := nativeExecutor.NewProcess("sleep 1 && invalidcommand", exec.ProcessOptions{})
+	assert.NoError(t, err)
+
+	err = process.Start()
 	assert.NoError(t, err)
 
 	go func() {
-		executor.Wait()
+		process.Wait()
 	}()
 
 	// Wait for an error message in stderr
@@ -203,7 +243,7 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 		// we don't care about the perf here
 		buf := make([]byte, 65536)
 		time.Sleep(time.Second)
-		_, err = executor.StderrReader().Read(buf)
+		_, err = process.Stderr().Read(buf)
 		if err != nil {
 			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
@@ -251,18 +291,25 @@ func TestExecutor_WriteStdin(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := zap.NewDevelopment()
-			executor := NewNativeExecutor(logger, WithCmd(tt.command))
+
+			// Create the process
+			nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+			process, err := nativeExecutor.NewProcess(tt.command, exec.ProcessOptions{})
+			assert.NoError(t, err)
+
+			processExecutor, ok := process.(*ProcessExecutor)
+			assert.True(t, ok)
 
 			if tt.command == "cat" {
-				err := executor.Start()
+				err := process.Start()
 				assert.NoError(t, err)
 
 				go func() {
-					executor.Wait()
+					process.Wait()
 				}()
 
 				go func() {
-					err2 := executor.WriteStdin([]byte(tt.input))
+					err2 := process.WriteStdin([]byte(tt.input))
 					assert.NoError(t, err2)
 				}()
 
@@ -271,7 +318,7 @@ func TestExecutor_WriteStdin(t *testing.T) {
 				for {
 					// we don't care about the perf here
 					buf := make([]byte, 65536)
-					_, err = executor.StdoutReader().Read(buf)
+					_, err = process.Stdout().Read(buf)
 					if err != nil {
 						// fs.ErrClosed is returned when the process is stopped (the file is already closed)
 						if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
@@ -282,16 +329,61 @@ func TestExecutor_WriteStdin(t *testing.T) {
 					}
 
 					sb.Write(buf)
-					executor.Stop()
+					processExecutor.Stop()
 				}
 
 				assert.Contains(t, sb.String(), tt.expect)
 			} else {
 				// Test writing to a non-running process
-				err := executor.WriteStdin([]byte(tt.input))
+				err := process.WriteStdin([]byte(tt.input))
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "process is not running")
 			}
 		})
 	}
+}
+
+func TestNativeExecutor_Config(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+
+	// Test with custom environment and working directory
+	config := &exec.NativeExecutorConfig{
+		DefaultEnv: map[string]string{
+			"TEST_ENV": "test_value",
+		},
+		DefaultWorkDir: "/tmp",
+	}
+
+	executor := NewNativeExecutor(logger, config)
+	assert.Equal(t, config.DefaultEnv, executor.defaultEnv)
+	assert.Equal(t, config.DefaultWorkDir, executor.defaultWD)
+
+	// Test that environment variables are merged properly
+	process, err := executor.NewProcess("echo $TEST_ENV", exec.ProcessOptions{
+		Env: map[string]string{
+			"ANOTHER_ENV": "another_value",
+		},
+	})
+	assert.NoError(t, err)
+
+	// Start process
+	err = process.Start()
+	assert.NoError(t, err)
+
+	// Read output
+	sb := new(strings.Builder)
+	for {
+		buf := make([]byte, 65536)
+		_, err = process.Stdout().Read(buf)
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+				break
+			}
+			t.Fatal(err)
+		}
+		sb.Write(buf)
+	}
+
+	// Output should contain the environment variable value
+	assert.Contains(t, sb.String(), "test_value")
 }

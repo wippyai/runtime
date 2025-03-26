@@ -2,6 +2,7 @@ package native
 
 import (
 	"errors"
+	execapi "github.com/ponyruntime/pony/api/service/exec"
 	"io"
 	"os"
 	"os/exec"
@@ -18,7 +19,50 @@ const (
 	terminated string = "terminated"
 )
 
-type Executor struct {
+// NativeExecutor implements the exec.ProcessExecutor interface
+type NativeExecutor struct {
+	log        *zap.Logger
+	defaultEnv map[string]string
+	defaultWD  string
+}
+
+// NewNativeExecutor creates a new native process executor
+func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *NativeExecutor {
+	return &NativeExecutor{
+		log:        log,
+		defaultEnv: config.DefaultEnv,
+		defaultWD:  config.DefaultWorkDir,
+	}
+}
+
+// NewProcess implements exec.ProcessExecutor interface
+func (e *NativeExecutor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	// Merge default environment with provided environment
+	env := make(map[string]string)
+	for k, v := range e.defaultEnv {
+		env[k] = v
+	}
+	for k, v := range options.Env {
+		env[k] = v
+	}
+
+	// Use default working directory if not specified
+	workDir := options.WorkDir
+	if workDir == "" {
+		workDir = e.defaultWD
+	}
+
+	// Create a new process executor with the given command and options
+	return NewProcessExecutor(
+		e.log,
+		WithCmd(cmd),
+		WithWorkingDir(workDir),
+		WithEnv(env),
+	), nil
+}
+
+// ProcessExecutor represents a native process implementation
+type ProcessExecutor struct {
 	rwm sync.RWMutex
 	log *zap.Logger
 
@@ -36,8 +80,9 @@ type Executor struct {
 	stdinPipe io.WriteCloser
 }
 
-func NewNativeExecutor(log *zap.Logger, opts ...Options) *Executor {
-	e := &Executor{
+// NewProcessExecutor creates a new process executor
+func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
+	e := &ProcessExecutor{
 		state: notStarted,
 		log:   log,
 	}
@@ -79,7 +124,8 @@ func NewNativeExecutor(log *zap.Logger, opts ...Options) *Executor {
 	return e
 }
 
-func (e *Executor) Start() error {
+// Start implements exec.Process
+func (e *ProcessExecutor) Start() error {
 	e.rwm.Lock()
 	defer e.rwm.Unlock()
 
@@ -95,18 +141,20 @@ func (e *Executor) Start() error {
 	return nil
 }
 
-func (e *Executor) State() string {
+// State returns the current state of the process
+func (e *ProcessExecutor) State() string {
 	e.rwm.RLock()
 	defer e.rwm.RUnlock()
 
 	return e.state
 }
 
-func (e *Executor) WriteStdin(data []byte) error {
+// WriteStdin implements exec.Process
+func (e *ProcessExecutor) WriteStdin(data []byte) error {
 	e.rwm.RLock()
 	defer e.rwm.RUnlock()
 
-	if e.state != "running" {
+	if e.state != running {
 		e.log.Error("process is not running", zap.String("state", e.state))
 		return errors.New("process is not running")
 	}
@@ -121,7 +169,8 @@ func (e *Executor) WriteStdin(data []byte) error {
 	return nil
 }
 
-func (e *Executor) Signal(sig int) error {
+// Signal implements exec.Process
+func (e *ProcessExecutor) Signal(sig int) error {
 	e.rwm.RLock()
 	defer e.rwm.RUnlock()
 
@@ -152,21 +201,34 @@ func (e *Executor) Signal(sig int) error {
 	return nil
 }
 
-func (e *Executor) StderrReader() io.ReadCloser {
+// Stderr implements exec.Process
+func (e *ProcessExecutor) Stderr() io.ReadCloser {
 	e.rwm.RLock()
 	defer e.rwm.RUnlock()
 
 	return e.stderrp
 }
 
-func (e *Executor) StdoutReader() io.ReadCloser {
+// Stdout implements exec.Process
+func (e *ProcessExecutor) Stdout() io.ReadCloser {
 	e.rwm.RLock()
 	defer e.rwm.RUnlock()
 
 	return e.stdoutp
 }
 
-func (e *Executor) Stop() {
+// StderrReader return stderr reader (for backward compatibility)
+func (e *ProcessExecutor) StderrReader() io.ReadCloser {
+	return e.Stderr()
+}
+
+// StdoutReader return stdout reader (for backward compatibility)
+func (e *ProcessExecutor) StdoutReader() io.ReadCloser {
+	return e.Stdout()
+}
+
+// Stop stops the process
+func (e *ProcessExecutor) Stop() {
 	e.rwm.Lock()
 	defer e.rwm.Unlock()
 
@@ -175,7 +237,6 @@ func (e *Executor) Stop() {
 		return
 	}
 
-	// todo: potential NPE?
 	if *e.stopped.Load() {
 		e.log.Warn("process already stopped")
 		return
@@ -197,7 +258,8 @@ func (e *Executor) Stop() {
 	e.stopped.Store(p(true))
 }
 
-func (e *Executor) Wait() {
+// Wait implements exec.Process
+func (e *ProcessExecutor) Wait() error {
 	err := e.cmd.Wait()
 	if err != nil {
 		e.log.Error("command wait error", zap.Error(err))
@@ -209,6 +271,8 @@ func (e *Executor) Wait() {
 
 	e.stopped.Store(p(true))
 	e.log.Debug("command finished")
+
+	return err
 }
 
 func p[T any](val T) *T {

@@ -30,6 +30,8 @@ var (
 	ErrResourceLocked = errors.New("resource is locked")
 	// ErrResourceReleased indicates an attempt to use a resource that has been released
 	ErrResourceReleased = errors.New("resource has been released")
+	// ErrResourceClosed indicates an attempt to use a closed resource provider
+	ErrResourceClosed = errors.New("resource provider is closed")
 )
 
 // AccessMode defines the type of access requested for a resource
