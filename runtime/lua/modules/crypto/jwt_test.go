@@ -2,6 +2,10 @@ package crypto
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"strings"
 	"testing"
 	"time"
@@ -562,4 +566,245 @@ func verifyClaimsTable(t *testing.T, expected map[string]interface{}, actual *lu
 			t.Logf("Unsupported type in verification: %T", v)
 		}
 	}
+}
+
+// generateRSAKeyPair generates a new RSA key pair for testing
+func generateRSAKeyPair() (privateKeyPEM, publicKeyPEM string, err error) {
+	// Generate private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Convert private key to PEM
+	privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
+	privateKeyPEM = string(pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: privateKeyBytes,
+	}))
+
+	// Convert public key to PEM
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return "", "", err
+	}
+	publicKeyPEM = string(pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: publicKeyBytes,
+	}))
+
+	return privateKeyPEM, publicKeyPEM, nil
+}
+
+func TestJWTModuleRS256(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Generate RSA key pair for testing
+	privateKeyPEM, publicKeyPEM, err := generateRSAKeyPair()
+	require.NoError(t, err, "Failed to generate RSA key pair")
+
+	// Test RS256 encoding
+	t.Run("RS256 encoding", func(t *testing.T) {
+		mod := NewCryptoModule()
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Create a script that encodes a JWT with RS256
+		script := `
+			local crypto = require("crypto")
+			function test(payload, key, alg)
+				local result = {}
+				local token, err = crypto.jwt.encode(payload, key, alg)
+				if err then
+					result.success = false
+					result.error = err
+					return result
+				end
+				result.success = true
+				result.token = token
+				return result
+			end
+			return test
+		`
+		err = vm.Import(script, "test", "test")
+		require.NoError(t, err)
+
+		// Prepare payload with _header field
+		payload := &lua.LTable{}
+		payload.RawSetString("sub", lua.LString("1234567890"))
+		payload.RawSetString("name", lua.LString("John Doe"))
+		payload.RawSetString("iat", lua.LNumber(time.Now().Unix()))
+
+		// Add custom header
+		headerTable := &lua.LTable{}
+		headerTable.RawSetString("kid", lua.LString("test-key-id"))
+		payload.RawSetString("_header", headerTable)
+
+		// Encode the token
+		result, err := vm.Execute(context.Background(), "test", payload, lua.LString(privateKeyPEM), lua.LString("RS256"))
+		require.NoError(t, err)
+
+		resultTable, ok := result.(*lua.LTable)
+		require.True(t, ok, "Expected result to be a table")
+
+		success := resultTable.RawGetString("success")
+		assert.Equal(t, lua.LTrue, success, "Expected operation to succeed")
+
+		// Verify the token is a string
+		token := resultTable.RawGetString("token").(lua.LString).String()
+		assert.NotEmpty(t, token, "Token should not be empty")
+
+		// Validate token format (header.payload.signature)
+		parts := strings.Split(token, ".")
+		assert.Equal(t, 3, len(parts), "Token should have 3 parts")
+
+		// Verify using Go's JWT library
+		parsedToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
+			// Verify the algorithm
+			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+				t.Errorf("Unexpected signing method: %v", token.Header["alg"])
+			}
+
+			// Parse the public key
+			block, _ := pem.Decode([]byte(publicKeyPEM))
+			pubKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+			if err != nil {
+				return nil, err
+			}
+			return pubKey.(*rsa.PublicKey), nil
+		})
+		require.NoError(t, err)
+		assert.True(t, parsedToken.Valid, "Token should be valid")
+
+		// Verify custom header is present
+		assert.Equal(t, "test-key-id", parsedToken.Header["kid"], "Kid header should match")
+
+		// Verify claims
+		claims, ok := parsedToken.Claims.(jwt.MapClaims)
+		assert.True(t, ok, "Should be able to extract claims")
+		assert.Equal(t, "1234567890", claims["sub"], "Sub claim should match")
+		assert.Equal(t, "John Doe", claims["name"], "Name claim should match")
+
+		// Ensure _header is not present in claims
+		_, hasHeaderInClaims := claims["_header"]
+		assert.False(t, hasHeaderInClaims, "_header should not be in claims")
+	})
+
+	// Test RS256 verification
+	t.Run("RS256 verification", func(t *testing.T) {
+		mod := NewCryptoModule()
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Create scripts for encoding and verifying
+		encodeScript := `
+			local crypto = require("crypto")
+			function encode_jwt(payload, key, alg)
+				local token, err = crypto.jwt.encode(payload, key, alg)
+				if err then
+					return nil, err
+				end
+				return token
+			end
+			return encode_jwt
+		`
+		err = vm.Import(encodeScript, "encode_script", "encode_jwt")
+		require.NoError(t, err)
+
+		verifyScript := `
+			local crypto = require("crypto")
+			function verify_jwt(token, key, alg)
+				local claims, err = crypto.jwt.verify(token, key, alg)
+				if err then
+					return nil, err
+				end
+				return claims
+			end
+			return verify_jwt
+		`
+		err = vm.Import(verifyScript, "verify_script", "verify_jwt")
+		require.NoError(t, err)
+
+		// Prepare payload with _header field
+		payload := &lua.LTable{}
+		payload.RawSetString("sub", lua.LString("1234567890"))
+		payload.RawSetString("name", lua.LString("John Doe"))
+		payload.RawSetString("admin", lua.LBool(true))
+
+		// Add custom header
+		headerTable := &lua.LTable{}
+		headerTable.RawSetString("kid", lua.LString("test-key-id"))
+		payload.RawSetString("_header", headerTable)
+
+		// Encode the token
+		token, err := vm.Execute(context.Background(), "encode_jwt", payload, lua.LString(privateKeyPEM), lua.LString("RS256"))
+		require.NoError(t, err)
+		tokenStr := token.(lua.LString).String()
+
+		// Verify the token
+		claims, err := vm.Execute(context.Background(), "verify_jwt", lua.LString(tokenStr), lua.LString(publicKeyPEM), lua.LString("RS256"))
+		require.NoError(t, err)
+
+		// Verify the claims
+		claimsTable, ok := claims.(*lua.LTable)
+		require.True(t, ok, "Expected claims to be a table")
+
+		// Check specific claims
+		assert.Equal(t, "1234567890", claimsTable.RawGetString("sub").String(), "Sub claim should match")
+		assert.Equal(t, "John Doe", claimsTable.RawGetString("name").String(), "Name claim should match")
+		assert.Equal(t, lua.LTrue, claimsTable.RawGetString("admin"), "Admin claim should match")
+
+		// Ensure _header is not present in claims
+		assert.Equal(t, lua.LNil, claimsTable.RawGetString("_header"), "_header should not be in claims")
+	})
+
+	// Test error handling for RS256
+	t.Run("RS256 error handling", func(t *testing.T) {
+		mod := NewCryptoModule()
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Prepare a properly escaped public key by replacing newlines with Lua escape sequences
+		escapedPublicKey := strings.ReplaceAll(publicKeyPEM, "\n", "\\n")
+
+		testScript := `
+        local crypto = require("crypto")
+        function test()
+            local results = {}
+            
+            -- Test with invalid private key
+            local token, err = crypto.jwt.encode({sub = "1234"}, "not-a-valid-key", "RS256")
+            results.invalid_private_key = (err ~= nil and string.find(err, "invalid RSA private key") ~= nil)
+            
+            -- Test with invalid public key
+            local dummy_token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature"
+            local claims, verify_err = crypto.jwt.verify(dummy_token, "not-a-valid-key", "RS256")
+            results.invalid_public_key = (verify_err ~= nil and string.find(verify_err, "failed to verify token") ~= nil)
+            
+            -- Test algorithm mismatch
+            local hmac_token, _ = crypto.jwt.encode({sub = "1234"}, "secret", "HS256")
+            local _, alg_err = crypto.jwt.verify(hmac_token, [=[` + escapedPublicKey + `]=], "RS256")
+            results.algorithm_mismatch = (alg_err ~= nil and string.find(alg_err, "failed to verify token") ~= nil)
+            
+            return results
+        end
+        return test
+    `
+		err = vm.Import(testScript, "test_script", "test")
+		require.NoError(t, err)
+
+		results, err := vm.Execute(context.Background(), "test")
+		require.NoError(t, err)
+
+		resultsTable, ok := results.(*lua.LTable)
+		require.True(t, ok, "Expected results to be a table")
+
+		// Check that expected errors were detected
+		assert.Equal(t, lua.LTrue, resultsTable.RawGetString("invalid_private_key"), "Should detect invalid private key")
+		assert.Equal(t, lua.LTrue, resultsTable.RawGetString("invalid_public_key"), "Should detect invalid public key")
+		assert.Equal(t, lua.LTrue, resultsTable.RawGetString("algorithm_mismatch"), "Should detect algorithm mismatch")
+	})
 }

@@ -73,7 +73,7 @@ entries:
       
       When you are redirected from another agent avoid comments and instead try to locate and redirect to proper agent immediatelly.
 
-    model: "gpt-4o"
+    model: "gpt-4o-mini"
     max_tokens: 4000
     temperature: 0.7
 
@@ -90,6 +90,9 @@ entries:
       "wippy-manager":
         name: "to_wippy_manager"
         rule: "When user want to change system behaviour or any of the component, this agent manages all the code of software."
+      "command-executor":
+        name: "to_command_executor"
+        rule: "When user want to execute system commands, this agent will help to execute system commands and process their output."
 
     tools:
       - app.tools.greeting:hello_world
