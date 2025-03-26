@@ -195,7 +195,6 @@ function Runner:run(options)
 
     -- Execute each migration that's not already applied
     for _, migration in ipairs(migrations) do
-
         -- Skip if already applied
         if migration.applied then
             results.migrations_skipped = results.migrations_skipped + 1
@@ -255,7 +254,7 @@ function Runner:run(options)
                 -- Check if reason is directly available
                 if result.reason then
                     reason = result.reason
-                -- Check if it's inside the skipped_reasons structure
+                    -- Check if it's inside the skipped_reasons structure
                 elseif result.name and result.reason then
                     reason = result.reason
                 elseif result.skipped_reasons and #result.skipped_reasons > 0 then
@@ -367,7 +366,7 @@ function Runner:run_next(options)
             -- Check if reason is directly available
             if result.reason then
                 reason = result.reason
-            -- Check if it's inside the skipped_reasons structure
+                -- Check if it's inside the skipped_reasons structure
             elseif result.name and result.reason then
                 reason = result.reason
             elseif result.skipped_reasons and #result.skipped_reasons > 0 then
@@ -446,9 +445,46 @@ function Runner:rollback(options)
         }
     end
 
-    -- Sort by applied_at descending (most recent first)
+    -- Enrich migrations with metadata from registry to get creation timestamps
+    for i, migration in ipairs(applied_migrations) do
+        local registry_entry = registry_finder.get(migration.id)
+        if registry_entry and registry_entry.meta and registry_entry.meta.timestamp then
+            applied_migrations[i].meta_timestamp = registry_entry.meta.timestamp
+        else
+            -- Default to empty string if not found
+            applied_migrations[i].meta_timestamp = ""
+        end
+    end
+
+    -- Sort migrations: first by applied_at (descending), then by meta_timestamp (descending)
     table.sort(applied_migrations, function(a, b)
-        return a.applied_at > b.applied_at
+        -- First compare applied_at timestamps
+        if a.applied_at ~= b.applied_at then
+            return a.applied_at > b.applied_at
+        end
+
+        -- If applied_at is the same, use metadata timestamp as secondary sort
+        -- Parse the RFC3339 timestamps and compare them properly
+        if a.meta_timestamp and b.meta_timestamp then
+            -- Try to parse both timestamps
+            local time_a, err_a = time.parse(time.RFC3339, a.meta_timestamp)
+            local time_b, err_b = time.parse(time.RFC3339, b.meta_timestamp)
+
+            -- If both parsed successfully, compare them
+            if time_a and time_b then
+                return time_a:after(time_b)
+            end
+
+            -- If one failed to parse, fall back to string comparison
+            if time_a and not time_b then
+                return true  -- a is valid, b is not, so a comes first
+            elseif not time_a and time_b then
+                return false -- a is not valid, b is, so b comes first
+            end
+        end
+
+        -- Fall back to string comparison if parsing fails or timestamps don't exist
+        return (a.meta_timestamp or "") > (b.meta_timestamp or "")
     end)
 
     -- Determine how many migrations to roll back
@@ -518,7 +554,7 @@ function Runner:rollback(options)
                 -- Check if reason is directly available
                 if result.reason then
                     reason = result.reason
-                -- Check if it's inside the skipped_reasons structure
+                    -- Check if it's inside the skipped_reasons structure
                 elseif result.name and result.reason then
                     reason = result.reason
                 elseif result.skipped_reasons and #result.skipped_reasons > 0 then
