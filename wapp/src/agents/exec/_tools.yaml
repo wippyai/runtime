@@ -1,0 +1,41 @@
+version: "1.0"
+namespace: app.tools.exec
+
+meta:
+  depends_on: [ "ns:system" ]
+
+entries:
+  - name: run_command
+    kind: function.lua
+    meta:
+      type: "tool"
+      name: "Command Executor"
+      llm_alias: "run_command"
+      description: "Executes a system command and returns its output"
+      llm_description: "Executes a system command with optional environment variables and working directory configuration"
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "The command to execute"
+            },
+            "work_dir": {
+              "type": "string",
+              "description": "Working directory for command execution (optional)"
+            },
+            "env": {
+              "type": "object",
+              "description": "Environment variables as key-value pairs (optional)"
+            },
+            "timeout": {
+              "type": "string",
+              "description": "Maximum execution time (e.g., '30s', '1m', '2h') (optional)"
+            }
+          },
+          "required": ["command"]
+        }
+    source: file://run_command.lua
+    method: execute
+    modules: [ exec, time, json ]

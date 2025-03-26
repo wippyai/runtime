@@ -351,6 +351,7 @@ return exit_code
 
 - Process streams implement a standard Stream interface
 - After `wait()` completes, the process handle is automatically closed
+- `wait()` never triggers an error, only returns the exit code and error message
 - Use `coroutine.spawn` for non-blocking stream operations
 - Use `channel` for synchronization between coroutines
 - Always release resources explicitly when finished, or let the unit of work handle cleanup
