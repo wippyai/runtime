@@ -1,6 +1,7 @@
 package yaml
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -453,5 +454,103 @@ func TestFieldOrdering(t *testing.T) {
 		require.Equal(t, lua.LTString, yamlStr.Type(), "Lua script did not return a string")
 		assert.NotEmpty(t, yamlStr.String())
 
+	})
+}
+
+// TestAlphabeticalSortingOfUnorderedFields tests that fields not in the field_order list
+// are sorted alphabetically when the third parameter is true
+func TestAlphabeticalSortingOfUnorderedFields(t *testing.T) {
+	t.Run("alphabetical sorting of unordered fields", func(t *testing.T) {
+		mod := NewYAMLModule()
+		L := lua.NewState()
+		defer L.Close()
+		L.PreloadModule(mod.Name(), mod.Loader)
+
+		err := L.DoString(`
+			local yaml = require("yaml")
+
+			local data = {
+				-- These fields have no specific order in field_order
+				z_last = "z value",
+				a_first = "a value", 
+				m_middle = "m value",
+				
+				-- These fields are in field_order
+				name = "test",
+				kind = "example",
+				
+				-- Nested fields with no specific order
+				meta = {
+					z_last_nested = "z nested",
+					a_first_nested = "a nested",
+					m_middle_nested = "m nested",
+					
+					-- This one is in field_order
+					type = "test type"
+				}
+			}
+
+			-- Define field order for some fields
+			local field_order = {
+				"name",
+				"kind",
+				"meta",
+				"type" -- For nested meta.type
+			}
+
+			-- First encode without alphabetical sorting (default behavior)
+			local result_default, err = yaml.encode(data, field_order)
+			if err then
+				error("Encoding error: " .. tostring(err))
+			end
+
+			-- Now encode with alphabetical sorting (third param = true)
+			local result_alpha, err = yaml.encode(data, field_order, true)
+			if err then
+				error("Encoding error: " .. tostring(err))
+			end
+
+			return {default = result_default, alpha = result_alpha}
+		`)
+
+		require.NoError(t, err)
+
+		// Get the results from stack
+		resultTable := L.CheckTable(-1)
+
+		defaultYAML := lua.LVAsString(resultTable.RawGetString("default"))
+		alphaYAML := lua.LVAsString(resultTable.RawGetString("alpha"))
+
+		// In default mode: Field order should be: name, kind, meta (because of field_order),
+		// but non-ordered fields (a_first, m_middle, z_last) should be in original order
+
+		// In alpha mode: Field order should be: name, kind, meta (because of field_order),
+		// then a_first, m_middle, z_last (alphabetically sorted)
+
+		// Check ordered fields come first in both cases
+		assert.True(t, strings.Index(defaultYAML, "name:") < strings.Index(defaultYAML, "kind:"))
+		assert.True(t, strings.Index(alphaYAML, "name:") < strings.Index(alphaYAML, "kind:"))
+
+		alphaUnorderedPos := map[string]int{
+			"a_first:":  strings.Index(alphaYAML, "a_first:"),
+			"m_middle:": strings.Index(alphaYAML, "m_middle:"),
+			"z_last:":   strings.Index(alphaYAML, "z_last:"),
+		}
+
+		// In alphabetical mode, a_first should come before m_middle and m_middle before z_last
+		assert.True(t, alphaUnorderedPos["a_first:"] < alphaUnorderedPos["m_middle:"])
+		assert.True(t, alphaUnorderedPos["m_middle:"] < alphaUnorderedPos["z_last:"])
+
+		// Check nested fields order
+		alphaNestedPos := map[string]int{
+			"a_first_nested:":  strings.Index(alphaYAML, "a_first_nested:"),
+			"m_middle_nested:": strings.Index(alphaYAML, "m_middle_nested:"),
+			"z_last_nested:":   strings.Index(alphaYAML, "z_last_nested:"),
+		}
+
+		// In nested fields, type should come first (from field_order), then a, m, z
+		assert.True(t, strings.Index(alphaYAML, "type: test type") < alphaNestedPos["a_first_nested:"])
+		assert.True(t, alphaNestedPos["a_first_nested:"] < alphaNestedPos["m_middle_nested:"])
+		assert.True(t, alphaNestedPos["m_middle_nested:"] < alphaNestedPos["z_last_nested:"])
 	})
 }

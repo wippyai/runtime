@@ -56,6 +56,12 @@ func (m *Module) encode(l *lua.LState) int {
 		fieldOrder = tableToStringSlice(orderTable)
 	}
 
+	// Get optional sort_unordered parameter (third argument)
+	sortUnordered := false
+	if l.GetTop() >= 3 {
+		sortUnordered = lua.LVAsBool(l.Get(3))
+	}
+
 	// Convert Lua value to Go using the provided conversion function
 	goVal := luaconv.ToGoAny(luaVal)
 
@@ -70,7 +76,7 @@ func (m *Module) encode(l *lua.LState) int {
 
 	// Process node to set multiline strings to use literal style
 	// and apply field ordering if provided
-	processNode(&node, fieldOrder)
+	processNode(&node, fieldOrder, sortUnordered)
 
 	// Marshal the processed node
 	yamlData, err := yaml.Marshal(&node)
@@ -151,7 +157,7 @@ func (m *Module) decode(l *lua.LState) int {
 
 // processNode walks through the YAML node tree, marks multiline strings as literal,
 // and applies field ordering if provided
-func processNode(node *yaml.Node, fieldOrder []string) {
+func processNode(node *yaml.Node, fieldOrder []string, sortUnordered bool) {
 	if node == nil {
 		return
 	}
@@ -166,39 +172,42 @@ func processNode(node *yaml.Node, fieldOrder []string) {
 	case yaml.DocumentNode:
 		// Process the document content
 		for _, content := range node.Content {
-			processNode(content, fieldOrder)
+			processNode(content, fieldOrder, sortUnordered)
 		}
 	case yaml.MappingNode:
-		// Always apply field ordering to mapping nodes if field order is provided
-		if len(fieldOrder) > 0 {
-			orderMappingNode(node, fieldOrder)
+		// Apply field ordering to mapping nodes if field order is provided
+		if len(fieldOrder) > 0 || sortUnordered {
+			orderMappingNode(node, fieldOrder, sortUnordered)
 		} else {
 			// Process child nodes without reordering
 			for i := 0; i < len(node.Content); i += 2 {
 				if i+1 < len(node.Content) {
-					processNode(node.Content[i], fieldOrder)
-					processNode(node.Content[i+1], fieldOrder)
+					processNode(node.Content[i], fieldOrder, sortUnordered)
+					processNode(node.Content[i+1], fieldOrder, sortUnordered)
 				}
 			}
 		}
 	case yaml.SequenceNode:
 		// Process each item in the sequence
 		for _, content := range node.Content {
-			processNode(content, fieldOrder)
+			processNode(content, fieldOrder, sortUnordered)
 		}
 	}
 }
 
 // orderMappingNode reorders mapping node fields based on the provided field order
-func orderMappingNode(node *yaml.Node, fieldOrder []string) {
+// If sortUnordered is true, fields not in fieldOrder will be sorted alphabetically
+func orderMappingNode(node *yaml.Node, fieldOrder []string, sortUnordered bool) {
 	if node == nil || len(node.Content) < 2 {
 		return
 	}
 
 	// Build a map of field names to their index in the fieldOrder slice
 	orderIndexMap := make(map[string]int)
-	for i, fieldName := range fieldOrder {
-		orderIndexMap[fieldName] = i
+	if fieldOrder != nil {
+		for i, fieldName := range fieldOrder {
+			orderIndexMap[fieldName] = i
+		}
 	}
 
 	// Create a map of field name to key-value pair
@@ -216,7 +225,7 @@ func orderMappingNode(node *yaml.Node, fieldOrder []string) {
 		}
 	}
 
-	// Sort key-value pairs based on field order
+	// Sort key-value pairs based on field order and/or alphabetically
 	sort.SliceStable(keyValuePairs, func(i, j int) bool {
 		keyNameI := keyValuePairs[i][0].Value
 		keyNameJ := keyValuePairs[j][0].Value
@@ -237,7 +246,12 @@ func orderMappingNode(node *yaml.Node, fieldOrder []string) {
 			return false
 		}
 
-		// If neither has defined order, keep original order (handled by SliceStable)
+		// If neither has defined order and sortUnordered is true, sort alphabetically
+		if sortUnordered {
+			return keyNameI < keyNameJ
+		}
+
+		// Otherwise, keep original order (handled by SliceStable)
 		return false
 	})
 
@@ -254,7 +268,7 @@ func orderMappingNode(node *yaml.Node, fieldOrder []string) {
 	for i := 0; i < len(node.Content); i += 2 {
 		if i+1 < len(node.Content) {
 			valueNode := node.Content[i+1]
-			processNode(valueNode, fieldOrder)
+			processNode(valueNode, fieldOrder, sortUnordered)
 		}
 	}
 }
