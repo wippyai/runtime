@@ -14,8 +14,8 @@ type Config struct {
 	// Bucket is the S3 bucket name.
 	Bucket string `json:"bucket"`
 
-	// Region is the AWS region where the bucket is located.
-	Region string `json:"region"`
+	// AWSConfig is a resource name of aws config.
+	AWSConfig string `json:"config"`
 
 	// AccessKeyIDEnv is the AWS access key ID env name.
 	AccessKeyIDEnv string `json:"access_key_id_env,omitempty"`
@@ -33,8 +33,8 @@ func (c *Config) Validate() error {
 		return errors.New("bucket name cannot be empty")
 	}
 
-	if c.Region == "" {
-		return errors.New("either region or endpoint must be specified")
+	if c.AWSConfig == "" {
+		return errors.New("aws config can't be empty")
 	}
 
 	return nil

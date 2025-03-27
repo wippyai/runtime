@@ -2,9 +2,7 @@ package s3
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -175,29 +173,9 @@ func (m *Manager) set(ctx context.Context, entry registry.Entry) (registry.Metad
 	}
 
 	resourceRegistry := resource.GetResources(ctx)
-
-	var rsc resource.Resource[any]
-	var found bool
-
-	depends := entry.Meta.TagValue("depends_on")
-	for _, depend := range depends {
-		if !strings.Contains(depend, ":") {
-			depend = entry.ID.NS + ":" + depend
-		}
-		id := registry.ParseID(depend)
-		acquired, err := resourceRegistry.Acquire(ctx, id, resource.ModeNormal)
-		if err != nil {
-			if errors.Is(err, resource.ErrResourceNotFound) {
-				continue
-			}
-			return nil, fmt.Errorf("acquire resource: %w", err)
-		}
-		rsc = acquired
-		found = true
-	}
-
-	if !found {
-		return nil, fmt.Errorf("aws config not found")
+	rsc, err := resourceRegistry.Acquire(ctx, registry.ParseID(cfg.AWSConfig), resource.ModeNormal)
+	if err != nil {
+		return nil, fmt.Errorf("acquire resource: %w", err)
 	}
 
 	gotConfig, err := rsc.Get()
