@@ -53,7 +53,6 @@ func apiGet(l *lua.LState) int {
 		l.Push(lua.LString("no unit of work found in context"))
 		return 2
 	}
-	// add release
 
 	// Get resource registry
 	reg := resource.GetResources(uw.Context())
@@ -73,6 +72,7 @@ func apiGet(l *lua.LState) int {
 		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
 		return 2
 	}
+	uw.AddCleanup(res.Release)
 
 	// Get CloudStorage instance
 	storageRes, err := res.Get()
