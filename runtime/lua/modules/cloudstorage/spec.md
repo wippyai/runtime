@@ -209,7 +209,7 @@ if err then
 end
 
 -- Create a buffer for downloading
-local fs_instance = fs.default()
+local fs_instance = fs.get("system:fs")
 local file = fs_instance:open("downloaded_file.txt", "w")
 if not file then
     print("Error opening file for writing")

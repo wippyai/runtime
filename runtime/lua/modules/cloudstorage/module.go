@@ -53,6 +53,7 @@ func apiGet(l *lua.LState) int {
 		l.Push(lua.LString("no unit of work found in context"))
 		return 2
 	}
+	// add release
 
 	// Get resource registry
 	reg := resource.GetResources(uw.Context())

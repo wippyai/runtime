@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/ponyruntime/pony/api/cloudstorage"
-	services3 "github.com/ponyruntime/pony/api/service/s3"
+	services3 "github.com/ponyruntime/pony/api/service/aws/s3"
 	"go.uber.org/zap"
 )
 
