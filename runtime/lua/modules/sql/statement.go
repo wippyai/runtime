@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
@@ -81,7 +82,7 @@ func stmtQuery(l *lua.LState) int {
 	}
 
 	// Get parameters.
-	params, err := CheckParams(l, 2)
+	params, err := sqlutil.CheckParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -120,7 +121,7 @@ func stmtQuery(l *lua.LState) int {
 			}
 		}()
 		var tableErr error
-		resultTable, tableErr = RowsToTable(l, rows)
+		resultTable, tableErr = sqlutil.RowsToTable(l, rows)
 		return tableErr
 	}()
 
@@ -151,7 +152,7 @@ func stmtExecute(l *lua.LState) int {
 	}
 
 	// Get parameters.
-	params, err := CheckParams(l, 2)
+	params, err := sqlutil.CheckParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -179,7 +180,7 @@ func stmtExecute(l *lua.LState) int {
 	}
 
 	// Convert result to Lua table.
-	resultTable := ResultToTable(l, result)
+	resultTable := sqlutil.ResultToTable(l, result)
 	l.Push(resultTable)
 	l.Push(lua.LNil)
 	return 2

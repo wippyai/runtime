@@ -8,13 +8,26 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// luaTableToMap converts a Lua table to a Go map using the existing conversion functions
+// Update the luaTableToMap function in expr.go to handle SQL_NULL special marker
 func luaTableToMap(l *lua.LState, table *lua.LTable) map[string]interface{} {
 	result := make(map[string]interface{})
 	table.ForEach(func(key, value lua.LValue) {
 		// Only use string keys
 		if key.Type() == lua.LTString {
 			keyStr := string(key.(lua.LString))
+
+			// Check for SQL_NULL marker
+			if value.Type() == lua.LTUserData {
+				if ud, ok := value.(*lua.LUserData); ok {
+					// Check if it's our NULL marker
+					if marker, ok := ud.Value.(string); ok && marker == "SQL_NULL" {
+						result[keyStr] = nil
+						return
+					}
+				}
+			}
+
+			// Use default conversion for non-NULL values
 			result[keyStr] = luaconv.ToGoAny(value)
 		}
 	})

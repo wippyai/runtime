@@ -1,4 +1,4 @@
-package sql
+package sqlutil
 
 import (
 	lua "github.com/yuin/gopher-lua"

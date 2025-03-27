@@ -2,6 +2,8 @@ package sql
 
 import (
 	"github.com/ponyruntime/pony/api/service/sql"
+	"github.com/ponyruntime/pony/runtime/lua/modules/sql/builder"
+	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -90,7 +92,10 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Add types table to module
 	mod.RawSetString("type", types)
 
-	RegisterAsModule(l, mod)
+	sqlutil.RegisterAsModule(l, mod)
+
+	// Register the builder submodule
+	builder.RegisterBuilderModule(l, mod)
 
 	// Return module
 	l.Push(mod)

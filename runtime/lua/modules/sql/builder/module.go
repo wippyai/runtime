@@ -12,7 +12,6 @@ func RegisterBuilderModule(l *lua.LState, mod *lua.LTable) {
 	registerInsertBuilderType(l)
 	registerUpdateBuilderType(l)
 	registerDeleteBuilderType(l)
-	registerCaseBuilderType(l)
 
 	// Register the query executor
 	RegisterQueryExecutorMetatable(l)
@@ -25,7 +24,6 @@ func RegisterBuilderModule(l *lua.LState, mod *lua.LTable) {
 	builder.RawSetString("insert", l.NewFunction(builderInsert))
 	builder.RawSetString("update", l.NewFunction(builderUpdate))
 	builder.RawSetString("delete", l.NewFunction(builderDelete))
-	builder.RawSetString("case", l.NewFunction(builderCase))
 
 	// Register placeholder formats as userdata
 	registerPlaceholderFormats(l, builder)

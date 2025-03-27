@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
@@ -172,7 +173,7 @@ func dbQuery(l *lua.LState) int {
 
 	// Get query and parameters
 	query := l.CheckString(2)
-	params, err := CheckParams(l, 3)
+	params, err := sqlutil.CheckParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -220,7 +221,7 @@ func dbQuery(l *lua.LState) int {
 
 		// Convert rows to Lua table
 		var tableErr error
-		resultTable, tableErr = RowsToTable(l, rows)
+		resultTable, tableErr = sqlutil.RowsToTable(l, rows)
 		return tableErr
 	}()
 
@@ -245,7 +246,7 @@ func dbExecute(l *lua.LState) int {
 
 	// Get query and parameters
 	query := l.CheckString(2)
-	params, err := CheckParams(l, 3)
+	params, err := sqlutil.CheckParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -278,7 +279,7 @@ func dbExecute(l *lua.LState) int {
 	}
 
 	// Convert result to Lua table
-	resultTable := ResultToTable(l, result)
+	resultTable := sqlutil.ResultToTable(l, result)
 
 	l.Push(resultTable)
 	l.Push(lua.LNil)

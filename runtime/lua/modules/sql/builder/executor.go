@@ -1,4 +1,3 @@
-// executor.go
 package builder
 
 import (
@@ -7,11 +6,20 @@ import (
 	"github.com/Masterminds/squirrel"
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	sqlmod "github.com/ponyruntime/pony/runtime/lua/modules/sql"
+	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+// Define local interfaces to break the circular dependency
+type DBGetter interface {
+	GetRawDB() *sql.DB
+}
+
+type TxGetter interface {
+	GetRawTx() *sql.Tx
+}
 
 // QueryExecutor handles the execution of SQL queries
 type QueryExecutor struct {
@@ -25,10 +33,10 @@ func NewQueryExecutor(l *lua.LState, builder interface{}, dbOrTx interface{}) (*
 	var runner squirrel.BaseRunner
 
 	switch v := dbOrTx.(type) {
-	case *sqlmod.DB:
+	case DBGetter:
 		// Use the accessor method to get the underlying sql.DB
 		runner = v.GetRawDB()
-	case *sqlmod.Transaction:
+	case TxGetter:
 		// Use the accessor method to get the underlying sql.Tx
 		runner = v.GetRawTx()
 	case *sql.DB:
@@ -136,8 +144,8 @@ func executorExec(l *lua.LState) int {
 		return 2
 	}
 
-	// Convert result to table using sqlmod.ResultToTable
-	resultTable := sqlmod.ResultToTable(l, result)
+	// Convert result to table using sqlutil.ResultToTable
+	resultTable := sqlutil.ResultToTable(l, result)
 	l.Push(resultTable)
 	l.Push(lua.LNil)
 	return 2
@@ -175,8 +183,8 @@ func executorQuery(l *lua.LState) int {
 		return 2
 	}
 
-	// Convert rows to table using sqlmod.RowsToTable
-	resultTable, err := sqlmod.RowsToTable(l, rows)
+	// Convert rows to table using sqlutil.RowsToTable
+	resultTable, err := sqlutil.RowsToTable(l, rows)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
