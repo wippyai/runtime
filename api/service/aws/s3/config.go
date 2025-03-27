@@ -22,6 +22,9 @@ type Config struct {
 
 	// SecretAccessKeyEnv is the AWS secret access key env name.
 	SecretAccessKeyEnv string `json:"secret_access_key_env,omitempty"`
+
+	// Endpoint is a custom endpoint.
+	Endpoint string `json:"endpoint"`
 }
 
 // Validate checks if the configuration is valid.

@@ -5,8 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/modules/cloudstorage"
-	"github.com/ponyruntime/pony/service/s3"
+
 	httpbase "net/http"
 	"os"
 	"os/signal"
@@ -41,6 +40,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/upstream"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/cloudstorage"
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
 	"github.com/ponyruntime/pony/runtime/lua/modules/excel"
@@ -63,6 +63,8 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/lua/task"
 	"github.com/ponyruntime/pony/runtime/noop"
+	"github.com/ponyruntime/pony/service/aws/config"
+	"github.com/ponyruntime/pony/service/aws/s3"
 	fsdir "github.com/ponyruntime/pony/service/directory"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
@@ -528,6 +530,7 @@ func main() {
 		WithProcessSupervisor(app),
 		WithEphemeralHost(app),
 		WithSQLManager(app),
+		WithAWSConfigManager(app),
 		WithS3Manager(app),
 	)...)
 	// --------------------------------------------------
@@ -697,6 +700,14 @@ func WithDirectoryManager(a *App) eventbus.EventHandler {
 		a.dtt,
 		nil,
 		a.logger.Named("fs.dir"),
+	))
+}
+
+func WithAWSConfigManager(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("config.aws", config.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("config.aws"),
 	))
 }
 
