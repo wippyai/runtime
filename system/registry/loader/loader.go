@@ -2,7 +2,6 @@ package loader
 
 import (
 	"fmt"
-
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
@@ -48,6 +47,7 @@ func (l *Loader) LoadFolder(folderPath string, vars interpolate.Variables) ([]re
 				zap.Error(err))
 			continue
 		}
+
 		entries = append(entries, fileEntries...)
 	}
 

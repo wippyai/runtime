@@ -543,9 +543,6 @@ func main() {
 
 	folderPath := args[0]
 
-	// Load environment variables from .env files
-	loadDotEnv(nil)
-
 	// Spawn and initialize application
 	app, err := NewApp(
 		*verbose,
@@ -555,6 +552,9 @@ func main() {
 		fmt.Printf("Failed to create application: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Load environment variables from .env files
+	loadDotEnv(app.logger)
 
 	if err := app.Initialize(); err != nil {
 		fmt.Printf("Failed to initialize application: %v\n", err)

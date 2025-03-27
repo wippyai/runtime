@@ -239,7 +239,10 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 	}
 
 	// Sort entries respecting dependencies
-	sortedEntries := SortEntriesByDependency(opEntries)
+	sortedEntries, err := SortEntriesByDependency(opEntries)
+	if err != nil {
+		return nil, err
+	}
 
 	// Map back to operations maintaining the sorted order
 	result := make(registry.ChangeSet, 0, len(operations))

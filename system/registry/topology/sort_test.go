@@ -152,7 +152,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CreateChangeSetFromEntries(tt.entries)
+			got, _ := CreateChangeSetFromEntries(tt.entries)
 			compareChangeSets(t, got, tt.want)
 		})
 	}
@@ -328,7 +328,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CreateChangeSetFromEntries(tt.entries)
+			got, _ := CreateChangeSetFromEntries(tt.entries)
 			compareChangeSets(t, got, tt.want)
 		})
 	}
@@ -557,7 +557,7 @@ func TestCreateChangeSetFromEntries_GroupDependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs := CreateChangeSetFromEntries(tt.entries)
+			cs, _ := CreateChangeSetFromEntries(tt.entries)
 
 			// Verify changeset length matches input
 			if len(cs) != len(tt.entries) {
@@ -741,7 +741,7 @@ func TestCreateChangeSetFromEntries_ImplicitNamespaceGroup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs := CreateChangeSetFromEntries(tt.entries)
+			cs, _ := CreateChangeSetFromEntries(tt.entries)
 
 			// Verify changeset length matches input
 			if len(cs) != len(tt.entries) {
@@ -952,7 +952,7 @@ func TestCreateChangeSetFromEntries_NamespaceInheritance(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs := CreateChangeSetFromEntries(tt.entries)
+			cs, _ := CreateChangeSetFromEntries(tt.entries)
 
 			// Verify changeset length matches input
 			if len(cs) != len(tt.entries) {
@@ -1132,7 +1132,7 @@ func TestNamespaceDependencyOrdering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs := CreateChangeSetFromEntries(tt.entries)
+			cs, _ := CreateChangeSetFromEntries(tt.entries)
 
 			if len(cs) != len(tt.entries) {
 				t.Errorf("expected changeset length %d, got %d", len(tt.entries), len(cs))
