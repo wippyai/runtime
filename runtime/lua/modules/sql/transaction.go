@@ -21,6 +21,12 @@ type Transaction struct {
 	onRelease context.CancelFunc
 }
 
+// In your sql package, add to Transaction type:
+// GetRawTx exposes the underlying sql.Tx for external components like QueryBuilder
+func (t *Transaction) GetRawTx() *sql.Tx {
+	return t.tx
+}
+
 // NewTransaction creates a new Transaction with UoW integration
 func NewTransaction(uw engine.UnitOfWork, tx *sql.Tx, db *DB, log *zap.Logger) *Transaction {
 	txWrapper := &Transaction{
@@ -84,7 +90,7 @@ func txQuery(l *lua.LState) int {
 
 	// Get query and parameters
 	query := l.CheckString(2)
-	params, err := checkParams(l, 3)
+	params, err := CheckParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -119,7 +125,7 @@ func txQuery(l *lua.LState) int {
 	}
 
 	var resultTable *lua.LTable
-	// Use a named return parameter to capture errors from both rowsToTable and rows.close
+	// Use a named return parameter to capture errors from both RowsToTable and rows.close
 	err = func() error {
 		defer func() {
 			closeErr := rows.Close()
@@ -134,7 +140,7 @@ func txQuery(l *lua.LState) int {
 
 		// Convert rows to Lua table
 		var tableErr error
-		resultTable, tableErr = rowsToTable(l, rows)
+		resultTable, tableErr = RowsToTable(l, rows)
 		return tableErr
 	}()
 
@@ -159,7 +165,7 @@ func txExecute(l *lua.LState) int {
 
 	// Get query and parameters
 	query := l.CheckString(2)
-	params, err := checkParams(l, 3)
+	params, err := CheckParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -194,7 +200,7 @@ func txExecute(l *lua.LState) int {
 	}
 
 	// Convert result to Lua table
-	resultTable := resultToTable(l, result)
+	resultTable := ResultToTable(l, result)
 
 	l.Push(resultTable)
 	l.Push(lua.LNil)

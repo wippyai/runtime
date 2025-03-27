@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/Masterminds/squirrel"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -17,27 +17,15 @@ type selectBuilderWrapper struct {
 // builderSelect creates a new select builder
 // Usage: sql.builder.select("id", "name", "email")
 func builderSelect(l *lua.LState) int {
-	// Get columns from arguments - can be strings or expressions
-	columns := make([]interface{}, 0, l.GetTop())
+	// Get columns from arguments
+	columns := make([]string, 0, l.GetTop())
 
 	for i := 1; i <= l.GetTop(); i++ {
-		arg := l.Get(i)
-
-		switch v := arg.(type) {
-		case lua.LString:
-			columns = append(columns, string(v))
-		case *lua.LUserData:
-			// Check if it's a Sqlizer
-			if sqlizer, ok := v.Value.(squirrel.Sqlizer); ok {
-				columns = append(columns, sqlizer)
-			} else {
-				l.ArgError(i, "expected string or Sqlizer expression")
-				return 0
-			}
-		default:
-			l.ArgError(i, "expected string or Sqlizer expression")
+		if l.Get(i).Type() != lua.LTString {
+			l.ArgError(i, "expected string column name")
 			return 0
 		}
+		columns = append(columns, l.CheckString(i))
 	}
 
 	// Create wrapper with default placeholder format
@@ -45,67 +33,70 @@ func builderSelect(l *lua.LState) int {
 		builder: squirrel.Select(columns...).PlaceholderFormat(squirrel.Question),
 	}
 
-	// Create userdata and set metatable
-	ud := l.NewUserData()
-	ud.Value = wrapper
-	l.SetMetatable(ud, getSelectBuilderMetatable(l))
-
+	// Create userdata
+	ud := wrapSelectBuilder(l, wrapper)
 	l.Push(ud)
 	return 1
 }
 
-// getSelectBuilderMetatable returns the metatable for SelectBuilder objects
-func getSelectBuilderMetatable(l *lua.LState) *lua.LTable {
-	// Create method table
-	methods := l.CreateTable(0, 20) // Reserve space for all methods
-
-	// Register all the methods
-	methods.RawSetString("from", l.NewFunction(selectFrom))
-	methods.RawSetString("join", l.NewFunction(selectJoin))
-	methods.RawSetString("left_join", l.NewFunction(selectLeftJoin))
-	methods.RawSetString("right_join", l.NewFunction(selectRightJoin))
-	methods.RawSetString("inner_join", l.NewFunction(selectInnerJoin))
-	methods.RawSetString("where", l.NewFunction(selectWhere))
-	methods.RawSetString("order_by", l.NewFunction(selectOrderBy))
-	methods.RawSetString("group_by", l.NewFunction(selectGroupBy))
-	methods.RawSetString("having", l.NewFunction(selectHaving))
-	methods.RawSetString("limit", l.NewFunction(selectLimit))
-	methods.RawSetString("offset", l.NewFunction(selectOffset))
-	methods.RawSetString("columns", l.NewFunction(selectColumns))
-	methods.RawSetString("distinct", l.NewFunction(selectDistinct))
-	methods.RawSetString("suffix", l.NewFunction(selectSuffix))
-	methods.RawSetString("run_with", l.NewFunction(selectRunWith))
-	methods.RawSetString("placeholder_format", l.NewFunction(selectPlaceholderFormat))
-	methods.RawSetString("to_sql", l.NewFunction(selectToSql))
-	methods.RawSetString("query", l.NewFunction(selectQuery))
-	methods.RawSetString("query_row", l.NewFunction(selectQueryRow))
-	methods.RawSetString("scan", l.NewFunction(selectScan))
-
-	// Create metatable with __index and __tostring
-	mt := l.CreateTable(0, 2)
-	mt.RawSetString("__index", methods)
-	mt.RawSetString("__tostring", l.NewFunction(func(l *lua.LState) int {
-		wrapper := checkSelectBuilder(l)
-		if wrapper == nil {
-			l.Push(lua.LString("Invalid SelectBuilder"))
-			return 1
-		}
-
-		// Get SQL for display
-		query, args, err := wrapper.builder.ToSql()
-		if err != nil {
-			l.Push(lua.LString(fmt.Sprintf("SelectBuilder Error: %v", err)))
-			return 1
-		}
-
-		l.Push(lua.LString(fmt.Sprintf("SelectBuilder: %s [Args: %v]", query, args)))
-		return 1
-	}))
-
-	return mt
+// wrapSelectBuilder wraps a SelectBuilder in a Lua userdata
+func wrapSelectBuilder(l *lua.LState, wrapper *selectBuilderWrapper) *lua.LUserData {
+	ud := l.NewUserData()
+	ud.Value = wrapper
+	ud.Metatable = value.GetTypeMetatable(l, "sql.SelectBuilder")
+	return ud
 }
 
-// checkSelectBuilder ensures the first argument is a SelectBuilder and returns it
+// registerSelectBuilderType registers the SelectBuilder metatable
+func registerSelectBuilderType(l *lua.LState) {
+	// Define methods
+	methods := map[string]lua.LGFunction{
+		"from":               selectFrom,
+		"join":               selectJoin,
+		"left_join":          selectLeftJoin,
+		"right_join":         selectRightJoin,
+		"inner_join":         selectInnerJoin,
+		"where":              selectWhere,
+		"order_by":           selectOrderBy,
+		"group_by":           selectGroupBy,
+		"having":             selectHaving,
+		"limit":              selectLimit,
+		"offset":             selectOffset,
+		"columns":            selectColumns,
+		"distinct":           selectDistinct,
+		"suffix":             selectSuffix,
+		"placeholder_format": selectPlaceholderFormat,
+		"to_sql":             selectToSql,
+		"run_with":           selectRunWith,
+	}
+
+	// Define metamethods
+	metamethods := map[string]lua.LGFunction{
+		"__tostring": selectToString,
+	}
+
+	// Register the metatable
+	value.RegisterTypeMethods(l, "sql.SelectBuilder", metamethods, methods)
+}
+
+// selectToString is the __tostring metamethod
+func selectToString(l *lua.LState) int {
+	wrapper := checkSelectBuilder(l)
+	if wrapper == nil {
+		return 0
+	}
+
+	query, args, err := wrapper.builder.ToSql()
+	if err != nil {
+		l.Push(lua.LString(fmt.Sprintf("SelectBuilder Error: %v", err)))
+		return 1
+	}
+
+	l.Push(lua.LString(fmt.Sprintf("SelectBuilder: %s [Args: %v]", query, args)))
+	return 1
+}
+
+// checkSelectBuilder ensures the argument is a SelectBuilder and returns it
 func checkSelectBuilder(l *lua.LState) *selectBuilderWrapper {
 	ud := l.CheckUserData(1)
 	if wrapper, ok := ud.Value.(*selectBuilderWrapper); ok {
@@ -115,10 +106,10 @@ func checkSelectBuilder(l *lua.LState) *selectBuilderWrapper {
 	return nil
 }
 
-// Method implementations for SelectBuilder
+// Query building methods (all return a new builder instance)
 
-// selectFrom implements the FROM clause
-// Usage: builder:from("users")
+// selectFrom sets the FROM clause
+// Usage: builder = builder:from("users")
 func selectFrom(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
@@ -126,42 +117,50 @@ func selectFrom(l *lua.LState) int {
 	}
 
 	table := l.CheckString(2)
-	wrapper.builder = wrapper.builder.From(table)
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Create new wrapper with updated builder (immutability)
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.From(table),
+	}
+
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectWhere implements the WHERE clause
-// Usage: builder:where("id > ?", 100) or builder:where({active = true})
+// selectWhere adds a WHERE condition
+// Usage: builder = builder:where("id > ?", 100) or builder:where({id = 1})
 func selectWhere(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
 		return 0
 	}
 
-	// Handle different types of where conditions
+	// Updated builder to store result
+	var newBuilder squirrel.SelectBuilder
+
 	switch l.Get(2).Type() {
 	case lua.LTString:
 		// String condition with args: where("id > ?", 100)
 		condition := l.CheckString(2)
 		args := make([]interface{}, 0, l.GetTop()-2)
 		for i := 3; i <= l.GetTop(); i++ {
-			args = append(args, luaToGoValue(l, l.Get(i)))
+			args = append(args, luaconv.ToGoAny(l.Get(i)))
 		}
-		wrapper.builder = wrapper.builder.Where(condition, args...)
+		newBuilder = wrapper.builder.Where(condition, args...)
 
 	case lua.LTTable:
 		// Table condition: where({active = true})
 		table := l.CheckTable(2)
 		eqMap := luaTableToMap(l, table)
-		wrapper.builder = wrapper.builder.Where(squirrel.Eq(eqMap))
+		newBuilder = wrapper.builder.Where(squirrel.Eq(eqMap))
 
 	case lua.LTUserData:
 		// Sqlizer condition: where(sql.builder.eq({...}))
 		ud := l.CheckUserData(2)
 		if sqlizer, ok := ud.Value.(squirrel.Sqlizer); ok {
-			wrapper.builder = wrapper.builder.Where(sqlizer)
+			newBuilder = wrapper.builder.Where(sqlizer)
 		} else {
 			l.ArgError(2, "expected string, table, or Sqlizer")
 			return 0
@@ -172,12 +171,17 @@ func selectWhere(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{builder: newBuilder}
+
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectJoin implements JOIN clauses
-// Usage: builder:join("emails USING (email_id)")
+// selectJoin adds a JOIN clause
+// Usage: builder = builder:join("emails USING (email_id)")
 func selectJoin(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
@@ -189,17 +193,22 @@ func selectJoin(l *lua.LState) int {
 	// Handle optional args
 	args := make([]interface{}, 0, l.GetTop()-2)
 	for i := 3; i <= l.GetTop(); i++ {
-		args = append(args, luaToGoValue(l, l.Get(i)))
+		args = append(args, luaconv.ToGoAny(l.Get(i)))
 	}
 
-	wrapper.builder = wrapper.builder.Join(join, args...)
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.Join(join, args...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectLeftJoin implements LEFT JOIN clauses
-// Usage: builder:left_join("emails USING (email_id)")
+// selectLeftJoin adds a LEFT JOIN clause
+// Usage: builder = builder:left_join("emails USING (email_id)")
 func selectLeftJoin(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
@@ -211,17 +220,22 @@ func selectLeftJoin(l *lua.LState) int {
 	// Handle optional args
 	args := make([]interface{}, 0, l.GetTop()-2)
 	for i := 3; i <= l.GetTop(); i++ {
-		args = append(args, luaToGoValue(l, l.Get(i)))
+		args = append(args, luaconv.ToGoAny(l.Get(i)))
 	}
 
-	wrapper.builder = wrapper.builder.LeftJoin(join, args...)
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.LeftJoin(join, args...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectRightJoin implements RIGHT JOIN clauses
-// Usage: builder:right_join("emails USING (email_id)")
+// selectRightJoin adds a RIGHT JOIN clause
+// Usage: builder = builder:right_join("emails USING (email_id)")
 func selectRightJoin(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
@@ -233,17 +247,22 @@ func selectRightJoin(l *lua.LState) int {
 	// Handle optional args
 	args := make([]interface{}, 0, l.GetTop()-2)
 	for i := 3; i <= l.GetTop(); i++ {
-		args = append(args, luaToGoValue(l, l.Get(i)))
+		args = append(args, luaconv.ToGoAny(l.Get(i)))
 	}
 
-	wrapper.builder = wrapper.builder.RightJoin(join, args...)
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.RightJoin(join, args...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectInnerJoin implements INNER JOIN clauses
-// Usage: builder:inner_join("emails USING (email_id)")
+// selectInnerJoin adds an INNER JOIN clause
+// Usage: builder = builder:inner_join("emails USING (email_id)")
 func selectInnerJoin(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
@@ -255,17 +274,22 @@ func selectInnerJoin(l *lua.LState) int {
 	// Handle optional args
 	args := make([]interface{}, 0, l.GetTop()-2)
 	for i := 3; i <= l.GetTop(); i++ {
-		args = append(args, luaToGoValue(l, l.Get(i)))
+		args = append(args, luaconv.ToGoAny(l.Get(i)))
 	}
 
-	wrapper.builder = wrapper.builder.InnerJoin(join, args...)
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.InnerJoin(join, args...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectOrderBy implements ORDER BY clause
-// Usage: builder:order_by("name ASC", "id DESC")
+// selectOrderBy adds an ORDER BY clause
+// Usage: builder = builder:order_by("name ASC", "id DESC")
 func selectOrderBy(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
@@ -278,14 +302,19 @@ func selectOrderBy(l *lua.LState) int {
 		orderBys = append(orderBys, l.CheckString(i))
 	}
 
-	wrapper.builder = wrapper.builder.OrderBy(orderBys...)
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.OrderBy(orderBys...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectGroupBy implements GROUP BY clause
-// Usage: builder:group_by("department", "location")
+// selectGroupBy adds a GROUP BY clause
+// Usage: builder = builder:group_by("department", "location")
 func selectGroupBy(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
@@ -298,42 +327,49 @@ func selectGroupBy(l *lua.LState) int {
 		groupBys = append(groupBys, l.CheckString(i))
 	}
 
-	wrapper.builder = wrapper.builder.GroupBy(groupBys...)
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.GroupBy(groupBys...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectHaving implements HAVING clause
-// Usage: builder:having("COUNT(*) > ?", 5)
+// selectHaving adds a HAVING clause
+// Usage: builder = builder:having("COUNT(*) > ?", 5)
 func selectHaving(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
 		return 0
 	}
 
-	// Handle different types of having conditions (similar to where)
+	// Updated builder to store result
+	var newBuilder squirrel.SelectBuilder
+
 	switch l.Get(2).Type() {
 	case lua.LTString:
 		// String condition with args
 		condition := l.CheckString(2)
 		args := make([]interface{}, 0, l.GetTop()-2)
 		for i := 3; i <= l.GetTop(); i++ {
-			args = append(args, luaToGoValue(l, l.Get(i)))
+			args = append(args, luaconv.ToGoAny(l.Get(i)))
 		}
-		wrapper.builder = wrapper.builder.Having(condition, args...)
+		newBuilder = wrapper.builder.Having(condition, args...)
 
 	case lua.LTTable:
 		// Table condition
 		table := l.CheckTable(2)
 		eqMap := luaTableToMap(l, table)
-		wrapper.builder = wrapper.builder.Having(squirrel.Eq(eqMap))
+		newBuilder = wrapper.builder.Having(squirrel.Eq(eqMap))
 
 	case lua.LTUserData:
 		// Sqlizer condition
 		ud := l.CheckUserData(2)
 		if sqlizer, ok := ud.Value.(squirrel.Sqlizer); ok {
-			wrapper.builder = wrapper.builder.Having(sqlizer)
+			newBuilder = wrapper.builder.Having(sqlizer)
 		} else {
 			l.ArgError(2, "expected string, table, or Sqlizer")
 			return 0
@@ -344,12 +380,17 @@ func selectHaving(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{builder: newBuilder}
+
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectLimit implements LIMIT clause
-// Usage: builder:limit(10)
+// selectLimit adds a LIMIT clause
+// Usage: builder = builder:limit(10)
 func selectLimit(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
@@ -357,14 +398,20 @@ func selectLimit(l *lua.LState) int {
 	}
 
 	limit := l.CheckNumber(2)
-	wrapper.builder = wrapper.builder.Limit(uint64(limit))
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.Limit(uint64(limit)),
+	}
+
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectOffset implements OFFSET clause
-// Usage: builder:offset(20)
+// selectOffset adds an OFFSET clause
+// Usage: builder = builder:offset(20)
 func selectOffset(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
@@ -372,65 +419,64 @@ func selectOffset(l *lua.LState) int {
 	}
 
 	offset := l.CheckNumber(2)
-	wrapper.builder = wrapper.builder.Offset(uint64(offset))
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.Offset(uint64(offset)),
+	}
+
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectColumns adds additional columns to the SELECT
-// Usage: builder:columns("count(*) as total")
+// selectColumns adds additional columns
+// Usage: builder = builder:columns("count(*) as total")
 func selectColumns(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
 		return 0
 	}
 
-	// Get columns from arguments - can be strings or expressions
-	columns := make([]interface{}, 0, l.GetTop()-1)
-
+	// Get columns
+	columns := make([]string, 0, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
-		arg := l.Get(i)
-
-		switch v := arg.(type) {
-		case lua.LString:
-			columns = append(columns, string(v))
-		case *lua.LUserData:
-			// Check if it's a Sqlizer
-			if sqlizer, ok := v.Value.(squirrel.Sqlizer); ok {
-				columns = append(columns, sqlizer)
-			} else {
-				l.ArgError(i, "expected string or Sqlizer expression")
-				return 0
-			}
-		default:
-			l.ArgError(i, "expected string or Sqlizer expression")
-			return 0
-		}
+		columns = append(columns, l.CheckString(i))
 	}
 
-	wrapper.builder = wrapper.builder.Columns(columns...)
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.Columns(columns...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectDistinct adds DISTINCT to the SELECT
-// Usage: builder:distinct()
+// selectDistinct adds DISTINCT to the query
+// Usage: builder = builder:distinct()
 func selectDistinct(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
 		return 0
 	}
 
-	wrapper.builder = wrapper.builder.Distinct()
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.Distinct(),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectSuffix adds a suffix to the SELECT
-// Usage: builder:suffix("FOR UPDATE")
+// selectSuffix adds a suffix to the query
+// Usage: builder = builder:suffix("FOR UPDATE")
 func selectSuffix(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
@@ -442,17 +488,22 @@ func selectSuffix(l *lua.LState) int {
 	// Handle optional args
 	args := make([]interface{}, 0, l.GetTop()-2)
 	for i := 3; i <= l.GetTop(); i++ {
-		args = append(args, luaToGoValue(l, l.Get(i)))
+		args = append(args, luaconv.ToGoAny(l.Get(i)))
 	}
 
-	wrapper.builder = wrapper.builder.Suffix(suffix, args...)
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.Suffix(suffix, args...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
 // selectPlaceholderFormat sets the placeholder format
-// Usage: builder:placeholder_format(sql.builder.dollar)
+// Usage: builder = builder:placeholder_format(sql.builder.dollar)
 func selectPlaceholderFormat(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
@@ -466,43 +517,18 @@ func selectPlaceholderFormat(l *lua.LState) int {
 		return 0
 	}
 
-	wrapper.builder = wrapper.builder.PlaceholderFormat(format)
+	// Create new wrapper
+	newWrapper := &selectBuilderWrapper{
+		builder: wrapper.builder.PlaceholderFormat(format),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud = wrapSelectBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
-// selectRunWith sets the runner for query execution
-// Usage: builder:run_with(db)
-func selectRunWith(l *lua.LState) int {
-	wrapper := checkSelectBuilder(l)
-	if wrapper == nil {
-		return 0
-	}
-
-	// Check for DB or Transaction
-	ud := l.CheckUserData(2)
-
-	var runner squirrel.BaseRunner
-
-	// Extract the SQL runner from our DB or Transaction types
-	switch v := ud.Value.(type) {
-	case *DB:
-		runner = v.db
-	case *Transaction:
-		runner = v.tx
-	default:
-		l.ArgError(2, "expected database or transaction")
-		return 0
-	}
-
-	wrapper.builder = wrapper.builder.RunWith(runner)
-
-	l.Push(l.CheckUserData(1)) // Return self for chaining
-	return 1
-}
-
-// selectToSql generates the SQL and args
+// selectToSql generates the SQL and args (for debugging)
 // Usage: sql, args = builder:to_sql()
 func selectToSql(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
@@ -522,105 +548,39 @@ func selectToSql(l *lua.LState) int {
 	// Convert args to Lua table
 	argsTable := l.CreateTable(len(args), 0)
 	for i, arg := range args {
-		argsTable.RawSetInt(i+1, goToLuaValue(l, arg))
+		luaValue, err := luaconv.GoToLua(arg)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(fmt.Sprintf("conversion error: %v", err)))
+			return 2
+		}
+		argsTable.RawSetInt(i+1, luaValue)
 	}
 
 	l.Push(argsTable)
 	return 2
 }
 
-// selectQuery executes the query and returns rows
-// Usage: rows, err = builder:query()
-func selectQuery(l *lua.LState) int {
+// selectRunWith creates an executor with this builder
+// Usage: executor = builder:run_with(db)
+func selectRunWith(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
 		return 0
 	}
 
-	// Check if runner is set
-	if wrapper.builder.RunWith == nil {
+	// Check for DB or Transaction
+	ud := l.CheckUserData(2)
+
+	// Create query executor
+	executor, err := NewQueryExecutor(l, wrapper.builder, ud.Value)
+	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(RunnerNotSet))
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	// Use coroutine for async execution
-	coroutine.Wrap(l, func() *engine.Update {
-		rows, err := wrapper.builder.Query()
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
-
-		// Convert rows to Lua table using your existing rowsToTable
-		resultTable, err := rowsToTable(l, rows)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
-
-		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
-	})
-
-	return -1 // Yield to coroutine
-}
-
-// selectQueryRow executes the query and returns a single row
-// Usage: row, err = builder:query_row()
-func selectQueryRow(l *lua.LState) int {
-	wrapper := checkSelectBuilder(l)
-	if wrapper == nil {
-		return 0
-	}
-
-	// Check if runner is set
-	if wrapper.builder.RunWith == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(RunnerNotSet))
-		return 2
-	}
-
-	// Use coroutine for async execution
-	coroutine.Wrap(l, func() *engine.Update {
-		row := wrapper.builder.QueryRow()
-		if row == nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("query failed")}, nil)
-		}
-
-		// Create a Row object
-		rowObj := &Row{RowScanner: row, err: nil}
-
-		// Create Lua userdata with appropriate metatable
-		ud := l.NewUserData()
-		ud.Value = rowObj
-
-		return engine.NewUpdate(nil, []lua.LValue{ud, lua.LNil}, nil)
-	})
-
-	return -1 // Yield to coroutine
-}
-
-// selectScan executes the query and scans into variables
-// Usage: builder:scan(var1, var2, var3)
-func selectScan(l *lua.LState) int {
-	wrapper := checkSelectBuilder(l)
-	if wrapper == nil {
-		return 0
-	}
-
-	// Check if we have at least one variable to scan into
-	if l.GetTop() < 2 {
-		l.ArgError(0, "expected at least one variable to scan into")
-		return 0
-	}
-
-	// Check if runner is set
-	if wrapper.builder.RunWith == nil {
-		l.Push(lua.LBool(false))
-		l.Push(lua.LString(RunnerNotSet))
-		return 2
-	}
-
-	// This is complex - we need to create Lua references to update later
-	// Not implementing full scan support in this initial version
-	l.RaiseError("scan method not fully implemented - use query_row() instead")
-	return 0
+	// Return the executor
+	l.Push(executor)
+	return 1
 }

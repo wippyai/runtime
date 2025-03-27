@@ -2,8 +2,10 @@ package builder
 
 import (
 	"fmt"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 
 	"github.com/Masterminds/squirrel"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -20,8 +22,7 @@ func builderCase(l *lua.LState) int {
 
 	// Check if we have a value for the CASE
 	if l.GetTop() > 0 {
-		value := luaToGoValue(l, l.Get(1))
-		builder = squirrel.Case(value)
+		builder = squirrel.Case(luaconv.ToGoAny(l.Get(1)))
 	} else {
 		builder = squirrel.Case()
 	}
@@ -34,44 +35,47 @@ func builderCase(l *lua.LState) int {
 	// Create userdata and set metatable
 	ud := l.NewUserData()
 	ud.Value = wrapper
-	l.SetMetatable(ud, getCaseBuilderMetatable(l))
+	ud.Metatable = value.GetTypeMetatable(l, "sql.CaseBuilder")
 
 	l.Push(ud)
 	return 1
 }
 
-// getCaseBuilderMetatable returns the metatable for CaseBuilder objects
-func getCaseBuilderMetatable(l *lua.LState) *lua.LTable {
-	// Create method table
-	methods := l.CreateTable(0, 4) // Reserve space for all methods
+// registerCaseBuilderMetatable registers methods for the CaseBuilder type
+func registerCaseBuilderType(l *lua.LState) {
+	// Define methods
+	methods := map[string]lua.LGFunction{
+		"when":   caseWhen,
+		"else_":  caseElse,
+		"to_sql": caseToSql,
+	}
 
-	// Register all the methods
-	methods.RawSetString("when", l.NewFunction(caseWhen))
-	methods.RawSetString("else", l.NewFunction(caseElse))
-	methods.RawSetString("to_sql", l.NewFunction(caseToSql))
+	// Define metamethods
+	metamethods := map[string]lua.LGFunction{
+		"__tostring": caseToString,
+	}
 
-	// Create metatable with __index and __tostring
-	mt := l.CreateTable(0, 2)
-	mt.RawSetString("__index", methods)
-	mt.RawSetString("__tostring", l.NewFunction(func(l *lua.LState) int {
-		wrapper := checkCaseBuilder(l)
-		if wrapper == nil {
-			l.Push(lua.LString("Invalid CaseBuilder"))
-			return 1
-		}
+	// Register metatable
+	value.RegisterTypeMethods(l, "sql.CaseBuilder", metamethods, methods)
+}
 
-		// Get SQL for display
-		query, args, err := wrapper.builder.ToSql()
-		if err != nil {
-			l.Push(lua.LString(fmt.Sprintf("CaseBuilder Error: %v", err)))
-			return 1
-		}
-
-		l.Push(lua.LString(fmt.Sprintf("CaseBuilder: %s [Args: %v]", query, args)))
+// caseToString is the __tostring metamethod for CaseBuilder
+func caseToString(l *lua.LState) int {
+	wrapper := checkCaseBuilder(l)
+	if wrapper == nil {
+		l.Push(lua.LString("Invalid CaseBuilder"))
 		return 1
-	}))
+	}
 
-	return mt
+	// Get SQL for display
+	query, args, err := wrapper.builder.ToSql()
+	if err != nil {
+		l.Push(lua.LString(fmt.Sprintf("CaseBuilder Error: %v", err)))
+		return 1
+	}
+
+	l.Push(lua.LString(fmt.Sprintf("CaseBuilder: %s [Args: %v]", query, args)))
+	return 1
 }
 
 // checkCaseBuilder ensures the first argument is a CaseBuilder and returns it
@@ -95,8 +99,8 @@ func caseWhen(l *lua.LState) int {
 	}
 
 	// Get condition and result
-	condition := luaToGoValue(l, l.Get(2))
-	result := luaToGoValue(l, l.Get(3))
+	condition := luaconv.ToGoAny(l.Get(2))
+	result := luaconv.ToGoAny(l.Get(3))
 
 	wrapper.builder = wrapper.builder.When(condition, result)
 
@@ -113,7 +117,7 @@ func caseElse(l *lua.LState) int {
 	}
 
 	// Get result
-	result := luaToGoValue(l, l.Get(2))
+	result := luaconv.ToGoAny(l.Get(2))
 
 	wrapper.builder = wrapper.builder.Else(result)
 
@@ -141,7 +145,13 @@ func caseToSql(l *lua.LState) int {
 	// Convert args to Lua table
 	argsTable := l.CreateTable(len(args), 0)
 	for i, arg := range args {
-		argsTable.RawSetInt(i+1, goToLuaValue(l, arg))
+		luaValue, err := luaconv.GoToLua(arg)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(fmt.Sprintf("conversion error: %v", err)))
+			return 2
+		}
+		argsTable.RawSetInt(i+1, luaValue)
 	}
 
 	l.Push(argsTable)

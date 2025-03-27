@@ -85,7 +85,7 @@ func TestCheckParams(t *testing.T) {
 			index := tt.setup()
 
 			// Call the function
-			result, err := checkParams(L, index)
+			result, err := CheckParams(L, index)
 
 			// Check results
 			if tt.wantErr {
@@ -125,7 +125,7 @@ func (m mockResultWithError) RowsAffected() (int64, error) {
 	return 0, m.err
 }
 
-// TestResultToTableStructure simply verifies that resultToTable returns a table with the expected keys
+// TestResultToTableStructure simply verifies that ResultToTable returns a table with the expected keys
 func TestResultToTableStructure(t *testing.T) {
 	L := lua.NewState()
 	defer L.Close()
@@ -137,7 +137,7 @@ func TestResultToTableStructure(t *testing.T) {
 	}
 
 	// Get the result table
-	table := resultToTable(L, mockResult)
+	table := ResultToTable(L, mockResult)
 	assert.NotNil(t, table)
 
 	// Check that the table has the expected keys, regardless of their values
@@ -152,7 +152,7 @@ func TestResultToTableStructure(t *testing.T) {
 		err: errors.New("test error"),
 	}
 
-	table = resultToTable(L, errorResult)
+	table = ResultToTable(L, errorResult)
 	assert.NotNil(t, table)
 
 	lastIDVal = table.RawGetString("last_insert_id")
@@ -252,7 +252,7 @@ func TestNullValueHandling(t *testing.T) {
 			L.Pop(L.GetTop()) // Clear stack
 			index := tt.setup()
 
-			// Use a modified local version of checkParams to test our logic
+			// Use a modified local version of CheckParams to test our logic
 			result, err := localCheckParams(L, index)
 
 			// Check results
@@ -266,7 +266,7 @@ func TestNullValueHandling(t *testing.T) {
 	}
 }
 
-// localCheckParams is a copy of the enhanced checkParams function for testing
+// localCheckParams is a copy of the enhanced CheckParams function for testing
 func localCheckParams(l *lua.LState, index int) (interface{}, error) {
 	params := l.Get(index)
 

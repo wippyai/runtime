@@ -1,16 +1,21 @@
 package builder
 
 import (
-	"fmt"
 	"github.com/Masterminds/squirrel"
-	"github.com/ponyruntime/pony/runtime/lua/modules/sql"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // RegisterBuilderModule adds the SQL builder submodule to the main SQL module
 func RegisterBuilderModule(l *lua.LState, mod *lua.LTable) {
-	// Register Row metatable
-	RegisterRowMetatable(l)
+	// Register all builder types
+	registerSelectBuilderType(l)
+	registerInsertBuilderType(l)
+	registerUpdateBuilderType(l)
+	registerDeleteBuilderType(l)
+	registerCaseBuilderType(l)
+
+	// Register the query executor
+	RegisterQueryExecutorMetatable(l)
 
 	// Create builder submodule table
 	builder := l.CreateTable(0, 20) // Reserve space for all functions
@@ -50,10 +55,10 @@ func registerPlaceholderFormats(l *lua.LState, mod *lua.LTable) {
 	atFormat.Metatable = getPlaceholderMetatable(l, "At")
 	mod.RawSetString("at", atFormat)
 
-	namedFormat := l.NewUserData()
-	namedFormat.Value = squirrel.Named
-	namedFormat.Metatable = getPlaceholderMetatable(l, "Named")
-	mod.RawSetString("named", namedFormat)
+	colonFormat := l.NewUserData()
+	colonFormat.Value = squirrel.Colon
+	colonFormat.Metatable = getPlaceholderMetatable(l, "Colon")
+	mod.RawSetString("colon", colonFormat)
 
 	// Set the default placeholder format to use (question by default)
 	mod.RawSetString("default_placeholder", questionFormat)
@@ -67,38 +72,4 @@ func getPlaceholderMetatable(l *lua.LState, name string) *lua.LTable {
 		return 1
 	}))
 	return mt
-}
-
-// Common runner types from your existing module
-// Add these constants to make it easier to integrate with your module
-const (
-	RunnerNotSet         = "cannot run; no Runner set (run_with)"
-	RunnerNotQueryRunner = "cannot query row; Runner is not a QueryRower"
-)
-
-// checkBuilder is a generic type checker for builder objects
-// This utility function helps reduce repetitive code
-func checkBuilder(l *lua.LState, index int, expected string) interface{} {
-	ud := l.CheckUserData(index)
-	if ud.Metatable == nil {
-		l.ArgError(index, "expected "+expected+" object")
-		return nil
-	}
-
-	return ud.Value
-}
-
-// getBaseRunner extracts a Squirrel BaseRunner from DB/Transaction objects
-// Used by run_with methods to integrate with your module
-func getBaseRunner(l *lua.LState, value interface{}) (squirrel.BaseRunner, error) {
-	switch v := value.(type) {
-	case *sql.DB:
-		// Use the db field from your existing DB type
-		return v.db, nil
-	case *sql.Transaction:
-		// Use the tx field from your existing Transaction type
-		return v.tx, nil
-	default:
-		return nil, fmt.Errorf("expected database or transaction object, got %T", value)
-	}
 }

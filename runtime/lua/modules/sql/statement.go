@@ -81,7 +81,7 @@ func stmtQuery(l *lua.LState) int {
 	}
 
 	// Get parameters.
-	params, err := checkParams(l, 2)
+	params, err := CheckParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -120,7 +120,7 @@ func stmtQuery(l *lua.LState) int {
 			}
 		}()
 		var tableErr error
-		resultTable, tableErr = rowsToTable(l, rows)
+		resultTable, tableErr = RowsToTable(l, rows)
 		return tableErr
 	}()
 
@@ -151,7 +151,7 @@ func stmtExecute(l *lua.LState) int {
 	}
 
 	// Get parameters.
-	params, err := checkParams(l, 2)
+	params, err := CheckParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -179,7 +179,7 @@ func stmtExecute(l *lua.LState) int {
 	}
 
 	// Convert result to Lua table.
-	resultTable := resultToTable(l, result)
+	resultTable := ResultToTable(l, result)
 	l.Push(resultTable)
 	l.Push(lua.LNil)
 	return 2

@@ -10,8 +10,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// checkParams extracts and converts parameters from Lua to Go
-func checkParams(l *lua.LState, index int) (interface{}, error) {
+// CheckParams extracts and converts parameters from Lua to Go
+func CheckParams(l *lua.LState, index int) (interface{}, error) {
 	params := l.Get(index)
 
 	// Handle nil case (no parameters)
@@ -78,8 +78,8 @@ func checkParams(l *lua.LState, index int) (interface{}, error) {
 	}
 }
 
-// rowsToTable converts SQL rows to a Lua table
-func rowsToTable(l *lua.LState, rows *sql.Rows) (*lua.LTable, error) {
+// RowsToTable converts SQL rows to a Lua table
+func RowsToTable(l *lua.LState, rows *sql.Rows) (*lua.LTable, error) {
 	// Get column information
 	columns, err := rows.Columns()
 	if err != nil {
@@ -149,8 +149,8 @@ func rowsToTable(l *lua.LState, rows *sql.Rows) (*lua.LTable, error) {
 	return resultTable, nil
 }
 
-// resultToTable converts a SQL result (from exec) to a Lua table
-func resultToTable(l *lua.LState, result sql.Result) *lua.LTable {
+// ResultToTable converts a SQL result (from exec) to a Lua table
+func ResultToTable(l *lua.LState, result sql.Result) *lua.LTable {
 	// Create a Go map and then convert to Lua table
 	resultMap := make(map[string]interface{})
 

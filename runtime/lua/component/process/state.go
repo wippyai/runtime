@@ -336,6 +336,7 @@ func (s *State) SendPackage(pkg *pubsub.Package) error {
 
 			for _, p := range msg.Payloads {
 				m := processmod.NewMessage(pkg.Source, msg.Topic, p)
+				// todo: remove payload from pkg
 				inboxValues = append(inboxValues, processmod.WrapMessage(s.UoW.State(), m))
 			}
 

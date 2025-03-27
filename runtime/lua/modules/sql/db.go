@@ -23,6 +23,11 @@ type DB struct {
 	onRelease context.CancelFunc
 }
 
+// GetRawDB exposes the underlying sql.DB for external components like QueryBuilder
+func (d *DB) GetRawDB() *sql.DB {
+	return d.db
+}
+
 // NewDB creates a new database connection wrapper with UoW integration
 func NewDB(uw engine.UnitOfWork, resource resource.Resource[any], db *sql.DB, dbType string, log *zap.Logger) *DB {
 	dbWrapper := &DB{
@@ -167,7 +172,7 @@ func dbQuery(l *lua.LState) int {
 
 	// Get query and parameters
 	query := l.CheckString(2)
-	params, err := checkParams(l, 3)
+	params, err := CheckParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -200,7 +205,7 @@ func dbQuery(l *lua.LState) int {
 	}
 
 	var resultTable *lua.LTable
-	// Use a named return parameter to capture errors from both rowsToTable and rows.close
+	// Use a named return parameter to capture errors from both RowsToTable and rows.close
 	err = func() error {
 		defer func() {
 			closeErr := rows.Close()
@@ -215,7 +220,7 @@ func dbQuery(l *lua.LState) int {
 
 		// Convert rows to Lua table
 		var tableErr error
-		resultTable, tableErr = rowsToTable(l, rows)
+		resultTable, tableErr = RowsToTable(l, rows)
 		return tableErr
 	}()
 
@@ -240,7 +245,7 @@ func dbExecute(l *lua.LState) int {
 
 	// Get query and parameters
 	query := l.CheckString(2)
-	params, err := checkParams(l, 3)
+	params, err := CheckParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -273,7 +278,7 @@ func dbExecute(l *lua.LState) int {
 	}
 
 	// Convert result to Lua table
-	resultTable := resultToTable(l, result)
+	resultTable := ResultToTable(l, result)
 
 	l.Push(resultTable)
 	l.Push(lua.LNil)

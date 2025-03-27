@@ -4,8 +4,22 @@ import (
 	"fmt"
 	"github.com/Masterminds/squirrel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// luaTableToMap converts a Lua table to a Go map using the existing conversion functions
+func luaTableToMap(l *lua.LState, table *lua.LTable) map[string]interface{} {
+	result := make(map[string]interface{})
+	table.ForEach(func(key, value lua.LValue) {
+		// Only use string keys
+		if key.Type() == lua.LTString {
+			keyStr := string(key.(lua.LString))
+			result[keyStr] = luaconv.ToGoAny(value)
+		}
+	})
+	return result
+}
 
 // registerExpressionBuilders adds expression builder functions to the module
 func registerExpressionBuilders(l *lua.LState, mod *lua.LTable) {
@@ -22,8 +36,8 @@ func registerExpressionBuilders(l *lua.LState, mod *lua.LTable) {
 	mod.RawSetString("gte", l.NewFunction(builderGtOrEq))
 	mod.RawSetString("like", l.NewFunction(builderLike))
 	mod.RawSetString("not_like", l.NewFunction(builderNotLike))
-	mod.RawSetString("and", l.NewFunction(builderAnd))
-	mod.RawSetString("or", l.NewFunction(builderOr))
+	mod.RawSetString("and_", l.NewFunction(builderAnd))
+	mod.RawSetString("or_", l.NewFunction(builderOr))
 }
 
 // registerSqlizerMetatable registers the metatable for Sqlizer objects
@@ -93,7 +107,13 @@ func sqlizerToSql(l *lua.LState) int {
 	// Convert args to Lua values
 	argsTable := l.CreateTable(len(args), 0)
 	for i, arg := range args {
-		argsTable.RawSetInt(i+1, goToLuaValue(l, arg))
+		luaValue, err := luaconv.GoToLua(arg)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(fmt.Sprintf("conversion error: %v", err)))
+			return 2
+		}
+		argsTable.RawSetInt(i+1, luaValue)
 	}
 	l.Push(argsTable)
 
@@ -114,7 +134,7 @@ func builderExpr(l *lua.LState) int {
 	// Collect arguments
 	args := make([]interface{}, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
-		args[i-2] = luaToGoValue(l, l.Get(i))
+		args[i-2] = luaconv.ToGoAny(l.Get(i))
 	}
 
 	// Create Expr and wrap it

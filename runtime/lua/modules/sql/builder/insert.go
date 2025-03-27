@@ -4,9 +4,8 @@ import (
 	"fmt"
 
 	"github.com/Masterminds/squirrel"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -29,13 +28,13 @@ func builderInsert(l *lua.LState) int {
 		builder: squirrel.Insert(tableName).PlaceholderFormat(squirrel.Question),
 	}
 
-	// Create userdata and set metatable
+	// Create userdata
 	ud := wrapInsertBuilder(l, wrapper)
 	l.Push(ud)
 	return 1
 }
 
-// wrapInsertBuilder wraps an InsertBuilder into a Lua userdata with the proper metatable
+// wrapInsertBuilder wraps an InsertBuilder in a Lua userdata
 func wrapInsertBuilder(l *lua.LState, wrapper *insertBuilderWrapper) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = wrapper
@@ -43,7 +42,7 @@ func wrapInsertBuilder(l *lua.LState, wrapper *insertBuilderWrapper) *lua.LUserD
 	return ud
 }
 
-// registerInsertBuilderType registers the InsertBuilder type metatable
+// registerInsertBuilderType registers the InsertBuilder metatable
 func registerInsertBuilderType(l *lua.LState) {
 	// Define methods
 	methods := map[string]lua.LGFunction{
@@ -54,12 +53,9 @@ func registerInsertBuilderType(l *lua.LState) {
 		"select":             insertSelect,
 		"suffix":             insertSuffix,
 		"options":            insertOptions,
-		"run_with":           insertRunWith,
 		"placeholder_format": insertPlaceholderFormat,
 		"to_sql":             insertToSql,
-		"exec":               insertExec,
-		"query":              insertQuery,
-		"query_one":          insertQueryOne,
+		"run_with":           insertRunWith,
 	}
 
 	// Define metamethods
@@ -67,7 +63,7 @@ func registerInsertBuilderType(l *lua.LState) {
 		"__tostring": insertToString,
 	}
 
-	// Register the type
+	// Register the metatable
 	value.RegisterTypeMethods(l, "sql.InsertBuilder", metamethods, methods)
 }
 
@@ -75,11 +71,9 @@ func registerInsertBuilderType(l *lua.LState) {
 func insertToString(l *lua.LState) int {
 	wrapper := checkInsertBuilder(l)
 	if wrapper == nil {
-		l.Push(lua.LString("Invalid InsertBuilder"))
-		return 1
+		return 0
 	}
 
-	// Get SQL for display
 	query, args, err := wrapper.builder.ToSql()
 	if err != nil {
 		l.Push(lua.LString(fmt.Sprintf("InsertBuilder Error: %v", err)))
@@ -100,10 +94,10 @@ func checkInsertBuilder(l *lua.LState) *insertBuilderWrapper {
 	return nil
 }
 
-// Method implementations for InsertBuilder
+// Method implementations for InsertBuilder (all immutable)
 
 // insertInto sets the table to insert into
-// Usage: builder:into("users")
+// Usage: builder = builder:into("users")
 func insertInto(l *lua.LState) int {
 	wrapper := checkInsertBuilder(l)
 	if wrapper == nil {
@@ -111,14 +105,20 @@ func insertInto(l *lua.LState) int {
 	}
 
 	table := l.CheckString(2)
-	wrapper.builder = wrapper.builder.Into(table)
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Create new wrapper with updated builder
+	newWrapper := &insertBuilderWrapper{
+		builder: wrapper.builder.Into(table),
+	}
+
+	// Return new wrapped builder
+	ud := wrapInsertBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
 // insertColumns sets the columns to insert into
-// Usage: builder:columns("id", "name", "email")
+// Usage: builder = builder:columns("id", "name", "email")
 func insertColumns(l *lua.LState) int {
 	wrapper := checkInsertBuilder(l)
 	if wrapper == nil {
@@ -131,14 +131,19 @@ func insertColumns(l *lua.LState) int {
 		columns = append(columns, l.CheckString(i))
 	}
 
-	wrapper.builder = wrapper.builder.Columns(columns...)
+	// Create new wrapper
+	newWrapper := &insertBuilderWrapper{
+		builder: wrapper.builder.Columns(columns...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapInsertBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
 // insertValues adds a row of values
-// Usage: builder:values(1, "John", "john@example.com")
+// Usage: builder = builder:values(1, "John", "john@example.com")
 func insertValues(l *lua.LState) int {
 	wrapper := checkInsertBuilder(l)
 	if wrapper == nil {
@@ -148,17 +153,22 @@ func insertValues(l *lua.LState) int {
 	// Convert Lua values to Go values
 	values := make([]interface{}, 0, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
-		values = append(values, luaToGoValue(l, l.Get(i)))
+		values = append(values, luaconv.ToGoAny(l.Get(i)))
 	}
 
-	wrapper.builder = wrapper.builder.Values(values...)
+	// Create new wrapper
+	newWrapper := &insertBuilderWrapper{
+		builder: wrapper.builder.Values(values...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapInsertBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
 // insertSetMap sets columns and values from a map
-// Usage: builder:set_map({id = 1, name = "John", email = "john@example.com"})
+// Usage: builder = builder:set_map({id = 1, name = "John", email = "john@example.com"})
 func insertSetMap(l *lua.LState) int {
 	wrapper := checkInsertBuilder(l)
 	if wrapper == nil {
@@ -169,14 +179,19 @@ func insertSetMap(l *lua.LState) int {
 	table := l.CheckTable(2)
 	valuesMap := luaTableToMap(l, table)
 
-	wrapper.builder = wrapper.builder.SetMap(valuesMap)
+	// Create new wrapper
+	newWrapper := &insertBuilderWrapper{
+		builder: wrapper.builder.SetMap(valuesMap),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapInsertBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
 // insertSelect sets a SELECT query as the source of values
-// Usage: builder:select(selectBuilder)
+// Usage: builder = builder:select(selectBuilder)
 func insertSelect(l *lua.LState) int {
 	wrapper := checkInsertBuilder(l)
 	if wrapper == nil {
@@ -191,14 +206,19 @@ func insertSelect(l *lua.LState) int {
 		return 0
 	}
 
-	wrapper.builder = wrapper.builder.Select(selectWrapper.builder)
+	// Create new wrapper
+	newWrapper := &insertBuilderWrapper{
+		builder: wrapper.builder.Select(selectWrapper.builder),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud = wrapInsertBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
 // insertSuffix adds a suffix to the query
-// Usage: builder:suffix("ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)")
+// Usage: builder = builder:suffix("ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)")
 func insertSuffix(l *lua.LState) int {
 	wrapper := checkInsertBuilder(l)
 	if wrapper == nil {
@@ -210,17 +230,22 @@ func insertSuffix(l *lua.LState) int {
 	// Handle optional args
 	args := make([]interface{}, 0, l.GetTop()-2)
 	for i := 3; i <= l.GetTop(); i++ {
-		args = append(args, luaToGoValue(l, l.Get(i)))
+		args = append(args, luaconv.ToGoAny(l.Get(i)))
 	}
 
-	wrapper.builder = wrapper.builder.Suffix(suffix, args...)
+	// Create new wrapper
+	newWrapper := &insertBuilderWrapper{
+		builder: wrapper.builder.Suffix(suffix, args...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapInsertBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
 // insertOptions adds options to the INSERT statement
-// Usage: builder:options("IGNORE")
+// Usage: builder = builder:options("IGNORE")
 func insertOptions(l *lua.LState) int {
 	wrapper := checkInsertBuilder(l)
 	if wrapper == nil {
@@ -233,14 +258,19 @@ func insertOptions(l *lua.LState) int {
 		options = append(options, l.CheckString(i))
 	}
 
-	wrapper.builder = wrapper.builder.Options(options...)
+	// Create new wrapper
+	newWrapper := &insertBuilderWrapper{
+		builder: wrapper.builder.Options(options...),
+	}
 
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud := wrapInsertBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
 // insertPlaceholderFormat sets the placeholder format
-// Usage: builder:placeholder_format(sql.builder.dollar)
+// Usage: builder = builder:placeholder_format(sql.builder.dollar)
 func insertPlaceholderFormat(l *lua.LState) int {
 	wrapper := checkInsertBuilder(l)
 	if wrapper == nil {
@@ -254,31 +284,14 @@ func insertPlaceholderFormat(l *lua.LState) int {
 		return 0
 	}
 
-	wrapper.builder = wrapper.builder.PlaceholderFormat(format)
-
-	l.Push(l.CheckUserData(1)) // Return self for chaining
-	return 1
-}
-
-// insertRunWith sets the runner for query execution
-// Usage: builder:run_with(db)
-func insertRunWith(l *lua.LState) int {
-	wrapper := checkInsertBuilder(l)
-	if wrapper == nil {
-		return 0
+	// Create new wrapper
+	newWrapper := &insertBuilderWrapper{
+		builder: wrapper.builder.PlaceholderFormat(format),
 	}
 
-	// Check for DB or Transaction
-	ud := l.CheckUserData(2)
-	runner, err := getBaseRunner(l, ud.Value)
-	if err != nil {
-		l.ArgError(2, err.Error())
-		return 0
-	}
-
-	wrapper.builder = wrapper.builder.RunWith(runner)
-
-	l.Push(l.CheckUserData(1)) // Return self for chaining
+	// Return new wrapped builder
+	ud = wrapInsertBuilder(l, newWrapper)
+	l.Push(ud)
 	return 1
 }
 
@@ -302,127 +315,39 @@ func insertToSql(l *lua.LState) int {
 	// Convert args to Lua table
 	argsTable := l.CreateTable(len(args), 0)
 	for i, arg := range args {
-		argsTable.RawSetInt(i+1, goToLuaValue(l, arg))
+		luaValue, err := luaconv.GoToLua(arg)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(fmt.Sprintf("conversion error: %v", err)))
+			return 2
+		}
+		argsTable.RawSetInt(i+1, luaValue)
 	}
 
 	l.Push(argsTable)
 	return 2
 }
 
-// insertExec executes the query
-// Usage: result, err = builder:exec()
-func insertExec(l *lua.LState) int {
+// insertRunWith creates an executor with this builder
+// Usage: executor = builder:run_with(db)
+func insertRunWith(l *lua.LState) int {
 	wrapper := checkInsertBuilder(l)
 	if wrapper == nil {
 		return 0
 	}
 
-	// Ensure runner is set
-	if wrapper.builder.RunWith == nil { // todo: this is wrong
+	// Check for DB or Transaction
+	ud := l.CheckUserData(2)
+
+	// Create query executor
+	executor, err := NewQueryExecutor(l, wrapper.builder, ud.Value)
+	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(RunnerNotSet))
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	// Use coroutine for async execution
-	coroutine.Wrap(l, func() *engine.Update {
-		result, err := wrapper.builder.Exec()
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
-
-		// Convert result to Lua table
-		resultTable := l.CreateTable(0, 2)
-
-		// Get rows affected
-		if rowsAffected, err := result.RowsAffected(); err == nil {
-			resultTable.RawSetString("rows_affected", lua.LNumber(rowsAffected))
-		} else {
-			resultTable.RawSetString("rows_affected", lua.LNil)
-		}
-
-		// Get last insert ID
-		if lastInsertID, err := result.LastInsertId(); err == nil {
-			resultTable.RawSetString("last_insert_id", lua.LNumber(lastInsertID))
-		} else {
-			resultTable.RawSetString("last_insert_id", lua.LNil)
-		}
-
-		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
-	})
-
-	return -1 // Yield to coroutine
-}
-
-// insertQuery executes the query and returns rows
-// Usage: rows, err = builder:query()
-func insertQuery(l *lua.LState) int {
-	wrapper := checkInsertBuilder(l)
-	if wrapper == nil {
-		return 0
-	}
-
-	// Ensure runner is set
-	if wrapper.builder.RunWith == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(RunnerNotSet))
-		return 2
-	}
-
-	// Use coroutine for async execution
-	coroutine.Wrap(l, func() *engine.Update {
-		rows, err := wrapper.builder.Query()
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
-
-		// Convert rows to Lua table
-		resultTable, err := rowsToTable(l, rows)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
-
-		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
-	})
-
-	return -1 // Yield to coroutine
-}
-
-// insertQueryOne executes the query and returns a single row directly as a table
-// Usage: row, err = builder:query_one()
-func insertQueryOne(l *lua.LState) int {
-	wrapper := checkInsertBuilder(l)
-	if wrapper == nil {
-		return 0
-	}
-
-	// Ensure runner is set
-	if wrapper.builder.RunWith == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(RunnerNotSet))
-		return 2
-	}
-
-	// Use coroutine for async execution
-	coroutine.Wrap(l, func() *engine.Update {
-		// Get the row
-		row := wrapper.builder.QueryRow()
-		if row == nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("query failed")}, nil)
-		}
-
-		// Convert the single row to a Lua table
-		rowTable, err := scanRowToTable(l, row)
-		if err != nil {
-			if err.Error() == "sql: no rows in result set" {
-				// No rows is a normal case, return nil without error
-				return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
-			}
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
-
-		return engine.NewUpdate(nil, []lua.LValue{rowTable, lua.LNil}, nil)
-	})
-
-	return -1 // Yield to coroutine
+	// Return the executor
+	l.Push(executor)
+	return 1
 }

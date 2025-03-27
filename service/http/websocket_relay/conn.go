@@ -250,6 +250,8 @@ func (c *Connection) forwardMessageToPubSub(msgType websocket.MessageType, data 
 
 // handlePubSubPackage processes a package received from pubsub
 func (c *Connection) handlePubSubPackage(pkg *pubsub.Package) {
+	defer pubsub.ReleasePackage(pkg)
+
 	for _, msg := range pkg.Messages {
 		// Handle exit events for the target PID
 		if msg.Topic == topology.TopicEvents && len(msg.Payloads) > 0 {
