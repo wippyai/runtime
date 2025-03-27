@@ -16,7 +16,7 @@ entries:
       depends_on:
         - aws_config
     bucket: mybucket
-    region: us-east-1
+    config: system:aws_config
 
   - name: root
     kind: fs.directory
