@@ -78,6 +78,11 @@ func SortEntriesByDependency(entries []registry.Entry) ([]registry.Entry, error)
 	// Second pass: process all dependencies
 	for _, entry := range entries {
 		dependencies := entry.Meta.TagValue(registry.TagDependsOn)
+
+		for _, ddep := range fetchDependencies(entry) {
+			dependencies = append(dependencies, ddep)
+		}
+
 		for _, dep := range dependencies {
 			depType, value := parseDependency(dep)
 
