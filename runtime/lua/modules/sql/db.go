@@ -3,13 +3,11 @@ package sql
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	sqlres "github.com/ponyruntime/pony/service/sql"
 	lua "github.com/yuin/gopher-lua"
@@ -176,55 +174,60 @@ func dbQuery(l *lua.LState) int {
 		return 2
 	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		var rows *sql.Rows
-		var err error
+	var rows *sql.Rows
 
-		// Serve query with appropriate parameter style
-		switch p := params.(type) {
-		case nil:
-			rows, err = db.db.Query(query)
-		case []interface{}:
-			rows, err = db.db.Query(query, p...)
-		case map[string]interface{}:
-			// Support for named parameters (placeholder for future implementation)
-			return engine.NewUpdate(nil, nil, errors.New("named parameters not yet implemented"))
-		default:
-			return engine.NewUpdate(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
-		}
+	// Serve query with appropriate parameter style
+	switch p := params.(type) {
+	case nil:
+		rows, err = db.db.Query(query)
+	case []interface{}:
+		rows, err = db.db.Query(query, p...)
+	case map[string]interface{}:
+		// Support for named parameters (placeholder for future implementation)
+		l.Push(lua.LNil)
+		l.Push(lua.LString("named parameters not yet implemented"))
+		return 2
+	default:
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
+		return 2
+	}
 
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		var resultTable *lua.LTable
-		// Use a named return parameter to capture errors from both rowsToTable and rows.close
-		err = func() error {
-			defer func() {
-				closeErr := rows.Close()
-				if closeErr != nil {
-					db.log.Error("failed to close rows", zap.Error(closeErr))
-					// If we don't already have an error, use the close error
-					if err == nil {
-						err = closeErr
-					}
+	var resultTable *lua.LTable
+	// Use a named return parameter to capture errors from both rowsToTable and rows.close
+	err = func() error {
+		defer func() {
+			closeErr := rows.Close()
+			if closeErr != nil {
+				db.log.Error("failed to close rows", zap.Error(closeErr))
+				// If we don't already have an error, use the close error
+				if err == nil {
+					err = closeErr
 				}
-			}()
-
-			// Convert rows to Lua table
-			var tableErr error
-			resultTable, tableErr = rowsToTable(l, rows)
-			return tableErr
+			}
 		}()
 
-		if err != nil {
-			return engine.NewUpdate(nil, nil, err)
-		}
+		// Convert rows to Lua table
+		var tableErr error
+		resultTable, tableErr = rowsToTable(l, rows)
+		return tableErr
+	}()
 
-		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
-	})
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-	return -1 // Yield
+	l.Push(resultTable)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // dbExecute executes a statement that doesn't return rows
@@ -244,34 +247,37 @@ func dbExecute(l *lua.LState) int {
 		return 2
 	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		var result sql.Result
-		var err error
+	var result sql.Result
 
-		// Serve with appropriate parameter style
-		switch p := params.(type) {
-		case nil:
-			result, err = db.db.Exec(query)
-		case []interface{}:
-			result, err = db.db.Exec(query, p...)
-		case map[string]interface{}:
-			// Support for named parameters (placeholder for future implementation)
-			return engine.NewUpdate(nil, nil, errors.New("named parameters not yet implemented"))
-		default:
-			return engine.NewUpdate(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
-		}
+	// Serve with appropriate parameter style
+	switch p := params.(type) {
+	case nil:
+		result, err = db.db.Exec(query)
+	case []interface{}:
+		result, err = db.db.Exec(query, p...)
+	case map[string]interface{}:
+		// Support for named parameters (placeholder for future implementation)
+		l.Push(lua.LNil)
+		l.Push(lua.LString("named parameters not yet implemented"))
+		return 2
+	default:
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
+		return 2
+	}
 
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Convert result to Lua table
-		resultTable := resultToTable(l, result)
+	// Convert result to Lua table
+	resultTable := resultToTable(l, result)
 
-		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
-	})
-
-	return -1 // Yield
+	l.Push(resultTable)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // dbPrepare prepares a statement for repeated execution
@@ -291,24 +297,24 @@ func dbPrepare(l *lua.LState) int {
 	// Get query
 	query := l.CheckString(2)
 
-	coroutine.Wrap(l, func() *engine.Update {
-		// Prepare statement
-		stmt, err := db.db.Prepare(query)
-		if err != nil {
-			// Return the error to Lua instead of failing the test
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	// Prepare statement
+	stmt, err := db.db.Prepare(query)
+	if err != nil {
+		// Return the error to Lua instead of failing the test
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Create statement wrapper using the constructor
-		stmtObj := NewStatement(uw, stmt, db, db.log)
+	// Create statement wrapper using the constructor
+	stmtObj := NewStatement(uw, stmt, db, db.log)
 
-		// Create userdata
-		ud := WrapStatement(l, stmtObj)
+	// Create userdata
+	ud := WrapStatement(l, stmtObj)
 
-		return engine.NewUpdate(nil, []lua.LValue{ud, lua.LNil}, nil)
-	})
-
-	return -1 // Yield
+	l.Push(ud)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // dbBegin starts a new transaction
@@ -325,23 +331,23 @@ func dbBegin(l *lua.LState) int {
 		return 0
 	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		// Begin transaction
-		tx, err := db.db.Begin()
-		if err != nil {
-			return engine.NewUpdate(nil, nil, err)
-		}
+	// Begin transaction
+	tx, err := db.db.Begin()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Create transaction wrapper using the constructor
-		txObj := NewTransaction(uw, tx, db, db.log)
+	// Create transaction wrapper using the constructor
+	txObj := NewTransaction(uw, tx, db, db.log)
 
-		// Create userdata
-		ud := WrapTransaction(l, txObj)
+	// Create userdata
+	ud := WrapTransaction(l, txObj)
 
-		return engine.NewUpdate(nil, []lua.LValue{ud, lua.LNil}, nil)
-	})
-
-	return -1 // Yield
+	l.Push(ud)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // dbRelease releases a database resource

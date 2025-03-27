@@ -10,7 +10,6 @@ import (
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/store"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -178,41 +177,49 @@ func storeGetValue(l *lua.LState) int {
 		return 0
 	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		// Parse key
-		parsedKey := registry.ParseID(key)
+	// Parse key
+	parsedKey := registry.ParseID(key)
 
-		// Get value from store
-		val, err := storeObj.store.Get(l.Context(), parsedKey)
-		if err != nil {
-			if err == store.ErrKeyNotFound {
-				return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("key not found")}, nil)
-			}
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+	// Get value from store
+	val, err := storeObj.store.Get(l.Context(), parsedKey)
+	if err != nil {
+		if err == store.ErrKeyNotFound {
+			l.Push(lua.LNil)
+			l.Push(lua.LString("key not found"))
+			return 2
 		}
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Use payload transcoder to convert to Lua
-		transcoder := payload.GetTranscoder(l.Context())
-		if transcoder == nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("transcoder not found in context")}, nil)
-		}
+	// Use payload transcoder to convert to Lua
+	transcoder := payload.GetTranscoder(l.Context())
+	if transcoder == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("transcoder not found in context"))
+		return 2
+	}
 
-		// Try to transcode to Lua format first
-		luaPayload, err := transcoder.Transcode(val, payload.Lua)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("failed to transcode: %v", err))}, nil)
-		}
+	// Try to transcode to Lua format first
+	luaPayload, err := transcoder.Transcode(val, payload.Lua)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to transcode: %v", err)))
+		return 2
+	}
 
-		// Extract the Lua value from the payload
-		luaVal, ok := luaPayload.Data().(lua.LValue)
-		if !ok {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("invalid payload data type: %T", luaPayload.Data()))}, nil)
-		}
+	// Extract the Lua value from the payload
+	luaVal, ok := luaPayload.Data().(lua.LValue)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("invalid payload data type: %T", luaPayload.Data())))
+		return 2
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{luaVal, lua.LNil}, nil)
-	})
-
-	return -1 // Yield
+	l.Push(luaVal)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // storeSetValue sets a value in the store
@@ -244,42 +251,46 @@ func storeSetValue(l *lua.LState) int {
 		ttl = time.Duration(float64(ttlSeconds) * float64(time.Second))
 	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		// Parse key
-		parsedKey := registry.ParseID(key)
+	// Parse key
+	parsedKey := registry.ParseID(key)
 
-		// Use payload transcoder to convert from Lua
-		transcoder := payload.GetTranscoder(l.Context())
-		if transcoder == nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("transcoder not found in context")}, nil)
-		}
+	// Use payload transcoder to convert from Lua
+	transcoder := payload.GetTranscoder(l.Context())
+	if transcoder == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("transcoder not found in context"))
+		return 2
+	}
 
-		// Create a Lua payload
-		luaPayload := payload.NewPayload(luaVal, payload.Lua)
+	// Create a Lua payload
+	luaPayload := payload.NewPayload(luaVal, payload.Lua)
 
-		// Transcode to Golang format
-		goPayload, err := transcoder.Transcode(luaPayload, payload.Golang)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("failed to transcode: %v", err))}, nil)
-		}
+	// Transcode to Golang format
+	goPayload, err := transcoder.Transcode(luaPayload, payload.Golang)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to transcode: %v", err)))
+		return 2
+	}
 
-		// Create entry
-		entry := store.Entry{
-			Key:   parsedKey,
-			Value: goPayload,
-			TTL:   ttl,
-		}
+	// Create entry
+	entry := store.Entry{
+		Key:   parsedKey,
+		Value: goPayload,
+		TTL:   ttl,
+	}
 
-		// Set value in store
-		err = storeObj.store.Set(l.Context(), entry)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	// Set value in store
+	err = storeObj.store.Set(l.Context(), entry)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
-	})
-
-	return -1 // Yield
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // storeDelete deletes a value from the store
@@ -297,23 +308,25 @@ func storeDelete(l *lua.LState) int {
 		return 0
 	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		// Parse key
-		parsedKey := registry.ParseID(key)
+	// Parse key
+	parsedKey := registry.ParseID(key)
 
-		// Delete value from store
-		err := storeObj.store.Delete(l.Context(), parsedKey)
-		if err != nil {
-			if err == store.ErrKeyNotFound {
-				return engine.NewUpdate(nil, []lua.LValue{lua.LFalse, lua.LNil}, nil)
-			}
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+	// Delete value from store
+	err := storeObj.store.Delete(l.Context(), parsedKey)
+	if err != nil {
+		if err == store.ErrKeyNotFound {
+			l.Push(lua.LFalse)
+			l.Push(lua.LNil)
+			return 2
 		}
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
-	})
-
-	return -1 // Yield
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // storeHas checks if a key exists in the store
@@ -331,20 +344,20 @@ func storeHas(l *lua.LState) int {
 		return 0
 	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		// Parse key
-		parsedKey := registry.ParseID(key)
+	// Parse key
+	parsedKey := registry.ParseID(key)
 
-		// Check if key exists
-		exists, err := storeObj.store.Has(l.Context(), parsedKey)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	// Check if key exists
+	exists, err := storeObj.store.Has(l.Context(), parsedKey)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{lua.LBool(exists), lua.LNil}, nil)
-	})
-
-	return -1 // Yield
+	l.Push(lua.LBool(exists))
+	l.Push(lua.LNil)
+	return 2
 }
 
 // storeRelease releases a store resource

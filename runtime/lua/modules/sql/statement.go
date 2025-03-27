@@ -7,7 +7,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -89,48 +88,51 @@ func stmtQuery(l *lua.LState) int {
 		return 2
 	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		var rows *sql.Rows
-		var err error
+	var rows *sql.Rows
 
-		// Serve query with appropriate parameter style.
-		switch p := params.(type) {
-		case nil:
-			rows, err = stmt.stmt.Query()
-		case []interface{}:
-			rows, err = stmt.stmt.Query(p...)
-		default:
-			return engine.NewUpdate(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
-		}
+	// Serve query with appropriate parameter style.
+	switch p := params.(type) {
+	case nil:
+		rows, err = stmt.stmt.Query()
+	case []interface{}:
+		rows, err = stmt.stmt.Query(p...)
+	default:
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
+		return 2
+	}
 
-		if err != nil {
-			return engine.NewUpdate(nil, nil, err)
-		}
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		var resultTable *lua.LTable
-		err = func() error {
-			defer func() {
-				closeErr := rows.Close()
-				if closeErr != nil {
-					stmt.log.Error("failed to close rows", zap.Error(closeErr))
-					if err == nil {
-						err = closeErr
-					}
+	var resultTable *lua.LTable
+	err = func() error {
+		defer func() {
+			closeErr := rows.Close()
+			if closeErr != nil {
+				stmt.log.Error("failed to close rows", zap.Error(closeErr))
+				if err == nil {
+					err = closeErr
 				}
-			}()
-			var tableErr error
-			resultTable, tableErr = rowsToTable(l, rows)
-			return tableErr
+			}
 		}()
+		var tableErr error
+		resultTable, tableErr = rowsToTable(l, rows)
+		return tableErr
+	}()
 
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
-	})
-
-	return -1 // Yield.
+	l.Push(resultTable)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // stmtExecute executes a prepared statement that doesn't return rows
@@ -156,30 +158,31 @@ func stmtExecute(l *lua.LState) int {
 		return 2
 	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		var result sql.Result
-		var err error
+	var result sql.Result
 
-		// Serve with appropriate parameter style.
-		switch p := params.(type) {
-		case nil:
-			result, err = stmt.stmt.Exec()
-		case []interface{}:
-			result, err = stmt.stmt.Exec(p...)
-		default:
-			return engine.NewUpdate(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
-		}
+	// Serve with appropriate parameter style.
+	switch p := params.(type) {
+	case nil:
+		result, err = stmt.stmt.Exec()
+	case []interface{}:
+		result, err = stmt.stmt.Exec(p...)
+	default:
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
+		return 2
+	}
 
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Convert result to Lua table.
-		resultTable := resultToTable(l, result)
-		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
-	})
-
-	return -1 // Yield.
+	// Convert result to Lua table.
+	resultTable := resultToTable(l, result)
+	l.Push(resultTable)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // stmtClose closes a prepared statement
