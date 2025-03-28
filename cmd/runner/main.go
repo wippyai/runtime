@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
+	"github.com/ponyruntime/pony/runtime/lua/modules/events"
 	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
 	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
 	"github.com/ponyruntime/pony/runtime/lua/modules/store"
@@ -874,6 +875,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				hash.NewHashModule(),
 				command.NewCommandModule(),
 				yamlmod.NewYAMLModule(),
+				events.NewEventsModule(a.logger.Named("events")),
 				exec.NewExecModule(a.logger.Named("exec")),
 				ctx.NewCtxModule(a.logger.Named("ctx")),
 				store.NewStoreModule(a.logger.Named("store")),

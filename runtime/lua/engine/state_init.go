@@ -80,11 +80,11 @@ func newLuaState() (*lua.LState, error) {
 			parts[i-1] = L.ToString(i)
 		}
 		msg := strings.Join(parts, " ")
-
-		if log == nil {
-			fmt.Print(msg)
-			return 0
-		}
+		// todo: make it nicer
+		//if log == nil {
+		fmt.Print(msg)
+		return 0
+		//}
 
 		log.Info(msg)
 		return 0
