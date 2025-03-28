@@ -101,7 +101,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Forward update messages to Lua via task runner
 	if a.taskRunner != nil {
 		err := a.taskRunner.SendTask("update", protocol.MsgToLua(msg))
-		if err != nil {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			a.state.Log.Error("failed to send update message", zap.Error(err))
 		}
 	}
