@@ -2,11 +2,30 @@ package yaml
 
 import (
 	"fmt"
+	"sort"
+	"strings"
+
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"gopkg.in/yaml.v3"
-	"sort"
 )
+
+// YAMLOptions holds all formatting options for YAML encoding
+type YAMLOptions struct {
+	// Basic formatting options
+	Indent        int      // Number of spaces for indentation (default: 2)
+	FieldOrder    []string // Custom field ordering
+	SortUnordered bool     // Sort fields not in FieldOrder alphabetically (default: false)
+
+	// Style options for different node types
+	ScalarStyle   string // Style for scalar values: "", "plain", "single", "double", "literal", "folded"
+	MappingStyle  string // Style for mappings: "", "flow", "block"
+	SequenceStyle string // Style for sequences: "", "flow", "block"
+
+	// Special formatting helpers
+	CompactSequences bool // Make short sequences compact using flow style (default: false)
+	EmitDefaults     bool // Emit zero/default values (opposite of omitempty) (default: true)
+}
 
 // Module represents a YAML Lua module
 type Module struct{}
@@ -23,12 +42,9 @@ func (m *Module) Name() string {
 
 // Loader registers the module's functions into Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.CreateTable(0, 2) // Pre-allocate for exactly 2 functions
-
-	// Register only encode and decode functions
+	mod := l.CreateTable(0, 2)
 	mod.RawSetString("encode", l.NewFunction(m.encode))
 	mod.RawSetString("decode", l.NewFunction(m.decode))
-
 	l.Push(mod)
 	return 1
 }
@@ -49,20 +65,25 @@ func (m *Module) encode(l *lua.LState) int {
 		return 2
 	}
 
-	// Get optional field order table (second argument)
-	var fieldOrder []string
+	// Create default options
+	options := YAMLOptions{
+		Indent:           2,
+		FieldOrder:       []string{},
+		SortUnordered:    false,
+		ScalarStyle:      "",
+		MappingStyle:     "",
+		SequenceStyle:    "",
+		CompactSequences: false,
+		EmitDefaults:     true,
+	}
+
+	// Extract options from Lua table if provided
 	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
-		orderTable := l.CheckTable(2)
-		fieldOrder = tableToStringSlice(orderTable)
+		optionsTable := l.CheckTable(2)
+		extractOptions(optionsTable, &options)
 	}
 
-	// Get optional sort_unordered parameter (third argument)
-	sortUnordered := false
-	if l.GetTop() >= 3 {
-		sortUnordered = lua.LVAsBool(l.Get(3))
-	}
-
-	// Convert Lua value to Go using the provided conversion function
+	// Convert Lua value to Go
 	goVal := luaconv.ToGoAny(luaVal)
 
 	// Create YAML node
@@ -74,29 +95,75 @@ func (m *Module) encode(l *lua.LState) int {
 		return 2
 	}
 
-	// Process node to set multiline strings to use literal style
-	// and apply field ordering if provided
-	processNode(&node, fieldOrder, sortUnordered)
+	// Process node for formatting
+	processNode(&node, &options)
 
 	// Marshal the processed node
-	yamlData, err := yaml.Marshal(&node)
+	var buf strings.Builder
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(options.Indent)
+
+	err = encoder.Encode(&node)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("error marshaling YAML: %v", err)))
 		return 2
 	}
 
-	l.Push(lua.LString(string(yamlData)))
+	l.Push(lua.LString(buf.String()))
 	l.Push(lua.LNil)
 	return 2
+}
+
+// extractOptions converts a Lua options table to YAMLOptions struct
+func extractOptions(table *lua.LTable, options *YAMLOptions) {
+	// Helper functions for type extraction
+	getBool := func(key string, defaultVal bool) bool {
+		val := table.RawGetString(key)
+		if val.Type() == lua.LTBool {
+			return lua.LVAsBool(val)
+		}
+		return defaultVal
+	}
+
+	getInt := func(key string, defaultVal int) int {
+		val := table.RawGetString(key)
+		if val.Type() == lua.LTNumber {
+			return int(lua.LVAsNumber(val))
+		}
+		return defaultVal
+	}
+
+	getString := func(key string, defaultVal string) string {
+		val := table.RawGetString(key)
+		if val.Type() == lua.LTString {
+			return val.String()
+		}
+		return defaultVal
+	}
+
+	// Extract field_order array if it exists
+	fieldOrderVal := table.RawGetString("field_order")
+	if fieldOrderVal.Type() == lua.LTTable {
+		fieldOrderTable := fieldOrderVal.(*lua.LTable)
+		options.FieldOrder = tableToStringSlice(fieldOrderTable)
+	}
+
+	// Extract other options
+	options.Indent = getInt("indent", options.Indent)
+	options.SortUnordered = getBool("sort_unordered", options.SortUnordered)
+	options.ScalarStyle = getString("scalar_style", options.ScalarStyle)
+	options.MappingStyle = getString("mapping_style", options.MappingStyle)
+	options.SequenceStyle = getString("sequence_style", options.SequenceStyle)
+	options.CompactSequences = getBool("compact_sequences", options.CompactSequences)
+	options.EmitDefaults = getBool("emit_defaults", options.EmitDefaults)
 }
 
 // tableToStringSlice converts a Lua table to a string slice
 func tableToStringSlice(table *lua.LTable) []string {
 	result := []string{}
-
-	// First check if the table has an array part
 	maxN := table.MaxN()
+
 	if maxN > 0 {
 		// Process array part
 		for i := 1; i <= maxN; i++ {
@@ -125,7 +192,6 @@ func (m *Module) decode(l *lua.LState) int {
 		return 2
 	}
 
-	// Get the input YAML string
 	yamlStr := l.CheckString(1)
 	if yamlStr == "" {
 		l.Push(lua.LNil)
@@ -133,7 +199,6 @@ func (m *Module) decode(l *lua.LState) int {
 		return 2
 	}
 
-	// Unmarshal YAML to Go map
 	var data interface{}
 	err := yaml.Unmarshal([]byte(yamlStr), &data)
 	if err != nil {
@@ -142,7 +207,6 @@ func (m *Module) decode(l *lua.LState) int {
 		return 2
 	}
 
-	// Convert Go value to Lua using the provided conversion function
 	lv, err := luaconv.GoToLua(data)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -155,77 +219,136 @@ func (m *Module) decode(l *lua.LState) int {
 	return 2
 }
 
-// processNode walks through the YAML node tree, marks multiline strings as literal,
-// and applies field ordering if provided
-func processNode(node *yaml.Node, fieldOrder []string, sortUnordered bool) {
+// processNode walks through the YAML node tree and applies formatting options
+func processNode(node *yaml.Node, options *YAMLOptions) {
 	if node == nil {
 		return
 	}
 
-	// Mark multiline strings for literal style
-	if node.Kind == yaml.ScalarNode && containsNewline(node.Value) {
-		node.Style = yaml.LiteralStyle
-	}
-
-	// Process based on node kind
+	// Apply style based on node kind
 	switch node.Kind {
 	case yaml.DocumentNode:
-		// Process the document content
+		// Document nodes don't have style options, just process content
 		for _, content := range node.Content {
-			processNode(content, fieldOrder, sortUnordered)
+			processNode(content, options)
 		}
+
 	case yaml.MappingNode:
-		// Apply field ordering to mapping nodes if field order is provided
-		if len(fieldOrder) > 0 || sortUnordered {
-			orderMappingNode(node, fieldOrder, sortUnordered)
-		} else {
-			// Process child nodes without reordering
-			for i := 0; i < len(node.Content); i += 2 {
-				if i+1 < len(node.Content) {
-					processNode(node.Content[i], fieldOrder, sortUnordered)
-					processNode(node.Content[i+1], fieldOrder, sortUnordered)
-				}
+		// Apply mapping style
+		if options.MappingStyle == "flow" {
+			node.Style = yaml.FlowStyle
+		} else if options.MappingStyle == "block" {
+			node.Style = 0 // Default block style
+		}
+
+		// Apply field ordering if provided
+		if len(options.FieldOrder) > 0 || options.SortUnordered {
+			orderMappingNode(node, options.FieldOrder, options.SortUnordered)
+		}
+
+		// Process all child nodes
+		for i := 0; i < len(node.Content); i += 2 {
+			if i+1 < len(node.Content) {
+				processNode(node.Content[i], options)   // Key
+				processNode(node.Content[i+1], options) // Value
 			}
 		}
+
 	case yaml.SequenceNode:
-		// Process each item in the sequence
+		// Apply sequence style
+		if options.SequenceStyle == "flow" {
+			node.Style = yaml.FlowStyle
+		} else if options.SequenceStyle == "block" {
+			node.Style = 0 // Default block style
+		} else if options.CompactSequences && isSimpleSequence(node) {
+			// Apply flow style for short, simple sequences
+			node.Style = yaml.FlowStyle
+		}
+
+		// Process each sequence item
 		for _, content := range node.Content {
-			processNode(content, fieldOrder, sortUnordered)
+			processNode(content, options)
+		}
+
+	case yaml.ScalarNode:
+		// Apply scalar style based on content and options
+		switch options.ScalarStyle {
+		case "single":
+			node.Style = yaml.SingleQuotedStyle
+		case "double":
+			node.Style = yaml.DoubleQuotedStyle
+		case "literal":
+			node.Style = yaml.LiteralStyle
+		case "folded":
+			node.Style = yaml.FoldedStyle
+		case "plain":
+			node.Style = 0 // Plain style
+		default:
+			// Auto style - use literal for multiline strings
+			if strings.Contains(node.Value, "\n") {
+				node.Style = yaml.LiteralStyle
+			}
+		}
+
+	case yaml.AliasNode:
+		// Alias nodes refer to anchor nodes, so we don't need to process them further
+		// The actual content is in the referenced node
+		if node.Alias != nil {
+			// Only process the alias target if it hasn't been processed yet
+			processNode(node.Alias, options)
 		}
 	}
 }
 
-// orderMappingNode reorders mapping node fields based on the provided field order
-// If sortUnordered is true, fields not in fieldOrder will be sorted alphabetically
+// isSimpleSequence checks if a sequence is short and contains only simple items
+func isSimpleSequence(node *yaml.Node) bool {
+	if node.Kind != yaml.SequenceNode {
+		return false
+	}
+
+	// Only apply to sequences with 5 or fewer items
+	if len(node.Content) > 5 {
+		return false
+	}
+
+	// Check if all items are simple scalars (no nested structures)
+	for _, item := range node.Content {
+		if item.Kind != yaml.ScalarNode {
+			return false
+		}
+		// Avoid flow style for multiline items
+		if strings.Contains(item.Value, "\n") {
+			return false
+		}
+	}
+	return true
+}
+
+// orderMappingNode reorders mapping node fields based on field order
 func orderMappingNode(node *yaml.Node, fieldOrder []string, sortUnordered bool) {
 	if node == nil || len(node.Content) < 2 {
 		return
 	}
 
-	// Build a map of field names to their index in the fieldOrder slice
+	// Build a map of field names to their index in fieldOrder
 	orderIndexMap := make(map[string]int)
-	if fieldOrder != nil {
-		for i, fieldName := range fieldOrder {
-			orderIndexMap[fieldName] = i
-		}
+	for i, fieldName := range fieldOrder {
+		orderIndexMap[fieldName] = i
 	}
 
-	// Create a map of field name to key-value pair
+	// Extract key-value pairs
 	keyValuePairs := make([][2]*yaml.Node, 0, len(node.Content)/2)
-
-	// Extract key-value pairs and their field names
 	for i := 0; i < len(node.Content); i += 2 {
 		if i+1 < len(node.Content) {
 			keyNode := node.Content[i]
 			valueNode := node.Content[i+1]
-
 			if keyNode.Kind == yaml.ScalarNode {
 				keyValuePairs = append(keyValuePairs, [2]*yaml.Node{keyNode, valueNode})
 			}
 		}
 	}
 
-	// Sort key-value pairs based on field order and/or alphabetically
+	// Sort key-value pairs
 	sort.SliceStable(keyValuePairs, func(i, j int) bool {
 		keyNameI := keyValuePairs[i][0].Value
 		keyNameJ := keyValuePairs[j][0].Value
@@ -251,34 +374,14 @@ func orderMappingNode(node *yaml.Node, fieldOrder []string, sortUnordered bool) 
 			return keyNameI < keyNameJ
 		}
 
-		// Otherwise, keep original order (handled by SliceStable)
+		// Otherwise, keep original order
 		return false
 	})
 
-	// Rebuild the node content with the ordered key-value pairs
+	// Rebuild the node content
 	newContent := make([]*yaml.Node, 0, len(keyValuePairs)*2)
 	for _, pair := range keyValuePairs {
 		newContent = append(newContent, pair[0], pair[1])
 	}
-
-	// Update the node content
 	node.Content = newContent
-
-	// Process child nodes recursively
-	for i := 0; i < len(node.Content); i += 2 {
-		if i+1 < len(node.Content) {
-			valueNode := node.Content[i+1]
-			processNode(valueNode, fieldOrder, sortUnordered)
-		}
-	}
-}
-
-// Check if string contains newline characters
-func containsNewline(s string) bool {
-	for _, c := range s {
-		if c == '\n' {
-			return true
-		}
-	}
-	return false
 }

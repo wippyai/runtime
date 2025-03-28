@@ -37,11 +37,11 @@ type (
 // NewCodeManager creates a new code manager instance
 func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error) {
 	if cfg.ProtoCacheSize <= 0 {
-		cfg.ProtoCacheSize = 100
+		cfg.ProtoCacheSize = 5000
 	}
 
 	if cfg.MainCacheSize <= 0 {
-		cfg.MainCacheSize = 50
+		cfg.MainCacheSize = 1000
 	}
 
 	cm := &Manager{
