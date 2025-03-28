@@ -2,6 +2,22 @@ version: "1.0"
 namespace: system
 
 entries:
+  - name: aws_config
+    kind: config.aws
+    meta:
+      comment: "Aws Config"
+    region: us-east-1
+    access_key_id_env: ACCESS_KEY_ID_CUSTOM
+
+  - name: test_s3
+    kind: cloudstorage.s3
+    meta:
+      comment: "Cloud Storage S3"
+      depends_on:
+        - aws_config
+    bucket: mybucket
+    config: system:aws_config
+
   - name: root
     kind: fs.directory
     meta:
