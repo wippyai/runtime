@@ -76,9 +76,6 @@ func TestYAMLModule(t *testing.T) {
 			local encoded, err = yaml.encode(data)
 			assert(err == nil, "encoding error: " .. tostring(err))
 			
-			-- Get raw string for test comparison
-			print("YAML Output: " .. encoded)
-			
 			local decoded, err = yaml.decode(encoded)
 			assert(err == nil, "decoding error: " .. tostring(err))
 			
@@ -178,7 +175,6 @@ func TestYAMLModule(t *testing.T) {
 		defer L.Close()
 		L.PreloadModule(mod.Name(), mod.Loader)
 
-		// This test prints the actual outputs for better debugging
 		err := L.DoString(`
 			local yaml = require("yaml")
 			
@@ -193,44 +189,50 @@ func TestYAMLModule(t *testing.T) {
 				longer_list = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 			}
 			
-			-- Test different style options and print the actual results for debugging
+			-- Test different style options
 			local results = {}
 			
 			-- Flow mapping style
 			results.flow_mapping = yaml.encode(data, {
 				mapping_style = "flow"
 			})
-			print("FLOW_MAPPING OUTPUT: " .. results.flow_mapping)
 			
 			-- Literal scalar style 
 			results.literal_scalar = yaml.encode(data, {
 				scalar_style = "literal"
 			})
-			print("LITERAL_SCALAR OUTPUT: " .. results.literal_scalar)
 			
 			-- Flow sequence style
 			results.flow_sequence = yaml.encode(data, {
 				sequence_style = "flow" 
 			})
-			print("FLOW_SEQUENCE OUTPUT: " .. results.flow_sequence)
 			
 			-- Compact sequences
 			results.compact = yaml.encode(data, {
 				compact_sequences = true
 			})
-			print("COMPACT OUTPUT: " .. results.compact)
+			
+			-- Custom compact sequence limit
+			results.custom_limit = yaml.encode(data, {
+				compact_sequences = true,
+				compact_sequence_limit = 10
+			})
+			
+			-- No nested compact sequences
+			results.no_nested_compact = yaml.encode(data, {
+				compact_sequences = true,
+				compact_nested_sequences = false
+			})
 			
 			-- Double quoted scalars
 			results.double_quoted = yaml.encode(data, {
 				scalar_style = "double"
 			})
-			print("DOUBLE_QUOTED OUTPUT: " .. results.double_quoted)
 			
 			-- Custom indentation
 			results.custom_indent = yaml.encode(data, {
 				indent = 4
 			})
-			print("CUSTOM_INDENT OUTPUT: " .. results.custom_indent)
 			
 			return results
 		`)
@@ -252,6 +254,20 @@ func TestYAMLModule(t *testing.T) {
 		flowSequence := lua.LVAsString(results.RawGetString("flow_sequence"))
 		assert.True(t, strings.Contains(flowSequence, "["),
 			"Flow sequence style should include a [ character")
+
+		// Custom compact sequence limit
+		customLimit := lua.LVAsString(results.RawGetString("custom_limit"))
+		assert.True(t, strings.Contains(customLimit, "longer_list: ["),
+			"Longer list should be compact with custom limit")
+
+		// No nested compact sequences
+		noNestedCompact := lua.LVAsString(results.RawGetString("no_nested_compact"))
+		// Check that nested array is not in flow style
+		assert.False(t, strings.Contains(noNestedCompact, "array: ["),
+			"Nested array should not be compact when nested compaction is disabled")
+		// But top-level short lists should still be compact
+		assert.True(t, strings.Contains(noNestedCompact, "short_list: ["),
+			"Top-level short list should still be compact")
 
 		// Double quoted scalars
 		doubleQuoted := lua.LVAsString(results.RawGetString("double_quoted"))

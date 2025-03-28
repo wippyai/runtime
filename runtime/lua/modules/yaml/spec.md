@@ -4,8 +4,8 @@
 
 The `yaml` module provides functions for encoding Lua tables into YAML (YAML Ain't Markup Language) strings and decoding
 YAML strings into Lua tables. It handles nested structures and preserves multiline strings using the literal style for
-better readability. The module also supports field ordering for controlling the structure of output YAML, with an option
-to alphabetically sort unordered fields.
+better readability. The module supports advanced formatting options including customizable indentation, field ordering,
+and different style options for various YAML node types.
 
 ## Module Interface
 
@@ -17,18 +17,14 @@ local yaml = require("yaml")
 
 ### Global Functions
 
-#### yaml.encode(value: table[, field_order: table[, sort_unordered: boolean]])
+#### yaml.encode(value: table[, options: table])
 
 Encodes a Lua table into a YAML string.
 
 Parameters:
 
 - `value`: The Lua table to encode.
-- `field_order` (optional): A table containing field names in the desired order. Fields will be arranged according to
-  their position in this table. Fields not in the table will appear after the ordered fields.
-- `sort_unordered` (optional): A boolean value that determines if fields not in `field_order` should be sorted
-  alphabetically. Default is `false`, which preserves the original order of unordered fields. When set to `true`,
-  all fields not explicitly ordered by `field_order` will be sorted A-Z for stable output.
+- `options` (optional): A table of formatting and encoding options. See "Formatting Options" below.
 
 Returns:
 
@@ -47,6 +43,23 @@ Returns:
 
 - `decoded`: The Lua table represented by the YAML string (or nil on error).
 - `error`: Error message string (or nil on success).
+
+## Formatting Options
+
+The `options` table passed to `yaml.encode()` can include the following fields:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `indent` | number | 2 | Number of spaces to use for indentation |
+| `field_order` | table | {} | List of field names in the desired order |
+| `sort_unordered` | boolean | false | Sort fields not in `field_order` alphabetically |
+| `scalar_style` | string | "" | Style for scalar values: `"plain"`, `"single"`, `"double"`, `"literal"`, `"folded"` |
+| `mapping_style` | string | "" | Style for mappings: `"flow"`, `"block"` |
+| `sequence_style` | string | "" | Style for sequences: `"flow"`, `"block"` |
+| `compact_sequences` | boolean | false | Use flow style for short sequences |
+| `compact_sequence_limit` | number | 5 | Maximum items for a sequence to be considered "short" |
+| `compact_nested_sequences` | boolean | true | Apply compact style to sequences inside other structures |
+| `emit_defaults` | boolean | true | Emit zero/default values |
 
 ## Error Handling
 
@@ -77,75 +90,249 @@ The module functions may return errors in the following cases:
     local decoded, err = yaml.decode("") -- decoded: nil, err: "first argument must be a string"
     ```
 
-## Behavior
+## Behavior and Style Options
 
-### Encoding
+### Indentation
 
-1. **Tables:**
-   - Tables are encoded as YAML maps or sequences based on their structure.
-   - Nested tables are supported and properly encoded.
-
-2. **Multiline Strings:**
-   - Strings containing newlines are encoded using the YAML literal style (pipe character `|`).
-   - This preserves the formatting of multiline strings for better readability.
-
-3. **Data Types:**
-   - Lua numbers are encoded as YAML numbers.
-   - Lua strings are encoded as YAML strings, with multiline detection.
-   - Lua booleans are encoded as YAML boolean values.
-   - Lua nil values are encoded as YAML null.
-
-4. **Field Ordering:**
-   - When the optional `field_order` parameter is provided, fields in the output YAML will be ordered according to
-     their position in this table.
-   - Fields not specified in the ordering will appear after the ordered fields.
-   - The ordering applies to all levels of the YAML structure.
-   - When the optional `sort_unordered` parameter is set to `true`, fields not in `field_order` will be sorted
-     alphabetically for stable output. This applies to all levels of the YAML structure.
-
-### Decoding
-
-1. **YAML to Lua:**
-   - YAML maps are decoded as Lua tables with string keys.
-   - YAML sequences are decoded as Lua tables with numeric indices.
-   - YAML scalars are decoded as the appropriate Lua types (string, number, boolean, etc.).
-   - YAML null values are decoded as Lua nil.
-
-2. **Multiline Strings:**
-   - YAML strings in literal style (pipe character `|`) or folded style (greater-than character `>`) are decoded as
-     proper multiline strings in Lua.
-
-## Field Ordering and Alphabetical Sorting
-
-When encoding data to YAML, you can control the order of fields in the output:
+Controls the number of spaces used for indentation:
 
 ```lua
 local data = {
-    version = "1.0",
-    namespace = "app.agent.exec",
-    meta = { depends_on = { "ns:system", "ns:app.tools.exec" } },
-    entries = { { name = "exec_agent", kind = "registry.entry" } }
+  nested = {
+    deep = "value"
+  }
 }
 
--- Define desired field order
-local field_order = {
-    "version",
-    "namespace",
-    "meta",
-    "depends_on",
-    "entries",
-    "name",
-    "kind"
-}
+-- Default 2-space indentation
+local yaml_default, err = yaml.encode(data)
+print(yaml_default)
+-- Output:
+-- nested:
+--   deep: value
 
--- Encode with field ordering only
-local yaml_string, err = yaml.encode(data, field_order)
-
--- Encode with field ordering AND alphabetical sorting of unordered fields
-local stable_yaml, err = yaml.encode(data, field_order, true)
+-- Custom 4-space indentation
+local yaml_custom, err = yaml.encode(data, {indent = 4})
+print(yaml_custom)
+-- Output:
+-- nested:
+--     deep: value
 ```
 
-Fields will be ordered based on their position in the `field_order` table. When the third parameter is `false` or not provided, fields not specified in `field_order` will appear after the ordered fields in their original order. When the third parameter is `true`, fields not specified in `field_order` will be sorted alphabetically for stable output.
+### Field Ordering
+
+Orders fields based on their position in the `field_order` list:
+
+```lua
+local data = {
+  c_field = "third",
+  a_field = "first",
+  b_field = "second"
+}
+
+-- Without field ordering (order may be unpredictable)
+local yaml_default, err = yaml.encode(data)
+
+-- With field ordering
+local yaml_ordered, err = yaml.encode(data, {
+  field_order = {"a_field", "b_field", "c_field"}
+})
+print(yaml_ordered)
+-- Output:
+-- a_field: first
+-- b_field: second
+-- c_field: third
+```
+
+### Alphabetical Sorting
+
+Sorts fields not in `field_order` alphabetically:
+
+```lua
+local data = {
+  version = "1.0",
+  z_field = "last",
+  a_field = "first",
+  m_field = "middle"
+}
+
+-- With field ordering and alphabetical sorting
+local yaml_sorted, err = yaml.encode(data, {
+  field_order = {"version"},  -- version comes first
+  sort_unordered = true       -- rest is alphabetical
+})
+print(yaml_sorted)
+-- Output:
+-- version: "1.0"
+-- a_field: first
+-- m_field: middle
+-- z_field: last
+```
+
+### Scalar Style Options
+
+Controls how scalar values are rendered:
+
+```lua
+local data = {
+  plain = "value",
+  multiline = "This is a\nmultiline string\nwith several lines"
+}
+
+-- Default (automatic style selection)
+local yaml_default, err = yaml.encode(data)
+print(yaml_default)
+-- Output:
+-- multiline: |-
+--   This is a
+--   multiline string
+--   with several lines
+-- plain: value
+
+-- Literal style for all scalars
+local yaml_literal, err = yaml.encode(data, {scalar_style = "literal"})
+print(yaml_literal)
+-- Output:
+-- multiline: |-
+--   This is a
+--   multiline string
+--   with several lines
+-- plain: |-
+--   value
+
+-- Double quoted style
+local yaml_quoted, err = yaml.encode(data, {scalar_style = "double"})
+print(yaml_quoted)
+-- Output:
+-- multiline: "This is a\nmultiline string\nwith several lines"
+-- plain: "value"
+```
+
+Available scalar styles:
+- `"plain"` - No quotes, most compact representation
+- `"single"` - Single quoted strings ('like this')
+- `"double"` - Double quoted strings ("like this")
+- `"literal"` - Literal block style with pipe character (|)
+- `"folded"` - Folded block style with greater-than character (>)
+
+### Mapping Style Options
+
+Controls how mapping (object) blocks are rendered:
+
+```lua
+local data = {
+  nested = {
+    a = 1,
+    b = 2,
+    c = 3
+  }
+}
+
+-- Default block style
+local yaml_block, err = yaml.encode(data)
+print(yaml_block)
+-- Output:
+-- nested:
+--   a: 1
+--   b: 2
+--   c: 3
+
+-- Flow style (JSON-like)
+local yaml_flow, err = yaml.encode(data, {mapping_style = "flow"})
+print(yaml_flow)
+-- Output:
+-- {nested: {a: 1, b: 2, c: 3}}
+```
+
+### Sequence Style Options
+
+Controls how sequence (array) blocks are rendered:
+
+```lua
+local data = {
+  items = {"one", "two", "three"},
+  longer_list = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+}
+
+-- Default block style
+local yaml_block, err = yaml.encode(data)
+print(yaml_block)
+-- Output:
+-- items:
+--   - one
+--   - two
+--   - three
+-- longer_list:
+--   - 1
+--   - 2
+--   ... etc.
+
+-- Flow style (JSON-like)
+local yaml_flow, err = yaml.encode(data, {sequence_style = "flow"})
+print(yaml_flow)
+-- Output:
+-- items: [one, two, three]
+-- longer_list: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+```
+
+### Compact Sequences
+
+Makes short sequences more compact by using flow style:
+
+```lua
+local data = {
+  short_list = {1, 2, 3},
+  medium_list = {1, 2, 3, 4, 5},
+  longer_list = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+  nested = {
+    inner_list = {1, 2, 3}
+  }
+}
+
+-- Basic compact sequences option (default limit of 5)
+local yaml_compact, err = yaml.encode(data, {compact_sequences = true})
+print(yaml_compact)
+-- Output:
+-- longer_list:
+--   - 1
+--   - 2
+--   ... etc.
+-- medium_list: [1, 2, 3, 4, 5]
+-- nested:
+--   inner_list: [1, 2, 3]
+-- short_list: [1, 2, 3]
+
+-- Custom sequence length limit
+local yaml_custom_limit, err = yaml.encode(data, {
+  compact_sequences = true,
+  compact_sequence_limit = 10  -- Consider sequences with 10 or fewer items as "short"
+})
+print(yaml_custom_limit)
+-- Output:
+-- longer_list: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+-- medium_list: [1, 2, 3, 4, 5]
+-- nested:
+--   inner_list: [1, 2, 3]
+-- short_list: [1, 2, 3]
+
+-- Disable compact style for nested sequences
+local yaml_no_nested, err = yaml.encode(data, {
+  compact_sequences = true,
+  compact_nested_sequences = false  -- Only apply to top-level sequences
+})
+print(yaml_no_nested)
+-- Output:
+-- longer_list:
+--   - 1
+--   - 2
+--   ... etc.
+-- medium_list: [1, 2, 3, 4, 5]
+-- nested:
+--   inner_list:
+--     - 1
+--     - 2
+--     - 3
+-- short_list: [1, 2, 3]
+```
 
 ## Thread Safety
 
@@ -156,119 +343,97 @@ Fields will be ordered based on their position in the `field_order` table. When 
 ## Best Practices
 
 1. **Always check for errors:** Check the returned `error` value from both `encode` and `decode`.
-2. **Validate input:** Ensure the input to `encode` is a valid Lua table, and the input to `decode` is a valid YAML
-   string.
-3. **Use multiline strings:** Take advantage of the automatic literal style formatting for multiline strings.
-4. **Structure your data:** Organize your data in a logical structure that maps well to YAML's hierarchical format.
-5. **Use field ordering for configurations:** Use the field ordering feature to ensure configuration files have a
-   consistent, readable structure.
-6. **Enable alphabetical sorting for stable output:** When generating YAML that will be compared or version-controlled,
-   enable the `sort_unordered` option to ensure stable, deterministic output.
+2. **Validate input:** Ensure the input to `encode` is a valid Lua table, and the input to `decode` is a valid YAML string.
+3. **Use appropriate styles:** Choose styles that enhance readability for your specific data:
+    - Use `compact_sequences` for short arrays to make them more readable
+    - Use `flow` style for mappings that are simple key-value pairs
+    - Use `block` style for complex, nested structures
+    - Use `literal` style for multiline strings (happens automatically by default)
+4. **Consistent indentation:** Choose an indentation that matches your project's style guide, typically 2 or 4 spaces.
+5. **Field ordering for clarity:** Order fields in a logical way, with key identifiers first:
+    - Put identifiers like `name`, `version`, and `id` near the top
+    - Group related fields together
+    - Put large arrays and complex nested structures toward the end
+6. **Enable alphabetical sorting for stable output:** When generating YAML that will be compared or version-controlled, enable the `sort_unordered` option to ensure stable, deterministic output.
 
-## Example Usage
+## Complete Example
 
 ```lua
 local yaml = require("yaml")
 
--- Encode a Lua table with alphabetical sorting of unordered fields
-local myTable = {
-  name = "Configuration",
-  version = 1.5,
-  enabled = true,
+-- Create a complex data structure
+local config = {
+  version = "1.0",
+  name = "My Application",
   settings = {
     timeout = 30,
     retry = 3,
     endpoints = {"api.example.com", "backup.example.com"}
   },
-  multilineText = [[
-This is a multiline
-text that will be formatted
-using the YAML literal style.
-]]
+  users = {
+    {id = 1, username = "admin", active = true},
+    {id = 2, username = "guest", active = false}
+  },
+  description = [[
+This is a sample configuration file
+with multiple lines of description
+that explains the purpose of this config.]]
 }
 
--- Specify fields that should appear first, in this exact order
-local fieldOrder = {"name", "version"}
+-- Define formatting options for nice, readable output
+local options = {
+  indent = 2,                  -- 2-space indentation
+  field_order = {              -- Logical field ordering
+    "version", 
+    "name", 
+    "description", 
+    "settings", 
+    "users"
+  },
+  sort_unordered = true,       -- Sort remaining fields alphabetically
+  compact_sequences = true,    -- Make short arrays more compact
+  mapping_style = "block",     -- Use block style for objects (default)
+  sequence_style = "block"     -- Use block style for arrays (default)
+}
 
--- Get stable output with alphabetical sorting of remaining fields
-local encoded, err = yaml.encode(myTable, fieldOrder, true)
+-- Generate YAML with the specified options
+local yamlString, err = yaml.encode(config, options)
 if err then
-  print("Encoding error:", err)
+  print("Error:", err)
 else
-  print("Encoded YAML:")
-  print(encoded)
-  -- Output will have name and version first, then all other fields in A-Z order
-  -- Multiline text will use the | literal style
+  print(yamlString)
+  -- Output will be formatted according to the specified options
 end
 
--- Control field ordering in the output
-local configData = {
-  name = "Service Config",
-  port = 8080,
-  version = "2.1.0",
-  enabled = true
-}
-
--- Specify the desired field order
-local fieldOrder = {"version", "name", "enabled", "port"}
-local ordered, err = yaml.encode(configData, fieldOrder)
-if not err then
-  print("Ordered YAML:")
-  print(ordered)
-  -- Output will show fields in the order: version, name, enabled, port
-end
-
--- Decode a YAML string
-local yamlString = [[
-name: UserProfile
-user:
-  username: john_doe
-  email: john@example.com
-  active: true
-preferences:
-  theme: dark
-  notifications: true
-bio: |
-  Software developer with
-  experience in multiple
-  programming languages.
-]]
-
+-- Parse the YAML back into a Lua table
 local decoded, err = yaml.decode(yamlString)
 if err then
-  print("Decoding error:", err)
+  print("Decode error:", err)
 else
-  print("Decoded name:", decoded.name)  -- Output: Decoded name: UserProfile
-  print("Decoded username:", decoded.user.username)  -- Output: Decoded username: john_doe
-  print("Decoded bio:", decoded.bio)  -- Will print the multiline bio with line breaks
+  -- Access the decoded data
+  print("App name:", decoded.name)
+  print("First endpoint:", decoded.settings.endpoints[1])
 end
+```
 
--- Round trip with stable output
-local original = {
-  config = {
-    server = "localhost",
-    port = 8080,
-    credentials = {
-      username = "admin",
-      password = "secret"
-    }
-  },
-  documentation = [[
-  This is a sample
-  configuration for
-  the application.
-  ]]
-}
+Example output:
 
--- Field order to ensure credentials always come last
-local fieldOrder = {"server", "port"}
-local encoded = yaml.encode(original, fieldOrder, true)  -- true for alphabetical sorting of unordered fields
-local decoded, err = yaml.decode(encoded)
-if err then
-  print("Round trip error:", err)
-else
-  print("Original server:", original.config.server)
-  print("Decoded server:", decoded.config.server)
-  print("Documentation preserved:", decoded.documentation:find("sample") ~= nil)
-end
+```yaml
+version: "1.0"
+name: My Application
+description: |-
+  This is a sample configuration file
+  with multiple lines of description
+  that explains the purpose of this config.
+settings:
+  endpoints: [api.example.com, backup.example.com]
+  retry: 3
+  timeout: 30
+users:
+  - active: true
+    id: 1
+    username: admin
+  - active: false
+    id: 2
+    username: guest
 ```
