@@ -42,8 +42,7 @@ require (
 
 // replace github.com/ponyruntime/tree-sitter-sql => ../tree-sitter-sql
 
-//replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v0.0.0-20250307025234-ece9a5460bdd
-replace github.com/yuin/gopher-lua => ../go-lua
+replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v0.0.0-20250307025234-ece9a5460bdd
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
