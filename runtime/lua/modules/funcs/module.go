@@ -26,7 +26,7 @@ type Module struct{}
 type Functions struct {
 	funcs  function.Registry
 	dtt    payload.Transcoder
-	values *contextapi.Contexter[interface{}]
+	values *contextapi.Contexter[any]
 
 	// Dedicated fields for security context to prevent overwriting/conflicting with user values
 	actor    secapi.Actor
