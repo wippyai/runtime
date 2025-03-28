@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -183,18 +182,6 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 
 // setupContextWatchers sets up goroutines to watch various cancellation signals
 func (a *App) setupContextWatchers() {
-	// Watch parent context (state.Ctx)
-	go func() {
-		select {
-		case <-a.appCtx.Done():
-		case <-a.state.Ctx.Done():
-		case <-a.done:
-		}
-		log.Printf("KILLED")
-		a.state.Log.Debug("parent context canceled, terminating app")
-		a.Terminate()
-	}()
-
 	// Watch app context
 	go func() {
 		select {
@@ -202,21 +189,11 @@ func (a *App) setupContextWatchers() {
 		case <-a.state.Ctx.Done():
 		case <-a.done:
 		}
-		log.Printf("KILLED")
 		a.state.Log.Debug("app context canceled, quitting program")
-
-		// Quit the program if not already quitting
+		a.Terminate()
 		if a.program != nil {
 			a.program.Quit()
 		}
-	}()
-
-	// Watch done channel
-	go func() {
-		<-a.done
-		a.state.Log.Debug("done channel closed, ensuring termination")
-		// Cleanup if anything is still running
-		a.appCancel()
 	}()
 }
 
