@@ -61,7 +61,7 @@ func main() {
 	}
 
 	// 4. Load List:
-	entries, err := folderLoader.LoadFolder(folderPath, vars) // Pass vars to Load
+	entries, err := folderLoader.LoadFS(folderPath, vars) // Pass vars to Load
 	if err != nil {
 		logger.Fatal("Failed to load entries", zap.Error(err))
 	}

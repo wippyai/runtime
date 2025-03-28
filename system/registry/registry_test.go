@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 
 	"github.com/pkg/errors"
 	"github.com/ponyruntime/pony/internal/version"
@@ -15,7 +16,6 @@ import (
 	"github.com/ponyruntime/pony/system/payload/yaml"
 	"github.com/ponyruntime/pony/system/registry/loader"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
-	"github.com/ponyruntime/pony/tests/tempfiles"
 	"github.com/stretchr/testify/assert"
 
 	"go.uber.org/zap"
@@ -627,26 +627,25 @@ func createTestTranscoder() payload.Transcoder {
 
 // TestInMemoryRegistry_InitFromFolder tests initializing registry state from a folder
 func TestInMemoryRegistry_InitFromFolder(t *testing.T) {
-	// 1. Setup: Spawn a temporary directory with test files
-	files := map[string]string{
-		"listener/database.yaml": `
+	// 1. Setup memory filesystem
+
+	mapFS := fstest.MapFS{
+		"listener/database.yaml": &fstest.MapFile{Data: []byte(`
 namespace: default
 name: database_url
 kind: listener
 data:
   host: localhost
   port: 5432
-`,
-		"service/api.yaml": `
+`)},
+		"service/api.yaml": &fstest.MapFile{Data: []byte(`
 namespace: default
 name: api_service
 kind: service
 data:
   url: http://localhost:8080
-`,
+`)},
 	}
-	rootDir, cleanup := tempfiles.TempDirWithFiles(t, "registry_init_test", files)
-	defer cleanup()
 
 	// 2. Initialize components
 	hist := history.NewMemory()
@@ -658,7 +657,7 @@ data:
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	// 3. Load entries from the folder
-	entries, err := folderLoader.LoadFolder(rootDir, interpolate.Variables{})
+	entries, err := folderLoader.LoadFS(mapFS, interpolate.Variables{})
 	if err != nil {
 		t.Fatalf("failed to load entries from folder: %v", err)
 	}

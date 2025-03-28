@@ -2,7 +2,7 @@ package interpolate
 
 import (
 	"fmt"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strings"
 )
@@ -55,24 +55,21 @@ func LoadFile(s string, ctx interface{}) (string, error) {
 	var fullPath string
 
 	if strings.HasPrefix(filePath, "/") {
-		// Absolute path, make it relative to the root dir
-		fullPath = filepath.Join(rCtx.RootDir, filepath.Clean(filePath))
+		rel, err := filepath.Rel("/", filepath.Clean(filePath))
+		if err != nil {
+			return "", fmt.Errorf("resolve relative path: %w", err)
+		}
+		fullPath = rel
 	} else {
 		// Relative path, make it relative to the context directory
-		fileDir := rCtx.RootDir
+		var fileDir string
 		if rCtx.Filename != "" {
 			fileDir = filepath.Dir(rCtx.Filename)
 		}
 		fullPath = filepath.Join(fileDir, filePath)
 	}
 
-	// Spawn sure the path is still within the root directory (security check)
-	relPath, err := filepath.Rel(rCtx.RootDir, fullPath)
-	if err != nil || strings.HasPrefix(relPath, "..") {
-		return s + fmt.Sprintf(" [file-error: file path '%s' is outside of the root directory]", filePath), err
-	}
-
-	data, err := os.ReadFile(fullPath)
+	data, err := fs.ReadFile(rCtx.FS, fullPath)
 	if err != nil {
 		return s + fmt.Sprintf(" [file-error: failed to read file '%s': %v]", filePath, err), err
 	}

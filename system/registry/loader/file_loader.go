@@ -3,7 +3,6 @@ package loader
 import (
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -40,24 +39,20 @@ func NewFileLoader(log *zap.Logger) *FileLoader {
 }
 
 // LoadFile loads a single file and returns its FilePayload
-func (l *FileLoader) LoadFile(path string) (*FilePayload, error) {
+func (l *FileLoader) LoadFile(fSys fs.FS, path string) (*FilePayload, error) {
 	ext := filepath.Ext(path)
 	format, ok := l.ext[ext]
 	if !ok {
 		return nil, fmt.Errorf("unsupported file format for file %s", path)
 	}
 
-	return l.loadFileAsPayload(path, format)
+	return l.loadFileAsPayload(fSys, path, format)
 }
 
-// LoadFolder loads all supported files from a folder and returns their FilePayloads
-func (l *FileLoader) LoadFolder(folderPath string) ([]*FilePayload, error) {
-	if _, err := os.Stat(folderPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("folder does not exist: %s", folderPath)
-	}
-
+// LoadFS loads all supported files from FS and returns their FilePayloads
+func (l *FileLoader) LoadFS(fSys fs.FS) ([]*FilePayload, error) {
 	payloads := make([]*FilePayload, 0)
-	err := filepath.WalkDir(folderPath, func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(fSys, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -72,9 +67,9 @@ func (l *FileLoader) LoadFolder(folderPath string) ([]*FilePayload, error) {
 			return nil // Skip unsupported file types
 		}
 
-		p, err := l.loadFileAsPayload(path, format)
+		p, err := l.loadFileAsPayload(fSys, path, format)
 		if err != nil {
-			l.log.Error("failed to load file as payload",
+			l.log.Error("load file as payload",
 				zap.String("path", path),
 				zap.Error(err))
 			return nil
@@ -83,19 +78,18 @@ func (l *FileLoader) LoadFolder(folderPath string) ([]*FilePayload, error) {
 		payloads = append(payloads, p)
 		return nil
 	})
-
 	if err != nil {
-		return nil, fmt.Errorf("error walking directory %s: %w", folderPath, err)
+		return nil, fmt.Errorf("walking filesystem: %w", err)
 	}
 
 	return payloads, nil
 }
 
 // loadFileAsPayload loads the file content and creates a FilePayload.
-func (l *FileLoader) loadFileAsPayload(path string, format payload.Format) (*FilePayload, error) {
-	data, err := os.ReadFile(path)
+func (l *FileLoader) loadFileAsPayload(fSys fs.FS, path string, format payload.Format) (*FilePayload, error) {
+	data, err := fs.ReadFile(fSys, path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %w", path, err)
+		return nil, fmt.Errorf("read file %s: %w", path, err)
 	}
 
 	var p payload.Payload

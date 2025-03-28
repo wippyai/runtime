@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"flag"
 	"fmt"
-
+	iofs "io/fs"
 	httpbase "net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
@@ -103,6 +105,9 @@ import (
 	// sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 )
+
+//go:embed all:embed
+var embedFS embed.FS
 
 type App struct {
 	ctx         context.Context
@@ -268,7 +273,7 @@ func (a *App) Initialize() error {
 	return nil
 }
 
-func (a *App) Start(folderPath string) error {
+func (a *App) Start(folderPath string, useEmbed bool) error {
 	// Spawn context with values
 	ctx := a.ctx
 	ctx = event.WithBus(ctx, a.eventBus)
@@ -339,11 +344,27 @@ func (a *App) Start(folderPath string) error {
 	}
 	a.eventRouter = router
 
+	var fSys iofs.FS
+	if useEmbed {
+		fSys, err = iofs.Sub(embedFS, filepath.Join("embed", folderPath))
+		if err != nil {
+			a.cancel()
+			return fmt.Errorf("open embedded sub-filesystem (use . to open from root): %w", err)
+		}
+	} else {
+		osRoot, err := os.OpenRoot(folderPath)
+		if err != nil {
+			a.cancel()
+			return fmt.Errorf("open folder %s: %w", folderPath, err)
+		}
+		fSys = osRoot.FS()
+	}
+
 	// Load and apply initial state
-	appState, err := loadApplicationState(folderPath, a.dtt, a.logger)
+	appState, err := loadApplicationState(fSys, a.dtt, a.logger)
 	if err != nil {
 		a.cancel()
-		return fmt.Errorf("failed to load application state: %w", err)
+		return fmt.Errorf("load application state: %w", err)
 	}
 
 	bootCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -495,6 +516,7 @@ func main() {
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
 	veryVerbose := flag.Bool("vv", false, "enable very verbose debug logging with stack traces")
 	enableProfiling := flag.Bool("p", false, "enable performance profiling")
+	useEmbed := flag.Bool("use-embed", false, "use embedded files")
 	flag.Parse()
 
 	args := flag.Args()
@@ -544,7 +566,7 @@ func main() {
 	}
 
 	// LaunchProcess application
-	if err := app.Start(folderPath); err != nil {
+	if err := app.Start(folderPath, *useEmbed); err != nil {
 		app.logger.Fatal("failed to start application", zap.Error(err))
 	}
 
@@ -605,10 +627,11 @@ func initLogger(verbose, veryVerbose bool, bus event.Bus) (*zap.Logger, logapi.C
 }
 
 func loadApplicationState(
-	folderPath string,
+	fs iofs.FS,
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
 ) (regapi.ChangeSet, error) {
+
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
@@ -620,14 +643,14 @@ func loadApplicationState(
 		vars[pair[0]] = pair[1]
 	}
 
-	entries, err := folderLoader.LoadFolder(folderPath, vars)
+	entries, err := folderLoader.LoadFS(fs, vars)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load entries: %w", err)
+		return nil, fmt.Errorf("load entries: %w", err)
 	}
 
 	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build state delta: %w", err)
+		return nil, fmt.Errorf("build state delta: %w", err)
 	}
 
 	return boot, nil

@@ -2,6 +2,7 @@ package loader
 
 import (
 	"fmt"
+	iofs "io/fs"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -31,21 +32,19 @@ func NewLoader(dtt payload.Transcoder, log *zap.Logger, interpolator *interpolat
 	}
 }
 
-// LoadFolder loads all entries from a folder
-func (l *Loader) LoadFolder(folderPath string, vars interpolate.Variables) ([]registry.Entry, error) {
-	payloads, err := l.fileLoader.LoadFolder(folderPath)
+// LoadFS loads all entries from FS.
+func (l *Loader) LoadFS(fs iofs.FS, vars interpolate.Variables) ([]registry.Entry, error) {
+	payloads, err := l.fileLoader.LoadFS(fs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load files: %w", err)
 	}
 
 	var entries []registry.Entry
 	for _, p := range payloads {
-		fileEntries, err := l.processFile(p, folderPath, vars)
+		fileEntries, err := l.processFile(fs, p, vars)
 		if err != nil {
 			// Log warning instead of returning error
-			l.log.Warn("failed to process file",
-				zap.String("path", p.Source()),
-				zap.Error(err))
+			l.log.Warn("process file", zap.String("path", p.Source()), zap.Error(err))
 			continue
 		}
 		entries = append(entries, fileEntries...)
@@ -55,12 +54,12 @@ func (l *Loader) LoadFolder(folderPath string, vars interpolate.Variables) ([]re
 }
 
 // processFile processes a single file and returns registry entries
-func (l *Loader) processFile(p *FilePayload, rootPath string, vars interpolate.Variables) ([]registry.Entry, error) {
+func (l *Loader) processFile(fSys iofs.FS, p *FilePayload, vars interpolate.Variables) ([]registry.Entry, error) {
 	// Interpolate values
 	interpolated, err := l.interpolator.Interpolate(p, interpolate.EntryContext{
 		Vars:     vars,
-		RootDir:  rootPath,
 		Filename: p.Source(),
+		FS:       fSys,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("interpolation failed: %w", err)
