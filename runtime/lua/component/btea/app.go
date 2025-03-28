@@ -165,7 +165,9 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 		// Run the bubbletea program concurrently
 		go func() {
 			if _, err := a.program.Run(); err != nil {
-				a.state.Log.Error("btea program error", zap.Error(err))
+				if !errors.Is(err, context.Canceled) {
+					a.state.Log.Error("btea program error", zap.Error(err))
+				}
 			}
 
 			// When program exits, terminate the process
