@@ -1437,10 +1437,10 @@ func TestBuildDelta_CircularDependencies(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop())
 
 	tests := []struct {
-		name     string
-		from     registry.State
-		to       registry.State
-		validate func(registry.ChangeSet) error
+		name    string
+		entries []registry.Entry
+		from    registry.State
+		to      registry.State
 	}{
 		{
 			name: "simple circular dependency",
@@ -1462,16 +1462,6 @@ func TestBuildDelta_CircularDependencies(t *testing.T) {
 						registry.TagDependsOn: []string{"service.a"},
 					},
 				),
-			},
-			validate: func(cs registry.ChangeSet) error {
-				if len(cs) != 2 {
-					return fmt.Errorf("expected 2 operations, got %d", len(cs))
-				}
-				// In case of circular deps, we expect lexicographical ordering
-				if cs[0].Entry.ID.Name != "service.a" || cs[1].Entry.ID.Name != "service.b" {
-					return fmt.Errorf("expected lexicographical ordering for circular deps")
-				}
-				return nil
 			},
 		},
 		{
@@ -1497,46 +1487,21 @@ func TestBuildDelta_CircularDependencies(t *testing.T) {
 					},
 				),
 			},
-			validate: func(cs registry.ChangeSet) error {
-				if len(cs) != 2 {
-					return fmt.Errorf("expected 2 operations, got %d", len(cs))
-				}
-				// Should fall back to lexicographical order
-				if cs[0].Entry.ID.Name != "service.a" || cs[1].Entry.ID.Name != "service.b" {
-					return fmt.Errorf("expected lexicographical ordering for circular group deps")
-				}
-				return nil
-			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			delta, err := builder.BuildDelta(tt.from, tt.to)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			_, err := builder.BuildDelta(tt.from, tt.to)
+
+			// We now expect errors for all these cyclic dependency cases
+			if err == nil {
+				t.Error("expected an error for cyclic dependency, but got none")
+			} else if !strings.Contains(err.Error(), "cycle detected") {
+				t.Errorf("expected 'cycle detected' error, got: %v", err)
 			}
 
-			if err := tt.validate(delta); err != nil {
-				t.Errorf("validation failed: %v", err)
-			}
-
-			// Verify all entries are present
-			expectedIDs := make(map[registry.ID]bool)
-			for _, entry := range tt.to {
-				expectedIDs[entry.ID] = false
-			}
-			for _, op := range delta {
-				if _, exists := expectedIDs[op.Entry.ID]; !exists {
-					t.Errorf("unexpected entry Process in result: %v", op.Entry.ID)
-				}
-				expectedIDs[op.Entry.ID] = true
-			}
-			for id, found := range expectedIDs {
-				if !found {
-					t.Errorf("missing entry Process in result: %v", id)
-				}
-			}
+			// No need to validate the change set structure since we expect errors
 		})
 	}
 }

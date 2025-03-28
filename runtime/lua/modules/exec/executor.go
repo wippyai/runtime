@@ -2,7 +2,6 @@ package exec
 
 import (
 	"context"
-	"fmt"
 	"sync" // Import sync
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -32,7 +31,6 @@ func NewExecutor(uw engine.UnitOfWork, res resource.Resource[any], factory apiex
 	}
 
 	wrapper.onRelease = uw.AddCleanup(func() error {
-		wrapper.log.Debug("UoW cleanup: Releasing executor factory resource handle")
 		wrapper.mu.Lock()
 		resHandle := wrapper.resource
 		wrapper.resource = nil
@@ -41,11 +39,10 @@ func NewExecutor(uw engine.UnitOfWork, res resource.Resource[any], factory apiex
 
 		if resHandle != nil {
 			resHandle.Release()
-			wrapper.log.Debug("UoW cleanup: Executor factory resource handle released")
 		}
 		return nil
 	})
-	wrapper.log.Debug("Created Executor factory wrapper and registered UoW cleanup")
+
 	return wrapper
 }
 
@@ -87,7 +84,6 @@ func execGet(l *lua.LState, log *zap.Logger) int {
 		return 0
 	}
 	log = log.With(zap.String("id", idStr))
-	log.Debug("Acquiring process executor factory resource")
 
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
@@ -104,15 +100,12 @@ func execGet(l *lua.LState, log *zap.Logger) int {
 	resID := registry.ParseID(idStr)
 	res, err := reg.Acquire(uw.Context(), resID, resource.ModeNormal)
 	if err != nil {
-		log.Error("Failed to acquire resource", zap.Error(err))
 		l.RaiseError("failed to acquire resource '%s': %v", idStr, err)
 		return 0
 	}
-	log.Debug("Successfully acquired resource handle")
 
 	execInstance, err := res.Get()
 	if err != nil {
-		log.Error("Failed to get underlying factory from resource", zap.Error(err))
 		res.Release()
 		l.RaiseError("failed to get executor factory from resource '%s': %v", idStr, err)
 		return 0
@@ -120,7 +113,6 @@ func execGet(l *lua.LState, log *zap.Logger) int {
 
 	factory, ok := execInstance.(apiexec.ProcessExecutor)
 	if !ok {
-		log.Error("Resource is not a process executor factory", zap.Any("type", fmt.Sprintf("%T", execInstance)))
 		res.Release()
 		l.RaiseError("resource '%s' is not a process executor factory: %T", idStr, execInstance)
 		return 0
@@ -140,8 +132,6 @@ func executorNewProcess(l *lua.LState) int {
 	}
 	cmd := l.CheckString(2)
 	optsTable := l.OptTable(3, l.CreateTable(0, 0))
-
-	execWrapper.log.Debug("Lua calling executor:new_process()", zap.String("cmd", cmd))
 
 	procOpts := apiexec.ProcessOptions{}
 	wd := optsTable.RawGetString("work_dir")
@@ -168,11 +158,9 @@ func executorNewProcess(l *lua.LState) int {
 	// *** This is where the actual apiexec.Process is created ***
 	processHandle, err := factory.NewProcess(cmd, procOpts)
 	if err != nil {
-		execWrapper.log.Error("Failed to create new process via factory", zap.Error(err))
 		l.RaiseError("failed to create process: %v", err)
 		return 0
 	}
-	execWrapper.log.Info("Created new process handle", zap.String("cmd", cmd))
 
 	// Wrap the returned apiexec.Process handle in its own userdata
 	ud := WrapProcess(l, processHandle, execWrapper.log) // Pass logger down
@@ -188,12 +176,10 @@ func executorRelease(l *lua.LState) int {
 		l.ArgError(1, "expected executor object")
 		return 0
 	}
-	execWrapper.log.Debug("Lua calling executor:release()")
 
 	execWrapper.mu.Lock()
 	if execWrapper.resource == nil {
 		execWrapper.mu.Unlock()
-		execWrapper.log.Debug("Executor:release() called on already released handle")
 		l.Push(lua.LTrue)
 		return 1
 	}
@@ -205,12 +191,10 @@ func executorRelease(l *lua.LState) int {
 
 	// var releaseErr error // Removed unused variable
 	if onRelease != nil {
-		execWrapper.log.Debug("Executor:release() executing explicit release via onRelease")
 		// Call context.CancelFunc without arguments
 		onRelease()
 	}
 
-	execWrapper.log.Info("Executor factory resource handle released explicitly")
 	l.Push(lua.LTrue)
 	return 1
 }

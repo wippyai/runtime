@@ -160,9 +160,10 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 
 func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 	tests := []struct {
-		name    string
-		entries []registry.Entry
-		want    registry.ChangeSet
+		name        string
+		entries     []registry.Entry
+		want        registry.ChangeSet
+		expectError bool
 	}{
 		{
 			name: "direct dependency with namespace inheritance",
@@ -204,6 +205,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 					),
 				},
 			},
+			expectError: false,
 		},
 		{
 			name: "mixed dependency types",
@@ -274,6 +276,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 					),
 				},
 			},
+			expectError: false,
 		},
 		{
 			name: "cyclic dependencies with different reference types",
@@ -297,39 +300,26 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 					},
 				),
 			},
-			want: registry.ChangeSet{
-				{
-					Kind: registry.Create,
-					Entry: makeEntryWithMeta(
-						nsID("ns1", "service.a"),
-						"service",
-						"a",
-						map[string]any{
-							registry.TagDependsOn: []string{"group:group-b"},
-							registry.TagGroups:    []string{"group-a"},
-						},
-					),
-				},
-				{
-					Kind: registry.Create,
-					Entry: makeEntryWithMeta(
-						nsID("ns2", "service.b"),
-						"service",
-						"b",
-						map[string]any{
-							registry.TagDependsOn: []string{"group:group-a"},
-							registry.TagGroups:    []string{"group-b"},
-						},
-					),
-				},
-			},
+			want:        nil, // Expect nil ChangeSet for cyclic dependencies
+			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := CreateChangeSetFromEntries(tt.entries)
-			compareChangeSets(t, got, tt.want)
+			got, err := CreateChangeSetFromEntries(tt.entries)
+
+			// Check error expectation
+			if tt.expectError && err == nil {
+				t.Error("expected an error for cyclic dependency, but got none")
+			} else if !tt.expectError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+
+			// Only compare change sets if not expecting an error
+			if !tt.expectError {
+				compareChangeSets(t, got, tt.want)
+			}
 		})
 	}
 }
