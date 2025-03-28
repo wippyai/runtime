@@ -176,7 +176,7 @@ func (t *Terminal) prepareContext(
 	}
 
 	// global lifecycle
-	pCtx = process.GetProcesses(ctx).AttachLifecycle(ctx, lifecycle)
+	pCtx = process.GetProcesses(ctx).AttachLifecycle(pCtx, lifecycle)
 
 	// service lifecycle
 	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
@@ -215,9 +215,7 @@ func (t *Terminal) handleSend(msgBatch *pubsub.Package) error {
 
 func (t *Terminal) cleanup(result *runtime.Result) {
 	t.logCtrl.RestoreBaseConfig(context.Background())
-	if runner := t.runner.Swap(nil); runner != nil {
-		runner.Stop()
-	}
+	t.runner.Swap(nil)
 }
 
 func (t *Terminal) setupLogging() error {

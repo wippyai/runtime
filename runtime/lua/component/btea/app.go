@@ -189,6 +189,7 @@ func (a *App) setupContextWatchers() {
 		case <-a.state.Ctx.Done():
 		case <-a.done:
 		}
+
 		a.state.Log.Debug("app context canceled, quitting program")
 		a.Terminate()
 		if a.program != nil {
@@ -253,7 +254,7 @@ func (a *App) processUpstream() {
 func (a *App) Step() error {
 	select {
 	case <-a.done:
-		return nil
+		return supervisor.ErrExit
 	case <-a.state.Ctx.Done():
 		return a.state.Ctx.Err()
 	case <-a.appCtx.Done():
@@ -284,13 +285,13 @@ func (a *App) Terminate() {
 	a.terminateOnce.Do(func() {
 		a.state.Log.Debug("terminating btea app")
 
-		// Cancel app context to signal all our watchers
-		a.appCancel()
-
 		// Try to shutdown the program gracefully
 		if a.program != nil {
-			a.program.Quit()
+			a.program.Kill()
 		}
+
+		// Cancel app context to signal all our watchers
+		a.appCancel()
 
 		// Allow time for terminal to detach
 		time.Sleep(stopTimeout)

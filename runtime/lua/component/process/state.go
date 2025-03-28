@@ -3,10 +3,6 @@ package process
 import (
 	"context"
 	"errors"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
-	"sync"
-	"sync/atomic"
-
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
@@ -17,8 +13,11 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"sync"
+	"sync/atomic"
 )
 
 // Common errors
@@ -260,7 +259,9 @@ func (s *State) Complete(err error, result lua.LValue) {
 		return
 	}
 
-	if !errors.Is(err, process.ErrTerminated) {
+	if !errors.Is(err, process.ErrTerminated) &&
+		!errors.Is(err, supervisor.ErrExit) &&
+		!errors.Is(err, supervisor.ErrTerminated) {
 		// when terminate we just kill it
 		s.wg.Wait()
 	}
