@@ -314,12 +314,6 @@ func (m *Module) send(l *lua.LState) int {
 		return 2
 	}
 
-	m.log.Debug("messages sent",
-		zap.String("from", self.String()),
-		zap.String("to", pid.String()),
-		zap.String("topic", topic),
-	)
-
 	l.Push(lua.LTrue)
 	return 1
 }
