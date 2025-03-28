@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -167,6 +168,7 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 			if _, err := a.program.Run(); err != nil {
 				a.state.Log.Error("btea program error", zap.Error(err))
 			}
+
 			// When program exits, terminate the process
 			a.Terminate()
 		}()
@@ -183,15 +185,26 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 func (a *App) setupContextWatchers() {
 	// Watch parent context (state.Ctx)
 	go func() {
-		<-a.state.Ctx.Done()
+		select {
+		case <-a.appCtx.Done():
+		case <-a.state.Ctx.Done():
+		case <-a.done:
+		}
+		log.Printf("KILLED")
 		a.state.Log.Debug("parent context canceled, terminating app")
 		a.Terminate()
 	}()
 
 	// Watch app context
 	go func() {
-		<-a.appCtx.Done()
+		select {
+		case <-a.appCtx.Done():
+		case <-a.state.Ctx.Done():
+		case <-a.done:
+		}
+		log.Printf("KILLED")
 		a.state.Log.Debug("app context canceled, quitting program")
+
 		// Quit the program if not already quitting
 		if a.program != nil {
 			a.program.Quit()
