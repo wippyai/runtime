@@ -13,7 +13,7 @@ The Topology component uses the following event types for process communication:
 
 ## Purpose
 
-The Topology component provides process communication and lifecycle management within the Pony Runtime. It implements Erlang-style semantics for process monitoring, linking, and naming, enabling robust distributed systems with supervision patterns, failure isolation, and coordinated process management.
+The Topology component provides process communication and lifecycle management within the Wippy Runtime. It implements Erlang-style semantics for process monitoring, linking, and naming, enabling robust distributed systems with supervision patterns, failure isolation, and coordinated process management.
 
 ## Core Concepts
 

@@ -1,8 +1,8 @@
-# WebSocket Integration Guide for Pony Runtime
+# WebSocket Integration Guide for Wippy Runtime
 
 ## 1. Setup Overview
 
-The Pony Runtime WebSocket system consists of:
+The Wippy Runtime WebSocket system consists of:
 - Lua HTTP handler (authentication)
 - Go WebSocket relay middleware
 - Lua hub process (connection management)

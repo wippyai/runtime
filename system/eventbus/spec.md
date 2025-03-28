@@ -2,11 +2,11 @@
 
 ## System Events
 
-The Event Bus component does not define specific system events itself, but rather provides the infrastructure for event-based communication between components in the Pony Runtime.
+The Event Bus component does not define specific system events itself, but rather provides the infrastructure for event-based communication between components in the Wippy Runtime.
 
 ## Purpose
 
-The Event Bus component provides a robust, concurrent, and pattern-matching event distribution system for the Pony Runtime. It enables loosely coupled communication between components through a publish-subscribe pattern, where publishers and subscribers are decoupled and can operate independently. The component supports hierarchical event routing with wildcard pattern matching, allowing for flexible subscription to event categories.
+The Event Bus component provides a robust, concurrent, and pattern-matching event distribution system for the Wippy Runtime. It enables loosely coupled communication between components through a publish-subscribe pattern, where publishers and subscribers are decoupled and can operate independently. The component supports hierarchical event routing with wildcard pattern matching, allowing for flexible subscription to event categories.
 
 ## Core Concepts
 

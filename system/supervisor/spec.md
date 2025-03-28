@@ -13,7 +13,7 @@ The Supervisor component communicates through the following event types:
 
 ## Purpose
 
-The Supervisor component provides a robust lifecycle management system for services within the Pony Runtime. It handles service registration, orchestrated startup and shutdown, failure detection, automatic recovery, and dependency management, ensuring services are started and stopped in the correct order.
+The Supervisor component provides a robust lifecycle management system for services within the Wippy Runtime. It handles service registration, orchestrated startup and shutdown, failure detection, automatic recovery, and dependency management, ensuring services are started and stopped in the correct order.
 
 ## Core Concepts
 
@@ -339,4 +339,4 @@ The supervisor handles various error conditions:
 - Multiple edits can be applied atomically
 - Transactions can be discarded if configuration is invalid
 
-This specification outlines the Supervisor component for the Pony Runtime, providing a comprehensive framework for service lifecycle management with dependency-aware orchestration and fault tolerance.
+This specification outlines the Supervisor component for the Wippy Runtime, providing a comprehensive framework for service lifecycle management with dependency-aware orchestration and fault tolerance.

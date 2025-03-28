@@ -1,15 +1,15 @@
-# Pony Runtime Lua Process API Specification
+# Wippy Runtime Lua Process API Specification
 
 ## Overview
 
-The Pony Runtime Process API provides a robust actor-model implementation for building concurrent, message-passing
-applications in Lua. This specification is designed for AI agents and developers working with the Pony Runtime.
+The Wippy Runtime Process API provides a robust actor-model implementation for building concurrent, message-passing
+applications in Lua. This specification is designed for AI agents and developers working with the Wippy Runtime.
 
 ## Core Concepts
 
 ### Actor Model
 
-The Pony Runtime implements an actor model where:
+The Wippy Runtime implements an actor model where:
 
 - Processes are isolated units of computation
 - Each process has a unique identifier (PID)
@@ -57,7 +57,7 @@ local pid = process.pid()  -- Returns "{host1|app:worker|proc123}"
 
 ## Process Constants
 
-The Pony Runtime defines important constants for system events:
+The Wippy Runtime defines important constants for system events:
 
 ```lua
 -- System event kinds (for identifying event types)

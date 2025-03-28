@@ -1,7 +1,7 @@
 # Filesystem Component Specification
 
 ## Purpose
-The Filesystem (FS) component provides abstraction and management of filesystem resources in the Pony Runtime. It enables registration, access, and manipulation of multiple filesystem implementations through a unified interface.
+The Filesystem (FS) component provides abstraction and management of filesystem resources in the Wippy Runtime. It enables registration, access, and manipulation of multiple filesystem implementations through a unified interface.
 
 ## Core Concepts
 

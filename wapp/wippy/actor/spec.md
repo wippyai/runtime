@@ -1,6 +1,6 @@
-# Actor Library for Pony Runtime
+# Actor Library for Wippy Runtime
 
-The Actor Library provides a simple and flexible way to build processes using the actor model pattern in the Pony Runtime environment. This guide explains how to use the library effectively.
+The Actor Library provides a simple and flexible way to build processes using the actor model pattern in the Wippy Runtime environment. This guide explains how to use the library effectively.
 
 ## Basic Usage
 
@@ -234,7 +234,7 @@ end
 
 ### Channel Selection
 
-The library uses Pony's channel selection mechanism to efficiently handle messages from multiple sources:
+The library uses Wippy's channel selection mechanism to efficiently handle messages from multiple sources:
 
 1. The actor's inbox for regular message passing
 2. System events channel for process events

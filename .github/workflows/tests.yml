@@ -10,7 +10,7 @@ on:
 
 jobs:
   tests:
-    name: Pony Tests (Go ${{ matrix.go }}, OS ${{matrix.os}})
+    name: Wippy Tests (Go ${{ matrix.go }}, OS ${{matrix.os}})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:

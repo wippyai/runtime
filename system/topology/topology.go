@@ -12,7 +12,7 @@ import (
 )
 
 // Topology implements process monitoring, linking, and lifecycle management
-// capabilities for the Pony runtime. It maintains process relationships
+// capabilities for the Wippy runtime. It maintains process relationships
 // including registrations, monitors, and links between processes.
 type Topology struct {
 	monitors sync.Map // map[string]*sync.Map - watchers for each pid

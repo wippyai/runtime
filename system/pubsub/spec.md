@@ -12,7 +12,7 @@ The PubSub component uses the following event types for communication:
 
 ## Purpose
 
-The PubSub component provides a distributed message routing infrastructure for the Pony Runtime. It enables efficient and reliable communication between processes across multiple hosts and nodes in a distributed system. The component supports hierarchical routing, process addressing through PIDs (Process Identifiers), and message delivery with customizable delivery guarantees.
+The PubSub component provides a distributed message routing infrastructure for the Wippy Runtime. It enables efficient and reliable communication between processes across multiple hosts and nodes in a distributed system. The component supports hierarchical routing, process addressing through PIDs (Process Identifiers), and message delivery with customizable delivery guarantees.
 
 ## Core Concepts
 
@@ -285,4 +285,4 @@ Additional error conditions include:
 - Implements event-based communication for host lifecycle management
 - Forwards actual messaging operations to the underlying Node
 
-This specification outlines the PubSub component for the Pony Runtime, providing a robust distributed messaging infrastructure with support for hierarchical routing, process addressing, and flexible delivery semantics.
+This specification outlines the PubSub component for the Wippy Runtime, providing a robust distributed messaging infrastructure with support for hierarchical routing, process addressing, and flexible delivery semantics.

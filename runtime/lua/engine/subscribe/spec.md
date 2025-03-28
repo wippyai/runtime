@@ -1,8 +1,8 @@
-# PubSub Layer Specification for Pony Coroutine VM
+# PubSub Layer Specification for Wippy Coroutine VM
 
 ## Overview
 
-The PubSub Layer implements a topic-based publish-subscribe messaging system for Pony processes. It allows coroutines to
+The PubSub Layer implements a topic-based publish-subscribe messaging system for Wippy processes. It allows coroutines to
 communicate through named topics, with support for dynamic subscriptions and message delivery guarantees.
 
 ## Core Concepts
