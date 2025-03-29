@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/api/payload"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry/topology"
 	lua "github.com/yuin/gopher-lua"
@@ -53,8 +54,38 @@ func (m *Module) buildDelta(l *lua.LState) int {
 		}
 	})
 
+	dtt := payload.GetTranscoder(l.Context())
+	if dtt == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("transcoder not available"))
+		return 2
+	}
+
 	// Create state builder
-	stateBuilder := topology.NewStateBuilder(m.log)
+	// Create state builder with comparison function
+	stateBuilder := topology.NewStateBuilder(m.log, topology.WithCompareFunc(func(a, b regapi.Entry) bool {
+		// Fast check for ID and Kind equality first
+		if a.ID.NS != b.ID.NS || a.ID.Name != b.ID.Name || a.Kind != b.Kind {
+			return false
+		}
+
+		// Unmarshal both entries' Data fields into maps
+		aMap := make(map[string]interface{})
+		bMap := make(map[string]interface{})
+
+		if err := dtt.Unmarshal(a.Data, &aMap); err != nil {
+			m.log.Debug("error unmarshaling entry a data", zap.Error(err))
+			return false
+		}
+
+		if err := dtt.Unmarshal(b.Data, &bMap); err != nil {
+			m.log.Debug("error unmarshaling entry b data", zap.Error(err))
+			return false
+		}
+
+		// Compare maps ignoring key order
+		return mapsEqual(aMap, bMap)
+	}))
 
 	// Build delta between states
 	changeSet, err := stateBuilder.BuildDelta(fromEntries, toEntries)
