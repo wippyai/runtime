@@ -2,6 +2,7 @@ package registry
 
 import (
 	"errors"
+	"fmt"
 
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry"
@@ -42,7 +43,7 @@ func (m *Module) Name() string {
 // Loader loads the module into the Lua state
 func (m *Module) Loader(l *lua.LState) int {
 	// Create module table
-	mod := l.CreateTable(0, 9) // Preallocate exact size for better performance
+	mod := l.CreateTable(0, 10) // Increase size to accommodate new functions
 
 	// Register module-level functions directly
 	mod.RawSetString("snapshot", l.NewFunction(m.snapshotCreate))
@@ -54,12 +55,17 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("history", l.NewFunction(m.historyCreate))
 	mod.RawSetString("find", l.NewFunction(m.registryFind))
 	mod.RawSetString("get", l.NewFunction(m.registryGet))
+	mod.RawSetString("build_delta", l.NewFunction(m.buildDelta)) // Add our new function
 
 	// Register types with their methods using the util helper functions
 	m.registerSnapshotType(l)
 	m.registerChangesType(l)
 	m.registerVersionType(l)
 	m.registerHistoryType(l)
+
+	// Preload the loader submodule
+	loaderMod := NewLoaderModule(m.log)
+	l.PreloadModule(moduleName+"."+loaderModuleName, loaderMod.Loader)
 
 	// Push the module
 	l.Push(mod)
