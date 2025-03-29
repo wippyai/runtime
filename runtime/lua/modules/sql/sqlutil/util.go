@@ -3,6 +3,7 @@ package sqlutil
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
@@ -91,12 +92,12 @@ func RowsToTable(l *lua.LState, rows *sql.Rows) (*lua.LTable, error) {
 	}
 
 	// Prepare result table
-	resultTable := l.CreateTable(8, 0)
+	resultTable := l.CreateTable(4, 0)
 	rowIndex := 1
 
 	// Prepare value containers
-	values := make([]interface{}, len(columns))
-	valuePtrs := make([]interface{}, len(columns))
+	values := make([]any, len(columns))
+	valuePtrs := make([]any, len(columns))
 
 	for i := range columns {
 		valuePtrs[i] = &values[i]
@@ -110,12 +111,13 @@ func RowsToTable(l *lua.LState, rows *sql.Rows) (*lua.LTable, error) {
 		}
 
 		// Create table for this row using map for consistent field names
-		rowMap := make(map[string]interface{})
+		rowMap := make(map[string]any)
 
 		// Add values to row map
 		for i, col := range columns {
 			// Handle nil values
 			val := values[i]
+			log.Printf("%v %v %v", i, col, val)
 
 			// Convert SQL types to appropriate Go types
 			switch v := val.(type) {
@@ -131,7 +133,7 @@ func RowsToTable(l *lua.LState, rows *sql.Rows) (*lua.LTable, error) {
 		}
 
 		// Convert the row map to a Lua table
-		luaValue, err := luaconv.GoToLua(rowMap)
+		luaValue, err := luaconv.GoToLua(rowMap) // todo: run directly
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert row %d to Lua: %w", rowIndex, err)
 		}

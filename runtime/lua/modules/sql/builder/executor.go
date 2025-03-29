@@ -4,12 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/Masterminds/squirrel"
-	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
 // Define local interfaces to break the circular dependency
@@ -66,9 +63,8 @@ func NewQueryExecutor(l *lua.LState, builder interface{}, dbOrTx interface{}) (*
 // RegisterQueryExecutorMetatable registers the executor metatable
 func RegisterQueryExecutorMetatable(l *lua.LState) {
 	methods := map[string]lua.LGFunction{
-		"exec":      executorExec,
-		"query":     executorQuery,
-		"query_row": executorQueryRow,
+		"exec":  executorExec,
+		"query": executorQuery,
 	}
 
 	metamethods := map[string]lua.LGFunction{
@@ -189,176 +185,6 @@ func executorQuery(l *lua.LState) int {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
-	}
-
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// executorQueryRow executes the query and returns a single row
-func executorQueryRow(l *lua.LState) int {
-	executor := checkQueryExecutor(l)
-	if executor == nil {
-		return 0
-	}
-
-	// Different handling based on builder type
-	switch b := executor.builder.(type) {
-	case squirrel.SelectBuilder:
-		return handleQueryRow(l, b, executor.runner)
-	case squirrel.InsertBuilder:
-		return handleQueryRow(l, b, executor.runner)
-	case squirrel.UpdateBuilder:
-		return handleQueryRow(l, b, executor.runner)
-	case squirrel.DeleteBuilder:
-		// DeleteBuilder doesn't have QueryRow, use Query and get first row
-		return handleDeleteQueryRow(l, b, executor.runner)
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported builder type: %T", b)))
-		return 2
-	}
-}
-
-// handleQueryRow processes QueryRow for select/insert/update builders that have QueryRow method
-func handleQueryRow(l *lua.LState, sqlizer squirrel.Sqlizer, runner squirrel.BaseRunner) int {
-	// Get the SQL and args
-	query, args, err := sqlizer.ToSql()
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Check if we have a QueryRower
-	queryRower, ok := runner.(squirrel.QueryRower)
-	if !ok {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("runner does not support QueryRow"))
-		return 2
-	}
-
-	// Use QueryRow to get a row scanner
-	rowScanner := queryRower.QueryRow(query, args...)
-
-	// Process the single row result using the scanner
-	return scanSingleRowFromScanner(l, rowScanner)
-}
-
-// handleDeleteQueryRow handles QueryRow for DeleteBuilder which doesn't have QueryRow method
-func handleDeleteQueryRow(l *lua.LState, builder squirrel.DeleteBuilder, runner squirrel.BaseRunner) int {
-	// Get SQL and args
-	query, args, err := builder.ToSql()
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Use Query instead of QueryRow
-	rows, err := runner.Query(query, args...)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-	defer func() {
-		err := rows.Close()
-		if err != nil {
-			l := logs.GetLogger(l.Context())
-			if l == nil {
-				l = zap.NewNop()
-			}
-			l.Error("rows.Close()", zap.Error(err))
-		}
-	}()
-
-	// Check if we have a row
-	if !rows.Next() {
-		// No rows is not an error
-		l.Push(lua.LNil)
-		l.Push(lua.LNil)
-		return 2
-	}
-
-	// Get column info
-	columns, err := rows.Columns()
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Scan values into a slice
-	values := make([]interface{}, len(columns))
-	scanArgs := make([]interface{}, len(columns))
-	for i := range values {
-		scanArgs[i] = &values[i]
-	}
-
-	if err := rows.Scan(scanArgs...); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Create result table
-	resultTable := l.CreateTable(0, len(columns))
-	for i, col := range columns {
-		luaVal, err := luaconv.GoToLua(values[i])
-		if err != nil {
-			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("conversion error for column %s: %v", col, err)))
-			return 2
-		}
-		resultTable.RawSetString(col, luaVal)
-	}
-
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// scanSingleRowFromScanner processes a RowScanner into a Lua table
-func scanSingleRowFromScanner(l *lua.LState, scanner squirrel.RowScanner) int {
-	// For a real implementation, we need to know which columns to scan into
-	// This is typically done by using schema information or examining the query
-
-	// For a dynamic approach, we need to determine columns at runtime
-	// This example uses a fixed schema for simplicity
-
-	// Create values to scan into
-	// For a more dynamic approach, use reflection or metadata
-	var id interface{}
-	var name interface{}
-
-	// Scan the row
-	err := scanner.Scan(&id, &name)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// No rows is not an error in this context
-			l.Push(lua.LNil)
-			l.Push(lua.LNil)
-			return 2
-		}
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Create a table with the results
-	resultTable := l.CreateTable(0, 2)
-
-	// Convert values to Lua and add to table
-	idVal, err := luaconv.GoToLua(id)
-	if err == nil {
-		resultTable.RawSetString("id", idVal)
-	}
-
-	nameVal, err := luaconv.GoToLua(name)
-	if err == nil {
-		resultTable.RawSetString("name", nameVal)
 	}
 
 	l.Push(resultTable)
