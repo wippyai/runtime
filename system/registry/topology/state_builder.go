@@ -2,7 +2,6 @@ package topology
 
 import (
 	"fmt"
-	"log"
 	"reflect"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -10,45 +9,35 @@ import (
 	"go.uber.org/zap"
 )
 
-// EntriesEqual compares two registry entries for logical equality,
-// ignoring the internal reference comparisons of payload data
-func EntriesEqual(a, b registry.Entry) bool {
-	// Compare basic fields
-	if a.ID != b.ID || a.Kind != b.Kind {
-		return false
+type BuilderOption func(*StateBuilder)
+
+// WithCompareFunc sets the comparison function for entries
+func WithCompareFunc(compare func(a, b registry.Entry) bool) BuilderOption {
+	return func(b *StateBuilder) {
+		b.compare = compare
 	}
-
-	if !reflect.DeepEqual(a.Meta, b.Meta) {
-		return false
-	}
-
-	// Compare payload formats and data, but not memory addresses
-	if a.Data == nil && b.Data == nil {
-		return true
-	}
-
-	// Compare payload formats
-	if a.Data.Format() != b.Data.Format() {
-		return false
-	}
-
-	log.Printf("D1 %+v, D2 %+v", a.Data.Data(), b.Data.Data())
-
-	log.Printf("WE ARE HERE")
-
-	return false
 }
 
 // StateBuilder constructs registry states and calculates state transitions
 type StateBuilder struct {
-	log *zap.Logger
+	log     *zap.Logger
+	compare func(a, b registry.Entry) bool
 }
 
 // NewStateBuilder creates a new StateBuilder instance with the provided logger
-func NewStateBuilder(log *zap.Logger) *StateBuilder {
-	return &StateBuilder{
+func NewStateBuilder(log *zap.Logger, opt ...BuilderOption) *StateBuilder {
+	sb := &StateBuilder{
 		log: log,
+		compare: func(a, b registry.Entry) bool {
+			return reflect.DeepEqual(a, b)
+		},
 	}
+
+	for _, o := range opt {
+		o(sb)
+	}
+
+	return sb
 }
 
 // ValidateOperation validates if an operation can be applied to the current state
@@ -229,7 +218,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 				Kind:  registry.Create,
 				Entry: toEntry,
 			})
-		} else if !EntriesEqual(fromEntry, toEntry) {
+		} else if !b.compare(fromEntry, toEntry) {
 			// Update
 			operations = append(operations, registry.Operation{
 				Kind:  registry.Update,
