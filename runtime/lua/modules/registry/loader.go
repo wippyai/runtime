@@ -11,12 +11,22 @@ import (
 )
 
 const (
-	loaderModuleName = "loader"
+	loaderModuleName        = "loader"
+	loaderInstanceMetatable = "registry.Loader"
 )
 
 // LoaderModule represents the registry.loader submodule
 type LoaderModule struct {
 	log *zap.Logger
+}
+
+// LoaderInstance represents a filesystem-bound loader instance
+type LoaderInstance struct {
+	fs           fsapi.FS
+	dtt          payload.Transcoder
+	log          *zap.Logger
+	interpolator *interpolate.Helper
+	folderLoader *loader.Loader
 }
 
 // NewLoaderModule creates a new loader module
@@ -36,85 +46,23 @@ func (m *LoaderModule) Name() string {
 
 // Loader loads the module into the Lua state
 func (m *LoaderModule) Loader(l *lua.LState) int {
-	// Create module table
-	mod := l.CreateTable(0, 3)
+	// Register the loader instance metatable
+	mt := l.NewTypeMetatable(loaderInstanceMetatable)
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		"load_directory": loaderLoadDirectory,
+		"load_file":      loaderLoadFile,
+	}))
 
-	// Register functions
-	mod.RawSetString("load_directory", l.NewFunction(m.loadDirectory))
-	mod.RawSetString("load_file", l.NewFunction(m.loadFile))
-	mod.RawSetString("load_directory_from_fs", l.NewFunction(m.loadDirectoryFromFS))
+	// Create module function that returns a loader instance
+	loaderFunc := l.NewFunction(m.createLoader)
 
-	// Push the module
-	l.Push(mod)
+	// Push the function as the module
+	l.Push(loaderFunc)
 	return 1
 }
 
-// loadDirectory loads entries from a directory
-func (m *LoaderModule) loadDirectory(l *lua.LState) int {
-	// Get context from Lua state
-	ctx := l.Context()
-
-	// Get transcoder from context
-	dtt := payload.GetTranscoder(ctx)
-	if dtt == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("transcoder not found in context"))
-		return 2
-	}
-
-	// Get directory path
-	dirPath := l.CheckString(1)
-	if dirPath == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("directory path required"))
-		return 2
-	}
-
-	// Get variables table (optional)
-	varsTable := l.OptTable(2, l.NewTable())
-
-	// Convert Lua variables table to Go map
-	vars := make(interpolate.Variables)
-	varsTable.ForEach(func(k, v lua.LValue) {
-		if kStr, ok := k.(lua.LString); ok && v.Type() == lua.LTString {
-			vars[string(kStr)] = v.String()
-		}
-	})
-
-	// Create folder loader
-	interpolatorHelper := interpolate.NewEntryInterpolator(dtt,
-		interpolate.WithInterpolator(interpolate.LoadVars),
-		interpolate.WithInterpolator(interpolate.LoadFile),
-	)
-	folderLoader := loader.NewLoader(dtt, m.log, interpolatorHelper)
-
-	// Load entries
-	entries, err := folderLoader.LoadFolder(dirPath, vars)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to load entries: %v", err)))
-		return 2
-	}
-
-	// Convert entries to Lua table
-	entriesTable := l.NewTable()
-	for i, entry := range entries {
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
-			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("failed to convert entry: %v", err)))
-			return 2
-		}
-		entriesTable.RawSetInt(i+1, entryTable)
-	}
-
-	l.Push(entriesTable)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// loadDirectoryFromFS loads entries from a directory in a specific filesystem
-func (m *LoaderModule) loadDirectoryFromFS(l *lua.LState) int {
+// createLoader creates a new loader instance bound to a filesystem
+func (m *LoaderModule) createLoader(l *lua.LState) int {
 	// Get context from Lua state
 	ctx := l.Context()
 
@@ -142,25 +90,6 @@ func (m *LoaderModule) loadDirectoryFromFS(l *lua.LState) int {
 		return 2
 	}
 
-	// Get directory path
-	dirPath := l.CheckString(2)
-	if dirPath == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("directory path required"))
-		return 2
-	}
-
-	// Get variables table (optional)
-	varsTable := l.OptTable(3, l.NewTable())
-
-	// Convert Lua variables table to Go map
-	vars := make(interpolate.Variables)
-	varsTable.ForEach(func(k, v lua.LValue) {
-		if kStr, ok := k.(lua.LString); ok && v.Type() == lua.LTString {
-			vars[string(kStr)] = v.String()
-		}
-	})
-
 	// Get the filesystem from the registry
 	fsys, ok := fsRegistry.GetFS(fsName)
 	if !ok {
@@ -183,8 +112,48 @@ func (m *LoaderModule) loadDirectoryFromFS(l *lua.LState) int {
 		loader.WithLoaderFS(fsys),
 	)
 
+	// Create loader instance
+	loaderInstance := &LoaderInstance{
+		fs:           fsys,
+		dtt:          dtt,
+		log:          m.log,
+		interpolator: interpolatorHelper,
+		folderLoader: folderLoader,
+	}
+
+	// Create userdata
+	ud := l.NewUserData()
+	ud.Value = loaderInstance
+	l.SetMetatable(ud, l.GetTypeMetatable(loaderInstanceMetatable))
+
+	l.Push(ud)
+	return 1
+}
+
+// loaderLoadDirectory loads entries from a directory
+func loaderLoadDirectory(l *lua.LState) int {
+	// Get loader instance
+	fl := checkLoaderInstance(l)
+	if fl == nil {
+		return 0
+	}
+
+	// Get directory path
+	dirPath := l.CheckString(2)
+	if dirPath == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("directory path required"))
+		return 2
+	}
+
+	// Get variables table (optional)
+	varsTable := l.OptTable(3, l.NewTable())
+
+	// Convert Lua variables table to Go map
+	vars := makeVariables(varsTable)
+
 	// Load entries
-	entries, err := folderLoader.LoadFolder(dirPath, vars)
+	entries, err := fl.folderLoader.LoadFolder(dirPath, vars)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to load entries: %v", err)))
@@ -208,21 +177,16 @@ func (m *LoaderModule) loadDirectoryFromFS(l *lua.LState) int {
 	return 2
 }
 
-// loadFile loads entries from a single file
-func (m *LoaderModule) loadFile(l *lua.LState) int {
-	// Get context from Lua state
-	ctx := l.Context()
-
-	// Get transcoder from context
-	dtt := payload.GetTranscoder(ctx)
-	if dtt == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("transcoder not found in context"))
-		return 2
+// loaderLoadFile loads entries from a single file
+func loaderLoadFile(l *lua.LState) int {
+	// Get loader instance
+	fl := checkLoaderInstance(l)
+	if fl == nil {
+		return 0
 	}
 
 	// Get file path
-	filePath := l.CheckString(1)
+	filePath := l.CheckString(2)
 	if filePath == "" {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("file path required"))
@@ -230,27 +194,13 @@ func (m *LoaderModule) loadFile(l *lua.LState) int {
 	}
 
 	// Get variables table (optional)
-	varsTable := l.OptTable(2, l.NewTable())
+	varsTable := l.OptTable(3, l.NewTable())
 
 	// Convert Lua variables table to Go map
-	vars := make(interpolate.Variables)
-	varsTable.ForEach(func(k, v lua.LValue) {
-		if kStr, ok := k.(lua.LString); ok && v.Type() == lua.LTString {
-			vars[string(kStr)] = v.String()
-		}
-	})
-
-	// Create interpolator
-	interpolatorHelper := interpolate.NewEntryInterpolator(dtt,
-		interpolate.WithInterpolator(interpolate.LoadVars),
-		interpolate.WithInterpolator(interpolate.LoadFile),
-	)
-
-	// Create loader
-	entryLoader := loader.NewLoader(dtt, m.log, interpolatorHelper)
+	vars := makeVariables(varsTable)
 
 	// Load entries from file
-	entries, err := entryLoader.LoadFile(filePath, vars)
+	entries, err := fl.folderLoader.LoadFile(filePath, vars)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to load entries: %v", err)))
@@ -272,4 +222,25 @@ func (m *LoaderModule) loadFile(l *lua.LState) int {
 	l.Push(entriesTable)
 	l.Push(lua.LNil)
 	return 2
+}
+
+// Helper function to convert variables table to Go map
+func makeVariables(varsTable *lua.LTable) interpolate.Variables {
+	vars := make(interpolate.Variables)
+	varsTable.ForEach(func(k, v lua.LValue) {
+		if kStr, ok := k.(lua.LString); ok && v.Type() == lua.LTString {
+			vars[string(kStr)] = v.String()
+		}
+	})
+	return vars
+}
+
+// Helper function to check if the first argument is a LoaderInstance and return it
+func checkLoaderInstance(l *lua.LState) *LoaderInstance {
+	ud := l.CheckUserData(1)
+	if fl, ok := ud.Value.(*LoaderInstance); ok {
+		return fl
+	}
+	l.ArgError(1, "loader instance expected")
+	return nil
 }

@@ -875,6 +875,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				hash.NewHashModule(),
 				command.NewCommandModule(),
 				yamlmod.NewYAMLModule(),
+				registrymod.NewLoaderModule(a.logger.Named("loader")),
 				events.NewEventsModule(a.logger.Named("events")),
 				exec.NewExecModule(a.logger.Named("exec")),
 				ctx.NewCtxModule(a.logger.Named("ctx")),

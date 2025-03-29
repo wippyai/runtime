@@ -2,8 +2,6 @@ package registry
 
 import (
 	"errors"
-	"fmt"
-
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry"
 	"github.com/ponyruntime/pony/system/registry/topology"
