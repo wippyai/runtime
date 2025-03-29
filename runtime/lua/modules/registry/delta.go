@@ -6,6 +6,7 @@ import (
 	"github.com/ponyruntime/pony/system/registry/topology"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"log"
 )
 
 // buildDelta creates a changeset for transitioning from one state to another
@@ -62,6 +63,8 @@ func (m *Module) buildDelta(l *lua.LState) int {
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
+
+	log.Printf("DONE %v", len(changeSet))
 
 	// Convert changeSet to Lua table
 	resultTable := l.NewTable()
