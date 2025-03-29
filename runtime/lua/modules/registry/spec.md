@@ -496,13 +496,13 @@ print("Delta contains " .. #changeset .. " operations")
 local changes = snapshot:changes()
 
 for _, op in ipairs(changeset) do
-  if op.kind == "create" then
+  if op.kind == "entry.create" then
     changes:create(op.entry)
     print("Adding: " .. op.entry.id)
-  elseif op.kind == "update" then
+  elseif op.kind == "entry.update" then
     changes:update(op.entry)
     print("Updating: " .. op.entry.id)
-  elseif op.kind == "delete" then
+  elseif op.kind == "entry.delete" then
     changes:delete(op.entry.id)
     print("Removing: " .. op.entry.id)
   end

@@ -220,6 +220,19 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	// Mark node for transaction
 	cm.txNodes[node.ID] = true
 
+	// calculate all dependents
+	dependents, err := cm.memGraph.GetAllDependents(node.ID)
+
+	invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
+	invalidateIDs = append(invalidateIDs, node.ID)
+
+	for _, dep := range dependents {
+		invalidateIDs = append(invalidateIDs, dep.ID)
+	}
+
+	// invalidating cache
+	cm.compiler.Invalidate(invalidateIDs)
+
 	return nil
 }
 

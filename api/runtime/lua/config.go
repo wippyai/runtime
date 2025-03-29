@@ -41,48 +41,48 @@ type (
 	// It includes the source code, execution method, required libraries and modules,
 	// and VM pool settings.
 	FunctionConfig struct {
-		Source  string                 `json:"source"`  // Lua source code
-		Method  string                 `json:"method"`  // Alias of the Lua method to execute
-		Imports map[string]registry.ID `json:"imports"` // Imports aliases for the library
-		Modules []string               `json:"modules"` // Shortcut for importing modules
-		Pool    PoolConfig             `json:"pool"`    // VM pool configuration
+		Source  string                 `json:"source"`            // Lua source code
+		Method  string                 `json:"method"`            // Alias of the Lua method to execute
+		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
+		Modules []string               `json:",omitempty"`        // Shortcut for importing modules
+		Pool    PoolConfig             `json:"pool,omitempty"`    // VM pool configuration
 	}
 
 	// LibraryConfig defines the configuration for a Lua library component.
 	// It includes the library source code and required modules.
 	LibraryConfig struct {
-		Meta    registry.Metadata      `json:"meta"`    // Metadata for the library
-		Source  string                 `json:"source"`  // Library source code
-		Imports map[string]registry.ID `json:"imports"` // Imports aliases for the library
-		Modules []string               `json:"modules"` // Shortcut for importing modules
+		Meta    registry.Metadata      `json:"meta"`              // Metadata for the library
+		Source  string                 `json:"source"`            // Library source code
+		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
+		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 	}
 
 	// ProcessConfig defines the configuration for a Lua processes.
 	ProcessConfig struct {
-		Meta    registry.Metadata      `json:"meta"`    // Metadata for the terminal
-		Source  string                 `json:"source"`  // Lua source code
-		Method  string                 `json:"method"`  // Alias of the Lua method to execute
-		Imports map[string]registry.ID `json:"imports"` // Imports aliases for the library
-		Modules []string               `json:"modules"` // Shortcut for importing modules
+		Meta    registry.Metadata      `json:"meta"`              // Metadata for the terminal
+		Source  string                 `json:"source"`            // Lua source code
+		Method  string                 `json:"method"`            // Alias of the Lua method to execute
+		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
+		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 	}
 
 	// BteaConfig defines the configuration for a Lua terminal app, this is custom process with host expectations.
 	BteaConfig struct {
-		Meta    registry.Metadata      `json:"meta"`    // Metadata for the terminal
-		Source  string                 `json:"source"`  // Lua source code
-		Method  string                 `json:"method"`  // Alias of the Lua method to execute
-		Imports map[string]registry.ID `json:"imports"` // Imports aliases for the library
-		Modules []string               `json:"modules"` // Shortcut for importing modules
+		Meta    registry.Metadata      `json:"meta"`              // Metadata for the terminal
+		Source  string                 `json:"source"`            // Lua source code
+		Method  string                 `json:"method"`            // Alias of the Lua method to execute
+		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
+		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 	}
 
 	// OperationConfig defines the configuration for a Lua operation component.
 	// Operations are admin tasks that are executed on demand and not precompiled.
 	OperationConfig struct {
-		Meta    registry.Metadata      `json:"meta"`    // Metadata for the operation
-		Source  string                 `json:"source"`  // Lua source code
-		Method  string                 `json:"method"`  // Alias of the Lua method to execute
-		Imports map[string]registry.ID `json:"imports"` // Imports aliases for the library
-		Modules []string               `json:"modules"` // Shortcut for importing modules
+		Meta    registry.Metadata      `json:"meta"`              // Metadata for the operation
+		Source  string                 `json:"source"`            // Lua source code
+		Method  string                 `json:"method"`            // Alias of the Lua method to execute
+		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
+		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 	}
 )
 
