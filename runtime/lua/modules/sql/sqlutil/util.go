@@ -3,7 +3,6 @@ package sqlutil
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"time"
 
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
@@ -117,7 +116,6 @@ func RowsToTable(l *lua.LState, rows *sql.Rows) (*lua.LTable, error) {
 		for i, col := range columns {
 			// Handle nil values
 			val := values[i]
-			log.Printf("%v %v %v", i, col, val)
 
 			// Convert SQL types to appropriate Go types
 			switch v := val.(type) {
