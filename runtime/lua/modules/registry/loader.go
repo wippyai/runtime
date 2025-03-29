@@ -46,6 +46,9 @@ func (m *LoaderModule) Name() string {
 
 // Loader loads the module into the Lua state
 func (m *LoaderModule) Loader(l *lua.LState) int {
+	// Create module table
+	mod := l.CreateTable(0, 1)
+
 	// Register the loader instance metatable
 	mt := l.NewTypeMetatable(loaderInstanceMetatable)
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
@@ -53,11 +56,11 @@ func (m *LoaderModule) Loader(l *lua.LState) int {
 		"load_file":      loaderLoadFile,
 	}))
 
-	// Create module function that returns a loader instance
-	loaderFunc := l.NewFunction(m.createLoader)
+	// Add the "new" function to the module table
+	mod.RawSetString("new", l.NewFunction(m.createLoader))
 
-	// Push the function as the module
-	l.Push(loaderFunc)
+	// Push the module table
+	l.Push(mod)
 	return 1
 }
 

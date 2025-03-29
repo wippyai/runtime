@@ -1,8 +1,8 @@
-# Registry Loader Module Specification
+# Loader Module Specification
 
 ## Overview
 
-The Registry Loader module provides functionality for loading registry entries from configuration files and directories.
+The Loader module provides functionality for loading registry entries from configuration files and directories.
 It supports various file formats (JSON, YAML) and includes interpolation capabilities for variable substitution within
 configuration files.
 
@@ -11,12 +11,8 @@ configuration files.
 ### Loading the Module
 
 ```lua
-local registry = require("registry")
-local loader = registry.loader("filesystem_name")
+local loader = require("loader")
 ```
-
-The loader module is a submodule of the registry module and needs to be initialized with a filesystem name that will be
-used for file operations.
 
 ## Core Concepts
 
@@ -28,8 +24,6 @@ structures.
 #### Single Entry Format
 
 ```yaml
-id: "namespace:name"
-# OR
 namespace: services
 name: api-gateway
 kind: service
@@ -103,7 +97,7 @@ config: file:///path/to/config.json
 ### Create Loader Instance
 
 ```lua
-local loader = require("registry").loader("filesystem_name")
+local loader = require("loader")("filesystem_name")
 -- Parameters: 
 --   filesystem_name (string) - Name of the filesystem to use for file operations
 -- Returns on success: loader instance, nil
@@ -137,11 +131,7 @@ local entries, err = loader:load_file(filePath, variables)
 ### Basic File Loading
 
 ```lua
--- Import the registry module
-local registry = require("registry")
-
--- Create a loader instance for the "local" filesystem
-local loader = registry.loader("local")
+local loader = require("loader")("local")
 if not loader then
   print("Error creating loader")
   return
@@ -160,11 +150,7 @@ print("Loaded " .. #entries .. " entries from file")
 ### Directory Loading with Variable Interpolation
 
 ```lua
--- Import the registry module
-local registry = require("registry")
-
--- Create a loader instance
-local loader = registry.loader("local")
+local loader = require("loader")("local")
 if not loader then
   print("Error creating loader")
   return
@@ -188,10 +174,10 @@ print("Loaded " .. #entries .. " entries from directory")
 
 -- Process the loaded entries
 for i, entry in ipairs(entries) do
-  print(i .. ". " .. entry.id .. " (" .. entry.kind .. ")")
+  print(i .. ". " .. entry.namespace .. "/" .. entry.name .. " (" .. entry.kind .. ")")
   
   -- Access metadata
-  if entry.meta.environment then
+  if entry.meta and entry.meta.environment then
     print("   Environment: " .. entry.meta.environment)
   end
   
@@ -202,14 +188,12 @@ for i, entry in ipairs(entries) do
 end
 ```
 
-### Complete Workflow: Load, Transform, and Apply
+### Complete Workflow: Load and Process Entries
 
 ```lua
--- Import the registry module
-local registry = require("registry")
-
--- Create a loader instance
-local loader = registry.loader("local")
+-- Import the fs and loader modules
+local fs = require("fs")
+local loader = require("loader")("local")
 if not loader then
   print("Error creating loader")
   return
@@ -229,43 +213,54 @@ if not entries then
 end
 print("Loaded " .. #entries .. " entries from directory")
 
--- Get current registry state
-local snapshot, err = registry.snapshot()
-if not snapshot then
-  print("Error getting snapshot: " .. err)
-  return
-end
-local currentEntries = snapshot:entries()
-
--- Build delta between current state and loaded entries
-local changeset, err = registry.build_delta(currentEntries, entries)
-if not changeset then
-  print("Error building delta: " .. err)
-  return
-end
-
-print("Delta contains " .. #changeset .. " operations")
-
--- Apply changes to registry
-local changes = snapshot:changes()
-for _, op in ipairs(changeset) do
-  if op.kind == "create" then
-    changes:create(op.entry)
-    print("Adding: " .. op.entry.id)
-  elseif op.kind == "update" then
-    changes:update(op.entry)
-    print("Updating: " .. op.entry.id)
-  elseif op.kind == "delete" then
-    changes:delete(op.entry.id)
-    print("Removing: " .. op.entry.id)
+-- Process the loaded entries
+for i, entry in ipairs(entries) do
+  print(string.format("Entry %d: %s/%s (%s)", i, entry.namespace, entry.name, entry.kind))
+  
+  -- Example: Process entries based on kind
+  if entry.kind == "service" then
+    -- Handle service entries
+    if entry.endpoints then
+      for _, endpoint in ipairs(entry.endpoints) do
+        print(string.format("  Endpoint: %s on port %d", endpoint.path, endpoint.port))
+      end
+    end
+  elseif entry.kind == "config" then
+    -- Handle configuration entries
+    print("  Configuration for: " .. entry.name)
   end
 end
 
--- Apply changes to create a new version
-local version, err = changes:apply()
-if version then
-  print("Updated registry to version: " .. version:id())
-else
-  print("Error applying changes: " .. err)
+-- Example: Save processed entries to a new file
+local function save_processed_entries(entries, outputPath)
+  local content = ""
+  for _, entry in ipairs(entries) do
+    content = content .. string.format("# %s/%s (%s)\n", entry.namespace, entry.name, entry.kind)
+    -- Add more formatting as needed
+  end
+  
+  local fsys = fs.get("local")
+  fsys:writefile(outputPath, content)
+  print("Saved processed entries to: " .. outputPath)
 end
+
+save_processed_entries(entries, "/path/to/output.txt")
+```
+
+## Entry Format
+
+Each entry loaded by the loader will have the following structure:
+
+```lua
+entry = {
+  namespace = "string", -- Namespace of the entry
+  name = "string",      -- Name of the entry
+  kind = "string",      -- Kind/type of the entry
+  meta = {              -- Metadata table (optional)
+    [key] = value,      -- Various metadata fields
+    ...
+  },
+  -- Additional fields specific to the entry kind
+  ...
+}
 ```
