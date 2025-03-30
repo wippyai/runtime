@@ -118,6 +118,20 @@ func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, p
 		return fmt.Errorf("path must start with /: %s", path)
 	}
 
+	// Convert :param syntax to {param} syntax for Chi router
+	pathWithChiSyntax := path
+	if strings.Contains(path, ":") {
+		// Find all ":param" patterns and replace with "{param}"
+		segments := strings.Split(path, "/")
+		for i, segment := range segments {
+			if strings.HasPrefix(segment, ":") {
+				paramName := segment[1:] // remove the colon
+				segments[i] = "{" + paramName + "}"
+			}
+		}
+		pathWithChiSyntax = strings.Join(segments, "/")
+	}
+
 	// Check existing routes
 	if _, exists := router.routes[id]; exists {
 		return fmt.Errorf("route with Source %s already exists in router %s", id, routerID)
@@ -125,14 +139,14 @@ func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, p
 
 	// Check for conflicts
 	for _, route := range router.routes {
-		if route.path == path && route.method == method {
+		if route.path == pathWithChiSyntax && route.method == method {
 			return fmt.Errorf("route with path %s and method %s already exists in router %s", path, method, routerID)
 		}
 	}
 
 	router.routes[id] = &RouteEntry{
 		method:  method,
-		path:    path,
+		path:    pathWithChiSyntax,
 		handler: handler, // Store original handler, middleware will be applied at Build time
 		funcID:  funcID,
 	}
