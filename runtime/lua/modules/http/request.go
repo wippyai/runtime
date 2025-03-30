@@ -553,6 +553,49 @@ func requestParseMultipart(l *lua.LState) int {
 	return 2
 }
 
+// requestParam returns a route parameter value
+func requestParam(l *lua.LState) int {
+	req, err := checkRequest(l, 1)
+	if err != nil {
+		l.ArgError(1, err.Error())
+		return 0
+	}
+
+	paramName := l.CheckString(2)
+	if paramName == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("parameter name cannot be empty"))
+		return 2
+	}
+
+	// Get route info from context
+	routeInfoVal := req.request.Context().Value(http.RouteCtx)
+	if routeInfoVal == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no route parameters found in request context"))
+		return 2
+	}
+
+	routeInfo, ok := routeInfoVal.(*http.RouteInfo)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("invalid route info type in request context"))
+		return 2
+	}
+
+	// Get parameter value
+	paramValue, exists := routeInfo.Params[paramName]
+	if !exists {
+		l.Push(lua.LNil)
+		l.Push(lua.LNil)
+		return 2
+	}
+
+	l.Push(lua.LString(paramValue))
+	l.Push(lua.LNil)
+	return 2
+}
+
 // registerRequest registers the Request type and its methods
 func registerRequest(l *lua.LState, mod *lua.LTable) {
 	mt := l.NewTypeMetatable("Request")
@@ -572,6 +615,7 @@ func registerRequest(l *lua.LState, mod *lua.LTable) {
 		"is_content_type": requestIsContentType,
 		"stream":          requestStream,
 		"parse_multipart": requestParseMultipart,
+		"param":           requestParam,
 	}))
 	l.SetField(mt, "__tostring", l.NewFunction(requestToString))
 
