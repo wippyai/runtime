@@ -461,10 +461,7 @@ func (e *CoroutineVM) createTask(ctx context.Context, fn *lua.LFunction) *Task {
 func (e *CoroutineVM) removeTask(task *Task) error {
 	for i, t := range e.threads {
 		if t == task {
-			if task.cancel != nil {
-				task.cancel()
-			}
-
+			task.thread.Close()
 			task.fn = nil
 			task.thread = nil
 			task.pcallFrom = nil
