@@ -25,12 +25,13 @@ func (m *Module) Name() string {
 }
 
 // Loader is the entry point for loading the module into Lua.
-// It registers the get and set functions into the Lua state.
+// It registers the get, set, and all functions into the Lua state.
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.CreateTable(0, 2) // Exactly 2 functions: get and set
+	t := l.CreateTable(0, 3) // Now 3 functions: get, set, and all
 
 	t.RawSetString("get", l.NewFunction(m.get))
 	t.RawSetString("set", l.NewFunction(m.set))
+	t.RawSetString("all", l.NewFunction(m.all))
 
 	l.Push(t)
 	return 1
@@ -101,6 +102,44 @@ func (m *Module) set(l *lua.LState) int {
 	ctxter.SetValue(k, transcoder.ToGoAny(l.CheckAny(2)))
 
 	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+
+	return 2
+}
+
+// all retrieves all values from the context.
+// Returns (table, nil) if successful, (nil, error) if an error occurs.
+func (m *Module) all(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.ArgError(1, "no context found")
+		return 0
+	}
+
+	ctxter, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any])
+	if !ok {
+		l.ArgError(1, "invalid context")
+		return 0
+	}
+
+	// Create a new table to hold all the values
+	t := l.CreateTable(0, ctxter.Len())
+
+	// Iterate over all key-value pairs in the contexter
+	ctxter.Iterate(func(key string, value any) {
+		// Convert the Go value to a Lua value
+		luaValue, err := transcoder.GoToLua(value)
+		if err != nil {
+			// Skip values that cannot be converted
+			m.log.Warn("error converting value to Lua", zap.String("key", key), zap.Error(err))
+			return
+		}
+
+		// Set the key-value pair in the table
+		t.RawSetString(key, luaValue)
+	})
+
+	l.Push(t)
 	l.Push(lua.LNil)
 
 	return 2
