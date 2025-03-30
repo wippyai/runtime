@@ -1,7 +1,7 @@
 package registry
 
 // mapsEqual compares two maps for equality while ignoring key order
-func mapsEqual(a, b map[string]interface{}) bool {
+func mapsEqual(a, b map[string]any) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -13,9 +13,10 @@ func mapsEqual(a, b map[string]interface{}) bool {
 		}
 
 		// Handle nested maps recursively
-		if aMap, aOk := aVal.(map[string]interface{}); aOk {
-			if bMap, bOk := bVal.(map[string]interface{}); bOk {
+		if aMap, aOk := aVal.(map[string]any); aOk {
+			if bMap, bOk := bVal.(map[string]any); bOk {
 				if !mapsEqual(aMap, bMap) {
+
 					return false
 				}
 				continue
@@ -24,8 +25,8 @@ func mapsEqual(a, b map[string]interface{}) bool {
 		}
 
 		// Handle arrays/slices
-		if aArr, aOk := aVal.([]interface{}); aOk {
-			if bArr, bOk := bVal.([]interface{}); bOk {
+		if aArr, aOk := aVal.([]any); aOk {
+			if bArr, bOk := bVal.([]any); bOk {
 				if len(aArr) != len(bArr) {
 					return false
 				}
@@ -36,6 +37,7 @@ func mapsEqual(a, b map[string]interface{}) bool {
 				}
 				continue
 			}
+
 			return false // Types don't match
 		}
 
@@ -51,16 +53,16 @@ func mapsEqual(a, b map[string]interface{}) bool {
 // valuesEqual compares two values of any type
 func valuesEqual(a, b interface{}) bool {
 	// Handle nested maps
-	if aMap, aOk := a.(map[string]interface{}); aOk {
-		if bMap, bOk := b.(map[string]interface{}); bOk {
+	if aMap, aOk := a.(map[string]any); aOk {
+		if bMap, bOk := b.(map[string]any); bOk {
 			return mapsEqual(aMap, bMap)
 		}
 		return false
 	}
 
 	// Handle arrays/slices
-	if aArr, aOk := a.([]interface{}); aOk {
-		if bArr, bOk := b.([]interface{}); bOk {
+	if aArr, aOk := a.([]any); aOk {
+		if bArr, bOk := b.([]any); bOk {
 			if len(aArr) != len(bArr) {
 				return false
 			}

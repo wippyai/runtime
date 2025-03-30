@@ -69,8 +69,8 @@ func (m *Module) buildDelta(l *lua.LState) int {
 		}
 
 		// Unmarshal both entries' Data fields into maps
-		aMap := make(map[string]interface{})
-		bMap := make(map[string]interface{})
+		aMap := make(map[string]any)
+		bMap := make(map[string]any)
 
 		if err := dtt.Unmarshal(a.Data, &aMap); err != nil {
 			m.log.Debug("error unmarshaling entry a data", zap.Error(err))

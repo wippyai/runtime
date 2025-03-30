@@ -12,7 +12,6 @@ const (
 	// KindFunction identifies a Lua function component in the registry
 	KindFunction registry.Kind = "function.lua"
 
-	// processes
 	KindBteaApp registry.Kind = "btea.app.lua"
 	KindProcess registry.Kind = "process.lua"
 
@@ -44,7 +43,7 @@ type (
 		Source  string                 `json:"source"`            // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
-		Modules []string               `json:",omitempty"`        // Shortcut for importing modules
+		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 		Pool    PoolConfig             `json:"pool,omitempty"`    // VM pool configuration
 	}
 
@@ -69,16 +68,6 @@ type (
 	// BteaConfig defines the configuration for a Lua terminal app, this is custom process with host expectations.
 	BteaConfig struct {
 		Meta    registry.Metadata      `json:"meta"`              // Metadata for the terminal
-		Source  string                 `json:"source"`            // Lua source code
-		Method  string                 `json:"method"`            // Alias of the Lua method to execute
-		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
-		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
-	}
-
-	// OperationConfig defines the configuration for a Lua operation component.
-	// Operations are admin tasks that are executed on demand and not precompiled.
-	OperationConfig struct {
-		Meta    registry.Metadata      `json:"meta"`              // Metadata for the operation
 		Source  string                 `json:"source"`            // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
@@ -145,40 +134,6 @@ func (c *FunctionConfig) Validate() error {
 func (c *LibraryConfig) Validate() error {
 	if c.Source == "" {
 		return fmt.Errorf("source is required")
-	}
-
-	for alias, id := range c.Imports {
-		if alias == "" {
-			return fmt.Errorf("import alias cannot be empty")
-		}
-		if id.Name == "" {
-			return fmt.Errorf("import :name cannot be empty")
-		}
-	}
-
-	for _, module := range c.Modules {
-		if module == "" {
-			return fmt.Errorf("module cannot be empty")
-		}
-
-		id := registry.ParseID(module)
-		if id.NS != "" {
-			return fmt.Errorf("module cannot have a namespace")
-		}
-	}
-
-	return nil
-}
-
-// Validate checks if the OperationConfig has all required fields set to valid values.
-// It returns an error if any validation check fails.
-func (c *OperationConfig) Validate() error {
-	if c.Source == "" {
-		return fmt.Errorf("source is required")
-	}
-
-	if c.Method == "" {
-		return fmt.Errorf("method is required")
 	}
 
 	for alias, id := range c.Imports {
