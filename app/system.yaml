@@ -2,12 +2,29 @@ version: "1.0"
 namespace: system
 
 entries:
+  - name: aws_config
+    kind: config.aws
+    meta:
+      comment: "Aws Config"
+    region: us-east-1
+    access_key_id_env: ACCESS_KEY_ID_CUSTOM
+
+  - name: test_s3
+    kind: cloudstorage.s3
+    meta:
+      comment: "Cloud Storage S3"
+      depends_on:
+        - aws_config
+    bucket: mybucket
+    config: system:aws_config
+
   - name: root
     kind: fs.directory
     meta:
       comment: "Root filesystem"
     directory: ./
     mode: "0755"
+    default: true
 
   - name: public
     kind: fs.directory
@@ -24,9 +41,15 @@ entries:
       comment: "Main HTTP gateway service"
     addr: ":8082"
     timeouts:
-      idle: 120s
+      idle: 60s
+      read: 30s
+      write: 30s
     lifecycle:
       auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 3
+        backoff_factor: 1.5
 
   - name: public.static
     kind: http.static
@@ -51,10 +74,10 @@ entries:
       server: gateway
       depends_on:
         - gateway
+        - heap
     prefix: /api/v1
-    middleware: [ websocket_relay, token_auth ]
-    options:
-      token_store: system.security:auth.tokens
+    timeouts:
+      request: 30s
 
   - name: terminal
     kind: terminal.host
@@ -87,16 +110,5 @@ entries:
     meta:
       comment: "Application SQLite database"
     file: "./app/data/app.db"
-    lifecycle:
-      auto_start: true
-
-  - name: cache
-    kind: store.memory
-    meta:
-      comment: "System-wide memory cache"
-      depends_on:
-        - gateway
-    max_size: 10000
-    cleanup_interval: 5m
     lifecycle:
       auto_start: true

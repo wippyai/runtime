@@ -53,8 +53,10 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/upstream"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/cloudstorage"
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
+	"github.com/ponyruntime/pony/runtime/lua/modules/excel"
 	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
 	"github.com/ponyruntime/pony/runtime/lua/modules/funcmod"
 	fncallmod "github.com/ponyruntime/pony/runtime/lua/modules/funcs"
@@ -75,6 +77,8 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/lua/task"
 	"github.com/ponyruntime/pony/runtime/noop"
+	"github.com/ponyruntime/pony/service/aws/config"
+	"github.com/ponyruntime/pony/service/aws/s3"
 	fsdir "github.com/ponyruntime/pony/service/directory"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
@@ -573,9 +577,6 @@ func main() {
 		WithProcessSupervisor(app),
 		WithEphemeralHost(app),
 		WithSQLManager(app),
-		WithMemStore(app),
-		WithProcessFunctionBridge(app),
-		WithNativeExecutor(app),
 	)...)
 	// --------------------------------------------------
 
@@ -794,6 +795,22 @@ func WithDirectoryManager(a *App) eventbus.EventHandler {
 	))
 }
 
+func WithAWSConfigManager(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("config.aws", config.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("config.aws"),
+	))
+}
+
+func WithS3Manager(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("cloudstorage.s3", s3.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("cloudstorage.s3"),
+	))
+}
+
 func WithSQLManager(a *App) eventbus.EventHandler {
 	// Create manager with required dependencies
 	manager, err := sql.NewManager(
@@ -891,6 +908,8 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				treesitter.NewTreeSitterModule(a.logger.Named("tsitter")),
 				btea.NewBteaModule(a.logger.Named("btea")),
 				sqlmod.NewSQLModule(a.logger.Named("sql")),
+				excel.NewModule(a.logger.Named("excel")),
+				cloudstorage.NewModule(),
 			},
 			ProtoCacheSize: 600,
 			MainCacheSize:  100,

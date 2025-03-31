@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>File Upload with Drag and Drop</title>
+    <title>File Upload with Excel Preview</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -14,14 +14,14 @@
             background-color: #f7f9fc;
         }
         .container {
-            max-width: 800px;
+            max-width: 1000px;
             margin: 0 auto;
             background-color: white;
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             padding: 20px;
         }
-        h1 {
+        h1, h2, h3 {
             text-align: center;
             color: #2c3e50;
             margin-bottom: 30px;
@@ -149,35 +149,6 @@
             background-color: rgba(231, 76, 60, 0.2);
             color: #c0392b;
         }
-        .endpoints-list {
-            margin-top: 30px;
-            border-top: 1px solid #ecf0f1;
-            padding-top: 20px;
-        }
-        .endpoint-item {
-            background-color: #f8f9fa;
-            padding: 10px;
-            border-radius: 4px;
-            margin-bottom: 10px;
-        }
-        .endpoint-path {
-            font-weight: bold;
-            color: #2c3e50;
-        }
-        .endpoint-method {
-            display: inline-block;
-            padding: 2px 6px;
-            background-color: #3498db;
-            color: white;
-            border-radius: 3px;
-            font-size: 14px;
-            margin-right: 10px;
-        }
-        .endpoint-comment {
-            color: #7f8c8d;
-            font-size: 14px;
-            margin-top: 5px;
-        }
         .upload-results {
             margin-top: 30px;
             display: none;
@@ -223,11 +194,66 @@
             color: #7f8c8d;
             font-size: 14px;
         }
+        .excel-preview {
+            margin-top: 20px;
+            display: none;
+        }
+        .excel-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            border-bottom: 1px solid #e0e0e0;
+            margin-bottom: 15px;
+        }
+        .excel-tab {
+            padding: 8px 15px;
+            background-color: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-bottom: none;
+            border-radius: 4px 4px 0 0;
+            margin-right: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .excel-tab.active {
+            background-color: #3498db;
+            color: white;
+            border-color: #3498db;
+        }
+        .excel-content {
+            overflow-x: auto;
+        }
+        .excel-table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        .excel-table th, .excel-table td {
+            border: 1px solid #e0e0e0;
+            padding: 8px;
+            text-align: left;
+        }
+        .excel-table th {
+            background-color: #f5f5f5;
+            font-weight: bold;
+        }
+        .excel-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .excel-warning {
+            background-color: #fcf8e3;
+            color: #8a6d3b;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 15px;
+            border-left: 5px solid #f0ad4e;
+        }
+        .text-center {
+            text-align: center;
+        }
     </style>
 </head>
 <body>
 <div class="container">
-    <h1>File Upload with Drag and Drop</h1>
+    <h1>File Upload with Excel Preview</h1>
 
     <div class="upload-area" id="upload-area">
         <p>Drag and drop files here or click to select files</p>
@@ -250,6 +276,12 @@
         <h3>Upload Results</h3>
         <div class="results-container" id="results-container"></div>
     </div>
+
+    <div class="excel-preview" id="excel-preview">
+        <h3>Excel File Preview</h3>
+        <div id="excel-sheets" class="excel-tabs"></div>
+        <div id="excel-content" class="excel-content"></div>
+    </div>
 </div>
 
 <script>
@@ -262,8 +294,12 @@
         const progressContainer = document.getElementById('progress-container');
         const progressBar = document.getElementById('progress-bar');
         const statusMessage = document.getElementById('status-message');
+        const excelPreview = document.getElementById('excel-preview');
+        const excelSheets = document.getElementById('excel-sheets');
+        const excelContent = document.getElementById('excel-content');
 
         let selectedFiles = [];
+        let currentExcelData = null;
 
         // Event Listeners
         uploadArea.addEventListener('dragover', handleDragOver);
@@ -386,6 +422,11 @@
             return iconMap[extension] || '📄';
         }
 
+        function isExcelFile(fileName) {
+            const extension = fileName.split('.').pop().toLowerCase();
+            return extension === 'xlsx' || extension === 'xls';
+        }
+
         function removeFile(fileName) {
             // Remove from array
             selectedFiles = selectedFiles.filter(file => file.name !== fileName);
@@ -415,6 +456,7 @@
             updateButtons();
             hideStatusMessage();
             hideUploadResults();
+            hideExcelPreview();
             resetProgress();
         }
 
@@ -423,6 +465,7 @@
 
             showProgress();
             hideUploadResults();
+            hideExcelPreview();
 
             try {
                 const apiEndpoint = '/api/v1/fs/upload'; // Updated endpoint
@@ -453,6 +496,25 @@
                         if (responseData.files && responseData.files.length > 0) {
                             successCount = responseData.files.filter(file => file.success).length;
                             displayUploadResults(responseData);
+
+                            // Check for Excel files
+                            const excelFiles = responseData.files.filter(
+                                file => file.success && file.isExcel && file.excelData
+                            );
+
+                            if (excelFiles.length > 0) {
+                                // Display the first Excel file
+                                displayExcelPreview(excelFiles[0]);
+                            } else {
+                                // Check if there are files marked as Excel but with errors
+                                const failedExcelFiles = responseData.files.filter(
+                                    file => file.isExcel && file.excelError
+                                );
+
+                                if (failedExcelFiles.length > 0) {
+                                    showExcelError(failedExcelFiles[0].excelError);
+                                }
+                            }
                         }
                     } else {
                         const errorText = await response.text();
@@ -531,6 +593,14 @@
                     if (file.success) {
                         html += `<p class="result-path">Path: ${file.path}</p>`;
                         html += `<p class="result-size">Size: ${formatFileSize(file.size)}</p>`;
+
+                        if (file.isExcel) {
+                            if (file.excelData) {
+                                html += `<p>✅ Excel file detected with ${file.excelData.sheets ? file.excelData.sheets.length : 0} sheets</p>`;
+                            } else if (file.excelError) {
+                                html += `<p>❌ Excel processing error: ${file.excelError}</p>`;
+                            }
+                        }
                     } else {
                         html += `<p class="result-error">Error: ${file.error || 'Unknown error'}</p>`;
                     }
@@ -546,6 +616,127 @@
 
         function hideUploadResults() {
             document.getElementById('upload-results').style.display = 'none';
+        }
+
+        function displayExcelPreview(fileData) {
+            if (!fileData || !fileData.excelData || !fileData.excelData.sheets) {
+                return;
+            }
+
+            currentExcelData = fileData.excelData;
+            excelSheets.innerHTML = '';
+            excelContent.innerHTML = '';
+
+            // Create tabs for each sheet
+            fileData.excelData.sheets.forEach((sheet, index) => {
+                const tab = document.createElement('div');
+                tab.className = 'excel-tab';
+                tab.textContent = sheet;
+                tab.dataset.sheetIndex = index;
+
+                if (index === 0) {
+                    tab.classList.add('active');
+                }
+
+                tab.addEventListener('click', function() {
+                    // Remove active class from all tabs
+                    document.querySelectorAll('.excel-tab').forEach(t => t.classList.remove('active'));
+                    // Add active class to clicked tab
+                    this.classList.add('active');
+                    // Show the sheet content
+                    if (currentExcelData && currentExcelData.preview) {
+                        displaySheetContent(currentExcelData.preview);
+                    }
+                });
+
+                excelSheets.appendChild(tab);
+            });
+
+            // Display the first sheet by default
+            if (fileData.excelData.preview) {
+                displaySheetContent(fileData.excelData.preview);
+            }
+
+            // Show the Excel preview section
+            excelPreview.style.display = 'block';
+        }
+
+        function hideExcelPreview() {
+            excelPreview.style.display = 'none';
+            excelSheets.innerHTML = '';
+            excelContent.innerHTML = '';
+            currentExcelData = null;
+        }
+
+        function showExcelError(errorMessage) {
+            excelPreview.style.display = 'block';
+            excelSheets.innerHTML = '';
+            excelContent.innerHTML = `
+                <div class="excel-warning">
+                    <strong>Error:</strong> ${errorMessage || 'Failed to process Excel file'}
+                </div>
+                <p>Please ensure you are uploading a valid Excel file (.xlsx or .xls format).</p>
+            `;
+        }
+
+        function displaySheetContent(rows) {
+            if (!rows || rows.length === 0) {
+                excelContent.innerHTML = '<p>No data available in this sheet.</p>';
+                return;
+            }
+
+            // Create table
+            const table = document.createElement('table');
+            table.className = 'excel-table';
+
+            // Create table header
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+
+            // Function to convert column index to Excel-style letter (A, B, C, ..., Z, AA, AB, etc.)
+            function getColumnLetter(index) {
+                let letter = '';
+                index++;
+                while (index > 0) {
+                    const remainder = (index - 1) % 26;
+                    letter = String.fromCharCode(65 + remainder) + letter;
+                    index = Math.floor((index - 1) / 26);
+                }
+                return letter;
+            }
+
+            // For simplicity, use first row as header or generate column letters
+            if (rows[0]) {
+                for (let i = 0; i < rows[0].length; i++) {
+                    const th = document.createElement('th');
+                    th.textContent = rows[0][i] || getColumnLetter(i);
+                    headerRow.appendChild(th);
+                }
+
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+
+                // Create table body
+                const tbody = document.createElement('tbody');
+
+                // Add data rows (skip first row as it's our header)
+                for (let i = 1; i < rows.length; i++) {
+                    const tr = document.createElement('tr');
+
+                    for (let j = 0; j < rows[i].length; j++) {
+                        const td = document.createElement('td');
+                        td.textContent = rows[i][j] !== undefined ? rows[i][j] : '';
+                        tr.appendChild(td);
+                    }
+
+                    tbody.appendChild(tr);
+                }
+
+                table.appendChild(tbody);
+                excelContent.appendChild(table);
+            } else {
+                excelContent.innerHTML = '<p>No data available in this sheet.</p>';
+            }
         }
     });
 </script>

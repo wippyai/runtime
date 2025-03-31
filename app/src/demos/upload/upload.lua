@@ -1,9 +1,17 @@
 -- upload.lua
 -- File upload handler for processing multipart/form-data uploads
+-- with Excel file detection and content extraction
 
 -- Get the required modules
 local http = require("http")
 local fs = require("fs")
+local excel = require("excel")
+
+-- Function to check if file is an Excel file based on extension
+local function is_excel_file(filename)
+  local extension = string.match(filename:lower(), "%.([^%.]+)$")
+  return extension == "xlsx" or extension == "xls"
+end
 
 -- Main handler function
 local function handler()
@@ -73,6 +81,7 @@ local function handler()
     for i, file in ipairs(fileArray) do
       local filename = file:name()
       local size = file:size()
+      local isExcel = is_excel_file(filename)
       local targetPath = uploadDir .. "/" .. filename
 
       -- Check if the file already exists
@@ -104,25 +113,81 @@ local function handler()
           field = fieldName,
           filename = filename,
           success = false,
-          error = "Failed to create stream: " .. err
+          error = "Failed to create stream: " .. err,
+          isExcel = isExcel
         })
       else
         -- Write the stream to the target file
         local success, err = fsObj:writefile(targetPath, stream, "w")
+
         if success then
-          table.insert(results, {
+          local result = {
             field = fieldName,
             filename = filename,
             path = targetPath,
             size = size,
-            success = true
-          })
+            success = true,
+            isExcel = isExcel
+          }
+
+          -- If it's an Excel file, try to read and extract sheet information
+          if isExcel then
+            local excelData = {}
+            local excelFile, openErr = fsObj:open(targetPath, "r")
+
+            if not openErr and excelFile then
+              local wb, excelErr = excel.open(excelFile)
+
+              if not excelErr and wb then
+                -- Get sheet list
+                local sheets, sheetErr = wb:get_sheet_list()
+
+                if not sheetErr and sheets then
+                  excelData.sheets = sheets
+
+                  -- Get preview data from first sheet
+                  if #sheets > 0 then
+                    local rows, rowErr = wb:get_rows(sheets[1])
+                    if not rowErr and rows then
+                      -- Limit preview to first 10 rows
+                      local preview = {}
+                      for j = 1, math.min(10, #rows) do
+                        table.insert(preview, rows[j])
+                      end
+                      excelData.preview = preview
+                    end
+                  end
+                end
+
+                -- Close the workbook
+                wb:close()
+              else
+                result.excelError = "Failed to open Excel file: " .. (excelErr or "Unknown error")
+              end
+
+              -- Close the file
+              excelFile:close()
+            else
+              result.excelError = "Failed to open file: " .. (openErr or "Unknown error")
+            end
+
+            -- Add Excel data to the result
+            if next(excelData) then
+              result.excelData = excelData
+            else
+              result.isExcel = false
+              result.excelError = "Not a valid Excel file or failed to read contents"
+            end
+          end
+
+          table.insert(results, result)
         else
           table.insert(results, {
             field = fieldName,
             filename = filename,
             success = false,
-            error = "Failed to save file: " .. tostring(err)
+            error = "Failed to save file: " .. tostring(err),
+            isExcel = isExcel
           })
         end
       end

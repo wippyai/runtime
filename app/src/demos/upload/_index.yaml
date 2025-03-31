@@ -12,7 +12,7 @@ entries:
       comment: "Handles file uploads via multipart/form-data and stores them in /uploads directory"
     source: file://upload.lua
     method: handler
-    modules: [ http, fs ]
+    modules: [ http, fs, excel, cloudstorage ]
     pool:
       size: 2
       workers: 4
