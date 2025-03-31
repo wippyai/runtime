@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/Masterminds/squirrel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -19,9 +20,15 @@ func luaTableToMap(l *lua.LState, table *lua.LTable) map[string]interface{} {
 			// Check for SQL_NULL marker
 			if value.Type() == lua.LTUserData {
 				if ud, ok := value.(*lua.LUserData); ok {
-					// Check if it's our NULL marker
+					// Check if it's our NULL marker (from asNull function)
 					if marker, ok := ud.Value.(string); ok && marker == "SQL_NULL" {
 						result[keyStr] = nil
+						return
+					}
+
+					// Handle typed values (from other as* functions)
+					if typed, ok := ud.Value.(*sqlutil.TypedValue); ok {
+						result[keyStr] = typed.Value
 						return
 					}
 				}
