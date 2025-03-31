@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Models Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .theme-transition {
+            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .animate-pulse-slow {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .tag {
+            display: inline-block;
+            border-radius: 0.375rem;
+            padding: 0.125rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .model-card {
+            transition: all 0.2s ease;
+        }
+
+        .model-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .capability-badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 9999px;
+            padding: 0.25rem 0.625rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-right: 0.375rem;
+            margin-bottom: 0.375rem;
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'primary': '#3B82F6',
+                        'secondary': '#1E40AF',
+                        'success': '#10B981',
+                        'warning': '#F59E0B',
+                        'danger': '#EF4444',
+                        'neutral': '#6B7280'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 dark:text-gray-100 theme-transition">
+<div class="container mx-auto p-4 max-w-6xl">
+    <!-- Header -->
+    <header class="mb-6">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-indigo-600 dark:text-indigo-400" fill="none"
+                     viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                </svg>
+                <h1 class="text-2xl font-bold">Models Explorer</h1>
+            </div>
+
+            <!-- Theme Toggle Button -->
+            <button id="theme-toggle" class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 theme-transition">
+                <!-- Sun icon (shown in dark mode) -->
+                <svg id="light-icon" class="w-5 h-5 hidden dark:block text-yellow-400" fill="currentColor"
+                     viewBox="0 0 20 20">
+                    <path fill-rule="evenodd"
+                          d="M10 2a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5A.75.75 0 0110 2zm7.646 7.36a.75.75 0 01-.392.393l-1.34.67a.75.75 0 01-.669-1.345l1.34-.67a.75.75 0 011.06.953zm-15.293.393a.75.75 0 01-.392-.393.75.75 0 01.954-1.047l1.337.679a.75.75 0 01-.668 1.344l-1.337-.678zM10 5.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9zM3.75 10a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5a.75.75 0 01-.75-.75zm11 0a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5a.75.75 0 01-.75-.75zm-3.288 7.894a.75.75 0 01-1.5 0v-1.5a.75.75 0 011.5 0v1.5zm-4.954-3.959a.75.75 0 01-1.06 0l-1.337-1.336a.75.75 0 111.06-1.06l1.337 1.336a.75.75 0 010 1.06zm11.293-1.06a.75.75 0 011.06 1.06l-1.336 1.336a.75.75 0 11-1.06-1.06l1.336-1.336z"></path>
+                </svg>
+                <!-- Moon icon (shown in light mode) -->
+                <svg id="dark-icon" class="w-5 h-5 block dark:hidden text-gray-700" fill="currentColor"
+                     viewBox="0 0 20 20">
+                    <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
+                </svg>
+            </button>
+        </div>
+        <p class="text-gray-600 dark:text-gray-400 mt-2">Discover and explore available LLM models and their
+            capabilities</p>
+    </header>
+
+    <!-- Search and filter -->
+    <div class="mb-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 theme-transition">
+        <div class="flex flex-col sm:flex-row gap-4">
+            <div class="flex-1">
+                <label for="search" class="sr-only">Search models</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"
+                             fill="currentColor">
+                            <path fill-rule="evenodd"
+                                  d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+                                  clip-rule="evenodd"/>
+                        </svg>
+                    </div>
+                    <input id="search" type="text"
+                           class="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md leading-5 bg-white dark:bg-gray-900 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-gray-100 theme-transition"
+                           placeholder="Search models...">
+                </div>
+            </div>
+            <div class="sm:w-64">
+                <label for="provider-filter" class="sr-only">Filter by provider</label>
+                <select id="provider-filter"
+                        class="block w-full pl-3 pr-10 py-2 text-base border border-gray-300 dark:border-gray-700 focus:outline-none sm:text-sm rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 theme-transition">
+                    <option value="">All providers</option>
+                    <!-- Provider options will be populated dynamically -->
+                </select>
+            </div>
+            <div class="sm:w-64">
+                <label for="capability-filter" class="sr-only">Filter by capability</label>
+                <select id="capability-filter"
+                        class="block w-full pl-3 pr-10 py-2 text-base border border-gray-300 dark:border-gray-700 focus:outline-none sm:text-sm rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 theme-transition">
+                    <option value="">All capabilities</option>
+                    <option value="tool_use">Tool Use</option>
+                    <option value="vision">Vision</option>
+                    <option value="thinking">Thinking</option>
+                    <option value="caching">Caching</option>
+                    <option value="multilingual">Multilingual</option>
+                </select>
+            </div>
+            <div>
+                <button id="refresh-btn"
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 theme-transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24"
+                         stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading state -->
+    <div id="loading-state" class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 text-center theme-transition">
+        <svg class="animate-spin mx-auto h-10 w-10 text-indigo-500 mb-3" xmlns="http://www.w3.org/2000/svg" fill="none"
+             viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p class="text-gray-600 dark:text-gray-400">Loading models...</p>
+    </div>
+
+    <!-- Empty state -->
+    <div id="empty-state"
+         class="hidden bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 text-center theme-transition">
+        <svg class="mx-auto h-12 w-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+             stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+        </svg>
+        <p class="text-gray-600 dark:text-gray-400 mt-2 mb-4">No models found</p>
+        <button id="empty-refresh-btn"
+                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24"
+                 stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            Reload Models
+        </button>
+    </div>
+
+    <!-- Model cards grid -->
+    <div id="models-container" class="hidden grid gap-6 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+        <!-- Model cards will be added here dynamically -->
+    </div>
+
+    <!-- Model detail modal -->
+    <div id="model-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden theme-transition">
+            <div class="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                <h3 class="text-lg font-semibold" id="modal-title">Model Details</h3>
+                <button id="close-modal" class="text-gray-400 hover:text-gray-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                         stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="overflow-y-auto p-6" style="max-height: calc(90vh - 150px);">
+                <div class="space-y-6" id="modal-content">
+                    <!-- Model details will be added here dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+</div>
+
+<script>
+    // Theme management
+    const themeToggle = document.getElementById('theme-toggle');
+
+    // Check for saved theme preference or use system preference
+    if (localStorage.getItem('theme') === 'dark' ||
+        (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+    } else {
+        document.documentElement.classList.remove('dark');
+    }
+
+    // Theme toggle button handler
+    themeToggle.addEventListener('click', () => {
+        if (document.documentElement.classList.contains('dark')) {
+            document.documentElement.classList.remove('dark');
+            localStorage.setItem('theme', 'light');
+        } else {
+            document.documentElement.classList.add('dark');
+            localStorage.setItem('theme', 'dark');
+        }
+    });
+
+    // State variables
+    let allModels = [];
+    let providers = new Set();
+    let capabilities = new Set();
+    let filteredModels = [];
+
+    // Elements
+    const loadingState = document.getElementById('loading-state');
+    const emptyState = document.getElementById('empty-state');
+    const modelsContainer = document.getElementById('models-container');
+    const searchInput = document.getElementById('search');
+    const providerFilter = document.getElementById('provider-filter');
+    const capabilityFilter = document.getElementById('capability-filter');
+    const refreshButton = document.getElementById('refresh-btn');
+    const emptyRefreshButton = document.getElementById('empty-refresh-btn');
+    const modelModal = document.getElementById('model-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalContent = document.getElementById('modal-content');
+    const closeModalButton = document.getElementById('close-modal');
+
+    // Helper function to get provider from model
+    function getProviderFromModel(model) {
+        if (model.handlers && model.handlers.generate) {
+            const handlerPath = model.handlers.generate;
+            const match = handlerPath.match(/wippy\.llm\.([^:]+):/);
+            if (match) {
+                return match[1];
+            }
+        }
+        return "unknown";
+    }
+
+    // Helper function to get capability badge HTML
+    function getCapabilityBadge(capability) {
+        let color;
+        let icon;
+
+        switch (capability) {
+            case "tool_use":
+                color = "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100";
+                icon = '<svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>';
+                break;
+            case "vision":
+                color = "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-100";
+                icon = '<svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
+                break;
+            case "thinking":
+                color = "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100";
+                icon = '<svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>';
+                break;
+            case "caching":
+                color = "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100";
+                icon = '<svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" /></svg>';
+                break;
+            case "multilingual":
+                color = "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-100";
+                icon = '<svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" /></svg>';
+                break;
+            default:
+                color = "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
+                icon = '';
+        }
+
+        return `<span class="capability-badge ${color}">${icon}${capability}</span>`;
+    }
+
+    // Fetch models from API
+    async function fetchModels() {
+        // Show loading state
+        loadingState.classList.remove('hidden');
+        emptyState.classList.add('hidden');
+        modelsContainer.classList.add('hidden');
+
+        try {
+            const response = await fetch('/api/v1/models/list?format=json');
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            allModels = data.models || [];
+
+            // Extract unique providers and capabilities
+            providers = new Set();
+            capabilities = new Set();
+
+            allModels.forEach(model => {
+                // Get provider
+                const provider = getProviderFromModel(model);
+                providers.add(provider);
+
+                // Get capabilities
+                if (model.capabilities) {
+                    model.capabilities.forEach(cap => {
+                        capabilities.add(cap);
+                    });
+                }
+            });
+
+            // Populate provider filter
+            populateProviderFilter();
+
+            // Apply initial filters
+            applyFilters();
+
+        } catch (error) {
+            console.error('Failed to fetch models:', error);
+            showEmpty();
+        } finally {
+            loadingState.classList.add('hidden');
+        }
+    }
+
+    // Populate provider filter dropdown
+    function populateProviderFilter() {
+        // Clear current options (except first "All providers" option)
+        while (providerFilter.options.length > 1) {
+            providerFilter.remove(1);
+        }
+
+        // Add options for each provider
+        Array.from(providers).sort().forEach(provider => {
+            const option = document.createElement('option');
+            option.value = provider;
+            option.textContent = provider.charAt(0).toUpperCase() + provider.slice(1);
+            providerFilter.appendChild(option);
+        });
+    }
+
+    // Apply filters to models
+    function applyFilters() {
+        const searchText = searchInput.value.toLowerCase();
+        const selectedProvider = providerFilter.value;
+        const selectedCapability = capabilityFilter.value;
+
+        filteredModels = allModels.filter(model => {
+            // Check provider filter
+            if (selectedProvider) {
+                const modelProvider = getProviderFromModel(model);
+                if (modelProvider !== selectedProvider) {
+                    return false;
+                }
+            }
+
+            // Check capability filter
+            if (selectedCapability && (!model.capabilities || !model.capabilities.includes(selectedCapability))) {
+                return false;
+            }
+
+            // Check search text
+            const nameMatch = model.name && model.name.toLowerCase().includes(searchText);
+            const idMatch = model.id && model.id.toLowerCase().includes(searchText);
+            const descMatch = model.description && model.description.toLowerCase().includes(searchText);
+
+            return nameMatch || idMatch || descMatch;
+        });
+
+        renderModels();
+    }
+
+    // Render models to the container
+    function renderModels() {
+        // Clear container
+        modelsContainer.innerHTML = '';
+
+        if (filteredModels.length === 0) {
+            showEmpty();
+            return;
+        }
+
+        // Show models container
+        modelsContainer.classList.remove('hidden');
+        emptyState.classList.add('hidden');
+
+        // Render each model
+        filteredModels.forEach(model => {
+            const card = createModelCard(model);
+            modelsContainer.appendChild(card);
+        });
+    }
+
+    // Create model card element
+    function createModelCard(model) {
+        const card = document.createElement('div');
+        card.className = 'model-card bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden theme-transition';
+
+        // Determine provider and card header color
+        const provider = getProviderFromModel(model);
+
+        let headerColor;
+        switch (provider) {
+            case 'openai':
+                headerColor = 'bg-green-100 dark:bg-green-900';
+                break;
+            case 'claude':
+                headerColor = 'bg-purple-100 dark:bg-purple-900';
+                break;
+            case 'anthropic':
+                headerColor = 'bg-purple-100 dark:bg-purple-900';
+                break;
+            case 'google':
+                headerColor = 'bg-blue-100 dark:bg-blue-900';
+                break;
+            default:
+                headerColor = 'bg-gray-100 dark:bg-gray-700';
+        }
+
+        // Generate capability badges
+        const capabilitiesHtml = model.capabilities && model.capabilities.length > 0 ?
+            model.capabilities.map(cap => getCapabilityBadge(cap)).join('') :
+            '<span class="text-gray-400 text-xs italic">No capabilities specified</span>';
+
+        // Format tokens display
+        const maxTokens = model.max_tokens ? `${(model.max_tokens / 1000).toFixed(1)}K` : 'N/A';
+
+        // Get model type - embedding or text generation
+        const modelType = model.handlers && model.handlers.embeddings ? 'Embedding' : 'Text Generation';
+
+        card.innerHTML = `
+            <div class="${headerColor} p-4 theme-transition">
+                <div class="flex justify-between items-start">
+                    <h3 class="font-semibold text-lg truncate">${model.name}</h3>
+                    <span class="tag bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-100">${provider}</span>
+                </div>
+                <p class="text-sm text-gray-500 dark:text-gray-400 truncate">${model.id}</p>
+            </div>
+            <div class="p-4">
+                <div class="mb-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Tokens: ${maxTokens}</span>
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">${modelType}</span>
+                    </div>
+                    <p class="text-gray-700 dark:text-gray-300 text-sm mb-4 line-clamp-2">${model.description || 'No description available'}</p>
+                </div>
+                <div class="mb-4">
+                    ${capabilitiesHtml}
+                </div>
+                <button class="view-details-btn w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md text-sm font-medium theme-transition">
+                    View Details
+                </button>
+            </div>
+        `;
+
+        // Add click handler for view details button
+        card.querySelector('.view-details-btn').addEventListener('click', () => {
+            showModelDetails(model);
+        });
+
+        return card;
+    }
+
+    // Show empty state
+    function showEmpty() {
+        emptyState.classList.remove('hidden');
+        modelsContainer.classList.add('hidden');
+        loadingState.classList.add('hidden');
+    }
+
+    // Show model details in modal
+    function showModelDetails(model) {
+        modalTitle.textContent = model.name;
+
+        // Format pricing information
+        let pricingHtml = '';
+        if (model.pricing) {
+            pricingHtml = `
+                <div class="mt-4">
+                    <h4 class="text-lg font-medium mb-2">Pricing</h4>
+                    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden theme-transition">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead class="bg-gray-50 dark:bg-gray-900">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Price per 1M tokens</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                ${model.pricing.input ? `
+                                <tr>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">Input</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${model.pricing.input.toFixed(2)}</td>
+                                </tr>
+                                ` : ''}
+                                ${model.pricing.output ? `
+                                <tr>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">Output</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${model.pricing.output.toFixed(2)}</td>
+                                </tr>
+                                ` : ''}
+                                ${model.pricing.cached_input ? `
+                                <tr>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">Cached Input</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${model.pricing.cached_input.toFixed(2)}</td>
+                                </tr>
+                                ` : ''}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Format capabilities
+        let capabilitiesHtml = '';
+        if (model.capabilities && model.capabilities.length > 0) {
+            capabilitiesHtml = `
+                <div class="mt-4">
+                    <h4 class="text-lg font-medium mb-2">Capabilities</h4>
+                    <div class="flex flex-wrap gap-2">
+                        ${model.capabilities.map(cap => getCapabilityBadge(cap)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Format handlers
+        let handlersHtml = '';
+        if (model.handlers && Object.keys(model.handlers).length > 0) {
+            handlersHtml = `
+                <div class="mt-4">
+                    <h4 class="text-lg font-medium mb-2">Handlers</h4>
+                    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden theme-transition">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead class="bg-gray-50 dark:bg-gray-900">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Function</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Handler</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                ${Object.entries(model.handlers).map(([func, handler]) => `
+                                <tr>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">${func}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-mono">${handler}</td>
+                                </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Additional metadata
+        let metadataHtml = '';
+        const metadata = [];
+
+        if (model.model_family) metadata.push({name: "Model Family", value: model.model_family});
+        if (model.knowledge_cutoff) metadata.push({name: "Knowledge Cutoff", value: model.knowledge_cutoff});
+        if (model.dimensions) metadata.push({name: "Dimensions", value: model.dimensions});
+        if (model.mteb_performance) metadata.push({name: "MTEB Performance", value: `${model.mteb_performance}%`});
+
+        if (metadata.length > 0) {
+            metadataHtml = `
+                <div class="mt-4">
+                    <h4 class="text-lg font-medium mb-2">Additional Metadata</h4>
+                    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden theme-transition">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                ${metadata.map(item => `
+                                <tr>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">${item.name}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${item.value}</td>
+                                </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Build modal content
+        modalContent.innerHTML = `
+            <div>
+                <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400">Model ID</h4>
+                <p class="mt-1 text-gray-900 dark:text-gray-100 font-mono">${model.id}</p>
+            </div>
+
+            <div>
+                <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400">Provider Model</h4>
+                <p class="mt-1 text-gray-900 dark:text-gray-100 font-mono">${model.provider_model || 'N/A'}</p>
+            </div>
+
+            <div>
+                <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400">Description</h4>
+                <p class="mt-1 text-gray-900 dark:text-gray-100">${model.description || 'No description available'}</p>
+            </div>
+
+            <div class="mt-4">
+                <h4 class="text-lg font-medium mb-2">Context Window</h4>
+                <div class="flex space-x-6">
+                    <div>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">Max Tokens</p>
+                        <p class="text-lg font-semibold">${model.max_tokens?.toLocaleString() || 'N/A'}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">Output Tokens</p>
+                        <p class="text-lg font-semibold">${model.output_tokens?.toLocaleString() || 'N/A'}</p>
+                    </div>
+                </div>
+            </div>
+
+            ${capabilitiesHtml}
+            ${pricingHtml}
+            ${handlersHtml}
+            ${metadataHtml}
+        `;
+
+        // Show modal
+        modelModal.classList.remove('hidden');
+    }
+
+    // Hide modal
+    function hideModal() {
+        modelModal.classList.add('hidden');
+    }
+
+    // Event listeners
+    document.addEventListener('DOMContentLoaded', fetchModels);
+    refreshButton.addEventListener('click', fetchModels);
+    emptyRefreshButton.addEventListener('click', fetchModels);
+    searchInput.addEventListener('input', applyFilters);
+    providerFilter.addEventListener('change', applyFilters);
+    capabilityFilter.addEventListener('change', applyFilters);
+    closeModalButton.addEventListener('click', hideModal);
+
+    // Close modal when clicking outside
+    modelModal.addEventListener('click', (e) => {
+        if (e.target === modelModal) {
+            hideModal();
+        }
+    });
+
+    // Close modal on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !modelModal.classList.contains('hidden')) {
+            hideModal();
+        }
+    });
+</script>
+</body>
+</html>

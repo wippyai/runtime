@@ -1,15 +1,15 @@
-# Pony Runtime Lua Process API Specification
+# Wippy Runtime Lua Process API Specification
 
 ## Overview
 
-The Pony Runtime Process API provides a robust actor-model implementation for building concurrent, message-passing
-applications in Lua. This specification is designed for AI agents and developers working with the Pony Runtime.
+The Wippy Runtime Process API provides a robust actor-model implementation for building concurrent, message-passing
+applications in Lua. This specification is designed for AI agents and developers working with the Wippy Runtime.
 
 ## Core Concepts
 
 ### Actor Model
 
-The Pony Runtime implements an actor model where:
+The Wippy Runtime implements an actor model where:
 
 - Processes are isolated units of computation
 - Each process has a unique identifier (PID)
@@ -57,7 +57,7 @@ local pid = process.pid()  -- Returns "{host1|app:worker|proc123}"
 
 ## Process Constants
 
-The Pony Runtime defines important constants for system events:
+The Wippy Runtime defines important constants for system events:
 
 ```lua
 -- System event kinds (for identifying event types)
@@ -147,15 +147,15 @@ local events = process.events()
 local event = events:receive()
 
 -- Check event type
-if event.event.kind == process.event.CANCEL then
+if event.kind == process.event.CANCEL then
     -- Handle cancellation request
     local deadline = event.deadline -- Time when cancellation should take effect
-elseif event.event.kind == process.event.EXIT then
-    -- Handle process result notification
+elseif event.kind == process.event.EXIT then
+    -- Handle process result notification[process.md](../../../../../wippy-runtime-linux-alpha/process.md)
     local result = event.result -- Process execution result
     local data = result.payload:data() -- Result payload value (unmarshal required)
     local error = result.error -- Error if any
-elseif event.event.kind == process.event.LINK_DOWN then
+elseif event.kind == process.event.LINK_DOWN then
     -- Handle linked process failure
 end
 ```
@@ -400,7 +400,7 @@ local function run(args)
         elseif result.channel == events then
             -- Handle system event
             local event = result.value
-            if event.event.kind == process.event.CANCEL then
+            if event.kind == process.event.CANCEL then
                 state.running = false
             end
         end

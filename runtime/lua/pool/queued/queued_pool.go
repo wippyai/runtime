@@ -150,7 +150,7 @@ func (p *Pool) worker() {
 	defer vm.Close()
 
 	// processTask is a closure that executes a single task using the current VM.
-	// If vm.Start returns an error, we close the current VM and attempt to recreate it.
+	// If vm.Serve returns an error, we close the current VM and attempt to recreate it.
 	processTask := func(t *task) {
 		if t == nil {
 			return

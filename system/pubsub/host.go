@@ -96,16 +96,15 @@ func (h *Host) Detach(pid api.PID) {
 }
 
 // Send enqueues a send job for the given pid and pkg.
-// Uses hash of PID to route to consistent worker queue.
+// Uses hash of Target to route to consistent worker queue.
 func (h *Host) Send(pkg *api.Package) error {
 	if err := h.ctx.Err(); err != nil {
-		h.logger.Warn("send after host shutdown", zap.String("pid", pkg.PID.String()))
+		h.logger.Warn("send after host shutdown", zap.String("pid", pkg.Target.String()))
 		return err
 	}
 
-	// Hash PID to determine worker queue
-	// Use UniqID for hashing as it's the most specific part of PID
-	hash := fnv1a32(pkg.PID.UniqID)
+	// Use UniqID for hashing as it's the most specific part of Source
+	hash := fnv1a32(pkg.Source.UniqID)
 	workerIndex := int(hash % uint32(len(h.jobQueues)))
 
 	// Send to the determined worker queue
@@ -113,7 +112,7 @@ func (h *Host) Send(pkg *api.Package) error {
 	case h.jobQueues[workerIndex] <- pkg:
 		return nil
 	case <-h.ctx.Done():
-		h.logger.Warn("send canceled by host shutdown", zap.String("pid", pkg.PID.String()))
+		h.logger.Warn("send canceled by host shutdown", zap.String("pid", pkg.Target.String()))
 		return h.ctx.Err()
 	}
 }
@@ -127,7 +126,7 @@ func (h *Host) worker(queueIndex int) {
 		case <-h.ctx.Done():
 			return
 		case job := <-queue:
-			rec, ok := h.receivers.Load(job.PID)
+			rec, ok := h.receivers.Load(job.Target)
 			if !ok {
 				continue
 			}
@@ -138,7 +137,7 @@ func (h *Host) worker(queueIndex int) {
 				h.deliverPackage(job, ch)
 			default:
 				h.logger.Error("invalid receiver type",
-					zap.String("pid", job.PID.String()),
+					zap.String("pid", job.Target.String()),
 					zap.String("type", fmt.Sprintf("%T", rec)))
 			}
 		}
@@ -153,6 +152,6 @@ func (h *Host) deliverPackage(job *api.Package, ch chan *api.Package) {
 		return
 	case <-h.ctx.Done():
 		h.logger.Info("worker shutting down, dropping Package message",
-			zap.String("pid", job.PID.String()))
+			zap.String("pid", job.Target.String()))
 	}
 }

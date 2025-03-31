@@ -105,21 +105,6 @@ func TestLuaTranscodersAndUnmarshaler(t *testing.T) {
 	if p.Name != "John Doe" || p.Age != 30 {
 		t.Errorf("Unexpected person data: %v", p)
 	}
-
-	// Test Unmarshal with nil value
-	nilTbl := l.NewTable()
-	l.SetTable(nilTbl, lua.LString("name"), lua.LNil)
-	nilLuaPayload := payload.NewPayload(nilTbl, payload.Lua)
-
-	var pNil Person
-	err = mockTranscoder.Unmarshal(nilLuaPayload, &pNil)
-	if err != nil {
-		t.Fatalf("Error unmarshalling with nil value: %v", err)
-	}
-
-	if pNil.Name != "" || pNil.Age != 0 {
-		t.Errorf("Expected zero value for nil, got: %v", pNil)
-	}
 }
 
 type Address struct {

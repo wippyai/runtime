@@ -25,6 +25,7 @@ func parseDependency(dep string) (depType string, value string) {
 	if strings.HasPrefix(dep, nsPrefix) {
 		return "namespace", strings.TrimPrefix(dep, nsPrefix)
 	}
+
 	return "direct", dep
 }
 
@@ -46,9 +47,9 @@ func resolveDependencyID(sourceNS string, depStr string) registry.ID {
 // - Direct references: "service.database" (uses source namespace) or "other-ns:service.database"
 // - Group references: "group:backend-services"
 // - Namespace references: "ns:backend"
-func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
+func SortEntriesByDependency(entries []registry.Entry) ([]registry.Entry, error) {
 	if len(entries) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Build dependency graph and mappings
@@ -77,6 +78,11 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	// Second pass: process all dependencies
 	for _, entry := range entries {
 		dependencies := entry.Meta.TagValue(registry.TagDependsOn)
+
+		for _, ddep := range fetchDependencies(entry) {
+			dependencies = append(dependencies, ddep)
+		}
+
 		for _, dep := range dependencies {
 			depType, value := parseDependency(dep)
 
@@ -120,7 +126,7 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 		sort.Slice(sorted, func(i, j int) bool {
 			return sorted[i].ID.String() < sorted[j].ID.String()
 		})
-		return sorted
+		return sorted, err
 	}
 
 	// Build sorted list based on dependency levels
@@ -138,15 +144,19 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 // CreateChangeSetFromEntries creates a ChangeSet consisting of create operations from a list of entries.
 // The entries are sorted taking into account all types of dependencies (direct, group, and namespace).
-func CreateChangeSetFromEntries(entries []registry.Entry) registry.ChangeSet {
-	sorted := SortEntriesByDependency(entries)
+func CreateChangeSetFromEntries(entries []registry.Entry) (registry.ChangeSet, error) {
+	sorted, err := SortEntriesByDependency(entries)
+	if err != nil {
+		return nil, err
+	}
+
 	if len(sorted) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	cs := make(registry.ChangeSet, 0, len(sorted))
@@ -156,5 +166,5 @@ func CreateChangeSetFromEntries(entries []registry.Entry) registry.ChangeSet {
 			Entry: entry,
 		})
 	}
-	return cs
+	return cs, nil
 }

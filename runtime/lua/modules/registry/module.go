@@ -2,10 +2,7 @@ package registry
 
 import (
 	"errors"
-
 	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/system/registry"
 	"github.com/ponyruntime/pony/system/registry/topology"
 	lua "github.com/yuin/gopher-lua"
@@ -33,7 +30,7 @@ func NewRegistryModule(log *zap.Logger) *Module {
 	if log == nil {
 		log = zap.NewNop()
 	}
-	return &Module{log: log.Named("registry")}
+	return &Module{log: log}
 }
 
 // Name returns the module name
@@ -44,7 +41,7 @@ func (m *Module) Name() string {
 // Loader loads the module into the Lua state
 func (m *Module) Loader(l *lua.LState) int {
 	// Create module table
-	mod := l.CreateTable(0, 9) // Preallocate exact size for better performance
+	mod := l.CreateTable(0, 10) // Increase size to accommodate new functions
 
 	// Register module-level functions directly
 	mod.RawSetString("snapshot", l.NewFunction(m.snapshotCreate))
@@ -56,12 +53,17 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("history", l.NewFunction(m.historyCreate))
 	mod.RawSetString("find", l.NewFunction(m.registryFind))
 	mod.RawSetString("get", l.NewFunction(m.registryGet))
+	mod.RawSetString("build_delta", l.NewFunction(m.buildDelta)) // Add our new function
 
 	// Register types with their methods using the util helper functions
 	m.registerSnapshotType(l)
 	m.registerChangesType(l)
 	m.registerVersionType(l)
 	m.registerHistoryType(l)
+
+	// Preload the loader submodule
+	loaderMod := NewLoaderModule(m.log)
+	l.PreloadModule(moduleName+"."+loaderModuleName, loaderMod.Loader)
 
 	// Push the module
 	l.Push(mod)
@@ -115,37 +117,38 @@ func (m *Module) snapshotCreate(l *lua.LState) int {
 		return 2
 	}
 
-	// Getting current version and all entries may involve I/O, use coroutine
-	coroutine.Wrap(l, func() *engine.Update {
-		// Get current version
-		version, err := reg.Current()
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	// Get current version
+	version, err := reg.Current()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Get all entries
-		entries, err := reg.GetAllEntries()
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	// Get all entries
+	entries, err := reg.GetAllEntries()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Create snapshot
-		snap := &Snapshot{
-			reg:     reg,
-			version: version,
-			entries: entries,
-			log:     m.log,
-		}
+	// Create snapshot
+	snap := &Snapshot{
+		reg:     reg,
+		version: version,
+		entries: entries,
+		log:     m.log,
+	}
 
-		// Create userdata
-		ud := l.NewUserData()
-		ud.Value = snap
-		l.SetMetatable(ud, l.GetTypeMetatable(snapshotMetatable))
+	// Create userdata
+	ud := l.NewUserData()
+	ud.Value = snap
+	l.SetMetatable(ud, l.GetTypeMetatable(snapshotMetatable))
 
-		return engine.NewUpdate(nil, []lua.LValue{ud, lua.LNil}, nil)
-	})
-
-	return -1 // Yield for coroutine
+	l.Push(ud)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // snapshotAt returns a snapshot of the registry at the specified version
@@ -174,53 +177,56 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 		return 2
 	}
 
-	// Building state at a specific version involves I/O, use coroutine
-	coroutine.Wrap(l, func() *engine.Update {
-		// Get all versions from history
-		versions, err := history.Versions()
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+	// Get all versions from history
+	versions, err := history.Versions()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Find the requested version
+	var foundVersion regapi.Version
+	for _, ver := range versions {
+		if ver.ID() == uint(versionID) {
+			foundVersion = ver
+			break
 		}
+	}
 
-		// Find the requested version
-		var foundVersion regapi.Version
-		for _, ver := range versions {
-			if ver.ID() == uint(versionID) {
-				foundVersion = ver
-				break
-			}
-		}
+	if foundVersion == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("version not found"))
+		return 2
+	}
 
-		if foundVersion == nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("version not found")}, nil)
-		}
+	// Create state builder
+	stateBuilder := topology.NewStateBuilder(m.log)
 
-		// Create state builder
-		stateBuilder := topology.NewStateBuilder(m.log)
+	// Build state at the specified version
+	state, err := stateBuilder.BuildState(history, foundVersion)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Build state at the specified version
-		state, err := stateBuilder.BuildState(history, foundVersion)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	// Create snapshot from state
+	snap := &Snapshot{
+		reg:     reg,
+		version: foundVersion,
+		entries: state,
+		log:     m.log,
+	}
 
-		// Create snapshot from state
-		snap := &Snapshot{
-			reg:     reg,
-			version: foundVersion,
-			entries: state,
-			log:     m.log,
-		}
+	// Create userdata
+	snapUD := l.NewUserData()
+	snapUD.Value = snap
+	l.SetMetatable(snapUD, l.GetTypeMetatable(snapshotMetatable))
 
-		// Create userdata
-		snapUD := l.NewUserData()
-		snapUD.Value = snap
-		l.SetMetatable(snapUD, l.GetTypeMetatable(snapshotMetatable))
-
-		return engine.NewUpdate(nil, []lua.LValue{snapUD, lua.LNil}, nil)
-	})
-
-	return -1 // Yield for coroutine
+	l.Push(snapUD)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // currentVersion returns the current version of the registry
@@ -233,21 +239,20 @@ func (m *Module) currentVersion(l *lua.LState) int {
 		return 2
 	}
 
-	// Getting current version involves I/O, use coroutine
-	coroutine.Wrap(l, func() *engine.Update {
-		// Get current version
-		version, err := reg.Current()
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	// Get current version
+	version, err := reg.Current()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Create userdata for Version
-		ud := wrapVersion(l, version)
+	// Create userdata for Version
+	ud := wrapVersion(l, version)
 
-		return engine.NewUpdate(nil, []lua.LValue{ud, lua.LNil}, nil)
-	})
-
-	return -1 // Yield for coroutine
+	l.Push(ud)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // versions returns all available versions in the registry history
@@ -268,26 +273,25 @@ func (m *Module) versions(l *lua.LState) int {
 		return 2
 	}
 
-	// Getting versions involves I/O, use coroutine
-	coroutine.Wrap(l, func() *engine.Update {
-		// Get versions from history
-		versions, err := history.Versions()
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	// Get versions from history
+	versions, err := history.Versions()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Convert to Lua table
-		versionsTable := l.NewTable()
-		for i, ver := range versions {
-			// Create userdata for Version
-			ud := wrapVersion(l, ver)
-			versionsTable.RawSetInt(i+1, ud)
-		}
+	// Convert to Lua table
+	versionsTable := l.NewTable()
+	for i, ver := range versions {
+		// Create userdata for Version
+		ud := wrapVersion(l, ver)
+		versionsTable.RawSetInt(i+1, ud)
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{versionsTable, lua.LNil}, nil)
-	})
-
-	return -1 // Yield for coroutine
+	l.Push(versionsTable)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // applyVersion applies a specific version to the registry
@@ -309,18 +313,17 @@ func (m *Module) applyVersion(l *lua.LState) int {
 		return 2
 	}
 
-	// Applying version involves I/O, use coroutine
-	coroutine.Wrap(l, func() *engine.Update {
-		// Apply version
-		err := reg.ApplyVersion(l.Context(), version)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LFalse, lua.LString(err.Error())}, nil)
-		}
+	// Apply version
+	err := reg.ApplyVersion(l.Context(), version)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
-	})
-
-	return -1 // Yield for coroutine
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // historyCreate returns the history interface for the registry
@@ -371,24 +374,25 @@ func (m *Module) registryGet(l *lua.LState) int {
 	idStr := l.CheckString(1)
 	id := regapi.ParseID(idStr)
 
-	// Getting entry might involve I/O, use coroutine for consistency
-	coroutine.Wrap(l, func() *engine.Update {
-		// Get entry
-		entry, err := reg.GetEntry(id)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	// Get entry
+	entry, err := reg.GetEntry(id)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Convert to Lua table
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	// Convert to Lua table
+	entryTable, err := entryToLuaTable(l, entry)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{entryTable, lua.LNil}, nil)
-	})
-
-	return -1 // Yield for coroutine
+	l.Push(entryTable)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // registryFind implements registry-level search using the Finder interface
@@ -412,29 +416,30 @@ func (m *Module) registryFind(l *lua.LState) int {
 	// Convert Lua table to registry metadata
 	meta := convertFilterToMetadata(l, filterTable)
 
-	// Finding entries may involve I/O, use coroutine
-	coroutine.Wrap(l, func() *engine.Update {
-		// Create finder
-		finder := registry.NewFinder(reg)
+	// Create finder
+	finder := registry.NewFinder(reg)
 
-		// Find entries
-		entries, err := finder.Find(meta)
+	// Find entries
+	entries, err := finder.Find(meta)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Convert to Lua table
+	entriesTable := l.NewTable()
+	for i, entry := range entries {
+		entryTable, err := entryToLuaTable(l, entry)
 		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			l.Push(lua.LNil)
+			l.Push(lua.LString(err.Error()))
+			return 2
 		}
+		entriesTable.RawSetInt(i+1, entryTable)
+	}
 
-		// Convert to Lua table
-		entriesTable := l.NewTable()
-		for i, entry := range entries {
-			entryTable, err := entryToLuaTable(l, entry)
-			if err != nil {
-				return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-			}
-			entriesTable.RawSetInt(i+1, entryTable)
-		}
-
-		return engine.NewUpdate(nil, []lua.LValue{entriesTable, lua.LNil}, nil)
-	})
-
-	return -1 // Yield for coroutine
+	l.Push(entriesTable)
+	l.Push(lua.LNil)
+	return 2
 }

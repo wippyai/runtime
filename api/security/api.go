@@ -36,12 +36,12 @@ var (
 
 type (
 	// Actor represents a security principal (user, service, system process)
-	Actor interface {
+	Actor struct {
 		// ID returns the unique identifier of the actor
-		ID() string
+		ID string
 
 		// Meta returns additional metadata about the actor
-		Meta() registry.Metadata
+		Meta registry.Metadata
 	}
 
 	// Policy defines an authorization policy

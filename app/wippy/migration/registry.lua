@@ -12,7 +12,7 @@ local registry = require("base_registry")
 -- Base criteria for identifying migration entries in the registry
 local BASE_MIGRATION_CRITERIA = {
     [".kind"] = "function.lua",
-    type = "migration",
+    ["meta.type"] = "migration",
 }
 
 local migrations = {}

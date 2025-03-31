@@ -38,7 +38,8 @@ entries:
     imports:
       encryption: app.service.chat:encryption_utils
     pool:
-      size: 4
+      warm_start: true
+      max_size: 250
 
   - name: session.send.endpoint
     kind: http.endpoint

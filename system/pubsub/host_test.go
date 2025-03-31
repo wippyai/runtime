@@ -101,7 +101,7 @@ func TestHost_Send(t *testing.T) {
 	assert.NoError(t, err)
 
 	pkg := &api.Package{
-		PID: pid,
+		Target: pid,
 		Messages: []*api.Message{
 			{Topic: "test", Payloads: nil},
 		},
@@ -136,7 +136,7 @@ func TestHost_SendCancelledContext(t *testing.T) {
 
 	// Pre-fill the job channel
 	pkg := &api.Package{
-		PID: pid,
+		Target: pid,
 		Messages: []*api.Message{
 			{Topic: "dummy"},
 		},
@@ -163,7 +163,7 @@ func TestHost_NoReceiver(t *testing.T) {
 
 	// send message without attaching a receiver
 	pkg := &api.Package{
-		PID: pid,
+		Target: pid,
 		Messages: []*api.Message{
 			{Topic: "test"},
 		},
@@ -195,7 +195,7 @@ func TestHost_DetachDuringDelivery(t *testing.T) {
 
 	// send message
 	pkg := &api.Package{
-		PID: pid,
+		Target: pid,
 		Messages: []*api.Message{
 			{Topic: "test"},
 		},
@@ -240,7 +240,7 @@ func TestHost_MultipleWorkers(t *testing.T) {
 	for i := 0; i < messageCount; i++ {
 		go func(i int) {
 			pkg := &api.Package{
-				PID: pid,
+				Target: pid,
 				Messages: []*api.Message{
 					{Topic: fmt.Sprintf("test-%d", i)},
 				},
@@ -292,7 +292,7 @@ func TestHost_HostShutdown(t *testing.T) {
 
 	// First ensure sending works before shutdown
 	pkg := &api.Package{
-		PID: pid,
+		Target: pid,
 		Messages: []*api.Message{
 			{Topic: "test"},
 		},

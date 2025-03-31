@@ -88,3 +88,17 @@ func IsAllowed(ctx context.Context, action, resource string, meta registry.Metad
 	result := scope.Evaluate(actor, action, resource, meta)
 	return result == Allow
 }
+
+func CopyContext(source, target context.Context) context.Context {
+	// Copy the actor
+	if actor, ok := GetActor(source); ok {
+		target = WithActor(target, actor)
+	}
+
+	// Copy the scope
+	if scope, ok := GetScope(source); ok {
+		target = WithScope(target, scope)
+	}
+
+	return target
+}

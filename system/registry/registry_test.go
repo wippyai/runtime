@@ -697,7 +697,7 @@ data:
 	}
 
 	// 5. Apply the loaded entries as the initial ChangeSet
-	initialChangeSet := topology.CreateChangeSetFromEntries(entries)
+	initialChangeSet, _ := topology.CreateChangeSetFromEntries(entries)
 
 	newVersion, err := reg.Apply(context.Background(), initialChangeSet)
 	if err != nil {

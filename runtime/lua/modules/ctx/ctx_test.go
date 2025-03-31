@@ -21,16 +21,16 @@ func TestCtxModule(t *testing.T) {
 		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
 
 		// Spawn a new Lua VM with the context module
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		// Set values from Go
-		contexter.WithValue("stringKey", "stringValue")
-		contexter.WithValue("numberKey", 123)
-		contexter.WithValue("boolKey", true)
-		contexter.WithValue("tableKey", map[string]any{"name": "John"})
+		contexter.SetValue("stringKey", "stringValue")
+		contexter.SetValue("numberKey", 123)
+		contexter.SetValue("boolKey", true)
+		contexter.SetValue("tableKey", map[string]any{"name": "John"})
 
 		// Test getting values from Lua
 		err = vm.DoString(ctx, `
@@ -99,7 +99,7 @@ func TestCtxModule(t *testing.T) {
 	})
 
 	t.Run("get and set with no contexter", func(t *testing.T) {
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -125,7 +125,7 @@ func TestCtxModule(t *testing.T) {
 	})
 
 	t.Run("get and set with invalid contexter type", func(t *testing.T) {
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -154,7 +154,7 @@ func TestCtxModule(t *testing.T) {
 		contexter := ctxapi.NewContexter[any]()
 		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
 
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -171,7 +171,7 @@ func TestCtxModule(t *testing.T) {
 		contexter := ctxapi.NewContexter[any]()
 		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
 
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -188,7 +188,7 @@ func TestCtxModule(t *testing.T) {
 		contexter := ctxapi.NewContexter[any]()
 		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
 
-		mod := New(logger)
+		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -200,5 +200,80 @@ func TestCtxModule(t *testing.T) {
 			local ok, err = ctx.set("funcKey", function() end)
 		`, "test_set_conversion_error")
 		require.NoError(t, err) // Expecting no error, the function will handle the error internally
+	})
+	// Add this test case to the TestCtxModule function in ctx_test.go
+
+	t.Run("all with valid context", func(t *testing.T) {
+		// Create a Contexter and add it to the context
+		contexter := ctxapi.NewContexter[any]()
+		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
+
+		// Create a new Lua VM with the context module
+		mod := NewCtxModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Set values from Go
+		contexter.SetValue("key1", "value1")
+		contexter.SetValue("key2", 42)
+		contexter.SetValue("key3", true)
+		contexter.SetValue("key4", map[string]any{"nested": "value"})
+
+		// Test all from Lua
+		err = vm.DoString(ctx, `
+		local ctx = require("ctx")
+
+		local tbl, err = ctx.all()
+		assert(err == nil)
+		assert(tbl.key1 == "value1")
+		assert(tbl.key2 == 42)
+		assert(tbl.key3 == true)
+		assert(tbl.key4.nested == "value")
+
+		-- Count the number of keys
+		local count = 0
+		for _ in pairs(tbl) do
+			count = count + 1
+		end
+		assert(count == 4)
+	`, "test_all")
+		require.NoError(t, err)
+	})
+
+	t.Run("all with no contexter", func(t *testing.T) {
+		mod := NewCtxModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Use a context, but without setting the Contexter
+		ctx := context.Background()
+
+		// Test ctx.all with no contexter
+		err = vm.DoString(ctx, `
+		local ctx = require("ctx")
+		local tbl, err = ctx.all()
+	`, "test_no_contexter_all")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid context")
+	})
+
+	t.Run("all with invalid contexter type", func(t *testing.T) {
+		mod := NewCtxModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Set a value of the wrong type as the Contexter
+		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, "not a contexter")
+
+		// Test ctx.all with invalid contexter type
+		err = vm.DoString(ctx, `
+		local ctx = require("ctx")
+		local tbl, err = ctx.all()
+	`, "test_invalid_contexter_all")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid context")
 	})
 }

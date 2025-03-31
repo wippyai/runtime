@@ -3,6 +3,7 @@ package queued
 import (
 	"context"
 	"fmt"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	"sync"
 	"sync/atomic"
 
@@ -192,7 +193,7 @@ func (p *TaskPool) worker() {
 
 		if err == nil {
 			// Set the result value
-			runtimeResult.Value = payload.NewPayload(result, payload.Lua)
+			runtimeResult.Value = luaconv.ExportPayload(result)
 		} else {
 			// On error, close the faulty VM and attempt to create a new one.
 			vm.Close()

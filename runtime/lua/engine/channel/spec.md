@@ -1,11 +1,11 @@
-# Channel System Documentation for Pony Coroutine VM
+# Channel System Documentation for Wippy Coroutine VM
 
-⚠️ **Important:** The channel system can only be used inside Pony processes. It is not available in other parts of the
+⚠️ **Important:** The channel system can only be used inside Wippy processes. It is not available in other parts of the
 system like function.
 
 ## Overview
 
-The channel system provides a Go-like concurrency model for Pony processes, allowing coroutines to communicate and
+The channel system provides a Go-like concurrency model for Wippy processes, allowing coroutines to communicate and
 synchronize through message passing. It supports both buffered and unbuffered channels and select operations.
 
 ## Channels
@@ -174,7 +174,7 @@ coroutine.spawn(handler)
     - Always deterministically selects one case
 
 3. **Coroutine Context**
-    - Channels only work within Pony processes and coroutines
+    - Channels only work within Wippy processes and coroutines
     - Not available in regular functions
 
 ## Debugging

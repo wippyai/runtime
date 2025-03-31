@@ -38,7 +38,7 @@ const (
 
 // PIDRegistry errors that can occur during name registration operations
 var (
-	// ErrNameAlreadyRegistered indicates a name is already associated with a PID
+	// ErrNameAlreadyRegistered indicates a name is already associated with a Target
 	ErrNameAlreadyRegistered = errors.New("name already registered")
 )
 
@@ -46,9 +46,9 @@ type (
 	// Kind represents the type of a topology event
 	Kind = string
 
-	// PIDRegistry defines the interface for a PID registry with Erlang-style semantics
+	// PIDRegistry defines the interface for a Target registry with Erlang-style semantics
 	PIDRegistry interface {
-		// Register associates a name with a PID
+		// Register associates a name with a Target
 		// Returns error if name is already taken
 		Register(name string, pid pubsub.PID) error
 
@@ -56,8 +56,8 @@ type (
 		// Returns true if the name was registered and has been removed
 		Unregister(name string) bool
 
-		// Lookup finds the PID registered with a given name
-		// Returns the PID and true if found, empty PID and false if not found
+		// Lookup finds the Target registered with a given name
+		// Returns the Target and true if found, empty Target and false if not found
 		Lookup(name string) (pubsub.PID, bool)
 
 		// Remove completely removes a pid from a registry
@@ -132,6 +132,7 @@ type (
 // The package is sent to the target process with a specified deadline.
 func Cancel(from, to pubsub.PID, deadline time.Time) *pubsub.Package {
 	return pubsub.NewPackage(
+		pubsub.PID{UniqID: "topology"},
 		to,
 		TopicEvents,
 		payload.New(&CancelEvent{
@@ -147,6 +148,7 @@ func Cancel(from, to pubsub.PID, deadline time.Time) *pubsub.Package {
 // The package includes the process result and any error that occurred.
 func Exit(pid pubsub.PID, result payload.Payload, err error) *pubsub.Package {
 	return pubsub.NewPackage(
+		pubsub.PID{UniqID: "topology"},
 		pid,
 		TopicEvents,
 		payload.New(&ExitEvent{

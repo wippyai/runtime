@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	pubsubsys "github.com/ponyruntime/pony/system/pubsub"
 	"net"
 	"net/http"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 	contextapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/logs"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/api/supervisor"
@@ -32,22 +36,28 @@ var ContextListener = &contextapi.Key{Name: "listener"}
 
 // ServerService combines HTTP server and router functionality
 type ServerService struct {
-	config     *config.ServerConfig
-	routeMgr   *RouteManager
-	server     *http.Server
-	mu         sync.RWMutex
-	statusChan chan any
-	started    bool                   // Track if server has been started
-	mountPaths map[registry.ID]string // Track mount paths by Source
+	ctx           context.Context
+	id            registry.ID
+	config        *config.ServerConfig
+	routeMgr      *RouteManager
+	server        *http.Server
+	mu            sync.RWMutex
+	statusChan    chan any
+	started       bool                   // Track if server has been started
+	mountPaths    map[registry.ID]string // Track mount paths by Source
+	host          pubsub.Host            // pubsub host
+	middlewareFac MiddlewareAPI          // Middleware factory
 }
 
 // NewServerService creates a new ServerService instance
-func NewServerService(cfg *config.ServerConfig) *ServerService {
+func NewServerService(id registry.ID, cfg *config.ServerConfig, middleware MiddlewareAPI) *ServerService {
 	return &ServerService{
-		config:     cfg,
-		routeMgr:   NewRouteManager(),
-		statusChan: make(chan any, StatusBuffer),
-		mountPaths: make(map[registry.ID]string),
+		id:            id,
+		config:        cfg,
+		routeMgr:      NewRouteManager(),
+		statusChan:    make(chan any, StatusBuffer),
+		mountPaths:    make(map[registry.ID]string),
+		middlewareFac: middleware,
 	}
 }
 
@@ -72,14 +82,32 @@ func (s *ServerService) UpdateConfig(cfg *config.ServerConfig) error {
 // UpsertRouter adds a new router or updates an existing one with the provided configuration
 func (s *ServerService) UpsertRouter(id registry.ID, cfg *config.RouterConfig) error {
 	// Convert middleware config to actual middleware functions
-	middlewares := make([]func(http.Handler) http.Handler, 0, len(cfg.Middlewares))
-	for _, mw := range cfg.Middlewares {
-		if fn := s.createMiddleware(mw, cfg.Options); fn != nil {
-			middlewares = append(middlewares, fn)
+	middlewares := make([]func(http.Handler) http.Handler, 0, len(cfg.Middleware))
+	if s.middlewareFac != nil {
+		for _, mw := range cfg.Middleware {
+			m, err := s.middlewareFac.CreateMiddleware(mw, cfg.Options)
+			if err != nil {
+				return fmt.Errorf("failed to create middleware %s: %w", mw, err)
+			}
+
+			middlewares = append(middlewares, m)
 		}
 	}
 
-	return s.routeMgr.AddRouter(id, cfg.Prefix, middlewares)
+	// Convert post-match middleware config to actual middleware functions
+	postMiddlewares := make([]func(http.Handler) http.Handler, 0, len(cfg.PostMiddleware))
+	if s.middlewareFac != nil {
+		for _, mw := range cfg.PostMiddleware {
+			m, err := s.middlewareFac.CreateMiddleware(mw, cfg.PostOptions)
+			if err != nil {
+				return fmt.Errorf("failed to create post-match middleware %s: %w", mw, err)
+			}
+
+			postMiddlewares = append(postMiddlewares, m)
+		}
+	}
+
+	return s.routeMgr.AddRouter(id, cfg.Prefix, middlewares, postMiddlewares)
 }
 
 // DeleteRouter removes a router by Source
@@ -148,6 +176,30 @@ func (s *ServerService) Rebuild(ctx context.Context) error {
 // Start implements the supervisor.Service interface to start the HTTP server
 func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
+
+	// Initialize host with config
+	hostConfig := pubsubsys.HostConfig{
+		BufferSize:  s.config.Host.BufferSize,
+		WorkerCount: s.config.Host.WorkerCount,
+		Logger:      logs.GetLogger(ctx),
+	}
+
+	// If values not specified, set reasonable defaults
+	if hostConfig.BufferSize <= 0 {
+		hostConfig.BufferSize = 1024 // Default buffer size
+	}
+
+	if hostConfig.WorkerCount <= 0 {
+		hostConfig.WorkerCount = runtime.NumCPU() // Default to number of CPUs
+	}
+
+	// Create the host
+	s.host = pubsubsys.NewHost(ctx, hostConfig)
+
+	ctx = context.WithValue(ctx, config.ContextServerID, s.id)
+	ctx = pubsub.WithHost(ctx, s)
+	s.ctx = ctx
+
 	s.server = &http.Server{
 		Addr:         s.config.Addr,
 		Handler:      s.routeMgr,
@@ -155,10 +207,11 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		WriteTimeout: s.config.Timeouts.WriteTimeout,
 		IdleTimeout:  s.config.Timeouts.IdleTimeout,
 		BaseContext: func(l net.Listener) context.Context {
-			return context.WithValue(ctx, ContextListener, l)
+			return context.WithValue(s.ctx, ContextListener, l)
 		},
 	}
 	s.started = true
+
 	s.mu.Unlock()
 
 	// Launch server
@@ -210,13 +263,18 @@ func (s *ServerService) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Gracefully shutdown the server
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {
 			return fmt.Errorf("graceful shutdown failed: %w", err)
 		}
 		s.server = nil
-		s.started = false
 	}
+
+	// Host will be cleaned up via context cancellation
+	s.host = nil
+	s.started = false
+
 	return nil
 }
 
@@ -243,6 +301,7 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 }
 
 // createMiddleware converts a middleware name to its handler function
+// This is now a fallback if no middleware factory is provided
 func (s *ServerService) createMiddleware(name string, options map[string]string) func(http.Handler) http.Handler {
 	switch name {
 	case "timeout":
@@ -261,7 +320,46 @@ func (s *ServerService) createMiddleware(name string, options map[string]string)
 	case "real_ip":
 		return middleware.RealIP
 	}
+
 	return nil
+}
+
+// Implement Host interface methods by delegating to embedded host
+
+// Attach implements pubsub.Host Attach method
+func (s *ServerService) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFunc, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.host == nil {
+		return nil, fmt.Errorf("server host not initialized")
+	}
+
+	return s.host.Attach(pid, ch)
+}
+
+// Detach implements pubsub.Host Detach method
+func (s *ServerService) Detach(pid pubsub.PID) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.host == nil {
+		return
+	}
+
+	s.host.Detach(pid)
+}
+
+// Send implements pubsub.Host Send method
+func (s *ServerService) Send(pkg *pubsub.Package) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.host == nil {
+		return fmt.Errorf("server host not initialized")
+	}
+
+	return s.host.Send(pkg)
 }
 
 // Ensure ServerService implements required interfaces

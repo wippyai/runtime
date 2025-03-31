@@ -2,13 +2,12 @@ package terminal
 
 import (
 	"context"
-	"io"
-	"os"
-	"sync"
-
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
+	"io"
+	"os"
+	"sync"
 )
 
 // RunnerConfig holds the configuration for a Runner.
@@ -63,7 +62,7 @@ func NewTerminalRunner(
 		cfg:    cfg,
 	}
 
-	// Start the process with the runner's context.
+	// Serve the process with the runner's context.
 	if err := runner.proc.Start(runnerCtx, launch.PID, launch.Input); err != nil {
 		cancel()
 		return nil, err
@@ -87,7 +86,6 @@ func (r *Runner) run() {
 
 		err := r.proc.Step()
 		if err != nil {
-			r.Stop()
 			return
 		}
 	}

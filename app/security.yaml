@@ -10,8 +10,60 @@ entries:
     kind: security.policy
     meta:
       comment: "Global admin access policy"
-    groups: [ "admin" ]
+    groups: [ "global:admin" ]
     policy:
       actions: "*"
       resources: "*"
       effect: "allow"
+
+  - name: user_policy
+    kind: security.policy
+    meta:
+      comment: "Global user access policy"
+    groups: [ "global:user" ]
+    policy:
+      actions: "*"
+      resources: "user:*"
+      effect: "allow"
+
+  - name: user_api_policy
+    kind: security.policy
+    meta:
+      comment: "Global user access policy"
+    groups: [ "global:user" ]
+    policy:
+      actions: "access"
+      resources: "global:api"
+      effect: "allow"
+
+  - name: user_demo_policy
+    kind: security.policy
+    meta:
+      comment: "Global user access policy"
+    groups: [ "global:user" ]
+    policy:
+      actions: "access"
+      resources: "demo.security:secure.endpoint"
+      effect: "allow"
+
+  - name: auth.tokens
+    kind: security.token_store
+    meta:
+      comment: "Authentication token storage"
+      depends_on:
+        - session
+    store: session
+    token_length: 32
+    token_key: "${ENV_TOKEN_KEY:-secretkey123}"
+    default_expiration: 24h
+
+  - name: session
+    kind: store.memory
+    meta:
+      comment: "User session storage"
+      depends_on:
+        - gateway
+    max_size: 5000
+    cleanup_interval: 10m
+    lifecycle:
+      auto_start: true

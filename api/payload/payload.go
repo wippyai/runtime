@@ -76,18 +76,18 @@ type payload struct {
 }
 
 // Data returns the raw data of the payload.
-func (p *payload) Data() any {
+func (p payload) Data() any {
 	return p.data
 }
 
 // Format returns the format of the payload.
-func (p *payload) Format() Format {
+func (p payload) Format() Format {
 	return p.format
 }
 
 // NewPayload creates a new payload with the given data and format.
 func NewPayload(data any, format Format) Payload {
-	return &payload{data: data, format: format}
+	return payload{data: data, format: format}
 }
 
 // New creates a new payload with the given data and assumes the Golang format.

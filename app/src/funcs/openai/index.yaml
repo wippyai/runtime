@@ -1,0 +1,33 @@
+version: "1.0"
+namespace: app.funcs.openai
+
+meta:
+  depends_on: [ ns:system, ns:wippy.test ]
+  router: system:api
+
+entries:
+  - name: llm_query
+    kind: function.lua
+    meta:
+      comment: "LLM query function with streaming support"
+      llm_implements: generate
+      models: [ "gpt*", "o*" ]
+    source: file://llm_query.lua
+    method: handler
+    modules: [ "http_client", "json", "env", "time" ]
+    pool:
+      size: 4
+
+#  - name: llm_query_test
+#    kind: function.lua
+#    meta:
+#      name: "LLM Query Test"
+#      type: "test"
+#      tags: [ "llm", "api", "integration", "tests" ]
+#      comment: "Tests the LLM query function with mocked HTTP responses"
+#    source: file://llm_query_test.lua
+#    method: run_tests
+#    modules: [ "http_client", "json", "env", "time" ]
+#    imports:
+#      test: wippy.test:test
+#      llm_query: app.funcs.openai:llm_query
