@@ -577,6 +577,11 @@ func main() {
 		WithProcessSupervisor(app),
 		WithEphemeralHost(app),
 		WithSQLManager(app),
+		WithAWSConfigManager(app),
+		WithS3Manager(app),
+		WithProcessFunctionBridge(app),
+		WithMemStore(app),
+		WithNativeExecutor(app),
 	)...)
 	// --------------------------------------------------
 
