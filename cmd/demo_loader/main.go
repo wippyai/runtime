@@ -66,7 +66,7 @@ func main() {
 		logger.Fatal("Failed to load entries", zap.Error(err))
 	}
 
-	entries = topology.SortEntriesByDependency(entries)
+	entries, _ = topology.SortEntriesByDependency(entries)
 
 	// invert the list
 	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
