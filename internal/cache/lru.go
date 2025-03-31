@@ -72,7 +72,7 @@ func New[K comparable, V any](opts ...Option) *Cache[K, V] {
 		stopCleanup: make(chan struct{}),
 	}
 
-	// Start cleanup goroutine if TTL is enabled
+	// Serve cleanup goroutine if TTL is enabled
 	if cfg.ttl > 0 && cfg.gcInterval > 0 {
 		go cache.cleanupLoop(cfg.gcInterval)
 	}

@@ -3,11 +3,12 @@ package terminal
 import (
 	"context"
 	"errors"
+	ctxapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/security"
 	"os"
 	"sync/atomic"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	logsapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -167,10 +168,15 @@ func (t *Terminal) prepareContext(
 	pid pubsub.PID,
 	lifecycle process.Lifecycle,
 ) context.Context {
-	pCtx := ctxapi.MergeContext(t.ctx, ctx)
+	pCtx := security.CopyContext(ctx, t.ctx)
+
+	contexter := ctx.Value(ctxapi.ValuesCtx)
+	if ctxr, ok := contexter.(*ctxapi.Contexter[any]); ok {
+		pCtx = context.WithValue(pCtx, ctxapi.ValuesCtx, ctxr)
+	}
 
 	// global lifecycle
-	pCtx = process.GetProcesses(ctx).AttachLifecycle(ctx, lifecycle)
+	pCtx = process.GetProcesses(ctx).AttachLifecycle(pCtx, lifecycle)
 
 	// service lifecycle
 	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
@@ -209,9 +215,7 @@ func (t *Terminal) handleSend(msgBatch *pubsub.Package) error {
 
 func (t *Terminal) cleanup(result *runtime.Result) {
 	t.logCtrl.RestoreBaseConfig(context.Background())
-	if runner := t.runner.Swap(nil); runner != nil {
-		runner.Stop()
-	}
+	t.runner.Swap(nil)
 }
 
 func (t *Terminal) setupLogging() error {

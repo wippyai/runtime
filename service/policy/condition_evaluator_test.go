@@ -24,7 +24,7 @@ func (m *mockActor) Meta() registry.Metadata {
 
 // newMockActor creates a new mock actor for testing
 func newMockActor(id string, meta registry.Metadata) security.Actor {
-	return &mockActor{id: id, meta: meta}
+	return security.Actor{ID: id, Meta: meta}
 }
 
 // Test cases for EvaluateCondition
@@ -546,16 +546,6 @@ func TestExtractField(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "nil actor",
-			fieldPath: "actor.id",
-			actor:     nil,
-			action:    "read",
-			resource:  "document",
-			meta:      meta,
-			want:      nil,
-			wantErr:   true,
-		},
-		{
 			name:      "nil meta",
 			fieldPath: "meta.owner",
 			actor:     actor,
@@ -943,7 +933,7 @@ func TestTypeConversions(t *testing.T) {
 
 	// Test edge cases for extractActorField
 	t.Run("extractActorField nil actor", func(t *testing.T) {
-		_, err := evaluator.extractActorField(nil, []string{"id"})
+		_, err := evaluator.extractActorField(security.Actor{}, []string{"id"})
 		if err == nil {
 			t.Errorf("extractActorField() should return error for nil actor")
 		}

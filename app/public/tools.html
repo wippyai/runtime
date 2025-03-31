@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tools Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .theme-transition {
+            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .animate-pulse-slow {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .tag {
+            display: inline-block;
+            border-radius: 0.375rem;
+            padding: 0.125rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .tool-card {
+            transition: all 0.2s ease;
+        }
+        .tool-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'primary': '#3B82F6',
+                        'secondary': '#1E40AF',
+                        'success': '#10B981',
+                        'warning': '#F59E0B',
+                        'danger': '#EF4444',
+                        'neutral': '#6B7280'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 dark:text-gray-100 theme-transition">
+<div class="container mx-auto p-4 max-w-6xl">
+    <!-- Header -->
+    <header class="mb-6">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <h1 class="text-2xl font-bold">Tools Explorer</h1>
+            </div>
+
+            <!-- Theme Toggle Button -->
+            <button id="theme-toggle" class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 theme-transition">
+                <!-- Sun icon (shown in dark mode) -->
+                <svg id="light-icon" class="w-5 h-5 hidden dark:block text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 2a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5A.75.75 0 0110 2zm7.646 7.36a.75.75 0 01-.392.393l-1.34.67a.75.75 0 01-.669-1.345l1.34-.67a.75.75 0 011.06.953zm-15.293.393a.75.75 0 01-.392-.393.75.75 0 01.954-1.047l1.337.679a.75.75 0 01-.668 1.344l-1.337-.678zM10 5.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9zM3.75 10a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5a.75.75 0 01-.75-.75zm11 0a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5a.75.75 0 01-.75-.75zm-3.288 7.894a.75.75 0 01-1.5 0v-1.5a.75.75 0 011.5 0v1.5zm-4.954-3.959a.75.75 0 01-1.06 0l-1.337-1.336a.75.75 0 111.06-1.06l1.337 1.336a.75.75 0 010 1.06zm11.293-1.06a.75.75 0 011.06 1.06l-1.336 1.336a.75.75 0 11-1.06-1.06l1.336-1.336z"></path>
+                </svg>
+                <!-- Moon icon (shown in light mode) -->
+                <svg id="dark-icon" class="w-5 h-5 block dark:hidden text-gray-700" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
+                </svg>
+            </button>
+        </div>
+        <p class="text-gray-600 dark:text-gray-400 mt-2">Discover and explore available system tools</p>
+    </header>
+
+    <!-- Search and filter -->
+    <div class="mb-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 theme-transition">
+        <div class="flex flex-col sm:flex-row gap-4">
+            <div class="flex-1">
+                <label for="search" class="sr-only">Search tools</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    <input id="search" type="text" class="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md leading-5 bg-white dark:bg-gray-900 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-gray-100 theme-transition" placeholder="Search tools...">
+                </div>
+            </div>
+            <div class="sm:w-64">
+                <label for="namespace-filter" class="sr-only">Filter by namespace</label>
+                <select id="namespace-filter" class="block w-full pl-3 pr-10 py-2 text-base border border-gray-300 dark:border-gray-700 focus:outline-none sm:text-sm rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 theme-transition">
+                    <option value="">All namespaces</option>
+                    <!-- Namespace options will be populated dynamically -->
+                </select>
+            </div>
+            <div>
+                <button id="refresh-btn" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 theme-transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading state -->
+    <div id="loading-state" class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 text-center theme-transition">
+        <svg class="animate-spin mx-auto h-10 w-10 text-blue-500 mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p class="text-gray-600 dark:text-gray-400">Loading tools...</p>
+    </div>
+
+    <!-- Empty state -->
+    <div id="empty-state" class="hidden bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 text-center theme-transition">
+        <svg class="mx-auto h-12 w-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+        <p class="text-gray-600 dark:text-gray-400 mt-2 mb-4">No tools found</p>
+        <button id="empty-refresh-btn" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Reload Tools
+        </button>
+    </div>
+
+    <!-- Tool cards grid -->
+    <div id="tools-container" class="hidden grid gap-6 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+        <!-- Tool cards will be added here dynamically -->
+    </div>
+
+    <!-- Tool detail modal -->
+    <div id="tool-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden theme-transition">
+            <div class="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                <h3 class="text-lg font-semibold" id="modal-title">Tool Details</h3>
+                <button id="close-modal" class="text-gray-400 hover:text-gray-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="overflow-y-auto p-6" style="max-height: calc(90vh - 150px);">
+                <div class="space-y-6" id="modal-content">
+                    <!-- Tool details will be added here dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Theme management
+    const themeToggle = document.getElementById('theme-toggle');
+
+    // Check for saved theme preference or use system preference
+    if (localStorage.getItem('theme') === 'dark' ||
+        (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+    } else {
+        document.documentElement.classList.remove('dark');
+    }
+
+    // Theme toggle button handler
+    themeToggle.addEventListener('click', () => {
+        if (document.documentElement.classList.contains('dark')) {
+            document.documentElement.classList.remove('dark');
+            localStorage.setItem('theme', 'light');
+        } else {
+            document.documentElement.classList.add('dark');
+            localStorage.setItem('theme', 'dark');
+        }
+    });
+
+    // State variables
+    let allTools = [];
+    let namespaces = new Set();
+    let filteredTools = [];
+
+    // Elements
+    const loadingState = document.getElementById('loading-state');
+    const emptyState = document.getElementById('empty-state');
+    const toolsContainer = document.getElementById('tools-container');
+    const searchInput = document.getElementById('search');
+    const namespaceFilter = document.getElementById('namespace-filter');
+    const refreshButton = document.getElementById('refresh-btn');
+    const emptyRefreshButton = document.getElementById('empty-refresh-btn');
+    const toolModal = document.getElementById('tool-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalContent = document.getElementById('modal-content');
+    const closeModalButton = document.getElementById('close-modal');
+
+    // Fetch tools from API
+    async function fetchTools() {
+        // Show loading state
+        loadingState.classList.remove('hidden');
+        emptyState.classList.add('hidden');
+        toolsContainer.classList.add('hidden');
+
+        try {
+            const response = await fetch('/api/v1/tools/list?format=json');
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            allTools = data.tools || [];
+
+            // Extract unique namespaces
+            namespaces = new Set();
+            allTools.forEach(tool => {
+                // Extract namespace from tool ID
+                const parts = tool.id.split(':');
+                if (parts.length > 1) {
+                    namespaces.add(parts[0]);
+                }
+            });
+
+            // Populate namespace filter
+            populateNamespaceFilter();
+
+            // Apply initial filters
+            applyFilters();
+
+        } catch (error) {
+            console.error('Failed to fetch tools:', error);
+            showEmpty();
+        } finally {
+            loadingState.classList.add('hidden');
+        }
+    }
+
+    // Populate namespace filter dropdown
+    function populateNamespaceFilter() {
+        // Clear current options (except first "All namespaces" option)
+        while (namespaceFilter.options.length > 1) {
+            namespaceFilter.remove(1);
+        }
+
+        // Add options for each namespace
+        Array.from(namespaces).sort().forEach(namespace => {
+            const option = document.createElement('option');
+            option.value = namespace;
+            option.textContent = namespace;
+            namespaceFilter.appendChild(option);
+        });
+    }
+
+    // Apply filters to tools
+    function applyFilters() {
+        const searchText = searchInput.value.toLowerCase();
+        const selectedNamespace = namespaceFilter.value;
+
+        filteredTools = allTools.filter(tool => {
+            // Check namespace filter
+            if (selectedNamespace && !tool.id.startsWith(`${selectedNamespace}:`)) {
+                return false;
+            }
+
+            // Check search text
+            const nameMatch = tool.name && tool.name.toLowerCase().includes(searchText);
+            const idMatch = tool.id.toLowerCase().includes(searchText);
+            const descMatch = tool.description && tool.description.toLowerCase().includes(searchText);
+
+            return nameMatch || idMatch || descMatch;
+        });
+
+        renderTools();
+    }
+
+    // Render tools to the container
+    function renderTools() {
+        // Clear container
+        toolsContainer.innerHTML = '';
+
+        if (filteredTools.length === 0) {
+            showEmpty();
+            return;
+        }
+
+        // Show tools container
+        toolsContainer.classList.remove('hidden');
+        emptyState.classList.add('hidden');
+
+        // Render each tool
+        filteredTools.forEach(tool => {
+            const card = createToolCard(tool);
+            toolsContainer.appendChild(card);
+        });
+    }
+
+    // Create tool card element
+    function createToolCard(tool) {
+        const card = document.createElement('div');
+        card.className = 'tool-card bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden theme-transition';
+
+        // Extract namespace from ID
+        const idParts = tool.id.split(':');
+        const namespace = idParts.length > 1 ? idParts[0] : 'default';
+
+        // Determine card header color based on namespace
+        let headerColor;
+        switch(namespace) {
+            case 'tools':
+                headerColor = 'bg-blue-100 dark:bg-blue-900';
+                break;
+            case 'fs':
+                headerColor = 'bg-green-100 dark:bg-green-900';
+                break;
+            case 'http':
+                headerColor = 'bg-purple-100 dark:bg-purple-900';
+                break;
+            case 'db':
+                headerColor = 'bg-yellow-100 dark:bg-yellow-900';
+                break;
+            default:
+                headerColor = 'bg-gray-100 dark:bg-gray-700';
+        }
+
+        card.innerHTML = `
+                <div class="${headerColor} p-4 theme-transition">
+                    <div class="flex justify-between items-start">
+                        <h3 class="font-semibold text-lg truncate">${tool.name}</h3>
+                        <span class="tag bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100">${namespace}</span>
+                    </div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 truncate">${tool.id}</p>
+                </div>
+                <div class="p-4">
+                    <p class="text-gray-700 dark:text-gray-300 text-sm mb-4 line-clamp-2">${tool.description || 'No description available'}</p>
+                    <button class="view-details-btn w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md text-sm font-medium theme-transition">
+                        View Details
+                    </button>
+                </div>
+            `;
+
+        // Add click handler for view details button
+        card.querySelector('.view-details-btn').addEventListener('click', () => {
+            showToolDetails(tool);
+        });
+
+        return card;
+    }
+
+    // Show empty state
+    function showEmpty() {
+        emptyState.classList.remove('hidden');
+        toolsContainer.classList.add('hidden');
+        loadingState.classList.add('hidden');
+    }
+
+    // Show tool details in modal
+    function showToolDetails(tool) {
+        modalTitle.textContent = tool.name;
+
+        // Format the schema for display
+        let schemaHtml = '';
+        if (tool.schema) {
+            schemaHtml = `
+                    <div class="mt-4">
+                        <h4 class="text-lg font-medium mb-2">Schema</h4>
+                        <div class="bg-gray-100 dark:bg-gray-700 rounded-md p-4 overflow-x-auto theme-transition">
+                            <pre class="text-xs text-gray-800 dark:text-gray-200">${JSON.stringify(tool.schema, null, 2)}</pre>
+                        </div>
+                    </div>
+                `;
+        }
+
+        // Build properties list if schema has properties
+        let propertiesHtml = '';
+        if (tool.schema && tool.schema.properties) {
+            propertiesHtml = `
+                    <div class="mt-6">
+                        <h4 class="text-lg font-medium mb-2">Parameters</h4>
+                        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden theme-transition">
+                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                <thead class="bg-gray-50 dark:bg-gray-900">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Required</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                `;
+
+            const properties = tool.schema.properties;
+            const required = tool.schema.required || [];
+
+            Object.keys(properties).forEach(prop => {
+                const property = properties[prop];
+                const isRequired = required.includes(prop);
+
+                propertiesHtml += `
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">${prop}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${property.type}</td>
+                            <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">${property.description || '-'}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                ${isRequired ?
+                    '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100">Required</span>' :
+                    '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200">Optional</span>'}
+                            </td>
+                        </tr>
+                    `;
+            });
+
+            propertiesHtml += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+        }
+
+        // Build modal content
+        modalContent.innerHTML = `
+                <div>
+                    <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400">Tool ID</h4>
+                    <p class="mt-1 text-gray-900 dark:text-gray-100 font-mono">${tool.id}</p>
+                </div>
+
+                <div>
+                    <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400">Description</h4>
+                    <p class="mt-1 text-gray-900 dark:text-gray-100">${tool.description || 'No description available'}</p>
+                </div>
+
+                ${propertiesHtml}
+
+                <div class="mt-6">
+                    <h4 class="text-lg font-medium mb-2">Full Schema</h4>
+                    <div class="bg-gray-100 dark:bg-gray-700 rounded-md p-4 overflow-x-auto theme-transition">
+                        <pre class="text-xs text-gray-800 dark:text-gray-200">${JSON.stringify(tool.schema, null, 2)}</pre>
+                    </div>
+                </div>
+            `;
+
+        // Show modal
+        toolModal.classList.remove('hidden');
+    }
+
+    // Hide modal
+    function hideModal() {
+        toolModal.classList.add('hidden');
+    }
+
+    // Event listeners
+    document.addEventListener('DOMContentLoaded', fetchTools);
+    refreshButton.addEventListener('click', fetchTools);
+    emptyRefreshButton.addEventListener('click', fetchTools);
+    searchInput.addEventListener('input', applyFilters);
+    namespaceFilter.addEventListener('change', applyFilters);
+    closeModalButton.addEventListener('click', hideModal);
+
+    // Close modal when clicking outside
+    toolModal.addEventListener('click', (e) => {
+        if (e.target === toolModal) {
+            hideModal();
+        }
+    });
+
+    // Close modal on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !toolModal.classList.contains('hidden')) {
+            hideModal();
+        }
+    });
+</script>
+</body>
+</html>

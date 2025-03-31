@@ -156,9 +156,9 @@ Creates and signs a JWT.
 
 Parameters:
 
-- `payload`: JWT claims as a table.
-- `key`: Signing key.
-- `alg`: (Optional) Algorithm ('HS256', 'HS384', 'HS512', default: 'HS256').
+- `payload`: JWT claims as a table. Can include a special `_header` field to set custom header values.
+- `key`: Signing key. For HMAC algorithms, this is the secret key. For RS256, this should be the RSA private key in PEM format.
+- `alg`: (Optional) Algorithm ('HS256', 'HS384', 'HS512', 'RS256', default: 'HS256').
 
 Returns:
 
@@ -172,8 +172,8 @@ Verifies and decodes a JWT.
 Parameters:
 
 - `token`: JWT to verify.
-- `key`: Verification key.
-- `alg`: (Optional) Expected algorithm (default: 'HS256').
+- `key`: Verification key. For HMAC algorithms, this is the secret key. For RS256, this should be the RSA public key in PEM format.
+- `alg`: (Optional) Expected algorithm ('HS256', 'HS384', 'HS512', 'RS256', default: 'HS256').
 
 Returns:
 
@@ -237,17 +237,20 @@ local verified, err = crypto.jwt.verify("invalid.token", "key") -- verified: nil
 ## Behavior
 
 1. **Random Data Generation**
-    - Functions generate cryptographically secure random data.
-    - Empty or negative lengths result in errors.
+   - Functions generate cryptographically secure random data.
+   - Empty or negative lengths result in errors.
 
 2. **Encryption/Decryption**
-    - Functions validate key lengths and parameter types.
-    - Nonces are automatically generated and prefixed to encrypted data.
-    - Encrypted data format: `<nonce><tag><ciphertext>`.
+   - Functions validate key lengths and parameter types.
+   - Nonces are automatically generated and prefixed to encrypted data.
+   - Encrypted data format: `<nonce><tag><ciphertext>`.
 
 3. **JWT Handling**
-    - `jwt.encode` validates the payload and signs with the specified algorithm.
-    - `jwt.verify` validates the token signature and returns the payload.
+   - `jwt.encode` validates the payload and signs with the specified algorithm.
+   - Custom header fields can be set using the special `_header` table field in the payload.
+   - For RS256, private keys must be in PEM format.
+   - `jwt.verify` validates the token signature and returns the payload.
+   - For RS256, public keys must be in PEM format.
 
 ## Thread Safety
 
@@ -261,6 +264,7 @@ local verified, err = crypto.jwt.verify("invalid.token", "key") -- verified: nil
 3. **Validate JWT expiration:** Check expiration claims manually after verification.
 4. **Secure random data:** Use `random.bytes` or `random.string` for security-sensitive values.
 5. **Constant-time comparison:** Use `constant_time_compare` for comparing sensitive strings.
+6. **RSA key security:** Protect RSA private keys properly and use appropriate key lengths.
 
 ## Example Usage
 
@@ -299,7 +303,7 @@ else
   print("Request signature:", signature)
 end
 
--- Create and verify a JWT
+-- Create and verify a JWT with HMAC
 local payload = {
   sub = "user123",
   exp = os.time() + 3600
@@ -316,6 +320,30 @@ else
   end
 end
 
+-- Create a JWT with RS256 and custom header
+local rs256_payload = {
+  iss = "service-account@example.com",
+  scope = "https://api.example.com/auth",
+  aud = "https://auth.example.com/token",
+  exp = os.time() + 3600,
+  iat = os.time(),
+  _header = {  -- Special field for custom header values
+    kid = "key-id-12345"
+  }
+}
+local rs256_jwt, err = crypto.jwt.encode(rs256_payload, pem_private_key, "RS256")
+if err then
+  print("RS256 JWT encode error:", err)
+else
+  -- Verify with the public key
+  local verified, err = crypto.jwt.verify(rs256_jwt, pem_public_key, "RS256")
+  if err then
+    print("RS256 JWT verification error:", err)
+  else
+    print("RS256 JWT verified, issuer:", verified.iss)
+  end
+end
+
 -- PKCE for OAuth
 local verifier, err = crypto.random.string(64)
 if err then
@@ -327,6 +355,3 @@ else
   print("Code challenge:", verifier_hash)
 end
 ```
-
-This specification provides a comprehensive reference for the `crypto` module, detailing its functionality, behavior,
-and usage patterns for implementing secure OAuth 2.0 flows and other cryptographic operations.

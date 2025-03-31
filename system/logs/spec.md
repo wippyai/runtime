@@ -1,7 +1,7 @@
 # Logging Component Specification
 
 ## Purpose
-The Logging component provides a structured, configurable logging system for the Pony Runtime with support for dynamic configuration and event integration. It allows for centralized logging control, context-based logger retrieval, and flexible routing of log entries.
+The Logging component provides a structured, configurable logging system for the Wippy Runtime with support for dynamic configuration and event integration. It allows for centralized logging control, context-based logger retrieval, and flexible routing of log entries.
 
 ## Core Concepts
 
@@ -112,4 +112,4 @@ logger := logs.GetLogger(ctx)
 logger.Info("Operation completed", zap.Int("count", count))
 ```
 
-This specification defines the Logging component that provides flexible, structured logging for the Pony Runtime with support for dynamic configuration and integration with the event system.
+This specification defines the Logging component that provides flexible, structured logging for the Wippy Runtime with support for dynamic configuration and integration with the event system.

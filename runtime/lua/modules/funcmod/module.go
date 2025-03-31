@@ -79,7 +79,7 @@ func (e *Module) ensureSubscriptions(l *lua.LState) bool {
 
 	pid, ok := pubsub.GetPID(l.Context())
 	if !ok {
-		e.log.Error("no PID found")
+		e.log.Error("no Target found")
 		return false
 	}
 
@@ -164,13 +164,13 @@ func (e *Module) processPackage(uw engine.UnitOfWork, pkg *pubsub.Package) {
 
 		inboxValues := make([]lua.LValue, 0, len(msg.Payloads))
 		for _, p := range msg.Payloads {
-			m := process.NewMessage(msg.Topic, p)
+			m := process.NewMessage(pkg.Source, msg.Topic, p)
 			inboxValues = append(inboxValues, process.WrapMessage(uw.State(), m))
 		}
 
 		// has internal queue, but must be drained
 		if err := subscribe.Publish(uw.Context(), topology.TopicInbox, inboxValues...); err != nil {
-			e.log.Error("failed to publish to inbox!",
+			e.log.Error("failed to publish to inbox",
 				zap.String("topic", topology.TopicInbox),
 				zap.Any("v", inboxValues),
 				zap.Error(err))

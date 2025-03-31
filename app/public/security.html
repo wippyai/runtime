@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security API Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        gray: {
+                            850: '#1a1d23',
+                            950: '#0a0c10'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        body {
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-200">
+<div class="max-w-4xl mx-auto p-6">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="text-2xl font-semibold text-blue-400">Security API Demo</h1>
+    </div>
+
+    <div class="bg-gray-850 rounded-lg shadow-lg p-6 mb-6 border border-gray-700">
+        <h2 class="text-lg font-medium mb-4 text-blue-300">1. Create Token</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-300">Actor ID</label>
+                <input type="text" id="token-actor-id" class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-white focus:ring-blue-500 focus:border-blue-500" value="user123">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-300">Actor Metadata (JSON)</label>
+                <textarea id="token-actor-metadata" rows="3" class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-white focus:ring-blue-500 focus:border-blue-500">{"role": "admin", "org": "example"}</textarea>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-300">Scope</label>
+                <input type="text" id="token-scope" class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-white focus:ring-blue-500 focus:border-blue-500" value="global:admin">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-300">Expiration</label>
+                <input type="text" id="token-expiration" class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-white focus:ring-blue-500 focus:border-blue-500" value="24h">
+            </div>
+            <button id="create-token-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900">Create Token</button>
+        </div>
+    </div>
+
+    <div class="bg-gray-850 rounded-lg shadow-lg p-6 mb-6 border border-gray-700">
+        <h2 class="text-lg font-medium mb-4 text-blue-300">2. Token Operations</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-300">Token</label>
+                <textarea id="token-value" rows="2" class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-white focus:ring-blue-500 focus:border-blue-500" placeholder="Enter token here..."></textarea>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button id="validate-token-btn" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-900">Validate Token</button>
+                <button id="revoke-token-btn" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-gray-900">Revoke Token</button>
+                <button id="access-resource-btn" class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-900">Access Protected Resource</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-gray-850 rounded-lg shadow-lg p-6 mb-6 border border-gray-700">
+        <h2 class="text-lg font-medium mb-4 text-blue-300">3. Check Permission</h2>
+        <div class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1 text-gray-300">Action</label>
+                    <input type="text" id="perm-action" class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-white focus:ring-blue-500 focus:border-blue-500" value="read">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1 text-gray-300">Resource</label>
+                    <input type="text" id="perm-resource" class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-white focus:ring-blue-500 focus:border-blue-500" value="demo:protected">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-300">Metadata (JSON)</label>
+                <textarea id="perm-metadata" rows="2" class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-white focus:ring-blue-500 focus:border-blue-500" placeholder='{"owner": "user123"}'></textarea>
+            </div>
+            <button id="check-permission-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900">Check Permission</button>
+        </div>
+    </div>
+
+    <div class="bg-gray-850 rounded-lg shadow-lg p-6 mb-6 border border-gray-700">
+        <h2 class="text-lg font-medium mb-4 text-blue-300">4. Access Secure Endpoints</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-300">Token</label>
+                <textarea id="secure-token" rows="2" class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-white focus:ring-blue-500 focus:border-blue-500" placeholder="Enter token here..."></textarea>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button id="access-profile-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900">Access User Profile</button>
+                <button id="access-admin-btn" class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-900">Access Admin Dashboard</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-gray-850 rounded-lg shadow-lg p-6 border border-gray-700">
+        <h2 class="text-lg font-medium mb-4 text-blue-300">Results</h2>
+        <div id="results" class="bg-gray-900 rounded-md p-4 min-h-[150px] border border-gray-700 text-gray-300">
+            <div class="text-gray-500">Results will appear here</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // API configuration
+    const API_URL = 'http://localhost:8082/api/v1/security';
+    const PROTECTED_URL = 'http://localhost:8082/api/v1/protected';
+    const SECURE_PROFILE_URL = 'http://localhost:8082/api/secure/profile';
+    const SECURE_ADMIN_URL = 'http://localhost:8082/api/secure/admin';
+
+    // DOM elements
+    const resultsDiv = document.getElementById('results');
+
+    // Display results
+    function displayResults(data) {
+        let html = '<pre class="text-sm text-gray-300">';
+        html += JSON.stringify(data, null, 2);
+        html += '</pre>';
+
+        if (data.token) {
+            html += '<div class="mt-4 p-4 bg-blue-900 bg-opacity-40 rounded-lg border border-blue-700">';
+            html += '<h3 class="font-medium text-blue-400">Token Created</h3>';
+            html += '<div class="mt-2 break-all">';
+            html += `<strong class="text-gray-200">Token:</strong> <span class="font-mono text-sm text-gray-300">${data.token}</span>`;
+            html += '</div>';
+            html += '</div>';
+
+            // Auto-fill token fields
+            document.getElementById('token-value').value = data.token;
+            document.getElementById('secure-token').value = data.token;
+        }
+
+        resultsDiv.innerHTML = html;
+    }
+
+    // API call helper
+    async function callApi(url, data, method = 'POST', headers = {}) {
+        try {
+            console.log(`Making ${method} request to ${url}:`, data);
+
+            const response = await fetch(url, {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...headers
+                },
+                body: method !== 'GET' ? JSON.stringify(data) : undefined
+            });
+
+            const result = await response.json();
+            console.log('Response:', result);
+
+            displayResults(result);
+            return result;
+        } catch (error) {
+            console.error('API call failed:', error);
+
+            const errorData = {
+                success: false,
+                error: 'Request failed',
+                details: error.message
+            };
+
+            displayResults(errorData);
+            return errorData;
+        }
+    }
+
+    // Create Token
+    document.getElementById('create-token-btn').addEventListener('click', async () => {
+        const actor_id = document.getElementById('token-actor-id').value;
+        const scope = document.getElementById('token-scope').value;
+        const expiration = document.getElementById('token-expiration').value;
+        let metadata = {}; // Changed variable name to match API expectation
+
+        try {
+            const metadataText = document.getElementById('token-actor-metadata').value;
+            if (metadataText) {
+                metadata = JSON.parse(metadataText);
+            }
+        } catch (e) {
+            return displayResults({
+                success: false,
+                error: 'Invalid actor metadata JSON',
+                details: e.message
+            });
+        }
+
+        await callApi(API_URL, {
+            operation: 'create_token',
+            actor_id,
+            actor_metadata: metadata, // This is the field name the API expects
+            scope,
+            expiration
+        });
+    });
+
+    // Validate Token
+    document.getElementById('validate-token-btn').addEventListener('click', async () => {
+        const token = document.getElementById('token-value').value;
+
+        await callApi(API_URL, {
+            operation: 'validate_token',
+            token
+        });
+    });
+
+    // Revoke Token
+    document.getElementById('revoke-token-btn').addEventListener('click', async () => {
+        const token = document.getElementById('token-value').value;
+
+        await callApi(API_URL, {
+            operation: 'revoke_token',
+            token
+        });
+    });
+
+    // Check Permission
+    document.getElementById('check-permission-btn').addEventListener('click', async () => {
+        const token = document.getElementById('token-value').value;
+        const action = document.getElementById('perm-action').value;
+        const resource = document.getElementById('perm-resource').value;
+        let metadata = {};
+
+        try {
+            const metadataText = document.getElementById('perm-metadata').value;
+            if (metadataText) {
+                metadata = JSON.parse(metadataText);
+            }
+        } catch (e) {
+            return displayResults({
+                success: false,
+                error: 'Invalid metadata JSON',
+                details: e.message
+            });
+        }
+
+        await callApi(API_URL, {
+            operation: 'check_permission',
+            token,
+            action,
+            resource,
+            metadata
+        });
+    });
+
+    // Access Protected Resource
+    document.getElementById('access-resource-btn').addEventListener('click', async () => {
+        const token = document.getElementById('token-value').value;
+        const headers = token ? {'Authorization': `Bearer ${token}`} : {};
+
+        await callApi(PROTECTED_URL, null, 'GET', headers);
+    });
+
+    // Access User Profile Endpoint
+    document.getElementById('access-profile-btn').addEventListener('click', async () => {
+        const token = document.getElementById('secure-token').value;
+        const headers = token ? {'Authorization': `Bearer ${token}`} : {};
+
+        await callApi(SECURE_PROFILE_URL, null, 'GET', headers);
+    });
+
+    // Access Admin Dashboard Endpoint
+    document.getElementById('access-admin-btn').addEventListener('click', async () => {
+        const token = document.getElementById('secure-token').value;
+        const headers = token ? {'Authorization': `Bearer ${token}`} : {};
+
+        await callApi(SECURE_ADMIN_URL, null, 'GET', headers);
+    });
+
+    // Initial message
+    displayResults({
+        title: "Security API Demo",
+        description: "This demo shows how to use the security API for authentication and authorization.",
+        instructions: "Start by creating a token, then use it to access protected resources and secure endpoints."
+    });
+</script>
+</body>
+</html>

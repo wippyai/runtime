@@ -9,16 +9,35 @@ import (
 	"go.uber.org/zap"
 )
 
+type BuilderOption func(*StateBuilder)
+
+// WithCompareFunc sets the comparison function for entries
+func WithCompareFunc(compare func(a, b registry.Entry) bool) BuilderOption {
+	return func(b *StateBuilder) {
+		b.compare = compare
+	}
+}
+
 // StateBuilder constructs registry states and calculates state transitions
 type StateBuilder struct {
-	log *zap.Logger
+	log     *zap.Logger
+	compare func(a, b registry.Entry) bool
 }
 
 // NewStateBuilder creates a new StateBuilder instance with the provided logger
-func NewStateBuilder(log *zap.Logger) *StateBuilder {
-	return &StateBuilder{
+func NewStateBuilder(log *zap.Logger, opt ...BuilderOption) *StateBuilder {
+	sb := &StateBuilder{
 		log: log,
+		compare: func(a, b registry.Entry) bool {
+			return reflect.DeepEqual(a, b)
+		},
 	}
+
+	for _, o := range opt {
+		o(sb)
+	}
+
+	return sb
 }
 
 // ValidateOperation validates if an operation can be applied to the current state
@@ -123,7 +142,13 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		return nil, fmt.Errorf("failed to get versions from history: %w", err)
 	}
 
+	var first registry.Version
+
 	for _, v := range versions {
+		if first == nil || first.ID() > v.ID() {
+			first = v
+		}
+
 		err := vm.Add(v)
 		if err != nil {
 			b.log.Error("failed to add version to version map",
@@ -133,7 +158,11 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		}
 	}
 
-	path, err := vm.Path(version.New(registry.RootVersion), targetVersion)
+	if first == nil {
+		return nil, fmt.Errorf("no versions found in history")
+	}
+
+	path, err := vm.Path(first, targetVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get path from root to version %v: %w", targetVersion, err)
 	}
@@ -189,7 +218,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 				Kind:  registry.Create,
 				Entry: toEntry,
 			})
-		} else if !reflect.DeepEqual(fromEntry, toEntry) {
+		} else if !b.compare(fromEntry, toEntry) {
 			// Update
 			operations = append(operations, registry.Operation{
 				Kind:  registry.Update,
@@ -229,7 +258,10 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 	}
 
 	// Sort entries respecting dependencies
-	sortedEntries := SortEntriesByDependency(opEntries)
+	sortedEntries, err := SortEntriesByDependency(opEntries)
+	if err != nil {
+		return nil, err
+	}
 
 	// Map back to operations maintaining the sorted order
 	result := make(registry.ChangeSet, 0, len(operations))

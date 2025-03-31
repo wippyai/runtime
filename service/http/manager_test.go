@@ -94,6 +94,9 @@ func setupManager(t *testing.T) (*Manager, context.Context) {
 	// Create FS registry
 	fsRegistry := NewSimpleFSRegistry()
 
+	// Create middleware factory
+	middlewareFactory := NewDefaultMiddlewareFactory()
+
 	// Create temporary files directory
 	tempDir, cleanup := createManagerTempDir(t, map[string]string{
 		"index.html": "<html><body>Hello World</body></html>",
@@ -106,7 +109,7 @@ func setupManager(t *testing.T) (*Manager, context.Context) {
 	fsRegistry.Register("test:files", mockFS)
 
 	// Create factories
-	serverFactory := NewServerFactory()
+	serverFactory := NewServerFactory(middlewareFactory)
 	endpointFactory, err := NewEndpointFactory(functionRegistry)
 	require.NoError(t, err)
 	staticFactory, err := NewStaticFactory(fsRegistry)
@@ -134,8 +137,9 @@ func TestManager_NewManager(t *testing.T) {
 	transcoder := NewSimpleTranscoder()
 	functionRegistry := NewSimpleFunctionRegistry()
 	fsRegistry := NewSimpleFSRegistry()
+	middlewareFactory := NewDefaultMiddlewareFactory()
 
-	serverFactory := NewServerFactory()
+	serverFactory := NewServerFactory(middlewareFactory)
 	endpointFactory, _ := NewEndpointFactory(functionRegistry)
 	staticFactory, _ := NewStaticFactory(fsRegistry)
 
@@ -271,6 +275,7 @@ func TestManager_RouterOperations(t *testing.T) {
 
 	functionRegistry := NewSimpleFunctionRegistry()
 	fsRegistry := NewSimpleFSRegistry()
+	middlewareFactory := NewDefaultMiddlewareFactory()
 
 	tempDir, cleanup := createManagerTempDir(t, map[string]string{
 		"index.html": "<html><body>Test</body></html>",
@@ -280,7 +285,7 @@ func TestManager_RouterOperations(t *testing.T) {
 	mockFS := NewMockFS(tempDir)
 	fsRegistry.Register("test:files", mockFS)
 
-	serverFactory := NewServerFactory()
+	serverFactory := NewServerFactory(middlewareFactory)
 	endpointFactory, err := NewEndpointFactory(functionRegistry)
 	require.NoError(t, err)
 	staticFactory, err := NewStaticFactory(fsRegistry)

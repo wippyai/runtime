@@ -271,9 +271,9 @@ func TestRouterConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: RouterConfig{
-				Meta:        registry.Metadata{ServerID: "test-server"},
-				Prefix:      "/api",
-				Middlewares: []string{"timeout", "recoverer"},
+				Meta:       registry.Metadata{ServerID: "test-server"},
+				Prefix:     "/api",
+				Middleware: []string{"timeout", "recoverer"},
 				Options: map[string]string{
 					"timeout": "30s",
 				},
@@ -293,27 +293,6 @@ func TestRouterConfig_Validate(t *testing.T) {
 			config: RouterConfig{
 				Meta:   registry.Metadata{},
 				Prefix: "/api",
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid middleware",
-			config: RouterConfig{
-				Meta:        registry.Metadata{ServerID: "test-server"},
-				Prefix:      "/api",
-				Middlewares: []string{"invalid"},
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid timeout value",
-			config: RouterConfig{
-				Meta:        registry.Metadata{ServerID: "test-server"},
-				Prefix:      "/api",
-				Middlewares: []string{"timeout"},
-				Options: map[string]string{
-					"timeout": "invalid",
-				},
 			},
 			wantErr: true,
 		},

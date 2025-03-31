@@ -3,6 +3,7 @@ package upstream
 import (
 	"context"
 	"fmt"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
@@ -69,7 +70,7 @@ func (m *Module) send(l *lua.LState) int {
 	}
 
 	// Create a Lua payload from the input value
-	p := payload.NewPayload(l.CheckAny(1), payload.Lua)
+	p := luaconv.ExportPayload(l.CheckAny(1))
 
 	select {
 	case ch <- p:

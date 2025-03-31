@@ -1,8 +1,8 @@
-# Comprehensive Pony Runtime Knowledge Compression
+# Comprehensive Wippy Runtime Knowledge Compression
 
 ## 1. Core Architecture
 
-Pony is a distributed process system for resilient AI applications with Erlang-style isolation and supervision:
+Wippy is a distributed process system for resilient AI applications with Erlang-style isolation and supervision:
 
 - **Process Isolation**: PIDs with format `{node@host|namespace:name|procname}`
 - **Message Passing**: All communication through messages, never shared memory
@@ -235,7 +235,7 @@ function sse_handler()
 
 ```lua
 local client, err = websocket.connect("wss://example.com/socket", {
-    headers = {["User-Agent"] = "Pony WebSocket Client"},
+    headers = {["User-Agent"] = "Wippy WebSocket Client"},
     protocols = {"v1", "v2"},
     dial_timeout = "5s"
 })

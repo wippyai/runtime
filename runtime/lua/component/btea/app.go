@@ -101,7 +101,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Forward update messages to Lua via task runner
 	if a.taskRunner != nil {
 		err := a.taskRunner.SendTask("update", protocol.MsgToLua(msg))
-		if err != nil {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			a.state.Log.Error("failed to send update message", zap.Error(err))
 		}
 	}
@@ -165,45 +165,36 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 		// Run the bubbletea program concurrently
 		go func() {
 			if _, err := a.program.Run(); err != nil {
-				a.state.Log.Error("btea program error", zap.Error(err))
+				a.state.Log.Debug("btea program error", zap.Error(err))
 			}
+
 			// When program exits, terminate the process
 			a.Terminate()
 		}()
 
-		// Start processing upstream messages
+		// Serve processing upstream messages
 		go a.processUpstream()
 	}
 
-	// Start the Lua function
+	// Serve the Lua function
 	return a.state.Start(input, onStartFunc)
 }
 
 // setupContextWatchers sets up goroutines to watch various cancellation signals
 func (a *App) setupContextWatchers() {
-	// Watch parent context (state.Ctx)
-	go func() {
-		<-a.state.Ctx.Done()
-		a.state.Log.Debug("parent context canceled, terminating app")
-		a.Terminate()
-	}()
-
 	// Watch app context
 	go func() {
-		<-a.appCtx.Done()
+		select {
+		case <-a.appCtx.Done():
+		case <-a.state.Ctx.Done():
+		case <-a.done:
+		}
+
 		a.state.Log.Debug("app context canceled, quitting program")
-		// Quit the program if not already quitting
+		a.Terminate()
 		if a.program != nil {
 			a.program.Quit()
 		}
-	}()
-
-	// Watch done channel
-	go func() {
-		<-a.done
-		a.state.Log.Debug("done channel closed, ensuring termination")
-		// Cleanup if anything is still running
-		a.appCancel()
 	}()
 }
 
@@ -216,7 +207,7 @@ func (a *App) scheduleCancel() {
 			a.state.Log.Error("failed to send cancel event", zap.Error(err))
 		}
 
-		// Start a timer to force termination if not already terminating
+		// Serve a timer to force termination if not already terminating
 		select {
 		case <-time.After(stopTimeout):
 			a.state.Log.Debug("cancellation timeout reached, forcing termination")
@@ -263,7 +254,7 @@ func (a *App) processUpstream() {
 func (a *App) Step() error {
 	select {
 	case <-a.done:
-		return nil
+		return supervisor.ErrExit
 	case <-a.state.Ctx.Done():
 		return a.state.Ctx.Err()
 	case <-a.appCtx.Done():
@@ -294,13 +285,13 @@ func (a *App) Terminate() {
 	a.terminateOnce.Do(func() {
 		a.state.Log.Debug("terminating btea app")
 
-		// Cancel app context to signal all our watchers
-		a.appCancel()
-
 		// Try to shutdown the program gracefully
 		if a.program != nil {
-			a.program.Quit()
+			a.program.Kill()
 		}
+
+		// Cancel app context to signal all our watchers
+		a.appCancel()
 
 		// Allow time for terminal to detach
 		time.Sleep(stopTimeout)

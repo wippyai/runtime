@@ -1,6 +1,9 @@
 package crypto
 
 import (
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -25,8 +28,8 @@ func registerJWT(l *lua.LState, mod *lua.LTable) {
 // Params:
 //
 //	payload (table): JWT claims
-//	key (string): Signing key
-//	alg (string, optional): Algorithm to use ('HS256', 'HS384', 'HS512', default: 'HS256')
+//	key (string): Signing key (HMAC secret or RSA private key in PEM format)
+//	alg (string, optional): Algorithm to use ('HS256', 'HS384', 'HS512', 'RS256', default: 'HS256')
 //
 // Returns: (string) JWT token or (nil, error_message) on failure
 func jwtEncode(l *lua.LState) int {
@@ -46,14 +49,45 @@ func jwtEncode(l *lua.LState) int {
 		return 2
 	}
 
+	// Check for custom header fields
+	if headerValue, exists := payloadMap["_header"]; exists {
+		if headerMap, isMap := headerValue.(map[string]any); isMap {
+			// Set custom header fields
+			for k, v := range headerMap {
+				token.Header[k] = v
+			}
+			// Remove _header from payload
+			delete(payloadMap, "_header")
+		}
+	}
+
 	// Set claims
 	claims := token.Claims.(jwt.MapClaims)
 	for k, v := range payloadMap {
 		claims[k] = v
 	}
 
-	// Sign the token with the specified key
-	tokenString, err := token.SignedString([]byte(key))
+	var tokenString string
+	var err error
+
+	// Handle signing based on algorithm
+	if alg == "RS256" {
+		// Parse RSA private key
+		var privateKey *rsa.PrivateKey
+		privateKey, err = parsePrivateKey(key)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(fmt.Sprintf("invalid RSA private key: %v", err)))
+			return 2
+		}
+
+		// Sign token with RSA private key
+		tokenString, err = token.SignedString(privateKey)
+	} else {
+		// For HMAC algorithms, use the key directly
+		tokenString, err = token.SignedString([]byte(key))
+	}
+
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to sign token: %v", err)))
@@ -70,8 +104,8 @@ func jwtEncode(l *lua.LState) int {
 // Params:
 //
 //	token (string): JWT to verify
-//	key (string): Verification key
-//	alg (string, optional): Expected algorithm ('HS256', 'HS384', 'HS512', default: 'HS256')
+//	key (string): Verification key (HMAC secret or RSA public key in PEM format)
+//	alg (string, optional): Expected algorithm ('HS256', 'HS384', 'HS512', 'RS256', default: 'HS256')
 //
 // Returns: (table) JWT payload or (nil, error_message) on failure
 func jwtVerify(l *lua.LState) int {
@@ -87,7 +121,12 @@ func jwtVerify(l *lua.LState) int {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 
-		// Return the key
+		// Return appropriate key based on algorithm
+		if alg == "RS256" {
+			return parsePublicKey(key)
+		}
+
+		// For HMAC, return the key as bytes
 		return []byte(key), nil
 	})
 
@@ -135,7 +174,69 @@ func getSigningMethod(alg string) jwt.SigningMethod {
 		return jwt.SigningMethodHS384
 	case "HS512":
 		return jwt.SigningMethodHS512
+	case "RS256":
+		return jwt.SigningMethodRS256
 	default:
 		return jwt.SigningMethodHS256
 	}
+}
+
+// parsePrivateKey parses a PEM encoded private key
+func parsePrivateKey(pemString string) (*rsa.PrivateKey, error) {
+	// Decode PEM block
+	block, _ := pem.Decode([]byte(pemString))
+	if block == nil {
+		return nil, fmt.Errorf("failed to parse PEM block containing private key")
+	}
+
+	// Parse the key
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		// Try PKCS8 format if PKCS1 fails
+		privateKey, err2 := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err2 != nil {
+			return nil, fmt.Errorf("failed to parse private key: %v (PKCS1), %v (PKCS8)", err, err2)
+		}
+
+		rsaKey, ok := privateKey.(*rsa.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("key is not an RSA private key")
+		}
+		return rsaKey, nil
+	}
+
+	return key, nil
+}
+
+// parsePublicKey parses a PEM encoded public key
+func parsePublicKey(pemString string) (*rsa.PublicKey, error) {
+	// Decode PEM block
+	block, _ := pem.Decode([]byte(pemString))
+	if block == nil {
+		return nil, fmt.Errorf("failed to parse PEM block containing public key")
+	}
+
+	// Parse the key
+	// Try X509 certificate first
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err == nil {
+		rsaKey, ok := cert.PublicKey.(*rsa.PublicKey)
+		if !ok {
+			return nil, fmt.Errorf("certificate does not contain an RSA public key")
+		}
+		return rsaKey, nil
+	}
+
+	// Try PKIX public key
+	pubKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse public key: %v", err)
+	}
+
+	rsaKey, ok := pubKey.(*rsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("key is not an RSA public key")
+	}
+
+	return rsaKey, nil
 }

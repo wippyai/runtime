@@ -8,8 +8,9 @@ entries:
   - name: system_test
     kind: function.lua
     meta:
-      name: "System Test"
+      name: "Application Health"
       type: "test"
+      group: "General"
       tags: [ "system", "monitoring", "health", "tests" ]
       comment: "Performs a basic system health check"
     source: file://system_test.lua
@@ -17,5 +18,3 @@ entries:
     modules: [ "http_client", "fs", "time", "sql", "crypto" ]
     imports:
       test: "wippy.test:test"
-    pool:
-      size: 1 # todo change it to support cold pools

@@ -37,11 +37,11 @@ type (
 // NewCodeManager creates a new code manager instance
 func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error) {
 	if cfg.ProtoCacheSize <= 0 {
-		cfg.ProtoCacheSize = 100
+		cfg.ProtoCacheSize = 5000
 	}
 
 	if cfg.MainCacheSize <= 0 {
-		cfg.MainCacheSize = 50
+		cfg.MainCacheSize = 1000
 	}
 
 	cm := &Manager{
@@ -164,14 +164,13 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 		},
 	}
 
-	// AddCleanup node to graph
 	if err := cm.memGraph.AddNode(nodePtr); err != nil {
 		return fmt.Errorf("failed to add node: %w", err)
 	}
 
-	// AddCleanup dependencies
 	for _, dep := range deps {
 		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
+			_ = cm.memGraph.RemoveNode(node.ID)
 			return fmt.Errorf("failed to add dependency %s -> %s: %w",
 				node.ID, dep.ID, err)
 		}
@@ -211,7 +210,7 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 		}
 	}
 
-	// AddCleanup new dependencies
+	// Add new dependencies
 	for _, dep := range deps {
 		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
 			return fmt.Errorf("failed to add new dependency: %w", err)
@@ -220,6 +219,19 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 
 	// Mark node for transaction
 	cm.txNodes[node.ID] = true
+
+	// calculate all dependents
+	dependents, err := cm.memGraph.GetAllDependents(node.ID)
+
+	invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
+	invalidateIDs = append(invalidateIDs, node.ID)
+
+	for _, dep := range dependents {
+		invalidateIDs = append(invalidateIDs, dep.ID)
+	}
+
+	// invalidating cache
+	cm.compiler.Invalidate(invalidateIDs)
 
 	return nil
 }

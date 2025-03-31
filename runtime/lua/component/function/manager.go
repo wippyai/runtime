@@ -3,22 +3,22 @@ package function
 import (
 	"context"
 	"fmt"
-	"sync"
-
 	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
+	api "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"github.com/ponyruntime/pony/runtime/lua/pool/flex"
 	"github.com/ponyruntime/pony/runtime/lua/pool/queued"
 	syncpool "github.com/ponyruntime/pony/runtime/lua/pool/sync"
+	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/runtime/lua/code"
 	"go.uber.org/zap"
 )
 
@@ -68,14 +68,8 @@ func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
 
 // pushHandler creates or updates a pool for a function
 func (m *Manager) pushHandler(id registry.ID, cfg *api.FunctionConfig) error {
-	// Compile function using code manager
-	compiled, err := m.code.Compile(id, functionBuild)
-	if err != nil {
-		return fmt.Errorf("failed to compile function: %w", err)
-	}
-
-	// Spawn new pool
-	pool, err := m.createPool(cfg, compiled)
+	// Spawn new pool without immediately compiling
+	pool, err := m.createPool(id, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create pool: %w", err)
 	}
@@ -89,7 +83,6 @@ func (m *Manager) pushHandler(id registry.ID, cfg *api.FunctionConfig) error {
 	// Close old pool if it exists
 	if exists {
 		if closer, ok := oldPool.(api.VM); ok {
-			// should let it finish before closing
 			closer.Close()
 		}
 	}
@@ -117,7 +110,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	// AddCleanup to code manager
+	// Add to code manager
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add function: %w", err)
 	}
@@ -180,10 +173,8 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	// Close and remove pool
 	if pool, ok := m.vms.LoadAndDelete(entry.ID); ok {
-		if closer, ok := pool.(interface{ Close() error }); ok {
-			if err := closer.Close(); err != nil {
-				m.log.Error("failed to close function", zap.Error(err))
-			}
+		if closer, ok := pool.(api.VM); ok {
+			closer.Close()
 		}
 	}
 
@@ -237,21 +228,76 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 	return vm.Execute(ctx, task)
 }
 
-// createPool creates a new pool based on config and compiled code
-func (m *Manager) createPool(cfg *api.FunctionConfig, compiled *code.CompiledMain) (pool, error) {
-	fvm, err := component.NewRunnerFactory(m.log, compiled, layers)
+// createPool creates a new pool based on config
+func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) (pool, error) {
+	// Convert imports for code manager
+	imports := component.BuildImports(cfg.Imports, cfg.Modules)
+
+	// Flex pool case - no workers, either no size or has max size
+	isFlexPool := cfg.Pool.Workers == 0 && (cfg.Pool.Size == 0 || cfg.Pool.MaxSize > 0)
+
+	// For flex pool with WarmStart=false, use lazy factory
+	if isFlexPool && !cfg.Pool.WarmStart {
+		// Create a lazy factory
+		factory := NewCompilerFactory(
+			m.log,
+			m.code,
+			id,
+			functionBuild,
+			imports,
+			layers,
+		)
+
+		// Create flex pool with the lazy factory
+		maxSize := cfg.Pool.MaxSize
+		if maxSize <= 0 {
+			maxSize = api.DefaultMaxSize // Use default if not specified
+		}
+
+		return flex.NewTaskPool(
+			factory,
+			cfg.Method,
+			flex.WithTaskMaxSize(maxSize),
+			flex.WithTaskLogger(m.log),
+		)
+	}
+
+	// For all other cases, compile immediately
+	compiled, err := m.code.Compile(id, functionBuild)
 	if err != nil {
+		return nil, fmt.Errorf("failed to compile function: %w", err)
+	}
+
+	// Create a real factory
+	factory, err := component.NewRunnerFactory(m.log, compiled, layers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create factory: %w", err)
+	}
+
+	// Compile the factory
+	if err := factory.Compile(); err != nil {
 		return nil, fmt.Errorf("failed to compile: %w", err)
 	}
 
-	if err := fvm.Compile(); err != nil {
-		return nil, fmt.Errorf("failed to compile: %w", err)
+	// For flex pool with WarmStart=true, use the compiled factory with flex pool
+	if isFlexPool {
+		maxSize := cfg.Pool.MaxSize
+		if maxSize <= 0 {
+			maxSize = api.DefaultMaxSize // Use default if not specified
+		}
+
+		return flex.NewTaskPool(
+			factory,
+			cfg.Method,
+			flex.WithTaskMaxSize(maxSize),
+			flex.WithTaskLogger(m.log),
+		)
 	}
 
+	// For worker-based execution, use queued pool
 	if cfg.Pool.Workers > 0 {
-		// Use queued TaskPool for worker-based execution
 		return queued.NewTaskPool(
-			fvm,
+			factory,
 			cfg.Method,
 			queued.WithTaskSize(cfg.Pool.Size),
 			queued.WithTaskLogger(m.log),
@@ -259,9 +305,9 @@ func (m *Manager) createPool(cfg *api.FunctionConfig, compiled *code.CompiledMai
 		)
 	}
 
-	// Use sync TaskPool for synchronous execution
+	// For synchronous execution, use sync pool
 	return syncpool.NewTaskPool(
-		fvm,
+		factory,
 		cfg.Method,
 		syncpool.WithTaskPoolSize(cfg.Pool.Size),
 		syncpool.WithTaskPoolLogger(m.log),

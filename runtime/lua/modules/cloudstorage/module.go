@@ -2,6 +2,7 @@ package cloudstorage
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	csapi "github.com/ponyruntime/pony/api/cloudstorage"
 	"github.com/ponyruntime/pony/api/registry"
@@ -29,6 +30,7 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	// Register the get function
 	t.RawSetString("get", l.NewFunction(apiGet))
+	// todo: add release
 
 	// Register CloudStorage type
 	registerCloudStorage(l)
@@ -72,17 +74,16 @@ func apiGet(l *lua.LState) int {
 		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
 		return 2
 	}
-	uw.AddCleanup(res.Release)
+	uw.AddCleanup(func() error {
+		res.Release()
+		return nil
+	})
 
 	// Get CloudStorage instance
 	storageRes, err := res.Get()
 	if err != nil {
-		// Release resource immediately since we failed
-		releaseErr := res.Release()
-		if releaseErr != nil {
-			// Log error (would use zap logger in production)
-			fmt.Printf("failed to release resource after get failure: %v, %v\n", err, releaseErr)
-		}
+		res.Release()
+
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to get resource: %v", err)))
 		return 2
@@ -92,11 +93,8 @@ func apiGet(l *lua.LState) int {
 	csRes, ok := storageRes.(csapi.Storage)
 	if !ok {
 		// Release resource immediately since it's not the right type
-		releaseErr := res.Release()
-		if releaseErr != nil {
-			// Log error (would use zap logger in production)
-			fmt.Printf("failed to release non-CloudStorage resource: %T, %v\n", storageRes, releaseErr)
-		}
+		res.Release()
+
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("resource is not a cloud storage provider: %T", storageRes)))
 		return 2
@@ -122,13 +120,13 @@ func CheckCloudStorage(l *lua.LState, n int) *CloudStorage {
 func WrapCloudStorage(l *lua.LState, storage csapi.Storage) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = NewCloudStorage(storage)
-	l.SetMetatable(ud, l.GetTypeMetatable("cloudstorage.Storage"))
+	ud.Metatable = value.GetTypeMetatable(l, "cloudstorage.Storage")
 	return ud
 }
 
 // pushObjectMetadata creates a Lua table from a ObjectMetadata
 func pushObjectMetadata(l *lua.LState, meta csapi.ObjectMetadata) *lua.LTable {
-	t := l.NewTable()
+	t := l.CreateTable(0, 4)
 	t.RawSetString("key", lua.LString(meta.Key))
 	t.RawSetString("size", lua.LNumber(meta.Size))
 	t.RawSetString("content_type", lua.LString(meta.ContentType))
@@ -138,10 +136,10 @@ func pushObjectMetadata(l *lua.LState, meta csapi.ObjectMetadata) *lua.LTable {
 
 // pushListObjectsResult creates a Lua table from a ListObjectsResult
 func pushListObjectsResult(l *lua.LState, result *csapi.ListObjectsResult) *lua.LTable {
-	t := l.NewTable()
+	t := l.CreateTable(0, 3)
 
 	// Create objects table
-	objects := l.NewTable()
+	objects := l.CreateTable(len(result.Objects), 0)
 	for i, obj := range result.Objects {
 		objects.RawSetInt(i+1, pushObjectMetadata(l, obj))
 	}

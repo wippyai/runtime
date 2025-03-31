@@ -12,7 +12,7 @@ import (
 )
 
 func TestOnCompleteAggregation(t *testing.T) {
-	// Start with a base context.
+	// Serve with a base context.
 	ctx := context.Background()
 
 	var sum int

@@ -112,7 +112,7 @@ local function define_tests()
             expect(#entries > 0).to_be_true("Directory is empty or could not be read")
         end)
 
-        it_skip("should write and read files", function()
+        it("should write and read files", function()
             local root_fs = fs.get("system:root")
             -- Use current directory with no "./" prefix and ensure a unique filename
             local tmp_file = "test_file_" .. os.time() .. ".txt"

@@ -2,6 +2,7 @@ package process
 
 import (
 	"fmt"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	"strings"
 	"time"
 
@@ -34,6 +35,8 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
+	m.registerContextType(l)
+
 	mod := l.CreateTable(0, 16) // Size adjusted for all functions
 
 	// Register process functions directly with RawSetString for better performance
@@ -52,6 +55,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("unmonitor", l.NewFunction(m.unmonitor))
 	mod.RawSetString("link", l.NewFunction(m.link))
 	mod.RawSetString("unlink", l.NewFunction(m.unlink))
+
+	mod.RawSetString("with_context", l.NewFunction(m.withContext))
 
 	// Create event constants table with exact size
 	events := l.CreateTable(0, 3)
@@ -112,7 +117,7 @@ func (m *Module) setOptions(l *lua.LState) int {
 	return 2
 }
 
-// checkPID validates context and returns PID if valid
+// checkPID validates context and returns Target if valid
 func (m *Module) checkPID(l *lua.LState) (pubsub.PID, bool) {
 	ctx := l.Context()
 	if ctx == nil {
@@ -121,7 +126,7 @@ func (m *Module) checkPID(l *lua.LState) (pubsub.PID, bool) {
 		return pubsub.PID{}, false
 	}
 
-	// Try to get PID from context
+	// Try to get Target from context
 	pid, ok := pubsub.GetPID(ctx)
 	return pid, ok
 }
@@ -164,7 +169,7 @@ func (m *Module) getProcessManager(l *lua.LState) (process.Manager, bool) {
 	return manager, true
 }
 
-// getRegistry retrieves the PID registry from context
+// getRegistry retrieves the Target registry from context
 func (m *Module) getRegistry(l *lua.LState) (topology.PIDRegistry, bool) {
 	ctx := l.Context()
 	if ctx == nil {
@@ -204,10 +209,10 @@ func (m *Module) getTopology(l *lua.LState) (topology.Topology, bool) {
 	return topo, true
 }
 
-// resolvePID attempts to resolve a string to a PID, either by direct parsing
-// or by looking up in the registry if it's not a valid PID format
+// resolvePID attempts to resolve a string to a Target, either by direct parsing
+// or by looking up in the registry if it's not a valid Target format
 func (m *Module) resolvePID(l *lua.LState, pidOrName string) (pubsub.PID, error) {
-	// Try to parse as PID first
+	// Try to parse as Target first
 	pid, err := pubsub.ParsePID(pidOrName)
 	if err == nil {
 		return pid, nil
@@ -221,13 +226,13 @@ func (m *Module) resolvePID(l *lua.LState, pidOrName string) (pubsub.PID, error)
 
 	pid, found := reg.Lookup(pidOrName)
 	if !found {
-		return pubsub.PID{}, fmt.Errorf("could not resolve '%s' as PID or registered name", pidOrName)
+		return pubsub.PID{}, fmt.Errorf("could not resolve '%s' as Target or registered name", pidOrName)
 	}
 
 	return pid, nil
 }
 
-// pid returns the string representation of the current PID
+// pid returns the string representation of the current Target
 // Returns: pid_string
 func (m *Module) pid(l *lua.LState) int {
 	pid, ok := m.checkPID(l)
@@ -239,7 +244,7 @@ func (m *Module) pid(l *lua.LState) int {
 	return 1
 }
 
-// pid returns the string representation of the current PID
+// pid returns the string representation of the current Target
 // Returns: pid_string
 func (m *Module) id(l *lua.LState) int {
 	pid, ok := m.checkPID(l)
@@ -251,7 +256,7 @@ func (m *Module) id(l *lua.LState) int {
 	return 1
 }
 
-// send sends a message to another process (accepts PID or registered name)
+// send sends a message to another process (accepts Target or registered name)
 // Params: destination, topic, [payload1, payload2, ...]
 // Returns: success, error
 func (m *Module) send(l *lua.LState) int {
@@ -282,7 +287,7 @@ func (m *Module) send(l *lua.LState) int {
 		return 2
 	}
 
-	// Resolve destination (PID or name)
+	// Resolve destination (Target or name)
 	pid, err := m.resolvePID(l, pidOrName)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -295,15 +300,12 @@ func (m *Module) send(l *lua.LState) int {
 	for i := 3; i <= l.GetTop(); i++ {
 		messages = append(messages, &pubsub.Message{
 			Topic:    topic,
-			Payloads: []payload.Payload{payload.NewPayload(l.Get(i), payload.Lua)},
+			Payloads: []payload.Payload{luaconv.ExportPayload(l.Get(i))},
 		})
 	}
 
 	// Create package with all messages
-	pkg := &pubsub.Package{
-		PID:      pid,
-		Messages: messages,
-	}
+	pkg := pubsub.NewMessagePackage(self, pid, messages...)
 
 	// send message using node
 	if err := node.Send(pkg); err != nil {
@@ -311,12 +313,6 @@ func (m *Module) send(l *lua.LState) int {
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
-
-	m.log.Debug("messages sent",
-		zap.String("from", self.String()),
-		zap.String("to", pid.String()),
-		zap.String("topic", topic),
-	)
 
 	l.Push(lua.LTrue)
 	return 1
@@ -328,7 +324,7 @@ func (m *Module) createPayloadsFromArgs(l *lua.LState, startIndex int) payload.P
 
 	// Convert each argument to a payload
 	for i := startIndex; i <= l.GetTop(); i++ {
-		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
+		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
 	}
 
 	return payloads
@@ -373,7 +369,7 @@ func (m *Module) spawn(l *lua.LState) int {
 		},
 	}
 
-	// Start the process
+	// Serve the process
 	pid, err := manager.Start(l.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -389,7 +385,7 @@ func (m *Module) spawn(l *lua.LState) int {
 		zap.Int("num_args", len(payloads)),
 	)
 
-	// Return PID string
+	// Return Target string
 	l.Push(lua.LString(pid.String()))
 	return 1
 }
@@ -440,7 +436,7 @@ func (m *Module) spawnMonitored(l *lua.LState) int {
 		},
 	}
 
-	// Start the process with monitoring
+	// Serve the process with monitoring
 	pid, err := manager.Start(uw.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -456,7 +452,7 @@ func (m *Module) spawnMonitored(l *lua.LState) int {
 		zap.Int("num_args", len(payloads)),
 	)
 
-	// Return PID string
+	// Return Target string
 	l.Push(lua.LString(pid.String()))
 	return 1
 }
@@ -500,7 +496,7 @@ func (m *Module) spawnLinked(l *lua.LState) int {
 		},
 	}
 
-	// Start the process with linking
+	// Serve the process with linking
 	pid, err := manager.Start(l.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -516,7 +512,7 @@ func (m *Module) spawnLinked(l *lua.LState) int {
 		zap.Int("num_args", len(payloads)),
 	)
 
-	// Return PID string
+	// Return Target string
 	l.Push(lua.LString(pid.String()))
 	return 1
 }
@@ -560,7 +556,7 @@ func (m *Module) spawnLinkedMonitored(l *lua.LState) int {
 		},
 	}
 
-	// Start the process with linking
+	// Serve the process with linking
 	pid, err := manager.Start(l.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -576,12 +572,12 @@ func (m *Module) spawnLinkedMonitored(l *lua.LState) int {
 		zap.Int("num_args", len(payloads)),
 	)
 
-	// Return PID string
+	// Return Target string
 	l.Push(lua.LString(pid.String()))
 	return 1
 }
 
-// terminate terminates a process (accepts PID or registered name)
+// terminate terminates a process (accepts Target or registered name)
 // Params: destination
 // Returns: success, error
 func (m *Module) terminate(l *lua.LState) int {
@@ -595,7 +591,7 @@ func (m *Module) terminate(l *lua.LState) int {
 		return 2 // Error values already pushed by checkPID
 	}
 
-	// Parse PID or name argument
+	// Parse Target or name argument
 	pidOrName := l.CheckString(1)
 
 	// Resolve destination
@@ -622,7 +618,7 @@ func (m *Module) terminate(l *lua.LState) int {
 	return 1
 }
 
-// cancel sends a cancellation request to a process (accepts PID or registered name)
+// cancel sends a cancellation request to a process (accepts Target or registered name)
 // Params: destination, deadline
 // Where deadline can be a duration string (e.g. "5s") or milliseconds number
 // Returns: success, error
@@ -645,7 +641,7 @@ func (m *Module) cancel(l *lua.LState) int {
 		return 2 // Error values already pushed by checkPID
 	}
 
-	// Parse PID or name argument
+	// Parse Target or name argument
 	pidOrName := l.CheckString(1)
 
 	// Resolve destination
@@ -699,7 +695,7 @@ func (m *Module) cancel(l *lua.LState) int {
 }
 
 // monitor establishes monitoring of another process
-// Params: destination (PID or registered name)
+// Params: destination (Target or registered name)
 // Returns: success, error
 func (m *Module) monitor(l *lua.LState) int {
 	topo, ok := m.getTopology(l)
@@ -746,7 +742,7 @@ func (m *Module) monitor(l *lua.LState) int {
 }
 
 // unmonitor removes monitoring of another process
-// Params: destination (PID or registered name)
+// Params: destination (Target or registered name)
 // Returns: success, error
 func (m *Module) unmonitor(l *lua.LState) int {
 	topo, ok := m.getTopology(l)
@@ -793,7 +789,7 @@ func (m *Module) unmonitor(l *lua.LState) int {
 }
 
 // link establishes a bidirectional link with another process
-// Params: destination (PID or registered name)
+// Params: destination (Target or registered name)
 // Returns: success, error
 func (m *Module) link(l *lua.LState) int {
 	topo, ok := m.getTopology(l)
@@ -840,7 +836,7 @@ func (m *Module) link(l *lua.LState) int {
 }
 
 // unlink removes a bidirectional link with another process
-// Params: destination (PID or registered name)
+// Params: destination (Target or registered name)
 // Returns: success, error
 func (m *Module) unlink(l *lua.LState) int {
 	topo, ok := m.getTopology(l)
@@ -886,7 +882,7 @@ func (m *Module) unlink(l *lua.LState) int {
 	return 1
 }
 
-// registryRegister registers a name for the current process or a specified PID
+// registryRegister registers a name for the current process or a specified Target
 // Params: name, [pid]
 // If pid is not provided, registers the current process
 // Returns: success, error
@@ -904,8 +900,8 @@ func (m *Module) registryRegister(l *lua.LState) int {
 	// Get arguments
 	name := l.CheckString(1)
 
-	// If second argument is provided, use it as the PID to register
-	// otherwise use the current process's PID
+	// If second argument is provided, use it as the Target to register
+	// otherwise use the current process's Target
 	var pid pubsub.PID
 	if l.GetTop() >= 2 {
 		pidStr := l.CheckString(2)
@@ -917,7 +913,7 @@ func (m *Module) registryRegister(l *lua.LState) int {
 			return 2
 		}
 	} else {
-		pid = self // Use current process PID
+		pid = self // Use current process Target
 	}
 
 	if pid.ID.Name == "parent" {
@@ -943,7 +939,7 @@ func (m *Module) registryRegister(l *lua.LState) int {
 	return 1
 }
 
-// registryLookup finds the PID registered with a given name
+// registryLookup finds the Target registered with a given name
 // Params: name
 // Returns: pid, error
 func (m *Module) registryLookup(l *lua.LState) int {
@@ -960,7 +956,7 @@ func (m *Module) registryLookup(l *lua.LState) int {
 	// Get name argument
 	name := l.CheckString(1)
 
-	// Lookup name to PID
+	// Lookup name to Target
 	pid, found := reg.Lookup(name)
 	if !found {
 		l.Push(lua.LNil)

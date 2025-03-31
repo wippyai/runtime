@@ -81,7 +81,7 @@ type (
 	Process interface {
 		pubsub.Receiver
 
-		// Start initializes the process with the given context, PID, and input payloads.
+		// Start initializes the process with the given context, Target, and input payloads.
 		// It prepares the process for execution and returns an error if initialization fails.
 		Start(context.Context, pubsub.PID, payload.Payloads) error
 
@@ -106,7 +106,7 @@ type (
 	// It defines how processes monitor and link to each other, affecting error
 	// propagation and termination behavior. @see topology
 	Lifecycle struct {
-		// Parent is the PID of the parent process, used for monitoring and linking
+		// Parent is the Target of the parent process, used for monitoring and linking
 		Parent pubsub.PID
 
 		// Monitor indicates whether the parent process should monitor this process.
@@ -169,7 +169,7 @@ type (
 	// Canceller defines the interface for gracefully canceling a running process.
 	Canceller interface {
 		// Cancel sends a cancellation signal to a process identified by pid.
-		// from is the PID of the cancellation requester, and deadline specifies
+		// from is the Target of the cancellation requester, and deadline specifies
 		// when the process will be forcefully terminated if it doesn't stop gracefully.
 		// Returns an error if the cancellation request cannot be sent.
 		Cancel(context.Context, pubsub.PID, pubsub.PID, time.Time) error
@@ -183,7 +183,7 @@ type (
 		Canceller
 
 		// Start launches a new process according to the provided configuration.
-		// Returns the PID of the started process or an error if the process
+		// Returns the Target of the started process or an error if the process
 		// cannot be started.
 		Start(ctx context.Context, start *Start) (pubsub.PID, error)
 
@@ -210,7 +210,7 @@ type (
 
 		// Launch starts a process according to the provided launch configuration.
 		// It handles both the process execution and its lifecycle management.
-		// Returns the PID of the started process or an error if the process
+		// Returns the Target of the started process or an error if the process
 		// cannot be started.
 		Launch(ctx context.Context, launch *Launch) (pubsub.PID, error)
 	}
@@ -221,8 +221,8 @@ type (
 	Delegated interface {
 		Host
 
-		// Launch starts a process with the given PID and input.
-		// Returns the PID of the started process or an error if the process
+		// Launch starts a process with the given Target and input.
+		// Returns the Target of the started process or an error if the process
 		// cannot be started.
 		Launch(ctx context.Context, pid pubsub.PID, lf Lifecycle, input payload.Payloads) (pubsub.PID, error)
 	}

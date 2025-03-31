@@ -2,6 +2,8 @@ package sql
 
 import (
 	"github.com/ponyruntime/pony/api/service/sql"
+	"github.com/ponyruntime/pony/runtime/lua/modules/sql/builder"
+	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -47,7 +49,7 @@ func mapDBTypeFromResourceKind(dbType string) string {
 // NewSQLModule creates a new SQL module
 func NewSQLModule(log *zap.Logger) *Module {
 	return &Module{
-		log: log.Named("sql"),
+		log: log,
 	}
 }
 
@@ -63,7 +65,7 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.CreateTable(0, 3) // 3 elements: NULL, type table, and DB functions
+	mod := l.CreateTable(0, 4) // 4 elements: NULL, type table, vec sub-module, and DB functions
 
 	registerDB(l, mod, m.log)
 
@@ -79,16 +81,21 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Create database type constants table with exact capacity
 	types := l.CreateTable(0, 6) // 6 database types
 
-	// Add database types directly
-	types.RawSetString("postgres", lua.LString(TypePostgres))
-	types.RawSetString("mysql", lua.LString(TypeMySQL))
-	types.RawSetString("sqlite", lua.LString(TypeSQLite))
-	types.RawSetString("mssql", lua.LString(TypeMSSQL))
-	types.RawSetString("oracle", lua.LString(TypeOracle))
-	types.RawSetString("unknown", lua.LString(TypeUnknown))
+	// Add database types directly - UPPERCASE for Lua constants
+	types.RawSetString("POSTGRES", lua.LString(TypePostgres))
+	types.RawSetString("MYSQL", lua.LString(TypeMySQL))
+	types.RawSetString("SQLITE", lua.LString(TypeSQLite))
+	types.RawSetString("MSSQL", lua.LString(TypeMSSQL))
+	types.RawSetString("ORACLE", lua.LString(TypeOracle))
+	types.RawSetString("UNKNOWN", lua.LString(TypeUnknown))
 
 	// Add types table to module
 	mod.RawSetString("type", types)
+
+	sqlutil.RegisterAsModule(l, mod)
+
+	// Register the builder submodule
+	builder.RegisterBuilderModule(l, mod)
 
 	// Return module
 	l.Push(mod)

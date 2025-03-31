@@ -85,7 +85,7 @@ func TestManager_StartStop(t *testing.T) {
 	ctx := context.Background()
 	manager, _, _ := setupManagerTest()
 
-	// Test Start
+	// Test Serve
 	err := manager.Start(ctx)
 	require.NoError(t, err)
 	assert.NotNil(t, manager.subscriber)
@@ -272,7 +272,7 @@ func TestManager_Send(t *testing.T) {
 			}
 
 			pkg := &api.Package{
-				PID: pid,
+				Target: pid,
 				Messages: []*api.Message{
 					{Topic: "test"},
 				},

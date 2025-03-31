@@ -12,16 +12,17 @@ import (
 // Context keys for storing HTTP-specific values in the request context
 var (
 	// todo: privatize
-	// RequestCtx is the context key for storing the HTTP request context
-	RequestCtx = &ctxapi.Key{Name: "http.request"} //nolint:gochecknoglobals
-	// RouteCtx is the context key for storing the current route information
-	RouteCtx = &ctxapi.Key{Name: "http.route"} //nolint:gochecknoglobals
+	RequestCtx        = &ctxapi.Key{Name: "http.request"}         //nolint:gochecknoglobals
+	RouteCtx          = &ctxapi.Key{Name: "http.route"}           //nolint:gochecknoglobals
+	ContextServerID   = &ctxapi.Key{Name: "http.server_id"}       //nolint:gochecknoglobals
+	EndpointConfigCtx = &ctxapi.Key{Name: "http.endpoint_config"} //nolint:gochecknoglobals
 )
 
 // RouteInfo contains information about the matched route for the current request.
 // It includes routing parameters, endpoint configuration, and matching details.
 type RouteInfo struct {
 	Params     map[string]string // URL parameters extracted from the route
+	Endpoint   registry.ID       // ID of the matched endpoint configuration
 	Func       registry.ID       // Identifier for the function to be called
 	MatchedURI string            // The URI pattern that matched the request
 }

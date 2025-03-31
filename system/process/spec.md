@@ -17,7 +17,7 @@ The Process Management component uses the following event types for communicatio
 
 ## Purpose
 
-The Process Management component provides a comprehensive framework for managing distributed processes within the Pony Runtime. It handles process creation, lifecycle management, host registration, and inter-process communication. The component enables the creation of dynamic, supervised processes that can communicate across different hosts and nodes in a distributed system.
+The Process Management component provides a comprehensive framework for managing distributed processes within the Wippy Runtime. It handles process creation, lifecycle management, host registration, and inter-process communication. The component enables the creation of dynamic, supervised processes that can communicate across different hosts and nodes in a distributed system.
 
 ## Core Concepts
 
@@ -347,4 +347,4 @@ The system defines several standard errors:
 - Enables process lifecycle management without direct coupling
 - Supports both OnStart and OnComplete callbacks for full lifecycle coverage
 
-This specification outlines the Process Management component for the Pony Runtime, providing a comprehensive framework for managing distributed processes with support for process creation, lifecycle management, and fault tolerance.
+This specification outlines the Process Management component for the Wippy Runtime, providing a comprehensive framework for managing distributed processes with support for process creation, lifecycle management, and fault tolerance.

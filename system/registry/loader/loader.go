@@ -2,6 +2,8 @@ package loader
 
 import (
 	"fmt"
+	"io/fs"
+	"path/filepath"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -17,18 +19,36 @@ type Loader struct {
 	interpolator *interpolate.Helper
 }
 
-// NewLoader creates a new loader instance
-func NewLoader(dtt payload.Transcoder, log *zap.Logger, interpolator *interpolate.Helper) *Loader {
+// LoaderOption is a function that configures a Loader
+type LoaderOption func(*Loader)
+
+// WithLoaderFS sets a custom filesystem for the Loader's FileLoader
+func WithLoaderFS(fsys fs.FS) LoaderOption {
+	return func(l *Loader) {
+		// Replace the FileLoader with one using the custom filesystem
+		l.fileLoader = NewFileLoader(l.log, WithFS(fsys))
+	}
+}
+
+// NewLoader creates a new loader instance with the given options
+func NewLoader(dtt payload.Transcoder, log *zap.Logger, interpolator *interpolate.Helper, opts ...LoaderOption) *Loader {
 	if log == nil {
 		log = zap.NewNop()
 	}
 
-	return &Loader{
+	l := &Loader{
 		fileLoader:   NewFileLoader(log),
 		dtt:          dtt,
 		log:          log,
 		interpolator: interpolator,
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(l)
+	}
+
+	return l
 }
 
 // LoadFolder loads all entries from a folder
@@ -48,7 +68,23 @@ func (l *Loader) LoadFolder(folderPath string, vars interpolate.Variables) ([]re
 				zap.Error(err))
 			continue
 		}
+
 		entries = append(entries, fileEntries...)
+	}
+
+	return entries, nil
+}
+
+// LoadFile loads entries from a single file
+func (l *Loader) LoadFile(filePath string, vars interpolate.Variables) ([]registry.Entry, error) {
+	filePayload, err := l.fileLoader.LoadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load file: %w", err)
+	}
+
+	entries, err := l.processFile(filePayload, "", vars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process file: %w", err)
 	}
 
 	return entries, nil
@@ -56,6 +92,11 @@ func (l *Loader) LoadFolder(folderPath string, vars interpolate.Variables) ([]re
 
 // processFile processes a single file and returns registry entries
 func (l *Loader) processFile(p *FilePayload, rootPath string, vars interpolate.Variables) ([]registry.Entry, error) {
+	// If rootPath is empty, use the directory of the file
+	if rootPath == "" {
+		rootPath = filepath.Dir(p.Source())
+	}
+
 	// Interpolate values
 	interpolated, err := l.interpolator.Interpolate(p, interpolate.EntryContext{
 		Vars:     vars,

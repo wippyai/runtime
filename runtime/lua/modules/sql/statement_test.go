@@ -89,7 +89,7 @@ func TestPrepareStatement(t *testing.T) {
 	`, "test", "test_prepare")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_prepare")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -140,7 +140,7 @@ func TestStatementQuery(t *testing.T) {
 	`, "test", "test_query")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_query")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -175,7 +175,7 @@ func TestStatementExecute(t *testing.T) {
 			local stmt, err = db:prepare("UPDATE users SET name = ? WHERE id = ?")
 			if err then error(err) end
 
-			-- Start with parameters
+			-- Serve with parameters
 			local result, err = stmt:execute({"Updated Name", 1})
 			if err then error(err) end
 
@@ -201,7 +201,7 @@ func TestStatementExecute(t *testing.T) {
 	`, "test", "test_execute")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_execute")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -238,11 +238,11 @@ func TestStatementMultipleExecution(t *testing.T) {
 			local stmt, err = db:prepare("INSERT INTO users (name, age, active) VALUES (?, ?, ?)")
 			if err then error(err) end
 
-			-- Start first insert
+			-- Serve first insert
 			local result1, err = stmt:execute({"David", 40, true})
 			if err then error(err) end
 
-			-- Start second insert
+			-- Serve second insert
 			local result2, err = stmt:execute({"Eva", 28, false})
 			if err then error(err) end
 
@@ -281,7 +281,7 @@ func TestStatementMultipleExecution(t *testing.T) {
 	`, "test", "test_multiple_execute")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_multiple_execute")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -361,7 +361,7 @@ func TestStatementErrorHandling(t *testing.T) {
 	`, "test", "test_error_handling")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_error_handling")
 	require.NoError(t, err, "Lua execution failed unexpectedly")
 
@@ -425,7 +425,7 @@ func TestStatementWithInvalidParams(t *testing.T) {
 	`, "test", "test_invalid_params")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_invalid_params")
 	require.NoError(t, err, "Lua execution failed unexpectedly")
 
@@ -470,7 +470,7 @@ func TestStatementWithNilParams(t *testing.T) {
 			local stmt, err = db:prepare("SELECT count FROM counts")
 			if err then error(err) end
 
-			-- Start without parameters (nil)
+			-- Serve without parameters (nil)
 			local rows, err = stmt:query()
 			if err then error(err) end
 
@@ -488,7 +488,7 @@ func TestStatementWithNilParams(t *testing.T) {
 	`, "test", "test_nil_params")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_nil_params")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -534,7 +534,7 @@ func TestStatementDataTypes(t *testing.T) {
 		local stmt, err = db:prepare("INSERT INTO datatypes (int_val, real_val, text_val, bool_val, null_val) VALUES (?, ?, ?, ?, ?)")
 		if err then error(err) end
 
-		-- Start with different data types, using sql.NULL instead of nil
+		-- Serve with different data types, using sql.NULL instead of nil
 		local result, err = stmt:execute({42, 3.14159, "Hello, world!", true, sql.NULL})
 		if err then error(err) end
 
@@ -564,7 +564,7 @@ func TestStatementDataTypes(t *testing.T) {
 `, "test", "test_data_types")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_data_types")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -648,7 +648,7 @@ func TestStatementClose(t *testing.T) {
 	`, "test", "test_statement_close")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_statement_close")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -701,7 +701,7 @@ func TestStatementQueryNoResults(t *testing.T) {
 	`, "test", "test_query_no_results")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_query_no_results")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -776,7 +776,7 @@ func TestStatementQueryNullColumns(t *testing.T) {
 	`, "test", "test_null_columns")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_null_columns")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -880,7 +880,7 @@ func TestStatementWithSQLNull(t *testing.T) {
 	`, "test", "test_null_params")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_null_params")
 	require.NoError(t, err, "Lua execution failed")
 

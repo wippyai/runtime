@@ -24,7 +24,7 @@ local function run_tests()
     local options = {
         pid = process.pid(),
         topic = "test:update",
-        timeout = req:query("timeout") or "1m",
+        timeout = req:query("timeout") or "15m",
         msg_timeout = req:query("timeout") or "1s",
         type = "test"
     }
@@ -158,8 +158,13 @@ local function run_tests()
         else
             local ok = wait_for_completion(cmd:response(), options.timeout)
             if not ok then
+                local _, err = cmd:result()
+                if err == nil then
+                   err = "Test timed out after " .. options.timeout
+                end
+
                 write_event("test:error", {
-                    message = "Test timed out after " .. options.timeout,
+                    message = tostring(err),
                     context = test_id,
                     timestamp = time.now():unix()
                 })

@@ -57,7 +57,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 	dataVal := table.RawGetString("data")
 	if dataVal != lua.LNil {
 		// Convert to payload
-		entry.Data = payload.NewPayload(dataVal, payload.Lua)
+		entry.Data = luaconv.ExportPayload(dataVal)
 	}
 
 	return entry, nil
@@ -104,33 +104,6 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 	return entryTable, nil
 }
 
-// luaValueToGoValue converts a Lua value to an appropriate Go value for metadata
-func luaValueToGoValue(v lua.LValue) (interface{}, bool) {
-	switch v.Type() {
-	case lua.LTString:
-		return v.String(), true
-	case lua.LTNumber:
-		return float64(v.(lua.LNumber)), true
-	case lua.LTBool:
-		return bool(v.(lua.LBool)), true
-	case lua.LTTable:
-		// Handle table values as arrays
-		array := make([]string, 0)
-		v.(*lua.LTable).ForEach(func(_, item lua.LValue) {
-			if item.Type() == lua.LTString {
-				array = append(array, item.String())
-			}
-		})
-		if len(array) > 0 {
-			return array, true
-		}
-		return nil, false
-	default:
-		// skip unsupported types
-		return nil, false
-	}
-}
-
 // convertFilterToMetadata converts a Lua filter table to registry metadata
 // for use with the finder interface
 func convertFilterToMetadata(l *lua.LState, filterTable *lua.LTable) regapi.Metadata {
@@ -147,9 +120,7 @@ func convertFilterToMetadata(l *lua.LState, filterTable *lua.LTable) regapi.Meta
 			}
 
 			// Convert the Lua value to a Go value
-			if val, ok := luaValueToGoValue(v); ok {
-				meta[key] = val
-			}
+			meta[key] = luaconv.ToGoAny(v)
 		}
 	})
 
@@ -161,10 +132,7 @@ func convertFilterToMetadata(l *lua.LState, filterTable *lua.LTable) regapi.Meta
 			if kStr, ok := k.(lua.LString); ok {
 				key := string(kStr)
 
-				// Convert the Lua value to a Go value
-				if val, ok := luaValueToGoValue(v); ok {
-					meta[key] = val
-				}
+				meta[key] = luaconv.ToGoAny(v)
 			}
 		})
 	}

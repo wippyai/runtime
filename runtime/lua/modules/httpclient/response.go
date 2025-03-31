@@ -104,7 +104,7 @@ func httpResponseHeaders(res *luaHTTPResponse, l *lua.LState) int {
 	for key := range res.res.Header {
 		val := res.res.Header.Get(key)
 		if val != "" {
-			headers.RawSetString(key, lua.LString(val))
+			headers.RawSetString(http.CanonicalHeaderKey(key), lua.LString(val))
 		}
 	}
 

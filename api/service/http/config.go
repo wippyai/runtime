@@ -36,6 +36,12 @@ type (
 		Addr      string                     `json:"addr"`
 		Timeouts  TimeoutConfig              `json:"timeouts"`
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
+		Host      HostConfig                 `json:"host"`
+	}
+
+	HostConfig struct {
+		BufferSize  int `json:"buffer_size"`  // Internal job channel buffer size
+		WorkerCount int `json:"worker_count"` // Number of concurrent worker goroutines
 	}
 
 	// TimeoutConfig represents global Timeouts-level configuration options.
@@ -47,11 +53,13 @@ type (
 
 	// RouterConfig represents the configuration for a group of endpoints (a router).
 	RouterConfig struct {
-		Meta        registry.Metadata `json:"meta"`        // Metadata
-		Server      registry.ID       `json:"server"`      // Server Source
-		Prefix      string            `json:"prefix"`      // URL prefix for this group
-		Middlewares []string          `json:"middlewares"` // Middleware names
-		Options     map[string]string `json:"options"`     // Middleware options
+		Meta           registry.Metadata `json:"meta"`            // Metadata
+		Server         registry.ID       `json:"server"`          // Server Source
+		Prefix         string            `json:"prefix"`          // URL prefix for this group
+		Middleware     []string          `json:"middleware"`      // Middleware names
+		Options        map[string]string `json:"options"`         // Middleware options
+		PostMiddleware []string          `json:"post_middleware"` // Post-match middleware names
+		PostOptions    map[string]string `json:"post_options"`    // Post-match middleware options
 	}
 
 	// EndpointConfig represents the configuration for a single endpoint.
@@ -139,6 +147,14 @@ func (c *ServerConfig) Validate() error {
 		return fmt.Errorf("stop timeout must be positive or zero (default)")
 	}
 
+	if c.Host.BufferSize < 0 {
+		return fmt.Errorf("host buffer size must be positive or zero (default)")
+	}
+
+	if c.Host.WorkerCount < 0 {
+		return fmt.Errorf("host worker count must be positive or zero (default)")
+	}
+
 	return nil
 }
 
@@ -165,25 +181,6 @@ func (c *RouterConfig) Validate() error {
 	serverID := c.Meta.StringValue(ServerID)
 	if serverID == "" {
 		return fmt.Errorf("server in metadata cannot be empty")
-	}
-
-	// Validate middleware configuration
-	for _, mw := range c.Middlewares {
-		switch mw {
-		case "timeout":
-			if c.Options != nil {
-				if timeout, exists := c.Options["timeout"]; exists {
-					if _, err := time.ParseDuration(timeout); err != nil {
-						return fmt.Errorf("invalid timeout duration in middleware options: %w", err)
-					}
-				}
-			}
-		case "recoverer", "request_id", "real_ip":
-			// These middleware don't require additional validation
-			continue
-		default:
-			return fmt.Errorf("unsupported middleware: %s", mw)
-		}
 	}
 
 	return nil

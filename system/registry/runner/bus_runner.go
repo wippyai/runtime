@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry/topology"
@@ -96,6 +95,16 @@ func (br *BusRunner) applyOperation(
 ) (topology.StateMap, error) {
 	if err := br.builder.ValidateOperation(state, op); err != nil {
 		return state, fmt.Errorf("invalid operation: %w", err)
+	}
+
+	if op.Entry.Kind == "" {
+		// resolve from reg or fail
+		entry, ok := state[op.Entry.ID]
+		if !ok {
+			return state, fmt.Errorf("entry kind can not be found: %s", entry.ID)
+		}
+
+		op.Entry.Kind = entry.Kind
 	}
 
 	if op.Entry.Kind == registry.KindEntry {

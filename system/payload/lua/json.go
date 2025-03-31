@@ -2,11 +2,12 @@ package lua
 
 import (
 	"fmt"
-
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
 	lua "github.com/yuin/gopher-lua"
 )
+
+var state = lua.NewState()
 
 // RegisterJSON registers JSON<->Lua transcoders
 func RegisterJSON(transcoder payload.TranscoderRegister) {
@@ -26,9 +27,6 @@ func (t *JSONToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 		return nil, fmt.Errorf("JSON=>Lua can only transcode from JSON format, got %s", p.Format())
 	}
 
-	l := lua.NewState()
-	defer l.Close()
-
 	var data []byte
 	switch v := p.Data().(type) {
 	case string:
@@ -40,7 +38,7 @@ func (t *JSONToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	}
 
 	// Use the existing Decode function
-	luaValue, err := json.Decode(l, data)
+	luaValue, err := json.Decode(state, data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode JSON: %w", err)
 	}
