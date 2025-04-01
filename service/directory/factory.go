@@ -3,6 +3,8 @@ package directory
 import (
 	"fmt"
 	"io/fs"
+	"path/filepath"
+	"strings"
 
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	dirapi "github.com/ponyruntime/pony/api/service/directory"
@@ -27,6 +29,12 @@ func NewDirectoryFSFactory() *FSFactory {
 func (f *FSFactory) CreateFS(typeName, dirPath string, mode fs.FileMode) (fsapi.FS, error) {
 	// Create the filesystem using the factory
 	if typeName == dirapi.TypeNameEmbed {
+
+		dirPath = filepath.Clean(dirPath)
+		if strings.HasPrefix(dirPath, "./") {
+			dirPath = dirPath[2:]
+		}
+
 		if _, err := fs.Stat(embed.FS(), dirPath); err != nil {
 			return nil, fmt.Errorf("embed stat: %w", err)
 		}

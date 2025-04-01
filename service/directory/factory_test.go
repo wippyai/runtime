@@ -43,7 +43,7 @@ func TestFSFactory_CreateFS(t *testing.T) {
 
 	t.Run("EmbedFS", func(t *testing.T) {
 		// Test creating an embed filesystem
-		filesystem, err := factory.CreateFS(directory.TypeNameEmbed, ".", 0)
+		filesystem, err := factory.CreateFS(directory.TypeNameEmbed, "./", 0)
 		require.NoError(t, err, "CreateFS should not return an error for embed filesystem")
 		require.NotNil(t, filesystem, "CreateFS should return a filesystem for embed type")
 
