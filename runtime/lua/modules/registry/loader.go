@@ -113,7 +113,6 @@ func (m *LoaderModule) createLoader(l *lua.LState) int {
 		dtt,
 		m.log,
 		interpolatorHelper,
-		//loader.WithLoaderFS(fsys),
 	)
 
 	// Create loader instance
@@ -162,7 +161,6 @@ func loaderLoadDirectory(l *lua.LState) int {
 	}
 
 	// Load entries
-	//entries, err := fl.folderLoader.LoadFolder(dirPath, vars)
 	entries, err := fl.folderLoader.LoadFS(fl.fs, vars)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -215,7 +213,6 @@ func loaderLoadFile(l *lua.LState) int {
 	}
 
 	// Load entries from file
-	//entries, err := fl.folderLoader.LoadFile(filePath, vars)
 	entries, err := fl.folderLoader.LoadFS(fl.fs, vars)
 	if err != nil {
 		l.Push(lua.LNil)
