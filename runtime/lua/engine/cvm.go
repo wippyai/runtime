@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 
@@ -341,10 +342,7 @@ func (e *CoroutineVM) GetTask(thread *lua.LState) (*Task, error) {
 // Close cleans up resources and terminates all running threads.
 func (e *CoroutineVM) Close() {
 	for _, task := range e.threads {
-		if task.cancel != nil {
-			task.cancel()
-		}
-
+		task.thread.Close()
 		task.fn = nil
 		task.thread = nil
 
@@ -444,6 +442,7 @@ func (e *CoroutineVM) createTask(ctx context.Context, fn *lua.LFunction) *Task {
 	thread, cancel := e.vm.state.NewThread()
 	thread.SetContext(ctx)
 
+	log.Printf("NEW TASK")
 	// todo: we can pool it actually
 	task := &Task{
 		thread: thread,
