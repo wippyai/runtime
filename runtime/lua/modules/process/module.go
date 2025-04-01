@@ -2,19 +2,20 @@ package process
 
 import (
 	"fmt"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
-	"strings"
-	"time"
-
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"strings"
+	"time"
 )
+
+const defaultCancelTimeout = "30s"
 
 // Module provides a unified process API for all contexts
 type Module struct {
@@ -618,21 +619,15 @@ func (m *Module) terminate(l *lua.LState) int {
 	return 1
 }
 
-// cancel sends a cancellation request to a process (accepts Target or registered name)
-// Params: destination, deadline
+// cancel sends a cancellation request to a process (accepts PID or registered name)
+// Params: destination, [deadline]
 // Where deadline can be a duration string (e.g. "5s") or milliseconds number
+// If deadline is not provided, defaultCancelTimeout will be used
 // Returns: success, error
 func (m *Module) cancel(l *lua.LState) int {
 	manager, ok := m.getProcessManager(l)
 	if !ok {
 		return 2 // Error values already pushed by getProcessManager
-	}
-
-	// Require both destination and deadline arguments
-	if l.GetTop() < 2 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("cancel requires two arguments: destination and deadline"))
-		return 2
 	}
 
 	// Get current process context
@@ -641,7 +636,14 @@ func (m *Module) cancel(l *lua.LState) int {
 		return 2 // Error values already pushed by checkPID
 	}
 
-	// Parse Target or name argument
+	// Require at least destination argument
+	if l.GetTop() < 1 {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("cancel requires at least destination argument"))
+		return 2
+	}
+
+	// Parse PID or name argument
 	pidOrName := l.CheckString(1)
 
 	// Resolve destination
@@ -652,29 +654,40 @@ func (m *Module) cancel(l *lua.LState) int {
 		return 2
 	}
 
-	// Parse required deadline argument
+	// Parse deadline argument if provided, otherwise use default
 	var deadline time.Time
-	switch l.Get(2).Type() {
-	case lua.LTString:
-		// Parse as duration string (e.g. "1s", "500ms")
-		durationStr := l.CheckString(2)
-		duration, err := time.ParseDuration(durationStr)
-		if err != nil {
+	if l.GetTop() >= 2 {
+		// User provided a timeout
+		switch l.Get(2).Type() {
+		case lua.LTString:
+			// Parse as duration string (e.g. "1s", "500ms")
+			durationStr := l.CheckString(2)
+			duration, err := time.ParseDuration(durationStr)
+			if err != nil {
+				l.Push(lua.LNil)
+				l.Push(lua.LString(fmt.Sprintf("invalid duration format: %v", err)))
+				return 2
+			}
+			deadline = time.Now().Add(duration)
+		case lua.LTNumber:
+			// Parse as milliseconds
+			ms := l.CheckNumber(2)
+			deadline = time.Now().Add(time.Duration(ms) * time.Millisecond)
+		default:
 			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("invalid duration format: %v", err)))
+			l.Push(lua.LString("deadline must be either a duration string or milliseconds number"))
+			return 2
+		}
+	} else {
+		// No timeout provided, use default
+		duration, err := time.ParseDuration(defaultCancelTimeout)
+		if err != nil {
+			// This should never happen as defaultCancelTimeout is a constant
+			l.Push(lua.LNil)
+			l.Push(lua.LString(fmt.Sprintf("invalid default duration format: %v", err)))
 			return 2
 		}
 		deadline = time.Now().Add(duration)
-
-	case lua.LTNumber:
-		// Parse as milliseconds
-		ms := l.CheckNumber(2)
-		deadline = time.Now().Add(time.Duration(ms) * time.Millisecond)
-
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString("deadline must be either a duration string or milliseconds number"))
-		return 2
 	}
 
 	// Cancel process with deadline
