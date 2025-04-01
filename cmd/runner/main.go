@@ -587,6 +587,7 @@ func main() {
 
 	// collect gc
 	runtime.GC()
+	debug.SetMemoryLimit(50 * 1024 * 1024) // 50mb
 
 	// Serve profiler if enabled
 	if *enableProfiling {
