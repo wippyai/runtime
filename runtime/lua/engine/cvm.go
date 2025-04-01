@@ -444,6 +444,7 @@ func (e *CoroutineVM) createTask(ctx context.Context, fn *lua.LFunction) *Task {
 	thread, cancel := e.vm.state.NewThread()
 	thread.SetContext(ctx)
 
+	// todo: we can pool it actually
 	task := &Task{
 		thread: thread,
 		cancel: cancel,
