@@ -2,6 +2,7 @@ package interpolate
 
 import (
 	"fmt"
+	"io/fs"
 
 	"github.com/ponyruntime/pony/api/payload"
 )
@@ -14,8 +15,8 @@ type Variables map[string]string
 // and the current configuration filename being processed.
 type EntryContext struct {
 	Vars     Variables
-	RootDir  string
 	Filename string
+	FS       fs.FS
 }
 
 // InterpolatorFunc defines the signature for interpolation functions

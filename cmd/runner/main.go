@@ -5,19 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/joho/godotenv"
-	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
-	"github.com/ponyruntime/pony/runtime/lua/modules/events"
-	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
-	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
-	"github.com/ponyruntime/pony/runtime/lua/modules/store"
-	yamlmod "github.com/ponyruntime/pony/runtime/lua/modules/yaml"
-	native "github.com/ponyruntime/pony/service/exec"
-	"github.com/ponyruntime/pony/service/http/cors"
-	"github.com/ponyruntime/pony/service/http/firewall"
-	"github.com/ponyruntime/pony/service/processfunc"
-	"github.com/ponyruntime/pony/service/tokenstore"
+	iofs "io/fs"
 	httpbase "net/http"
 	"os"
 	"os/signal"
@@ -29,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/joho/godotenv"
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
@@ -42,6 +32,7 @@ import (
 	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
 	secapi "github.com/ponyruntime/pony/api/security"
 	topapi "github.com/ponyruntime/pony/api/topology"
+	"github.com/ponyruntime/pony/embed"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/command"
 	bteaapp "github.com/ponyruntime/pony/runtime/lua/component/btea"
@@ -55,8 +46,11 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/cloudstorage"
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
+	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
+	"github.com/ponyruntime/pony/runtime/lua/modules/events"
 	"github.com/ponyruntime/pony/runtime/lua/modules/excel"
+	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
 	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
 	"github.com/ponyruntime/pony/runtime/lua/modules/funcmod"
 	fncallmod "github.com/ponyruntime/pony/runtime/lua/modules/funcs"
@@ -70,24 +64,32 @@ import (
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
 	processmodapi "github.com/ponyruntime/pony/runtime/lua/modules/processmod"
 	registrymod "github.com/ponyruntime/pony/runtime/lua/modules/registry"
+	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
 	sqlmod "github.com/ponyruntime/pony/runtime/lua/modules/sql"
+	"github.com/ponyruntime/pony/runtime/lua/modules/store"
 	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
+	yamlmod "github.com/ponyruntime/pony/runtime/lua/modules/yaml"
 	"github.com/ponyruntime/pony/runtime/lua/task"
 	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/aws/config"
 	"github.com/ponyruntime/pony/service/aws/s3"
 	fsdir "github.com/ponyruntime/pony/service/directory"
+	native "github.com/ponyruntime/pony/service/exec"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
+	"github.com/ponyruntime/pony/service/http/cors"
+	"github.com/ponyruntime/pony/service/http/firewall"
 	"github.com/ponyruntime/pony/service/http/websocket_relay"
 	"github.com/ponyruntime/pony/service/memstore"
 	"github.com/ponyruntime/pony/service/policy"
+	"github.com/ponyruntime/pony/service/processfunc"
 	"github.com/ponyruntime/pony/service/sql"
 	service "github.com/ponyruntime/pony/service/supervisor"
 	"github.com/ponyruntime/pony/service/terminal"
+	"github.com/ponyruntime/pony/service/tokenstore"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/fs"
 	"github.com/ponyruntime/pony/system/function"
@@ -287,7 +289,7 @@ func (a *App) Initialize() error {
 	return nil
 }
 
-func (a *App) Start(folderPath string) error {
+func (a *App) Start(folderPath string, useEmbed bool) error {
 	// Spawn context with values
 	ctx := a.ctx
 	ctx = event.WithBus(ctx, a.eventBus)
@@ -358,11 +360,27 @@ func (a *App) Start(folderPath string) error {
 	}
 	a.eventRouter = router
 
+	var fSys iofs.FS
+	if useEmbed {
+		fSys, err = iofs.Sub(embed.FS(), folderPath)
+		if err != nil {
+			a.cancel()
+			return fmt.Errorf("open embedded sub-filesystem (use . to open from root): %w", err)
+		}
+	} else {
+		osRoot, err := os.OpenRoot(folderPath)
+		if err != nil {
+			a.cancel()
+			return fmt.Errorf("open folder %s: %w", folderPath, err)
+		}
+		fSys = osRoot.FS()
+	}
+
 	// Load and apply initial state
-	appState, err := loadApplicationState(folderPath, a.dtt, a.logger)
+	appState, err := loadApplicationState(fSys, a.dtt, a.logger)
 	if err != nil {
 		a.cancel()
-		return fmt.Errorf("failed to load application state: %w", err)
+		return fmt.Errorf("load application state: %w", err)
 	}
 
 	bootCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -538,6 +556,7 @@ func main() {
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
 	veryVerbose := flag.Bool("vv", false, "enable very verbose debug logging with stack traces")
 	enableProfiling := flag.Bool("p", false, "enable performance profiling")
+	useEmbed := flag.Bool("use-embed", false, "use embedded files")
 	flag.Parse()
 
 	args := flag.Args()
@@ -594,7 +613,7 @@ func main() {
 	}
 
 	// LaunchProcess application
-	if err := app.Start(folderPath); err != nil {
+	if err := app.Start(folderPath, *useEmbed); err != nil {
 		app.logger.Fatal("failed to start application", zap.Error(err))
 	}
 
@@ -655,10 +674,11 @@ func initLogger(verbose, veryVerbose bool, bus event.Bus) (*zap.Logger, logapi.C
 }
 
 func loadApplicationState(
-	folderPath string,
+	fs iofs.FS,
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
 ) (regapi.ChangeSet, error) {
+
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
@@ -670,14 +690,14 @@ func loadApplicationState(
 		vars[pair[0]] = pair[1]
 	}
 
-	entries, err := folderLoader.LoadFolder(folderPath, vars)
+	entries, err := folderLoader.LoadFS(fs, vars)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load entries: %w", err)
+		return nil, fmt.Errorf("load entries: %w", err)
 	}
 
 	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build state delta: %w", err)
+		return nil, fmt.Errorf("build state delta: %w", err)
 	}
 
 	return boot, nil

@@ -60,8 +60,13 @@ func main() {
 		vars[pair[0]] = pair[1]
 	}
 
+	osRoot, err := os.OpenRoot(folderPath)
+	if err != nil {
+		logger.Fatal("open folder path filesystem", zap.Error(err))
+	}
+
 	// 4. Load List:
-	entries, err := folderLoader.LoadFolder(folderPath, vars) // Pass vars to Load
+	entries, err := folderLoader.LoadFS(osRoot.FS(), vars) // Pass vars to Load
 	if err != nil {
 		logger.Fatal("Failed to load entries", zap.Error(err))
 	}

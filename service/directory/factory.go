@@ -1,15 +1,20 @@
 package directory
 
 import (
+	"fmt"
 	"io/fs"
+	"path/filepath"
+	"strings"
 
 	fsapi "github.com/ponyruntime/pony/api/fs"
+	dirapi "github.com/ponyruntime/pony/api/service/directory"
+	"github.com/ponyruntime/pony/embed"
 )
 
 // FSFactoryAPI defines the interface for creating filesystem instances
 type FSFactoryAPI interface {
 	// CreateFS creates a new filesystem instance
-	CreateFS(dirPath string, mode fs.FileMode) (fsapi.FS, error)
+	CreateFS(name, dirPath string, mode fs.FileMode) (fsapi.FS, error)
 }
 
 // FSFactory implements FSFactoryAPI to create directory-based filesystems
@@ -21,6 +26,23 @@ func NewDirectoryFSFactory() *FSFactory {
 }
 
 // CreateFS creates a new directory filesystem
-func (f *FSFactory) CreateFS(dirPath string, mode fs.FileMode) (fsapi.FS, error) {
+func (f *FSFactory) CreateFS(typeName, dirPath string, mode fs.FileMode) (fsapi.FS, error) {
+	// Create the filesystem using the factory
+	if typeName == dirapi.TypeNameEmbed {
+
+		dirPath = filepath.Clean(dirPath)
+		if strings.HasPrefix(dirPath, "./") {
+			dirPath = dirPath[2:]
+		}
+
+		if _, err := fs.Stat(embed.FS(), dirPath); err != nil {
+			return nil, fmt.Errorf("embed stat: %w", err)
+		}
+		fsys, err := fs.Sub(embed.FS(), dirPath)
+		if err != nil {
+			return nil, err
+		}
+		return NewReadOnlyFS(fsys), nil
+	}
 	return NewDirectoryFS(dirPath, mode)
 }
