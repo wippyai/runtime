@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,6 +32,7 @@ import (
 	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
 	secapi "github.com/ponyruntime/pony/api/security"
 	topapi "github.com/ponyruntime/pony/api/topology"
+	"github.com/ponyruntime/pony/embed"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/command"
 	bteaapp "github.com/ponyruntime/pony/runtime/lua/component/btea"
@@ -121,9 +121,6 @@ import (
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 )
-
-//go:embed all:embed
-var embedFS embed.FS
 
 type App struct {
 	ctx         context.Context
@@ -365,7 +362,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 
 	var fSys iofs.FS
 	if useEmbed {
-		fSys, err = iofs.Sub(embedFS, filepath.Join("embed", folderPath))
+		fSys, err = iofs.Sub(embed.FS(), folderPath)
 		if err != nil {
 			a.cancel()
 			return fmt.Errorf("open embedded sub-filesystem (use . to open from root): %w", err)
