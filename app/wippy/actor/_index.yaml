@@ -14,6 +14,7 @@ entries:
     meta:
       name: "Actor Library Test"
       type: "test"
+      group: "General"
       tags: [ "actor", "library", "message-passing", "concurrency", "tests" ]
       comment: "Tests the actor library's messaging and event handling capabilities"
       depends_on: [ "wippy.actor:actor", "wippy.test:test" ]
@@ -22,5 +23,3 @@ entries:
     imports:
       test: "wippy.test:test"
       actor: "wippy.actor:actor"
-    pool:
-      size: 1 # todo change it to support cold pools

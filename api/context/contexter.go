@@ -14,7 +14,7 @@ func NewContexter[T any]() *Contexter[T] {
 	}
 }
 
-func (c *Contexter[T]) WithValue(key string, value T) {
+func (c *Contexter[T]) SetValue(key string, value T) {
 	c.shared[key] = value
 }
 
@@ -32,4 +32,12 @@ func (c *Contexter[T]) Iterate(fn func(key string, value T)) {
 
 func (c *Contexter[T]) Len() int {
 	return len(c.shared)
+}
+
+func (c *Contexter[T]) Clone() *Contexter[T] {
+	clone := NewContexter[T]()
+	for k, v := range c.shared {
+		clone.shared[k] = v
+	}
+	return clone
 }

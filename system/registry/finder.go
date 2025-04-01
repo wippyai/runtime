@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"log"
 	"regexp"
 	"strings"
 
@@ -27,18 +28,18 @@ func NewFinder(r registry.EntryReader) registry.Finder {
 //   - ".name": Match entry's ID.Name field (exact match)
 //
 // Metadata field matching operators:
-//   - "field": Standard equality match for the field
-//   - "~field": Regex pattern match (e.g., "~description": ".*service.*")
-//   - "*field": Contains match (substring search)
-//   - "^field": Prefix match (starts with)
-//   - "$field": Suffix match (ends with)
+//   - "field" or "meta.field": Standard equality match for the field
+//   - "~field" or "~meta.field": Regex pattern match (e.g., "~description": ".*service.*")
+//   - "*field" or "*meta.field": Contains match (substring search)
+//   - "^field" or "^meta.field": Prefix match (starts with)
+//   - "$field" or "$meta.field": Suffix match (ends with)
 //
 // Examples:
 //
-//	Find({".kind": "service", "enabled": true})
+//	Find({".kind": "service", "meta.enabled": true})
 //	  -> Find all services with enabled=true
 //
-//	Find({"~description": ".*api.*", "*tags": "backend"})
+//	Find({"~meta.description": ".*api.*", "*meta.tags": "backend"})
 //	  -> Find entries with description matching regex ".*api.*" and tags containing "backend"
 func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 	// Get all entries
@@ -59,6 +60,16 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 
 	// Process search criteria
 	for key, value := range meta {
+		// Strip 'meta.' prefix if present and log deprecated usage without prefix
+		var originalKey = key
+		var actualField = key
+		var isMetaPrefixed = false
+
+		if strings.HasPrefix(key, "meta.") {
+			actualField = key[5:] // Remove the 'meta.' prefix
+			isMetaPrefixed = true
+		}
+
 		// Handle root field matchers
 		if strings.HasPrefix(key, ".") {
 			rootField := key[1:] // Remove the dot
@@ -67,46 +78,63 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 		}
 
 		// Handle regex matchers
-		if strings.HasPrefix(key, "~") {
-			field := key[1:] // Remove the ~ prefix
+		if strings.HasPrefix(actualField, "~") {
+			field := actualField[1:] // Remove the ~ prefix
 			if strVal, ok := value.(string); ok {
 				regex, err := regexp.Compile(strVal)
 				if err == nil {
 					regexMatchers[field] = regex
 				}
 			}
+			if !isMetaPrefixed && !strings.HasPrefix(originalKey, "meta.") {
+				log.Printf("Deprecated: Using '~%s' without 'meta.' prefix. Consider using '~meta.%s' instead.", field, field)
+			}
 			continue
 		}
 
 		// Handle contains matchers
-		if strings.HasPrefix(key, "*") {
-			field := key[1:] // Remove the * prefix
+		if strings.HasPrefix(actualField, "*") {
+			field := actualField[1:] // Remove the * prefix
 			if strVal, ok := value.(string); ok {
 				containsMatchers[field] = strVal
+			}
+			if !isMetaPrefixed && !strings.HasPrefix(originalKey, "meta.") {
+				log.Printf("Deprecated: Using '*%s' without 'meta.' prefix. Consider using '*meta.%s' instead.", field, field)
 			}
 			continue
 		}
 
 		// Handle prefix matchers
-		if strings.HasPrefix(key, "^") {
-			field := key[1:] // Remove the ^ prefix
+		if strings.HasPrefix(actualField, "^") {
+			field := actualField[1:] // Remove the ^ prefix
 			if strVal, ok := value.(string); ok {
 				prefixMatchers[field] = strVal
+			}
+			if !isMetaPrefixed && !strings.HasPrefix(originalKey, "meta.") {
+				log.Printf("Deprecated: Using '^%s' without 'meta.' prefix. Consider using '^meta.%s' instead.", field, field)
 			}
 			continue
 		}
 
 		// Handle suffix matchers
-		if strings.HasPrefix(key, "$") {
-			field := key[1:] // Remove the $ prefix
+		if strings.HasPrefix(actualField, "$") {
+			field := actualField[1:] // Remove the $ prefix
 			if strVal, ok := value.(string); ok {
 				suffixMatchers[field] = strVal
+			}
+			if !isMetaPrefixed && !strings.HasPrefix(originalKey, "meta.") {
+				log.Printf("Deprecated: Using '$%s' without 'meta.' prefix. Consider using '$meta.%s' instead.", field, field)
 			}
 			continue
 		}
 
 		// Standard metadata matching
-		standardMeta[key] = value
+		if isMetaPrefixed {
+			standardMeta[actualField] = value
+		} else {
+			standardMeta[actualField] = value
+			log.Printf("Deprecated: Using metadata field '%s' without 'meta.' prefix. Consider using 'meta.%s' instead.", actualField, actualField)
+		}
 	}
 
 	// Create standard matcher

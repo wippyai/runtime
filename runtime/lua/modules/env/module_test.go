@@ -16,7 +16,7 @@ func TestEnvModule(t *testing.T) {
 
 	t.Run("get environment variable", func(t *testing.T) {
 		contexter := ctxapi.NewContexter[string]()
-		contexter.WithValue("TEST_VAR", "test_value")
+		contexter.SetValue("TEST_VAR", "test_value")
 		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, contexter)
 
 		mod := NewEnvModule()

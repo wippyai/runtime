@@ -19,6 +19,7 @@ func TestRequest_StreamBody_Simple(t *testing.T) {
 		body := strings.NewReader(bodyContent)
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
+
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 

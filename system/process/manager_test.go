@@ -69,7 +69,7 @@ func (m *managerManagedHost) Launch(ctx context.Context, launch *process.Launch)
 	m.launched = true
 	m.lastLaunch = launch
 
-	// Return a PID with the provided values but a modified UniqID
+	// Return a Target with the provided values but a modified UniqID
 	return pubsub.PID{
 		Node:   launch.PID.Node,
 		Host:   launch.PID.Host,
@@ -112,7 +112,7 @@ func (m *managerDelegatedHost) Launch(ctx context.Context, pid pubsub.PID, lf pr
 	m.lastLifecycle = lf
 	m.lastInput = input
 
-	// Return a PID with the provided values but a modified UniqID
+	// Return a Target with the provided values but a modified UniqID
 	return pubsub.PID{
 		Node:   "delegated-node",
 		Host:   pid.Host,
@@ -461,7 +461,7 @@ func TestManager_Cancel(t *testing.T) {
 
 	// Verify the cancel message contents
 	if host.lastCancel != nil {
-		assert.Equal(t, targetPID, host.lastCancel.PID)
+		assert.Equal(t, targetPID, host.lastCancel.Target)
 
 		// Check if there's at least one message
 		require.GreaterOrEqual(t, len(host.lastCancel.Messages), 1)
@@ -610,7 +610,7 @@ func TestManager_AttachLifecycle(t *testing.T) {
 		Link:    true,
 	}
 
-	// Set up a process and PID for the callbacks
+	// Set up a process and Target for the callbacks
 	proc := &mockProcess{}
 	pid := pubsub.PID{
 		Node:   "node",

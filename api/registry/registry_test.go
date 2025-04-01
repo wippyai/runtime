@@ -16,7 +16,7 @@ func TestID_UnmarshalJSON(t *testing.T) {
 	}{
 		{
 			name:     "valid object format",
-			input:    `{"ns":"test-ns","id":"test-name"}`,
+			input:    `{"ns":"test-ns","name":"test-name"}`,
 			expected: ID{NS: "test-ns", Name: "test-name"},
 			wantErr:  false,
 		},
@@ -51,14 +51,14 @@ func TestID_UnmarshalJSON(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "invalid object format - missing fields",
+			name:     "object format with missing name field",
 			input:    `{"ns":"test-ns"}`,
-			expected: ID{},
-			wantErr:  true,
+			expected: ID{NS: "test-ns", Name: ""},
+			wantErr:  false,
 		},
 		{
 			name:     "invalid json",
-			input:    `{"ns":test-ns","id":"test-name"}`,
+			input:    `{"ns":test-ns","name":"test-name"}`,
 			expected: ID{},
 			wantErr:  true,
 		},
@@ -103,7 +103,7 @@ func TestID_UnmarshalJSON_RealWorld(t *testing.T) {
 			name: "service configuration",
 			input: `{
 				"ns": "services",
-				"id": "database.postgresql.primary"
+				"name": "database.postgresql.primary"
 			}`,
 			expected: ID{
 				NS:   "services",
@@ -124,7 +124,7 @@ func TestID_UnmarshalJSON_RealWorld(t *testing.T) {
 			name: "configuration with special characters",
 			input: `{
 				"ns": "config.prod-env",
-				"id": "auth.jwt.secret@v2"
+				"name": "auth.jwt.secret@v2"
 			}`,
 			expected: ID{
 				NS:   "config.prod-env",

@@ -110,7 +110,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, nil)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to update btea node: %w", err)
 	}
 

@@ -44,7 +44,7 @@ func (p *LuaProcess) Start(ctx context.Context, pid pubsub.PID, input payload.Pa
 		}
 	}
 
-	// Start the process using the state
+	// Serve the process using the state
 	return p.state.Start(input, onStartFunc)
 }
 

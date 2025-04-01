@@ -1,7 +1,7 @@
 # Function Component Specification
 
 ## Purpose
-The Function component provides a framework for registering, managing, and executing asynchronous functions within the Pony Runtime. It enables dynamic registration of handlers that can process tasks and return results through channels.
+The Function component provides a framework for registering, managing, and executing asynchronous functions within the Wippy Runtime. It enables dynamic registration of handlers that can process tasks and return results through channels.
 
 ## Core Concepts
 
@@ -111,4 +111,4 @@ for result := range resultCh {
 }
 ```
 
-This specification defines the Function component that provides a flexible framework for managing and executing asynchronous tasks within the Pony Runtime.
+This specification defines the Function component that provides a flexible framework for managing and executing asynchronous tasks within the Wippy Runtime.

@@ -3,9 +3,6 @@ package process
 import (
 	"context"
 	"errors"
-	"sync"
-	"sync/atomic"
-
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
@@ -16,8 +13,11 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"sync"
+	"sync/atomic"
 )
 
 // Common errors
@@ -86,7 +86,7 @@ func (s *State) InitContext(ctx context.Context, pid pubsub.PID) error {
 
 	s.PID = pid
 
-	// Set PID in context
+	// Set Target in context
 	ctx = pubsub.WithPID(ctx, pid)
 
 	// Init unit of work
@@ -133,7 +133,7 @@ func (s *State) Start(input payload.Payloads, onStart func()) error {
 		return err
 	}
 
-	// Start the Lua function
+	// Serve the Lua function
 	s.resultCh, err = s.Runner.Start(s.Ctx, s.FuncName, args...)
 	if err != nil {
 		return err
@@ -259,7 +259,9 @@ func (s *State) Complete(err error, result lua.LValue) {
 		return
 	}
 
-	if !errors.Is(err, process.ErrTerminated) {
+	if !errors.Is(err, process.ErrTerminated) &&
+		!errors.Is(err, supervisor.ErrExit) &&
+		!errors.Is(err, supervisor.ErrTerminated) {
 		// when terminate we just kill it
 		s.wg.Wait()
 	}
@@ -277,7 +279,7 @@ func (s *State) Complete(err error, result lua.LValue) {
 			onComplete(s.PID, &runtime.Result{Error: err})
 		} else {
 			onComplete(s.PID, &runtime.Result{
-				Value: payload.NewPayload(result, payload.Lua),
+				Value: luaconv.ExportPayload(result),
 			})
 		}
 	}
@@ -334,7 +336,8 @@ func (s *State) SendPackage(pkg *pubsub.Package) error {
 			inboxValues := make([]lua.LValue, 0, len(msg.Payloads))
 
 			for _, p := range msg.Payloads {
-				m := processmod.NewMessage(msg.Topic, p)
+				m := processmod.NewMessage(pkg.Source, msg.Topic, p)
+				// todo: remove payload from pkg
 				inboxValues = append(inboxValues, processmod.WrapMessage(s.UoW.State(), m))
 			}
 

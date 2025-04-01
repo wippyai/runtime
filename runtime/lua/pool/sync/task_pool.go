@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/logs"
@@ -152,7 +153,7 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 
 	if err == nil {
 		// Set the result value
-		runtimeResult.Value = payload.NewPayload(result, payload.Lua)
+		runtimeResult.Value = luaconv.ExportPayload(result)
 
 		// Return VM to the pool
 		select {

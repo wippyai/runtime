@@ -5,6 +5,7 @@ import (
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -68,7 +69,7 @@ func newCommandFunc(l *lua.LState) int {
 		}
 
 		// Otherwise create a new payload
-		params[i] = payload.NewPayload(argVal, payload.Lua)
+		params[i] = luaconv.ExportPayload(argVal)
 	}
 
 	// Create the command with cancellation handler

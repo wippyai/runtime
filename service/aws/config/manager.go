@@ -221,17 +221,16 @@ func (r *configResource) Get() (any, error) {
 }
 
 // Release implements resource.Resource interface
-func (r *configResource) Release() error {
+func (r *configResource) Release() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.closed {
-		return nil
+		return
 	}
 
 	delete(r.manager.configs, r.id)
 	r.closed = true
-	return nil
 }
 
 // createAWSConfig creates an AWS configuration from S3Config

@@ -10,7 +10,6 @@ import (
 
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -47,6 +46,10 @@ func registerFS(l *lua.LState) {
 		// File operations
 		"readfile":  fsReadFile,
 		"writefile": fsWriteFile,
+
+		// Aliases
+		"read_file":  fsReadFile,
+		"write_file": fsWriteFile,
 
 		// Checks
 		"isdir":  fsIsDir,
@@ -349,7 +352,7 @@ func fsIsDir(l *lua.LState) int {
 	return 1
 }
 
-// fsReadFile reads an entire file's contents using coroutine.Wrap
+// fsReadFile reads an entire file's contents directly
 func fsReadFile(l *lua.LState) int {
 	fsInst := CheckFS(l, 1)
 	path := l.CheckString(2)
@@ -366,30 +369,33 @@ func fsReadFile(l *lua.LState) int {
 		return 0
 	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		file, err := fsInst.fs.OpenFile(resolved, os.O_RDONLY, 0)
-		if err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.readfile: %s", err.Error()))
-		}
+	file, err := fsInst.fs.OpenFile(resolved, os.O_RDONLY, 0)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("fs.readfile: %s", err.Error())))
+		return 2
+	}
 
-		// Use our unified File type with UoW integration
-		f := NewFile(uw, file)
-		defer func() {
-			_ = f.Close() // Safe to ignore error here as we're just cleaning up
-		}()
+	// Use our unified File type with UoW integration
+	f := NewFile(uw, file)
+	defer func() {
+		_ = f.Close() // Safe to ignore error here as we're just cleaning up
+	}()
 
-		var buf bytes.Buffer
-		if _, err := io.Copy(&buf, f); err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.readfile: %s", err.Error()))
-		}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, f); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("fs.readfile: %s", err.Error())))
+		return 2
+	}
 
-		return engine.NewUpdate(nil, []lua.LValue{lua.LString(buf.String())}, nil)
-	})
-
-	return -1 // Yield
+	// todo: normalize
+	l.Push(lua.LString(buf.String()))
+	l.Push(lua.LNil)
+	return 2
 }
 
-// fsWriteFile writes data to a file using coroutine.Wrap
+// fsWriteFile writes data to a file directly
 func fsWriteFile(l *lua.LState) int {
 	fsInst := CheckFS(l, 1)
 	path := l.CheckString(2)
@@ -424,44 +430,50 @@ func fsWriteFile(l *lua.LState) int {
 		return 0
 	}
 
-	coroutine.Wrap(l, func() *engine.Update {
-		// Open destination file
-		dstFile, err := fsInst.fs.OpenFile(resolved, flag, 0644)
-		if err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writefile: failed to open destination: %w", err))
+	// Open destination file
+	dstFile, err := fsInst.fs.OpenFile(resolved, flag, 0644)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("fs.writefile: failed to open destination: %s", err.Error())))
+		return 2
+	}
+
+	// Use our unified File type with UoW integration
+	dst := NewFile(uw, dstFile)
+	defer func() {
+		_ = dst.Close() // Safe to ignore error here as we're just cleaning up
+	}()
+
+	// Determine the reader based on input type
+	var reader io.Reader
+	switch v := v.(type) {
+	case lua.LString:
+		reader = strings.NewReader(string(v))
+
+	case *lua.LUserData:
+		// Check if the userdata implements io.Reader
+		if r, ok := v.Value.(io.Reader); ok {
+			reader = r
+		} else {
+			l.Push(lua.LNil)
+			l.Push(lua.LString("fs.writefile: input does not implement io.Reader"))
+			return 2
 		}
 
-		// Use our unified File type with UoW integration
-		dst := NewFile(uw, dstFile)
-		defer func() {
-			_ = dst.Close() // Safe to ignore error here as we're just cleaning up
-		}()
+	default:
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("fs.writefile: invalid input type, expected string or Reader")))
+		return 2
+	}
 
-		// Determine the reader based on input type
-		var reader io.Reader
-		switch v := v.(type) {
-		case lua.LString:
-			reader = strings.NewReader(string(v))
+	// Copy the data
+	if _, err := io.Copy(dst, reader); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("fs.writefile: copy failed: %s", err.Error())))
+		return 2
+	}
 
-		case *lua.LUserData:
-			// Check if the userdata implements io.Reader
-			if r, ok := v.Value.(io.Reader); ok {
-				reader = r
-			} else {
-				return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writefile: input does not implement io.Reader"))
-			}
-
-		default:
-			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writefile: invalid input type, expected string or Reader"))
-		}
-
-		// Copy the data
-		if _, err := io.Copy(dst, reader); err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writefile: copy failed: %w", err))
-		}
-
-		return engine.NewUpdate(nil, []lua.LValue{lua.LBool(true)}, nil)
-	})
-
-	return -1 // Yield
+	l.Push(lua.LBool(true))
+	l.Push(lua.LNil)
+	return 2
 }

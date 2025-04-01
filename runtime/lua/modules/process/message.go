@@ -2,6 +2,7 @@ package process
 
 import (
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
@@ -16,6 +17,7 @@ const (
 type Message struct {
 	Topic   string
 	Payload payload.Payload
+	From    pubsub.PID // Added From field to track the sender
 }
 
 // RegisterMessageType registers the message type with Lua
@@ -23,6 +25,7 @@ func RegisterMessageType(l *lua.LState) {
 	value.RegisterTypeMethods(l, MessageTypeName, nil, map[string]lua.LGFunction{
 		"topic":   messageTopic,
 		"payload": messagePayload,
+		"from":    messageFrom, // Added from method
 	})
 }
 
@@ -43,6 +46,23 @@ func messagePayload(l *lua.LState) int {
 	return payloadmod.PushPayload(l, msg.Payload)
 }
 
+// messageFrom returns the sender of a message
+// Method: message:from()
+// Returns: PID string or nil if not available
+func messageFrom(l *lua.LState) int {
+	msg := CheckMessage(l)
+
+	// Check if From field is empty
+	if msg.From.String() == "{||}" {
+		l.Push(lua.LNil) // Return nil if sender PID is empty
+		return 1
+	}
+
+	// Push the PID string to the Lua stack
+	l.Push(lua.LString(msg.From.String()))
+	return 1
+}
+
 // CheckMessage gets a message from the Lua stack
 // Returns the Message object or raises an error
 func CheckMessage(l *lua.LState) *Message {
@@ -54,21 +74,12 @@ func CheckMessage(l *lua.LState) *Message {
 	return nil
 }
 
-// PushMessage creates a message userdata and pushes it onto the stack
-// Returns 1 (number of values pushed)
-func PushMessage(l *lua.LState, topic string, p payload.Payload) int {
-	ud := l.NewUserData()
-	ud.Value = &Message{Topic: topic, Payload: p}
-	ud.Metatable = value.GetTypeMetatable(l, MessageTypeName)
-	l.Push(ud)
-	return 1
-}
-
-// NewMessage creates a new Message object
-func NewMessage(topic string, p payload.Payload) *Message {
+// NewMessage creates a new Message object with sender information
+func NewMessage(from pubsub.PID, topic string, p payload.Payload) *Message {
 	return &Message{
 		Topic:   topic,
 		Payload: p,
+		From:    from,
 	}
 }
 

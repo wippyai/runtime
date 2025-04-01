@@ -18,11 +18,11 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 		routerID := registry.ID{NS: "test", Name: "router1"}
 
 		// Add initial router
-		err := rm.AddRouter(routerID, "/api/v1", nil)
+		err := rm.AddRouter(routerID, "/api/v1", nil, nil)
 		require.NoError(t, err)
 
 		// Update existing router with new prefix - should not error
-		err = rm.AddRouter(routerID, "/api/v2", nil)
+		err = rm.AddRouter(routerID, "/api/v2", nil, nil)
 		require.NoError(t, err)
 
 		// We could add verification here to check the router was updated
@@ -91,7 +91,7 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 
 	// Add test router
 	routerID := registry.ID{NS: "test", Name: "router1"}
-	err := rm.AddRouter(routerID, "/api", nil)
+	err := rm.AddRouter(routerID, "/api", nil, nil)
 	require.NoError(t, err)
 
 	// Add test endpoint
@@ -148,7 +148,7 @@ func TestRouteManager_MultipleRouters(t *testing.T) {
 	}
 
 	for _, r := range routerIDs {
-		err := rm.AddRouter(r.id, r.prefix, nil)
+		err := rm.AddRouter(r.id, r.prefix, nil, nil)
 		require.NoError(t, err)
 
 		// Add a test endpoint to each router
@@ -198,7 +198,7 @@ func TestRouteManager_Middleware(t *testing.T) {
 	// Add router with middleware
 	routerID := registry.ID{NS: "test", Name: "router1"}
 	middleware := []func(http.Handler) http.Handler{testMiddleware}
-	err := rm.AddRouter(routerID, "/api", middleware)
+	err := rm.AddRouter(routerID, "/api", middleware, nil)
 	require.NoError(t, err)
 
 	// Add test endpoint

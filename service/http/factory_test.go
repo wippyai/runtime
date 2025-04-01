@@ -115,8 +115,8 @@ func (r *SimpleFSRegistry) Register(name string, filesystem apifsLib.FS) {
 }
 
 func (r *SimpleFSRegistry) GetFS(name string) (apifsLib.FS, bool) {
-	fs, exists := r.filesystems[name]
-	return fs, exists
+	f, exists := r.filesystems[name]
+	return f, exists
 }
 
 // createFactoryTempDir creates a temporary directory with files
@@ -175,7 +175,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 			rctx.MarkHandled()
 			w := rctx.ResponseWriter()
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("success"))
+			_, _ = w.Write([]byte("success"))
 
 			// Return success
 			resultCh <- &runtime.Result{
@@ -445,13 +445,18 @@ func TestWrapWithCacheControl(t *testing.T) {
 }
 
 func TestServerFactory(t *testing.T) {
-	factory := NewServerFactory()
+	// Create middleware factory for server factory
+	middlewareFactory := NewDefaultMiddlewareFactory()
+
+	factory := NewServerFactory(middlewareFactory)
 
 	cfg := &config.ServerConfig{
 		Addr: ":8080",
 	}
 
-	server, err := factory.CreateServer(cfg)
+	// Create server with ID
+	serverID := apiregistry.ID{NS: "test", Name: "server1"}
+	server, err := factory.CreateServer(serverID, cfg)
 	require.NoError(t, err)
 	assert.NotNil(t, server)
 
@@ -459,4 +464,5 @@ func TestServerFactory(t *testing.T) {
 	serverSvc, ok := server.(*ServerService)
 	require.True(t, ok)
 	assert.Equal(t, cfg, serverSvc.config)
+	assert.Equal(t, serverID, serverSvc.id)
 }

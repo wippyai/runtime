@@ -10,8 +10,10 @@ import (
 // Package combines a Process Source with a batch of messages for tracking message origin.
 // It serves as the primary container for message delivery in the pub/sub system.
 type Package struct {
-	// PID identifies the process that originated the messages
-	PID PID
+	// Source identifies the process that generated the messages
+	Source PID
+	// Target identifies the process that should receive the messages
+	Target PID
 	// Messages contains the collection of messages in this package
 	Messages []*Message
 }
@@ -39,7 +41,8 @@ func ReleasePackage(p *Package) {
 	}
 
 	// Clear the package fields
-	p.PID = PID{}
+	p.Source = PID{} // Reset source to empty PID
+	p.Target = PID{}
 	p.Messages = p.Messages[:0] // Preserve capacity but reset length
 
 	packagePool.Put(p)
@@ -47,13 +50,22 @@ func ReleasePackage(p *Package) {
 
 // NewPackage creates a new message package with the specified process ID, topic, and payload items.
 // This is implemented using the object pool to improve performance.
-func NewPackage(pid PID, topic Topic, payloads ...payload.Payload) *Package {
+func NewPackage(source, pid PID, topic Topic, payloads ...payload.Payload) *Package {
 	p := AcquirePackage()
-	p.PID = pid
+	p.Source = source
+	p.Target = pid
 	p.Messages = append(p.Messages, &Message{
 		Topic:    topic,
 		Payloads: payloads,
 	})
+	return p
+}
+
+func NewMessagePackage(source, pid PID, msg ...*Message) *Package {
+	p := AcquirePackage()
+	p.Source = source
+	p.Target = pid
+	p.Messages = msg
 	return p
 }
 

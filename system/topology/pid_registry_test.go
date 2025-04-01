@@ -43,11 +43,11 @@ func TestPIDRegistry_Register(t *testing.T) {
 	assert.True(t, found)
 	assert.Equal(t, pid2, resolvedPID)
 
-	// Test successful registration of different name and PID
+	// Test successful registration of different name and Target
 	err = reg.Register("name2", pid2)
 	assert.NoError(t, err)
 
-	// Test registering same PID with different name (should be allowed)
+	// Test registering same Target with different name (should be allowed)
 	err = reg.Register("name3", pid1)
 	assert.NoError(t, err)
 }

@@ -26,7 +26,7 @@ type ProcessPool struct {
 	numProcesses atomic.Int32
 	maxProcesses int
 	log          *zap.Logger
-	processes    sync.Map        // map[pubsub.PID]*processEntry
+	processes    sync.Map        // map[pubsub.Target]*processEntry
 	workCh       chan pubsub.PID // Channel for scheduling work
 	wg           sync.WaitGroup  // Worker goroutines WaitGroup
 	processWG    sync.WaitGroup  // Active processes WaitGroup

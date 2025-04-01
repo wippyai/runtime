@@ -15,8 +15,6 @@ entries:
     imports:
       registry: "wippy.migration:registry"
       runner: "wippy.migration:runner"
-    pool:
-      size: 1
 
   - name: dbs
     kind: function.lua
@@ -27,8 +25,6 @@ entries:
     modules: [ http, time, json ]
     imports:
       registry: "wippy.migration:registry"
-    pool:
-      size: 1
 
   - name: run
     kind: function.lua
@@ -39,8 +35,6 @@ entries:
     modules: [ http, time, json ]
     imports:
       runner: "wippy.migration:runner"
-    pool:
-      size: 1
 
   - name: rollback
     kind: function.lua
@@ -51,8 +45,6 @@ entries:
     modules: [ http, time, json ]
     imports:
       runner: "wippy.migration:runner"
-    pool:
-      size: 1
 
   - name: check_tables
     kind: function.lua
@@ -61,8 +53,6 @@ entries:
     source: file://check_tables.lua
     method: check_tables
     modules: [ http, json, sql ]
-    pool:
-      size: 1
 
   - name: status.endpoint
     kind: http.endpoint

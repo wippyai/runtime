@@ -1,4 +1,3 @@
-// Package event provides an event bus implementation for distributing events across the system.
 package event
 
 import (

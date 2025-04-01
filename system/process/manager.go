@@ -166,7 +166,7 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 		m.logger.Debug("process started",
 			zap.String("pid", pid.String()))
 
-		// Register the PID with topology
+		// Register the Target with topology
 		err := topo.Register(pid)
 
 		if err != nil {
@@ -176,7 +176,7 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 			return
 		}
 
-		// Set up monitoring if requested and Parent PID is provided
+		// Set up monitoring if requested and Parent Target is provided
 		if lifecycle.Monitor && lifecycle.Parent.String() != "" {
 			if err = topo.Wait(lifecycle.Parent, pid); err != nil {
 				m.logger.Warn("failed to monitor process",
@@ -186,7 +186,7 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 			}
 		}
 
-		// Set up linking if requested and Parent PID is provided
+		// Set up linking if requested and Parent Target is provided
 		if lifecycle.Link && lifecycle.Parent.String() != "" {
 			if err = topo.Link(lifecycle.Parent, pid); err != nil {
 				m.logger.Warn("failed to link process",

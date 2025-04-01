@@ -1,13 +1,12 @@
 package lua
 
 import (
+	jsongo "encoding/json"
 	"fmt"
-	"math"
-	"reflect"
-	"strings"
-
 	"github.com/ponyruntime/pony/api/payload"
+	jsonlua "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	lua "github.com/yuin/gopher-lua"
+	"log"
 )
 
 // can be optimized
@@ -20,6 +19,10 @@ func Register(transcoder payload.TranscoderRegister) {
 	transcoder.RegisterTranscoder(payload.Lua, payload.Golang, 2, to)
 	transcoder.RegisterTranscoder(payload.Golang, payload.Lua, 2, from)
 	transcoder.RegisterUnmarshaler(payload.Lua, to)
+
+	RegisterString(transcoder)
+	RegisterBytes(transcoder)
+	RegisterJSON(transcoder)
 }
 
 // ToGolang converts a Lua payload to a Golang payload.
@@ -53,144 +56,15 @@ func (t *ToGolang) Unmarshal(p payload.Payload, v interface{}) error {
 		return fmt.Errorf("Lua=>Golang expects data to be of type lua.LValue, got %T", p.Data())
 	}
 
-	val := ToGoAny(lv)
-
-	targetValue := reflect.ValueOf(v)
-	if targetValue.Kind() != reflect.Ptr || targetValue.IsNil() {
-		return fmt.Errorf("target must be a non-nil pointer, got %s", targetValue.Type())
+	json, err := jsonlua.Encode(lv)
+	if err != nil {
+		return err
 	}
 
-	return unmarshalRecursive(val, targetValue.Elem())
-}
+	log.Printf("%s", json)
 
-func unmarshalRecursive(val interface{}, targetValue reflect.Value) error {
-	switch targetValue.Kind() {
-	case reflect.Ptr:
-		// Handle pointers by creating a new value and recursively unmarshalling into it
-		if targetValue.IsNil() {
-			targetValue.Set(reflect.New(targetValue.Type().Elem()))
-		}
-		return unmarshalRecursive(val, targetValue.Elem())
-
-	case reflect.Struct:
-		// Handle structs
-		mapVal, ok := val.(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("cannot assign value of type %s to struct %s", reflect.TypeOf(val), targetValue.Type())
-		}
-
-		targetType := targetValue.Type()
-		for i := 0; i < targetType.NumField(); i++ {
-			field := targetType.Field(i)
-			fieldValue := targetValue.Field(i)
-
-			luaTag := field.Tag.Get("lua")
-			jsonTag := field.Tag.Get("json")
-
-			// Determine the key to use for lookup in the map
-			var keyToUse string
-			switch {
-			case luaTag != "":
-				keyToUse = luaTag
-			case jsonTag != "":
-				// Handle json tag with options (e.g., ",omitempty")
-				keyToUse = strings.Split(jsonTag, ",")[0]
-			default:
-				keyToUse = field.Name // Fallback to field name
-			}
-
-			foundMatch := false
-			for k, v := range mapVal {
-				if strings.EqualFold(keyToUse, k) {
-					if err := unmarshalRecursive(v, fieldValue); err != nil {
-						return fmt.Errorf("error unmarshalling field %s: %w", field.Name, err)
-					}
-					foundMatch = true
-					break
-				}
-			}
-
-			// If no match was found and json tag was used with "omitempty", it's okay
-			if !foundMatch && jsonTag != "" && strings.Contains(jsonTag, "omitempty") {
-				continue
-			}
-
-			// If no match was found, and a json tag was used without "omitempty", return an error
-			if !foundMatch && jsonTag != "" && !strings.Contains(jsonTag, "omitempty") {
-				// Only return error if lua tag is not present
-				if luaTag == "" {
-					return fmt.Errorf("json tag '%s' specified for field %s, but no matching key found in Lua table", jsonTag, field.Name)
-				}
-			}
-		}
-
-	case reflect.Slice:
-		// Handle slices
-		sliceVal, ok := val.([]interface{})
-		if !ok {
-			return fmt.Errorf("cannot assign value of type %s to slice %s", reflect.TypeOf(val), targetValue.Type())
-		}
-
-		targetValue.Set(reflect.MakeSlice(targetValue.Type(), len(sliceVal), len(sliceVal)))
-		for i, v := range sliceVal {
-			if err := unmarshalRecursive(v, targetValue.Index(i)); err != nil {
-				return fmt.Errorf("error unmarshalling element at index %d: %w", i, err)
-			}
-		}
-
-	case reflect.Map:
-		// Handle maps
-		mapVal, ok := val.(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("cannot assign value of type %s to map %s", reflect.TypeOf(val), targetValue.Type())
-		}
-
-		if targetValue.IsNil() {
-			targetValue.Set(reflect.MakeMap(targetValue.Type()))
-		}
-
-		for k, v := range mapVal {
-			mapKey := reflect.ValueOf(k)
-			if !mapKey.Type().AssignableTo(targetValue.Type().Key()) {
-				return fmt.Errorf("cannot use map key of type %s as key for map of type %s", mapKey.Type(), targetValue.Type())
-			}
-
-			mapValue := reflect.New(targetValue.Type().Elem()).Elem()
-			if err := unmarshalRecursive(v, mapValue); err != nil {
-				return fmt.Errorf("error unmarshalling map value for key %s: %w", k, err)
-			}
-			targetValue.SetMapIndex(mapKey, mapValue)
-		}
-
-	case reflect.Interface:
-		// Handle interfaces by assigning the value directly
-		targetValue.Set(reflect.ValueOf(val))
-	case reflect.Invalid, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr, reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128, reflect.Array, reflect.Chan, reflect.Func, reflect.String, reflect.UnsafePointer:
-		fallthrough
-	default:
-		// Handle primitive types and other cases not covered above
-		sourceValue := reflect.ValueOf(val)
-		if !sourceValue.Type().AssignableTo(targetValue.Type()) {
-			// Handle numeric type conversions
-			if sourceValue.Kind() == reflect.Float64 && targetValue.Kind() == reflect.Int {
-				floatVal := sourceValue.Float()
-				intVal := int64(floatVal)
-
-				// Check for precision loss using a tolerance
-				tolerance := 1e-14 // https://en.wikipedia.org/wiki/Machine_epsilon => 16
-				if math.Abs(floatVal-float64(intVal)) > tolerance {
-					return fmt.Errorf("cannot assign float64 value %v to int field without precision loss", floatVal)
-				}
-
-				targetValue.SetInt(intVal)
-				return nil
-			}
-			return fmt.Errorf("cannot assign value of type %s to %s", sourceValue.Type(), targetValue.Type())
-		}
-		targetValue.Set(sourceValue)
-	}
-
-	return nil
+	// but it works and respecs all the configs!
+	return jsongo.Unmarshal(json, v)
 }
 
 // FromGolang converts a Golang payload to a Lua payload.

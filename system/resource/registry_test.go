@@ -54,12 +54,12 @@ func (m *mockResource) Get() (any, error) {
 	return m.data, nil
 }
 
-func (m *mockResource) Release() error {
+func (m *mockResource) Release() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.released {
-		return nil // Already released
+		return // Already released
 	}
 
 	if m.mode == resource.ModeExclusive {
@@ -69,7 +69,7 @@ func (m *mockResource) Release() error {
 	}
 
 	m.released = true
-	return nil
+	return
 }
 
 func (m *mockResourceProvider) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
@@ -156,7 +156,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 			defer wg.Done()
 			res, err := service.Acquire(ctx, id, resource.ModeNormal)
 			if err == nil {
-				defer func() { assert.NoError(t, res.Release()) }()
+				defer res.Release()
 				_, err := res.Get()
 				assert.NoError(t, err)
 			}
@@ -173,12 +173,12 @@ func TestService_ResourceLifecycle(t *testing.T) {
 	assert.Equal(t, resource.ErrResourceLocked, err)
 
 	// Release exclusive lock
-	require.NoError(t, res.Release())
+	res.Release()
 
 	// Verify resource can be acquired again
 	res, err = service.Acquire(ctx, id, resource.ModeNormal)
 	require.NoError(t, err)
-	require.NoError(t, res.Release())
+	res.Release()
 
 	// Test removal
 	bus.Send(ctx, event.Event{
@@ -257,14 +257,14 @@ func TestService_ResourceAccess(t *testing.T) {
 					val, err := res.Get()
 					assert.NoError(t, err)
 					assert.NotNil(t, val)
-					assert.NoError(t, res.Release())
+					res.Release()
 
 					// Verify can't Get after Release
 					_, err = res.Get()
 					assert.Equal(t, resource.ErrResourceReleased, err)
 
 					// Verify multiple Release calls are safe
-					assert.NoError(t, res.Release())
+					res.Release()
 				}
 			}
 		})

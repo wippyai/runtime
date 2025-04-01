@@ -73,13 +73,41 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 
 	// STATUS table - HTTP status codes
 	statuses := map[string]int{
-		"OK":             200, // Success
-		"CREATED":        201, // Resource created
-		"NO_CONTENT":     204, // Success with no body
-		"BAD_REQUEST":    400, // Client error
-		"UNAUTHORIZED":   401, // Authentication required
-		"NOT_FOUND":      404, // Resource not found
-		"INTERNAL_ERROR": 500, // Server error
+		// Success codes (2xx)
+		"OK":              200, // Success
+		"CREATED":         201, // Resource created
+		"ACCEPTED":        202, // Request accepted for processing
+		"NO_CONTENT":      204, // Success with no body
+		"PARTIAL_CONTENT": 206, // Partial content (range requests)
+
+		// Redirection codes (3xx)
+		"MOVED_PERMANENTLY":  301, // Resource moved permanently
+		"FOUND":              302, // Temporary redirect
+		"SEE_OTHER":          303, // See other resource
+		"NOT_MODIFIED":       304, // Resource not modified since last request
+		"TEMPORARY_REDIRECT": 307, // Temporary redirect, preserve method
+		"PERMANENT_REDIRECT": 308, // Permanent redirect, preserve method
+
+		// Client error codes (4xx)
+		"BAD_REQUEST":        400, // Client error
+		"UNAUTHORIZED":       401, // Authentication required
+		"PAYMENT_REQUIRED":   402, // Payment required
+		"FORBIDDEN":          403, // Access denied
+		"NOT_FOUND":          404, // Resource not found
+		"METHOD_NOT_ALLOWED": 405, // HTTP method not allowed
+		"NOT_ACCEPTABLE":     406, // Not acceptable based on client-provided criteria
+		"CONFLICT":           409, // Conflict with resource state
+		"GONE":               410, // Resource no longer available
+		"UNPROCESSABLE":      422, // Unprocessable entity
+		"TOO_MANY_REQUESTS":  429, // Rate limit exceeded
+
+		// Server error codes (5xx)
+		"INTERNAL_ERROR":        500, // Server error
+		"NOT_IMPLEMENTED":       501, // Functionality not implemented
+		"BAD_GATEWAY":           502, // Bad gateway
+		"SERVICE_UNAVAILABLE":   503, // Service temporarily unavailable
+		"GATEWAY_TIMEOUT":       504, // Gateway timeout
+		"VERSION_NOT_SUPPORTED": 505, // HTTP version not supported
 	}
 	statusTbl := l.CreateTable(0, len(statuses))
 	for name, value := range statuses {

@@ -12,8 +12,6 @@ entries:
     source: file://go.lua
     method: analyze
     modules: [ "fs", "treesitter" ]
-    pool:
-      size: 1
 
   - name: markdown_overview
     kind: function.lua
@@ -22,8 +20,6 @@ entries:
     source: file://markdown.lua
     method: analyze
     modules: [ "fs", "treesitter" ]
-    pool:
-      size: 1
 
   - name: lua_overview
     kind: function.lua
@@ -32,8 +28,6 @@ entries:
     source: file://lua.lua
     method: analyze
     modules: [ "fs", "treesitter" ]
-    pool:
-      size: 1
 
   - name: html_overview
     kind: function.lua
@@ -42,5 +36,3 @@ entries:
     source: file://html.lua
     method: analyze
     modules: [ "fs", "treesitter" ]
-    pool:
-      size: 32

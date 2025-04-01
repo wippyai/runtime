@@ -3,7 +3,7 @@ I'll create a specification that explains the purpose and functionality of this 
 # Resource Registry Component Specification
 
 ## Purpose
-The Resource Registry is a central management system for shared resources within the Pony Runtime. It allows components to register, access, and manage resources in a coordinated way, with support for different access modes and lifecycle management.
+The Resource Registry is a central management system for shared resources within the Wippy Runtime. It allows components to register, access, and manage resources in a coordinated way, with support for different access modes and lifecycle management.
 
 ## Core Concepts
 
@@ -132,4 +132,4 @@ Resources use an event system for registration and lifecycle events:
 - Subscribes to resource events for registry updates
 - Supports context cancellation for resource acquisition
 
-This component provides a robust foundation for managing shared resources in the Pony Runtime, ensuring safe concurrent access while supporting both exclusive and shared access patterns.
+This component provides a robust foundation for managing shared resources in the Wippy Runtime, ensuring safe concurrent access while supporting both exclusive and shared access patterns.

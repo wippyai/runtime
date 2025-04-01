@@ -2,6 +2,7 @@ package btea
 
 import (
 	"errors"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	"time"
 
 	task2 "github.com/ponyruntime/pony/runtime/lua/task"
@@ -45,7 +46,7 @@ func NewTaskRunner(app *App) *TaskRunner {
 // SendTask sends a task to the specified channel without waiting for response
 func (r *TaskRunner) SendTask(taskType string, input lua.LValue) error {
 	// Create payload
-	inputPayload := payload.NewPayload(input, payload.Lua)
+	inputPayload := luaconv.ExportPayload(input)
 
 	// Create task without completion callback
 	t := task2.NewTask(inputPayload, nil)
@@ -83,7 +84,7 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	}
 
 	// Create input payload
-	inputPayload := payload.NewPayload(input, payload.Lua)
+	inputPayload := luaconv.ExportPayload(input)
 
 	// Create result channel
 	resultCh := make(chan runtime.Result, 1)

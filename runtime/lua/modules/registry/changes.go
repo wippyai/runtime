@@ -2,8 +2,6 @@ package registry
 
 import (
 	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -144,20 +142,19 @@ func changesApply(l *lua.LState) int {
 		return 2
 	}
 
-	// Applying changes involves I/O, use coroutine
-	coroutine.Wrap(l, func() *engine.Update {
-		// Apply changes
-		version, err := changes.snapshot.reg.Apply(l.Context(), changes.ops)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
+	// Apply changes directly
+	version, err := changes.snapshot.reg.Apply(l.Context(), changes.ops)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
 
-		// Create userdata for Version
-		ud := wrapVersion(l, version)
-		return engine.NewUpdate(nil, []lua.LValue{ud, lua.LNil}, nil)
-	})
-
-	return -1 // Yield for coroutine
+	// Create userdata for Version
+	ud := wrapVersion(l, version)
+	l.Push(ud)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // Helper function to check if the first argument is a Changes and return it

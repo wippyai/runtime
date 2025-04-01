@@ -13,7 +13,7 @@ local function define_migration()
                 ]])
 
                 if err then
-                    return nil, "Failed to create todos table: " .. err
+                    error(err)
                 end
 
                 return true

@@ -52,11 +52,6 @@ Available in `fs.seek`:
 ### Obtaining a Filesystem Instance
 
 ```lua
--- Get default filesystem
-local fs = fs.default()
--- Returns: filesystem instance
--- Errors: raises if no default filesystem is registered
-
 -- Get named filesystem
 local fs = fs.get("name")
 -- Returns: filesystem instance
@@ -276,7 +271,7 @@ fs:remove(path)
 ### Basic File Operations
 
 ```lua
-local fs = require("fs").default()
+local fs = require("fs").get("system:name")
 
 -- Write data to file
 fs:writefile("test.txt", "Hello World")

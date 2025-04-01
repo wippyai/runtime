@@ -39,11 +39,6 @@ func (p *Policy) ID() registry.ID {
 
 // Evaluate determines if the action on resource is allowed/denied based on the policy
 func (p *Policy) Evaluate(actor security.Actor, action, resource string, meta registry.Metadata) security.Result {
-	// Short-circuit if the actor is nil
-	if actor == nil {
-		return security.Undefined
-	}
-
 	// Check if the action matches
 	if !p.matchesAction(action) {
 		return security.Undefined

@@ -49,18 +49,6 @@ func TestFunctionConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "method is required",
 		},
-		{
-			name: "invalid pool size",
-			config: FunctionConfig{
-				Source: "function test() return 'hello' end",
-				Method: "test",
-				Pool: PoolConfig{
-					Size: 0,
-				},
-			},
-			wantErr: true,
-			errMsg:  "pool.num_vms must be greater than 0",
-		},
 	}
 
 	for _, tt := range tests {

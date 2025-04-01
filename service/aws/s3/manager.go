@@ -233,15 +233,15 @@ func (r *s3Resource) Get() (any, error) {
 }
 
 // Release implements resource.Resource interface
-func (r *s3Resource) Release() error {
+func (r *s3Resource) Release() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.closed {
-		return nil
+		return
 	}
 
 	delete(r.manager.storages, r.id)
 	r.closed = true
-	return nil
+	return
 }

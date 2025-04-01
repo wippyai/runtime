@@ -119,7 +119,6 @@ func GoToLua(v any) (lua.LValue, error) {
 		ud := engine.SharedState.NewUserData()
 		ud.Value = errors.New(val)
 		ud.Metatable = value.GetTypeMetatable(engine.SharedState, "error")
-
 		return ud, nil
 	}
 
@@ -137,7 +136,7 @@ func GoToLua(v any) (lua.LValue, error) {
 			// Return nil for nil slices
 			return lua.LNil, nil
 		}
-		table := engine.SharedState.NewTable()
+		table := engine.SharedState.CreateTable(rv.Len(), 0)
 		for i := 0; i < rv.Len(); i++ {
 			lval, err := GoToLua(rv.Index(i).Interface())
 			if err != nil {

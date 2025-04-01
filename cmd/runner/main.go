@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/joho/godotenv"
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
@@ -44,11 +46,15 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/cloudstorage"
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
+	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
+	"github.com/ponyruntime/pony/runtime/lua/modules/events"
 	"github.com/ponyruntime/pony/runtime/lua/modules/excel"
+	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
 	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
 	"github.com/ponyruntime/pony/runtime/lua/modules/funcmod"
 	fncallmod "github.com/ponyruntime/pony/runtime/lua/modules/funcs"
+	"github.com/ponyruntime/pony/runtime/lua/modules/hash"
 	httpapimod "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
 	jsonmod "github.com/ponyruntime/pony/runtime/lua/modules/json"
@@ -58,22 +64,32 @@ import (
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
 	processmodapi "github.com/ponyruntime/pony/runtime/lua/modules/processmod"
 	registrymod "github.com/ponyruntime/pony/runtime/lua/modules/registry"
+	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
 	sqlmod "github.com/ponyruntime/pony/runtime/lua/modules/sql"
+	"github.com/ponyruntime/pony/runtime/lua/modules/store"
 	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
+	yamlmod "github.com/ponyruntime/pony/runtime/lua/modules/yaml"
 	"github.com/ponyruntime/pony/runtime/lua/task"
 	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/aws/config"
 	"github.com/ponyruntime/pony/service/aws/s3"
 	fsdir "github.com/ponyruntime/pony/service/directory"
+	native "github.com/ponyruntime/pony/service/exec"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
+	"github.com/ponyruntime/pony/service/http/cors"
+	"github.com/ponyruntime/pony/service/http/firewall"
+	"github.com/ponyruntime/pony/service/http/websocket_relay"
+	"github.com/ponyruntime/pony/service/memstore"
 	"github.com/ponyruntime/pony/service/policy"
+	"github.com/ponyruntime/pony/service/processfunc"
 	"github.com/ponyruntime/pony/service/sql"
 	service "github.com/ponyruntime/pony/service/supervisor"
 	"github.com/ponyruntime/pony/service/terminal"
+	"github.com/ponyruntime/pony/service/tokenstore"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/fs"
 	"github.com/ponyruntime/pony/system/function"
@@ -102,7 +118,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 
-	// sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -206,6 +222,9 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 func (a *App) Initialize() error {
 	debug.SetTraceback("single")
 
+	// 50mb
+	debug.SetMemoryLimit(50 * 1024 * 1024)
+
 	// LaunchProcess log manager first for proper logging
 	if err := a.logManager.Start(a.ctx); err != nil {
 		return fmt.Errorf("failed to start log manager: %w", err)
@@ -294,7 +313,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	for _, en := range os.Environ() {
 		pair := strings.SplitN(en, "=", 2)
 		if len(pair) == 2 {
-			envCtx.WithValue(pair[0], pair[1])
+			envCtx.SetValue(pair[0], pair[1])
 		}
 	}
 	ctx = context.WithValue(ctx, ctxapi.EnvCtx, envCtx)
@@ -508,9 +527,33 @@ func (a *App) StartProfiler() {
 	}()
 }
 
+// loadDotEnv loads environment variables from .env files
+func loadDotEnv(logger *zap.Logger, paths ...string) {
+	// First try explicitly provided paths
+	for _, path := range paths {
+		envPath := filepath.Join(path, ".env")
+		err := godotenv.Load(envPath)
+		if err == nil {
+			if logger != nil {
+				logger.Info(".env file loaded successfully", zap.String("path", envPath))
+			} else {
+				fmt.Printf(".env file loaded successfully from: %s\n", envPath)
+			}
+			return // Found and loaded a .env file, no need to try others
+		}
+	}
+
+	// If no specific paths provided or none worked, try the default location
+	err := godotenv.Load()
+	if err != nil {
+		logger.Debug("Could not load .env file from default location", zap.Error(err))
+	} else {
+		logger.Info(".env file loaded successfully from default location")
+	}
+}
+
 func main() {
-	// todo: also fix in github pipelines
-	// sqlite_vec.Auto()
+	sqlite_vec.Auto()
 
 	// Parse command line flags
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
@@ -537,6 +580,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Load environment variables from .env files
+	loadDotEnv(app.logger)
+
 	if err := app.Initialize(); err != nil {
 		fmt.Printf("Failed to initialize application: %v\n", err)
 		os.Exit(1)
@@ -548,19 +594,23 @@ func main() {
 		WithYamlPolicies(app),
 		WithDirectoryManager(app),
 		WithHTTPService(app),
+		WithTokenStoreManager(app),
 		WithTerminalManager(app),
 		WithProcessSupervisor(app),
 		WithEphemeralHost(app),
 		WithSQLManager(app),
 		WithAWSConfigManager(app),
 		WithS3Manager(app),
+		WithProcessFunctionBridge(app),
+		WithMemStore(app),
+		WithNativeExecutor(app),
 	)...)
 	// --------------------------------------------------
 
 	// collect gc
 	runtime.GC()
 
-	// Start profiler if enabled
+	// Serve profiler if enabled
 	if *enableProfiling {
 		app.StartProfiler()
 	}
@@ -570,7 +620,7 @@ func main() {
 		app.logger.Fatal("failed to start application", zap.Error(err))
 	}
 
-	app.logger.Info("application started successfully")
+	app.logger.Named("wippy").Info("application started successfully")
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
@@ -657,6 +707,19 @@ func loadApplicationState(
 }
 
 // ---- Services ----
+func WithTokenStoreManager(a *App) eventbus.EventHandler {
+	// Create token store manager
+	manager := tokenstore.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.resources,
+		a.security,
+		a.logger.Named("tstore"),
+	)
+
+	// Register manager for token store related entries
+	return reghandler.NewRegistryHandler("security.token_store", manager)
+}
 
 func WithHTTPService(a *App) eventbus.EventHandler {
 	// Create factories
@@ -670,11 +733,45 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 		panic(fmt.Errorf("failed to create static factory: %w", err))
 	}
 
+	// Create websocket relay manager
+	relayManager := websocket_relay.NewWebSocketRelay(a.ctx, a.logger.Named("ws"))
+
+	// Create middleware factory with all standard middleware
+	midFactory := http.NewDefaultMiddlewareFactory(
+		http.WithLogger(a.logger.Named("http.md")),
+
+		http.WithMiddlewareCreator(cors.MiddlewareName, cors.CreateCORSMiddleware),
+
+		// Standard Chi middlewares
+		http.WithMiddleware("recoverer", middleware.Recoverer),
+		http.WithMiddleware("request_id", middleware.RequestID),
+		http.WithMiddleware("real_ip", middleware.RealIP),
+
+		// Timeout middleware with options
+		http.WithMiddlewareCreator("timeout", func(options map[string]string) func(handler httpbase.Handler) httpbase.Handler {
+			timeoutVal := options["timeout"]
+			if timeoutVal == "" {
+				timeoutVal = "60s"
+			}
+			duration, err := time.ParseDuration(timeoutVal)
+			if err != nil {
+				return nil
+			}
+			return middleware.Timeout(duration)
+		}),
+
+		// WebSocket relay middleware
+		http.WithMiddleware("websocket_relay", relayManager.Middleware),
+		http.WithMiddlewareCreator(tokenstore.MiddlewareName, tokenstore.CreateTokenAuthMiddleware),
+		http.WithMiddlewareCreator(firewall.ResourceMiddlewareName, firewall.CreateResourceFirewallMiddleware),
+		http.WithMiddlewareCreator(firewall.EndpointMiddlewareName, firewall.CreateEndpointFirewallMiddleware),
+	)
+
 	// Create manager with all required factories
 	manager, err := http.NewManager(
 		a.dtt,
 		a.eventBus,
-		http.NewServerFactory(),
+		http.NewServerFactory(midFactory),
 		endpointFactory,
 		staticFactory,
 		a.logger.Named("http"),
@@ -698,7 +795,7 @@ func WithProcessSupervisor(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("process.service", service.NewSupervisorServiceManager(
 		a.eventBus,
 		a.processes,
-		a.logger.Named("supervisor"),
+		a.logger.Named("super"),
 	))
 }
 
@@ -769,6 +866,36 @@ func WithYamlPolicies(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("security.policy", manager)
 }
 
+func WithMemStore(a *App) eventbus.EventHandler {
+	// Create manager with required dependencies
+	manager := memstore.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("memory"),
+	)
+
+	return reghandler.NewRegistryHandler("store.memory", manager)
+}
+
+func WithNativeExecutor(a *App) eventbus.EventHandler {
+	// Create manager with required dependencies
+	manager := native.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("exec"),
+	)
+
+	return reghandler.NewRegistryHandler("exec.native", manager)
+}
+
+func WithProcessFunctionBridge(a *App) eventbus.EventHandler {
+	return processfunc.WithProcessFunctionBridge(
+		a.logger.Named("pfunc"),
+		a.eventBus,
+		a.processes,
+	)
+}
+
 func WithLuaRuntime(a *App) []eventbus.EventHandler {
 	codeManager, err := code.NewCodeManager(
 		a.logger.Named("lua"),
@@ -790,7 +917,15 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				fncallmod.NewFunctionModule(),
 				payloadmod.NewPayloadModule(),
 				task.NewTaskModule(),
+				hash.NewHashModule(),
 				command.NewCommandModule(),
+				yamlmod.NewYAMLModule(),
+				registrymod.NewLoaderModule(a.logger.Named("loader")),
+				events.NewEventsModule(a.logger.Named("events")),
+				exec.NewExecModule(a.logger.Named("exec")),
+				ctx.NewCtxModule(a.logger.Named("ctx")),
+				store.NewStoreModule(a.logger.Named("store")),
+				securitymod.NewSecurityModule(a.logger.Named("security")),
 				registrymod.NewRegistryModule(a.logger.Named("registry")),
 				processmod.NewProcessAPIModule(a.logger.Named("proc")),
 				httpapimod.NewHTTPAPIModule(a.logger.Named("http")),

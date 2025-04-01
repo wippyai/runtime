@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `websocket` module provides a client-side WebSocket implementation for Lua that integrates seamlessly with our Pony
+The `websocket` module provides a client-side WebSocket implementation for Lua that integrates seamlessly with our Wippy
 coroutine VM and channel system. It leverages a thread context automatically behind the scenes and exposes a clean,
 idiomatic API for establishing connections, sending/receiving messages, and managing connection lifecycles.
 
