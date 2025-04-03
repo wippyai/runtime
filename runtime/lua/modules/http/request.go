@@ -120,6 +120,28 @@ func requestQuery(l *lua.LState) int {
 	return 2
 }
 
+// requestQuery returns query parameters
+func requestQueryAll(l *lua.LState) int {
+	req, err := checkRequest(l, 1)
+	if err != nil {
+		l.ArgError(1, err.Error())
+		return 0
+	}
+
+	table := l.CreateTable(0, len(req.request.URL.Query()))
+	for key, values := range req.request.URL.Query() {
+		if len(values) == 0 {
+			continue
+		}
+
+		table.RawSetString(key, lua.LString(strings.Join(values, ",")))
+	}
+
+	l.Push(table)
+	l.Push(lua.LNil)
+	return 2
+}
+
 // requestHeader returns a request header value
 func requestHeader(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
@@ -635,6 +657,7 @@ func registerRequest(l *lua.LState, mod *lua.LTable) {
 		"method":          requestMethod,
 		"path":            requestPath,
 		"query":           requestQuery,
+		"query_all":       requestQueryAll,
 		"header":          requestHeader,
 		"content_type":    requestContentType,
 		"content_length":  requestContentLength,
