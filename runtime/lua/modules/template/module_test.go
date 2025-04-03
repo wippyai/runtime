@@ -3,7 +3,7 @@ package template
 import (
 	"context"
 	templatesvc "github.com/ponyruntime/pony/service/template"
-	luap "github.com/ponyruntime/pony/system/payload/lua"
+	lua2 "github.com/ponyruntime/pony/system/payload/lua"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -91,7 +91,7 @@ func setupLuaWithTemplates(t *testing.T, mockRes *mockResource) (*engine.Corouti
 	// Set up a transcoder to convert between Lua and Go values
 	dtt := payloadSystem.GlobalTranscoder()
 	json.Register(dtt)
-	luap.Register(dtt)
+	lua2.Register(dtt)
 	ctx := payload.WithTranscoder(context.Background(), dtt)
 
 	// Create a runner with the coroutine layer

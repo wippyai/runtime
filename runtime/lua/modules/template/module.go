@@ -5,12 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/service/template"
-
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/service/template"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -74,6 +73,7 @@ func NewWrapper(
 	// Register unconditional cleanup in UoW
 	wrapper.onRelease = uw.AddCleanup(func() error {
 		resource.Release()
+		wrapper.resource = nil
 		return nil
 	})
 
@@ -169,6 +169,11 @@ func templateRender(l *lua.LState) int {
 	// Check and get template set
 	wrapper := CheckTemplateSet(l)
 	if wrapper == nil {
+		return 0
+	}
+
+	if wrapper.resource == nil {
+		l.RaiseError("template has been released")
 		return 0
 	}
 
