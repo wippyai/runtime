@@ -221,7 +221,7 @@ func TestTemplateSet_RenderPayload(t *testing.T) {
 	// Render the template with the payload
 	result, err := set.RenderPayload(tmplName, p)
 	require.NoError(t, err)
-	assert.Equal(t, "Hello, Jane! Age: 30", result.Data())
+	assert.Equal(t, "Hello, Jane! Age: 30", result)
 
 	// Try to render a non-existent template
 	nonExistentName := "non-existent"

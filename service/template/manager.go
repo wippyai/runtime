@@ -503,46 +503,6 @@ func (m *Manager) GetTemplateSet(id registry.ID) (*TemplateSet, error) {
 	return set, nil
 }
 
-// RenderTemplate renders a template by ID
-func (m *Manager) RenderTemplate(id registry.ID, vars map[string]any) (string, error) {
-	m.mu.RLock()
-	entry, exists := m.templates[id]
-	if !exists {
-		m.mu.RUnlock()
-		return "", fmt.Errorf("%w: %s", ErrTemplateNotFound, id)
-	}
-
-	set, exists := m.sets[entry.SetID]
-	if !exists {
-		m.mu.RUnlock()
-		return "", fmt.Errorf("%w: %s", ErrSetNotFound, entry.SetID)
-	}
-	m.mu.RUnlock()
-
-	// Render the template
-	return set.RenderTemplate(entry.Name, vars)
-}
-
-// RenderPayload renders a template with data from a payload
-func (m *Manager) RenderPayload(id registry.ID, data payload.Payload) (payload.Payload, error) {
-	m.mu.RLock()
-	entry, exists := m.templates[id]
-	if !exists {
-		m.mu.RUnlock()
-		return nil, fmt.Errorf("%w: %s", ErrTemplateNotFound, id)
-	}
-
-	set, exists := m.sets[entry.SetID]
-	if !exists {
-		m.mu.RUnlock()
-		return nil, fmt.Errorf("%w: %s", ErrSetNotFound, entry.SetID)
-	}
-	m.mu.RUnlock()
-
-	// Render the template
-	return set.RenderPayload(entry.Name, data)
-}
-
 // Acquire implements resource.Provider
 func (m *Manager) Acquire(
 	ctx context.Context,
