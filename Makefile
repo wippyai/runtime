@@ -76,3 +76,12 @@ build-runner-darwin-arm64:
 build-runner-windows-amd64:
 	mkdir -p ./dist
 	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build --tags "fts5 sqlite_vec" -o ./dist/runner-windows-amd64.exe ./cmd/runner/main.go
+
+# Build runner with embedded data (example: make build-runner-embed EMBED_DIR=/path/to/your/data)
+build-runner-embed:
+	@echo "Building runner with embedded data"
+	mkdir -p ./embed/data
+	rm -rf ./embed/data/*
+	cp -r $(EMBED_DIR)/* ./embed/data/ 2>/dev/null || :
+	mkdir -p ./dist
+	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-embed-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/main.go

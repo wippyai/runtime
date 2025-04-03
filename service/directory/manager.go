@@ -115,7 +115,12 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Config) error {
-	fs, err := m.factory.CreateFS(cfg.Type, cfg.Directory, cfg.FileMode())
+	fs, err := m.factory.CreateFS(CreateFSConfig{
+		Name:            cfg.Type,
+		DirPath:         cfg.Directory,
+		Mode:            cfg.FileMode(),
+		ShouldCreateDir: cfg.ShouldCreateDir,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create filesystem: %w", err)
 	}

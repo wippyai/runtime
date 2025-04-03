@@ -38,7 +38,7 @@ type FS struct {
 
 // NewDirectoryFS creates a new FS instance. It automatically adds execute bits
 // if the read bits are set but the execute bits are missing.
-func NewDirectoryFS(dirPath string, mode fs.FileMode) (*FS, error) {
+func NewDirectoryFS(dirPath string, mode fs.FileMode, shouldCreate bool) (*FS, error) {
 	absPath, err := filepath.Abs(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("invalid directory path: %w", err)
@@ -47,6 +47,13 @@ func NewDirectoryFS(dirPath string, mode fs.FileMode) (*FS, error) {
 	// Automatically add execute permissions if read bits are present but exec bits are missing.
 	if mode&0444 == 0444 && mode&0111 == 0 {
 		mode |= 0111 // e.g. 0444 becomes 0555; 0644 becomes 0755.
+	}
+
+	if shouldCreate {
+		if err := os.MkdirAll(dirPath, mode); err != nil {
+			return nil, fmt.Errorf("create directory (shouldCreate=true): %w", err)
+		}
+
 	}
 
 	root, err := os.OpenRoot(absPath)

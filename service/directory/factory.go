@@ -11,10 +11,18 @@ import (
 	"github.com/ponyruntime/pony/embed"
 )
 
+// CreateFSConfig is a config for CreateFS.
+type CreateFSConfig struct {
+	Name            string
+	DirPath         string
+	Mode            fs.FileMode
+	ShouldCreateDir bool
+}
+
 // FSFactoryAPI defines the interface for creating filesystem instances
 type FSFactoryAPI interface {
 	// CreateFS creates a new filesystem instance
-	CreateFS(name, dirPath string, mode fs.FileMode) (fsapi.FS, error)
+	CreateFS(cfg CreateFSConfig) (fsapi.FS, error)
 }
 
 // FSFactory implements FSFactoryAPI to create directory-based filesystems
@@ -26,11 +34,11 @@ func NewDirectoryFSFactory() *FSFactory {
 }
 
 // CreateFS creates a new directory filesystem
-func (f *FSFactory) CreateFS(typeName, dirPath string, mode fs.FileMode) (fsapi.FS, error) {
+func (f *FSFactory) CreateFS(cfg CreateFSConfig) (fsapi.FS, error) {
 	// Create the filesystem using the factory
-	if typeName == dirapi.TypeNameEmbed {
+	if cfg.Name == dirapi.TypeNameEmbed {
 
-		dirPath = filepath.Clean(dirPath)
+		dirPath := filepath.Clean(cfg.DirPath)
 		if strings.HasPrefix(dirPath, "./") {
 			dirPath = dirPath[2:]
 		}
@@ -44,5 +52,5 @@ func (f *FSFactory) CreateFS(typeName, dirPath string, mode fs.FileMode) (fsapi.
 		}
 		return NewReadOnlyFS(fsys), nil
 	}
-	return NewDirectoryFS(dirPath, mode)
+	return NewDirectoryFS(cfg.DirPath, cfg.Mode, cfg.ShouldCreateDir)
 }
