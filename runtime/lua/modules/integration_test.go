@@ -46,7 +46,7 @@ func TestExcelFileSystemIntegration(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	// Create filesystem
-	dirFS, err := directory.NewDirectoryFS(os.TempDir(), fs.ModePerm)
+	dirFS, err := directory.NewDirectoryFS(os.TempDir(), fs.ModePerm, false)
 	require.NoError(t, err)
 
 	fsModule := fsmodule.NewFSModule()
