@@ -49,6 +49,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Check if storage already exists
+	if _, exists := m.storages[entry.ID]; exists {
+		return fmt.Errorf("storage %s already exists", entry.ID)
+	}
+
 	meta, err := m.set(ctx, entry)
 	if err != nil {
 		return fmt.Errorf("add entry: %w", err)
@@ -82,6 +87,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Check if storage already exists
+	if _, exists := m.storages[entry.ID]; !exists {
+		return fmt.Errorf("storage %s not found", entry.ID)
+	}
 
 	meta, err := m.set(ctx, entry)
 	if err != nil {
@@ -161,11 +171,6 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 }
 
 func (m *Manager) set(ctx context.Context, entry registry.Entry) (registry.Metadata, error) {
-	// Check if storage already exists
-	if _, exists := m.storages[entry.ID]; exists {
-		return nil, fmt.Errorf("storage %s already exists", entry.ID)
-	}
-
 	// Decode and initialize configuration
 	cfg, err := internalconfig.DecodeAndInitConfig[services3.Config](m.dtt, entry)
 	if err != nil {
