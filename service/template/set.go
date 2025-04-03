@@ -1,3 +1,4 @@
+// set.go
 package template
 
 import (
@@ -21,7 +22,7 @@ type TemplateSet struct {
 	config  *template.SetConfig
 	dtt     payload.Transcoder
 	mu      sync.RWMutex
-	sources map[registry.ID]string // Store template sources by ID
+	sources map[string]string // Store template sources by name (not ID)
 }
 
 // NewTemplateSet creates a new template set with the given configuration
@@ -57,7 +58,7 @@ func NewTemplateSet(id registry.ID, config *template.SetConfig, dtt payload.Tran
 		loader:  loader,
 		config:  config,
 		dtt:     dtt,
-		sources: make(map[registry.ID]string),
+		sources: make(map[string]string),
 	}, nil
 }
 
@@ -72,68 +73,65 @@ func (s *TemplateSet) Config() *template.SetConfig {
 }
 
 // AddTemplate adds a new template to the set
-func (s *TemplateSet) AddTemplate(id registry.ID, source string) error {
+func (s *TemplateSet) AddTemplate(name string, source string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Check if template already exists
-	if _, exists := s.sources[id]; exists {
-		return fmt.Errorf("template %s already exists in set", id)
+	if _, exists := s.sources[name]; exists {
+		return fmt.Errorf("template %s already exists in set", name)
 	}
 
 	// Register the template with Jet's InMemLoader
-	tmplName := id.String()
-	s.loader.Set(tmplName, source)
+	s.loader.Set(name, source)
 
 	// Store the source
-	s.sources[id] = source
+	s.sources[name] = source
 	return nil
 }
 
 // UpdateTemplate updates an existing template in the set
-func (s *TemplateSet) UpdateTemplate(id registry.ID, source string) error {
+func (s *TemplateSet) UpdateTemplate(name string, source string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Check if template exists
-	if _, exists := s.sources[id]; !exists {
+	if _, exists := s.sources[name]; !exists {
 		return ErrTemplateNotFound
 	}
 
 	// Update the template in Jet's loader
-	tmplName := id.String()
-	s.loader.Set(tmplName, source)
+	s.loader.Set(name, source)
 
 	// Update the source
-	s.sources[id] = source
+	s.sources[name] = source
 	return nil
 }
 
 // RemoveTemplate removes a template from the set
-func (s *TemplateSet) RemoveTemplate(id registry.ID) error {
+func (s *TemplateSet) RemoveTemplate(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Check if template exists
-	if _, exists := s.sources[id]; !exists {
+	if _, exists := s.sources[name]; !exists {
 		return ErrTemplateNotFound
 	}
 
 	// Delete the template from Jet's loader
-	tmplName := id.String()
-	s.loader.Delete(tmplName)
+	s.loader.Delete(name)
 
 	// Remove the source
-	delete(s.sources, id)
+	delete(s.sources, name)
 	return nil
 }
 
-// GetTemplateSource gets a template source from the set by ID
-func (s *TemplateSet) GetTemplateSource(id registry.ID) (string, error) {
+// GetTemplateSource gets a template source from the set by name
+func (s *TemplateSet) GetTemplateSource(name string) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	source, exists := s.sources[id]
+	source, exists := s.sources[name]
 	if !exists {
 		return "", ErrTemplateNotFound
 	}
@@ -141,24 +139,24 @@ func (s *TemplateSet) GetTemplateSource(id registry.ID) (string, error) {
 	return source, nil
 }
 
-// GetAllTemplates returns all template IDs and sources in the set
-func (s *TemplateSet) GetAllTemplates() map[registry.ID]string {
+// GetAllTemplates returns all template names and sources in the set
+func (s *TemplateSet) GetAllTemplates() map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	// Create a copy to avoid race conditions
-	result := make(map[registry.ID]string, len(s.sources))
-	for id, source := range s.sources {
-		result[id] = source
+	result := make(map[string]string, len(s.sources))
+	for name, source := range s.sources {
+		result[name] = source
 	}
 
 	return result
 }
 
-// RenderTemplate renders a template by ID with the given variables
-func (s *TemplateSet) RenderTemplate(id registry.ID, vars map[string]interface{}) (string, error) {
+// RenderTemplate renders a template by name with the given variables
+func (s *TemplateSet) RenderTemplate(name string, vars map[string]any) (string, error) {
 	s.mu.RLock()
-	_, exists := s.sources[id]
+	_, exists := s.sources[name]
 	s.mu.RUnlock()
 
 	if !exists {
@@ -166,7 +164,7 @@ func (s *TemplateSet) RenderTemplate(id registry.ID, vars map[string]interface{}
 	}
 
 	// Get the Jet template
-	jetTemplate, err := s.jetSet.GetTemplate(id.String())
+	jetTemplate, err := s.jetSet.GetTemplate(name)
 	if err != nil {
 		return "", fmt.Errorf("failed to get compiled template: %w", err)
 	}
@@ -189,15 +187,15 @@ func (s *TemplateSet) RenderTemplate(id registry.ID, vars map[string]interface{}
 }
 
 // RenderPayload renders a template with data from a payload
-func (s *TemplateSet) RenderPayload(id registry.ID, data payload.Payload) (payload.Payload, error) {
+func (s *TemplateSet) RenderPayload(name string, data payload.Payload) (payload.Payload, error) {
 	// Extract data from payload using transcoder
-	var vars map[string]interface{}
+	var vars map[string]any
 	if err := s.dtt.Unmarshal(data, &vars); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
 
 	// Render the template
-	result, err := s.RenderTemplate(id, vars)
+	result, err := s.RenderTemplate(name, vars)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +207,7 @@ func (s *TemplateSet) RenderPayload(id registry.ID, data payload.Payload) (paylo
 // Acquire implements resource.Provider
 func (s *TemplateSet) Acquire(
 	_ context.Context,
-	id registry.ID,
+	_ registry.ID,
 	mode resource.AccessMode,
 ) (resource.Resource[any], error) {
 	// Only support normal mode for now
@@ -220,34 +218,19 @@ func (s *TemplateSet) Acquire(
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// If the ID is the set's ID, provide the set itself
-	if id == s.id {
-		return &templateSetResource{
-			set: s,
-		}, nil
-	}
-
-	// Otherwise, check if we have a template with that ID
-	if _, exists := s.sources[id]; !exists {
-		return nil, ErrTemplateNotFound
-	}
-
 	// Create a template wrapper just for this request
-	return &templateResource{
-		set: s,
-		id:  id,
-	}, nil
+	return &setResource{set: s}, nil
 }
 
-// templateSetResource represents a resource wrapper for a template set
-type templateSetResource struct {
+// setResource represents a resource wrapper for a template set
+type setResource struct {
 	set    *TemplateSet
 	mu     sync.Mutex
 	closed bool
 }
 
 // Get implements resource.Resource
-func (r *templateSetResource) Get() (any, error) {
+func (r *setResource) Get() (any, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -259,39 +242,7 @@ func (r *templateSetResource) Get() (any, error) {
 }
 
 // Release implements resource.Resource
-func (r *templateSetResource) Release() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.closed = true
-}
-
-// templateResource represents a resource wrapper for a template ID
-type templateResource struct {
-	set    *TemplateSet
-	id     registry.ID
-	mu     sync.Mutex
-	closed bool
-}
-
-// Get implements resource.Resource
-func (r *templateResource) Get() (any, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.closed {
-		return nil, resource.ErrResourceReleased
-	}
-
-	// Return a map with template details
-	return map[string]interface{}{
-		"id":    r.id,
-		"setId": r.set.id,
-	}, nil
-}
-
-// Release implements resource.Resource
-func (r *templateResource) Release() {
+func (r *setResource) Release() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

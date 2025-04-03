@@ -16,6 +16,8 @@ const (
 
 // Config represents configuration for a template entry
 type Config struct {
+	Meta registry.Metadata `json:"meta"`
+
 	// Source defines the template content or location
 	Source string `json:"source"`
 
