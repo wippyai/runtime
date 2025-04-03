@@ -20,10 +20,6 @@ func NewManager(log *zap.Logger, code *lua.Manager) *Manager {
 	return &Manager{log: log, code: code}
 }
 
-func NewLibraryManager(log *zap.Logger, code *lua.Manager) *component.Handler {
-	return component.NewHandler(api.KindLibrary, NewManager(log, code))
-}
-
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibrary {
 		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindLibrary)

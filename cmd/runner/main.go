@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
+	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
 	"github.com/ponyruntime/pony/runtime/lua/modules/events"
 	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
@@ -944,9 +945,9 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 
 	return []eventbus.EventHandler{
 		reghandler.NewTransactionHandler(codeManager),
-		reghandler.NewRegistryHandler("function.lua", funcs),
-		reghandler.NewRegistryHandler("library.lua", libraries),
-		reghandler.NewRegistryHandler("process.lua", processes),
-		reghandler.NewRegistryHandler("btea.app.lua", terminalApps),
+		component.NewHandler("function.lua", funcs),
+		component.NewHandler("library.lua", libraries),
+		component.NewHandler("process.lua", processes),
+		component.NewHandler("btea.app.lua", terminalApps),
 	}
 }
