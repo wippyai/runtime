@@ -69,8 +69,8 @@ type templateEntry struct {
 
 // NewManager creates a new template manager
 func NewManager(
-	dtt payload.Transcoder,
 	bus event.Bus,
+	dtt payload.Transcoder,
 	log *zap.Logger,
 ) *Manager {
 	return &Manager{

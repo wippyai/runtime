@@ -12,11 +12,13 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
 	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
 	"github.com/ponyruntime/pony/runtime/lua/modules/store"
+	luatemplate "github.com/ponyruntime/pony/runtime/lua/modules/template"
 	yamlmod "github.com/ponyruntime/pony/runtime/lua/modules/yaml"
 	native "github.com/ponyruntime/pony/service/exec"
 	"github.com/ponyruntime/pony/service/http/cors"
 	"github.com/ponyruntime/pony/service/http/firewall"
 	"github.com/ponyruntime/pony/service/processfunc"
+	"github.com/ponyruntime/pony/service/template"
 	"github.com/ponyruntime/pony/service/tokenstore"
 	httpbase "net/http"
 	"os"
@@ -582,6 +584,7 @@ func main() {
 		WithProcessFunctionBridge(app),
 		WithMemStore(app),
 		WithNativeExecutor(app),
+		WithJetTemplates(app),
 	)...)
 	// --------------------------------------------------
 
@@ -874,6 +877,17 @@ func WithProcessFunctionBridge(a *App) eventbus.EventHandler {
 	)
 }
 
+func WithJetTemplates(a *App) eventbus.EventHandler {
+	// Create manager with required dependencies
+	manager := template.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("exec"),
+	)
+
+	return reghandler.NewRegistryHandler("template.(jet|set)", manager)
+}
+
 func WithLuaRuntime(a *App) []eventbus.EventHandler {
 	codeManager, err := code.NewCodeManager(
 		a.logger.Named("lua"),
@@ -903,6 +917,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				exec.NewExecModule(a.logger.Named("exec")),
 				ctx.NewCtxModule(a.logger.Named("ctx")),
 				store.NewStoreModule(a.logger.Named("store")),
+				luatemplate.NewTemplateModule(a.logger.Named("template")),
 				securitymod.NewSecurityModule(a.logger.Named("security")),
 				registrymod.NewRegistryModule(a.logger.Named("registry")),
 				processmod.NewProcessAPIModule(a.logger.Named("proc")),

@@ -467,8 +467,8 @@ func TestTemplateModuleIntegration(t *testing.T) {
 	welcome := resultTable.RawGetString("welcome").String()
 	assert.Equal(t, "Hello, Integration Test!", welcome, "Welcome template should be rendered correctly")
 
-	complex := resultTable.RawGetString("complex").String()
-	assert.Equal(t, "User: Complex User, Age: 25, Email: complex@example.com", complex, "Complex template should be rendered correctly")
+	cpl := resultTable.RawGetString("complex").String()
+	assert.Equal(t, "User: Complex User, Age: 25, Email: complex@example.com", cpl, "Complex template should be rendered correctly")
 
 	released := resultTable.RawGetString("released")
 	assert.Equal(t, lua.LTrue, released, "Template should be released successfully")
@@ -477,4 +477,201 @@ func TestTemplateModuleIntegration(t *testing.T) {
 	assert.Equal(t, lua.LBool(false), renderAfterReleaseSuccess, "Rendering after release should fail")
 
 	assert.True(t, mockRes.released, "Template resource should be released")
+}
+
+// TestTemplateRenderInheritance tests the template:render method with template inheritance
+// TestTemplateRenderInheritance tests the template:render method with template inheritance
+func TestTemplateRenderInheritance(t *testing.T) {
+	// Create a test template set
+	cfg := &template.SetConfig{
+		Engine: template.EngineConfig{
+			DevelopmentMode: true,
+			Delimiters: template.DelimiterConfig{
+				Left:  "{{",
+				Right: "}}",
+			},
+			Globals: map[string]any{
+				"siteName": "Test Site",
+				"version":  "1.0",
+			},
+		},
+	}
+
+	// Use real transcoder with json support
+	transcoder := payloadSystem.GlobalTranscoder()
+	json.Register(transcoder)
+
+	id := registry.ID{Name: "test-templates"}
+	set, err := templatesvc.NewTemplateSet(id, cfg, transcoder)
+	require.NoError(t, err)
+
+	// Add templates with inheritance structure based on set_test.go examples
+	// 1. A base layout template - following the pattern from TestTemplateInheritance in set_test.go
+	err = set.AddTemplate("layout", `<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ yield title() }}</title>
+    <meta name="description" content="{{ yield metaDescription() }}">
+</head>
+<body>
+    <header>
+        <h1>{{ siteName }}</h1>
+        <p>Version: {{ version }}</p>
+    </header>
+    <main>
+        {{ yield mainContent() }}
+    </main>
+    <footer>
+        {{ yield footer() }}
+    </footer>
+</body>
+</html>`)
+	require.NoError(t, err)
+
+	// 2. A section layout that extends the base layout
+	err = set.AddTemplate("section-layout", `{{ extends "layout" }}
+
+{{ block footer() }}
+    <p>Section Footer</p>
+    <nav>
+        {{ range i, item := menuItems }}
+            <a href="{{ item.url }}">{{ item.title }}</a>
+        {{ end }}
+    </nav>
+{{ end }}`)
+	require.NoError(t, err)
+
+	// 3. A page template that extends the section layout
+	err = set.AddTemplate("page", `{{ extends "section-layout" }}
+
+{{ block title() }}{{ pageTitle }} | {{ siteName }}{{ end }}
+
+{{ block metaDescription() }}{{ pageDescription }}{{ end }}
+
+{{ block mainContent() }}
+    <h2>{{ pageTitle }}</h2>
+    <div class="content">
+        {{ pageContent }}
+    </div>
+    {{ if showRelated }}
+    <div class="related">
+        <h3>Related Items</h3>
+        <ul>
+            {{ range i, item := relatedItems }}
+                <li>{{ item }}</li>
+            {{ end }}
+        </ul>
+    </div>
+    {{ end }}
+{{ end }}`)
+	require.NoError(t, err)
+
+	// Create our resource
+	mockRes := &mockResource{
+		resValue: set,
+	}
+
+	// Setup Lua with the test templates
+	vm, L, uw, runner := setupLuaWithTemplates(t, mockRes)
+	defer vm.Close()
+	defer func() {
+		err := uw.Close()
+		assert.NoError(t, err, "Unit of work cleanup failed")
+	}()
+
+	// Import our test function
+	err = vm.Import(`
+		function test_template_render_inheritance()
+			local templates = require("templates")
+			local tmpl = templates.get("app:test_templates")
+			
+			-- Create test data with nested structures
+			local data = {
+				pageTitle = "Welcome Page",
+				pageDescription = "This is a test page with template inheritance",
+				pageContent = "This is the main content of the page.",
+				showRelated = true,
+				relatedItems = {"Item 1", "Item 2", "Item 3"},
+				menuItems = {
+					{title = "Home", url = "/home"},
+					{title = "About", url = "/about"},
+					{title = "Contact", url = "/contact"}
+				}
+			}
+			
+			-- Render the page which should use the full inheritance chain
+			local result, err = tmpl:render("page", data)
+			if err then 
+				error("Failed to render template: " .. err)
+			end
+			
+			-- Release the template
+			tmpl:release()
+			
+			-- Extract some values to verify specific parts of the rendered content
+			local hasTitle = string.find(result, "<title>Welcome Page | Test Site</title>") ~= nil
+			local hasDescription = string.find(result, '<meta name="description" content="This is a test page with template inheritance">') ~= nil
+			local hasContent = string.find(result, "This is the main content of the page.") ~= nil
+			local hasRelatedItems = string.find(result, "<li>Item 2</li>") ~= nil
+			local hasNavLinks = string.find(result, '<a href="/about">About</a>') ~= nil
+			local hasSiteName = string.find(result, "<h1>Test Site</h1>") ~= nil
+			
+			return {
+				-- Full rendered content for debugging
+				rendered = result,
+				
+				-- Status checks for different template parts
+				hasTitle = hasTitle,
+				hasDescription = hasDescription,
+				hasContent = hasContent,
+				hasRelatedItems = hasRelatedItems,
+				hasNavLinks = hasNavLinks,
+				hasSiteName = hasSiteName,
+				
+				-- Count occurrences of elements to ensure proper nesting
+				bodyCount = countOccurrences(result, "<body>"),
+				footerCount = countOccurrences(result, "<footer>"),
+				htmlStartCount = countOccurrences(result, "<!DOCTYPE html>")
+			}
+		end
+		
+		-- Helper function to count occurrences of a substring
+		function countOccurrences(str, sub)
+			local count = 0
+			local pos = 1
+			while true do
+				pos = string.find(str, sub, pos)
+				if not pos then break end
+				count = count + 1
+				pos = pos + 1
+			end
+			return count
+		end
+	`, "test", "test_template_render_inheritance")
+	require.NoError(t, err, "Failed to import test function")
+
+	// Execute the function
+	result, err := runner.Execute(L.Context(), "test_template_render_inheritance")
+	require.NoError(t, err, "Lua execution failed")
+
+	resultTable := result.(*lua.LTable)
+
+	// Verify all template parts were rendered correctly
+	assert.Equal(t, lua.LBool(true), resultTable.RawGetString("hasTitle"), "Page title should be rendered correctly")
+	assert.Equal(t, lua.LBool(true), resultTable.RawGetString("hasDescription"), "Meta description should be rendered correctly")
+	assert.Equal(t, lua.LBool(true), resultTable.RawGetString("hasContent"), "Page content should be rendered correctly")
+	assert.Equal(t, lua.LBool(true), resultTable.RawGetString("hasRelatedItems"), "Related items should be rendered correctly")
+	assert.Equal(t, lua.LBool(true), resultTable.RawGetString("hasNavLinks"), "Navigation links should be rendered correctly")
+	assert.Equal(t, lua.LBool(true), resultTable.RawGetString("hasSiteName"), "Site name should be rendered correctly")
+
+	// Check that template nesting is correct (no duplicate elements)
+	assert.Equal(t, lua.LNumber(1), resultTable.RawGetString("bodyCount"), "There should be exactly one body tag")
+	assert.Equal(t, lua.LNumber(1), resultTable.RawGetString("footerCount"), "There should be exactly one footer tag")
+	assert.Equal(t, lua.LNumber(1), resultTable.RawGetString("htmlStartCount"), "There should be exactly one DOCTYPE declaration")
+
+	// For debugging if needed:
+	if t.Failed() {
+		rendered := resultTable.RawGetString("rendered").String()
+		t.Logf("Rendered template: %s", rendered)
+	}
 }

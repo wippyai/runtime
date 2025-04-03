@@ -1,221 +1,124 @@
-# Lua Templates Module Specification
+# Templates Module Documentation
 
 ## Overview
 
-The `templates` module provides a Lua interface to the Jet template engine. It allows for accessing template sets and rendering templates with variables. The module is designed to be used within a unit of work context for automatic resource management and cleanup.
+The `templates` module provides a way to access and render templates in Lua scripts. It allows you to retrieve template sets from the resource registry, render templates with variables, and properly release resources when done.
 
-## Module Interface
-
-### Loading the Module
+## Module Loading
 
 ```lua
 local templates = require("templates")
 ```
 
-## Core Concepts
+## Functions
 
-### Resource Management
+### templates.get(id)
 
-- Template sets are obtained from the resource registry
-- All template resources are automatically cleaned up when the containing unit of work completes
-- Template resources can be explicitly released earlier if needed using the `release` method
+Retrieves a template set from the resource registry.
 
-### Error Handling
+**Parameters:**
+- `id` (string): Resource ID of the template set in the format "namespace:name" (e.g., "app:my_templates")
 
-- Operations return appropriate results and error values
-- Success is indicated by a result value + nil for error
-- Failure is indicated by nil + error message
-- Template connections are managed as resources with proper cleanup
+**Returns:**
+- A template set object that can be used to render templates
 
-## Template Operations
+**Errors:**
+- Raises an error if the resource ID is invalid
+- Raises an error if the resource is not found
+- Raises an error if the resource is not a template set
 
-### Getting a Template Set
-
+**Example:**
 ```lua
-local templateSet = templates.get("resource_id")
--- Parameters: resource_id (string) - Resource ID for the template set
--- Returns: template set object
--- Raises error on failure
-```
-
-### Render Template
-
-```lua
-local result, err = templateSet:render(name, variables)
--- Parameters:
---   name (string): Template name to render
---   variables (table, optional): Variables to use in rendering
--- Returns on success: rendered content (string), nil
--- Returns on error: nil, error message
-```
-
-### Release Template Set
-
-```lua
-local success = templateSet:release()
--- Returns: true (always succeeds)
--- Note: After release, template methods will fail
-```
-
-## Example Usage
-
-### Basic Template Rendering
-
-```lua
--- Get template set from resource registry
 local templates = require("templates")
 local tmpl = templates.get("app:my_templates")
+```
 
--- Render a simple template
-local content, err = tmpl:render("welcome", {
-    name = "John Doe"
+## Template Set Methods
+
+### tmpl:render(name, data)
+
+Renders a template by name with the provided variable data.
+
+**Parameters:**
+- `name` (string): The name of the template to render
+- `data` (table): A table containing the variables to pass to the template
+
+**Returns:**
+- `result` (string): The rendered template content on success
+- `nil, error_message` (nil, string): If an error occurs
+
+**Example:**
+```lua
+local result, err = tmpl:render("welcome", {
+    name = "John",
+    user = {
+        age = 30,
+        email = "john@example.com"
+    },
+    items = {"apple", "banana", "orange"}
 })
+
 if err then
-    error("Failed to render template: " .. err)
+    -- Handle error
+    print("Error rendering template:", err)
+else
+    -- Use the rendered content
+    print(result)
 end
-
-print(content)  -- "Hello, John Doe!"
-
--- Release the template set when done
-tmpl:release()
 ```
 
-### Rendering with Complex Data
+### tmpl:release()
+
+Releases the template set resource. This should be called when you're done with the template set to free up resources.
+
+**Returns:**
+- `true` (boolean): Indicates successful release
+
+**Example:**
+```lua
+local ok = tmpl:release()
+```
+
+## Resource Management
+
+Template resources are automatically released when the unit of work (UoW) completes, but you can explicitly release them earlier with `tmpl:release()`.
+
+## Complete Example
 
 ```lua
 local templates = require("templates")
-local tmpl = templates.get("app:my_templates")
 
--- Render a template with complex nested data
-local content, err = tmpl:render("user_profile", {
+-- Get the template set
+local tmpl = templates.get("app:email_templates")
+
+-- Render a welcome email template
+local email, err = tmpl:render("welcome_email", {
     user = {
         name = "Alice Smith",
-        age = 30,
-        contact = {
-            email = "alice@example.com",
-            phone = "555-1234"
-        },
-        roles = {"admin", "editor", "user"}
+        email = "alice@example.com"
     },
-    company = "ACME Inc.",
-    showDetails = true
-})
-if err then
-    error("Failed to render template: " .. err)
-end
-
-print(content)
-
--- Template sets are automatically released when the unit of work completes,
--- but it's good practice to release them explicitly when done
-tmpl:release()
-```
-
-### Error Handling
-
-```lua
-local templates = require("templates")
-local tmpl = templates.get("app:my_templates")
-
--- Try to render a template that might not exist
-local content, err = tmpl:render("nonexistent_template", {})
-if err then
-    if err == "template not found" then
-        print("The requested template does not exist")
-    else
-        print("Error rendering template: " .. err)
-    end
-else
-    print(content)
-end
-
--- Release the template set
-tmpl:release()
-```
-
-### Template Processing in a Function
-
-```lua
-function process_template(template_id, template_name, vars)
-    local templates = require("templates")
-    local tmpl = templates.get(template_id)
-    
-    -- Template will be automatically released when the unit of work completes
-    
-    local content, err = tmpl:render(template_name, vars)
-    if err then
-        return nil, err
-    end
-    
-    return content
-end
-
--- Later use the function
-local result, err = process_template("app:email_templates", "welcome_email", {
-    user_name = "New User",
-    activation_link = "https://example.com/activate?token=abc123"
+    subscription = {
+        level = "Premium",
+        expires = "2023-12-31"
+    },
+    features = {"Unlimited Access", "Priority Support", "Custom Templates"}
 })
 
 if err then
-    print("Failed to process template: " .. err)
+    print("Failed to render email template:", err)
 else
-    print("Generated email content:", result)
+    -- Use the rendered email
+    print("Email content:", email)
 end
+
+-- Explicitly release the template resource
+tmpl:release()
 ```
 
-## Template Examples
+## Best Practices
 
-The module works with Jet templates, which support various features:
-
-### Simple Variable Substitution
-
-```
-Hello, {{ name }}!
-```
-
-### Control Structures
-
-```
-{{ if user.admin }}
-  Welcome, Administrator!
-{{ else }}
-  Welcome, User!
-{{ end }}
-```
-
-### Loops
-
-```
-<ul>
-{{ range items }}
-  <li>{{ . }}</li>
-{{ end }}
-</ul>
-```
-
-### Nested Data
-
-```
-<div class="profile">
-  <h1>{{ user.name }}</h1>
-  <p>Email: {{ user.contact.email }}</p>
-  <p>Phone: {{ user.contact.phone }}</p>
-  
-  <h2>Roles:</h2>
-  <ul>
-    {{ range user.roles }}
-      <li>{{ . }}</li>
-    {{ end }}
-  </ul>
-</div>
-```
-
-### Global Variables
-
-Templates can access global variables defined in the template set configuration:
-
-```
-<footer>
-  © {{ currentYear }} {{ siteName }} | Version {{ version }}
-</footer>
-```
+1. **Always check for errors** when rendering templates.
+2. **Release template resources** when you're done with them.
+3. **Structure your data** in a way that matches your template's expectations.
+4. **Use consistent naming conventions** for your templates and variables.
+5. **Keep templates and code separate** - templates should focus on presentation while Lua code handles the logic.
