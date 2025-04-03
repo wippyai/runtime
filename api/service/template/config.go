@@ -63,15 +63,6 @@ type SetConfig struct {
 
 // InitDefaults initializes default values for Config
 func (c *Config) InitDefaults() {
-	// Ensure Set has a valid NS if not specified
-	if c.Set.NS == "" {
-		c.Set.NS = "system.template"
-	}
-
-	// Default to the default set if not specified
-	if c.Set.Name == "" {
-		c.Set.Name = "default"
-	}
 }
 
 // InitDefaults initializes default values for EngineConfig
