@@ -2,8 +2,7 @@
 
 ## Overview
 
-The `hash` module provides a set of functions for calculating various cryptographic and non-cryptographic hash values of
-strings. It includes implementations of MD5, SHA-1, SHA-256, SHA-512, FNV-1 32-bit, and FNV-1 64-bit hash algorithms.
+The `hash` module provides a set of functions for calculating various cryptographic and non-cryptographic hash values of strings. It includes implementations of MD5, SHA-1, SHA-256, SHA-512, FNV-1 32-bit, and FNV-1 64-bit hash algorithms.
 
 ## Module Interface
 
@@ -15,56 +14,60 @@ local hash = require("hash")
 
 ### Global Functions
 
-#### hash.md5(str: string)
+#### hash.md5(str: string, raw: boolean?)
 
 Calculates the MD5 hash of a string.
 
 Parameters:
 
 - `str`: The string to hash.
+- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
 
 Returns:
 
-- `digest`: The hexadecimal representation of the MD5 hash digest (or nil on error).
+- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
 - `error`: Error message string (or nil on success).
 
-#### hash.sha1(str: string)
+#### hash.sha1(str: string, raw: boolean?)
 
 Calculates the SHA-1 hash of a string.
 
 Parameters:
 
 - `str`: The string to hash.
+- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
 
 Returns:
 
-- `digest`: The hexadecimal representation of the SHA-1 hash digest (or nil on error).
+- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
 - `error`: Error message string (or nil on success).
 
-#### hash.sha256(str: string)
+#### hash.sha256(str: string, raw: boolean?)
 
 Calculates the SHA-256 hash of a string.
 
 Parameters:
 
 - `str`: The string to hash.
+- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
 
 Returns:
 
-- `digest`: The hexadecimal representation of the SHA-256 hash digest (or nil on error).
+- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
 - `error`: Error message string (or nil on success).
 
-#### hash.sha512(str: string)
+#### hash.sha512(str: string, raw: boolean?)
 
 Calculates the SHA-512 hash of a string.
 
 Parameters:
 
 - `str`: The string to hash.
+- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
 
 Returns:
 
-- `digest`: The hexadecimal representation of the SHA-512 hash digest (or nil on error).
+- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
 - `error`: Error message string (or nil on success).
 
 #### hash.fnv32(str: string)
@@ -109,16 +112,18 @@ The module functions return errors in the following cases:
 ## Behavior
 
 1. **Hash Output:**
-    - `md5`, `sha1`, `sha256`, and `sha512` return the hash digest as a hexadecimal string.
-    - `fnv32` and `fnv64` return the hash value as a Lua number.
+   - `md5`, `sha1`, `sha256`, and `sha512` return the hash digest as a hexadecimal string by default.
+   - When the `raw` parameter is set to `true`, these functions return the raw binary digest instead.
+   - `fnv32` and `fnv64` return the hash value as a Lua number.
 
-2. **Empty String:**
-    - Hashing an empty string with `md5`, `sha1`, `sha256`, and `sha512` will return the pre-computed hash digest of an
-      empty string.
-    - Hashing an empty string with `fnv32` and `fnv64` will return a number.
+2. **Raw Binary Output:**
+   - MD5: Returns a 16-byte binary string
+   - SHA-1: Returns a 20-byte binary string
+   - SHA-256: Returns a 32-byte binary string
+   - SHA-512: Returns a 64-byte binary string
 
 3. **Error Handling**
-    - Lua's `pcall` can be used to catch errors that occur.
+   - Lua's `pcall` can be used to catch errors that occur.
 
 ## Thread Safety
 
@@ -129,29 +134,44 @@ The module functions return errors in the following cases:
 
 1. **Always check for errors:** Always check the returned `error` value to handle potential errors.
 2. **Validate input:** Ensure that the input to the hash functions is of the correct type (string) before calling them.
-3. **Use appropriate hash function:** Choose the hash function that best suits your needs in terms of security and
-   performance.
-4. **Handle empty strings:** Be aware that hashing empty strings produces defined results.
+3. **Use appropriate hash function:** Choose the hash function that best suits your needs in terms of security and performance.
+4. **Binary vs Hex:** Use raw binary output when working with other binary data or for more efficient storage. Use hex output for human-readable representations.
 
 ## Example Usage
 
 ```lua
 local hash = require("hash")
 
--- Calculate MD5 hash
+-- Calculate MD5 hash (hex format)
 local digest, err = hash.md5("Hello, world!")
 if err then
   print("MD5 Error:", err)
 else
-  print("MD5:", digest) -- Output: MD5: 65a8e27d8879283831b664bd8b7f0ad4
+  print("MD5 (hex):", digest) -- Output: MD5 (hex): 65a8e27d8879283831b664bd8b7f0ad4
 end
 
--- Calculate SHA-256 hash
+-- Calculate MD5 hash (binary format)
+local digest_bin, err = hash.md5("Hello, world!", true)
+if err then
+  print("MD5 Binary Error:", err)
+else
+  print("MD5 (binary) length:", #digest_bin) -- Output: MD5 (binary) length: 16
+end
+
+-- Calculate SHA-256 hash (hex format)
 local digest, err = hash.sha256("Hello, world!")
 if err then
   print("SHA-256 Error:", err)
 else
-  print("SHA-256:", digest) -- Output: SHA-256: 315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3
+  print("SHA-256 (hex):", digest) -- Output: SHA-256 (hex): 315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3
+end
+
+-- Calculate SHA-256 hash (binary format)
+local digest_bin, err = hash.sha256("Hello, world!", true)
+if err then
+  print("SHA-256 Binary Error:", err)
+else
+  print("SHA-256 (binary) length:", #digest_bin) -- Output: SHA-256 (binary) length: 32
 end
 
 -- Calculate FNV-1 32-bit hash
@@ -162,19 +182,9 @@ else
   print("FNV32:", value) -- Output: FNV32: <a number>
 end
 
--- Handle errors with pcall
-local success, result = pcall(hash.sha1, 123)
-if not success then
-    print("Error:", result) -- Output: Error: string expected
-else
-    print("SHA1 result:", result)
-end
-
--- Test empty string hashing
-local empty_md5, err = hash.md5("")
-if err then
-    print("Empty MD5 Error:", err)
-else
-    print("Empty MD5:", empty_md5) -- Output: Empty MD5: d41d8cd98f00b204e9800998ecf8427e
-end
+-- Binary output example for cryptographic operations
+local code_verifier = "BoocIEyqWI-m4uYi006AMyea8C8eue486eoasqcEyqMK6Y0eMOcCAWCkW8a266gq"
+local challenge = hash.sha256(code_verifier, true)  -- Raw binary output
+local base64_challenge = require("base64").encode(challenge)  -- Encoding binary output as base64
+print("Base64 Challenge:", base64_challenge)
 ```
