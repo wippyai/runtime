@@ -367,7 +367,7 @@ func (a *App) Start(folderPath string) error {
 		return fmt.Errorf("failed to load application state: %w", err)
 	}
 
-	bootCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	bootCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
 	if _, err := a.reg.Apply(bootCtx, appState); err != nil {
