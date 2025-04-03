@@ -50,6 +50,7 @@ require (
 // replace github.com/ponyruntime/tree-sitter-sql => ../tree-sitter-sql
 
 replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v0.0.0-20250307025234-ece9a5460bdd
+
 //replace github.com/yuin/gopher-lua => ../go-lua
 
 require (
@@ -57,6 +58,8 @@ require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
+	github.com/CloudyKit/fastprinter v0.0.0-20200109182630-33d98a066a53 // indirect
+	github.com/CloudyKit/jet/v6 v6.3.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.10 // indirect
