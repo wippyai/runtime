@@ -657,7 +657,7 @@ func registerRequest(l *lua.LState, mod *lua.LTable) {
 		"method":          requestMethod,
 		"path":            requestPath,
 		"query":           requestQuery,
-		"query_all":       requestQueryAll,
+		"query_params":    requestQueryAll,
 		"header":          requestHeader,
 		"content_type":    requestContentType,
 		"content_length":  requestContentLength,
