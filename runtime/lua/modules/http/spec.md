@@ -553,6 +553,8 @@ else
 end
 ```
 
+> Use params() to get all params table.
+
 Notes:
 - Route parameters are extracted from the URL path based on pattern matching.
 - Parameter names in route definitions can use either `:param` or `{param}` syntax.
