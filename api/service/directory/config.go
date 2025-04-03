@@ -17,6 +17,8 @@ const TypeNameEmbed = "embed"
 type Config struct {
 	// Directory is the root path for this filesystem
 	Directory string `json:"directory"`
+	// ShouldCreateDir creates directory path if it does not exist.
+	ShouldCreateDir bool `json:"should_create_dir"`
 
 	// Mode specifies the filesystem permissions
 	// Examples:
