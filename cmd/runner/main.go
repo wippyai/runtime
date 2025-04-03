@@ -880,7 +880,7 @@ func WithJetTemplates(a *App) eventbus.EventHandler {
 	manager := template.NewManager(
 		a.eventBus,
 		a.dtt,
-		a.logger.Named("exec"),
+		a.logger.Named("tmpl"),
 	)
 
 	return reghandler.NewRegistryHandler("template.(jet|set)", manager)
