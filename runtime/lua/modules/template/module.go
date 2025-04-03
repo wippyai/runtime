@@ -179,6 +179,8 @@ func templateRender(l *lua.LState) int {
 		return 0
 	}
 
+	// todo: support payload passing
+
 	// Get
 	args := l.OptTable(3, l.CreateTable(0, 0))
 
