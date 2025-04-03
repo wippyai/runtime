@@ -189,13 +189,18 @@ func (s *TemplateSet) RenderTemplate(name string, vars map[string]any) (string, 
 // RenderPayload renders a template with data from a payload
 func (s *TemplateSet) RenderPayload(name string, data payload.Payload) (string, error) {
 	// Extract data from payload using transcoder
-	var vars map[string]any
+	var vars any
 	if err := s.dtt.Unmarshal(data, &vars); err != nil {
 		return "", fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
 
+	mvars, ok := vars.(map[string]any)
+	if !ok {
+		mvars = make(map[string]any)
+	}
+
 	// Render the template
-	result, err := s.RenderTemplate(name, vars)
+	result, err := s.RenderTemplate(name, mvars)
 	if err != nil {
 		return "", err
 	}
