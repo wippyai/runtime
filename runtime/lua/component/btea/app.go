@@ -283,6 +283,8 @@ func (a *App) Send(pkg *pubsub.Package) error {
 // Terminate forcefully stops the process
 func (a *App) Terminate() {
 	a.terminateOnce.Do(func() {
+		a.taskRunner.Close()
+
 		a.state.Log.Debug("terminating btea app")
 
 		// Try to shutdown the program gracefully

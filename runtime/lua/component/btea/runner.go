@@ -2,10 +2,12 @@ package btea
 
 import (
 	"errors"
+	"github.com/ponyruntime/pony/api/process"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	"sync/atomic"
 	"time"
 
-	task2 "github.com/ponyruntime/pony/runtime/lua/task"
+	taskmod "github.com/ponyruntime/pony/runtime/lua/task"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -20,41 +22,45 @@ var (
 
 // TaskRunner handles task management for btea apps
 type TaskRunner struct {
-	// The app instance
-	app *App
-
-	// Lua state
-	state *lua.LState
-
-	// Transcoder for payload conversion
-	dtt payload.Transcoder
-
-	// Logger
-	log *zap.Logger
+	app   *App
+	state atomic.Pointer[lua.LState] // Type-safe atomic pointer
+	dtt   payload.Transcoder
+	log   *zap.Logger
 }
 
 // NewTaskRunner creates a new task runner for a btea app
 func NewTaskRunner(app *App) *TaskRunner {
-	return &TaskRunner{
-		app:   app,
-		state: app.state.UoW.State(),
-		dtt:   payload.GetTranscoder(app.state.Ctx),
-		log:   app.state.Log,
+	runner := &TaskRunner{
+		app: app,
+		dtt: payload.GetTranscoder(app.state.Ctx),
+		log: app.state.Log,
 	}
+
+	// Store the state in the atomic pointer
+	state := app.state.UoW.State()
+	runner.state.Store(state)
+
+	return runner
 }
 
 // SendTask sends a task to the specified channel without waiting for response
 func (r *TaskRunner) SendTask(taskType string, input lua.LValue) error {
+	// Get current state atomically
+	state := r.state.Load()
+	if state == nil {
+		return process.ErrNoProcess
+	}
+
 	// Create payload
 	inputPayload := luaconv.ExportPayload(input)
 
 	// Create task without completion callback
-	t := task2.NewTask(inputPayload, nil)
+	t := taskmod.NewTask(inputPayload, nil)
 
 	// Create message table
-	msg := r.state.CreateTable(0, 2)
+	msg := state.CreateTable(0, 2)
 	msg.RawSetString("type", lua.LString(taskType))
-	msg.RawSetString("task", task2.WrapTask(r.state, t))
+	msg.RawSetString("task", taskmod.WrapTask(state, t))
 
 	// Publish to events channel
 	return subscribe.Publish(r.app.state.Ctx, ChannelEvents, msg)
@@ -62,6 +68,12 @@ func (r *TaskRunner) SendTask(taskType string, input lua.LValue) error {
 
 // ExecuteTask creates and executes a task, waiting for a result with timeout
 func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time.Duration) (string, error) {
+	// Get current state atomically
+	state := r.state.Load()
+	if state == nil {
+		return "", process.ErrNoProcess
+	}
+
 	// Check app cancellation signals
 	select {
 	case <-r.app.state.Ctx.Done():
@@ -90,7 +102,7 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	resultCh := make(chan runtime.Result, 1)
 
 	// Create task with completion callback
-	t := task2.NewTask(inputPayload, func(result runtime.Result) {
+	t := taskmod.NewTask(inputPayload, func(result runtime.Result) {
 		select {
 		case resultCh <- result:
 			// Result sent
@@ -100,9 +112,9 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	})
 
 	// Create message table
-	msg := r.state.CreateTable(0, 2)
+	msg := state.CreateTable(0, 2)
 	msg.RawSetString("type", lua.LString(taskType))
-	msg.RawSetString("task", task2.WrapTask(r.state, t))
+	msg.RawSetString("task", taskmod.WrapTask(state, t))
 
 	// Publish to events channel
 	if err := subscribe.Publish(r.app.state.Ctx, ChannelEvents, msg); err != nil {
@@ -139,6 +151,12 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	r.app.state.UoW.Tasks().WakeUp()
 
 	return resultStr, nil
+}
+
+// Close safely clears the state
+func (r *TaskRunner) Close() {
+	r.state.Store(nil)
+	r.log.Debug("task runner closed")
 }
 
 // formatResult converts a payload to string
