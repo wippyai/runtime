@@ -183,7 +183,7 @@ func matchesAllCriteria(
 				return false
 			}
 		case "ns":
-			if strVal, ok := value.(string); ok && string(entry.ID.Name) != strVal {
+			if strVal, ok := value.(string); ok && string(entry.ID.NS) != strVal {
 				return false
 			}
 		case "id":
