@@ -96,6 +96,66 @@ Returns:
 - `value`: The 64-bit FNV-1 hash value as a number (or nil on error).
 - `error`: Error message string (or nil on success).
 
+#### hash.hmac_sha256(str: string, secret: string, raw: boolean?)
+
+Calculates the HMAC SHA-256 hash of a string and secret.
+
+Parameters:
+
+- `str`: The string to hash.
+- `secret`: The secret.
+- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+
+Returns:
+
+- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
+- `error`: Error message string (or nil on success).
+
+#### hash.hmac_sha512(str: string, secret: string, raw: boolean?)
+
+Calculates the HMAC SHA-512 hash of a string and secret.
+
+Parameters:
+
+- `str`: The string to hash.
+- `secret`: The secret.
+- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+
+Returns:
+
+- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
+- `error`: Error message string (or nil on success).
+
+#### hash.hmac_sha1(str: string, secret: string, raw: boolean?)
+
+Calculates the HMAC SHA-1 hash of a string and secret.
+
+Parameters:
+
+- `str`: The string to hash.
+- `secret`: The secret.
+- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+
+Returns:
+
+- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
+- `error`: Error message string (or nil on success).
+
+#### hash.hmac_md5(str: string, secret: string, raw: boolean?)
+
+Calculates the HMAC MD5 hash of a string and secret.
+
+Parameters:
+
+- `str`: The string to hash.
+- `secret`: The secret.
+- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+
+Returns:
+
+- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
+- `error`: Error message string (or nil on success).
+
 ## Error Handling
 
 The module functions return errors in the following cases:
