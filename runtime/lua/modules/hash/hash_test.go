@@ -2,11 +2,13 @@ package hash
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/md5"  //nolint:gosec
 	"crypto/sha1" //nolint:gosec
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
+	"hash"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -60,6 +62,38 @@ func calculateRawHash(data string, hashType string) []byte {
 		sum = h.Sum(nil)
 	}
 	return sum
+}
+
+func calculateHMAC(data, secret string, hashType string) string {
+	var h hash.Hash
+	switch hashType {
+	case "md5":
+		h = hmac.New(md5.New, []byte(secret)) //nolint:gosec
+	case "sha1":
+		h = hmac.New(sha1.New, []byte(secret)) //nolint:gosec
+	case "sha256":
+		h = hmac.New(sha256.New, []byte(secret))
+	case "sha512":
+		h = hmac.New(sha512.New, []byte(secret))
+	}
+	h.Write([]byte(data))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func calculateRawHMAC(data, secret string, hashType string) []byte {
+	var h hash.Hash
+	switch hashType {
+	case "md5":
+		h = hmac.New(md5.New, []byte(secret)) //nolint:gosec
+	case "sha1":
+		h = hmac.New(sha1.New, []byte(secret)) //nolint:gosec
+	case "sha256":
+		h = hmac.New(sha256.New, []byte(secret))
+	case "sha512":
+		h = hmac.New(sha512.New, []byte(secret))
+	}
+	h.Write([]byte(data))
+	return h.Sum(nil)
 }
 
 func TestHashModuleWithVM(t *testing.T) {
@@ -384,6 +418,235 @@ func TestHashModuleWithVM(t *testing.T) {
 				assert(#results.sha1_bin == 20) -- SHA1 is 20 bytes
 				assert(#results.sha256_bin == 32) -- SHA256 is 32 bytes
 				assert(#results.sha512_bin == 64) -- SHA512 is 64 bytes
+				
+				return results
+			end
+			return test
+		`
+		err = vm.Import(script, "test", "test")
+		require.NoError(t, err)
+
+		result, err := vm.Execute(context.Background(), "test")
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, lua.LTTable, result.Type())
+	})
+}
+
+func TestHashModuleWithVM_HMAC(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("module hmac functions loading", func(t *testing.T) {
+		mod := NewHashModule()
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(context.Background(), `
+			local hash = require("hash")
+			assert(type(hash) == "table")
+			assert(type(hash.hmac_sha256) == "function")
+			assert(type(hash.hmac_sha512) == "function")
+			assert(type(hash.hmac_sha1) == "function")
+			assert(type(hash.hmac_md5) == "function")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("hmac input validation", func(t *testing.T) {
+		testCases := []struct {
+			name     string
+			function string
+			dataArg  lua.LValue
+			keyArg   lua.LValue
+		}{
+			{
+				name:     "hmac_sha256 with nil data",
+				function: "hmac_sha256",
+				dataArg:  lua.LNil,
+				keyArg:   lua.LString("secret"),
+			},
+			{
+				name:     "hmac_sha256 with nil key",
+				function: "hmac_sha256",
+				dataArg:  lua.LString("data"),
+				keyArg:   lua.LNil,
+			},
+			{
+				name:     "hmac_sha512 with number data",
+				function: "hmac_sha512",
+				dataArg:  lua.LNumber(123),
+				keyArg:   lua.LString("secret"),
+			},
+			{
+				name:     "hmac_sha1 with bool key",
+				function: "hmac_sha1",
+				dataArg:  lua.LString("data"),
+				keyArg:   lua.LBool(true),
+			},
+			{
+				name:     "hmac_md5 with table data",
+				function: "hmac_md5",
+				dataArg:  &lua.LTable{},
+				keyArg:   lua.LString("secret"),
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				mod := NewHashModule()
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				require.NoError(t, err)
+				defer vm.Close()
+
+				script := `
+					local hash = require("hash")
+					function test(data, key)
+						return hash.` + tc.function + `(data, key)
+					end
+					return test
+				`
+				err = vm.Import(script, "test", "test")
+				require.NoError(t, err)
+
+				_, err = vm.Execute(context.Background(), "test", tc.dataArg, tc.keyArg)
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "string expected")
+			})
+		}
+	})
+
+	t.Run("comprehensive hmac test cases", func(t *testing.T) {
+		testCases := []struct {
+			name   string
+			data   string
+			secret string
+		}{
+			{
+				name:   "empty string",
+				data:   "",
+				secret: "secret",
+			},
+			{
+				name:   "simple string",
+				data:   "hello world",
+				secret: "secret-key",
+			},
+			{
+				name:   "unicode string",
+				data:   "Hello, 世界!",
+				secret: "unicode-key",
+			},
+			{
+				name:   "long string",
+				data:   string(make([]byte, 1000)),
+				secret: "key",
+			},
+			{
+				name:   "special characters",
+				data:   "!@#$%^&*()_+-=[]{}|;:,.<>?",
+				secret: "special-key!@#",
+			},
+		}
+
+		hmacFuncs := map[string]string{
+			"hmac_md5":    "md5",
+			"hmac_sha1":   "sha1",
+			"hmac_sha256": "sha256",
+			"hmac_sha512": "sha512",
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				mod := NewHashModule()
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				require.NoError(t, err)
+				defer vm.Close()
+
+				for luaFunc, goFunc := range hmacFuncs {
+					// Test hex output (default)
+					script := `
+						local hash = require("hash")
+						function test(data, secret)
+							local result, err = hash.` + luaFunc + `(data, secret)
+							if err then
+								return nil, err
+							end
+							return result
+						end
+						return test
+					`
+					err = vm.Import(script, "test_hex", "test_hex")
+					require.NoError(t, err)
+
+					result, err := vm.Execute(context.Background(), "test_hex", lua.LString(tc.data), lua.LString(tc.secret))
+					require.NoError(t, err)
+					require.NotNil(t, result)
+
+					expected := calculateHMAC(tc.data, tc.secret, goFunc)
+					assert.Equal(t, expected, result.String(), "Hex HMAC mismatch for %s with data %q and secret %q", luaFunc, tc.data, tc.secret)
+
+					// Test binary output
+					scriptBin := `
+						local hash = require("hash")
+						function test(data, secret)
+							local result, err = hash.` + luaFunc + `(data, secret, true)
+							if err then
+								return nil, err
+							end
+							return result
+						end
+						return test
+					`
+					err = vm.Import(scriptBin, "test_bin", "test_bin")
+					require.NoError(t, err)
+
+					resultBin, err := vm.Execute(context.Background(), "test_bin", lua.LString(tc.data), lua.LString(tc.secret))
+					require.NoError(t, err)
+					require.NotNil(t, resultBin)
+
+					expectedBin := calculateRawHMAC(tc.data, tc.secret, goFunc)
+					resultBytes := []byte(resultBin.String())
+					assert.Equal(t, expectedBin, resultBytes, "Binary HMAC mismatch for %s with data %q and secret %q", luaFunc, tc.data, tc.secret)
+				}
+			})
+		}
+	})
+
+	t.Run("hmac binary option test", func(t *testing.T) {
+		mod := NewHashModule()
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+			local hash = require("hash")
+			function test()
+				local input = "test string"
+				local secret = "test secret"
+				local results = {}
+				
+				-- Test binary option for each hmac function
+				results.hmac_md5_hex = hash.hmac_md5(input, secret)
+				results.hmac_md5_bin = hash.hmac_md5(input, secret, true)
+				results.hmac_sha1_hex = hash.hmac_sha1(input, secret)
+				results.hmac_sha1_bin = hash.hmac_sha1(input, secret, true)
+				results.hmac_sha256_hex = hash.hmac_sha256(input, secret)
+				results.hmac_sha256_bin = hash.hmac_sha256(input, secret, true)
+				results.hmac_sha512_hex = hash.hmac_sha512(input, secret)
+				results.hmac_sha512_bin = hash.hmac_sha512(input, secret, true)
+				
+				-- Verify bin and hex are different
+				assert(results.hmac_md5_hex ~= results.hmac_md5_bin)
+				assert(results.hmac_sha1_hex ~= results.hmac_sha1_bin)
+				assert(results.hmac_sha256_hex ~= results.hmac_sha256_bin)
+				assert(results.hmac_sha512_hex ~= results.hmac_sha512_bin)
+				
+				-- Verify bin length is correct
+				assert(#results.hmac_md5_bin == 16) -- HMAC-MD5 is 16 bytes
+				assert(#results.hmac_sha1_bin == 20) -- HMAC-SHA1 is 20 bytes
+				assert(#results.hmac_sha256_bin == 32) -- HMAC-SHA256 is 32 bytes
+				assert(#results.hmac_sha512_bin == 64) -- HMAC-SHA512 is 64 bytes
 				
 				return results
 			end
