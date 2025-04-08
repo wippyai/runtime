@@ -123,7 +123,7 @@ func (m *Module) subscribe(l *lua.LState) int {
 		kind,
 		func(evt event.Event) {
 			// Convert event to Lua table
-			evtTable := l.NewTable()
+			evtTable := l.CreateTable(0, 4)
 			evtTable.RawSetString("system", lua.LString(evt.System))
 			evtTable.RawSetString("kind", lua.LString(evt.Kind))
 			evtTable.RawSetString("path", lua.LString(evt.Path))

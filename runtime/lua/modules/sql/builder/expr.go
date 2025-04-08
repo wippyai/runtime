@@ -154,7 +154,32 @@ func builderExpr(l *lua.LState) int {
 	// Collect arguments
 	args := make([]interface{}, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
-		args[i-2] = luaconv.ToGoAny(l.Get(i))
+		v := l.Get(i)
+		// Check for special NULL value
+		if v.Type() == lua.LTUserData {
+			if ud, ok := v.(*lua.LUserData); ok {
+				// Check for SQL NULL
+				if ud.Value == "SQL_NULL" {
+					args[i-2] = nil
+					continue
+				}
+
+				// Check for typed values
+				if typedValue, ok := ud.Value.(*sqlutil.TypedValue); ok {
+					// Use the pre-converted value with the right type
+					args[i-2] = typedValue.Value
+					continue
+				}
+			}
+		}
+
+		// Handle normal values
+		if v == lua.LNil {
+			args[i-2] = nil
+		} else {
+			// Convert using existing mechanism for a single value
+			args[i-2] = luaconv.ToGoAny(v)
+		}
 	}
 
 	// Create Expr and wrap it
