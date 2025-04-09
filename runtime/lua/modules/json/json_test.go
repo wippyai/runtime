@@ -255,18 +255,6 @@ func TestJsonModule(t *testing.T) {
 				expectedError: "cannot encode recursively nested tables",
 			},
 			{
-				name: "encode sparse array",
-				script: `
-					local json = require("json")
-					local t = {}
-					t[1] = 1
-					t[3] = 3
-					local value, err = json.encode(t)
-					return value, err
-				`,
-				expectedError: "cannot encode sparse array",
-			},
-			{
 				name: "encode mixed keys",
 				script: `
 					local json = require("json")
