@@ -86,7 +86,6 @@ func (l *FileLoader) LoadFS(fSys fs.FS) ([]*FilePayload, error) {
 	return payloads, nil
 }
 
-// LoadDir loads all supported files from a directory in the FS and returns their FilePayloads
 func (l *FileLoader) LoadDir(fSys fs.FS, dirPath string) ([]*FilePayload, error) {
 	payloads := make([]*FilePayload, 0)
 	err := fs.WalkDir(fSys, dirPath, func(path string, d fs.DirEntry, err error) error {
@@ -95,18 +94,11 @@ func (l *FileLoader) LoadDir(fSys fs.FS, dirPath string) ([]*FilePayload, error)
 		}
 
 		if d.IsDir() {
-			// Skip directories, but don't skip the root directory
-			if path != dirPath {
-				return nil
-			}
+			// Continue walking through all directories
 			return nil
 		}
 
-		// Skip files not in the target directory or its subdirectories
-		if filepath.Dir(path) != dirPath && !filepath.HasPrefix(path, dirPath+"/") {
-			return nil
-		}
-
+		// Process only supported file types
 		ext := filepath.Ext(path)
 		format, ok := l.ext[ext]
 		if !ok {

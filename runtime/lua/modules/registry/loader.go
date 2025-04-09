@@ -165,7 +165,7 @@ func loaderLoadDirectory(l *lua.LState) int {
 	}
 
 	// Convert entries to Lua table
-	entriesTable := l.NewTable()
+	entriesTable := l.CreateTable(0, len(entries))
 	for i, entry := range entries {
 		entryTable, err := entryToLuaTable(l, entry)
 		if err != nil {

@@ -2,12 +2,11 @@ package loader
 
 import (
 	"fmt"
-	iofs "io/fs"
-
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"go.uber.org/zap"
+	iofs "io/fs"
 )
 
 // Loader manages loading of registry entries
