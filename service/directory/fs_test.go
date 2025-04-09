@@ -47,7 +47,7 @@ func TestFS(t *testing.T) {
 			defer cleanup()
 
 			// Create filesystem with specified mode
-			fs, err := NewDirectoryFS(root, tt.mode)
+			fs, err := NewDirectoryFS(root, tt.mode, false)
 			require.NoError(t, err)
 			defer func() {
 				require.NoError(t, fs.Close())
@@ -158,7 +158,7 @@ func TestFS_Root(t *testing.T) {
 	})
 	defer cleanup()
 
-	fs, err := NewDirectoryFS(root, 0755)
+	fs, err := NewDirectoryFS(root, 0755, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -185,7 +185,7 @@ func TestFS_Closed(t *testing.T) {
 	})
 	defer cleanup()
 
-	fs, err := NewDirectoryFS(root, 0755)
+	fs, err := NewDirectoryFS(root, 0755, false)
 	require.NoError(t, err)
 
 	// close filesystem
@@ -274,7 +274,7 @@ func TestNewDirectoryFS_WithPermissionAdjustment(t *testing.T) {
 	defer cleanup()
 
 	// Test with read-only permission 0444 (r--r--r--)
-	fs, err := NewDirectoryFS(root, 0444)
+	fs, err := NewDirectoryFS(root, 0444, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -284,7 +284,7 @@ func TestNewDirectoryFS_WithPermissionAdjustment(t *testing.T) {
 	assert.Equal(t, os.FileMode(0555), fs.mode&0777, "Execute bits should be added to read-only mode")
 
 	// Test with mixed read/write but no execute: 0644 (rw-r--r--)
-	fs2, err := NewDirectoryFS(root, 0644)
+	fs2, err := NewDirectoryFS(root, 0644, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs2.Close())
@@ -296,7 +296,7 @@ func TestNewDirectoryFS_WithPermissionAdjustment(t *testing.T) {
 
 func TestNewDirectoryFS_InvalidPath(t *testing.T) {
 	// Using a path that should not exist on any system
-	_, err := NewDirectoryFS("/path/that/cannot/possibly/exist/for/test", 0755)
+	_, err := NewDirectoryFS("/path/that/cannot/possibly/exist/for/test", 0755, false)
 	require.Error(t, err, "Should return error for invalid path")
 	assert.Contains(t, err.Error(), "failed to open directory", "Error should mention the failure to open directory")
 }
@@ -309,7 +309,7 @@ func TestFS_OpenErrorCases(t *testing.T) {
 	defer cleanup()
 
 	// Test with read-only filesystem
-	fs, err := NewDirectoryFS(root, 0400) // r--------
+	fs, err := NewDirectoryFS(root, 0400, false) // r--------
 	require.NoError(t, err)
 
 	// Test opening a directory without execute permission
@@ -335,7 +335,7 @@ func TestFS_OpenFile_ExtraFlags(t *testing.T) {
 	})
 	defer cleanup()
 
-	fs, err := NewDirectoryFS(root, 0755)
+	fs, err := NewDirectoryFS(root, 0755, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -352,7 +352,7 @@ func TestFS_OpenFile_ExtraFlags(t *testing.T) {
 	require.NoError(t, err, "Opening with RDWR should work with read+write permissions")
 
 	// Test with read-only filesystem
-	fsReadOnly, err := NewDirectoryFS(root, 0444) // r--r--r--
+	fsReadOnly, err := NewDirectoryFS(root, 0444, false) // r--r--r--
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fsReadOnly.Close())
@@ -371,7 +371,7 @@ func TestFS_ReadDir_ErrorCases(t *testing.T) {
 	defer cleanup()
 
 	// Create FS with read permission but no execute permission
-	fs, err := NewDirectoryFS(root, 0400) // r--------
+	fs, err := NewDirectoryFS(root, 0400, false) // r--------
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -398,7 +398,7 @@ func TestFS_MkdirAndRemove_ErrorCases(t *testing.T) {
 	defer cleanup()
 
 	// Test with read-only filesystem
-	fs, err := NewDirectoryFS(root, 0444) // r--r--r--
+	fs, err := NewDirectoryFS(root, 0444, false) // r--r--r--
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -415,7 +415,7 @@ func TestFS_MkdirAndRemove_ErrorCases(t *testing.T) {
 	assert.Contains(t, err.Error(), "permission denied", "Error should mention permission denied")
 
 	// Create writable FS to test other error conditions
-	fsRW, err := NewDirectoryFS(root, 0755)
+	fsRW, err := NewDirectoryFS(root, 0755, false)
 	require.NoError(t, err)
 
 	// Test removing non-existent file
@@ -441,7 +441,7 @@ func TestFS_Stat_ErrorCases(t *testing.T) {
 	defer cleanup()
 
 	// Create FS with no read permission
-	fs, err := NewDirectoryFS(root, 0)
+	fs, err := NewDirectoryFS(root, 0, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -453,7 +453,7 @@ func TestFS_Stat_ErrorCases(t *testing.T) {
 	assert.Contains(t, err.Error(), "permission denied", "Error should mention permission denied")
 
 	// Test non-existent file
-	fsRW, err := NewDirectoryFS(root, 0755)
+	fsRW, err := NewDirectoryFS(root, 0755, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fsRW.Close())

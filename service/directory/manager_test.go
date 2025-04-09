@@ -32,7 +32,7 @@ func NewMockFSFactory(mockFS fsapi.FS, err error) *MockFSFactory {
 	}
 }
 
-func (f *MockFSFactory) CreateFS(dirPath string, mode fs.FileMode) (fsapi.FS, error) {
+func (f *MockFSFactory) CreateFS(CreateFSConfig) (fsapi.FS, error) {
 	return f.mockFS, f.err
 }
 

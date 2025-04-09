@@ -61,6 +61,7 @@ local entries, err = registry.find(criteria)
 -- Returns on success: Array of matching entry tables, nil
 -- Returns on error: nil, error message
 ```
+## Module-Level Functions
 
 ### Get Current Snapshot
 
@@ -68,6 +69,93 @@ local entries, err = registry.find(criteria)
 local snapshot, err = registry.snapshot()
 -- Returns on success: snapshot object, nil
 -- Returns on error: nil, error message
+```
+
+### Get Snapshot at Version
+
+```lua
+local snapshot, err = registry.snapshot_at(version_id)
+-- Parameters: version_id (number) - Version ID to retrieve snapshot for
+-- Returns on success: snapshot object, nil
+-- Returns on error: nil, error message
+```
+
+### Get Current Version
+
+```lua
+local currentVersion, err = registry.current_version()
+-- Returns on success: version object, nil
+-- Returns on error: nil, error message
+```
+
+### List All Versions
+
+```lua
+local versions, err = registry.versions()
+-- Returns on success: array of version objects, nil
+-- Returns on error: nil, error message
+```
+
+### Apply Version (Rollback/Forward)
+
+```lua
+local success, err = registry.apply_version(version)
+-- Parameters: version (version object) - Version to apply
+-- Returns on success: true, nil
+-- Returns on error: false, error message
+```
+
+### Parse ID String
+
+```lua
+local idTable = registry.parse_id("namespace:name")
+-- Parameters: id_string (string) - ID in "namespace:name" format
+-- Returns: ID table with {ns = "namespace", name = "name"}
+```
+
+### Get History Object
+
+```lua
+local history = registry.history()
+-- Returns: history object
+```
+
+### Find Entries by Criteria
+
+```lua
+local entries, err = registry.find(criteria)
+-- Parameters: criteria (table) - Search criteria
+-- Returns on success: Array of matching entry tables, nil
+-- Returns on error: nil, error message
+```
+
+### Get Specific Entry
+
+```lua
+local entry, err = registry.get("namespace:name")
+-- Parameters: id (string) - Entry ID in "namespace:name" format
+-- Returns on success: entry table, nil
+-- Returns on error: nil, error message
+```
+
+### Build Delta Between States
+
+```lua
+local changeset, err = registry.build_delta(fromEntries, toEntries)
+-- Parameters:
+--   fromEntries (table) - Array of source entries
+--   toEntries (table) - Array of target entries
+-- Returns on success: array of operations, nil
+-- Returns on error: nil, error message
+```
+
+## Snapshot Object Methods
+
+### Get All Entries
+
+```lua
+local entries = snapshot:entries()
+-- Returns: Array of entry tables
 ```
 
 ### Get Snapshot at Version

@@ -10,10 +10,15 @@ import (
 
 const Kind registry.Kind = "fs.directory"
 
+// TypeNameEmbed specifies special type of the directory fs - embed.
+const TypeNameEmbed = "embed"
+
 // Config represents configuration for a filesystem directory
 type Config struct {
 	// Directory is the root path for this filesystem
 	Directory string `json:"directory"`
+	// ShouldCreateDir creates directory path if it does not exist.
+	ShouldCreateDir bool `json:"should_create_dir"`
 
 	// Mode specifies the filesystem permissions
 	// Examples:
@@ -21,6 +26,9 @@ type Config struct {
 	// - "0700" (rwx------) Full access for owner only
 	// - "0755" (rwxr-xr-x) Read/execute for group/others, full access for owner
 	Mode string `json:"mode"`
+
+	// Type specifies special type of the systems (for now only 'embed').
+	Type string `json:"type"`
 
 	// Parsed mode value
 	parsedMode fs.FileMode

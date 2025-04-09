@@ -1,6 +1,7 @@
 package cloudstorage
 
 import (
+	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
@@ -74,7 +75,9 @@ func apiGet(l *lua.LState) int {
 		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
 		return 2
 	}
-	uw.AddCleanup(func() error {
+
+	// Add resource cleanup to UoW
+	onRelease := uw.AddCleanup(func() error {
 		res.Release()
 		return nil
 	})
@@ -100,11 +103,23 @@ func apiGet(l *lua.LState) int {
 		return 2
 	}
 
-	// Create userdata and wrap
-	ud := WrapCloudStorage(l, csRes)
+	// Create userdata and wrap with resource tracking
+	ud := WrapCloudStorage(l, csRes, res, onRelease)
 	l.Push(ud)
 	l.Push(lua.LNil)
 	return 2
+}
+
+func WrapCloudStorage(
+	l *lua.LState,
+	storage csapi.Storage,
+	res resource.Resource[any],
+	onRelease context.CancelFunc,
+) *lua.LUserData {
+	ud := l.NewUserData()
+	ud.Value = NewCloudStorage(storage, res, onRelease)
+	ud.Metatable = value.GetTypeMetatable(l, "cloudstorage.Storage")
+	return ud
 }
 
 func CheckCloudStorage(l *lua.LState, n int) *CloudStorage {
@@ -115,13 +130,6 @@ func CheckCloudStorage(l *lua.LState, n int) *CloudStorage {
 
 	l.ArgError(n, "cloudstorage expected")
 	return nil
-}
-
-func WrapCloudStorage(l *lua.LState, storage csapi.Storage) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = NewCloudStorage(storage)
-	ud.Metatable = value.GetTypeMetatable(l, "cloudstorage.Storage")
-	return ud
 }
 
 // pushObjectMetadata creates a Lua table from a ObjectMetadata

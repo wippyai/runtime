@@ -47,7 +47,6 @@ func TestHelper_Interpolate(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
 		Vars:     Variables{"ENV": "production"},
-		RootDir:  "/root",
 		Filename: "config.yaml",
 	}
 
@@ -137,7 +136,6 @@ func TestHelper_interpolateString(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
 		Vars:     Variables{"KEY": "value"},
-		RootDir:  "/root",
 		Filename: "config.yaml",
 	}
 
@@ -199,7 +197,6 @@ func TestHelper_interpolateMap(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
 		Vars:     Variables{"KEY": "value"},
-		RootDir:  "/root",
 		Filename: "config.yaml",
 	}
 
@@ -255,7 +252,6 @@ func TestHelper_interpolateSlice(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
 		Vars:     Variables{"KEY": "value"},
-		RootDir:  "/root",
 		Filename: "config.yaml",
 	}
 

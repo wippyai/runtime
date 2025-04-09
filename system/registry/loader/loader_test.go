@@ -1,8 +1,10 @@
 package loader
 
 import (
+	"io/fs"
 	"reflect"
 	"testing"
+	"testing/fstest"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -10,7 +12,6 @@ import (
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/yaml"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
-	"github.com/ponyruntime/pony/tests/tempfiles"
 	"go.uber.org/zap"
 )
 
@@ -19,6 +20,17 @@ func setupTranscoder() payload.Transcoder {
 	json.Register(transcoder)
 	yaml.Register(transcoder)
 	return transcoder
+}
+
+// Creates a filesystem for testing with the given files
+func createTestFS(files map[string]string) fs.FS {
+	mapFS := fstest.MapFS{}
+	for path, content := range files {
+		mapFS[path] = &fstest.MapFile{
+			Data: []byte(content),
+		}
+	}
+	return mapFS
 }
 
 func TestLoader_LoadFolder(t *testing.T) {
@@ -48,6 +60,7 @@ data:
   url: http://example.com
 `,
 			},
+
 			want: []registry.Entry{
 				{
 					ID: registry.ID{
@@ -167,37 +180,36 @@ invalid: content
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Spawn temporary directory with test files
-			rootDir, cleanup := tempfiles.TempDirWithFiles(t, "loader-test", tt.files)
-			defer cleanup()
+			// Create in-memory filesystem for testing
+			fsys := createTestFS(tt.files)
 
-			// Spawn loader
+			// Initialize loader
 			loader := NewLoader(transcoder, logger, interpolator)
 
 			// Load entries
-			got, err := loader.LoadFolder(rootDir, tt.vars)
+			got, err := loader.LoadFS(fsys, tt.vars)
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("LoadFolder() error = nil, wantErr %v", tt.wantErr)
+					t.Errorf("LoadFS() error = nil, wantErr %v", tt.wantErr)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("LoadFolder() unexpected error = %v", err)
+				t.Errorf("LoadFS() unexpected error = %v", err)
 				return
 			}
 
 			if len(got) != len(tt.want) {
-				t.Errorf("LoadFolder() got %d entries, want %d", len(got), len(tt.want))
+				t.Errorf("LoadFS() got %d entries, want %d", len(got), len(tt.want))
 				return
 			}
 
 			// Compare entries
 			for i := range got {
 				if !reflect.DeepEqual(got[i].ID, tt.want[i].ID) {
-					t.Errorf("Entry[%d].Process = %v, want %v", i, got[i].ID, tt.want[i].ID)
+					t.Errorf("Entry[%d].ID = %v, want %v", i, got[i].ID, tt.want[i].ID)
 				}
 				if got[i].Kind != tt.want[i].Kind {
 					t.Errorf("Entry[%d].Kind = %v, want %v", i, got[i].Kind, tt.want[i].Kind)

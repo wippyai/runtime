@@ -2,24 +2,30 @@ package cloudstorage
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"time"
 
 	csapi "github.com/ponyruntime/pony/api/cloudstorage"
+	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // CloudStorage represents a cloud storage wrapper.
 type CloudStorage struct {
-	storage csapi.Storage
+	storage   csapi.Storage
+	resource  resource.Resource[any] // Add resource tracking
+	onRelease context.CancelFunc     // Add UoW cleanup function
 }
 
-// NewCloudStorage creates a new CloudStorage instance
-func NewCloudStorage(storage csapi.Storage) *CloudStorage {
+// NewCloudStorage creates a new CloudStorage instance with resource tracking
+func NewCloudStorage(storage csapi.Storage, res resource.Resource[any], onRelease context.CancelFunc) *CloudStorage {
 	return &CloudStorage{
-		storage: storage,
+		storage:   storage,
+		resource:  res,
+		onRelease: onRelease,
 	}
 }
 
@@ -33,9 +39,29 @@ func registerCloudStorage(l *lua.LState) {
 		"delete_objects":    storageDeleteObjects,
 		"presigned_get_url": storagePresignedGetURL,
 		"presigned_put_url": storagePresignedPutURL,
+		"release":           storageRelease,
 	}
 
 	value.RegisterTypeMethods(l, "cloudstorage.Storage", nil, methods)
+}
+
+func storageRelease(l *lua.LState) int {
+	cs := CheckCloudStorage(l, 1)
+
+	// Release the resource if it exists
+	if cs.resource != nil {
+		cs.resource.Release()
+		cs.resource = nil
+	}
+
+	// Cancel the cleanup function in UoW (don't execute it, just remove it)
+	if cs.onRelease != nil {
+		cs.onRelease()
+		cs.onRelease = nil
+	}
+
+	l.Push(lua.LBool(true))
+	return 1
 }
 
 func storageListObjects(l *lua.LState) int {

@@ -550,3 +550,37 @@ func TestCloudStorageModule(t *testing.T) {
 		assert.NoError(t, err, "ErrorHandling test failed")
 	})
 }
+
+func TestCloudStorageRelease(t *testing.T) {
+	mockStorage := newMockCloudStorage()
+	vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
+	defer vm.Close()
+	defer func() {
+		err := uw.Close()
+		assert.NoError(t, err, "Unit of work cleanup failed")
+	}()
+
+	// Run a test that explicitly closes the CloudStorage resource
+	err := L.DoString(`
+		local cs = require("cloudstorage")
+		local storage, err = cs.get("test_storage")
+		if err then 
+			error("Error getting cloudstorage: " .. err)
+		end
+		
+		-- Verify we can use the storage
+		local result = storage:list_objects()
+		assert(result ~= nil, "Should be able to list objects before closing")
+		
+		-- Release the storage connection
+		local success = storage:release()
+		assert(success == true, "Release should return true")
+	`)
+	assert.NoError(t, err, "CloudStorage release test failed")
+
+	// Verify the test resource was released
+	mockRes, ok := uw.Context().Value("test_storage_resource").(*mockResource)
+	if ok {
+		assert.True(t, mockRes.released, "Resource should be released by release method")
+	}
+}

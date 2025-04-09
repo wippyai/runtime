@@ -2,8 +2,7 @@ package loader
 
 import (
 	"fmt"
-	"io/fs"
-	"path/filepath"
+	iofs "io/fs"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -19,56 +18,56 @@ type Loader struct {
 	interpolator *interpolate.Helper
 }
 
-// LoaderOption is a function that configures a Loader
-type LoaderOption func(*Loader)
-
-// WithLoaderFS sets a custom filesystem for the Loader's FileLoader
-func WithLoaderFS(fsys fs.FS) LoaderOption {
-	return func(l *Loader) {
-		// Replace the FileLoader with one using the custom filesystem
-		l.fileLoader = NewFileLoader(l.log, WithFS(fsys))
-	}
-}
-
-// NewLoader creates a new loader instance with the given options
-func NewLoader(dtt payload.Transcoder, log *zap.Logger, interpolator *interpolate.Helper, opts ...LoaderOption) *Loader {
+// NewLoader creates a new loader instance
+func NewLoader(dtt payload.Transcoder, log *zap.Logger, interpolator *interpolate.Helper) *Loader {
 	if log == nil {
 		log = zap.NewNop()
 	}
 
-	l := &Loader{
+	return &Loader{
 		fileLoader:   NewFileLoader(log),
 		dtt:          dtt,
 		log:          log,
 		interpolator: interpolator,
 	}
-
-	// Apply options
-	for _, opt := range opts {
-		opt(l)
-	}
-
-	return l
 }
 
-// LoadFolder loads all entries from a folder
-func (l *Loader) LoadFolder(folderPath string, vars interpolate.Variables) ([]registry.Entry, error) {
-	payloads, err := l.fileLoader.LoadFolder(folderPath)
+// LoadFS loads all entries from FS.
+func (l *Loader) LoadFS(fs iofs.FS, vars interpolate.Variables) ([]registry.Entry, error) {
+	payloads, err := l.fileLoader.LoadFS(fs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load files: %w", err)
 	}
 
 	var entries []registry.Entry
 	for _, p := range payloads {
-		fileEntries, err := l.processFile(p, folderPath, vars)
+		fileEntries, err := l.processFile(fs, p, vars)
 		if err != nil {
 			// Log warning instead of returning error
-			l.log.Warn("failed to process file",
-				zap.String("path", p.Source()),
-				zap.Error(err))
+			l.log.Warn("process file", zap.String("path", p.Source()), zap.Error(err))
 			continue
 		}
+		entries = append(entries, fileEntries...)
+	}
 
+	return entries, nil
+}
+
+// LoadDir loads all entries from a directory
+func (l *Loader) LoadDir(fs iofs.FS, dirPath string, vars interpolate.Variables) ([]registry.Entry, error) {
+	payloads, err := l.fileLoader.LoadDir(fs, dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load files from directory %s: %w", dirPath, err)
+	}
+
+	var entries []registry.Entry
+	for _, p := range payloads {
+		fileEntries, err := l.processFile(fs, p, vars)
+		if err != nil {
+			// Log warning instead of returning error
+			l.log.Warn("process file", zap.String("path", p.Source()), zap.Error(err))
+			continue
+		}
 		entries = append(entries, fileEntries...)
 	}
 
@@ -76,32 +75,27 @@ func (l *Loader) LoadFolder(folderPath string, vars interpolate.Variables) ([]re
 }
 
 // LoadFile loads entries from a single file
-func (l *Loader) LoadFile(filePath string, vars interpolate.Variables) ([]registry.Entry, error) {
-	filePayload, err := l.fileLoader.LoadFile(filePath)
+func (l *Loader) LoadFile(fs iofs.FS, filePath string, vars interpolate.Variables) ([]registry.Entry, error) {
+	filePayload, err := l.fileLoader.LoadFile(fs, filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load file: %w", err)
+		return nil, fmt.Errorf("failed to load file %s: %w", filePath, err)
 	}
 
-	entries, err := l.processFile(filePayload, "", vars)
+	entries, err := l.processFile(fs, filePayload, vars)
 	if err != nil {
-		return nil, fmt.Errorf("failed to process file: %w", err)
+		return nil, fmt.Errorf("failed to process file %s: %w", filePath, err)
 	}
 
 	return entries, nil
 }
 
 // processFile processes a single file and returns registry entries
-func (l *Loader) processFile(p *FilePayload, rootPath string, vars interpolate.Variables) ([]registry.Entry, error) {
-	// If rootPath is empty, use the directory of the file
-	if rootPath == "" {
-		rootPath = filepath.Dir(p.Source())
-	}
-
+func (l *Loader) processFile(fSys iofs.FS, p *FilePayload, vars interpolate.Variables) ([]registry.Entry, error) {
 	// Interpolate values
 	interpolated, err := l.interpolator.Interpolate(p, interpolate.EntryContext{
 		Vars:     vars,
-		RootDir:  rootPath,
 		Filename: p.Source(),
+		FS:       fSys,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("interpolation failed: %w", err)

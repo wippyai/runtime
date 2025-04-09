@@ -1,9 +1,9 @@
 package directory
 
 import (
-	"io/fs"
 	"testing"
 
+	"github.com/ponyruntime/pony/api/service/directory"
 	"github.com/ponyruntime/pony/tests/tempfiles"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,16 +24,74 @@ func TestFSFactory_CreateFS(t *testing.T) {
 
 	factory := NewDirectoryFSFactory()
 
-	// Create a filesystem
-	filesystem, err := factory.CreateFS(root, 0755)
-	require.NoError(t, err, "CreateFS should not return an error")
-	require.NotNil(t, filesystem, "CreateFS should return a filesystem")
+	t.Run("DirectoryFS", func(t *testing.T) {
+		// Create a directory filesystem (empty type name)
+		config := CreateFSConfig{
+			Name:            "",
+			DirPath:         root,
+			Mode:            0755,
+			ShouldCreateDir: false,
+		}
+		filesystem, err := factory.CreateFS(config)
+		require.NoError(t, err, "CreateFS should not return an error")
+		require.NotNil(t, filesystem, "CreateFS should return a filesystem")
 
-	// Verify the returned filesystem is a *FS
-	_, ok := filesystem.(*FS)
-	assert.True(t, ok, "Returned filesystem should be a *FS")
+		// Verify the returned filesystem is a *FS
+		dirFS, ok := filesystem.(*FS)
+		assert.True(t, ok, "Returned filesystem should be a *FS")
+		assert.Equal(t, root, dirFS.dirPath, "Directory path should match the provided path")
 
-	// Test error case with invalid path
-	_, err = factory.CreateFS("/nonexistent/invalid/path", fs.FileMode(0755))
-	assert.Error(t, err, "CreateFS should return error for invalid path")
+		// Test error case with invalid path
+		invalidConfig := CreateFSConfig{
+			Name:            "",
+			DirPath:         "/nonexistent/invalid/path",
+			Mode:            0755,
+			ShouldCreateDir: false,
+		}
+		_, err = factory.CreateFS(invalidConfig)
+		assert.Error(t, err, "CreateFS should return error for invalid path")
+
+		// Test creating directory that doesn't exist
+		createDirConfig := CreateFSConfig{
+			Name:            "",
+			DirPath:         root + "/new_dir",
+			Mode:            0755,
+			ShouldCreateDir: true,
+		}
+		newDirFS, err := factory.CreateFS(createDirConfig)
+		require.NoError(t, err, "CreateFS should not return an error when creating a new directory")
+		require.NotNil(t, newDirFS, "CreateFS should return a filesystem when creating a new directory")
+	})
+
+	t.Run("EmbedFS", func(t *testing.T) {
+		// Test creating an embed filesystem
+		config := CreateFSConfig{
+			Name:            directory.TypeNameEmbed,
+			DirPath:         "./",
+			Mode:            0,
+			ShouldCreateDir: false,
+		}
+		filesystem, err := factory.CreateFS(config)
+		require.NoError(t, err, "CreateFS should not return an error for embed filesystem")
+		require.NotNil(t, filesystem, "CreateFS should return a filesystem for embed type")
+
+		// Verify the returned filesystem is an *EmbedFS
+		embedFS, ok := filesystem.(*ReadOnlyFS)
+		assert.True(t, ok, "Returned filesystem should be an *EmbedFS")
+
+		// Verify we can read files from the embed filesystem
+		file, err := embedFS.Open(".gitkeep")
+		assert.NoError(t, err, "Should be able to read directory from embed filesystem")
+		assert.NotNil(t, file, "Should be able to read file from embed filesystem")
+
+		// Test invalid subdirectory in embed filesystem
+		invalidConfig := CreateFSConfig{
+			Name:            directory.TypeNameEmbed,
+			DirPath:         "nonexistent",
+			Mode:            0,
+			ShouldCreateDir: false,
+		}
+		_, err = factory.CreateFS(invalidConfig)
+		assert.Error(t, err, "CreateFS should return error for invalid embed path")
+	})
 }

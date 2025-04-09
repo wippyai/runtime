@@ -560,3 +560,36 @@ Notes:
 - Parameter names in route definitions can use either `:param` or `{param}` syntax.
 - If the parameter doesn't exist in the current route, nil is returned (not an error).
 - Errors are only returned if there's no route information in the request context.
+
+##### `request:param(name: string)`
+
+Returns the value of a named parameter from the route path.
+
+Parameters:
+
+- `name`: The parameter name as defined in the route path (without the colon or curly braces).
+
+Returns:
+
+- `value`: The value of the route parameter (string, or nil if not found).
+- `error`: Error message (string, or nil on success).
+
+Examples:
+
+For a route defined as `/users/:id` or `/users/{id}`:
+```lua
+local id, err = request:param("id")
+if err then
+  -- Handle error
+elseif not id then
+  -- Parameter not found
+else
+  -- Use the id parameter
+end
+```
+
+Notes:
+- Route parameters are extracted from the URL path based on pattern matching.
+- Parameter names in route definitions can use either `:param` or `{param}` syntax.
+- If the parameter doesn't exist in the current route, nil is returned (not an error).
+- Errors are only returned if there's no route information in the request context.

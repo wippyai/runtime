@@ -2,6 +2,9 @@ package process
 
 import (
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -11,8 +14,6 @@ import (
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"strings"
-	"time"
 )
 
 const defaultCancelTimeout = "30s"
@@ -619,7 +620,7 @@ func (m *Module) terminate(l *lua.LState) int {
 	return 1
 }
 
-// cancel sends a cancellation request to a process (accepts PID or registered name)
+// cancel sends a cancellation request to a process (accepts Target or registered name)
 // Params: destination, [deadline]
 // Where deadline can be a duration string (e.g. "5s") or milliseconds number
 // If deadline is not provided, defaultCancelTimeout will be used
@@ -643,7 +644,7 @@ func (m *Module) cancel(l *lua.LState) int {
 		return 2
 	}
 
-	// Parse PID or name argument
+	// Parse Target or name argument
 	pidOrName := l.CheckString(1)
 
 	// Resolve destination

@@ -5,8 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/ponyruntime/pony/tests/tempfiles"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -74,17 +73,14 @@ func TestLoadVars(t *testing.T) {
 }
 
 func TestLoadFile(t *testing.T) {
-	files := map[string]string{
-		"listener/listener.yaml": "listener content",
-		"template/template.html": "template content",
-		"main.yaml":              "main content",
+	mapFS := fstest.MapFS{
+		"listener/listener.yaml": {Data: []byte("listener content")},
+		"template/template.html": {Data: []byte("template content")},
+		"main.yaml":              {Data: []byte("main content")},
 	}
 
-	rootDir, cleanup := tempfiles.TempDirWithFiles(t, "test-load-file", files)
-	defer cleanup()
-
-	configFile := filepath.Join(rootDir, "listener", "listener.yaml")
-	mainFile := filepath.Join(rootDir, "main.yaml")
+	configFile := filepath.Join("listener", "listener.yaml")
+	mainFile := filepath.Join("main.yaml")
 
 	tests := []struct {
 		name        string
@@ -97,8 +93,8 @@ func TestLoadFile(t *testing.T) {
 			name:  "valid relative path",
 			input: "file://listener/listener.yaml",
 			ctx: EntryContext{
-				RootDir:  rootDir,
 				Filename: mainFile,
+				FS:       mapFS,
 			},
 			expectedOut: "listener content",
 			expectErr:   false,
@@ -107,8 +103,8 @@ func TestLoadFile(t *testing.T) {
 			name:  "valid relative path with directory",
 			input: "file://../template/template.html",
 			ctx: EntryContext{
-				RootDir:  rootDir,
 				Filename: configFile,
+				FS:       mapFS,
 			},
 			expectErr:   false,
 			expectedOut: "template content",
@@ -117,28 +113,28 @@ func TestLoadFile(t *testing.T) {
 			name:  "valid absolute path",
 			input: "file:///listener/listener.yaml",
 			ctx: EntryContext{
-				RootDir:  rootDir,
 				Filename: configFile,
+				FS:       mapFS,
 			},
 			expectedOut: "listener content",
 			expectErr:   false,
 		},
 		{
 			name:  "invalid absolute path outside root",
-			input: fmt.Sprintf("file://%s", filepath.Join(rootDir, "..", "outside.txt")),
+			input: fmt.Sprintf("file://%s", filepath.Join(".", "..", "outside.txt")),
 			ctx: EntryContext{
-				RootDir:  rootDir,
 				Filename: mainFile,
+				FS:       mapFS,
 			},
-			expectedOut: fmt.Sprintf("file://%s [file-error: file path '%s' is outside of the root directory]", filepath.Join(rootDir, "..", "outside.txt"), filepath.Join(rootDir, "..", "outside.txt")),
+			expectedOut: fmt.Sprintf("file://%s [file-error: file path '%s' is outside of the root directory]", filepath.Join(".", "..", "outside.txt"), filepath.Join(".", "..", "outside.txt")),
 			expectErr:   true, // Expect file-error
 		},
 		{
 			name:  "relative path outside root",
 			input: "file://../outside.txt",
 			ctx: EntryContext{
-				RootDir:  rootDir,
 				Filename: mainFile,
+				FS:       mapFS,
 			},
 			expectedOut: "file://../outside.txt [file-error: file path '../outside.txt' is outside of the root directory]",
 			expectErr:   true, // Expect file-error
@@ -147,8 +143,8 @@ func TestLoadFile(t *testing.T) {
 			name:  "file not found",
 			input: "file://notfound.txt",
 			ctx: EntryContext{
-				RootDir:  rootDir,
 				Filename: mainFile,
+				FS:       mapFS,
 			},
 			expectedOut: "file://notfound.txt [file-error: failed to read file 'notfound.txt': ",
 			expectErr:   true, // Expect file-error
@@ -157,8 +153,8 @@ func TestLoadFile(t *testing.T) {
 			name:  "no file protocol",
 			input: "no_protocol",
 			ctx: EntryContext{
-				RootDir:  rootDir,
 				Filename: mainFile,
+				FS:       mapFS,
 			},
 			expectedOut: "no_protocol",
 			expectErr:   false,

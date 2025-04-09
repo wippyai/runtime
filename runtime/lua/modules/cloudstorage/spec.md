@@ -27,6 +27,17 @@ Returns:
 
 ## Storage Methods
 
+### Resource Management
+
+#### `storage:release()`
+
+Explicitly releases the cloud storage resource. This method should be called when you are done using the storage connection and want to release resources before the unit of work completes.
+
+Returns:
+- `success`: Boolean (true) indicating the resource was released.
+
+Note: After releasing, any attempts to use the storage object may result in errors.
+
 ### Object Listing
 
 #### `storage:list_objects([options])`
@@ -146,6 +157,9 @@ end
 for _, obj in ipairs(result.objects) do
     print(obj.key, obj.size, obj.content_type)
 end
+
+-- Be sure to release the storage connection when done
+storage:release()
 ```
 
 ## Example Usage
@@ -193,6 +207,9 @@ if filtered.is_truncated then
         print(i, obj.key, obj.size)
     end
 end
+
+-- Release the storage connection when done
+storage:release()
 ```
 
 ### Downloading and Uploading Objects
@@ -253,6 +270,9 @@ if not success then
 end
 
 print("File uploaded successfully")
+
+-- Close the storage connection when done
+storage:close()
 ```
 
 ### Generating Presigned URLs
@@ -282,6 +302,9 @@ local put_url = storage:presigned_put_url("uploads/user_photo.jpg", {
 })
 
 print("Upload URL (valid for 1 hour):", put_url)
+
+-- Close the storage connection when done
+storage:close()
 ```
 
 ### Deleting Objects
@@ -318,6 +341,9 @@ if not success then
 end
 
 print("Multiple objects deleted successfully")
+
+-- Close the storage connection when done
+storage:release()
 ```
 
 ### Complete Storage Workflow
@@ -341,6 +367,7 @@ local content = "This is a test file for cloud storage operations."
 local success = storage:upload_object("test/sample.txt", content)
 if not success then
     print("Failed to upload test file")
+    storage:release()
     return
 end
 
@@ -366,6 +393,7 @@ print(url)
 local file = fs_instance:open("downloaded_sample.txt", "w")
 if not file then
     print("Error opening local file for writing")
+    storage:release()
     return
 end
 
@@ -374,6 +402,7 @@ file:close()
 
 if not success then
     print("Failed to download test file")
+    storage:release()
     return
 end
 
@@ -383,8 +412,12 @@ print("File downloaded successfully")
 local success = storage:delete_objects({"test/sample.txt"})
 if not success then
     print("Failed to delete test file")
+    storage:release()
     return
 end
 
 print("Test file deleted successfully")
+
+-- Close the storage connection when done
+storage:release()
 ```
