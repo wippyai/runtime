@@ -185,7 +185,9 @@ func TestSystemModuleWithVM(t *testing.T) {
 		oldFromSet := int(tbl.RawGetString("old_from_set").(lua.LNumber))
 		newValue := int(tbl.RawGetString("new_value").(lua.LNumber))
 
-		assert.Equal(t, original, oldFromSet, "set_gc_percent should return old value")
+		// Both should be normalized to 100
+		assert.Equal(t, 100, original, "get_gc_percent should normalize initial value")
+		assert.Equal(t, 100, oldFromSet, "set_gc_percent should return normalized old value")
 		assert.Equal(t, 200, newValue, "get_gc_percent should return new value")
 	})
 

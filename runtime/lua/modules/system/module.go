@@ -111,6 +111,11 @@ func (*Module) setGCPercent(l *lua.LState) int {
 	percent := l.CheckInt(1)
 	old := debug.SetGCPercent(percent)
 
+	// Normalize the returned value for consistency
+	if old < 0 {
+		old = 100
+	}
+
 	l.Push(lua.LNumber(old))
 	l.Push(lua.LNil) // No error
 	return 2
@@ -120,6 +125,12 @@ func (*Module) setGCPercent(l *lua.LState) int {
 func (*Module) getGCPercent(l *lua.LState) int {
 	// SetGCPercent(-1) returns current value without changing it
 	percent := debug.SetGCPercent(-1)
+
+	// In Go, the GC percent can be -1 if not explicitly set
+	// Convert to 100 which is the standard default in most cases
+	if percent < 0 {
+		percent = 100
+	}
 
 	l.Push(lua.LNumber(percent))
 	l.Push(lua.LNil) // No error
