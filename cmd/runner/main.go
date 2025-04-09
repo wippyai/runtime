@@ -13,6 +13,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
 	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
 	"github.com/ponyruntime/pony/runtime/lua/modules/store"
+	"github.com/ponyruntime/pony/runtime/lua/modules/system"
 	luatemplate "github.com/ponyruntime/pony/runtime/lua/modules/template"
 	yamlmod "github.com/ponyruntime/pony/runtime/lua/modules/yaml"
 	native "github.com/ponyruntime/pony/service/exec"
@@ -929,6 +930,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				sqlmod.NewSQLModule(a.logger.Named("sql")),
 				excel.NewModule(a.logger.Named("excel")),
 				cloudstorage.NewModule(),
+				system.NewSystemModule(),
 			},
 			ProtoCacheSize: 600,
 			MainCacheSize:  100,

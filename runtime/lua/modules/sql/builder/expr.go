@@ -180,7 +180,7 @@ func builderExpr(l *lua.LState) int {
 			// Convert using existing mechanism for a single value
 			args[i-2] = luaconv.ToGoAny(v)
 		}
-	}
+	} // todo: more tests please!
 
 	// Create Expr and wrap it
 	expr := squirrel.Expr(sql, args...)
