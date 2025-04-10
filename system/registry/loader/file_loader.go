@@ -2,6 +2,7 @@ package loader
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"path/filepath"
 
@@ -85,9 +86,52 @@ func (l *FileLoader) LoadFS(fSys fs.FS) ([]*FilePayload, error) {
 	return payloads, nil
 }
 
+func (l *FileLoader) LoadDir(fSys fs.FS, dirPath string) ([]*FilePayload, error) {
+	payloads := make([]*FilePayload, 0)
+	err := fs.WalkDir(fSys, dirPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			// Continue walking through all directories
+			return nil
+		}
+
+		// Process only supported file types
+		ext := filepath.Ext(path)
+		format, ok := l.ext[ext]
+		if !ok {
+			return nil // Skip unsupported file types
+		}
+
+		p, err := l.loadFileAsPayload(fSys, path, format)
+		if err != nil {
+			l.log.Error("load file as payload",
+				zap.String("path", path),
+				zap.Error(err))
+			return nil
+		}
+
+		payloads = append(payloads, p)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walking directory %s: %w", dirPath, err)
+	}
+
+	return payloads, nil
+}
+
 // loadFileAsPayload loads the file content and creates a FilePayload.
 func (l *FileLoader) loadFileAsPayload(fSys fs.FS, path string, format payload.Format) (*FilePayload, error) {
-	data, err := fs.ReadFile(fSys, path)
+	file, err := fSys.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open file %s: %w", path, err)
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
 	if err != nil {
 		return nil, fmt.Errorf("read file %s: %w", path, err)
 	}

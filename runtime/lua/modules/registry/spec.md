@@ -4,6 +4,15 @@
 
 The Registry package provides a Lua interface for working with a distributed registry system. It offers operations for querying, creating, updating, and deleting registry entries, as well as version history management capabilities.
 
+## Performance Considerations
+
+**Important:** Snapshots are not free operations - they have performance and resource implications. For read-only operations, prefer using direct registry functions whenever possible instead of creating snapshots unnecessarily.
+
+- Use direct `registry.get()` and `registry.find()` for simple read operations
+- Only create snapshots when you need a consistent point-in-time view of multiple entries
+- Reuse existing snapshots when performing multiple operations on the same dataset
+- Release snapshots when no longer needed
+
 ## Module Interface
 
 ### Loading the Module
@@ -25,7 +34,7 @@ Each registry entry consists of:
 
 ### Snapshots
 
-A snapshot represents a point-in-time view of the registry's state. Most operations are performed on snapshots to provide consistency.
+A snapshot represents a point-in-time view of the registry's state. Most operations are performed on snapshots to provide consistency. However, snapshots should only be used when necessary, as they have performance implications.
 
 ### Versioning
 
@@ -35,6 +44,23 @@ All changes to the registry are versioned. The registry maintains a complete his
 
 Changes to the registry are accumulated in a changeset before being applied atomically to create a new version.
 
+## Module-Level Functions
+
+### Direct Registry Access (Preferred for Read-Only Operations)
+
+```lua
+local entry, err = registry.get("namespace:name")
+-- Parameters: id (string) - Entry ID in "namespace:name" format
+-- Returns on success: entry table, nil
+-- Returns on error: nil, error message
+```
+
+```lua
+local entries, err = registry.find(criteria)
+-- Parameters: criteria (table) - Search criteria
+-- Returns on success: Array of matching entry tables, nil
+-- Returns on error: nil, error message
+```
 ## Module-Level Functions
 
 ### Get Current Snapshot
@@ -110,6 +136,75 @@ local entry, err = registry.get("namespace:name")
 -- Parameters: id (string) - Entry ID in "namespace:name" format
 -- Returns on success: entry table, nil
 -- Returns on error: nil, error message
+```
+
+### Build Delta Between States
+
+```lua
+local changeset, err = registry.build_delta(fromEntries, toEntries)
+-- Parameters:
+--   fromEntries (table) - Array of source entries
+--   toEntries (table) - Array of target entries
+-- Returns on success: array of operations, nil
+-- Returns on error: nil, error message
+```
+
+## Snapshot Object Methods
+
+### Get All Entries
+
+```lua
+local entries = snapshot:entries()
+-- Returns: Array of entry tables
+```
+
+### Get Snapshot at Version
+
+```lua
+local snapshot, err = registry.snapshot_at(version_id)
+-- Parameters: version_id (number) - Version ID to retrieve snapshot for
+-- Returns on success: snapshot object, nil
+-- Returns on error: nil, error message
+```
+
+### Get Current Version
+
+```lua
+local currentVersion, err = registry.current_version()
+-- Returns on success: version object, nil
+-- Returns on error: nil, error message
+```
+
+### List All Versions
+
+```lua
+local versions, err = registry.versions()
+-- Returns on success: array of version objects, nil
+-- Returns on error: nil, error message
+```
+
+### Apply Version (Rollback/Forward)
+
+```lua
+local success, err = registry.apply_version(version)
+-- Parameters: version (version object) - Version to apply
+-- Returns on success: true, nil
+-- Returns on error: false, error message
+```
+
+### Parse ID String
+
+```lua
+local idTable = registry.parse_id("namespace:name")
+-- Parameters: id_string (string) - ID in "namespace:name" format
+-- Returns: ID table with {ns = "namespace", name = "name"}
+```
+
+### Get History Object
+
+```lua
+local history = registry.history()
+-- Returns: history object
 ```
 
 ### Build Delta Between States
@@ -296,6 +391,8 @@ The find function accepts a table of search criteria where:
 
 - `.kind`: Match entry's Kind field (exact match)
 - `.name`: Match entry's ID.Name field (exact match)
+- `.ns`: Match entry's ID.Namespace field (exact match)
+- `.id`: Match entry's full ID (exact match)
 
 ### Metadata Matching Operators
 
@@ -307,12 +404,35 @@ The find function accepts a table of search criteria where:
 
 ## Example Usage
 
-### Basic Operations
+### Basic Operations Without Snapshots (Preferred for Read-Only)
 
 ```lua
 -- Import the registry module
 local registry = require("registry")
 
+-- Get a specific entry directly (more efficient than creating a snapshot)
+local entry, err = registry.get("services:database")
+if entry then
+  print("Found entry: " .. entry.id)
+  print("Kind: " .. entry.kind)
+  print("Environment: " .. (entry.meta.environment or "not set"))
+else
+  print("Entry not found: " .. (err or "unknown error"))
+end
+
+-- Find entries matching criteria directly
+local productionServices, err = registry.find({
+  [".kind"] = "service",
+  ["meta.environment"] = "production"
+})
+if productionServices then
+  print("Found " .. #productionServices .. " production services")
+end
+```
+
+### Operations Using Snapshots (When Consistency is Required)
+
+```lua
 -- Get the current snapshot
 local snapshot, err = registry.snapshot()
 if not snapshot then
@@ -320,7 +440,7 @@ if not snapshot then
   return
 end
 
--- Get a specific entry
+-- Get a specific entry from the snapshot
 local entry, err = snapshot:get("services:database")
 if entry then
   print("Found entry: " .. entry.id)
@@ -330,34 +450,42 @@ else
   print("Entry not found: " .. (err or "unknown error"))
 end
 
--- Get all entries in a namespace
+-- Get all entries in a namespace from the snapshot
 local services = snapshot:namespace("services")
 print("Found " .. #services .. " services")
-```
 
-### Advanced Searching
-
-```lua
--- Find entries by criteria using a snapshot
+-- Find entries by criteria using the same snapshot
 local productionServices = snapshot:find({
   [".kind"] = "service",
   ["meta.environment"] = "production",
   ["*meta.region"] = "us-west"
 })
 print("Found " .. #productionServices .. " production services in us-west")
+```
 
--- Use regex pattern matching to find entries
-local apiServices = snapshot:find({
+### Advanced Searching
+
+```lua
+-- Find entries by criteria directly
+local apiServices, err = registry.find({
   ["~meta.description"] = ".*api.*",
   ["^meta.status"] = "healthy"
 })
-print("Found " .. #apiServices .. " healthy API services")
+if apiServices then
+  print("Found " .. #apiServices .. " healthy API services")
+end
 ```
 
 ### Making Changes
 
 ```lua
 -- Create a changeset from the snapshot
+local snapshot, err = registry.snapshot()
+if not snapshot then
+  print("Error getting snapshot: " .. err)
+  return
+end
+
 local changes = snapshot:changes()
 
 -- Create a new entry

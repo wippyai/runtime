@@ -1,6 +1,7 @@
 package hash
 
 import (
+	"crypto/hmac"
 	"crypto/md5"  //nolint:gosec
 	"crypto/sha1" //nolint:gosec
 	"crypto/sha256"
@@ -36,17 +37,42 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("sha512", l.NewFunction(m.sha512))
 	mod.RawSetString("fnv32", l.NewFunction(m.fnv32))
 	mod.RawSetString("fnv64", l.NewFunction(m.fnv64))
+	mod.RawSetString("hmac_sha256", l.NewFunction(m.hmac_sha256))
+	mod.RawSetString("hmac_sha512", l.NewFunction(m.hmac_sha512))
+	mod.RawSetString("hmac_sha1", l.NewFunction(m.hmac_sha1))
+	mod.RawSetString("hmac_md5", l.NewFunction(m.hmac_md5))
 
 	l.Push(mod)
 	return 1
 }
 
-func computeHash(h hash.Hash, data string) (string, error) {
+// computeHash computes hash and returns result based on raw flag
+func computeHash(h hash.Hash, data string, raw bool) (lua.LValue, error) {
 	_, err := h.Write([]byte(data))
 	if err != nil {
-		return "", err
+		return lua.LNil, err
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+
+	result := h.Sum(nil)
+	if raw {
+		return lua.LString(string(result)), nil
+	}
+	return lua.LString(hex.EncodeToString(result)), nil
+}
+
+func computeHmacHash(h func() hash.Hash, data, secret string, raw bool) (lua.LValue, error) {
+	hHmac := hmac.New(h, []byte(secret))
+	_, err := hHmac.Write([]byte(data))
+	if err != nil {
+		return lua.LNil, err
+	}
+
+	result := hHmac.Sum(nil)
+	if raw {
+		return lua.LString(string(result)), nil
+	} else {
+		return lua.LString(hex.EncodeToString(result)), nil
+	}
 }
 
 func (m *Module) md5(l *lua.LState) int {
@@ -55,19 +81,19 @@ func (m *Module) md5(l *lua.LState) int {
 		return 0
 	}
 
-	str := l.ToString(1)
-	if str == "" {
-		l.Push(lua.LString("d41d8cd98f00b204e9800998ecf8427e")) // MD5 of empty string
-		return 1
+	raw := false
+	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTBool {
+		raw = l.ToBool(2)
 	}
 
-	result, err := computeHash(md5.New(), str) //nolint:gosec
+	str := l.ToString(1)
+	result, err := computeHash(md5.New(), str, raw) //nolint:gosec
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
-	l.Push(lua.LString(result))
+	l.Push(result)
 	return 1
 }
 
@@ -77,19 +103,19 @@ func (m *Module) sha1(l *lua.LState) int {
 		return 0
 	}
 
-	str := l.ToString(1)
-	if str == "" {
-		l.Push(lua.LString("da39a3ee5e6b4b0d3255bfef95601890afd80709")) // SHA1 of empty string
-		return 1
+	raw := false
+	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTBool {
+		raw = l.ToBool(2)
 	}
 
-	result, err := computeHash(sha1.New(), str) //nolint:gosec
+	str := l.ToString(1)
+	result, err := computeHash(sha1.New(), str, raw) //nolint:gosec
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
-	l.Push(lua.LString(result))
+	l.Push(result)
 	return 1
 }
 
@@ -99,19 +125,19 @@ func (m *Module) sha256(l *lua.LState) int {
 		return 0
 	}
 
-	str := l.ToString(1)
-	if str == "" {
-		l.Push(lua.LString("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")) // SHA256 of empty string
-		return 1
+	raw := false
+	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTBool {
+		raw = l.ToBool(2)
 	}
 
-	result, err := computeHash(sha256.New(), str)
+	str := l.ToString(1)
+	result, err := computeHash(sha256.New(), str, raw)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
-	l.Push(lua.LString(result))
+	l.Push(result)
 	return 1
 }
 
@@ -121,20 +147,19 @@ func (m *Module) sha512(l *lua.LState) int {
 		return 0
 	}
 
-	str := l.ToString(1)
-	if str == "" {
-		// SHA512 of empty string
-		l.Push(lua.LString("cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"))
-		return 1
+	raw := false
+	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTBool {
+		raw = l.ToBool(2)
 	}
 
-	result, err := computeHash(sha512.New(), str)
+	str := l.ToString(1)
+	result, err := computeHash(sha512.New(), str, raw)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
-	l.Push(lua.LString(result))
+	l.Push(result)
 	return 1
 }
 
@@ -169,5 +194,108 @@ func (m *Module) fnv64(l *lua.LState) int {
 		return 2
 	}
 	l.Push(lua.LNumber(h.Sum64()))
+	return 1
+}
+
+func (m *Module) hmac_sha256(l *lua.LState) int {
+	if l.Get(1).Type() != lua.LTString {
+		l.ArgError(1, "string expected")
+		return 0
+	}
+	if l.Get(2).Type() != lua.LTString {
+		l.ArgError(2, "string expected")
+		return 0
+	}
+
+	raw := false
+	if l.GetTop() >= 3 && l.Get(3).Type() == lua.LTBool {
+		raw = l.ToBool(3)
+	}
+	result, err := computeHmacHash(sha256.New, l.ToString(1), l.ToString(2), raw)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+	l.Push(result)
+
+	return 1
+}
+
+func (m *Module) hmac_sha512(l *lua.LState) int {
+	if l.Get(1).Type() != lua.LTString {
+		l.ArgError(1, "string expected")
+		return 0
+	}
+	if l.Get(2).Type() != lua.LTString {
+		l.ArgError(2, "string expected")
+		return 0
+	}
+
+	raw := false
+	if l.GetTop() >= 3 && l.Get(3).Type() == lua.LTBool {
+		raw = l.ToBool(3)
+	}
+
+	result, err := computeHmacHash(sha512.New, l.ToString(1), l.ToString(2), raw)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+	l.Push(result)
+
+	return 1
+}
+
+func (m *Module) hmac_sha1(l *lua.LState) int {
+	if l.Get(1).Type() != lua.LTString {
+		l.ArgError(1, "string expected")
+		return 0
+	}
+	if l.Get(2).Type() != lua.LTString {
+		l.ArgError(2, "string expected")
+		return 0
+	}
+
+	raw := false
+	if l.GetTop() >= 3 && l.Get(3).Type() == lua.LTBool {
+		raw = l.ToBool(3)
+	}
+
+	result, err := computeHmacHash(sha1.New, l.ToString(1), l.ToString(2), raw)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+	l.Push(result)
+
+	return 1
+}
+
+func (m *Module) hmac_md5(l *lua.LState) int {
+	if l.Get(1).Type() != lua.LTString {
+		l.ArgError(1, "string expected")
+		return 0
+	}
+	if l.Get(2).Type() != lua.LTString {
+		l.ArgError(2, "string expected")
+		return 0
+	}
+
+	raw := false
+	if l.GetTop() >= 3 && l.Get(3).Type() == lua.LTBool {
+		raw = l.ToBool(3)
+	}
+
+	result, err := computeHmacHash(md5.New, l.ToString(1), l.ToString(2), raw)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+	l.Push(result)
+
 	return 1
 }

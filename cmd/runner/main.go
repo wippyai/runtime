@@ -5,6 +5,23 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/joho/godotenv"
+	"github.com/ponyruntime/pony/runtime/lua/component"
+	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
+	"github.com/ponyruntime/pony/runtime/lua/modules/events"
+	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
+	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
+	"github.com/ponyruntime/pony/runtime/lua/modules/store"
+	"github.com/ponyruntime/pony/runtime/lua/modules/system"
+	luatemplate "github.com/ponyruntime/pony/runtime/lua/modules/template"
+	yamlmod "github.com/ponyruntime/pony/runtime/lua/modules/yaml"
+	native "github.com/ponyruntime/pony/service/exec"
+	"github.com/ponyruntime/pony/service/http/cors"
+	"github.com/ponyruntime/pony/service/http/firewall"
+	"github.com/ponyruntime/pony/service/processfunc"
+	"github.com/ponyruntime/pony/service/template"
+	"github.com/ponyruntime/pony/service/tokenstore"
 	iofs "io/fs"
 	httpbase "net/http"
 	"os"
@@ -17,8 +34,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/joho/godotenv"
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
@@ -46,11 +61,8 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/cloudstorage"
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
-	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
-	"github.com/ponyruntime/pony/runtime/lua/modules/events"
 	"github.com/ponyruntime/pony/runtime/lua/modules/excel"
-	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
 	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
 	"github.com/ponyruntime/pony/runtime/lua/modules/funcmod"
 	fncallmod "github.com/ponyruntime/pony/runtime/lua/modules/funcs"
@@ -64,32 +76,24 @@ import (
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
 	processmodapi "github.com/ponyruntime/pony/runtime/lua/modules/processmod"
 	registrymod "github.com/ponyruntime/pony/runtime/lua/modules/registry"
-	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
 	sqlmod "github.com/ponyruntime/pony/runtime/lua/modules/sql"
-	"github.com/ponyruntime/pony/runtime/lua/modules/store"
 	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
-	yamlmod "github.com/ponyruntime/pony/runtime/lua/modules/yaml"
 	"github.com/ponyruntime/pony/runtime/lua/task"
 	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/aws/config"
 	"github.com/ponyruntime/pony/service/aws/s3"
 	fsdir "github.com/ponyruntime/pony/service/directory"
-	native "github.com/ponyruntime/pony/service/exec"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
-	"github.com/ponyruntime/pony/service/http/cors"
-	"github.com/ponyruntime/pony/service/http/firewall"
 	"github.com/ponyruntime/pony/service/http/websocket_relay"
 	"github.com/ponyruntime/pony/service/memstore"
 	"github.com/ponyruntime/pony/service/policy"
-	"github.com/ponyruntime/pony/service/processfunc"
 	"github.com/ponyruntime/pony/service/sql"
 	service "github.com/ponyruntime/pony/service/supervisor"
 	"github.com/ponyruntime/pony/service/terminal"
-	"github.com/ponyruntime/pony/service/tokenstore"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/fs"
 	"github.com/ponyruntime/pony/system/function"
@@ -220,7 +224,7 @@ func (a *App) Initialize() error {
 	debug.SetTraceback("single")
 
 	// 50mb
-	debug.SetMemoryLimit(50 * 1024 * 1024)
+	debug.SetMemoryLimit(250 * 1024 * 1024)
 
 	// LaunchProcess log manager first for proper logging
 	if err := a.logManager.Start(a.ctx); err != nil {
@@ -383,7 +387,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("load application state: %w", err)
 	}
 
-	bootCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	bootCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
 	if _, err := a.reg.Apply(bootCtx, appState); err != nil {
@@ -551,6 +555,7 @@ func loadDotEnv(logger *zap.Logger, paths ...string) {
 
 func main() {
 	sqlite_vec.Auto()
+	debug.SetMemoryLimit(500 * 1024 * 1024) // 500mb
 
 	// Parse command line flags
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
@@ -601,6 +606,7 @@ func main() {
 		WithProcessFunctionBridge(app),
 		WithMemStore(app),
 		WithNativeExecutor(app),
+		WithJetTemplates(app),
 	)...)
 	// --------------------------------------------------
 
@@ -893,6 +899,17 @@ func WithProcessFunctionBridge(a *App) eventbus.EventHandler {
 	)
 }
 
+func WithJetTemplates(a *App) eventbus.EventHandler {
+	// Create manager with required dependencies
+	manager := template.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("tmpl"),
+	)
+
+	return reghandler.NewRegistryHandler("template.(jet|set)", manager)
+}
+
 func WithLuaRuntime(a *App) []eventbus.EventHandler {
 	codeManager, err := code.NewCodeManager(
 		a.logger.Named("lua"),
@@ -922,6 +939,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				exec.NewExecModule(a.logger.Named("exec")),
 				ctx.NewCtxModule(a.logger.Named("ctx")),
 				store.NewStoreModule(a.logger.Named("store")),
+				luatemplate.NewTemplateModule(a.logger.Named("template")),
 				securitymod.NewSecurityModule(a.logger.Named("security")),
 				registrymod.NewRegistryModule(a.logger.Named("registry")),
 				processmod.NewProcessAPIModule(a.logger.Named("proc")),
@@ -935,6 +953,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				sqlmod.NewSQLModule(a.logger.Named("sql")),
 				excel.NewModule(a.logger.Named("excel")),
 				cloudstorage.NewModule(),
+				system.NewSystemModule(),
 			},
 			ProtoCacheSize: 600,
 			MainCacheSize:  100,
@@ -951,9 +970,9 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 
 	return []eventbus.EventHandler{
 		reghandler.NewTransactionHandler(codeManager),
-		reghandler.NewRegistryHandler("function.lua", funcs),
-		reghandler.NewRegistryHandler("library.lua", libraries),
-		reghandler.NewRegistryHandler("process.lua", processes),
-		reghandler.NewRegistryHandler("btea.app.lua", terminalApps),
+		component.NewHandler("function.lua", funcs),
+		component.NewHandler("library.lua", libraries),
+		component.NewHandler("process.lua", processes),
+		component.NewHandler("btea.app.lua", terminalApps),
 	}
 }

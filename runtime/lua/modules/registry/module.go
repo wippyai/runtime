@@ -3,6 +3,7 @@ package registry
 import (
 	"errors"
 	regapi "github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/system/registry"
 	"github.com/ponyruntime/pony/system/registry/topology"
 	lua "github.com/yuin/gopher-lua"
@@ -91,7 +92,7 @@ func parseID(l *lua.LState) int {
 	id := regapi.ParseID(idStr)
 
 	// Convert to Lua table
-	idTable := l.NewTable()
+	idTable := l.CreateTable(0, 2)
 	idTable.RawSetString("ns", lua.LString(id.NS))
 	idTable.RawSetString("name", lua.LString(id.Name))
 
@@ -103,7 +104,7 @@ func parseID(l *lua.LState) int {
 func wrapVersion(l *lua.LState, version regapi.Version) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = version
-	l.SetMetatable(ud, l.GetTypeMetatable(versionMetatable))
+	ud.Metatable = value.GetTypeMetatable(l, versionMetatable)
 	return ud
 }
 
@@ -144,7 +145,7 @@ func (m *Module) snapshotCreate(l *lua.LState) int {
 	// Create userdata
 	ud := l.NewUserData()
 	ud.Value = snap
-	l.SetMetatable(ud, l.GetTypeMetatable(snapshotMetatable))
+	ud.Metatable = value.GetTypeMetatable(l, snapshotMetatable)
 
 	l.Push(ud)
 	l.Push(lua.LNil)
@@ -220,11 +221,11 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 	}
 
 	// Create userdata
-	snapUD := l.NewUserData()
-	snapUD.Value = snap
-	l.SetMetatable(snapUD, l.GetTypeMetatable(snapshotMetatable))
+	ud := l.NewUserData()
+	ud.Value = snap
+	ud.Metatable = value.GetTypeMetatable(l, snapshotMetatable)
 
-	l.Push(snapUD)
+	l.Push(ud)
 	l.Push(lua.LNil)
 	return 2
 }
@@ -282,11 +283,9 @@ func (m *Module) versions(l *lua.LState) int {
 	}
 
 	// Convert to Lua table
-	versionsTable := l.NewTable()
+	versionsTable := l.CreateTable(len(versions), 0)
 	for i, ver := range versions {
-		// Create userdata for Version
-		ud := wrapVersion(l, ver)
-		versionsTable.RawSetInt(i+1, ud)
+		versionsTable.RawSetInt(i+1, wrapVersion(l, ver))
 	}
 
 	l.Push(versionsTable)
@@ -354,7 +353,7 @@ func (m *Module) historyCreate(l *lua.LState) int {
 	// Create userdata
 	ud := l.NewUserData()
 	ud.Value = hist
-	l.SetMetatable(ud, l.GetTypeMetatable(historyMetatable))
+	ud.Metatable = value.GetTypeMetatable(l, historyMetatable)
 
 	l.Push(ud)
 	return 1
@@ -428,7 +427,7 @@ func (m *Module) registryFind(l *lua.LState) int {
 	}
 
 	// Convert to Lua table
-	entriesTable := l.NewTable()
+	entriesTable := l.CreateTable(len(entries), 0)
 	for i, entry := range entries {
 		entryTable, err := entryToLuaTable(l, entry)
 		if err != nil {

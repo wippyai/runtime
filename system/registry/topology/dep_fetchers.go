@@ -6,6 +6,7 @@ var directDepFields = []string{
 	"fs",          // Reference to filesystem
 	"store",       // Reference to a store (e.g., "session")
 	"token_store", // Reference to token storage (e.g., "app.security:tokens")
+	"set",         // Reference to a template set
 }
 
 // Fields that contain arrays of dependencies
