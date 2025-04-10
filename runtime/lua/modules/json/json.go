@@ -3,6 +3,8 @@ package json
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"sync"
 
 	lua "github.com/yuin/gopher-lua"
@@ -18,18 +20,35 @@ var (
 // DefaultMaxDepth is the default maximum nesting depth for JSON encoding
 const DefaultMaxDepth = 128
 
+// EncodeOptions controls the behavior of the JSON encoder
+type EncodeOptions struct {
+	// MaxDepth is the maximum nesting depth for JSON encoding
+	MaxDepth int
+	// AllowSparseArrays allows sparse arrays to be encoded by filling gaps with null
+	AllowSparseArrays bool
+	// TreatMixedKeysAsObjects converts tables with mixed key types to objects
+	TreatMixedKeysAsObjects bool
+}
+
+// DefaultEncodeOptions provides sensible defaults for JSON encoding
+var DefaultEncodeOptions = EncodeOptions{
+	MaxDepth:                DefaultMaxDepth,
+	AllowSparseArrays:       false,
+	TreatMixedKeysAsObjects: false,
+}
+
 var jsonValuePool = sync.Pool{
 	New: func() any {
 		return &jsonValue{}
 	},
 }
 
-func getJSONValue(lv lua.LValue, path []*lua.LTable, depth int, maxDepth int) *jsonValue {
+func getJSONValue(lv lua.LValue, path []*lua.LTable, depth int, options *EncodeOptions) *jsonValue {
 	jv := jsonValuePool.Get().(*jsonValue)
 	jv.LValue = lv
 	jv.path = path
 	jv.depth = depth
-	jv.maxDepth = maxDepth
+	jv.options = options
 	return jv
 }
 
@@ -37,19 +56,19 @@ func putJSONValue(jv *jsonValue) {
 	jv.LValue = nil
 	jv.path = nil
 	jv.depth = 0
-	jv.maxDepth = DefaultMaxDepth
+	jv.options = nil
 	jsonValuePool.Put(jv)
 }
 
 // Module represents JSON bindings to Lua VM.
 type Module struct {
-	MaxDepth int // Maximum nesting depth, defaults to DefaultMaxDepth
+	Options EncodeOptions // Options for controlling encoding behavior
 }
 
-// NewJSONModule creates a new JSON module.
+// NewJSONModule creates a new JSON module with default options.
 func NewJSONModule() *Module {
 	return &Module{
-		MaxDepth: DefaultMaxDepth,
+		Options: DefaultEncodeOptions,
 	}
 }
 
@@ -96,14 +115,14 @@ func (*Module) decode(l *lua.LState) int {
 
 // encode encodes Lua value to JSON string with input validation.
 func (m *Module) encode(l *lua.LState) int {
-	if l.Get(1) == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("value expected"))
-		return 2
+	value := l.Get(1)
+	if value == lua.LNil {
+		l.Push(lua.LString("null"))
+		return 1
 	}
 
-	value := l.Get(1)
-	data, err := Encode(value)
+	opts := m.Options
+	data, err := EncodeWithOptions(value, &opts)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -113,30 +132,34 @@ func (m *Module) encode(l *lua.LState) int {
 	return 1
 }
 
-// Encode returns the JSON encoding of value.
+// Encode returns the JSON encoding of value with default options.
 func Encode(value lua.LValue) ([]byte, error) {
-	return EncodeWithMaxDepth(value, DefaultMaxDepth)
+	return EncodeWithOptions(value, &DefaultEncodeOptions)
 }
 
-// EncodeWithMaxDepth returns the JSON encoding of value with specified max depth.
-func EncodeWithMaxDepth(value lua.LValue, maxDepth int) ([]byte, error) {
-	if maxDepth <= 0 {
-		maxDepth = DefaultMaxDepth
+// EncodeWithOptions returns the JSON encoding of value with specified options.
+func EncodeWithOptions(value lua.LValue, options *EncodeOptions) ([]byte, error) {
+	if options == nil {
+		options = &DefaultEncodeOptions
+	}
+
+	if options.MaxDepth <= 0 {
+		options.MaxDepth = DefaultMaxDepth
 	}
 
 	// Empty initial path
 	var path []*lua.LTable
-	jv := getJSONValue(value, path, 0, maxDepth)
+	jv := getJSONValue(value, path, 0, options)
 	b, err := json.Marshal(jv)
 	putJSONValue(jv)
 	return b, err
 }
 
 type jsonValue struct {
-	LValue   lua.LValue
-	path     []*lua.LTable // Current path of parent tables
-	depth    int           // Current nesting depth
-	maxDepth int           // Maximum allowed depth
+	LValue  lua.LValue
+	path    []*lua.LTable  // Current path of parent tables
+	depth   int            // Current nesting depth
+	options *EncodeOptions // Encoding options
 }
 
 // tableInPath checks if the table already exists in the current path
@@ -159,8 +182,8 @@ func appendTableToPath(path []*lua.LTable, table *lua.LTable) []*lua.LTable {
 
 func (j *jsonValue) MarshalJSON() ([]byte, error) {
 	// Check depth limit
-	if j.depth > j.maxDepth {
-		return nil, errMaxDepth
+	if j.depth > j.options.MaxDepth {
+		return nil, fmt.Errorf("%w: exceeded maximum depth of %d", errMaxDepth, j.options.MaxDepth)
 	}
 
 	switch converted := j.LValue.(type) {
@@ -181,33 +204,39 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 		// Create new path with this table for child nodes
 		newPath := appendTableToPath(j.path, converted)
 
-		key, value := converted.Next(lua.LNil)
-		switch key.Type() {
-		case lua.LTNil:
+		// First, determine if this table is empty
+		if key, _ := converted.Next(lua.LNil); key == lua.LNil {
 			return []byte("[]"), nil
-		case lua.LTNumber:
-			arr := make([]*jsonValue, 0, converted.Len())
-			expectedKey := lua.LNumber(1)
+		}
 
-			for key != lua.LNil {
-				if key.Type() != lua.LTNumber {
-					for _, child := range arr {
-						putJSONValue(child)
-					}
-					return nil, errInvalidKeys
+		// Now, analyze the table to determine how to encode it
+		isArray, isObject, maxArrayIndex, err := analyzeTable(converted)
+		if err != nil && !j.options.TreatMixedKeysAsObjects {
+			return nil, err
+		}
+
+		// If table is an array (sequential numeric keys)
+		if isArray && !(isObject && !j.options.TreatMixedKeysAsObjects) {
+			// Create an array to hold all values
+			arr := make([]*jsonValue, int(maxArrayIndex))
+
+			// If we have a sparse array and it's not allowed, return an error
+			if int(maxArrayIndex) != converted.Len() && !j.options.AllowSparseArrays {
+				return nil, fmt.Errorf("%w: table has %d elements but max index is %d",
+					errSparseArray, converted.Len(), int(maxArrayIndex))
+			}
+
+			// Fill the array with values or nil for gaps
+			var idx int
+			for i := 1; i <= int(maxArrayIndex); i++ {
+				lv := converted.RawGetInt(i)
+				if lv == lua.LNil && j.options.AllowSparseArrays {
+					// Fill gap with nil for sparse arrays
+					arr[idx] = getJSONValue(lua.LNil, newPath, j.depth+1, j.options)
+				} else {
+					arr[idx] = getJSONValue(lv, newPath, j.depth+1, j.options)
 				}
-
-				if expectedKey != key {
-					for _, child := range arr {
-						putJSONValue(child)
-					}
-					return nil, errSparseArray
-				}
-
-				child := getJSONValue(value, newPath, j.depth+1, j.maxDepth)
-				arr = append(arr, child)
-				expectedKey++
-				key, value = converted.Next(key)
+				idx++
 			}
 
 			b, err := json.Marshal(arr)
@@ -215,20 +244,30 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 				putJSONValue(child)
 			}
 			return b, err
-		case lua.LTString:
-			obj := make(map[string]*jsonValue, converted.Len())
+		} else {
+			// It's an object (string keys) or we're treating mixed keys as object
+			obj := make(map[string]*jsonValue)
 
-			for key != lua.LNil {
-				if key.Type() != lua.LTString {
-					for _, child := range obj {
-						putJSONValue(child)
-					}
-					return nil, errInvalidKeys
+			// Iterate through all keys
+			for k, v := converted.Next(lua.LNil); k != lua.LNil; k, v = converted.Next(k) {
+				var keyStr string
+
+				// Convert the key to string
+				switch kt := k.(type) {
+				case lua.LString:
+					keyStr = string(kt)
+				case lua.LNumber:
+					// Convert number keys to strings for objects
+					keyStr = fmt.Sprintf("%v", float64(kt))
+				case lua.LBool:
+					// Convert boolean keys to strings
+					keyStr = fmt.Sprintf("%v", bool(kt))
+				default:
+					// Skip keys that can't be converted to strings
+					continue
 				}
 
-				child := getJSONValue(value, newPath, j.depth+1, j.maxDepth)
-				obj[key.String()] = child
-				key, value = converted.Next(key)
+				obj[keyStr] = getJSONValue(v, newPath, j.depth+1, j.options)
 			}
 
 			b, err := json.Marshal(obj)
@@ -236,10 +275,6 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 				putJSONValue(child)
 			}
 			return b, err
-		case lua.LTBool, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
-			fallthrough
-		default:
-			return nil, errInvalidKeys
 		}
 	case *lua.LUserData:
 		if str, ok := converted.Value.(string); ok {
@@ -252,8 +287,53 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 
 		return []byte("null"), nil
 	default:
+		// Functions, threads, channels, etc. are encoded as null
 		return []byte("null"), nil
 	}
+}
+
+// analyzeTable determines if a table is an array, object, or mixed,
+// and returns the maximum array index if applicable
+func analyzeTable(table *lua.LTable) (isArray bool, isObject bool, maxArrayIndex lua.LNumber, err error) {
+	maxArrayIndex = 0
+	arrayCount := 0
+
+	for k, _ := table.Next(lua.LNil); k != lua.LNil; k, _ = table.Next(k) {
+		switch kt := k.(type) {
+		case lua.LNumber:
+			// Check if it's a valid array index (positive integer)
+			if float64(kt) == math.Floor(float64(kt)) && kt > 0 {
+				isArray = true
+				arrayCount++
+				if kt > maxArrayIndex {
+					maxArrayIndex = kt
+				}
+			} else {
+				// Non-integer or negative number keys are treated as object keys
+				isObject = true
+			}
+		case lua.LString:
+			isObject = true
+		default:
+			// Other key types (boolean, etc.) are treated as invalid
+			return false, false, 0, fmt.Errorf("%w: table has keys of type %s",
+				errInvalidKeys, k.Type().String())
+		}
+	}
+
+	// Check if this looks like an array (sequential numeric keys)
+	if isArray && arrayCount != int(maxArrayIndex) {
+		// It's a sparse array
+		// We'll return isArray=true but the caller needs to check if sparse arrays are allowed
+	}
+
+	// If we have both array and object keys, it's mixed
+	if isArray && isObject {
+		return true, true, maxArrayIndex, fmt.Errorf("%w: table has both numeric and string keys",
+			errInvalidKeys)
+	}
+
+	return isArray, isObject, maxArrayIndex, nil
 }
 
 // Decode converts JSON encoded data to Lua values.
@@ -279,8 +359,8 @@ func DecodeValue(l *lua.LState, value any) lua.LValue {
 		return lua.LString(converted)
 	case []any:
 		arr := l.CreateTable(len(converted), 0)
-		for _, item := range converted {
-			arr.Append(DecodeValue(l, item))
+		for i, item := range converted {
+			arr.RawSetInt(i+1, DecodeValue(l, item))
 		}
 		return arr
 	case map[string]any:

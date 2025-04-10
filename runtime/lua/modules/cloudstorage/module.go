@@ -3,12 +3,12 @@ package cloudstorage
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	csapi "github.com/ponyruntime/pony/api/cloudstorage"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 

@@ -2,12 +2,11 @@ package loader
 
 import (
 	"fmt"
-	iofs "io/fs"
-
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"go.uber.org/zap"
+	iofs "io/fs"
 )
 
 // Loader manages loading of registry entries
@@ -48,6 +47,42 @@ func (l *Loader) LoadFS(fs iofs.FS, vars interpolate.Variables) ([]registry.Entr
 			continue
 		}
 		entries = append(entries, fileEntries...)
+	}
+
+	return entries, nil
+}
+
+// LoadDir loads all entries from a directory
+func (l *Loader) LoadDir(fs iofs.FS, dirPath string, vars interpolate.Variables) ([]registry.Entry, error) {
+	payloads, err := l.fileLoader.LoadDir(fs, dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load files from directory %s: %w", dirPath, err)
+	}
+
+	var entries []registry.Entry
+	for _, p := range payloads {
+		fileEntries, err := l.processFile(fs, p, vars)
+		if err != nil {
+			// Log warning instead of returning error
+			l.log.Warn("process file", zap.String("path", p.Source()), zap.Error(err))
+			continue
+		}
+		entries = append(entries, fileEntries...)
+	}
+
+	return entries, nil
+}
+
+// LoadFile loads entries from a single file
+func (l *Loader) LoadFile(fs iofs.FS, filePath string, vars interpolate.Variables) ([]registry.Entry, error) {
+	filePayload, err := l.fileLoader.LoadFile(fs, filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load file %s: %w", filePath, err)
+	}
+
+	entries, err := l.processFile(fs, filePayload, vars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process file %s: %w", filePath, err)
 	}
 
 	return entries, nil

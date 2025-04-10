@@ -25,7 +25,7 @@ entries:
       comment: "Process that waits for messages"
     source: file://process.lua
     method: run
-    modules: [ time ]
+    modules: [ time, funcs ]
     imports:
       actor: wippy.actor:actor
 
@@ -36,6 +36,16 @@ entries:
     source: file://sender.lua
     method: handler
     modules: [ http, time ]
+    pool:
+      size: 8
+
+  - name: child.get_local_time
+    kind: function.lua
+    meta:
+      comment: "Simple child function with http sender"
+    source: file://child.lua
+    method: get_local_time
+    modules: [ http_client ]
     pool:
       size: 8
 

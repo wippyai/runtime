@@ -26,6 +26,8 @@ func NewFinder(r registry.EntryReader) registry.Finder {
 // Root fields (special prefixes):
 //   - ".kind": Match entry's Kind field (exact match)
 //   - ".name": Match entry's ID.Name field (exact match)
+//   - ".ns": Match entry's ID.Namespace field (exact match)
+//   - ".id": Match entry's full ID (exact match)
 //
 // Metadata field matching operators:
 //   - "field" or "meta.field": Standard equality match for the field
@@ -38,6 +40,9 @@ func NewFinder(r registry.EntryReader) registry.Finder {
 //
 //	Find({".kind": "service", "meta.enabled": true})
 //	  -> Find all services with enabled=true
+//
+//	Find({".ns": "app.tools", "meta.type": "tool"})
+//	  -> Find all tools in the app.tools namespace
 //
 //	Find({"~meta.description": ".*api.*", "*meta.tags": "backend"})
 //	  -> Find entries with description matching regex ".*api.*" and tags containing "backend"
@@ -175,6 +180,16 @@ func matchesAllCriteria(
 			}
 		case "name":
 			if strVal, ok := value.(string); ok && string(entry.ID.Name) != strVal {
+				return false
+			}
+		case "ns":
+			if strVal, ok := value.(string); ok && string(entry.ID.NS) != strVal {
+				return false
+			}
+		case "id":
+			// Match the full ID string
+			fullID := string(entry.ID.NS) + ":" + string(entry.ID.Name)
+			if strVal, ok := value.(string); ok && fullID != strVal {
 				return false
 			}
 		}

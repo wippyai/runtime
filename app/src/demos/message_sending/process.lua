@@ -1,5 +1,6 @@
 local actor = require("actor")
 local time = require("time")
+local funcs = require("funcs")
 
 local function inspect_table(t, depth)
     if type(t) ~= "table" then return tostring(t) end
@@ -22,14 +23,26 @@ local function run()
     print("Message listener process started with PID:", state.pid)
     process.registry.register("message_receiver")
 
+    local fn = funcs.new()
+
     local message_actor = actor.new(state, {
         -- Handler for the dedicated message topic
         message = function(state, msg)
             state.count = state.count + 1
 
+            -- Call the child module to get local time
+            local child_result, child_err = fn:call("app.demos.message_sending:child.get_local_time")
+            local response_message = ""
+
+            if child_err then
+                response_message = "Error from child: " .. tostring(child_err)
+            else
+                response_message = "Child response: " .. tostring(child_result)
+            end
+
             if type(msg) == "table" and msg.from then
                 process.send(msg.from, "response", {
-                    "Message received and processed on 'message' topic: " .. inspect_table(msg.payload)
+                    response_message .. " (Original message: " .. inspect_table(msg.payload) .. ")"
                 })
             end
         end,
@@ -41,11 +54,9 @@ local function run()
 
         -- Default handler for any other topics via inbox
         __default = function(state, msg, topic)
-            --print("Received message on default inbox topic '" .. tostring(topic) .. "':", "payload=", inspect_table(msg))
-
             if msg.from then
                 process.send(msg.from, "response", {
-                    "Message received and processed from inbox (original topic '" ..
+                    " (Original inbox message with topic '" ..
                     topic .. "'): " .. inspect_table(msg.payload)
                 })
             end

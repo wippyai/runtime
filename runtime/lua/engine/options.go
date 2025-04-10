@@ -90,11 +90,6 @@ func WithLibrary(name string, source interface{}) Option {
 
 			return 1
 		})
-
-		// Try to load the library immediately to catch any errors
-		if err := vm.state.DoString(fmt.Sprintf("require('%s')", name)); err != nil {
-			vm.initErrors = append(vm.initErrors, fmt.Errorf("library '%s' load test failed: %w", name, err))
-		}
 	}
 }
 

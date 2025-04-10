@@ -103,24 +103,20 @@ func (m *LoaderModule) createLoader(l *lua.LState) int {
 	}
 
 	// Create interpolator with FS support
-	interpolatorHelper := interpolate.NewEntryInterpolator(dtt,
+	interpolators := interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
 	)
 
 	// Create folder loader with FS support
-	folderLoader := loader.NewLoader(
-		dtt,
-		m.log,
-		interpolatorHelper,
-	)
+	folderLoader := loader.NewLoader(dtt, m.log, interpolators)
 
 	// Create loader instance
 	loaderInstance := &LoaderInstance{
 		fs:           fsys,
 		dtt:          dtt,
 		log:          m.log,
-		interpolator: interpolatorHelper,
+		interpolator: interpolators,
 		folderLoader: folderLoader,
 	}
 
@@ -161,7 +157,7 @@ func loaderLoadDirectory(l *lua.LState) int {
 	}
 
 	// Load entries
-	entries, err := fl.folderLoader.LoadFS(fl.fs, vars)
+	entries, err := fl.folderLoader.LoadDir(fl.fs, dirPath, vars)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to load entries: %v", err)))
@@ -169,7 +165,7 @@ func loaderLoadDirectory(l *lua.LState) int {
 	}
 
 	// Convert entries to Lua table
-	entriesTable := l.NewTable()
+	entriesTable := l.CreateTable(0, len(entries))
 	for i, entry := range entries {
 		entryTable, err := entryToLuaTable(l, entry)
 		if err != nil {
@@ -213,7 +209,7 @@ func loaderLoadFile(l *lua.LState) int {
 	}
 
 	// Load entries from file
-	entries, err := fl.folderLoader.LoadFS(fl.fs, vars)
+	entries, err := fl.folderLoader.LoadFile(fl.fs, filePath, vars)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to load entries: %v", err)))

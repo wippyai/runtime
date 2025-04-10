@@ -6,7 +6,6 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	jsonlua "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	lua "github.com/yuin/gopher-lua"
-	"log"
 )
 
 // can be optimized
@@ -60,8 +59,6 @@ func (t *ToGolang) Unmarshal(p payload.Payload, v interface{}) error {
 	if err != nil {
 		return err
 	}
-
-	log.Printf("%s", json)
 
 	// but it works and respecs all the configs!
 	return jsongo.Unmarshal(json, v)
