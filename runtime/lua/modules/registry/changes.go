@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -142,8 +143,12 @@ func changesApply(l *lua.LState) int {
 		return 2
 	}
 
+	// We are not allowed to use thread context for registry change
+	// since it is not allowed to actually cancel the operation at the moment
+	ctx := context.Background() // todo: the proper fix will require rollback improvement in registry
+
 	// Apply changes directly
-	version, err := changes.snapshot.reg.Apply(l.Context(), changes.ops)
+	version, err := changes.snapshot.reg.Apply(ctx, changes.ops)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
