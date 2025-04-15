@@ -2,6 +2,7 @@ package builder
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/api/service/sql"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -571,6 +572,16 @@ func selectRunWith(l *lua.LState) int {
 
 	// Check for DB or Transaction
 	ud := l.CheckUserData(2)
+
+	switch v := ud.Value.(type) {
+	case DBTypeGetter:
+		switch v.GetDBType() {
+		case sql.KindPostgres:
+			wrapper = &selectBuilderWrapper{
+				builder: wrapper.builder.PlaceholderFormat(squirrel.Dollar),
+			}
+		}
+	}
 
 	// Create query executor
 	executor, err := NewQueryExecutor(l, wrapper.builder, ud.Value)
