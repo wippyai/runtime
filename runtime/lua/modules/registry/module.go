@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"errors"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -312,8 +313,12 @@ func (m *Module) applyVersion(l *lua.LState) int {
 		return 2
 	}
 
+	// We are not allowed to use thread context for registry change
+	// since it is not allowed to actually cancel the operation at the moment
+	ctx := context.Background()
+
 	// Apply version
-	err := reg.ApplyVersion(l.Context(), version)
+	err := reg.ApplyVersion(ctx, version)
 	if err != nil {
 		l.Push(lua.LFalse)
 		l.Push(lua.LString(err.Error()))
