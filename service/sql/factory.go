@@ -36,11 +36,7 @@ func (f *DefaultPoolFactory) CreateStandardPool(kind registry.Kind, cfg *config.
 		return nil, fmt.Errorf("invalid connection config: %w", err)
 	}
 
-	driver := string(kind)
-	if kind == config.KindPostgres {
-		driver = "postgres"
-	}
-	db, err := sql.Open(driver, dsn)
+	db, err := sql.Open(getDriver(kind), dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
