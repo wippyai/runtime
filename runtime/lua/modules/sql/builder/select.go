@@ -137,7 +137,7 @@ func selectWhere(l *lua.LState) int {
 	if wrapper == nil {
 		return 0
 	}
-
+	
 	// Updated builder to store result
 	var newBuilder squirrel.SelectBuilder
 
