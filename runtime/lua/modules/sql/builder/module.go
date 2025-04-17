@@ -5,6 +5,10 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+type DBTypeGetter interface {
+	GetDBType() string
+}
+
 // RegisterBuilderModule adds the SQL builder submodule to the main SQL module
 func RegisterBuilderModule(l *lua.LState, mod *lua.LTable) {
 	// Register all builder types

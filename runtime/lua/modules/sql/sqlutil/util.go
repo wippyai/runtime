@@ -10,6 +10,30 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+func CheckParam(l *lua.LState, index int) (interface{}, error) {
+	param := l.Get(index)
+
+	// We expect a table with parameters
+	if param.Type() != lua.LTUserData {
+		return luaconv.ToGoAny(param), nil
+	}
+
+	if ud, ok := param.(*lua.LUserData); ok {
+		// Check for SQL NULL
+		if ud.Value == "SQL_NULL" {
+			return nil, nil
+		}
+
+		// Check for typed values
+		if typedValue, ok := ud.Value.(*TypedValue); ok {
+			// Use the pre-converted value with the right type
+			return typedValue.Value, nil
+		}
+	}
+
+	return nil, fmt.Errorf("parameter type not supported supported")
+}
+
 // CheckParams extracts and converts parameters from Lua to Go
 func CheckParams(l *lua.LState, index int) (interface{}, error) {
 	params := l.Get(index)

@@ -29,6 +29,10 @@ func (d *DB) GetRawDB() *sql.DB {
 	return d.db
 }
 
+func (d *DB) GetDBType() string {
+	return d.dbType
+}
+
 // NewDB creates a new database connection wrapper with UoW integration
 func NewDB(uw engine.UnitOfWork, resource resource.Resource[any], db *sql.DB, dbType string, log *zap.Logger) *DB {
 	dbWrapper := &DB{

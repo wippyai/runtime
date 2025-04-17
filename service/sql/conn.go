@@ -151,6 +151,17 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 	}
 }
 
+func getDriver(kind registry.Kind) string {
+	switch kind {
+	case config.KindPostgres:
+
+		return "postgres"
+
+	default:
+		return string(kind)
+	}
+}
+
 // Helper to build options string from map
 func buildOptionsString(options map[string]string) string {
 	if len(options) == 0 {
