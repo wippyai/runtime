@@ -2,9 +2,10 @@ package builder
 
 import (
 	"fmt"
-
 	"github.com/Masterminds/squirrel"
+	"github.com/ponyruntime/pony/api/service/sql"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -131,9 +132,16 @@ func updateSet(l *lua.LState) int {
 	// Get column and value
 	column := l.CheckString(2)
 
+	p, err := sqlutil.CheckParam(l, 3)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
 	// Create new wrapper
 	newWrapper := &updateBuilderWrapper{
-		builder: wrapper.builder.Set(column, luaconv.ToGoAny(l.Get(3))),
+		builder: wrapper.builder.Set(column, p),
 	}
 
 	// Return new wrapped builder
@@ -429,6 +437,15 @@ func updateRunWith(l *lua.LState) int {
 
 	// Check for DB or Transaction
 	ud := l.CheckUserData(2)
+	switch v := ud.Value.(type) {
+	case DBTypeGetter:
+		switch v.GetDBType() {
+		case sql.KindPostgres:
+			wrapper = &updateBuilderWrapper{
+				builder: wrapper.builder.PlaceholderFormat(squirrel.Dollar),
+			}
+		}
+	}
 
 	// Create query executor
 	executor, err := NewQueryExecutor(l, wrapper.builder, ud.Value)

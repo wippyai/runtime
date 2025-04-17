@@ -28,6 +28,10 @@ func (t *Transaction) GetRawTx() *sql.Tx {
 	return t.tx
 }
 
+func (t *Transaction) GetDBType() string {
+	return t.db.GetDBType()
+}
+
 // NewTransaction creates a new Transaction with UoW integration
 func NewTransaction(uw engine.UnitOfWork, tx *sql.Tx, db *DB, log *zap.Logger) *Transaction {
 	txWrapper := &Transaction{
