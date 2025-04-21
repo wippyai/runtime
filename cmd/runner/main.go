@@ -550,7 +550,7 @@ func loadDotEnv(logger *zap.Logger, paths ...string) {
 
 func main() {
 	sqlite_vec.Auto()
-	debug.SetMemoryLimit(3 * 1024 * 1024 * 1024) // 3GB
+	debug.SetMemoryLimit(1 * 1024 * 1024 * 1024) // 3GB
 
 	// Parse command line flags
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
