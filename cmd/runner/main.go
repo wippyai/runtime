@@ -221,11 +221,6 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 }
 
 func (a *App) Initialize() error {
-	debug.SetTraceback("single")
-
-	// 50mb
-	debug.SetMemoryLimit(250 * 1024 * 1024)
-
 	// LaunchProcess log manager first for proper logging
 	if err := a.logManager.Start(a.ctx); err != nil {
 		return fmt.Errorf("failed to start log manager: %w", err)
@@ -555,7 +550,7 @@ func loadDotEnv(logger *zap.Logger, paths ...string) {
 
 func main() {
 	sqlite_vec.Auto()
-	debug.SetMemoryLimit(500 * 1024 * 1024) // 500mb
+	debug.SetMemoryLimit(3 * 1024 * 1024 * 1024) // 3GB
 
 	// Parse command line flags
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
