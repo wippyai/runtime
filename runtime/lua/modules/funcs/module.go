@@ -15,6 +15,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -123,6 +124,12 @@ func (m *Module) withContext(l *lua.LState) int {
 		return 0
 	}
 
+	// Add security check for custom application context
+	if !security.Can(l.Context(), "funcs.context", "context", nil) {
+		l.RaiseError("not allowed to call functions with custom context")
+		return 0
+	}
+
 	ctxTable := l.CheckTable(2)
 
 	// Create new contexter and copy existing values
@@ -140,15 +147,7 @@ func (m *Module) withContext(l *lua.LState) int {
 			l.ArgError(2, "context keys must be strings")
 			return
 		}
-
-		// Don't allow overwriting security-specific keys through general context
-		keyStr := string(key)
-		if keyStr == "security.actor" || keyStr == "security.scope" {
-			l.ArgError(2, fmt.Sprintf("reserved security key '%s' cannot be set through with_context", keyStr))
-			return
-		}
-
-		newValues.SetValue(keyStr, luaconv.ToGoAny(v))
+		newValues.SetValue(string(key), luaconv.ToGoAny(v))
 	})
 
 	// Create new Functions instance with copied security context
@@ -177,6 +176,12 @@ func (m *Module) withActor(l *lua.LState) int {
 	functions, ok := ud.Value.(*Functions)
 	if !ok {
 		l.ArgError(1, "functions executor expected")
+		return 0
+	}
+
+	// Add security check for custom security context
+	if !security.Can(l.Context(), "funcs.security", "security", nil) {
+		l.RaiseError("not allowed to call functions with custom security context")
 		return 0
 	}
 
@@ -220,6 +225,12 @@ func (m *Module) withScope(l *lua.LState) int {
 	functions, ok := ud.Value.(*Functions)
 	if !ok {
 		l.ArgError(1, "functions executor expected")
+		return 0
+	}
+
+	// Add security check for custom security context
+	if !security.Can(l.Context(), "funcs.security", "security", nil) {
+		l.RaiseError("not allowed to call functions with custom security context")
 		return 0
 	}
 
@@ -284,6 +295,34 @@ func (m *Module) call(l *lua.LState) int {
 		return 0
 	}
 
+	// Get target function ID for security check
+	targetIndex := 1
+	if l.Get(1).Type() == lua.LTUserData {
+		targetIndex = 2 // Skip self parameter
+	}
+
+	target := l.CheckString(targetIndex)
+	if target == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("target name is required"))
+		return 2
+	}
+
+	// Parse registry ID for security check
+	regID := registry.ParseID(target)
+	if err := validateRegistryID(regID); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("invalid registry ID: %v", err)))
+		return 2
+	}
+
+	// Add security check for function call permission
+	if !security.Can(l.Context(), "funcs.call", target, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("not allowed to call function: %s", target)))
+		return 2
+	}
+
 	// Create task with proper context
 	t, err := functions.createTask(l)
 	if err != nil {
@@ -335,6 +374,31 @@ func (m *Module) async(l *lua.LState) int {
 	functions, ok := ud.Value.(*Functions)
 	if !ok {
 		l.ArgError(1, "functions executor expected")
+		return 0
+	}
+
+	// Get target function ID for security check
+	targetIndex := 1
+	if l.Get(1).Type() == lua.LTUserData {
+		targetIndex = 2 // Skip self parameter
+	}
+
+	target := l.CheckString(targetIndex)
+	if target == "" {
+		l.RaiseError("target name is required")
+		return 0
+	}
+
+	// Parse registry ID for security check
+	regID := registry.ParseID(target)
+	if err := validateRegistryID(regID); err != nil {
+		l.RaiseError("invalid registry ID: %v", err)
+		return 0
+	}
+
+	// Add security check for function call permission
+	if !security.Can(l.Context(), "funcs.call", target, nil) {
+		l.RaiseError("not allowed to call function: %s", target)
 		return 0
 	}
 

@@ -2,6 +2,7 @@ package env
 
 import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -43,6 +44,12 @@ func (m *Module) get(l *lua.LState) int {
 		return 0
 	}
 
+	// Add security check for accessing specific environment variable
+	if !security.Can(l.Context(), "env.get", key, nil) {
+		l.RaiseError("not allowed to access environment variable: %s", key)
+		return 0
+	}
+
 	envCtx, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string])
 	if !ok {
 		l.RaiseError("invalid environment context")
@@ -78,7 +85,10 @@ func (m *Module) getAll(l *lua.LState) int {
 
 	result := l.CreateTable(0, envCtx.Len())
 	envCtx.Iterate(func(key string, value string) {
-		result.RawSetString(key, lua.LString(value))
+		// Only include variables that the user has permission to access
+		if security.Can(l.Context(), "env.get", key, nil) {
+			result.RawSetString(key, lua.LString(value))
+		}
 	})
 
 	l.Push(result)

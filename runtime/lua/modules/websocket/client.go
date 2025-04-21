@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	"net/http"
 	"sync"
 	"time"
@@ -93,6 +94,13 @@ func parseDuration(lv lua.LValue) (time.Duration, error) {
 
 // wsConnect is the global function: websocket.connect.
 func wsConnect(l *lua.LState) int {
+	// Verify permission to establish WebSocket connections
+	if !security.Can(l.Context(), "websocket.connect", "", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to establish WebSocket connection"))
+		return 2
+	}
+
 	url := l.CheckString(1)
 	var options *lua.LTable
 	if l.GetTop() >= 2 {
@@ -163,6 +171,12 @@ func wsConnect(l *lua.LState) int {
 				}
 			}
 		})
+	}
+
+	if !security.Can(l.Context(), "websocket.connect.url", url, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("not allowed to connect to URL: %s", url)))
+		return 2
 	}
 
 	// Setup context with uw.

@@ -1,6 +1,7 @@
 package system
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -45,6 +46,11 @@ func (m *Module) Loader(l *lua.LState) int {
 
 // memStats returns detailed memory statistics.
 func (*Module) memStats(l *lua.LState) int {
+	if !security.Can(l.Context(), "system.read", "memory", nil) {
+		l.RaiseError("not allowed to access memory statistics")
+		return 0
+	}
+
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
@@ -73,6 +79,11 @@ func (*Module) memStats(l *lua.LState) int {
 
 // allocated returns the number of bytes allocated and not yet freed.
 func (*Module) allocated(l *lua.LState) int {
+	if !security.Can(l.Context(), "system.read", "memory", nil) {
+		l.RaiseError("not allowed to access memory statistics")
+		return 0
+	}
+
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
@@ -83,6 +94,10 @@ func (*Module) allocated(l *lua.LState) int {
 
 // heapObjects returns the number of allocated heap objects.
 func (*Module) heapObjects(l *lua.LState) int {
+	if !security.Can(l.Context(), "system.read", "memory", nil) {
+		l.RaiseError("not allowed to access memory statistics")
+		return 0
+	}
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
@@ -93,6 +108,11 @@ func (*Module) heapObjects(l *lua.LState) int {
 
 // gc forces a garbage collection.
 func (*Module) gc(l *lua.LState) int {
+	if !security.Can(l.Context(), "system.gc", "gc", nil) {
+		l.RaiseError("not allowed to force garbage collection")
+		return 0
+	}
+
 	runtime.GC()
 
 	l.Push(lua.LBool(true))
@@ -102,6 +122,11 @@ func (*Module) gc(l *lua.LState) int {
 
 // setGCPercent sets the garbage collection target percentage.
 func (*Module) setGCPercent(l *lua.LState) int {
+	if !security.Can(l.Context(), "system.gc", "gc_percent", nil) {
+		l.RaiseError("not allowed to modify garbage collection settings")
+		return 0
+	}
+
 	if l.GetTop() < 1 {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("percent value required"))
@@ -123,6 +148,11 @@ func (*Module) setGCPercent(l *lua.LState) int {
 
 // getGCPercent returns the current garbage collection target percentage.
 func (*Module) getGCPercent(l *lua.LState) int {
+	if !security.Can(l.Context(), "system.read", "gc_percent", nil) {
+		l.RaiseError("not allowed to access garbage collection settings")
+		return 0
+	}
+
 	// SetGCPercent(-1) returns current value without changing it
 	percent := debug.SetGCPercent(-1)
 
@@ -139,6 +169,11 @@ func (*Module) getGCPercent(l *lua.LState) int {
 
 // numGoroutines returns the number of goroutines that currently exist.
 func (*Module) numGoroutines(l *lua.LState) int {
+	if !security.Can(l.Context(), "system.read", "goroutines", nil) {
+		l.RaiseError("not allowed to access goroutine information")
+		return 0
+	}
+
 	count := runtime.NumGoroutine()
 
 	l.Push(lua.LNumber(count))
@@ -148,24 +183,39 @@ func (*Module) numGoroutines(l *lua.LState) int {
 
 // goMaxProcs sets or gets the maximum number of CPUs that can be executing simultaneously.
 func (*Module) goMaxProcs(l *lua.LState) int {
-	var procs int
-
 	if l.GetTop() > 0 {
-		// Set GOMAXPROCS if argument provided
+		// Setting GOMAXPROCS requires control permission
+		if !security.Can(l.Context(), "system.control", "gomaxprocs", nil) {
+			l.RaiseError("not allowed to modify GOMAXPROCS")
+			return 0
+		}
+
 		newProcs := l.CheckInt(1)
-		procs = runtime.GOMAXPROCS(newProcs)
+		procs := runtime.GOMAXPROCS(newProcs)
+		l.Push(lua.LNumber(procs))
 	} else {
+		// Reading GOMAXPROCS only requires read permission
+		if !security.Can(l.Context(), "system.read", "gomaxprocs", nil) {
+			l.RaiseError("not allowed to access GOMAXPROCS information")
+			return 0
+		}
+
 		// Get current GOMAXPROCS if no argument
-		procs = runtime.GOMAXPROCS(-1) // -1 returns current value without changing it
+		procs := runtime.GOMAXPROCS(-1) // -1 returns current value without changing it
+		l.Push(lua.LNumber(procs))
 	}
 
-	l.Push(lua.LNumber(procs))
 	l.Push(lua.LNil) // No error
 	return 2
 }
 
 // numCPU returns the number of logical CPUs usable by the current process.
 func (*Module) numCPU(l *lua.LState) int {
+	if !security.Can(l.Context(), "system.read", "cpu", nil) {
+		l.RaiseError("not allowed to access CPU information")
+		return 0
+	}
+
 	count := runtime.NumCPU()
 
 	l.Push(lua.LNumber(count))
@@ -175,6 +225,11 @@ func (*Module) numCPU(l *lua.LState) int {
 
 // hostname returns the host name reported by the kernel.
 func (*Module) hostname(l *lua.LState) int {
+	if !security.Can(l.Context(), "system.read", "hostname", nil) {
+		l.RaiseError("not allowed to access hostname information")
+		return 0
+	}
+
 	name, err := os.Hostname()
 	if err != nil {
 		l.Push(lua.LNil)
@@ -189,6 +244,11 @@ func (*Module) hostname(l *lua.LState) int {
 
 // pid returns the process ID of the caller.
 func (*Module) pid(l *lua.LState) int {
+	if !security.Can(l.Context(), "system.read", "pid", nil) {
+		l.RaiseError("not allowed to access process ID information")
+		return 0
+	}
+
 	pid := os.Getpid()
 
 	l.Push(lua.LNumber(pid))

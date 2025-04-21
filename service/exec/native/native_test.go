@@ -387,3 +387,83 @@ func TestNativeExecutor_Config(t *testing.T) {
 	// Output should contain the environment variable value
 	assert.Contains(t, sb.String(), "test_value")
 }
+
+func TestNativeExecutor_Whitelist(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+
+	tests := []struct {
+		name          string
+		whitelist     []string
+		command       string
+		shouldSucceed bool
+		errorContains string
+	}{
+		{
+			name:          "no whitelist - all commands allowed",
+			whitelist:     nil,
+			command:       "echo 'test'",
+			shouldSucceed: true,
+		},
+		{
+			name:          "empty whitelist - all commands allowed",
+			whitelist:     []string{},
+			command:       "echo 'test'",
+			shouldSucceed: true,
+		},
+		{
+			name:          "command in whitelist - allowed",
+			whitelist:     []string{"echo 'test'", "ls -l"},
+			command:       "echo 'test'",
+			shouldSucceed: true,
+		},
+		{
+			name:          "command not in whitelist - rejected",
+			whitelist:     []string{"ls -l", "cat /etc/hosts"},
+			command:       "echo 'test'",
+			shouldSucceed: false,
+			errorContains: "command not in whitelist",
+		},
+		{
+			name:          "partial match - rejected",
+			whitelist:     []string{"echo 'something else'", "ls"},
+			command:       "echo 'test'",
+			shouldSucceed: false,
+			errorContains: "command not in whitelist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create executor with whitelist config
+			config := &exec.NativeExecutorConfig{
+				CommandWhitelist: tt.whitelist,
+			}
+
+			executor := NewNativeExecutor(logger, config)
+
+			// Try to create a process with the command
+			process, err := executor.NewProcess(tt.command, exec.ProcessOptions{})
+
+			if tt.shouldSucceed {
+				assert.NoError(t, err)
+				assert.NotNil(t, process)
+
+				// Verify process can start (optional, just to check it's valid)
+				if process != nil {
+					err = process.Start()
+					assert.NoError(t, err)
+
+					// Clean up - stop the process
+					processExecutor, ok := process.(*ProcessExecutor)
+					if ok {
+						processExecutor.Stop()
+					}
+				}
+			} else {
+				assert.Error(t, err)
+				assert.Nil(t, process)
+				assert.Contains(t, err.Error(), tt.errorContains)
+			}
+		})
+	}
+}

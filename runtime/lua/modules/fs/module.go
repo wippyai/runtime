@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	"io/fs"
 
 	fsapi "github.com/ponyruntime/pony/api/fs"
@@ -62,6 +63,12 @@ func apiGet(l *lua.LState) int {
 	name := l.CheckString(1)
 	if name == "" {
 		l.ArgError(1, "filesystem name required")
+		return 0
+	}
+
+	// Add security check to control filesystem access
+	if !security.Can(l.Context(), "fs.get", name, nil) {
+		l.RaiseError("not allowed to access filesystem: %s", name)
 		return 0
 	}
 

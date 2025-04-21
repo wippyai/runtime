@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
@@ -112,6 +113,12 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("resource Source is required"))
 		return 2
+	}
+
+	// Add security check for accessing the database
+	if !security.Can(l.Context(), "db.get", id, nil) {
+		l.RaiseError("not allowed to access database: %s", id)
+		return 0
 	}
 
 	uw := engine.GetUnitOfWork(l.Context())

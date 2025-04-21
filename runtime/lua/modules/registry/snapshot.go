@@ -5,6 +5,7 @@ import (
 
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	"github.com/ponyruntime/pony/system/registry"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -61,16 +62,23 @@ func snapshotEntries(l *lua.LState) int {
 		return 2
 	}
 
-	// Convert to Lua table
+	// Convert to Lua table with security filtering
 	entriesTable := l.CreateTable(len(entries), 0)
-	for i, entry := range entries {
+	idx := 1
+	for _, entry := range entries {
+		// Add security check for each entry
+		if !security.Can(l.Context(), "registry.get", entry.ID.String(), nil) {
+			continue // Skip entries the user doesn't have permission to access
+		}
+
 		entryTable, err := entryToLuaTable(l, entry)
 		if err != nil {
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))
 			return 2
 		}
-		entriesTable.RawSetInt(i+1, entryTable)
+		entriesTable.RawSetInt(idx, entryTable)
+		idx++
 	}
 
 	l.Push(entriesTable)
@@ -88,6 +96,12 @@ func snapshotGet(l *lua.LState) int {
 	// Get ID
 	idStr := l.CheckString(2)
 	id := regapi.ParseID(idStr)
+
+	// Add security check for getting a specific entry
+	if !security.Can(l.Context(), "registry.get", id.String(), nil) {
+		l.RaiseError("not allowed to access entry: %s", id.String())
+		return 0
+	}
 
 	// Find entry using the EntryReader interface method
 	entry, err := snap.GetEntry(id)
@@ -125,7 +139,10 @@ func snapshotNamespace(l *lua.LState) int {
 	var result []regapi.Entry
 	for _, entry := range snap.entries {
 		if entry.ID.NS == regapi.Namespace(ns) {
-			result = append(result, entry)
+			// Add security check for each entry
+			if security.Can(l.Context(), "registry.get", entry.ID.String(), nil) {
+				result = append(result, entry)
+			}
 		}
 	}
 
@@ -171,16 +188,23 @@ func snapshotFind(l *lua.LState) int {
 		return 2
 	}
 
-	// Convert to Lua table
-	entriesTable := l.NewTable()
-	for i, entry := range entries {
+	// Convert to Lua table with security filtering
+	entriesTable := l.CreateTable(len(entries), 0)
+	idx := 1
+	for _, entry := range entries {
+		// Add security check for each entry
+		if !security.Can(l.Context(), "registry.get", entry.ID.String(), nil) {
+			continue // Skip entries the user doesn't have permission to access
+		}
+
 		entryTable, err := entryToLuaTable(l, entry)
 		if err != nil {
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))
 			return 2
 		}
-		entriesTable.RawSetInt(i+1, entryTable)
+		entriesTable.RawSetInt(idx, entryTable)
+		idx++
 	}
 
 	l.Push(entriesTable)
@@ -205,7 +229,7 @@ func snapshotChanges(l *lua.LState) int {
 	// Create userdata
 	ud := l.NewUserData()
 	ud.Value = changes
-	l.SetMetatable(ud, l.GetTypeMetatable(changesMetatable))
+	ud.Metatable = value.GetTypeMetatable(l, changesMetatable)
 
 	l.Push(ud)
 	return 1
@@ -225,7 +249,7 @@ func snapshotVersion(l *lua.LState) int {
 	return 1
 }
 
-// Helper function to check if the first argument is a Snapshot and return it
+// CheckSnapshot checks if the first argument is a Snapshot userdata
 func CheckSnapshot(l *lua.LState) *Snapshot {
 	ud := l.CheckUserData(1)
 	if snapshot, ok := ud.Value.(*Snapshot); ok {

@@ -499,58 +499,6 @@ func TestExecutorModule(t *testing.T) {
 		assert.Contains(t, resultStr, "scope cannot be nil", "Error should mention nil scope")
 	})
 
-	t.Run("cannot overwrite security context with general context", func(t *testing.T) {
-		mod := NewFunctionModule()
-		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-			engine.WithLoader("security", securityModuleLoader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.Import(`
-			function test_context_protection()
-				local security = require("security")
-				local executor = funcs.new()
-				
-				-- Try to set security context through general context
-				local success, err = pcall(function()
-					local ctx = {
-						["security.actor"] = "fake_actor",
-						["security.scope"] = "fake_scope"
-					}
-					local executor_with_ctx = executor:with_context(ctx)
-					return executor_with_ctx
-				end)
-				
-				-- Should have error
-				assert(not success, "expected error but got success")
-				assert(string.match(err, "reserved security key"), "expected error about reserved keys, got: " .. tostring(err))
-				
-				-- Return pcall results directly for testing
-				return "error:" .. tostring(err)
-			end
-		`, "test", "test_context_protection")
-		require.NoError(t, err)
-
-		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
-
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
-		defer func() { _ = uw.Close() }()
-
-		tr := createTestTranscoder()
-		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, &mockExecutor{})
-
-		result, err := wrapped.Execute(ctx, "test_context_protection")
-		require.NoError(t, err)
-
-		// Extract the error string and check it contains the expected message
-		resultStr := fmt.Sprintf("%v", result)
-		assert.True(t, strings.HasPrefix(resultStr, "error:"), "Expected error prefix")
-		assert.Contains(t, resultStr, "reserved security key", "Error should mention reserved keys")
-	})
-
 	t.Run("async with security context", func(t *testing.T) {
 		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
