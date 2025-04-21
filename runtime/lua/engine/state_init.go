@@ -56,11 +56,12 @@ func loadCoreLuaLibs(state *lua.LState) error {
 func newLuaState() (*lua.LState, error) {
 	// todo: other options can be exposed later
 	state := lua.NewState(lua.Options{
-		RegistrySize:     128,
-		RegistryMaxSize:  256 * 256,
-		RegistryGrowStep: 16,
-		SkipOpenLibs:     true,
-		CallStackSize:    32,
+		RegistrySize:        256,
+		RegistryMaxSize:     256 * 256,
+		RegistryGrowStep:    16,
+		SkipOpenLibs:        true,
+		CallStackSize:       128,
+		MinimizeStackMemory: true,
 	})
 
 	errors.RegisterErrorsModule(state)
