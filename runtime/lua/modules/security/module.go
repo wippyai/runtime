@@ -245,7 +245,7 @@ func (m *Module) tokenStore(l *lua.LState) int {
 	}
 
 	// Create a token store wrapper
-	wrapper := NewTokenStore(uw, res, tokenStore, m.log)
+	wrapper := NewTokenStore(uw, id, res, tokenStore, m.log)
 	tokenStoreUD := wrapTokenStore(l, wrapper)
 
 	l.Push(tokenStoreUD)
