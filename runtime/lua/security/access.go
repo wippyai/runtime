@@ -30,13 +30,13 @@ func Can(ctx context.Context, action, resource string, meta registry.Metadata) b
 
 	// Security context is incomplete, log a warning
 	if !hasActor {
-		logger.Warn("Security check with missing actor",
+		logger.Warn("security check with missing actor",
 			zap.String("action", action),
 			zap.String("resource", resource))
 	}
 
 	if !hasScope {
-		logger.Warn("Security check with missing policy scope",
+		logger.Warn("security check with missing policy scope",
 			zap.String("action", action),
 			zap.String("resource", resource))
 	}
