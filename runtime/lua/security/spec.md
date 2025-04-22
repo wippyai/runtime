@@ -27,6 +27,37 @@ The security context consists of:
 
 Tokens can be created that include specific actor and scope combinations, enabling fine-grained access control for different clients or services.
 
+## Supervisor-Level Security Configuration
+
+Security contexts can be configured at the supervisor level through the service lifecycle configuration. This provides a declarative way to define security properties for managed services:
+
+```yaml
+services:
+  my_service:
+    # Service configuration
+    lifecycle:
+      auto_start: true
+      security:
+        actor:
+          id: "service_name"
+          meta:
+            role: "worker"
+            team: "backend"
+        policies:
+          - "policy_id_1"
+          - "policy_id_2"
+        groups:
+          - "worker_group"
+          - "backend_services_group"
+```
+
+The supervisor automatically builds and injects the security context based on this configuration, making it available to the service at runtime. This approach ensures:
+
+1. Consistent security context across service restarts
+2. Centralized permission management
+3. Clear, declarative permissions definition for each service
+4. Audit capabilities through configuration version control
+
 ## Resource Identifiers
 
 Resource identifiers follow the format `namespace:name` and are used to scope permissions to specific resources. For example:
@@ -165,3 +196,5 @@ Security contexts cannot be removed, and modification attempts without proper pe
 3. Separate application context from security context permissions
 4. Validate inputs before security checks to prevent confused deputy problems
 5. Never store sensitive information in application context values
+6. Define service security contexts at the supervisor level for consistent permissions
+7. Review and audit supervisor security configurations regularly
