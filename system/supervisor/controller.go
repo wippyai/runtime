@@ -288,12 +288,8 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 		ch  <-chan any
 		err error
 	}, 1)
-	go func() {
-		// Use security context from ctx to start service
-		// The service can access actor, scope from the context:
-		// actor, hasActor := security.GetActor(ctx)
-		// scope, hasScope := security.GetScope(ctx)
 
+	go func() {
 		ch, err := c.service.Start(ctx)
 		select {
 		case resultCh <- struct {
@@ -303,6 +299,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 		case <-ctx.Done():
 		}
 	}()
+
 	select {
 	case result := <-resultCh:
 		if result.err != nil {
