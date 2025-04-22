@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	securitysys "github.com/ponyruntime/pony/system/security"
 	"time"
 
 	"github.com/ponyruntime/pony/api/supervisor"
@@ -72,7 +73,13 @@ func NewController(
 		root:          ctx,
 		ops:           make(chan controlOp, 10),
 	}
+
+	if config.Security != nil {
+		ctx = securitysys.WithSecurityConfig(ctx, config.Security)
+	}
+
 	ctrl.ctx, ctrl.cancel = context.WithCancel(ctx)
+
 	go ctrl.supervise()
 	return ctrl
 }
@@ -282,6 +289,11 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 		err error
 	}, 1)
 	go func() {
+		// Use security context from ctx to start service
+		// The service can access actor, scope from the context:
+		// actor, hasActor := security.GetActor(ctx)
+		// scope, hasScope := security.GetScope(ctx)
+
 		ch, err := c.service.Start(ctx)
 		select {
 		case resultCh <- struct {
