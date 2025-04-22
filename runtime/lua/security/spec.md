@@ -72,8 +72,13 @@ Resource identifiers follow the format `namespace:name` and are used to scope pe
 - `security.policy.get` - Access policies by ID
 - `security.policy_group.get` - Access policy groups
 - `security.scope.create` - Create custom scopes
+    - Use "with" resource to add policies to scope
+    - Use "without" resource to remove policies from scope
 - `security.actor.create` - Create actors with specific IDs
 - `security.token_store.get` - Access token store resources
+- `security.token.validate` - Validate tokens (store ID as resource, token in metadata)
+- `security.token.create` - Create tokens (store ID as resource, actor ID in metadata)
+- `security.token.revoke` - Revoke tokens (store ID as resource, token in metadata)
 
 ### Function Module
 - `funcs.context` - Execute functions with custom context values
@@ -165,6 +170,61 @@ local db = sql.get("system.db:users")
 -- Results in: Error: not allowed to access database: system.db:users
 ```
 
+### Token Store Authorization Example
+
+```lua
+-- Get token store
+local store = security.token_store("system.security:auth_tokens")
+
+-- Validate token (requires security.token.validate permission)
+local actor, scope, err = store:validate("my_token")
+-- Permission check uses store ID with token in metadata
+-- security.Can(context, "security.token.validate", "system.security:auth_tokens", {token="my_token"})
+
+-- Create token (requires security.token.create permission)
+local token = store:create(actor, scope, {expiration="1h"})
+-- Permission check uses store ID with actor ID in metadata
+-- security.Can(context, "security.token.create", "system.security:auth_tokens", {actor=actor.id()})
+
+-- Revoke token (requires security.token.revoke permission)
+local success = store:revoke("my_token")
+-- Permission check uses store ID with token in metadata
+-- security.Can(context, "security.token.revoke", "system.security:auth_tokens", {token="my_token"})
+```
+
+### Key-Value Store Example
+
+```lua
+-- Get store (requires store.get permission)
+local store = store.get("app.data:user_preferences")
+-- security.Can(context, "store.get", "app.data:user_preferences", nil)
+
+-- Read value (requires store.key.get permission)
+local value, err = store:get("user:123:theme")
+-- Permission check uses key as resource
+-- security.Can(context, "store.key.get", "user:123:theme", nil)
+
+-- Write value (requires store.key.set permission)
+local success, err = store:set("user:123:theme", "dark")
+-- Permission check uses key as resource
+-- security.Can(context, "store.key.set", "user:123:theme", nil)
+```
+
+### Scope Modification Example
+
+```lua
+-- Create a scope (requires security.scope.create permission)
+local scope = security.new_scope()
+
+-- Add policy to scope (requires security.scope.create with "with" resource)
+scope = scope:with(policy)
+-- Security check: security.Can(context, "security.scope.create", "with", nil)
+
+-- Remove policy from scope (requires security.scope.create with "without" resource)
+scope = scope:without(policy_id)
+-- Security check: security.Can(context, "security.scope.create", "without", nil)
+```
+
 ### Security Context Separation
 
 Security contexts are strictly separated from application contexts:
@@ -179,22 +239,3 @@ executor = executor:with_scope(admin_scope)
 ```
 
 Security contexts cannot be removed, and modification attempts without proper permissions result in errors.
-
-## Implementation Details
-
-1. Security checks are performed before any sensitive operation
-2. Permission checks are non-bypassable
-3. Default deny policy - permissions must be explicitly granted
-4. Resource IDs are validated before permission checks
-5. PID resolution includes security checks for both direct PID access and registry name lookups
-6. Contextual operations preserve security context boundaries
-
-## Best Practices
-
-1. Use the most specific permission possible
-2. Include resource identifiers to scope permissions to specific resources
-3. Separate application context from security context permissions
-4. Validate inputs before security checks to prevent confused deputy problems
-5. Never store sensitive information in application context values
-6. Define service security contexts at the supervisor level for consistent permissions
-7. Review and audit supervisor security configurations regularly
