@@ -2,6 +2,7 @@ package exec
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	"sync" // Import sync
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -83,6 +84,12 @@ func execGet(l *lua.LState, log *zap.Logger) int {
 		l.RaiseError("resource ID is required")
 		return 0
 	}
+
+	if !security.IsAllowed(l.Context(), "exec.get", idStr, nil) {
+		l.RaiseError("not allowed to access executor: %s", idStr)
+		return 0
+	}
+
 	log = log.With(zap.String("id", idStr))
 
 	uw := engine.GetUnitOfWork(l.Context())
@@ -132,6 +139,11 @@ func executorNewProcess(l *lua.LState) int {
 	}
 	cmd := l.CheckString(2)
 	optsTable := l.OptTable(3, l.CreateTable(0, 0))
+
+	if !security.IsAllowed(l.Context(), "exec.run", cmd, nil) {
+		l.RaiseError("not allowed to execute command: %s", cmd)
+		return 0
+	}
 
 	procOpts := apiexec.ProcessOptions{}
 	wd := optsTable.RawGetString("work_dir")

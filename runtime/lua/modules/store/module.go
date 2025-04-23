@@ -11,6 +11,7 @@ import (
 	"github.com/ponyruntime/pony/api/store"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -115,6 +116,12 @@ func storeGet(l *lua.LState, log *zap.Logger) int {
 		return 0
 	}
 
+	// Add security check for accessing store resource
+	if !security.IsAllowed(l.Context(), "store.get", id, nil) {
+		l.RaiseError("not allowed to access store: %s", id)
+		return 0
+	}
+
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("no unit of work found in context")
@@ -177,6 +184,12 @@ func storeGetValue(l *lua.LState) int {
 		return 0
 	}
 
+	// Add security check for reading from store
+	if !security.IsAllowed(l.Context(), "store.key.get", key, nil) {
+		l.RaiseError("not allowed to read key: %s", key)
+		return 0
+	}
+
 	// Parse key
 	parsedKey := registry.ParseID(key)
 
@@ -234,6 +247,12 @@ func storeSetValue(l *lua.LState) int {
 	key := l.CheckString(2)
 	if key == "" {
 		l.RaiseError("key is required")
+		return 0
+	}
+
+	// Add security check for writing to store
+	if !security.IsAllowed(l.Context(), "store.key.set", key, nil) {
+		l.RaiseError("not allowed to write key: %s", key)
 		return 0
 	}
 
@@ -308,6 +327,12 @@ func storeDelete(l *lua.LState) int {
 		return 0
 	}
 
+	// Add security check for deleting from store
+	if !security.IsAllowed(l.Context(), "store.key.delete", key, nil) {
+		l.RaiseError("not allowed to delete key: %s", key)
+		return 0
+	}
+
 	// Parse key
 	parsedKey := registry.ParseID(key)
 
@@ -341,6 +366,12 @@ func storeHas(l *lua.LState) int {
 	key := l.CheckString(2)
 	if key == "" {
 		l.RaiseError("key is required")
+		return 0
+	}
+
+	// Add security check for checking key existence
+	if !security.IsAllowed(l.Context(), "store.key.has", key, nil) {
+		l.RaiseError("not allowed to check key existence: %s", key)
 		return 0
 	}
 

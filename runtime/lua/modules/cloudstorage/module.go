@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 
 	csapi "github.com/ponyruntime/pony/api/cloudstorage"
 	"github.com/ponyruntime/pony/api/registry"
@@ -31,7 +32,6 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	// Register the get function
 	t.RawSetString("get", l.NewFunction(apiGet))
-	// todo: add release
 
 	// Register CloudStorage type
 	registerCloudStorage(l)
@@ -67,6 +67,12 @@ func apiGet(l *lua.LState) int {
 
 	// Parse resource ID
 	resID := registry.ParseID(id)
+
+	// Add security check for accessing cloud storage resource
+	if !security.IsAllowed(l.Context(), "cloudstorage.get", resID.String(), nil) {
+		l.RaiseError("not allowed to access cloud storage resource: %s", resID.String())
+		return 0
+	}
 
 	// Acquire resource
 	res, err := reg.Acquire(uw.Context(), resID, resource.ModeNormal)

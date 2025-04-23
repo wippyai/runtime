@@ -2,7 +2,6 @@ package process
 
 import (
 	contextbase "context"
-	"fmt"
 	"github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
@@ -10,9 +9,11 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	secapi "github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"strings"
 )
 
 // WithContext represents a process spawner with context values
@@ -38,6 +39,41 @@ func (m *Module) withContext(l *lua.LState) int {
 			return 0
 		}
 
+		// Add security check for custom application context
+		if !security.IsAllowed(l.Context(), "process.context", "context", nil) {
+			l.RaiseError("not allowed to spawn processes with custom context")
+			return 0
+		}
+
+		// Check context table from second argument
+		ctxTable := l.CheckTable(2)
+
+		// Check for security-related keys before proceeding
+		hasSecurity := false
+		ctxTable.ForEach(func(k, v lua.LValue) {
+			if hasSecurity {
+				return
+			}
+
+			key, ok := k.(lua.LString)
+			if !ok {
+				return
+			}
+
+			keyStr := string(key)
+			if strings.HasPrefix(keyStr, "security.") ||
+				keyStr == "security.actor" ||
+				keyStr == "security.scope" {
+				hasSecurity = true
+			}
+		})
+
+		// If attempting to set security context, verify permission
+		if hasSecurity && !security.IsAllowed(l.Context(), "process.security", "security", nil) {
+			l.RaiseError("not allowed to spawn processes with custom security context")
+			return 0
+		}
+
 		// Create new contexter and copy existing values
 		newValues := context.NewContexter[any]()
 		if spawner.values != nil {
@@ -46,21 +82,11 @@ func (m *Module) withContext(l *lua.LState) int {
 			})
 		}
 
-		// Get context table from second argument
-		ctxTable := l.CheckTable(2)
-
 		// Add new values from table
 		ctxTable.ForEach(func(k, v lua.LValue) {
 			key, ok := k.(lua.LString)
 			if !ok {
 				l.ArgError(2, "context keys must be strings")
-				return
-			}
-
-			// Don't allow overwriting security-specific keys through general context
-			keyStr := string(key)
-			if keyStr == "security.actor" || keyStr == "security.scope" { // todo: not sure we need it
-				l.ArgError(2, fmt.Sprintf("reserved security key '%s' cannot be set through with_context", keyStr))
 				return
 			}
 
@@ -85,6 +111,12 @@ func (m *Module) withContext(l *lua.LState) int {
 		return 1
 	}
 
+	// Add security check for custom application context
+	if !security.IsAllowed(l.Context(), "process.context", "context", nil) {
+		l.RaiseError("not allowed to spawn processes with custom context")
+		return 0
+	}
+
 	// First call - create a new contexter
 	values := context.NewContexter[any]()
 
@@ -96,18 +128,13 @@ func (m *Module) withContext(l *lua.LState) int {
 	// Get context table from first argument
 	ctxTable := l.CheckTable(1)
 
+	// All context values are now allowed as we have dedicated methods for security context
+
 	// Add values from table
 	ctxTable.ForEach(func(k, v lua.LValue) {
 		key, ok := k.(lua.LString)
 		if !ok {
 			l.ArgError(1, "context keys must be strings")
-			return
-		}
-
-		// Don't allow setting security-specific keys through general context
-		keyStr := string(key)
-		if keyStr == "security.actor" || keyStr == "security.scope" { // todo: drop it
-			l.ArgError(1, fmt.Sprintf("reserved security key '%s' cannot be set through with_context", keyStr))
 			return
 		}
 
@@ -138,6 +165,12 @@ func (m *Module) withActor(l *lua.LState) int {
 	spawner, ok := ud.Value.(*WithContext)
 	if !ok {
 		l.ArgError(1, "process spawner expected")
+		return 0
+	}
+
+	// Add security check for custom security context
+	if !security.IsAllowed(l.Context(), "process.security", "security", nil) {
+		l.RaiseError("not allowed to spawn processes with custom security context")
 		return 0
 	}
 
@@ -181,6 +214,12 @@ func (m *Module) withScope(l *lua.LState) int {
 	spawner, ok := ud.Value.(*WithContext)
 	if !ok {
 		l.ArgError(1, "process spawner expected")
+		return 0
+	}
+
+	// Add security check for custom security context
+	if !security.IsAllowed(l.Context(), "process.security", "security", nil) {
+		l.RaiseError("not allowed to spawn processes with custom security context")
 		return 0
 	}
 
@@ -260,6 +299,12 @@ func (m *Module) contextSpawn(l *lua.LState) int {
 	id := l.CheckString(2)
 	hostID := l.CheckString(3)
 
+	// Add security check for spawning processes
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
+		l.RaiseError("not allowed to spawn process: %s", id)
+		return 0
+	}
+
 	// Get context and PID
 	ctx := l.Context()
 	self, ok := pubsub.GetPID(ctx)
@@ -336,6 +381,18 @@ func (m *Module) contextSpawnMonitored(l *lua.LState) int {
 
 	id := l.CheckString(2)
 	hostID := l.CheckString(3)
+
+	// Add security check for spawning processes
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
+		l.RaiseError("not allowed to spawn process: %s", id)
+		return 0
+	}
+
+	// Add security check for monitoring
+	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, nil) {
+		l.RaiseError("not allowed to spawn monitored process: %s", id)
+		return 0
+	}
 
 	// Get context and PID
 	ctx := l.Context()
@@ -414,6 +471,18 @@ func (m *Module) contextSpawnLinked(l *lua.LState) int {
 	id := l.CheckString(2)
 	hostID := l.CheckString(3)
 
+	// Add security check for spawning processes
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
+		l.RaiseError("not allowed to spawn process: %s", id)
+		return 0
+	}
+
+	// Add security check for linking
+	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, nil) {
+		l.RaiseError("not allowed to spawn linked process: %s", id)
+		return 0
+	}
+
 	// Get context and PID
 	ctx := l.Context()
 	self, ok := pubsub.GetPID(ctx)
@@ -490,6 +559,24 @@ func (m *Module) contextSpawnLinkedMonitored(l *lua.LState) int {
 
 	id := l.CheckString(2)
 	hostID := l.CheckString(3)
+
+	// Add security check for spawning processes
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
+		l.RaiseError("not allowed to spawn process: %s", id)
+		return 0
+	}
+
+	// Add security check for monitoring
+	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, nil) {
+		l.RaiseError("not allowed to spawn monitored process: %s", id)
+		return 0
+	}
+
+	// Add security check for linking
+	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, nil) {
+		l.RaiseError("not allowed to spawn linked process: %s", id)
+		return 0
+	}
 
 	// Get context and PID
 	ctx := l.Context()

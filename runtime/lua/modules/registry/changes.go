@@ -4,6 +4,7 @@ import (
 	"context"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -141,6 +142,12 @@ func changesApply(l *lua.LState) int {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no changes to apply"))
 		return 2
+	}
+
+	// Add security check for applying changes
+	if !security.IsAllowed(l.Context(), "registry.apply", "", nil) {
+		l.RaiseError("not allowed to apply registry changes")
+		return 0
 	}
 
 	// We are not allowed to use thread context for registry change

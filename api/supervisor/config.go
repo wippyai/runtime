@@ -3,6 +3,7 @@ package supervisor
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ponyruntime/pony/api/security"
 	"time"
 )
 
@@ -14,13 +15,15 @@ type (
 		// StartTimeout specifies the maximum duration allowed for the service to start.
 		StartTimeout time.Duration `json:"start_timeout" yaml:"start_timeout" default:"10s"`
 		// StopTimeout specifies the maximum duration allowed for the service to stop.
-		StopTimeout time.Duration `json:"stop_timeout" yamal:"stop_timeout" default:"10s"`
+		StopTimeout time.Duration `json:"stop_timeout" yaml:"stop_timeout" default:"10s"`
 		// StableThreshold defines the time duration that the service must run to be considered stable.
 		StableThreshold time.Duration `json:"stable_threshold" yaml:"stable_threshold" default:"5s"`
 		// RetryPolicy defines the policy for retrying a failed service.
 		RetryPolicy RetryPolicy `json:"restart" yaml:"restart"`
 		// DependsOn specifies a list of service names that this service depends on.
-		DependsOn []string `json:"depends_on" yaml:"depends_on" default:"[]"` // Empty array todo: make it work
+		DependsOn []string `json:"depends_on" yaml:"depends_on" default:"[]"`
+		// Security defines the security context for this service
+		Security *security.Config `json:"security,omitempty" yaml:"security,omitempty"`
 	}
 
 	// RetryPolicy defines the parameters for retrying a service after a failure.

@@ -102,16 +102,6 @@ local new_scope = security.new_scope({policy1, policy2})
 -- Return: scope userdata
 ```
 
-#### Temporarily Apply Policy
-
-```lua
--- Applies a policy to the current context
-security.with_policy(policy)
--- Parameters:
---   policy (userdata): Policy object to apply
--- Return: none
-```
-
 #### Create Actor
 
 ```lua
@@ -359,21 +349,4 @@ end
 
 -- Always close the token store when done
 token_store:close()
-```
-
-### Temporary Policy Application
-
-```lua
-local security = require("security")
-
--- Get a policy
-local temp_policy, _ = security.policy("system:maintenance")
-
--- Apply the policy to the current context
-security.with_policy(temp_policy)
-
--- Operations in this context will be affected by the temporary policy
-local allowed = security.can("update", "system:config")
-
--- After this function returns, the policy is no longer applied
 ```

@@ -10,6 +10,7 @@ import (
 	secapi "github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	securityapi "github.com/ponyruntime/pony/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -18,6 +19,7 @@ const TokenStoreMetatable = "security.TokenStore"
 
 // TokenStore wraps a security.TokenStore with resource handling
 type TokenStore struct {
+	id         registry.ID
 	resource   resource.Resource[any]
 	tokenStore secapi.TokenStore
 	log        *zap.Logger
@@ -25,8 +27,9 @@ type TokenStore struct {
 }
 
 // NewTokenStore creates a new token store wrapper with UoW integration
-func NewTokenStore(uw engine.UnitOfWork, res resource.Resource[any], tokenStore secapi.TokenStore, log *zap.Logger) *TokenStore {
+func NewTokenStore(uw engine.UnitOfWork, id registry.ID, res resource.Resource[any], tokenStore secapi.TokenStore, log *zap.Logger) *TokenStore {
 	wrapper := &TokenStore{
+		id:         id,
 		resource:   res,
 		tokenStore: tokenStore,
 		log:        log,
@@ -89,6 +92,20 @@ func tokenStoreValidate(l *lua.LState) int {
 	tokenStr := l.CheckString(2)
 	token := secapi.Token(tokenStr)
 
+	// Create metadata with token
+	meta := registry.Metadata{
+		"token": tokenStr,
+	}
+
+	// Add permission check with store ID as resource
+	storeID := ts.id.String()
+	if !securityapi.IsAllowed(l.Context(), "security.token.validate", storeID, meta) {
+		l.Push(lua.LNil)
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to validate token in store: " + storeID))
+		return 3
+	}
+
 	// Validate the token
 	actor, scope, err := ts.tokenStore.Validate(l.Context(), token)
 	if err != nil {
@@ -137,6 +154,19 @@ func tokenStoreCreate(l *lua.LState) int {
 		return 0
 	}
 
+	// Create metadata with actor information
+	meta := registry.Metadata{
+		"actor": actor.ID,
+	}
+
+	// Add permission check with store ID as resource
+	storeID := ts.id.String()
+	if !securityapi.IsAllowed(l.Context(), "security.token.create", storeID, meta) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to create token for actor: " + actor.ID + " in store: " + storeID))
+		return 2
+	}
+
 	// Get options
 	optionsTable := l.OptTable(4, l.NewTable())
 
@@ -163,11 +193,11 @@ func tokenStoreCreate(l *lua.LState) int {
 	}
 
 	// Parse metadata from the options table's "meta" field
-	meta := registry.Metadata{}
+	tokenMeta := registry.Metadata{}
 	if metaValue := optionsTable.RawGetString("meta"); metaValue != lua.LNil {
 		if metaTable, ok := metaValue.(*lua.LTable); ok {
 			var err error
-			meta, err = luaTableToMetadata(l, metaTable)
+			tokenMeta, err = luaTableToMetadata(l, metaTable)
 			if err != nil {
 				l.RaiseError("%s", err.Error())
 				return 0
@@ -178,7 +208,7 @@ func tokenStoreCreate(l *lua.LState) int {
 	// Create token details
 	details := secapi.TokenDetails{
 		Expiration: expiration,
-		Meta:       meta,
+		Meta:       tokenMeta,
 	}
 
 	token, err := ts.tokenStore.Create(l.Context(), actor, scope, details)
@@ -192,7 +222,7 @@ func tokenStoreCreate(l *lua.LState) int {
 	return 1
 }
 
-// tokenStoreCreate creates a new token
+// tokenStoreRevoke revokes a token
 func tokenStoreRevoke(l *lua.LState) int {
 	ts := checkTokenStore(l)
 	if ts == nil {
@@ -206,6 +236,19 @@ func tokenStoreRevoke(l *lua.LState) int {
 	}
 
 	token := l.CheckString(2)
+
+	// Create metadata with token
+	meta := registry.Metadata{
+		"token": token,
+	}
+
+	// Add permission check with store ID as resource
+	storeID := ts.id.String()
+	if !securityapi.IsAllowed(l.Context(), "security.token.revoke", storeID, meta) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to revoke token in store: " + storeID))
+		return 2
+	}
 
 	err := ts.tokenStore.Revoke(l.Context(), secapi.Token(token))
 	if err != nil {
