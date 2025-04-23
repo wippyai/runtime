@@ -19,11 +19,46 @@ type Changes struct {
 // registerChangesType registers the Changes type and methods
 func (m *Module) registerChangesType(l *lua.LState) {
 	value.RegisterMethods(l, changesMetatable, map[string]lua.LGFunction{
+		"ops":    changesOps,
 		"create": changesCreate,
 		"update": changesUpdate,
 		"delete": changesDelete,
 		"apply":  changesApply,
 	})
+}
+
+// changesOps returns the operations in a changeset
+func changesOps(l *lua.LState) int {
+	// Get changes
+	changes := checkChanges(l)
+	if changes == nil {
+		return 0
+	}
+
+	// Create table for ops
+	opsTable := l.CreateTable(len(changes.ops), 0)
+
+	// Add each operation to the table
+	for i, op := range changes.ops {
+		opTable := l.CreateTable(0, 2)
+		opTable.RawSetString("change", lua.LString(op.Kind))
+
+		// Convert entry to table
+		entryTable, err := entryToLuaTable(l, op.Entry)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(err.Error()))
+			return 2
+		}
+
+		opTable.RawSetString("entry", entryTable)
+
+		// Add to ops table
+		opsTable.RawSetInt(i+1, opTable)
+	}
+
+	l.Push(opsTable)
+	return 1
 }
 
 // changesCreate adds a new entry to the changeset
