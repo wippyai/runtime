@@ -1,4 +1,4 @@
-# Wippy Runtime: Dynamic Extension & AI Agent Runtime
+# Wippy Runtime: Adaptive Application Runtime
 
 Wippy Runtime provides a dedicated environment for deploying, managing, and dynamically updating software components, particularly AI agents and system extensions, without disrupting your core infrastructure. It's designed for agility, isolation, control, and continuous evolution.
 
