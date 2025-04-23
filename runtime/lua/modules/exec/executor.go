@@ -85,7 +85,7 @@ func execGet(l *lua.LState, log *zap.Logger) int {
 		return 0
 	}
 
-	if !security.Can(l.Context(), "exec.get", idStr, nil) {
+	if !security.IsAllowed(l.Context(), "exec.get", idStr, nil) {
 		l.RaiseError("not allowed to access executor: %s", idStr)
 		return 0
 	}
@@ -140,7 +140,7 @@ func executorNewProcess(l *lua.LState) int {
 	cmd := l.CheckString(2)
 	optsTable := l.OptTable(3, l.CreateTable(0, 0))
 
-	if !security.Can(l.Context(), "exec.run", cmd, nil) {
+	if !security.IsAllowed(l.Context(), "exec.run", cmd, nil) {
 		l.RaiseError("not allowed to execute command: %s", cmd)
 		return 0
 	}

@@ -40,7 +40,7 @@ func (m *Module) withContext(l *lua.LState) int {
 		}
 
 		// Add security check for custom application context
-		if !security.Can(l.Context(), "process.context", "context", nil) {
+		if !security.IsAllowed(l.Context(), "process.context", "context", nil) {
 			l.RaiseError("not allowed to spawn processes with custom context")
 			return 0
 		}
@@ -69,7 +69,7 @@ func (m *Module) withContext(l *lua.LState) int {
 		})
 
 		// If attempting to set security context, verify permission
-		if hasSecurity && !security.Can(l.Context(), "process.security", "security", nil) {
+		if hasSecurity && !security.IsAllowed(l.Context(), "process.security", "security", nil) {
 			l.RaiseError("not allowed to spawn processes with custom security context")
 			return 0
 		}
@@ -112,7 +112,7 @@ func (m *Module) withContext(l *lua.LState) int {
 	}
 
 	// Add security check for custom application context
-	if !security.Can(l.Context(), "process.context", "context", nil) {
+	if !security.IsAllowed(l.Context(), "process.context", "context", nil) {
 		l.RaiseError("not allowed to spawn processes with custom context")
 		return 0
 	}
@@ -169,7 +169,7 @@ func (m *Module) withActor(l *lua.LState) int {
 	}
 
 	// Add security check for custom security context
-	if !security.Can(l.Context(), "process.security", "security", nil) {
+	if !security.IsAllowed(l.Context(), "process.security", "security", nil) {
 		l.RaiseError("not allowed to spawn processes with custom security context")
 		return 0
 	}
@@ -218,7 +218,7 @@ func (m *Module) withScope(l *lua.LState) int {
 	}
 
 	// Add security check for custom security context
-	if !security.Can(l.Context(), "process.security", "security", nil) {
+	if !security.IsAllowed(l.Context(), "process.security", "security", nil) {
 		l.RaiseError("not allowed to spawn processes with custom security context")
 		return 0
 	}
@@ -300,7 +300,7 @@ func (m *Module) contextSpawn(l *lua.LState) int {
 	hostID := l.CheckString(3)
 
 	// Add security check for spawning processes
-	if !security.Can(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
 		l.RaiseError("not allowed to spawn process: %s", id)
 		return 0
 	}
@@ -383,13 +383,13 @@ func (m *Module) contextSpawnMonitored(l *lua.LState) int {
 	hostID := l.CheckString(3)
 
 	// Add security check for spawning processes
-	if !security.Can(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
 		l.RaiseError("not allowed to spawn process: %s", id)
 		return 0
 	}
 
 	// Add security check for monitoring
-	if !security.Can(l.Context(), "process.spawn.monitored", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, nil) {
 		l.RaiseError("not allowed to spawn monitored process: %s", id)
 		return 0
 	}
@@ -472,13 +472,13 @@ func (m *Module) contextSpawnLinked(l *lua.LState) int {
 	hostID := l.CheckString(3)
 
 	// Add security check for spawning processes
-	if !security.Can(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
 		l.RaiseError("not allowed to spawn process: %s", id)
 		return 0
 	}
 
 	// Add security check for linking
-	if !security.Can(l.Context(), "process.spawn.linked", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, nil) {
 		l.RaiseError("not allowed to spawn linked process: %s", id)
 		return 0
 	}
@@ -561,19 +561,19 @@ func (m *Module) contextSpawnLinkedMonitored(l *lua.LState) int {
 	hostID := l.CheckString(3)
 
 	// Add security check for spawning processes
-	if !security.Can(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
 		l.RaiseError("not allowed to spawn process: %s", id)
 		return 0
 	}
 
 	// Add security check for monitoring
-	if !security.Can(l.Context(), "process.spawn.monitored", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, nil) {
 		l.RaiseError("not allowed to spawn monitored process: %s", id)
 		return 0
 	}
 
 	// Add security check for linking
-	if !security.Can(l.Context(), "process.spawn.linked", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, nil) {
 		l.RaiseError("not allowed to spawn linked process: %s", id)
 		return 0
 	}

@@ -14,8 +14,8 @@ const (
 	STRICT = false
 )
 
-// Can checks if the action on the resource is allowed based on security context
-func Can(ctx context.Context, action, resource string, meta registry.Metadata) bool {
+// IsAllowed checks if the action on the resource is allowed based on security context
+func IsAllowed(ctx context.Context, action, resource string, meta registry.Metadata) bool {
 	actor, hasActor := security.GetActor(ctx)
 	scope, hasScope := security.GetScope(ctx)
 

@@ -95,7 +95,7 @@ func parseDuration(lv lua.LValue) (time.Duration, error) {
 // wsConnect is the global function: websocket.connect.
 func wsConnect(l *lua.LState) int {
 	// Verify permission to establish WebSocket connections
-	if !security.Can(l.Context(), "websocket.connect", "", nil) {
+	if !security.IsAllowed(l.Context(), "websocket.connect", "", nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("not allowed to establish WebSocket connection"))
 		return 2
@@ -173,7 +173,7 @@ func wsConnect(l *lua.LState) int {
 		})
 	}
 
-	if !security.Can(l.Context(), "websocket.connect.url", url, nil) {
+	if !security.IsAllowed(l.Context(), "websocket.connect.url", url, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to connect to URL: %s", url)))
 		return 2

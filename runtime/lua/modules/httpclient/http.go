@@ -77,7 +77,7 @@ func (m *Module) makeMethod(method string) lua.LGFunction {
 			return 0
 		}
 
-		if !security.Can(l.Context(), "http_client.request", url, nil) {
+		if !security.IsAllowed(l.Context(), "http_client.request", url, nil) {
 			l.RaiseError("not allowed to make request to: %s", url)
 			return 0
 		}
@@ -260,7 +260,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 			return
 		}
 
-		if !security.Can(l.Context(), "http_client.request", url.String(), nil) {
+		if !security.IsAllowed(l.Context(), "http_client.request", url.String(), nil) {
 			l.ArgError(1, "not allowed to make request to: "+url.String())
 			return
 		}

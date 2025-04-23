@@ -69,7 +69,7 @@ func apiGet(l *lua.LState) int {
 	resID := registry.ParseID(id)
 
 	// Add security check for accessing cloud storage resource
-	if !security.Can(l.Context(), "cloudstorage.get", resID.String(), nil) {
+	if !security.IsAllowed(l.Context(), "cloudstorage.get", resID.String(), nil) {
 		l.RaiseError("not allowed to access cloud storage resource: %s", resID.String())
 		return 0
 	}

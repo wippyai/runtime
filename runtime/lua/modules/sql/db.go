@@ -116,7 +116,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 	}
 
 	// Add security check for accessing the database
-	if !security.Can(l.Context(), "db.get", id, nil) {
+	if !security.IsAllowed(l.Context(), "db.get", id, nil) {
 		l.RaiseError("not allowed to access database: %s", id)
 		return 0
 	}

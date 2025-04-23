@@ -67,7 +67,7 @@ func snapshotEntries(l *lua.LState) int {
 	idx := 1
 	for _, entry := range entries {
 		// Add security check for each entry
-		if !security.Can(l.Context(), "registry.get", entry.ID.String(), nil) {
+		if !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
 			continue // Skip entries the user doesn't have permission to access
 		}
 
@@ -98,7 +98,7 @@ func snapshotGet(l *lua.LState) int {
 	id := regapi.ParseID(idStr)
 
 	// Add security check for getting a specific entry
-	if !security.Can(l.Context(), "registry.get", id.String(), nil) {
+	if !security.IsAllowed(l.Context(), "registry.get", id.String(), nil) {
 		l.RaiseError("not allowed to access entry: %s", id.String())
 		return 0
 	}
@@ -140,7 +140,7 @@ func snapshotNamespace(l *lua.LState) int {
 	for _, entry := range snap.entries {
 		if entry.ID.NS == regapi.Namespace(ns) {
 			// Add security check for each entry
-			if security.Can(l.Context(), "registry.get", entry.ID.String(), nil) {
+			if security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
 				result = append(result, entry)
 			}
 		}
@@ -193,7 +193,7 @@ func snapshotFind(l *lua.LState) int {
 	idx := 1
 	for _, entry := range entries {
 		// Add security check for each entry
-		if !security.Can(l.Context(), "registry.get", entry.ID.String(), nil) {
+		if !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
 			continue // Skip entries the user doesn't have permission to access
 		}
 

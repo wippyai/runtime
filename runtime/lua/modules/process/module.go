@@ -209,7 +209,7 @@ func (m *Module) resolvePID(l *lua.LState, pidOrName string, permission string) 
 	pid, err := pubsub.ParsePID(pidOrName)
 	if err == nil {
 		// Check security for resolved PID
-		if !security.Can(l.Context(), permission, pid.String(), nil) {
+		if !security.IsAllowed(l.Context(), permission, pid.String(), nil) {
 			return pubsub.PID{}, fmt.Errorf("not allowed to %s: %s",
 				strings.TrimPrefix(permission, "process."), pidOrName)
 		}
@@ -228,7 +228,7 @@ func (m *Module) resolvePID(l *lua.LState, pidOrName string, permission string) 
 	}
 
 	// Check security for resolved PID from registry
-	if !security.Can(l.Context(), permission, pid.String(), nil) {
+	if !security.IsAllowed(l.Context(), permission, pid.String(), nil) {
 		return pubsub.PID{}, fmt.Errorf("not allowed to %s: %s",
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
@@ -344,7 +344,7 @@ func (m *Module) spawn(l *lua.LState) int {
 	id := l.CheckString(1)
 	hostID := l.CheckString(2)
 
-	if !security.Can(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
 		return 2
@@ -410,13 +410,13 @@ func (m *Module) spawnMonitored(l *lua.LState) int {
 	id := l.CheckString(1)
 	hostID := l.CheckString(2)
 
-	if !security.Can(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
 		return 2
 	}
 
-	if !security.Can(l.Context(), "process.spawn.monitored", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn monitored process: %s", id)))
 		return 2
@@ -475,13 +475,13 @@ func (m *Module) spawnLinked(l *lua.LState) int {
 	id := l.CheckString(1)
 	hostID := l.CheckString(2)
 
-	if !security.Can(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
 		return 2
 	}
 
-	if !security.Can(l.Context(), "process.spawn.linked", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn linked process: %s", id)))
 		return 2
@@ -540,19 +540,19 @@ func (m *Module) spawnLinkedMonitored(l *lua.LState) int {
 	id := l.CheckString(1)
 	hostID := l.CheckString(2)
 
-	if !security.Can(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
 		return 2
 	}
 
-	if !security.Can(l.Context(), "process.spawn.monitored", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn monitored process: %s", id)))
 		return 2
 	}
 
-	if !security.Can(l.Context(), "process.spawn.linked", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn linked process: %s", id)))
 		return 2
@@ -881,7 +881,7 @@ func (m *Module) registryRegister(l *lua.LState) int {
 
 	name := l.CheckString(1)
 
-	if !security.Can(l.Context(), "process.registry.register", name, nil) {
+	if !security.IsAllowed(l.Context(), "process.registry.register", name, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to register name: %s", name)))
 		return 2
@@ -963,7 +963,7 @@ func (m *Module) registryUnregister(l *lua.LState) int {
 
 	name := l.CheckString(1)
 
-	if !security.Can(l.Context(), "process.registry.unregister", name, nil) {
+	if !security.IsAllowed(l.Context(), "process.registry.unregister", name, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to unregister name: %s", name)))
 		return 2

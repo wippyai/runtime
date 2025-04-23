@@ -125,7 +125,7 @@ func (m *Module) withContext(l *lua.LState) int {
 	}
 
 	// Add security check for custom application context
-	if !security.Can(l.Context(), "funcs.context", "context", nil) {
+	if !security.IsAllowed(l.Context(), "funcs.context", "context", nil) {
 		l.RaiseError("not allowed to call functions with custom context")
 		return 0
 	}
@@ -180,7 +180,7 @@ func (m *Module) withActor(l *lua.LState) int {
 	}
 
 	// Add security check for custom security context
-	if !security.Can(l.Context(), "funcs.security", "security", nil) {
+	if !security.IsAllowed(l.Context(), "funcs.security", "security", nil) {
 		l.RaiseError("not allowed to call functions with custom security context")
 		return 0
 	}
@@ -229,7 +229,7 @@ func (m *Module) withScope(l *lua.LState) int {
 	}
 
 	// Add security check for custom security context
-	if !security.Can(l.Context(), "funcs.security", "security", nil) {
+	if !security.IsAllowed(l.Context(), "funcs.security", "security", nil) {
 		l.RaiseError("not allowed to call functions with custom security context")
 		return 0
 	}
@@ -317,7 +317,7 @@ func (m *Module) call(l *lua.LState) int {
 	}
 
 	// Add security check for function call permission
-	if !security.Can(l.Context(), "funcs.call", target, nil) {
+	if !security.IsAllowed(l.Context(), "funcs.call", target, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to call function: %s", target)))
 		return 2
@@ -397,7 +397,7 @@ func (m *Module) async(l *lua.LState) int {
 	}
 
 	// Add security check for function call permission
-	if !security.Can(l.Context(), "funcs.call", target, nil) {
+	if !security.IsAllowed(l.Context(), "funcs.call", target, nil) {
 		l.RaiseError("not allowed to call function: %s", target)
 		return 0
 	}

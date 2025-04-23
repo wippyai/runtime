@@ -85,7 +85,7 @@ func (m *Module) scope(l *lua.LState) int {
 	return 1
 }
 
-// Can checks if the current actor can perform an action on a resource
+// IsAllowed checks if the current actor can perform an action on a resource
 func (m *Module) can(l *lua.LState) int {
 	action := l.CheckString(1)
 	resourceStr := l.CheckString(2)
@@ -108,7 +108,7 @@ func (m *Module) policy(l *lua.LState) int {
 	id := registry.ParseID(idStr)
 
 	// Check permission to access this policy
-	if !securityapi.Can(l.Context(), "security.policy.get", idStr, nil) {
+	if !securityapi.IsAllowed(l.Context(), "security.policy.get", idStr, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("not allowed to access policy: " + idStr))
 		return 2
@@ -132,7 +132,7 @@ func (m *Module) namedScope(l *lua.LState) int {
 	id := registry.ParseID(idStr)
 
 	// Check permission to access this policy group
-	if !securityapi.Can(l.Context(), "security.policy_group.get", idStr, nil) {
+	if !securityapi.IsAllowed(l.Context(), "security.policy_group.get", idStr, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("not allowed to access policy group: " + idStr))
 		return 2
@@ -154,7 +154,7 @@ func (m *Module) namedScope(l *lua.LState) int {
 // NewScope creates a new empty scope
 func (m *Module) newScope(l *lua.LState) int {
 	// Check permission to create custom scopes
-	if !securityapi.Can(l.Context(), "security.scope.create", "custom", nil) {
+	if !securityapi.IsAllowed(l.Context(), "security.scope.create", "custom", nil) {
 		l.RaiseError("not allowed to create custom scopes")
 		return 0
 	}
@@ -184,7 +184,7 @@ func (m *Module) newActor(l *lua.LState) int {
 	id := l.CheckString(1)
 
 	// Check permission to create actors with this ID
-	if !securityapi.Can(l.Context(), "security.actor.create", id, nil) {
+	if !securityapi.IsAllowed(l.Context(), "security.actor.create", id, nil) {
 		l.RaiseError("not allowed to create actor with ID: %s", id)
 		return 0
 	}
@@ -211,7 +211,7 @@ func (m *Module) tokenStore(l *lua.LState) int {
 	id := registry.ParseID(idStr)
 
 	// Check permission to access this token store
-	if !securityapi.Can(l.Context(), "security.token_store.get", idStr, nil) {
+	if !securityapi.IsAllowed(l.Context(), "security.token_store.get", idStr, nil) {
 		l.RaiseError("not allowed to get token store: %s", idStr)
 		return 0
 	}

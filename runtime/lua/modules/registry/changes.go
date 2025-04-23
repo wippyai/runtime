@@ -145,7 +145,7 @@ func changesApply(l *lua.LState) int {
 	}
 
 	// Add security check for applying changes
-	if !security.Can(l.Context(), "registry.apply", "", nil) {
+	if !security.IsAllowed(l.Context(), "registry.apply", "", nil) {
 		l.RaiseError("not allowed to apply registry changes")
 		return 0
 	}

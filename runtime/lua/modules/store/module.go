@@ -117,7 +117,7 @@ func storeGet(l *lua.LState, log *zap.Logger) int {
 	}
 
 	// Add security check for accessing store resource
-	if !security.Can(l.Context(), "store.get", id, nil) {
+	if !security.IsAllowed(l.Context(), "store.get", id, nil) {
 		l.RaiseError("not allowed to access store: %s", id)
 		return 0
 	}
@@ -185,7 +185,7 @@ func storeGetValue(l *lua.LState) int {
 	}
 
 	// Add security check for reading from store
-	if !security.Can(l.Context(), "store.key.get", key, nil) {
+	if !security.IsAllowed(l.Context(), "store.key.get", key, nil) {
 		l.RaiseError("not allowed to read key: %s", key)
 		return 0
 	}
@@ -251,7 +251,7 @@ func storeSetValue(l *lua.LState) int {
 	}
 
 	// Add security check for writing to store
-	if !security.Can(l.Context(), "store.key.set", key, nil) {
+	if !security.IsAllowed(l.Context(), "store.key.set", key, nil) {
 		l.RaiseError("not allowed to write key: %s", key)
 		return 0
 	}
@@ -328,7 +328,7 @@ func storeDelete(l *lua.LState) int {
 	}
 
 	// Add security check for deleting from store
-	if !security.Can(l.Context(), "store.key.delete", key, nil) {
+	if !security.IsAllowed(l.Context(), "store.key.delete", key, nil) {
 		l.RaiseError("not allowed to delete key: %s", key)
 		return 0
 	}
@@ -370,7 +370,7 @@ func storeHas(l *lua.LState) int {
 	}
 
 	// Add security check for checking key existence
-	if !security.Can(l.Context(), "store.key.has", key, nil) {
+	if !security.IsAllowed(l.Context(), "store.key.has", key, nil) {
 		l.RaiseError("not allowed to check key existence: %s", key)
 		return 0
 	}

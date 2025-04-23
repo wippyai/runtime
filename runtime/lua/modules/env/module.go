@@ -45,7 +45,7 @@ func (m *Module) get(l *lua.LState) int {
 	}
 
 	// Add security check for accessing specific environment variable
-	if !security.Can(l.Context(), "env.get", key, nil) {
+	if !security.IsAllowed(l.Context(), "env.get", key, nil) {
 		l.RaiseError("not allowed to access environment variable: %s", key)
 		return 0
 	}
@@ -86,7 +86,7 @@ func (m *Module) getAll(l *lua.LState) int {
 	result := l.CreateTable(0, envCtx.Len())
 	envCtx.Iterate(func(key string, value string) {
 		// Only include variables that the user has permission to access
-		if security.Can(l.Context(), "env.get", key, nil) {
+		if security.IsAllowed(l.Context(), "env.get", key, nil) {
 			result.RawSetString(key, lua.LString(value))
 		}
 	})

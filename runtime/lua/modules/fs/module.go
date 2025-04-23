@@ -67,7 +67,7 @@ func apiGet(l *lua.LState) int {
 	}
 
 	// Add security check to control filesystem access
-	if !security.Can(l.Context(), "fs.get", name, nil) {
+	if !security.IsAllowed(l.Context(), "fs.get", name, nil) {
 		l.RaiseError("not allowed to access filesystem: %s", name)
 		return 0
 	}

@@ -53,7 +53,7 @@ func scopeWith(l *lua.LState) int {
 		return 0
 	}
 
-	if !securityapi.Can(l.Context(), "security.scope.create", "with", nil) {
+	if !securityapi.IsAllowed(l.Context(), "security.scope.create", "with", nil) {
 		l.RaiseError("not allowed to add policy to scope")
 		return 0
 	}
@@ -106,7 +106,7 @@ func scopeWithout(l *lua.LState) int {
 		return 0
 	}
 
-	if !securityapi.Can(l.Context(), "security.scope.create", "without", nil) {
+	if !securityapi.IsAllowed(l.Context(), "security.scope.create", "without", nil) {
 		l.RaiseError("not allowed to remove policy from scope")
 		return 0
 	}

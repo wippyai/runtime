@@ -297,7 +297,7 @@ func (m *Module) versions(l *lua.LState) int {
 
 // applyVersion applies a specific version to the registry
 func (m *Module) applyVersion(l *lua.LState) int {
-	if !security.Can(l.Context(), "registry.apply_version", "", nil) {
+	if !security.IsAllowed(l.Context(), "registry.apply_version", "", nil) {
 		l.RaiseError("registry version change is not allowed")
 		return 0
 	}
@@ -384,7 +384,7 @@ func (m *Module) registryGet(l *lua.LState) int {
 	idStr := l.CheckString(1)
 	id := regapi.ParseID(idStr)
 
-	if !security.Can(l.Context(), "registry.get", id.String(), nil) {
+	if !security.IsAllowed(l.Context(), "registry.get", id.String(), nil) {
 		l.RaiseError("registry get is not allowed for %s", id.String())
 		return 0
 	}
@@ -445,7 +445,7 @@ func (m *Module) registryFind(l *lua.LState) int {
 	// Convert to Lua table
 	entriesTable := l.CreateTable(len(entries), 0)
 	for i, entry := range entries {
-		if !security.Can(l.Context(), "registry.get", entry.ID.String(), nil) {
+		if !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
 			continue
 		}
 

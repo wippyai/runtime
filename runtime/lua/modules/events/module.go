@@ -78,7 +78,7 @@ func (m *Module) subscribe(l *lua.LState) int {
 		return 2
 	}
 
-	if !security.Can(l.Context(), "events.subscribe", system, nil) {
+	if !security.IsAllowed(l.Context(), "events.subscribe", system, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to subscribe to events from system: %s", system)))
 		return 2
