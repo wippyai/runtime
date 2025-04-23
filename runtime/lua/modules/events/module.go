@@ -7,6 +7,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	"github.com/ponyruntime/pony/system/eventbus"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
@@ -74,6 +75,12 @@ func (m *Module) subscribe(l *lua.LState) int {
 	if system == "" {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("system pattern is required"))
+		return 2
+	}
+
+	if !security.IsAllowed(l.Context(), "events.subscribe", system, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("not allowed to subscribe to events from system: %s", system)))
 		return 2
 	}
 

@@ -4,6 +4,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	secapi "github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	securityapi "github.com/ponyruntime/pony/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -52,6 +53,11 @@ func scopeWith(l *lua.LState) int {
 		return 0
 	}
 
+	if !securityapi.IsAllowed(l.Context(), "security.scope.create", "with", nil) {
+		l.RaiseError("not allowed to add policy to scope")
+		return 0
+	}
+
 	newScope := scope.With(policy)
 	l.Push(wrapScope(l, newScope))
 	return 1
@@ -97,6 +103,11 @@ func scopeWithout(l *lua.LState) int {
 		}
 	default:
 		l.ArgError(2, "Policy ID expected as string, table, or policy object")
+		return 0
+	}
+
+	if !securityapi.IsAllowed(l.Context(), "security.scope.create", "without", nil) {
+		l.RaiseError("not allowed to remove policy from scope")
 		return 0
 	}
 

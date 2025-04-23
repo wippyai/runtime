@@ -5,6 +5,7 @@ import (
 	"errors"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	"github.com/ponyruntime/pony/system/registry"
 	"github.com/ponyruntime/pony/system/registry/topology"
 	lua "github.com/yuin/gopher-lua"
@@ -296,6 +297,11 @@ func (m *Module) versions(l *lua.LState) int {
 
 // applyVersion applies a specific version to the registry
 func (m *Module) applyVersion(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "registry.apply_version", "", nil) {
+		l.RaiseError("registry version change is not allowed")
+		return 0
+	}
+
 	// Get registry from context
 	reg := regapi.GetRegistry(l.Context())
 	if reg == nil {
@@ -378,6 +384,11 @@ func (m *Module) registryGet(l *lua.LState) int {
 	idStr := l.CheckString(1)
 	id := regapi.ParseID(idStr)
 
+	if !security.IsAllowed(l.Context(), "registry.get", id.String(), nil) {
+		l.RaiseError("registry get is not allowed for %s", id.String())
+		return 0
+	}
+
 	// Get entry
 	entry, err := reg.GetEntry(id)
 	if err != nil {
@@ -434,7 +445,12 @@ func (m *Module) registryFind(l *lua.LState) int {
 	// Convert to Lua table
 	entriesTable := l.CreateTable(len(entries), 0)
 	for i, entry := range entries {
+		if !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
+			continue
+		}
+
 		entryTable, err := entryToLuaTable(l, entry)
+
 		if err != nil {
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))

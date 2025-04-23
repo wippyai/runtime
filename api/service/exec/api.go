@@ -55,4 +55,7 @@ type NativeExecutorConfig struct {
 
 	// Default environment variables (always extended, never replaced)
 	DefaultEnv map[string]string `json:"default_env"`
+
+	// Command whitelist - if set, only commands in this list will be allowed
+	CommandWhitelist []string `json:"command_whitelist"`
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	"io"
 	"net/http"
 
@@ -73,6 +74,11 @@ func (m *Module) makeMethod(method string) lua.LGFunction {
 		url, err := getURLFromArgs(l, 1)
 		if err != nil {
 			l.ArgError(1, err.Error())
+			return 0
+		}
+
+		if !security.IsAllowed(l.Context(), "http_client.request", url, nil) {
+			l.RaiseError("not allowed to make request to: %s", url)
 			return 0
 		}
 
@@ -251,6 +257,11 @@ func (m *Module) requestBatch(l *lua.LState) int {
 		url := reqTable.RawGet(lua.LNumber(2))
 		if url.Type() != lua.LTString {
 			l.ArgError(1, "URL must be a string")
+			return
+		}
+
+		if !security.IsAllowed(l.Context(), "http_client.request", url.String(), nil) {
+			l.ArgError(1, "not allowed to make request to: "+url.String())
 			return
 		}
 
