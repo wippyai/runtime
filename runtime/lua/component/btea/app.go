@@ -140,16 +140,21 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 		return fmt.Errorf("terminal context not found")
 	}
 	a.terminal = term
+
 	// Create bubbletea program
 	a.program = tea.NewProgram(a, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
+
 	// Enhance the context with upstream channel
 	ctx = upstream.WithUpstreamChannel(ctx, a.upstream)
+
 	// Initialize the process state
 	if err := a.state.InitContext(ctx, pid); err != nil {
 		return err
 	}
+
 	// Setup context watchers for cleanup
 	a.setupContextWatchers()
+
 	// Create a wrapping function to handle process start notification
 	onStartFunc := func() {
 		// Initialize task runner here when UoW is available
@@ -160,17 +165,21 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 		if onStart := process.GetOnStart(a.state.Ctx); onStart != nil {
 			onStart(pid, a)
 		}
+
 		// Run the bubbletea program concurrently
 		go func() {
 			if _, err := a.program.Run(); err != nil {
 				a.state.Log.Debug("btea program error", zap.Error(err))
 			}
+
 			// When program exits, terminate the process
 			a.Terminate()
 		}()
+
 		// Serve processing upstream messages
 		go a.processUpstream()
 	}
+
 	// Serve the Lua function
 	return a.state.Start(input, onStartFunc)
 }
@@ -186,9 +195,6 @@ func (a *App) setupContextWatchers() {
 		}
 		a.state.Log.Debug("app context canceled, quitting program")
 		a.Terminate()
-		if a.program != nil {
-			a.program.Quit()
-		}
 	}()
 }
 
@@ -287,16 +293,19 @@ func (a *App) Terminate() {
 		}
 
 		a.state.Log.Debug("terminating btea app")
+
 		// Try to shutdown the program gracefully
 		if a.program != nil {
-			a.program.Kill()
+			a.program.Quit()
+			a.program.Wait()
 		}
+
 		// Cancel app context to signal all our watchers
 		a.appCancel()
-		// Allow time for terminal to detach
-		time.Sleep(stopTimeout)
+
 		// Complete the state with exit error
 		a.state.Complete(supervisor.ErrExit, nil)
+
 		// Signal done to all our goroutines
 		close(a.done)
 		close(a.upstream)
