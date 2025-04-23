@@ -246,7 +246,6 @@ func (r *s3Resource) Release() {
 		return
 	}
 
-	delete(r.manager.storages, r.id)
 	r.closed = true
 	return
 }
