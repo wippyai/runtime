@@ -45,9 +45,9 @@ func NewTaskRunner(app *App) *TaskRunner {
 
 // SendTask sends a task to the specified channel without waiting for response
 func (r *TaskRunner) SendTask(taskType string, input lua.LValue) error {
-	// Get current state atomically
-	state := r.state.Load()
-	if state == nil {
+	// Get current luaState atomically
+	luaState := r.state.Load()
+	if luaState == nil {
 		return process.ErrNoProcess
 	}
 
@@ -58,9 +58,9 @@ func (r *TaskRunner) SendTask(taskType string, input lua.LValue) error {
 	t := taskmod.NewTask(inputPayload, nil)
 
 	// Create message table
-	msg := state.CreateTable(0, 2)
+	msg := luaState.CreateTable(0, 2)
 	msg.RawSetString("type", lua.LString(taskType))
-	msg.RawSetString("task", taskmod.WrapTask(state, t))
+	msg.RawSetString("task", taskmod.WrapTask(luaState, t))
 
 	// Publish to events channel
 	return subscribe.Publish(r.app.state.Ctx, ChannelEvents, msg)
@@ -68,9 +68,9 @@ func (r *TaskRunner) SendTask(taskType string, input lua.LValue) error {
 
 // ExecuteTask creates and executes a task, waiting for a result with timeout
 func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time.Duration) (string, error) {
-	// Get current state atomically
-	state := r.state.Load()
-	if state == nil {
+	// Get current luaState atomically
+	luaState := r.state.Load()
+	if luaState == nil {
 		return "", process.ErrNoProcess
 	}
 
@@ -112,9 +112,9 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	})
 
 	// Create message table
-	msg := state.CreateTable(0, 2)
+	msg := luaState.CreateTable(0, 2)
 	msg.RawSetString("type", lua.LString(taskType))
-	msg.RawSetString("task", taskmod.WrapTask(state, t))
+	msg.RawSetString("task", taskmod.WrapTask(luaState, t))
 
 	// Publish to events channel
 	if err := subscribe.Publish(r.app.state.Ctx, ChannelEvents, msg); err != nil {

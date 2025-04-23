@@ -54,6 +54,7 @@ type App struct {
 	appCancel context.CancelFunc
 
 	// Task runner - initialized after UoW is available
+	wg         sync.WaitGroup
 	taskRunner *TaskRunner
 
 	// Ensure termination only happens once
@@ -100,6 +101,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Forward update messages to Lua via task runner
 	if a.taskRunner != nil {
+		a.wg.Add(1)
+		defer a.wg.Done()
+
 		err := a.taskRunner.SendTask("update", protocol.MsgToLua(msg))
 		if err != nil && !errors.Is(err, context.Canceled) {
 			a.state.Log.Error("failed to send update message", zap.Error(err))
@@ -114,6 +118,9 @@ func (a *App) View() string {
 	if a.taskRunner == nil {
 		return "initializing..."
 	}
+
+	a.wg.Add(1)
+	defer a.wg.Done()
 
 	response, err := a.taskRunner.ExecuteTask("view", lua.LTrue, viewTimeout)
 	if err != nil || response == "" {
@@ -284,6 +291,7 @@ func (a *App) Send(pkg *pubsub.Package) error {
 func (a *App) Terminate() {
 	a.terminateOnce.Do(func() {
 		a.taskRunner.Close()
+		a.wg.Wait()
 
 		a.state.Log.Debug("terminating btea app")
 
