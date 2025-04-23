@@ -41,7 +41,7 @@ func changesOps(l *lua.LState) int {
 	// Add each operation to the table
 	for i, op := range changes.ops {
 		opTable := l.CreateTable(0, 2)
-		opTable.RawSetString("change", lua.LString(op.Kind))
+		opTable.RawSetString("kind", lua.LString(op.Kind))
 
 		// Convert entry to table
 		entryTable, err := entryToLuaTable(l, op.Entry)
