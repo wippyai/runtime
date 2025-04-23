@@ -279,7 +279,7 @@ local version = snapshot:version()
 ```lua
 local operations = changes:ops()
 -- Returns: Array of operation tables, each containing:
---   - change: Operation type ("create", "update", or "delete")
+--   - kind: Operation type ("entry.create", "entry.update", or "entry.delete")
 --   - entry: The entry being operated on
 ```
 
