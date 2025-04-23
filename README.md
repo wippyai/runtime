@@ -41,6 +41,8 @@ Wippy Runtime is a service platform for running dynamic extensions and AI agents
 - **HTTP Services**: Dynamic API endpoint and webhook creation; request routing; middleware chains; WebSocket support.
 - **AI Integration**: Standardized LLM interfaces; tool and prompt management; vector operations for semantic processing.
 - **Supervision System**: Automatic restart of failed processes; configurable restart strategies; error isolation; health monitoring.
+- **Self-Introspection**: Processes and components can inspect their own configuration, state, and runtime environment. Supports runtime queries for metadata, dependencies, and health.
+- **Self-Modification**: Components can update their own code and configuration at runtime via the registry, supporting live patching, adaptation, and automated upgrades without requiring manual intervention or restarts.
 
 ## Use Cases
 
