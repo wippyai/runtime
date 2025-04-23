@@ -13,21 +13,23 @@ Wippy enables systems that can understand their own structure and adapt over tim
 *   **Introspection & Adaptation:** The platform and its agents can inspect the system's composition and operational state, enabling automated analysis, optimization recommendations, and self-modification.
 *   **AI-Native Integration:** Built-in features facilitate seamless integration with Large Language Models (LLMs), vector databases, and agentic workflows.
 *   **Governance:** Robust mechanisms control component behavior, resource access (via the Security Layer and Resource Management), and lifecycle (via the Supervision System), ensuring predictable and secure operation even during dynamic updates.
+*   **Concurrency Model:** Utilizes coroutines and Go-inspired channels for efficient, non-blocking concurrency within and between processes.
 
 ## Architecture Overview
 
 Wippy's architecture is built on several key pillars:
 
-*   **Process System:** Manages isolated Lua processes with supervision, message passing, and location-transparent addressing.
+*   **Process System:** Manages isolated Lua processes with supervision, message passing, coroutine-based concurrency, and location-transparent addressing.
 *   **Registry System:** A versioned store for all component definitions, configurations, and metadata, enabling transactional updates and history tracking.
 *   **Security Layer:** Enforces fine-grained, policy-based access control across all operations and resources. *Part of the core governance mechanism.*
-*   **Communication Infrastructure:** Supports direct messaging, pub/sub patterns, and integrates natively with HTTP/WebSockets.
+*   **Communication Infrastructure:** Supports direct messaging, pub/sub patterns (via channels and events), and integrates natively with HTTP/WebSockets.
 *   **Resource Management:** Provides centralized, controlled access to databases, file systems, external APIs, and caches. *Part of the core governance mechanism.*
 
 ## Key Features
 
 *   **Dynamic Code Loading:** Hot-swap component implementations without service disruption.
-*   **Lua Runtime:** Leverage a flexible scripting environment with coroutines for concurrency.
+*   **Lua Runtime Environment:** Leverage a flexible scripting environment with coroutines for concurrency.
+*   **Channel-Based Concurrency:** Utilize Go-like channels for managing concurrent operations and communication between coroutines safely and efficiently.
 *   **HTTP Services:** Define dynamic API endpoints, webhooks, and WebSocket connections.
 *   **AI Integration:** Standardized LLM interfaces, tool management, prompt engineering support, and vector operations.
 *   **Supervision System:** Ensures resilience through automatic process restarts and configurable strategies. *Part of the core governance mechanism.*
@@ -42,6 +44,7 @@ Wippy addresses common challenges in modern software development, especially whe
 *   **Maintainability:** Decouple extensions and AI logic from monolithic applications, simplifying updates and reducing technical debt.
 *   **Adaptability:** Build systems capable of self-optimization and evolution driven by AI agents or operational data, operating within secure boundaries.
 *   **Centralized Management:** Unify the control, monitoring, and governance of diverse integrations and extensions.
+*   **Efficient Concurrency:** Manage complex, asynchronous operations reliably using a proven channel-based model.
 
 ## Common Use Cases
 
