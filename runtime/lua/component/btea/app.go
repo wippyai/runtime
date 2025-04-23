@@ -24,36 +24,35 @@ import (
 
 const (
 	ChannelEvents = "@btea/events"
-	// Timeout constants
+	// Timeouts
 	stopTimeout    = 1000 * time.Millisecond
 	taskTimeout    = 5000 * time.Millisecond
 	viewTimeout    = 5000 * time.Millisecond
 	maxViewRetries = 3
-	// ExitKey is used to trigger process cancellation.
+	// ExitKey triggers cancellation
 	ExitKey = "esc"
+	// View messages
+	viewInitializing = "initializing..."
+	viewUnavailable  = "State unavailable"
+	viewFailed       = "view task failed (exiting)"
 )
 
-// App represents the main BubbleTea application that uses a State under the hood.
+// App represents the main BubbleTea application.
 type App struct {
-	// Process state
-	state *baseprocess.State
-	// BubbleTea specific fields
-	program    *tea.Program
-	terminal   *terminal.PipeContext
-	upstream   chan payload.Payload
-	numRetries int
-	done       chan struct{}
-	// Our own cancel mechanism
-	appCtx    context.Context
-	appCancel context.CancelFunc
-	// Task runner - initialized after UoW is available
-	wg         sync.WaitGroup
-	taskRunner atomic.Pointer[TaskRunner]
-	// Ensure termination only happens once
+	state         *baseprocess.State
+	program       *tea.Program
+	terminal      *terminal.PipeContext
+	upstream      chan payload.Payload
+	numRetries    int
+	done          chan struct{}
+	appCtx        context.Context
+	appCancel     context.CancelFunc
+	taskRunner    atomic.Pointer[TaskRunner]
+	stateMu       sync.RWMutex // Protects state access vs invalidation
 	terminateOnce sync.Once
 }
 
-// NewApp creates a new BubbleTea application with the underlying process State.
+// NewApp creates a new BubbleTea application.
 func NewApp(
 	log *zap.Logger,
 	dtt payload.Transcoder,
@@ -67,7 +66,6 @@ func NewApp(
 	if err != nil {
 		return nil, err
 	}
-	// Create app context separate from state context
 	appCtx, appCancel := context.WithCancel(context.Background())
 	return &App{
 		state:     state,
@@ -83,7 +81,7 @@ func (a *App) Init() tea.Cmd {
 	return nil
 }
 
-// Update processes bubbletea messages. It listens for the exit key and sends updates to Lua.
+// Update processes bubbletea messages.
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -93,16 +91,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Get task runner safely
-	a.wg.Add(1)
-	defer a.wg.Done()
 	tr := a.taskRunner.Load()
+	if tr == nil {
+		return a, nil // Not ready or already terminated
+	}
 
-	if tr != nil {
-		err := tr.SendTask("update", protocol.MsgToLua(msg))
-		if err != nil && !errors.Is(err, context.Canceled) {
-			a.state.Log.Error("failed to send update message", zap.Error(err))
-		}
+	err := tr.SendTask("update", protocol.MsgToLua(msg))
+
+	if errors.Is(err, process.ErrNoProcess) {
+		// State became invalid concurrently. Logged in SendTask.
+	} else if err != nil && !errors.Is(err, context.Canceled) {
+		a.state.Log.Error("failed to send update message", zap.Error(err))
 	}
 
 	return a, nil
@@ -110,134 +109,146 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View retrieves the view from the Lua side.
 func (a *App) View() string {
-	a.wg.Add(1)
-	defer a.wg.Done()
-
-	// Get task runner safely
 	tr := a.taskRunner.Load()
 	if tr == nil {
-		return "initializing..."
+		select {
+		case <-a.done:
+			return viewUnavailable
+		default:
+			return viewInitializing
+		}
 	}
 
 	response, err := tr.ExecuteTask("view", lua.LTrue, viewTimeout)
-	if err != nil || response == "" {
+
+	if errors.Is(err, process.ErrNoProcess) {
+		a.state.Log.Warn("Lua state unavailable during view execution")
+		return viewUnavailable
+	}
+
+	if err != nil {
+		if errors.Is(err, ErrTimeout) || errors.Is(err, context.Canceled) || errors.Is(err, a.state.Ctx.Err()) {
+			a.state.Log.Warn("view task failed, timed out, or canceled", zap.Error(err))
+			return fmt.Sprintf("%s (error: %v)", viewUnavailable, err)
+		}
+
 		a.numRetries++
 		if a.numRetries < maxViewRetries {
+			a.state.Log.Warn("view task failed, retrying", zap.Int("retry", a.numRetries), zap.Error(err))
 			return fmt.Sprintf("view task failed (retrying %d/%d)", a.numRetries, maxViewRetries)
 		}
-		a.Terminate() // Use our terminate method to ensure proper cleanup
-		return "view task failed (exiting)"
+		a.state.Log.Error("view task failed after multiple retries, terminating", zap.Error(err))
+		a.Terminate()
+		return viewFailed
 	}
+
 	a.numRetries = 0
 	return response
 }
 
-// Start initializes the app context, sets up terminal integration, and starts the process
+// Start initializes the app context, sets up terminal integration, and starts the process.
 func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads) error {
-	// Get terminal context
 	term := terminal.GetTerminalContext(ctx)
 	if term == nil {
 		return fmt.Errorf("terminal context not found")
 	}
 	a.terminal = term
-
-	// Create bubbletea program
 	a.program = tea.NewProgram(a, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
-
-	// Enhance the context with upstream channel
 	ctx = upstream.WithUpstreamChannel(ctx, a.upstream)
 
-	// Initialize the process state
 	if err := a.state.InitContext(ctx, pid); err != nil {
 		return err
 	}
-
-	// Setup context watchers for cleanup
 	a.setupContextWatchers()
 
-	// Create a wrapping function to handle process start notification
 	onStartFunc := func() {
-		// Initialize task runner here when UoW is available
+		// Create and store the task runner after UoW is available.
 		tr := NewTaskRunner(a)
 		a.taskRunner.Store(tr)
 
-		// Notify that the process has started
 		if onStart := process.GetOnStart(a.state.Ctx); onStart != nil {
 			onStart(pid, a)
 		}
 
-		// Run the bubbletea program concurrently
 		go func() {
-			if _, err := a.program.Run(); err != nil {
+			// BubbleTea program loop
+			if _, err := a.program.Run(); err != nil && err != tea.ErrProgramKilled {
 				a.state.Log.Debug("btea program error", zap.Error(err))
+			} else {
+				a.state.Log.Debug("btea program exited")
 			}
-
-			// When program exits, terminate the process
-			a.Terminate()
+			a.Terminate() // Ensure termination if program exits
 		}()
 
-		// Serve processing upstream messages
 		go a.processUpstream()
 	}
 
-	// Serve the Lua function
 	return a.state.Start(input, onStartFunc)
 }
 
-// setupContextWatchers sets up goroutines to watch various cancellation signals
+// setupContextWatchers sets up goroutines to watch various cancellation signals.
 func (a *App) setupContextWatchers() {
-	// Watch app context
+	// Watch app context (internal cancellation)
 	go func() {
 		select {
 		case <-a.appCtx.Done():
-		case <-a.state.Ctx.Done():
-		case <-a.done:
+			a.state.Log.Debug("app context canceled, terminating")
+			a.Terminate()
+		case <-a.done: // Already terminated
 		}
-		a.state.Log.Debug("app context canceled, quitting program")
-		a.Terminate()
 	}()
-}
-
-// scheduleCancel centralizes the cancellation routine
-func (a *App) scheduleCancel() {
+	// Watch state context (supervisor cancellation)
 	go func() {
-		err := a.Send(topology.Cancel(a.state.PID, a.state.PID, time.Now().Add(stopTimeout)))
-		if err != nil {
-			a.state.Log.Error("failed to send cancel event", zap.Error(err))
-		}
-		// Serve a timer to force termination if not already terminating
 		select {
-		case <-time.After(stopTimeout):
-			a.state.Log.Debug("cancellation timeout reached, forcing termination")
+		case <-a.state.Ctx.Done():
+			a.state.Log.Debug("state context canceled, terminating")
 			a.Terminate()
 		case <-a.done:
-			return
-		case <-a.state.Ctx.Done():
-			return
-		case <-a.appCtx.Done():
-			return
+		case <-a.appCtx.Done(): // Handled by other watcher
 		}
 	}()
 }
 
-// processUpstream listens for messages from the Lua runtime and forwards them to the UI
+// scheduleCancel requests graceful cancellation via topology event.
+func (a *App) scheduleCancel() {
+	go func() {
+		a.state.Log.Debug("scheduling process cancellation via topology event")
+		err := a.Send(topology.Cancel(a.state.PID, a.state.PID, time.Now().Add(stopTimeout)))
+		if err != nil {
+			a.state.Log.Error("failed to send self-cancel event, forcing terminate after timeout", zap.Error(err))
+			time.Sleep(stopTimeout)
+			a.Terminate()
+		}
+	}()
+}
+
+// processUpstream listens for messages from Lua and forwards them to BubbleTea.
 func (a *App) processUpstream() {
+	defer a.state.Log.Debug("processUpstream goroutine finished")
 	for {
 		select {
 		case pp, ok := <-a.upstream:
 			if !ok {
 				return
-			}
-			value := pp.Data()
-			msg, err := protocol.LuaToMsg(value.(lua.LValue))
-			if msg == nil {
-				msg = value
-			}
-			if err != nil {
-				a.state.Log.Error("failed to convert upstream message", zap.Error(err))
+			} // Channel closed
+
+			lval, ok := pp.Data().(lua.LValue)
+			if !ok {
+				a.state.Log.Error("received non-LValue from upstream", zap.Any("value", pp.Data()))
+				if msg, ok := pp.Data().(tea.Msg); ok {
+					a.program.Send(msg)
+				}
 				continue
 			}
-			a.program.Send(msg)
+			msg, err := protocol.LuaToMsg(lval)
+			if err != nil {
+				a.state.Log.Error("failed to convert upstream Lua message", zap.Error(err))
+				continue
+			}
+			if msg != nil {
+				a.program.Send(msg)
+			}
+		// Exit conditions
 		case <-a.state.Ctx.Done():
 			return
 		case <-a.appCtx.Done():
@@ -248,94 +259,143 @@ func (a *App) processUpstream() {
 	}
 }
 
-// Step advances the process state by one iteration
+// Step advances the process state by one iteration.
 func (a *App) Step() error {
 	select {
 	case <-a.done:
 		return supervisor.ErrExit
 	case <-a.state.Ctx.Done():
+		a.Terminate()
 		return a.state.Ctx.Err()
 	case <-a.appCtx.Done():
+		a.Terminate()
 		return context.Canceled
-	default:
-		for a.state.GetTaskCount() > 0 {
-			if err := a.state.Step(false); err != nil {
-				return err
-			}
+	default: // Proceed
+	}
+
+	handleStepError := func(err error, stepType string) error {
+		a.stateMu.Lock() // Acquire write lock
+		defer a.stateMu.Unlock()
+
+		if !errors.Is(err, supervisor.ErrExit) {
+			a.state.Log.Error(fmt.Sprintf("error during %s step", stepType), zap.Error(err))
 		}
-		return a.state.Step(true)
+
+		// Invalidate runner state under write lock
+		tr := a.taskRunner.Load()
+		if tr != nil {
+			tr.state.Store(nil)
+			a.taskRunner.Store(nil)
+			a.state.Log.Debug("Invalidated task runner state under write lock")
+		}
+		// Trigger termination asynchronously to avoid holding lock during Terminate's potentially blocking parts
+		go a.Terminate()
+		return err
+	}
+
+	// Process non-blocking tasks
+	for a.state.GetTaskCount() > 0 {
+		select { // Re-check cancellation
+		case <-a.done:
+			return supervisor.ErrExit
+		case <-a.state.Ctx.Done():
+			a.Terminate()
+			return a.state.Ctx.Err()
+		case <-a.appCtx.Done():
+			a.Terminate()
+			return context.Canceled
+		default: // continue
+		}
+		if err := a.state.Step(false); err != nil {
+			return handleStepError(err, "non-blocking")
+		}
+	}
+
+	// Process blocking step
+	err := a.state.Step(true)
+	if err != nil {
+		return handleStepError(err, "blocking")
+	}
+
+	return nil // Success
+}
+
+// Ready returns the number of tasks ready to be processed.
+func (a *App) Ready() int {
+	select {
+	case <-a.done:
+		return 0
+	default:
+		return a.state.GetTaskCount()
 	}
 }
 
-// Ready returns the number of tasks ready to be processed
-func (a *App) Ready() int {
-	return a.state.GetTaskCount()
-}
-
-// Send handles incoming messages to the process
+// Send handles incoming messages to the process.
 func (a *App) Send(pkg *pubsub.Package) error {
-	return a.state.SendPackage(pkg)
+	select {
+	case <-a.done:
+		return fmt.Errorf("process terminated: %w", process.ErrNoProcess)
+	default:
+		return a.state.SendPackage(pkg)
+	}
 }
 
-// Terminate forcefully stops the process
+// Terminate stops the process and cleans up resources.
 func (a *App) Terminate() {
 	a.terminateOnce.Do(func() {
-		// Get current task runner and set to nil atomically
-		tr := a.taskRunner.Swap(nil)
+		a.state.Log.Debug("Terminate sequence started")
 
-		// Wait for all ongoing operations to complete
-		a.state.Log.Debug("waiting for task operations to complete")
-		a.wg.Wait()
+		a.appCancel() // Signal internal cancellation
+		a.state.Log.Debug("App context canceled")
 
-		// Close the task runner only after all operations are done
-		if tr != nil {
-			tr.Close()
+		a.state.Log.Debug("Acquiring state write lock for termination")
+		a.stateMu.Lock() // ---- WRITE LOCK ACQUIRED ----
+		a.state.Log.Debug("State write lock acquired")
+
+		// Invalidate runner under lock
+		runnerToClose := a.taskRunner.Load()
+		if runnerToClose != nil {
+			runnerToClose.state.Store(nil)
+			a.taskRunner.Store(nil)
+			a.state.Log.Debug("Task runner invalidated under lock")
+		} else {
+			a.state.Log.Debug("Task runner was already nil")
 		}
 
-		a.state.Log.Debug("terminating btea app")
+		a.stateMu.Unlock() // ---- WRITE LOCK RELEASED ----
+		a.state.Log.Debug("State write lock released")
 
-		// Try to shutdown the program gracefully
+		// Quit BubbleTea program (non-blocking)
 		if a.program != nil {
+			a.state.Log.Debug("Sending Quit to bubbletea program")
 			a.program.Quit()
-			a.program.Wait()
 		}
 
-		// Cancel app context to signal all our watchers
-		a.appCancel()
+		// Close the runner instance (harmless if already nilled)
+		if runnerToClose != nil {
+			runnerToClose.Close()
+		}
 
-		// Complete the state with exit error
-		a.state.Complete(supervisor.ErrExit, nil)
+		// Close upstream channel (non-blocking pattern)
+		select {
+		case <-a.upstream: // Already closed
+		default:
+			close(a.upstream)
+		}
+		a.state.Log.Debug("Upstream channel closed")
 
-		// Signal done to all our goroutines
+		// Signal internal goroutines via 'done' channel
 		close(a.done)
-		close(a.upstream)
-	})
-}
+		a.state.Log.Debug("Done channel closed")
 
-// publishTask sends a task to the unified events channel
-func (a *App) publishTask(taskType string, luaValue lua.LValue, timeout time.Duration) string {
-	// Get task runner safely
-	tr := a.taskRunner.Load()
-	if tr == nil {
-		a.state.Log.Error("task runner not initialized", zap.String("task", taskType))
-		return "task runner not initialized"
-	}
-
-	// Add to wait group to track this operation
-	a.wg.Add(1)
-	defer a.wg.Done()
-
-	// Execute task using the task runner
-	response, err := tr.ExecuteTask(taskType, luaValue, timeout)
-	if err != nil {
-		// Return empty string for timeouts in fire-and-forget mode
-		if errors.Is(err, ErrTimeout) && timeout <= 0 {
-			return ""
+		// Complete the underlying process state last
+		finalErr := supervisor.ErrExit
+		if stateErr := a.state.Ctx.Err(); stateErr != nil {
+			finalErr = stateErr
+		} else if appErr := a.appCtx.Err(); appErr != nil && !errors.Is(appErr, context.Canceled) {
+			finalErr = appErr
 		}
-		// Log errors for debugging
-		a.state.Log.Error("task failed", zap.String("task", taskType), zap.Error(err))
-		// Return error message
-		return err.Error()
-	}
-	return response
+		a.state.Complete(finalErr, nil)
+		a.state.Log.Info("btea app terminated", zap.Error(finalErr))
+	})
 }
