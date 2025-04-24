@@ -3,6 +3,8 @@ package sql
 import (
 	"context"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
+	"strconv"
 	"sync"
 
 	config "github.com/ponyruntime/pony/api/service/sql"
@@ -108,6 +110,31 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 	cfg, err := config2.DecodeAndInitConfig[config.DBConfig](m.dtt, entry)
 	if err != nil {
 		return err
+	}
+
+	envCtx, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string])
+	if !ok {
+		return fmt.Errorf("cannot access env ctx")
+	}
+
+	if cfg.HostEnv != "" {
+		cfg.Host, _ = envCtx.Value(cfg.HostEnv)
+	}
+	if cfg.PortEnv != "" {
+		val, _ := envCtx.Value(cfg.PortEnv)
+		cfg.Port, err = strconv.Atoi(val)
+		if err != nil {
+			return fmt.Errorf("invalid port value: %w", err)
+		}
+	}
+	if cfg.DatabaseEnv != "" {
+		cfg.Database, _ = envCtx.Value(cfg.DatabaseEnv)
+	}
+	if cfg.UsernameEnv != "" {
+		cfg.Username, _ = envCtx.Value(cfg.UsernameEnv)
+	}
+	if cfg.PasswordEnv != "" {
+		cfg.Password, _ = envCtx.Value(cfg.PasswordEnv)
 	}
 
 	pool, err := m.factory.CreateStandardPool(entry.Kind, cfg)

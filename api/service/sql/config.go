@@ -49,6 +49,12 @@ type (
 
 	// DBConfig defines the base configuration for SQL databases
 	DBConfig struct {
+		HostEnv     string `json:"host_env,omitempty"`     // Database host address env variable
+		PortEnv     string `json:"port_env,omitempty"`     // Database port number env variable
+		DatabaseEnv string `json:"database_env,omitempty"` // Database name env variable
+		UsernameEnv string `json:"username_env,omitempty"` // Database user env variable
+		PasswordEnv string `json:"password_env,omitempty"` // Database password env variable
+
 		Host      string                     `json:"host"`      // Database host address
 		Port      int                        `json:"port"`      // Database port number
 		Database  string                     `json:"database"`  // Database name
@@ -148,23 +154,23 @@ func (c *SQLiteConfig) InitDefaults() {
 
 // Validate checks if the DBConfig has all required fields set to valid values
 func (c *DBConfig) Validate() error {
-	if c.Host == "" {
+	if c.Host == "" && c.HostEnv == "" {
 		return fmt.Errorf("host is required")
 	}
 
-	if c.Port <= 0 {
+	if c.Port <= 0 && c.PortEnv == "" {
 		return fmt.Errorf("port must be greater than 0")
 	}
 
-	if c.Database == "" {
+	if c.Database == "" && c.DatabaseEnv == "" {
 		return fmt.Errorf("database is required")
 	}
 
-	if c.Username == "" {
+	if c.Username == "" && c.UsernameEnv == "" {
 		return fmt.Errorf("username is required")
 	}
 
-	if c.Password == "" {
+	if c.Password == "" && c.PasswordEnv == "" {
 		return fmt.Errorf("password is required")
 	}
 
