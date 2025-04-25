@@ -350,6 +350,12 @@ func (m *Module) spawn(l *lua.LState) int {
 		return 2
 	}
 
+	if !security.IsAllowed(l.Context(), "process.host", hostID, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn on host: %s", hostID)))
+		return 2
+	}
+
 	payloads := m.createPayloadsFromArgs(l, 3)
 
 	start := &process.Start{
