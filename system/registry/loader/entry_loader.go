@@ -72,21 +72,20 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder, exports map[strin
 	newExports := make(map[string]Export, len(content.Exports))
 	entries := make([]registry.Entry, 0, len(content.RawEntries)+len(content.Exports))
 	for _, export := range content.Exports {
-		// TODO: make entries from exports
-		//entries = append(entries, registry.Entry{
-		//	ID: registry.ID{
-		//		NS:   content.Namespace,
-		//		Name: export.Name,
-		//	},
-		//	Kind: registry.KindExport,
-		//	Meta: registry.Metadata{
-		//		"description": export.Description,
-		//		"name":        export.Name,
-		//		"value":       export.Value,
-		//		"targets":     export.Targets,
-		//	},
-		//	Data: payload.New(export),
-		//})
+		entries = append(entries, registry.Entry{
+			ID: registry.ID{
+				NS:   content.Namespace,
+				Name: export.Name,
+			},
+			Kind: registry.KindNamespaceDefinition,
+			Meta: registry.Metadata{
+				"description": export.Description,
+				"name":        export.Name,
+				"value":       export.Value,
+				"targets":     export.Targets,
+			},
+			Data: payload.New(export),
+		})
 		newExports[export.Name] = export
 	}
 

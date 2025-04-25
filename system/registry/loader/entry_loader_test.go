@@ -55,20 +55,20 @@ func TestRequirementsAndExports(t *testing.T) {
 				"API_KEY": {Name: "API_KEY", Description: "System API key", Value: "secret-123"},
 			},
 			want: []registry.Entry{
-				//{
-				//	ID: registry.ID{
-				//		NS:   "test-json",
-				//		Name: "API_KEY",
-				//	},
-				//	Kind: "registry.export",
-				//	Meta: registry.Metadata{
-				//		"description": "System API key",
-				//		"name":        "API_KEY",
-				//		"targets":     nil,
-				//		"value":       "secret-123",
-				//	},
-				//	Data: payload.New(map[string]any{}),
-				//},
+				{
+					ID: registry.ID{
+						NS:   "test-json",
+						Name: "API_KEY",
+					},
+					Kind: "ns.definition",
+					Meta: registry.Metadata{
+						"description": "System API key",
+						"name":        "API_KEY",
+						"targets":     nil,
+						"value":       "secret-123",
+					},
+					Data: payload.New(map[string]any{}),
+				},
 				{
 					ID:   registry.ID{NS: "test-json", Name: "api_service"},
 					Kind: "service",

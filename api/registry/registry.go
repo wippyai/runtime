@@ -48,10 +48,8 @@ const (
 	// KindEntry stores value in registry without propagation, useful for app specific configs.
 	KindEntry Kind = "registry.entry"
 
-	// KindExport is used to store values in the registry that are intended for export
-	// to other systems or components. This is typically used for values that need to be
-	// shared or accessed by multiple components within the system.
-	KindExport Kind = "registry.export"
+	// KindNamespaceDefinition represents namespace definition variable which can be declared by export or any other source.
+	KindNamespaceDefinition Kind = "ns.definition"
 )
 
 type (
