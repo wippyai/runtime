@@ -47,6 +47,11 @@ const (
 
 	// KindEntry stores value in registry without propagation, useful for app specific configs.
 	KindEntry Kind = "registry.entry"
+
+	// KindExport is used to store values in the registry that are intended for export
+	// to other systems or components. This is typically used for values that need to be
+	// shared or accessed by multiple components within the system.
+	KindExport Kind = "registry.export"
 )
 
 type (
@@ -90,6 +95,14 @@ type (
 		Meta Metadata `json:"meta"`
 		// Data is the actual payload associated with the entry
 		Data payload.Payload `json:"data"`
+		// Requirements list of parameters of required values.
+		Requirements []EntryRequirement `json:"requirements,omitempty"`
+	}
+
+	// EntryRequirement information about entry requirements.
+	EntryRequirement struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
 	}
 
 	// ChangeSet represents a set of operations to transition the registry from one state to another

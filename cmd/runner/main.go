@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
+	"github.com/wippyai/packer/moduleloader"
+
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
 	"github.com/ponyruntime/pony/runtime/lua/modules/events"
@@ -699,6 +701,28 @@ func loadApplicationState(
 	entries, err := folderLoader.LoadFS(fs, vars)
 	if err != nil {
 		return nil, fmt.Errorf("load entries: %w", err)
+	}
+
+	// TODO: move it somewhere else
+	baseURL := "https://modules.platform.wippy.ai"
+	if modulesUrl := os.Getenv("WIPPY_MODULES_URL"); modulesUrl != "" {
+		baseURL = modulesUrl
+	}
+
+	m := moduleloader.NewManager(baseURL)
+	if err := m.Load(context.Background()); err != nil {
+		mainLogger.Error("load modules from registry", zap.Error(err))
+	} else {
+		vendorDir, err := os.OpenRoot(moduleloader.VendorFolder)
+		if err != nil {
+			return nil, fmt.Errorf("open vendor folder: %w", err)
+		}
+
+		dependencyEntries, err := folderLoader.LoadFS(vendorDir.FS(), vars)
+		if err != nil {
+			return nil, fmt.Errorf("load dependencies: %w", err)
+		}
+		entries = append(entries, dependencyEntries...)
 	}
 
 	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
