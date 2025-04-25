@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/internal/config"
 
 	_ "github.com/mattn/go-sqlite3" // Import SQLite driver
@@ -349,8 +350,15 @@ func TestManager_Add(t *testing.T) {
 }
 
 func TestManager_Update(t *testing.T) {
-	ctx := context.Background()
 	manager, bus, _ := newTestManager(t)
+
+	envContexter := ctxapi.NewContexter[string]()
+	envContexter.SetValue("POSTGRESQL_DEFAULT_HOST", "test-host")
+	envContexter.SetValue("POSTGRESQL_DEFAULT_PORT", "1234")
+	envContexter.SetValue("POSTGRESQL_DEFAULT_DATABASE", "test-db")
+	envContexter.SetValue("POSTGRESQL_DEFAULT_USERNAME", "test-user")
+	envContexter.SetValue("POSTGRESQL_DEFAULT_PASSWORD", "test-pwd")
+	ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, envContexter)
 
 	// Setup event listener for supervisor events
 	supervisorEvents := make(chan event.Event, 2)
@@ -451,8 +459,15 @@ func TestManager_Update(t *testing.T) {
 }
 
 func TestManager_Delete(t *testing.T) {
-	ctx := context.Background()
 	manager, bus, _ := newTestManager(t)
+
+	envContexter := ctxapi.NewContexter[string]()
+	envContexter.SetValue("POSTGRESQL_DEFAULT_HOST", "test-host")
+	envContexter.SetValue("POSTGRESQL_DEFAULT_PORT", "1234")
+	envContexter.SetValue("POSTGRESQL_DEFAULT_DATABASE", "test-db")
+	envContexter.SetValue("POSTGRESQL_DEFAULT_USERNAME", "test-user")
+	envContexter.SetValue("POSTGRESQL_DEFAULT_PASSWORD", "test-pwd")
+	ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, envContexter)
 
 	// Setup event listeners
 	supervisorEvents := make(chan event.Event, 2)
