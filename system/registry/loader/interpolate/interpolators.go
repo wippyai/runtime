@@ -41,7 +41,6 @@ func LoadVars(s string, ctx interface{}) (string, error) {
 // If the file is successfully read, it returns the file's content; otherwise,
 // it returns the original string appended with an error message.
 func LoadFile(s string, ctx interface{}) (string, error) {
-	// todo: use proper context and make complex loading easier with ---
 	rCtx, ok := ctx.(EntryContext)
 	if !ok {
 		return s, nil // Invalid context, skip
@@ -52,24 +51,31 @@ func LoadFile(s string, ctx interface{}) (string, error) {
 	}
 
 	filePath := strings.TrimPrefix(s, FileProtocol)
+
+	// Convert to system-specific path format for processing
+	systemPath := filepath.FromSlash(filePath)
 	var fullPath string
 
-	if strings.HasPrefix(filePath, "/") {
-		rel, err := filepath.Rel("/", filepath.Clean(filePath))
-		if err != nil {
-			return "", fmt.Errorf("resolve relative path: %w", err)
-		}
-		fullPath = rel
+	if filepath.IsAbs(systemPath) {
+		// Handle absolute paths
+		fullPath = systemPath
 	} else {
 		// Relative path, make it relative to the context directory
 		var fileDir string
 		if rCtx.Filename != "" {
 			fileDir = filepath.Dir(rCtx.Filename)
 		}
-		fullPath = filepath.Join(fileDir, filePath)
+		fullPath = filepath.Join(fileDir, systemPath)
 	}
 
-	data, err := fs.ReadFile(rCtx.FS, fullPath)
+	// Clean the path to resolve any ".." segments
+	fullPath = filepath.Clean(fullPath)
+
+	// Convert back to forward slashes for io/fs package
+	// fs.ReadFile always expects forward slashes, even on Windows
+	fsPath := filepath.ToSlash(fullPath)
+
+	data, err := fs.ReadFile(rCtx.FS, fsPath)
 	if err != nil {
 		return s + fmt.Sprintf(" [file-error: failed to read file '%s': %v]", filePath, err), err
 	}

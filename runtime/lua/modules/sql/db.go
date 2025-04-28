@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
@@ -27,6 +28,10 @@ type DB struct {
 // GetRawDB exposes the underlying sql.DB for external components like QueryBuilder
 func (d *DB) GetRawDB() *sql.DB {
 	return d.db
+}
+
+func (d *DB) GetDBType() string {
+	return d.dbType
 }
 
 // NewDB creates a new database connection wrapper with UoW integration
@@ -108,6 +113,12 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("resource Source is required"))
 		return 2
+	}
+
+	// Add security check for accessing the database
+	if !security.IsAllowed(l.Context(), "db.get", id, nil) {
+		l.RaiseError("not allowed to access database: %s", id)
+		return 0
 	}
 
 	uw := engine.GetUnitOfWork(l.Context())

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	securitysys "github.com/ponyruntime/pony/system/security"
 	"time"
 
 	"github.com/ponyruntime/pony/api/supervisor"
@@ -72,7 +73,13 @@ func NewController(
 		root:          ctx,
 		ops:           make(chan controlOp, 10),
 	}
+
+	if config.Security != nil {
+		ctx = securitysys.WithSecurityConfig(ctx, config.Security)
+	}
+
 	ctrl.ctx, ctrl.cancel = context.WithCancel(ctx)
+
 	go ctrl.supervise()
 	return ctrl
 }
@@ -281,6 +288,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 		ch  <-chan any
 		err error
 	}, 1)
+
 	go func() {
 		ch, err := c.service.Start(ctx)
 		select {
@@ -291,6 +299,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 		case <-ctx.Done():
 		}
 	}()
+
 	select {
 	case result := <-resultCh:
 		if result.err != nil {

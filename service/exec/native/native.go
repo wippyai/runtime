@@ -2,6 +2,7 @@ package native
 
 import (
 	"errors"
+	"fmt"
 	execapi "github.com/ponyruntime/pony/api/service/exec"
 	"io"
 	"os"
@@ -19,24 +20,40 @@ const (
 	terminated string = "terminated"
 )
 
-// NativeExecutor implements the exec.ProcessExecutor interface
-type NativeExecutor struct {
-	log        *zap.Logger
-	defaultEnv map[string]string
-	defaultWD  string
+// Executor implements the exec.ProcessExecutor interface
+type Executor struct {
+	log              *zap.Logger
+	defaultEnv       map[string]string
+	defaultWD        string
+	commandWhitelist []string
 }
 
 // NewNativeExecutor creates a new native process executor
-func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *NativeExecutor {
-	return &NativeExecutor{
-		log:        log,
-		defaultEnv: config.DefaultEnv,
-		defaultWD:  config.DefaultWorkDir,
+func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *Executor {
+	return &Executor{
+		log:              log,
+		defaultEnv:       config.DefaultEnv,
+		defaultWD:        config.DefaultWorkDir,
+		commandWhitelist: config.CommandWhitelist,
 	}
 }
 
 // NewProcess implements exec.ProcessExecutor interface
-func (e *NativeExecutor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	if len(e.commandWhitelist) > 0 {
+		allowed := false
+		for _, whitelistedCmd := range e.commandWhitelist {
+			if cmd == whitelistedCmd {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			e.log.Warn("command rejected by whitelist", zap.String("command", cmd))
+			return nil, fmt.Errorf("command not in whitelist: %s", cmd)
+		}
+	}
+
 	// Merge default environment with provided environment
 	env := make(map[string]string)
 	for k, v := range e.defaultEnv {

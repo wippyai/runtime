@@ -1,8 +1,10 @@
 package registry
 
 import (
+	"context"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -17,11 +19,46 @@ type Changes struct {
 // registerChangesType registers the Changes type and methods
 func (m *Module) registerChangesType(l *lua.LState) {
 	value.RegisterMethods(l, changesMetatable, map[string]lua.LGFunction{
+		"ops":    changesOps,
 		"create": changesCreate,
 		"update": changesUpdate,
 		"delete": changesDelete,
 		"apply":  changesApply,
 	})
+}
+
+// changesOps returns the operations in a changeset
+func changesOps(l *lua.LState) int {
+	// Get changes
+	changes := checkChanges(l)
+	if changes == nil {
+		return 0
+	}
+
+	// Create table for ops
+	opsTable := l.CreateTable(len(changes.ops), 0)
+
+	// Add each operation to the table
+	for i, op := range changes.ops {
+		opTable := l.CreateTable(0, 2)
+		opTable.RawSetString("kind", lua.LString(op.Kind))
+
+		// Convert entry to table
+		entryTable, err := entryToLuaTable(l, op.Entry)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(err.Error()))
+			return 2
+		}
+
+		opTable.RawSetString("entry", entryTable)
+
+		// Add to ops table
+		opsTable.RawSetInt(i+1, opTable)
+	}
+
+	l.Push(opsTable)
+	return 1
 }
 
 // changesCreate adds a new entry to the changeset
@@ -142,8 +179,18 @@ func changesApply(l *lua.LState) int {
 		return 2
 	}
 
+	// Add security check for applying changes
+	if !security.IsAllowed(l.Context(), "registry.apply", "", nil) {
+		l.RaiseError("not allowed to apply registry changes")
+		return 0
+	}
+
+	// We are not allowed to use thread context for registry change
+	// since it is not allowed to actually cancel the operation at the moment
+	ctx := context.Background() // todo: the proper fix will require rollback improvement in registry
+
 	// Apply changes directly
-	version, err := changes.snapshot.reg.Apply(l.Context(), changes.ops)
+	version, err := changes.snapshot.reg.Apply(ctx, changes.ops)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))

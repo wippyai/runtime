@@ -35,6 +35,18 @@ var (
 )
 
 type (
+	// Config defines the security properties for a service
+	Config struct {
+		// Actor is the security principal for this service
+		Actor Actor `json:"actor" yaml:"actor"`
+
+		// PolicyGroups lists policy group IDs this service actor belongs to
+		PolicyGroups []registry.ID `json:"groups,omitempty" yaml:"groups,omitempty"`
+
+		// Policies lists individual policy IDs for direct assignment
+		Policies []registry.ID `json:"policies,omitempty" yaml:"policies,omitempty"`
+	}
+
 	// Actor represents a security principal (user, service, system process)
 	Actor struct {
 		// ID returns the unique identifier of the actor

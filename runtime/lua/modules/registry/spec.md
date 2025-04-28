@@ -275,6 +275,14 @@ local version = snapshot:version()
 
 ## Changes Object Methods
 
+### Get Operations
+```lua
+local operations = changes:ops()
+-- Returns: Array of operation tables, each containing:
+--   - kind: Operation type ("entry.create", "entry.update", or "entry.delete")
+--   - entry: The entry being operated on
+```
+
 ### Create Entry
 
 ```lua
