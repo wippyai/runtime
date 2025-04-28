@@ -2,11 +2,13 @@ package loader
 
 import (
 	"fmt"
+	iofs "io/fs"
+	"maps"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"go.uber.org/zap"
-	iofs "io/fs"
 )
 
 // Loader manages loading of registry entries
@@ -15,6 +17,7 @@ type Loader struct {
 	dtt          payload.Transcoder
 	log          *zap.Logger
 	interpolator *interpolate.Helper
+	exports      map[string]Export
 }
 
 // NewLoader creates a new loader instance
@@ -28,6 +31,7 @@ func NewLoader(dtt payload.Transcoder, log *zap.Logger, interpolator *interpolat
 		dtt:          dtt,
 		log:          log,
 		interpolator: interpolator,
+		exports:      make(map[string]Export),
 	}
 }
 
@@ -101,10 +105,12 @@ func (l *Loader) processFile(fSys iofs.FS, p *FilePayload, vars interpolate.Vari
 	}
 
 	// Extract entries
-	entries, err := ExtractEntries(interpolated, l.dtt)
+	entries, exports, err := ExtractEntries(interpolated, l.dtt, l.exports)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract entries: %w", err)
+		return nil, fmt.Errorf("extract entries: %w", err)
 	}
+
+	maps.Copy(l.exports, exports)
 
 	// Validate entries
 	for i := range entries {
