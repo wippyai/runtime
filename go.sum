@@ -1,5 +1,5 @@
-buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250307204501-0409229c3780.1 h1:zgJPqo17m28+Lf5BW4xv3PvU20BnrmTcGYrog22lLIU=
-buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250307204501-0409229c3780.1/go.mod h1:avRlCjnFzl98VPaeCtJ24RrV/wwHFzB8sWXhj26+n/U=
+buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250425153114-8976f5be98c1.1 h1:YhMSc48s25kr7kv31Z8vf7sPUIq5YJva9z1mn/hAt0M=
+buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250425153114-8976f5be98c1.1/go.mod h1:avRlCjnFzl98VPaeCtJ24RrV/wwHFzB8sWXhj26+n/U=
 connectrpc.com/connect v1.18.1 h1:PAg7CjSAGvscaf6YZKUefjoih5Z/qYkyaTrBW8xvYPw=
 connectrpc.com/connect v1.18.1/go.mod h1:0292hj1rnx8oFrStN7cB4jjVBeqs+Yx5yDIC2prWDO8=
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
@@ -193,8 +193,8 @@ github.com/tree-sitter/tree-sitter-rust v0.21.3-0.20240818005432-2b43eafe6447 h1
 github.com/tree-sitter/tree-sitter-rust v0.21.3-0.20240818005432-2b43eafe6447/go.mod h1:1Oh95COkkTn6Ezp0vcMbvfhRP5gLeqqljR0BYnBzWvc=
 github.com/tree-sitter/tree-sitter-typescript v0.23.2 h1:/Odvphn18PniVixb9e97X0DbNVsU6Qocv9mfkyzdXwU=
 github.com/tree-sitter/tree-sitter-typescript v0.23.2/go.mod h1:zjzMXT/Ulffel2xfOcAkQQkiAkmgnbtPGlFQw/5X4xA=
-github.com/wippyai/packer v0.0.1 h1:fLj1n+WXLOyaV+zlY6jX6j+AA7/eiws4+o9mJvdkeFw=
-github.com/wippyai/packer v0.0.1/go.mod h1:k0mKUG6miiHE4bdpy3q5yp0kMeCNblosnbOfkuBFxSg=
+github.com/wippyai/module-registry-proto v0.0.0-20250428175736-5d2c86e17844 h1:QmGdhZwd7kR0vlvjPPY4nSLMvxZQngjEBFBRyttgpQM=
+github.com/wippyai/module-registry-proto v0.0.0-20250428175736-5d2c86e17844/go.mod h1:vzjh4Kq6uCh74Rft++LOO99BBQKGEFgt1h6+/WAqM6o=
 github.com/wippyai/packer v0.0.2-0.20250425142514-91939f666d4b h1:nJ970pLywLLdog2icsAEZ9EwuA3m7BK85Aeki6QVvlQ=
 github.com/wippyai/packer v0.0.2-0.20250425142514-91939f666d4b/go.mod h1:k0mKUG6miiHE4bdpy3q5yp0kMeCNblosnbOfkuBFxSg=
 github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d h1:llb0neMWDQe87IzJLS4Ci7psK/lVsjIS2otl+1WyRyY=

@@ -1,6 +1,6 @@
 module github.com/ponyruntime/pony
 
-go 1.24
+go 1.24.0
 
 require (
 	github.com/CloudyKit/jet/v6 v6.3.1
@@ -52,7 +52,7 @@ replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v0.0.0-20250
 //replace github.com/yuin/gopher-lua => ../go-lua
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250307204501-0409229c3780.1 // indirect
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250425153114-8976f5be98c1.1 // indirect
 	connectrpc.com/connect v1.18.1 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/CloudyKit/fastprinter v0.0.0-20200109182630-33d98a066a53 // indirect
@@ -96,6 +96,7 @@ require (
 	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
+	github.com/wippyai/module-registry-proto v0.0.0-20250428175736-5d2c86e17844 // indirect
 	github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d // indirect
 	github.com/xuri/nfp v0.0.0-20240318013403-ab9948c2c4a7 // indirect
 	go.opentelemetry.io/otel v1.34.0 // indirect

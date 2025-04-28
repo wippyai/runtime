@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
-	"github.com/wippyai/packer/moduleloader"
+	"github.com/ponyruntime/pony/moduleloader"
 
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
