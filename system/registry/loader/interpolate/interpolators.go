@@ -58,7 +58,11 @@ func LoadFile(s string, ctx interface{}) (string, error) {
 
 	if filepath.IsAbs(systemPath) {
 		// Handle absolute paths
-		fullPath = systemPath
+		rel, err := filepath.Rel("/", filepath.Clean(filePath))
+		if err != nil {
+			return "", fmt.Errorf("resolve relative path: %w", err)
+		}
+		fullPath = rel
 	} else {
 		// Relative path, make it relative to the context directory
 		var fileDir string
