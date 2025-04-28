@@ -75,7 +75,7 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder, exports map[strin
 		entries = append(entries, registry.Entry{
 			ID: registry.ID{
 				NS:   content.Namespace,
-				Name: export.Name,
+				Name: strings.ToLower(export.Name) + "_export",
 			},
 			Kind: registry.KindNamespaceDefinition,
 			Meta: registry.Metadata{
@@ -104,6 +104,18 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder, exports map[strin
 			)
 		}
 		requirementExports = append(requirementExports, requirementExport{requirement, export.Value})
+		entries = append(entries, registry.Entry{
+			ID: registry.ID{
+				NS:   content.Namespace,
+				Name: strings.ToLower(requirement.Parameter) + "_requirement",
+			},
+			Kind: registry.KindNamespaceDefinition,
+			Meta: registry.Metadata{
+				"parameter":   requirement.Parameter,
+				"description": requirement.Description,
+			},
+			Data: payload.New(requirement),
+		})
 	}
 
 	// Handle single entry case
@@ -147,17 +159,12 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder, exports map[strin
 		// Update the raw entry's meta field with merged metadata
 		rawEntry["meta"] = mergedMeta
 
-		entryRequirements := make([]registry.EntryRequirement, 0)
 		filteredRequirements := make([]requirementExport, 0)
 		for _, re := range requirementExports {
 			if slices.ContainsFunc(re.Requirement.Targets, func(target RequirementTarget) bool {
 				return target.Name == "" || strings.EqualFold(target.Name, name)
 			}) {
 				filteredRequirements = append(filteredRequirements, re)
-				entryRequirements = append(entryRequirements, registry.EntryRequirement{
-					Name:        re.Requirement.Parameter,
-					Description: re.Requirement.Description,
-				})
 			}
 		}
 		applyRequirements(rawEntry, filteredRequirements)
@@ -170,10 +177,9 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder, exports map[strin
 				NS:   content.Namespace,
 				Name: name,
 			},
-			Kind:         kind,
-			Meta:         mergedMeta,
-			Data:         entryData,
-			Requirements: entryRequirements,
+			Kind: kind,
+			Meta: mergedMeta,
+			Data: entryData,
 		}
 		entries = append(entries, entry)
 	}

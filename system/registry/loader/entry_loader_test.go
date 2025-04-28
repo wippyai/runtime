@@ -58,7 +58,7 @@ func TestRequirementsAndExports(t *testing.T) {
 				{
 					ID: registry.ID{
 						NS:   "test-json",
-						Name: "API_KEY",
+						Name: "api_key_export",
 					},
 					Kind: "ns.definition",
 					Meta: registry.Metadata{
@@ -66,6 +66,18 @@ func TestRequirementsAndExports(t *testing.T) {
 						"name":        "API_KEY",
 						"targets":     nil,
 						"value":       "secret-123",
+					},
+					Data: payload.New(map[string]any{}),
+				},
+				{
+					ID: registry.ID{
+						NS:   "test-json",
+						Name: "api_key_requirement",
+					},
+					Kind: "ns.definition",
+					Meta: registry.Metadata{
+						"description": "API key for authentication",
+						"parameter":   "API_KEY",
 					},
 					Data: payload.New(map[string]any{}),
 				},
@@ -78,7 +90,6 @@ func TestRequirementsAndExports(t *testing.T) {
 						"kind":   "service",
 						"config": map[string]any{"auth": map[string]any{"key": "secret-123"}},
 					}),
-					Requirements: []registry.EntryRequirement{{Name: "API_KEY", Description: "API key for authentication"}},
 				},
 			},
 			wantErr: assert.NoError,
@@ -102,6 +113,12 @@ entries:
 			},
 			want: []registry.Entry{
 				{
+					ID:   registry.ID{NS: "test-yaml", Name: "db_host_requirement"},
+					Kind: "ns.definition",
+					Meta: registry.Metadata{"description": "", "parameter": "DB_HOST"},
+					Data: payload.New(map[string]any{}),
+				},
+				{
 					ID:   registry.ID{NS: "test-yaml", Name: "db_connector"},
 					Kind: "database",
 					Data: payload.New(map[string]any{
@@ -110,7 +127,6 @@ entries:
 						"kind":       "database",
 						"connection": map[string]any{"host": "localhost"},
 					}),
-					Requirements: []registry.EntryRequirement{{Name: "DB_HOST"}},
 				},
 			},
 			wantErr:     assert.NoError,
@@ -159,6 +175,12 @@ entries:
 			},
 			want: []registry.Entry{
 				{
+					ID:   registry.ID{NS: "correct-ns", Name: "ns_targeted_requirement"},
+					Kind: "ns.definition",
+					Meta: registry.Metadata{"description": "", "parameter": "NS_TARGETED"},
+					Data: payload.New(map[string]any{}),
+				},
+				{
 					ID:   registry.ID{NS: "correct-ns", Name: "s2"},
 					Kind: "k2",
 					Data: payload.New(map[string]any{
@@ -167,7 +189,6 @@ entries:
 						"kind": "k2",
 						"val":  "ns-export-val",
 					}),
-					Requirements: []registry.EntryRequirement{{Name: "NS_TARGETED"}},
 				},
 			},
 			wantErr:     assert.NoError,
@@ -192,6 +213,12 @@ entries:
 			wantExports: map[string]Export{},
 			want: []registry.Entry{
 				{
+					ID:   registry.ID{NS: "wildcard-ns", Name: "wild_param_requirement"},
+					Kind: "ns.definition",
+					Meta: registry.Metadata{"description": "", "parameter": "WILD_PARAM"},
+					Data: payload.New(map[string]any{}),
+				},
+				{
 					ID:   registry.ID{NS: "wildcard-ns", Name: "service-a"},
 					Kind: "type-a",
 					Data: payload.New(map[string]any{
@@ -200,7 +227,6 @@ entries:
 						"kind":   "type-a",
 						"config": map[string]any{"wild": "wild-value"},
 					}),
-					Requirements: []registry.EntryRequirement{{Name: "WILD_PARAM"}},
 				},
 				{
 					ID:   registry.ID{NS: "wildcard-ns", Name: "service-b"},
@@ -211,7 +237,6 @@ entries:
 						"kind":   "type-b",
 						"config": map[string]any{"wild": "wild-value"},
 					}),
-					Requirements: []registry.EntryRequirement{{Name: "WILD_PARAM"}},
 				},
 			},
 			wantErr: assert.NoError,
@@ -238,6 +263,12 @@ entries:
 			wantExports: map[string]Export{},
 			want: []registry.Entry{
 				{
+					ID:   registry.ID{NS: "multi-target", Name: "multi_param_requirement"},
+					Kind: "ns.definition",
+					Meta: registry.Metadata{"description": "", "parameter": "MULTI_PARAM"},
+					Data: payload.New(map[string]any{}),
+				},
+				{
 					ID:   registry.ID{NS: "multi-target", Name: "specific-svc"},
 					Kind: "special",
 					Data: payload.New(map[string]any{
@@ -247,7 +278,6 @@ entries:
 						"specific_key": "multi-value",
 						"common_key":   "multi-value",
 					}),
-					Requirements: []registry.EntryRequirement{{Name: "MULTI_PARAM"}},
 				},
 				{
 					ID:   registry.ID{NS: "multi-target", Name: "other-svc"},
@@ -258,7 +288,6 @@ entries:
 						"kind":       "generic",
 						"common_key": "multi-value",
 					}),
-					Requirements: []registry.EntryRequirement{{Name: "MULTI_PARAM"}},
 				},
 			},
 			wantErr: assert.NoError,

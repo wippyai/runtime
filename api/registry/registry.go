@@ -93,14 +93,6 @@ type (
 		Meta Metadata `json:"meta"`
 		// Data is the actual payload associated with the entry
 		Data payload.Payload `json:"data"`
-		// Requirements list of parameters of required values.
-		Requirements []EntryRequirement `json:"requirements,omitempty"`
-	}
-
-	// EntryRequirement information about entry requirements.
-	EntryRequirement struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
 	}
 
 	// ChangeSet represents a set of operations to transition the registry from one state to another
