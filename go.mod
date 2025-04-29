@@ -3,6 +3,7 @@ module github.com/ponyruntime/pony
 go 1.24.0
 
 require (
+	connectrpc.com/connect v1.18.1
 	github.com/CloudyKit/jet/v6 v6.3.1
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
@@ -15,7 +16,7 @@ require (
 	github.com/coder/websocket v1.8.12
 	github.com/go-chi/chi/v5 v5.2.0
 	github.com/go-sql-driver/mysql v1.9.0
-	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.10.9
@@ -35,7 +36,7 @@ require (
 	github.com/tree-sitter/tree-sitter-php v0.23.11
 	github.com/tree-sitter/tree-sitter-python v0.23.6
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
-	github.com/wippyai/packer v0.0.2-0.20250425142514-91939f666d4b
+	github.com/wippyai/module-registry-proto v0.0.0-20250428175736-5d2c86e17844
 	github.com/xuri/excelize/v2 v2.9.0
 	github.com/yuin/gopher-lua v0.0.0-00010101000000-000000000000
 	go.temporal.io/api v1.44.1
@@ -53,7 +54,6 @@ replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v0.0.0-20250
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250425153114-8976f5be98c1.1 // indirect
-	connectrpc.com/connect v1.18.1 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/CloudyKit/fastprinter v0.0.0-20200109182630-33d98a066a53 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
@@ -79,6 +79,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.25.1 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
@@ -95,8 +96,8 @@ require (
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
-	github.com/wippyai/module-registry-proto v0.0.0-20250428175736-5d2c86e17844 // indirect
 	github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d // indirect
 	github.com/xuri/nfp v0.0.0-20240318013403-ab9948c2c4a7 // indirect
 	go.opentelemetry.io/otel v1.34.0 // indirect
