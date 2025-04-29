@@ -143,6 +143,8 @@ func (svc *Service) Stop(ctx context.Context) error {
 		svc.pid,
 		time.Now().Add(svc.config.Lifecycle.StopTimeout),
 	))
+	// FIXME handle error
+	//nolint:revive,staticcheck
 	if err != nil {
 		// ignoring for now
 	}

@@ -47,7 +47,7 @@ func NewListener(log *zap.Logger, bus event.Bus, procs process.Manager) *Listene
 // processEntry handles a registry entry based on the event kind
 func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry registry.Entry) {
 	// Skip if not a process entry
-	if !strings.HasPrefix(string(entry.Kind), "process.") {
+	if !strings.HasPrefix(entry.Kind, "process.") {
 		return
 	}
 
@@ -61,7 +61,7 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 			return
 		}
 		// Register function handler
-		l.registerFunction(ctx, entry.ID, pubsub.HostID(defaultHost))
+		l.registerFunction(ctx, entry.ID, defaultHost)
 
 	case registry.Update:
 		// If entry previously had a host but no longer does, unregister it
@@ -73,15 +73,15 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 		}
 
 		// Check if host changed - if so, update registration
-		if existingHost, exists := l.registered[processIDStr]; exists && existingHost != pubsub.HostID(defaultHost) {
+		if existingHost, exists := l.registered[processIDStr]; exists && existingHost != defaultHost {
 			l.unregisterFunction(ctx, entry.ID)
-			l.registerFunction(ctx, entry.ID, pubsub.HostID(defaultHost))
+			l.registerFunction(ctx, entry.ID, defaultHost)
 			return
 		}
 
 		// If not previously registered, register it now
 		if _, exists := l.registered[processIDStr]; !exists {
-			l.registerFunction(ctx, entry.ID, pubsub.HostID(defaultHost))
+			l.registerFunction(ctx, entry.ID, defaultHost)
 		}
 
 	case registry.Delete:
@@ -101,7 +101,7 @@ func (l *Listener) registerFunction(ctx context.Context, id registry.ID, hostID 
 		System: function.System,
 		Kind:   function.Register,
 		Path:   id.String(),
-		Data:   function.Func(handler),
+		Data:   handler,
 	})
 
 	// Track registered function
@@ -109,7 +109,7 @@ func (l *Listener) registerFunction(ctx context.Context, id registry.ID, hostID 
 
 	l.log.Info("registered process function handler",
 		zap.String("id", id.String()),
-		zap.String("host", string(hostID)))
+		zap.String("host", hostID))
 }
 
 // unregisterFunction removes a process function handler from the function system

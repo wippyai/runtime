@@ -69,7 +69,6 @@ func (m *mockResource) Release() {
 	}
 
 	m.released = true
-	return
 }
 
 func (m *mockResourceProvider) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
@@ -429,7 +428,7 @@ func TestService_UpdateResource(t *testing.T) {
 		assert.True(t, service.Exists(id))
 	})
 
-	t.Run("update non-existent resource", func(t *testing.T) {
+	t.Run("update non-existent resource", func(_ *testing.T) {
 		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
 		updatedEntry := resource.Entry{
 			ID:       nonExistentID,
@@ -453,7 +452,7 @@ func TestService_HandleEvent(t *testing.T) {
 	require.NoError(t, service.Start(ctx))
 	defer func() { assert.NoError(t, service.Stop()) }()
 
-	t.Run("unknown event kind", func(t *testing.T) {
+	t.Run("unknown event kind", func(_ *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: resource.System,
 			Kind:   "unknown.event",
@@ -473,7 +472,7 @@ func TestService_HandleEvent(t *testing.T) {
 		assert.False(t, service.Exists(registry.ParseID("test:resource")))
 	})
 
-	t.Run("invalid update payload", func(t *testing.T) {
+	t.Run("invalid update payload", func(_ *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: resource.System,
 			Kind:   resource.Update,
@@ -483,7 +482,7 @@ func TestService_HandleEvent(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	})
 
-	t.Run("invalid remove payload", func(t *testing.T) {
+	t.Run("invalid remove payload", func(_ *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: resource.System,
 			Kind:   resource.Delete,

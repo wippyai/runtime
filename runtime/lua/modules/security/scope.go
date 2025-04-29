@@ -98,8 +98,8 @@ func scopeWithout(l *lua.LState) int {
 		}
 
 		policyID = registry.ID{
-			NS:   registry.Namespace(ns.String()),
-			Name: registry.Name(name.String()),
+			NS:   ns.String(),
+			Name: name.String(),
 		}
 	default:
 		l.ArgError(2, "Policy ID expected as string, table, or policy object")
@@ -195,8 +195,8 @@ func scopeContains(l *lua.LState) int {
 		}
 
 		policyID = registry.ID{
-			NS:   registry.Namespace(ns.String()),
-			Name: registry.Name(name.String()),
+			NS:   ns.String(),
+			Name: name.String(),
 		}
 	default:
 		l.ArgError(2, "Policy ID expected as string, table, or policy object")

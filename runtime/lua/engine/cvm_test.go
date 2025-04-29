@@ -468,7 +468,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 	//	if err != nil {
 	//		t.Fatalf("assertion failed: %v", err)
 	//	}
-	//})
+	// })
 }
 
 func TestCoroutineVM_ArgumentValidation(t *testing.T) {

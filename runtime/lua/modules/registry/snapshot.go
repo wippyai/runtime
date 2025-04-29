@@ -138,7 +138,7 @@ func snapshotNamespace(l *lua.LState) int {
 	// Filter entries by namespace - this is a simple operation with in-memory data
 	var result []regapi.Entry
 	for _, entry := range snap.entries {
-		if entry.ID.NS == regapi.Namespace(ns) {
+		if entry.ID.NS == ns {
 			// Add security check for each entry
 			if security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
 				result = append(result, entry)

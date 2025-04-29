@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	pubsubsys "github.com/ponyruntime/pony/system/pubsub"
 	"net"
 	"net/http"
 	"runtime"
 	"sync"
 	"time"
+
+	pubsubsys "github.com/ponyruntime/pony/system/pubsub"
 
 	"github.com/go-chi/chi/v5/middleware"
 	contextapi "github.com/ponyruntime/pony/api/context"
@@ -159,7 +160,7 @@ func (s *ServerService) Remove(id registry.ID) error {
 }
 
 // Rebuild rebuilds the entire router with the current configuration
-func (s *ServerService) Rebuild(ctx context.Context) error {
+func (s *ServerService) Rebuild(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

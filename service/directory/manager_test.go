@@ -39,27 +39,27 @@ func (f *MockFSFactory) CreateFS(CreateFSConfig) (fsapi.FS, error) {
 // MockFS implements fsapi.FS for testing
 type MockFS struct{}
 
-func (m *MockFS) Open(name string) (fs.File, error) {
+func (m *MockFS) Open(_ string) (fs.File, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *MockFS) Stat(name string) (fs.FileInfo, error) {
+func (m *MockFS) Stat(_ string) (fs.FileInfo, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *MockFS) ReadDir(name string) ([]fs.DirEntry, error) {
+func (m *MockFS) ReadDir(_ string) ([]fs.DirEntry, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *MockFS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, error) {
+func (m *MockFS) OpenFile(_ string, _ int, _ fs.FileMode) (fsapi.File, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *MockFS) Remove(name string) error {
+func (m *MockFS) Remove(_ string) error {
 	return errors.New("not implemented")
 }
 
-func (m *MockFS) Mkdir(name string, perm fs.FileMode) error {
+func (m *MockFS) Mkdir(_ string, _ fs.FileMode) error {
 	return errors.New("not implemented")
 }
 
@@ -94,14 +94,14 @@ type MockTranscoder struct {
 	mockData       []byte
 }
 
-func (m *MockTranscoder) Marshal(v any) ([]byte, error) {
+func (m *MockTranscoder) Marshal(_ any) ([]byte, error) {
 	if m.marshalError != nil {
 		return nil, m.marshalError
 	}
 	return m.mockData, nil
 }
 
-func (m *MockTranscoder) Unmarshal(data payload.Payload, v any) error {
+func (m *MockTranscoder) Unmarshal(_ payload.Payload, v any) error {
 	if m.unmarshalError != nil {
 		return m.unmarshalError
 	}
@@ -116,7 +116,7 @@ func (m *MockTranscoder) Unmarshal(data payload.Payload, v any) error {
 }
 
 // Add the Transcode method to implement the complete interface
-func (m *MockTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
 
@@ -391,7 +391,7 @@ func TestManager_Delete(t *testing.T) {
 
 		// Verify directory was removed
 		var exists bool
-		manager.directories.Range(func(key, value interface{}) bool {
+		manager.directories.Range(func(key, _ interface{}) bool {
 			if key.(string) == testID.String() {
 				exists = true
 				return false

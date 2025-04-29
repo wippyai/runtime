@@ -3,9 +3,10 @@ package host
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/service/host"
-	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
@@ -161,6 +162,6 @@ func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
 }
 
 // Update updates an existing process host
-func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) Update(_ context.Context, entry registry.Entry) error {
 	return fmt.Errorf("unable to update process host")
 }

@@ -226,7 +226,6 @@ func (m *mockResource) Get() (any, error) {
 
 func (m *mockResource) Release() {
 	m.released = true
-	return
 }
 
 type mockResourceRegistry struct {

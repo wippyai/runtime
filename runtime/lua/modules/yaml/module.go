@@ -11,6 +11,8 @@ import (
 )
 
 // YAMLOptions holds all formatting options for YAML encoding
+//
+//nolint:revive
 type YAMLOptions struct {
 	// Basic formatting options
 	Indent        int      // Number of spaces for indentation (default: 2)
@@ -241,9 +243,10 @@ func processNode(node *yaml.Node, options *YAMLOptions, depth int) {
 
 	case yaml.MappingNode:
 		// Apply mapping style
-		if options.MappingStyle == "flow" {
+		switch options.MappingStyle {
+		case "flow":
 			node.Style = yaml.FlowStyle
-		} else if options.MappingStyle == "block" {
+		case "block":
 			node.Style = 0 // Default block style
 		}
 

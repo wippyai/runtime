@@ -84,7 +84,7 @@ func osTime(L *lua.LState) int {
 }
 
 // Helper to get integer field from table with default value
-func getIntField(L *lua.LState, table *lua.LTable, key string, defaultValue int) int {
+func getIntField(_ *lua.LState, table *lua.LTable, key string, defaultValue int) int {
 	if v := table.RawGetString(key); v.Type() == lua.LTNumber {
 		return int(v.(lua.LNumber))
 	}
@@ -180,11 +180,12 @@ func osDateTable(L *lua.LState, t time.Time) int {
 // formatDate implements simplified Lua os.date() formatting
 func formatDate(format string, t time.Time) string {
 	// Handle special case for standard formats
-	if format == "%c" {
+	switch format {
+	case "%c":
 		return t.Format("Mon Jan _2 15:04:05 2006")
-	} else if format == "%x" {
+	case "%x":
 		return t.Format("01/02/06")
-	} else if format == "%X" {
+	case "%X":
 		return t.Format("15:04:05")
 	}
 

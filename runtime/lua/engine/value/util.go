@@ -57,14 +57,12 @@ func RegisterTypeMethods(
 	}
 
 	// Add metamethods directly to metatable
-	if metamethods != nil {
-		for name, fn := range metamethods {
-			mt.RawSetString(name, L.NewFunction(fn))
-		}
+	for name, fn := range metamethods {
+		mt.RawSetString(name, L.NewFunction(fn))
 	}
 
 	// Handle regular methods if any
-	if methods != nil && len(methods) > 0 {
+	if len(methods) > 0 {
 		// Check if __index already exists and is a table
 		indexVal := mt.RawGetString("__index")
 		var indexTable *lua.LTable

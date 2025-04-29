@@ -168,7 +168,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // Acquire implements resource.Provider - creates and returns a token store
-func (m *Manager) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	m.mu.RLock()
 	cfg, exists := m.configs[id]
 

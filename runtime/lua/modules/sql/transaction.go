@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -67,7 +68,7 @@ func CheckTransaction(l *lua.LState) *Transaction {
 }
 
 // registerTransaction registers transaction methods
-func registerTransaction(l *lua.LState, log *zap.Logger) {
+func registerTransaction(l *lua.LState, _ *zap.Logger) {
 	methods := map[string]lua.LGFunction{
 		// Standard transaction methods
 		"query":    txQuery,

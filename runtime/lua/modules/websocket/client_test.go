@@ -20,6 +20,8 @@ import (
 
 // startWSServer spins up a test server using the provided HTTP handler.
 // The returned URL will be a ws:// URL pointing to the given path.
+//
+//nolint:unparam
 func startWSServer(t *testing.T, path string, handler http.HandlerFunc) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc(path, handler)

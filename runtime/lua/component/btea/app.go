@@ -308,6 +308,8 @@ func (a *App) Terminate() {
 }
 
 // publishTask sends a task to the unified events channel
+//
+//nolint:unused
 func (a *App) publishTask(taskType string, luaValue lua.LValue, timeout time.Duration) string {
 	// Check if task runner is available
 	if a.taskRunner == nil {

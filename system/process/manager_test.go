@@ -56,12 +56,12 @@ func (m *managerManagedHost) Send(pkg *pubsub.Package) error {
 	return m.sendErr
 }
 
-func (m *managerManagedHost) Terminate(ctx context.Context, pid pubsub.PID) error {
+func (m *managerManagedHost) Terminate(_ context.Context, _ pubsub.PID) error {
 	m.terminated = true
 	return m.terminateErr
 }
 
-func (m *managerManagedHost) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, error) {
+func (m *managerManagedHost) Launch(_ context.Context, launch *process.Launch) (pubsub.PID, error) {
 	if m.launchErr != nil {
 		return pubsub.PID{}, m.launchErr
 	}
@@ -96,13 +96,13 @@ func (m *managerDelegatedHost) Send(pkg *pubsub.Package) error {
 	return m.sendErr
 }
 
-func (m *managerDelegatedHost) Terminate(ctx context.Context, pid pubsub.PID) error {
+func (m *managerDelegatedHost) Terminate(_ context.Context, _ pubsub.PID) error {
 	m.terminated = true
 	return m.terminateErr
 }
 
 // Updated to match the Delegated interface with Lifecycle parameter
-func (m *managerDelegatedHost) Launch(ctx context.Context, pid pubsub.PID, lf process.Lifecycle, input payload.Payloads) (pubsub.PID, error) {
+func (m *managerDelegatedHost) Launch(_ context.Context, pid pubsub.PID, lf process.Lifecycle, input payload.Payloads) (pubsub.PID, error) {
 	if m.launchErr != nil {
 		return pubsub.PID{}, m.launchErr
 	}
@@ -126,7 +126,7 @@ type managerProcessMock struct {
 	createErr error
 }
 
-func (m *managerProcessMock) Create(id registry.ID) (process.Process, error) {
+func (m *managerProcessMock) Create(_ registry.ID) (process.Process, error) {
 	if m.createErr != nil {
 		return nil, m.createErr
 	}
@@ -140,7 +140,7 @@ type mockProcess struct {
 	stepErr error
 }
 
-func (m *mockProcess) Send(batch *pubsub.Package) error {
+func (m *mockProcess) Send(_ *pubsub.Package) error {
 	return m.sendErr
 }
 
@@ -165,7 +165,6 @@ type managerTopology struct {
 	registerErr error
 	waitErr     error
 	linkErr     error
-	removeErr   error
 
 	registered []pubsub.PID
 	waited     map[pubsub.PID]pubsub.PID
@@ -214,16 +213,16 @@ func (m *managerTopology) Remove(pid pubsub.PID) {
 	m.removed = append(m.removed, pid)
 }
 
-func (m *managerTopology) Unlink(from, to pubsub.PID) error {
+func (m *managerTopology) Unlink(from, _ pubsub.PID) error {
 	delete(m.linked, from)
 	return nil
 }
 
-func (m *managerTopology) GetLinks(pid pubsub.PID) []pubsub.PID {
+func (m *managerTopology) GetLinks(_ pubsub.PID) []pubsub.PID {
 	return nil
 }
 
-func (m *managerTopology) Release(caller, pid pubsub.PID) error {
+func (m *managerTopology) Release(caller, _ pubsub.PID) error {
 	delete(m.waited, caller)
 	return nil
 }

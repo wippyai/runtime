@@ -37,7 +37,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("sha512", l.NewFunction(m.sha512))
 	mod.RawSetString("fnv32", l.NewFunction(m.fnv32))
 	mod.RawSetString("fnv64", l.NewFunction(m.fnv64))
-	mod.RawSetString("hmac_sha256", l.NewFunction(m.hmac_sha256))
+	mod.RawSetString("hmac_sha256", l.NewFunction(m.hmacSha256))
 	mod.RawSetString("hmac_sha512", l.NewFunction(m.hmac_sha512))
 	mod.RawSetString("hmac_sha1", l.NewFunction(m.hmac_sha1))
 	mod.RawSetString("hmac_md5", l.NewFunction(m.hmac_md5))
@@ -70,9 +70,9 @@ func computeHmacHash(h func() hash.Hash, data, secret string, raw bool) (lua.LVa
 	result := hHmac.Sum(nil)
 	if raw {
 		return lua.LString(string(result)), nil
-	} else {
-		return lua.LString(hex.EncodeToString(result)), nil
 	}
+
+	return lua.LString(hex.EncodeToString(result)), nil
 }
 
 func (m *Module) md5(l *lua.LState) int {
@@ -197,7 +197,7 @@ func (m *Module) fnv64(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) hmac_sha256(l *lua.LState) int {
+func (m *Module) hmacSha256(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
 		l.ArgError(1, "string expected")
 		return 0

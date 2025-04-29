@@ -24,7 +24,7 @@ func NewSimpleTranscoder() *SimpleTranscoder {
 	return &SimpleTranscoder{}
 }
 
-func (t *SimpleTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+func (t *SimpleTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
 

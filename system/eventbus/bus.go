@@ -204,11 +204,11 @@ func (b *Bus) handleActions() {
 			}
 
 			for _, s := range b.subscribers {
-				if s.system != nil && !s.system.Match(string(a.event.event.System)) {
+				if s.system != nil && !s.system.Match(a.event.event.System) {
 					continue
 				}
 
-				if s.kind != nil && !s.kind.Match(string(a.event.event.Kind)) {
+				if s.kind != nil && !s.kind.Match(a.event.event.Kind) {
 					continue
 				}
 

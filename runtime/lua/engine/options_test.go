@@ -237,6 +237,8 @@ func TestVM_WithPreloaded(t *testing.T) {
 }
 
 // Helper function to check if functions appear in the stack trace in the correct order
+//
+//nolint:unused
 func matchStackOrder(stackTrace string, functionNames []string) bool {
 	lastPos := -1
 	for _, fname := range functionNames {

@@ -16,6 +16,8 @@ import (
 // setupTestDB creates a shared in-memory SQLite database with a simple table.
 // Using the connection string "file:memdb1?mode=memory&cache=shared" ensures the same
 // connection is used for all operations.
+//
+//nolint:unparam
 func setupTestDBWithTestTable(t *testing.T) (*sql.DB, *mockResource, func()) {
 	db, err := sql.Open("sqlite3", "file:memdb1?mode=memory&cache=shared")
 	require.NoError(t, err)

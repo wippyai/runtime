@@ -25,7 +25,7 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (t *Table) View() string {
-	return t.View()
+	return t.model.View()
 }
 
 // RegisterTable registers the table widget to Lua.

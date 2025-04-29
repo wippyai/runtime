@@ -34,7 +34,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 	if kindVal.Type() != lua.LTString {
 		return entry, errors.New("entry must have kind field")
 	}
-	entry.Kind = regapi.Kind(kindVal.String())
+	entry.Kind = kindVal.String()
 
 	// Extract metadata
 	metaVal := table.RawGetString("meta")
@@ -106,7 +106,7 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 
 // convertFilterToMetadata converts a Lua filter table to registry metadata
 // for use with the finder interface
-func convertFilterToMetadata(l *lua.LState, filterTable *lua.LTable) regapi.Metadata {
+func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) regapi.Metadata {
 	meta := regapi.Metadata{}
 
 	// Process top-level filter properties directly

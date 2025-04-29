@@ -11,7 +11,7 @@ import (
 // MockTranscoder implements payload.Transcoder interface for testing
 type MockTranscoder struct{}
 
-func (m *MockTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
 
@@ -34,7 +34,7 @@ func TestNewEntryInterpolator(t *testing.T) {
 	})
 
 	t.Run("creates helper with interpolators", func(t *testing.T) {
-		mockInterpolator := func(s string, ctx interface{}) (string, error) {
+		mockInterpolator := func(s string, _ interface{}) (string, error) {
 			return s, nil
 		}
 		h := NewEntryInterpolator(dtt, WithInterpolator(mockInterpolator))
@@ -102,7 +102,7 @@ func TestHelper_Interpolate(t *testing.T) {
 			setupFn: func(h *Helper) {
 				h.interpolators = append(h.interpolators,
 					LoadVars,
-					func(s string, ctx interface{}) (string, error) {
+					func(s string, _ interface{}) (string, error) {
 						if s == "file://production/config.yaml" {
 							return "Hello from production!", nil
 						}

@@ -2,10 +2,11 @@ package btea
 
 import (
 	"errors"
-	"github.com/ponyruntime/pony/api/process"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	"sync/atomic"
 	"time"
+
+	"github.com/ponyruntime/pony/api/process"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 
 	taskmod "github.com/ponyruntime/pony/runtime/lua/task"
 

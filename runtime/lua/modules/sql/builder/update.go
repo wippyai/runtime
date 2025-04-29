@@ -2,6 +2,7 @@ package builder
 
 import (
 	"fmt"
+
 	"github.com/Masterminds/squirrel"
 	"github.com/ponyruntime/pony/api/service/sql"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -58,7 +59,7 @@ func registerUpdateBuilderType(l *lua.LState) {
 		"from":               updateFrom,
 		"from_select":        updateFromSelect,
 		"placeholder_format": updatePlaceholderFormat,
-		"to_sql":             updateToSql,
+		"to_sql":             updateToSQL,
 		"run_with":           updateRunWith,
 	}
 
@@ -394,9 +395,9 @@ func updatePlaceholderFormat(l *lua.LState) int {
 	return 1
 }
 
-// updateToSql generates the SQL and args
+// updateToSQL generates the SQL and args
 // Usage: sql, args = builder:to_sql()
-func updateToSql(l *lua.LState) int {
+func updateToSQL(l *lua.LState) int {
 	wrapper := checkUpdateBuilder(l)
 	if wrapper == nil {
 		return 0

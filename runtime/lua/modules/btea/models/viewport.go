@@ -25,7 +25,7 @@ func (v *Viewport) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (v *Viewport) View() string {
-	return v.View()
+	return v.model.View()
 }
 
 // RegisterViewport registers the viewport component

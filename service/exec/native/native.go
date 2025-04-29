@@ -3,13 +3,14 @@ package native
 import (
 	"errors"
 	"fmt"
-	execapi "github.com/ponyruntime/pony/api/service/exec"
 	"io"
 	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
 	"syscall"
+
+	execapi "github.com/ponyruntime/pony/api/service/exec"
 
 	"go.uber.org/zap"
 )

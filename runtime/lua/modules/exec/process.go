@@ -82,6 +82,8 @@ func WrapProcess(l *lua.LState, handle apiexec.Process, log *zap.Logger) *lua.LU
 // internalClose is the core logic for closing/stopping the process and streams.
 // It handles locking and idempotency. forceStop determines if SIGKILL is used.
 // Returns true if cleanup was performed, false if already closed.
+//
+//nolint:unparam
 func (p *Process) internalClose(forceStop bool) bool {
 	p.mu.Lock()
 	if p.closed {

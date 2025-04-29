@@ -5,9 +5,22 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
 	"github.com/ponyruntime/pony/moduleloader"
+
+	iofs "io/fs"
+	httpbase "net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"runtime/pprof"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
@@ -24,17 +37,6 @@ import (
 	"github.com/ponyruntime/pony/service/processfunc"
 	"github.com/ponyruntime/pony/service/template"
 	"github.com/ponyruntime/pony/service/tokenstore"
-	iofs "io/fs"
-	httpbase "net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"runtime"
-	"runtime/debug"
-	"runtime/pprof"
-	"strings"
-	"syscall"
-	"time"
 
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
@@ -90,7 +92,7 @@ import (
 	fsdir "github.com/ponyruntime/pony/service/directory"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
-	"github.com/ponyruntime/pony/service/http/websocket_relay"
+	"github.com/ponyruntime/pony/service/http/websocketrelay"
 	"github.com/ponyruntime/pony/service/memstore"
 	"github.com/ponyruntime/pony/service/policy"
 	"github.com/ponyruntime/pony/service/sql"
@@ -681,7 +683,6 @@ func loadApplicationState(
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
 ) (regapi.ChangeSet, error) {
-
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
@@ -756,7 +757,7 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 	}
 
 	// Create websocket relay manager
-	relayManager := websocket_relay.NewWebSocketRelay(a.ctx, a.logger.Named("ws"))
+	relayManager := websocketrelay.NewWebSocketRelay(a.ctx, a.logger.Named("ws"))
 
 	// Create middleware factory with all standard middleware
 	midFactory := http.NewDefaultMiddlewareFactory(

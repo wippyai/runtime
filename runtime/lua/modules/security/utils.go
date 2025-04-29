@@ -2,6 +2,7 @@ package security
 
 import (
 	"errors"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
@@ -38,6 +39,8 @@ func optMetadataFromLuaTable(l *lua.LState, pos int) (registry.Metadata, error) 
 }
 
 // checkMetadataFromLuaTable gets required metadata from a Lua table
+//
+//nolint:unused
 func checkMetadataFromLuaTable(l *lua.LState, pos int) (registry.Metadata, error) {
 	metaTable := l.CheckTable(pos)
 	return luaTableToMetadata(l, metaTable)

@@ -144,6 +144,8 @@ func attachComponent(ctx context.Context, t *testing.T, bus event.Bus, component
 }
 
 // createEntry creates registry entries with string payloads for tests.
+//
+//nolint:unparam
 func createEntry(id registry.ID, kind registry.Kind, data string) registry.Entry {
 	return registry.Entry{
 		ID:   id,

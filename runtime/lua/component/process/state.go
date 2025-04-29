@@ -3,6 +3,9 @@ package process
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
+
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
@@ -16,8 +19,6 @@ import (
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"sync"
-	"sync/atomic"
 )
 
 // Common errors

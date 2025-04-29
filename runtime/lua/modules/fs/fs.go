@@ -462,7 +462,7 @@ func fsWriteFile(l *lua.LState) int {
 
 	default:
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("fs.writefile: invalid input type, expected string or Reader")))
+		l.Push(lua.LString("fs.writefile: invalid input type, expected string or Reader"))
 		return 2
 	}
 

@@ -343,7 +343,7 @@ package time
 //	})
 //}
 //
-//func TestTimerSelectAndCoroutine(t *testing.T) {
+// func TestTimerSelectAndCoroutine(t *testing.T) {
 //	logger := zap.NewNop()
 //
 //	t.Run("timer with select and coroutine", func(t *testing.T) {
@@ -435,7 +435,7 @@ package time
 //	})
 //}
 //
-//func TestTimerSelectAndCoroutineInversedOrder(t *testing.T) {
+// func TestTimerSelectAndCoroutineInversedOrder(t *testing.T) {
 //	logger := zap.NewNop()
 //
 //	t.Run("timer with select and coroutine", func(t *testing.T) {

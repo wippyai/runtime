@@ -32,8 +32,6 @@ type ProcessPool struct {
 	processWG    sync.WaitGroup  // Active processes WaitGroup
 	ctx          context.Context
 	cancel       context.CancelFunc
-
-	count atomic.Int32
 }
 
 // NewProcessPool creates a new process pool

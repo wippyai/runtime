@@ -1,9 +1,10 @@
 package tokenstore
 
 import (
-	"go.uber.org/zap"
 	"net/http"
 	"strings"
+
+	"go.uber.org/zap"
 
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/registry"

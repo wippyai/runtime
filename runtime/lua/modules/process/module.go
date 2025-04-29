@@ -96,7 +96,7 @@ func (m *Module) setOptions(l *lua.LState) int {
 
 	options := l.CheckTable(1)
 	var firstKey string
-	options.ForEach(func(k lua.LValue, v lua.LValue) {
+	options.ForEach(func(k lua.LValue, _ lua.LValue) {
 		if firstKey == "" && k.Type() == lua.LTString {
 			firstKey = string(k.(lua.LString))
 		}
@@ -313,6 +313,8 @@ func (m *Module) send(l *lua.LState) int {
 }
 
 // createPayloadsFromArgs converts Lua arguments to process payloads
+//
+//nolint:unparam
 func (m *Module) createPayloadsFromArgs(l *lua.LState, startIndex int) payload.Payloads {
 	var payloads payload.Payloads
 

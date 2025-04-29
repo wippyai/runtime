@@ -31,7 +31,7 @@ func (t *TestTranscoder) Marshal(v interface{}) (payload.Payload, error) {
 	return payload.New(v), nil
 }
 
-func (t *TestTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (t *TestTranscoder) Unmarshal(_ payload.Payload, v interface{}) error {
 	switch target := v.(type) {
 	case *apiconfig.DBConfig:
 		// Directly set the fields of the target
@@ -309,9 +309,10 @@ func TestManager_Add(t *testing.T) {
 				assert.Contains(t, manager.services, entry.ID)
 
 				// Verify factory was called correctly
-				if tt.kind == apiconfig.KindSQLite {
+				switch tt.kind {
+				case apiconfig.KindSQLite:
 					assert.GreaterOrEqual(t, len(factory.sqlitePoolCalls), 1)
-				} else if tt.kind == apiconfig.KindPostgres || tt.kind == apiconfig.KindMySQL {
+				case apiconfig.KindPostgres, apiconfig.KindMySQL:
 					assert.GreaterOrEqual(t, len(factory.standardPoolCalls), 1)
 					if len(factory.standardPoolCalls) > 0 {
 						lastCall := factory.standardPoolCalls[len(factory.standardPoolCalls)-1]
@@ -430,7 +431,6 @@ func TestManager_Update(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			entry := registry.Entry{
 				ID:   tt.id,
 				Kind: tt.kind,

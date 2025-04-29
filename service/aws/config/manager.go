@@ -3,9 +3,10 @@ package config
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	serviceaws "github.com/ponyruntime/pony/api/service/aws/config"
-	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"

@@ -180,31 +180,31 @@ func (s *Supervisor) handleEvent(e event.Event) {
 		return
 	}
 
-	switch {
-	case e.Kind == supervisor.Register:
+	switch e.Kind {
+	case supervisor.Register:
 		entry, ok := e.Data.(*supervisor.Entry)
 		if !ok {
 			s.logger.Error(
 				"failed to decode registration entry",
-				zap.String("event_path", string(e.Path)),
+				zap.String("event_path", e.Path),
 			)
 			return
 		}
 
 		s.actions <- action{
-			serviceID: string(e.Path),
+			serviceID: e.Path,
 			kind:      actionRegister,
 			entry:     entry,
 		}
 
-	case e.Kind == supervisor.Remove:
-		s.actions <- action{serviceID: string(e.Path), kind: actionRemove}
+	case supervisor.Remove:
+		s.actions <- action{serviceID: e.Path, kind: actionRemove}
 
-	case e.Kind == supervisor.Start:
-		s.actions <- action{serviceID: string(e.Path), kind: actionStart}
+	case supervisor.Start:
+		s.actions <- action{serviceID: e.Path, kind: actionStart}
 
-	case e.Kind == supervisor.Stop:
-		s.actions <- action{serviceID: string(e.Path), kind: actionStop}
+	case supervisor.Stop:
+		s.actions <- action{serviceID: e.Path, kind: actionStop}
 	}
 }
 
@@ -295,19 +295,19 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 			case errors.Is(err, supervisor.ErrExit):
 				s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
 					zap.String("serviceID", id),
-					zap.String("status", string(status)),
+					zap.String("status", status),
 					zap.Error(err),
 				)
 			case errors.Is(err, supervisor.ErrTerminated) || errors.Is(err, context.Canceled):
 				s.logger.Warn(fmt.Sprintf("service %s is %s", id, status),
 					zap.String("serviceID", id),
-					zap.String("status", string(status)),
+					zap.String("status", status),
 					zap.Error(err),
 				)
 			default:
 				s.logger.Error(fmt.Sprintf("service %s is %s", id, status),
 					zap.String("serviceID", id),
-					zap.String("status", string(status)),
+					zap.String("status", status),
 					zap.Error(err),
 				)
 			}
@@ -315,7 +315,7 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 			if details != nil {
 				s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
 					zap.String("serviceID", id),
-					zap.String("status", string(status)),
+					zap.String("status", status),
 					zap.Any("details", details),
 				)
 			}
@@ -323,7 +323,7 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 
 		s.bus.Send(s.ctx, event.Event{
 			System: supervisor.System,
-			Path:   event.Path(id),
+			Path:   id,
 			Kind:   supervisor.Update,
 			Data: State{
 				Status:     status,

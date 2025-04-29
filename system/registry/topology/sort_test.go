@@ -55,6 +55,8 @@ func makeEntryWithMeta(id registry.ID, kind string, data string, meta map[string
 }
 
 // Helper function to compare change sets and report detailed differences
+//
+//nolint:unparam
 func compareChangeSets(t *testing.T, got, want registry.ChangeSet) bool {
 	t.Helper()
 
@@ -525,7 +527,7 @@ func TestCreateChangeSetFromEntries_GroupDependencies(t *testing.T) {
 				),
 			},
 			validate: func(cs registry.ChangeSet) error {
-				var posA, posB int = -1, -1
+				var posA, posB = -1, -1
 				for i, op := range cs {
 					if op.Entry.ID.NS == "ns1" && op.Entry.ID.Name == "component.a" {
 						posA = i
@@ -605,7 +607,7 @@ func TestCreateChangeSetFromEntries_ImplicitNamespaceGroup(t *testing.T) {
 				),
 			},
 			validate: func(cs registry.ChangeSet) error {
-				var apiPos, appPos int = -1, -1
+				var apiPos, appPos = -1, -1
 				for i, op := range cs {
 					if op.Entry.ID.NS == "backend" && op.Entry.ID.Name == "service.api" {
 						apiPos = i
@@ -1098,9 +1100,10 @@ func TestNamespaceDependencyOrdering(t *testing.T) {
 				servicePositions := make(map[string]int)
 
 				for i, op := range cs {
-					if op.Entry.ID.NS == "app" {
+					switch op.Entry.ID.NS {
+					case "app":
 						appPos = i
-					} else if op.Entry.ID.NS == "services" {
+					case "services":
 						servicePositions[op.Entry.ID.String()] = i
 					}
 				}

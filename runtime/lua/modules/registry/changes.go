@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/security"
@@ -142,8 +143,8 @@ func changesDelete(l *lua.LState) int {
 		ns := v.RawGetString("ns")
 		name := v.RawGetString("name")
 		id = regapi.ID{
-			NS:   regapi.Namespace(ns.String()),
-			Name: regapi.Name(name.String()),
+			NS:   ns.String(),
+			Name: name.String(),
 		}
 	default:
 		l.Push(lua.LNil)

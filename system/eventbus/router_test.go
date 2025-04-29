@@ -226,7 +226,7 @@ func TestEventRouter(t *testing.T) {
 		for i := 0; i < numHandlers; i++ {
 			handlers = append(handlers, NewBaseHandler(
 				Pattern{
-					System: event.System(fmt.Sprintf("system-%d", i)),
+					System: fmt.Sprintf("system-%d", i),
 					Kind:   "*",
 				},
 				func(ctx context.Context, evt event.Event) error {
@@ -250,8 +250,8 @@ func TestEventRouter(t *testing.T) {
 						return
 					default:
 						e := event.Event{
-							System: event.System(fmt.Sprintf("system-%d", idx)),
-							Kind:   event.Kind(fmt.Sprintf("event-%d", j)),
+							System: fmt.Sprintf("system-%d", idx),
+							Kind:   fmt.Sprintf("event-%d", j),
 							Data:   []byte("test"),
 						}
 						bus.Send(ctx, e)

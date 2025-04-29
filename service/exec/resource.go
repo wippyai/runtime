@@ -17,7 +17,7 @@ type executorProvider struct {
 }
 
 // Acquire implements resource.Provider.Acquire
-func (p *executorProvider) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (p *executorProvider) Acquire(_ context.Context, _ registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 

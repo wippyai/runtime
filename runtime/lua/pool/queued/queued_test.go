@@ -50,6 +50,8 @@ func withFunction(source string, method string) testOption {
 }
 
 // withEngineOption adds an engine option to the configuration
+//
+//nolint:unused
 func withEngineOption(opt engine.Option) testOption {
 	return func(cfg *testFactoryConfig) {
 		cfg.engineOpts = append(cfg.engineOpts, opt)
@@ -57,6 +59,8 @@ func withEngineOption(opt engine.Option) testOption {
 }
 
 // withFactoryOption adds a factory option to the configuration
+//
+//nolint:unused
 func withFactoryOption(opt component.Option) testOption {
 	return func(cfg *testFactoryConfig) {
 		cfg.factoryOpts = append(cfg.factoryOpts, opt)

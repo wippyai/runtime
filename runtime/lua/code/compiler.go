@@ -3,6 +3,7 @@ package code
 import (
 	"errors"
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime/lua"
 	lru "github.com/ponyruntime/pony/internal/cache"
@@ -155,6 +156,7 @@ func (c *Compiler) Compile(
 	return compiled, nil
 }
 
+//nolint:unparam
 func (c *Compiler) preloadModule(memGraph *MemoryGraph, pre Preload, compiled *CompiledMain) (*CompiledMain, error) {
 	node, err := memGraph.GetNode(pre.ModuleID)
 	if err != nil {

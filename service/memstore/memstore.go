@@ -2,9 +2,10 @@ package memstore
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/service/memstore"
 	"sync"
 	"time"
+
+	"github.com/ponyruntime/pony/api/service/memstore"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -110,7 +111,7 @@ func (m *MemoryStore) Stop(ctx context.Context) error {
 }
 
 // Get retrieves a value by key
-func (m *MemoryStore) Get(ctx context.Context, key registry.ID) (payload.Payload, error) {
+func (m *MemoryStore) Get(_ context.Context, key registry.ID) (payload.Payload, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -149,7 +150,7 @@ func (m *MemoryStore) Get(ctx context.Context, key registry.ID) (payload.Payload
 }
 
 // Set stores or updates a value with the given key
-func (m *MemoryStore) Set(ctx context.Context, entry store.Entry) error {
+func (m *MemoryStore) Set(_ context.Context, entry store.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -182,7 +183,7 @@ func (m *MemoryStore) Set(ctx context.Context, entry store.Entry) error {
 }
 
 // Delete removes a value with the given key
-func (m *MemoryStore) Delete(ctx context.Context, key registry.ID) error {
+func (m *MemoryStore) Delete(_ context.Context, key registry.ID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -319,7 +320,6 @@ func (r *storeResource) Release() {
 	}
 
 	r.closed = true
-	return
 }
 
 // Ensure MemoryStore implements all required interfaces

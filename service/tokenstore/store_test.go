@@ -3,12 +3,14 @@ package tokenstore_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"go.uber.org/zap"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -81,7 +83,7 @@ func (p *testPolicy) ID() registry.ID {
 	return p.id
 }
 
-func (p *testPolicy) Evaluate(actor security.Actor, action, resource string, meta registry.Metadata) security.Result {
+func (p *testPolicy) Evaluate(_ security.Actor, _, _ string, _ registry.Metadata) security.Result {
 	return p.decision
 }
 
@@ -450,7 +452,7 @@ func TestEdgeCases(t *testing.T) {
 	assert.Error(t, err)
 	// The error could be either TokenInvalid or TokenNotFound depending on whether the
 	// token format is recognized but not found or rejected outright
-	assert.True(t, err == security.ErrTokenInvalid || err == security.ErrTokenNotFound,
+	assert.True(t, errors.Is(err, security.ErrTokenInvalid) || errors.Is(err, security.ErrTokenNotFound),
 		"Expected either token invalid or token not found error, got: %v", err)
 
 	// Test case: Create token with never expiring TTL
@@ -701,7 +703,7 @@ func TestStoreResourceCleanup(t *testing.T) {
 	token, err := ts.Create(ctx, actor, nil, security.TokenDetails{})
 	require.NoError(t, err)
 
-	// Validate with a cancelled context to simulate an error
+	// Validate with a canceled context to simulate an error
 	cancelCtx, cancel := context.WithCancel(ctx)
 	cancel() // Cancel immediately
 
@@ -709,7 +711,7 @@ func TestStoreResourceCleanup(t *testing.T) {
 	// that don't check ctx.Done() early enough
 	_, _, err = ts.Validate(cancelCtx, token)
 	// We don't assert on the error here, as the implementation might handle
-	// the cancelled context differently
+	// the canceled context differently
 
 	// We should still be able to validate with a valid context
 	validatedActor, _, err := ts.Validate(ctx, token)

@@ -9,7 +9,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/service/http"
@@ -18,7 +17,6 @@ import (
 // EndpointFactory creates HTTP handlers for function endpoints
 type EndpointFactory struct {
 	funcs function.Registry
-	dtt   payload.Transcoder
 }
 
 // Ensure EndpointFactory implements EndpointFactoryAPI
@@ -35,7 +33,7 @@ func NewEndpointFactory(funcs function.Registry) (*EndpointFactory, error) {
 }
 
 // CreateHandler creates an HTTP handler from the provided endpoint configuration
-func (f *EndpointFactory) CreateHandler(ctx context.Context, cfg *config.EndpointConfig) (http.Handler, error) {
+func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointConfig) (http.Handler, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid endpoint config: %w", err)
 	}
@@ -143,7 +141,7 @@ func NewStaticFactory(fsReg fs.Registry) (*StaticFactory, error) {
 }
 
 // CreateHandler creates an HTTP handler from the provided static file configuration
-func (f *StaticFactory) CreateHandler(ctx context.Context, cfg *config.StaticConfig) (http.Handler, error) {
+func (f *StaticFactory) CreateHandler(_ context.Context, cfg *config.StaticConfig) (http.Handler, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid static config: %w", err)
 	}

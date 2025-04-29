@@ -29,7 +29,7 @@ func (t *TextArea) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (t *TextArea) View() string {
-	return t.View()
+	return t.model.View()
 }
 
 // RegisterTextArea registers the text area component to Lua.

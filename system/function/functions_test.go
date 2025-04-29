@@ -87,7 +87,7 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(_ *testing.T) {
 			// Just verify no panic occurs
 			bus.Send(ctx, tt.evt)
 			time.Sleep(1 * time.Millisecond)
@@ -139,7 +139,7 @@ func TestFunctions_EventResponses(t *testing.T) {
 				System: function.System,
 				Kind:   function.Register,
 				Path:   "default:test.handler",
-				Data: function.Func(func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+				Data: function.Func(func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 					return make(chan *runtime.Result), nil
 				}),
 			},
@@ -251,7 +251,7 @@ func TestFunctions_Execute(t *testing.T) {
 			name: "successful execution",
 			setupHandler: func(bus event.Bus, wg *sync.WaitGroup) {
 				target := registry.ID{NS: "test", Name: "handler"}
-				handler := func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+				handler := func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 					resultChan := make(chan *runtime.Result, 1)
 					resultChan <- &runtime.Result{
 						Value: payload.New("success"),
@@ -286,7 +286,7 @@ func TestFunctions_Execute(t *testing.T) {
 			name: "handler returns error",
 			setupHandler: func(bus event.Bus, wg *sync.WaitGroup) {
 				target := registry.ID{NS: "error", Name: "handler"}
-				handler := func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+				handler := func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 					return nil, fmt.Errorf("handler error")
 				}
 

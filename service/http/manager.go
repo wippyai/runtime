@@ -180,7 +180,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 // Begin starts a transaction for applying changes
 // This clears any pending rebuilds
-func (m *Manager) Begin(ctx context.Context) {
+func (m *Manager) Begin(_ context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.pending = make(map[registry.ID]bool)
@@ -206,7 +206,7 @@ func (m *Manager) Commit(ctx context.Context) {
 }
 
 // Discard cancels any pending changes without applying them
-func (m *Manager) Discard(ctx context.Context) {
+func (m *Manager) Discard(_ context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.pending = make(map[registry.ID]bool)

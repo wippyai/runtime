@@ -20,12 +20,14 @@ func (m *mockTeaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 func (m *mockTeaModel) View() string { return "" }
 
+//nolint:unused
 type mockLuaModel struct {
 	lastMsg tea.Msg
 	L       *lua.LState
 	ud      *lua.LUserData
 }
 
+//nolint:unused
 func newMockLuaModel(L *lua.LState) *mockLuaModel {
 	m := &mockLuaModel{L: L}
 	m.ud = L.NewUserData()
@@ -34,11 +36,16 @@ func newMockLuaModel(L *lua.LState) *mockLuaModel {
 	return m
 }
 
+//nolint:unused
 func (m *mockLuaModel) Init() tea.Cmd { return nil }
+
+//nolint:unused
 func (m *mockLuaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.lastMsg = msg
 	return m, nil
 }
+
+//nolint:unused
 func (m *mockLuaModel) View() string { return "" }
 
 func setupZoneState(t *testing.T) *lua.LState {

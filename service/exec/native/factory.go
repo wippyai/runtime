@@ -19,6 +19,6 @@ func NewExecutorFactory(log *zap.Logger) *ExecutorFactory {
 }
 
 // CreateExecutor implements ExecutorFactoryAPI
-func (f *ExecutorFactory) CreateExecutor(id registry.ID, cfg *exec.NativeExecutorConfig) (exec.ProcessExecutor, error) {
+func (f *ExecutorFactory) CreateExecutor(_ registry.ID, cfg *exec.NativeExecutorConfig) (exec.ProcessExecutor, error) {
 	return NewNativeExecutor(f.log, cfg), nil
 }

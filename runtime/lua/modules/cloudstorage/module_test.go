@@ -205,6 +205,8 @@ func (m *mockResourceRegistry) Exists(id registry.ID) bool {
 }
 
 // setupTestEnvironment creates a test environment with CloudStorage module and mock storage
+//
+//nolint:unparam
 func setupTestEnvironment(t *testing.T, mockStorage cloudstorage.Storage) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner) {
 	logger := zaptest.NewLogger(t)
 

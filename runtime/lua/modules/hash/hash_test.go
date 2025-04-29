@@ -68,9 +68,9 @@ func calculateHMAC(data, secret string, hashType string) string {
 	var h hash.Hash
 	switch hashType {
 	case "md5":
-		h = hmac.New(md5.New, []byte(secret)) //nolint:gosec
+		h = hmac.New(md5.New, []byte(secret))
 	case "sha1":
-		h = hmac.New(sha1.New, []byte(secret)) //nolint:gosec
+		h = hmac.New(sha1.New, []byte(secret))
 	case "sha256":
 		h = hmac.New(sha256.New, []byte(secret))
 	case "sha512":
@@ -84,9 +84,9 @@ func calculateRawHMAC(data, secret string, hashType string) []byte {
 	var h hash.Hash
 	switch hashType {
 	case "md5":
-		h = hmac.New(md5.New, []byte(secret)) //nolint:gosec
+		h = hmac.New(md5.New, []byte(secret))
 	case "sha1":
-		h = hmac.New(sha1.New, []byte(secret)) //nolint:gosec
+		h = hmac.New(sha1.New, []byte(secret))
 	case "sha256":
 		h = hmac.New(sha256.New, []byte(secret))
 	case "sha512":

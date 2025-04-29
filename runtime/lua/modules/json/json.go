@@ -216,7 +216,7 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 		}
 
 		// If table is an array (sequential numeric keys)
-		if isArray && !(isObject && !j.options.TreatMixedKeysAsObjects) {
+		if isArray && (!isObject || j.options.TreatMixedKeysAsObjects) {
 			// Create an array to hold all values
 			arr := make([]*jsonValue, int(maxArrayIndex))
 
@@ -244,38 +244,38 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 				putJSONValue(child)
 			}
 			return b, err
-		} else {
-			// It's an object (string keys) or we're treating mixed keys as object
-			obj := make(map[string]*jsonValue)
-
-			// Iterate through all keys
-			for k, v := converted.Next(lua.LNil); k != lua.LNil; k, v = converted.Next(k) {
-				var keyStr string
-
-				// Convert the key to string
-				switch kt := k.(type) {
-				case lua.LString:
-					keyStr = string(kt)
-				case lua.LNumber:
-					// Convert number keys to strings for objects
-					keyStr = fmt.Sprintf("%v", float64(kt))
-				case lua.LBool:
-					// Convert boolean keys to strings
-					keyStr = fmt.Sprintf("%v", bool(kt))
-				default:
-					// Skip keys that can't be converted to strings
-					continue
-				}
-
-				obj[keyStr] = getJSONValue(v, newPath, j.depth+1, j.options)
-			}
-
-			b, err := json.Marshal(obj)
-			for _, child := range obj {
-				putJSONValue(child)
-			}
-			return b, err
 		}
+
+		// It's an object (string keys) or we're treating mixed keys as object
+		obj := make(map[string]*jsonValue)
+
+		// Iterate through all keys
+		for k, v := converted.Next(lua.LNil); k != lua.LNil; k, v = converted.Next(k) {
+			var keyStr string
+
+			// Convert the key to string
+			switch kt := k.(type) {
+			case lua.LString:
+				keyStr = string(kt)
+			case lua.LNumber:
+				// Convert number keys to strings for objects
+				keyStr = fmt.Sprintf("%v", float64(kt))
+			case lua.LBool:
+				// Convert boolean keys to strings
+				keyStr = fmt.Sprintf("%v", bool(kt))
+			default:
+				// Skip keys that can't be converted to strings
+				continue
+			}
+
+			obj[keyStr] = getJSONValue(v, newPath, j.depth+1, j.options)
+		}
+
+		b, err := json.Marshal(obj)
+		for _, child := range obj {
+			putJSONValue(child)
+		}
+		return b, err
 	case *lua.LUserData:
 		if str, ok := converted.Value.(string); ok {
 			return json.Marshal(str)

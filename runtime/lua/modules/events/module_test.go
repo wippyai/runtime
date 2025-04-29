@@ -2,6 +2,8 @@ package events
 
 import (
 	"context"
+	"testing"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
@@ -11,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 	luaapi "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
 )
 
 func TestEventsModule_BasicSubscribe(t *testing.T) {
@@ -118,5 +119,4 @@ func TestEventsModule_BasicSubscribe(t *testing.T) {
 	// assert that the test was successful
 	require.True(t, mp["success"].(bool))
 	require.Equal(t, float64(1), mp["event_count"].(float64))
-
 }

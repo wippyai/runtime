@@ -149,7 +149,7 @@ func (m *Module) setOptions(l *lua.LState) int {
 	}
 
 	// Check for any other options - first one becomes error
-	options.ForEach(func(k lua.LValue, v lua.LValue) {
+	options.ForEach(func(k lua.LValue, _ lua.LValue) {
 		if k.Type() == lua.LTString {
 			keyStr := string(k.(lua.LString))
 			if keyStr != "trap_links" && unsupportedOption == "" {

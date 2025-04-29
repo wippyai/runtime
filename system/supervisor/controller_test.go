@@ -1466,7 +1466,7 @@ func TestController_RetryDelay(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	ctr := NewController(ctx, mock, config, func(status supervisor.Status, _ any) {})
+	ctr := NewController(ctx, mock, config, func(_ supervisor.Status, _ any) {})
 	err := ctr.Start()
 	if err == nil {
 		t.Fatal("Expected error from Serve() due to immediate failure, got nil")

@@ -2,6 +2,7 @@ package builder
 
 import (
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/service/sql"
 
 	"github.com/Masterminds/squirrel"
@@ -67,7 +68,7 @@ func registerSelectBuilderType(l *lua.LState) {
 		"distinct":           selectDistinct,
 		"suffix":             selectSuffix,
 		"placeholder_format": selectPlaceholderFormat,
-		"to_sql":             selectToSql,
+		"to_sql":             selectToSQL,
 		"run_with":           selectRunWith,
 	}
 
@@ -137,7 +138,7 @@ func selectWhere(l *lua.LState) int {
 	if wrapper == nil {
 		return 0
 	}
-	
+
 	// Updated builder to store result
 	var newBuilder squirrel.SelectBuilder
 
@@ -529,9 +530,9 @@ func selectPlaceholderFormat(l *lua.LState) int {
 	return 1
 }
 
-// selectToSql generates the SQL and args (for debugging)
+// selectToSQL generates the SQL and args (for debugging)
 // Usage: sql, args = builder:to_sql()
-func selectToSql(l *lua.LState) int {
+func selectToSQL(l *lua.LState) int {
 	wrapper := checkSelectBuilder(l)
 	if wrapper == nil {
 		return 0

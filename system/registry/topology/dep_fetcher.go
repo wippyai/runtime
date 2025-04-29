@@ -175,7 +175,7 @@ func removeDuplicates(slice []string) []string {
 func fetchDependencies(entry registry.Entry) []string {
 	combinedData := make(map[string]any)
 
-	if entry.Meta != nil && len(entry.Meta) > 0 {
+	if len(entry.Meta) > 0 {
 		combinedData["meta"] = entry.Meta
 	}
 

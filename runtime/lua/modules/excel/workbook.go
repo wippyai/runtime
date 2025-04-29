@@ -34,6 +34,8 @@ func (w *Workbook) Close() error {
 }
 
 // checkWorkbook checks if the userdata is a valid Workbook
+//
+//nolint:unparam
 func checkWorkbook(l *lua.LState, idx int) *Workbook {
 	ud := l.CheckUserData(idx)
 	if v, ok := ud.Value.(*Workbook); ok {

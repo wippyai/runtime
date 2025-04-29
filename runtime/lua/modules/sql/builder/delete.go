@@ -2,6 +2,7 @@ package builder
 
 import (
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/service/sql"
 
 	"github.com/Masterminds/squirrel"
@@ -54,7 +55,7 @@ func registerDeleteBuilderType(l *lua.LState) {
 		"offset":             deleteOffset,
 		"suffix":             deleteSuffix,
 		"placeholder_format": deletePlaceholderFormat,
-		"to_sql":             deleteToSql,
+		"to_sql":             deleteToSQL,
 		"run_with":           deleteRunWith,
 	}
 
@@ -288,9 +289,9 @@ func deletePlaceholderFormat(l *lua.LState) int {
 	return 1
 }
 
-// deleteToSql generates the SQL and args
+// deleteToSQL generates the SQL and args
 // Usage: sql, args = builder:to_sql()
-func deleteToSql(l *lua.LState) int {
+func deleteToSQL(l *lua.LState) int {
 	wrapper := checkDeleteBuilder(l)
 	if wrapper == nil {
 		return 0

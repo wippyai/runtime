@@ -35,7 +35,6 @@ type Operation struct {
 // Sequencer handles ordered processing of service operations based on dependencies
 type Sequencer struct {
 	logger *zap.Logger
-	mu     sync.RWMutex
 }
 
 // NewSequencer creates a new sequence processor

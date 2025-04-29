@@ -2,6 +2,7 @@ package function
 
 import (
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
@@ -64,8 +65,12 @@ func (f *Factory) CreateVM() (api.VM, error) {
 	}
 
 	// Create and return VM using the factory
+	// FIXME somewhy err ignored
+	//nolint:staticcheck
 	vm, err := realFactory.CreateVM()
 	if err := realFactory.Close(); err != nil {
+		// FIXME always true
+		//nolint:staticcheck
 		if vm != nil {
 			vm.Close()
 		}

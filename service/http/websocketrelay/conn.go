@@ -1,11 +1,10 @@
-package websocket_relay
+package websocketrelay
 
 import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/ponyruntime/pony/api/topology"
 	"sync/atomic"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/internal/uniqid"
 	"go.uber.org/zap"
 )
@@ -324,7 +324,7 @@ func (c *Connection) handleControlMessage(p payload.Payload) {
 
 	// Update message topic if provided
 	if command.MessageTopic != "" {
-		c.currentMessageTopic = pubsub.Topic(command.MessageTopic)
+		c.currentMessageTopic = command.MessageTopic
 		c.logger.Debug("updated message topic", zap.String("newTopic", command.MessageTopic))
 	}
 
@@ -338,7 +338,7 @@ func (c *Connection) handleControlMessage(p payload.Payload) {
 	}
 
 	// Update metadata if provided
-	if command.Metadata != nil && len(command.Metadata) > 0 {
+	if len(command.Metadata) > 0 {
 		c.config.Metadata = command.Metadata
 		c.logger.Debug("updated metadata", zap.Any("metadata", command.Metadata))
 	}
@@ -377,7 +377,7 @@ func (c *Connection) handleTargetPIDChange(command RelayCommand) {
 		}
 
 		// Store any updated metadata
-		if command.Metadata != nil && len(command.Metadata) > 0 {
+		if len(command.Metadata) > 0 {
 			c.config.Metadata = command.Metadata
 			c.logger.Debug("updated metadata on target change", zap.Any("metadata", command.Metadata))
 		}
@@ -419,7 +419,7 @@ func (c *Connection) forwardPayloadToWebSocket(topic pubsub.Topic, payloads ...p
 			Topic string `json:"topic"`
 			Data  any    `json:"data"`
 		}{
-			Topic: string(topic),
+			Topic: topic,
 		}
 
 		// Process different payload types

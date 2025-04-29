@@ -224,4 +224,6 @@ func (u *unitOfWork) reset() {
 }
 
 // Context key for UnitOfWork
-var unitOfWorkKey = struct{}{}
+type unitOfWorkKeyType struct{}
+
+var unitOfWorkKey = unitOfWorkKeyType{}

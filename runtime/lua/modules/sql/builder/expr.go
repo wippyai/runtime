@@ -2,6 +2,7 @@ package builder
 
 import (
 	"fmt"
+
 	"github.com/Masterminds/squirrel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
@@ -64,7 +65,7 @@ func registerExpressionBuilders(l *lua.LState, mod *lua.LTable) {
 func registerSqlizerMetatable(l *lua.LState) {
 	// Define methods
 	methods := map[string]lua.LGFunction{
-		"to_sql": sqlizerToSql,
+		"to_sql": sqlizerToSQL,
 	}
 
 	// Define metamethods
@@ -106,8 +107,8 @@ func sqlizerToString(l *lua.LState) int {
 	return 1
 }
 
-// sqlizerToSql implements the to_sql method for Sqlizer objects
-func sqlizerToSql(l *lua.LState) int {
+// sqlizerToSQL implements the to_sql method for Sqlizer objects
+func sqlizerToSQL(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	sqlizer, ok := ud.Value.(squirrel.Sqlizer)
 	if !ok {

@@ -16,7 +16,6 @@ func mapsEqual(a, b map[string]any) bool {
 		if aMap, aOk := aVal.(map[string]any); aOk {
 			if bMap, bOk := bVal.(map[string]any); bOk {
 				if !mapsEqual(aMap, bMap) {
-
 					return false
 				}
 				continue
