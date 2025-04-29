@@ -88,6 +88,9 @@ entries:
     prefix: /api/v1
     timeouts:
       request: 30s
+    middleware:
+      - cors
+      - websocket_relay
 
   - name: terminal
     kind: terminal.host
