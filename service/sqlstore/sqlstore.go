@@ -96,12 +96,7 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 		return nil, err
 	}
 	p := payload.NewPayload(data, payload.JSON)
-	s.log.Debug(fmt.Sprintf("p ===== %#v\n", p))
 	err = json.Unmarshal(data, p)
-
-	s.log.Debug(fmt.Sprintf("data ===== %#v\n", data))
-	s.log.Debug(fmt.Sprintf("1===== %#v\n", err))
-	s.log.Debug(fmt.Sprintf("2 ==== %#v\n", p))
 
 	return p, nil
 }
@@ -165,45 +160,24 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 	// Insert or update based on existence
 	if err == sql2.ErrNoRows {
 		// Insert a new entry
-		if expiryTime != nil {
-			query = fmt.Sprintf(
-				"INSERT INTO %s (%s, %s, %s) VALUES ($1, $2, $3)",
-				s.config.TableName,
-				s.config.IDColumnName,
-				s.config.PayloadColumnName,
-				s.config.ExpireColumnName,
-			)
-			args = []interface{}{entry.Key.String(), valueBytes, expiryTime}
-		} else {
-			query = fmt.Sprintf(
-				"INSERT INTO %s (%s, %s) VALUES ($1, $2)",
-				s.config.TableName,
-				s.config.IDColumnName,
-				s.config.PayloadColumnName,
-			)
-			args = []interface{}{entry.Key.String(), valueBytes}
-		}
+		query = fmt.Sprintf(
+			"INSERT INTO %s (%s, %s, %s) VALUES ($1, $2, $3)",
+			s.config.TableName,
+			s.config.IDColumnName,
+			s.config.PayloadColumnName,
+			s.config.ExpireColumnName,
+		)
+		args = []interface{}{entry.Key.String(), valueBytes, nil}
 	} else {
 		// Update existing entry
-		if expiryTime != nil {
-			query = fmt.Sprintf(
-				"UPDATE %s SET %s = $1, %s = $2 WHERE %s = $3",
-				s.config.TableName,
-				s.config.PayloadColumnName,
-				s.config.ExpireColumnName,
-				s.config.IDColumnName,
-			)
-			args = []interface{}{valueBytes, expiryTime, entry.Key.String()}
-		} else {
-			query = fmt.Sprintf(
-				"UPDATE %s SET %s = $1, %s = NULL WHERE %s = $2",
-				s.config.TableName,
-				s.config.PayloadColumnName,
-				s.config.ExpireColumnName,
-				s.config.IDColumnName,
-			)
-			args = []interface{}{valueBytes, entry.Key.String()}
-		}
+		query = fmt.Sprintf(
+			"UPDATE %s SET %s = $1, %s = $2 WHERE %s = $3",
+			s.config.TableName,
+			s.config.PayloadColumnName,
+			s.config.ExpireColumnName,
+			s.config.IDColumnName,
+		)
+		args = []interface{}{valueBytes, expiryTime, entry.Key.String()}
 	}
 
 	// Execute the query
@@ -220,6 +194,17 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 // Delete removes a value with the given key
 // Returns ErrKeyNotFound if the key doesn't exist
 func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
+	// First, check if the key exists
+	has, err := s.Has(ctx, key)
+	if has {
+		if err != nil {
+			s.log.Error("failed to check if key exists",
+				zap.String("error", err.Error()),
+				zap.String("resource", s.config.Database.Name))
+			return err
+		}
+	}
+
 	reg := resource.GetResources(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
@@ -239,25 +224,6 @@ func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
 	}
 
 	db := conn.(sql.DBResource).DB
-
-	// First check if the key exists
-	existsQuery := fmt.Sprintf(
-		"SELECT 1 FROM %s WHERE %s = ?",
-		s.config.TableName,
-		s.config.IDColumnName,
-	)
-
-	var exists bool
-	err = db.QueryRowContext(ctx, existsQuery, key.String()).Scan(&exists)
-	if err == sql2.ErrNoRows {
-		return store.ErrKeyNotFound
-	}
-	if err != nil {
-		s.log.Error("failed to check if key exists",
-			zap.String("error", err.Error()),
-			zap.String("key", key.String()))
-		return err
-	}
 
 	// Delete the key
 	deleteQuery := fmt.Sprintf(
@@ -371,13 +337,13 @@ func (r *storeResource) Release() {
 
 func (s *SQLStore) cleanupLoop(ctx context.Context) {
 	defer s.wg.Done()
-	ticker := time.NewTicker(CleanupInterval)
+	ticker := time.NewTicker(s.config.CleanupInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			s.cleanup()
+			s.cleanup(ctx)
 		case <-s.stopChan:
 			s.log.Debug("cleanup routine stopped")
 			return
@@ -388,17 +354,51 @@ func (s *SQLStore) cleanupLoop(ctx context.Context) {
 	}
 }
 
-func (s *SQLStore) cleanup() {
-	now := time.Now()
-
+func (s *SQLStore) cleanup(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	reg := resource.GetResources(ctx)
+	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
+	if err != nil {
+		s.log.Error("failed to acquire database resource",
+			zap.String("error", err.Error()),
+			zap.String("resource", s.config.Database.Name))
+		return
+	}
+	defer res.Release()
+
+	conn, err := res.Get()
+	if err != nil {
+		s.log.Error("failed to get database connection",
+			zap.String("error", err.Error()),
+			zap.String("resource", s.config.Database.Name))
+		return
+	}
+
+	db := conn.(sql.DBResource).DB
 
 	if s.closed {
 		return
 	}
 
-	s.log.Info("CLEANUP", zap.String("time", now.String()))
+	query := fmt.Sprintf(
+		"DELETE FROM %s WHERE %s IS NOT NULL AND %s < now()",
+		s.config.TableName,
+		s.config.ExpireColumnName,
+		s.config.ExpireColumnName,
+	)
+
+	ret, err := db.ExecContext(ctx, query)
+	if err != nil {
+		s.log.Error("failed to execute cleanup query",
+			zap.String("error", err.Error()),
+			zap.String("resource", s.config.Database.Name))
+		return
+	}
+	rows, _ := ret.RowsAffected()
+
+	s.log.Info(fmt.Sprintf("sqlstore store cleanup cycle. %d rows affected", rows), zap.String("time", time.Now().String()))
 }
 
 func (s *SQLStore) Start(ctx context.Context) (<-chan any, error) {
@@ -409,10 +409,12 @@ func (s *SQLStore) Start(ctx context.Context) (<-chan any, error) {
 		return nil, store.ErrStoreClosed
 	}
 
-	s.wg.Add(1)
-	go s.cleanupLoop(ctx)
-	s.log.Info("started cleanup routine",
-		zap.Duration("interval", CleanupInterval))
+	if s.config.CleanupInterval > 0 {
+		s.wg.Add(1)
+		go s.cleanupLoop(ctx)
+		s.log.Info("started cleanup routine",
+			zap.Duration("interval", s.config.CleanupInterval))
+	}
 
 	select {
 	case s.statusChan <- "sqlstore store started":

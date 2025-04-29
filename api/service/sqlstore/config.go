@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"time"
 )
 
 // Registry kind constant for the SQL KV store
@@ -29,6 +30,11 @@ type SQLConfig struct {
 
 	// ExpireColumnName is the name of the column used for storing expiration timestamps
 	ExpireColumnName string `json:"expire_column_name"`
+
+	// CleanupInterval is how often the store checks for expired entries
+	// The store will run a background task at this interval to remove entries with expired TTLs
+	// Set to 0 to disable automatic cleanup
+	CleanupInterval time.Duration `json:"cleanup_interval"`
 
 	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 }
@@ -61,6 +67,11 @@ func (c *SQLConfig) Validate() error {
 		return fmt.Errorf("expire_column_name is required")
 	}
 
+	// CleanupInterval must be non-negative (0 means no cleanup)
+	if c.CleanupInterval < 0 {
+		return fmt.Errorf("cleanup_interval must be greater than or equal to 0")
+	}
+
 	return nil
 }
 
@@ -87,6 +98,7 @@ func (c *SQLConfig) InitDefaults() {
 func (c *SQLConfig) UnmarshalJSON(data []byte) error {
 	type Alias SQLConfig
 	aux := &struct {
+		CleanupInterval string `json:"cleanup_interval"`
 		*Alias
 	}{
 		Alias: (*Alias)(c),
@@ -96,6 +108,14 @@ func (c *SQLConfig) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	var err error
+	if aux.CleanupInterval != "" {
+		c.CleanupInterval, err = time.ParseDuration(aux.CleanupInterval)
+		if err != nil {
+			return fmt.Errorf("invalid CleanupInterval duration format: %w", err)
+		}
+	}
+	
 	return nil
 }
 
