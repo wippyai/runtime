@@ -38,9 +38,9 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("fnv32", l.NewFunction(m.fnv32))
 	mod.RawSetString("fnv64", l.NewFunction(m.fnv64))
 	mod.RawSetString("hmac_sha256", l.NewFunction(m.hmacSha256))
-	mod.RawSetString("hmacSha512", l.NewFunction(m.hmacSha512))
-	mod.RawSetString("hmacSha1", l.NewFunction(m.hmacSha1))
-	mod.RawSetString("hmacMd5", l.NewFunction(m.hmacMd5))
+	mod.RawSetString("hmac_sha512", l.NewFunction(m.hmacSha512))
+	mod.RawSetString("hmac_sha1", l.NewFunction(m.hmacSha1))
+	mod.RawSetString("hmac_md5", l.NewFunction(m.hmacMd5))
 
 	l.Push(mod)
 	return 1
