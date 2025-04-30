@@ -99,7 +99,7 @@ func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 	if o.Mode == StrictListed {
 		for _, required := range o.Required {
 			if !contains(o.Allowed, required) {
-				return fmt.Errorf("required Process `%v` must also be in allowed list (StrictListed mode)", required)
+				return fmt.Errorf("required process `%v` must also be in allowed list (StrictListed mode)", required)
 			}
 		}
 	}
@@ -143,7 +143,7 @@ func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 	// Verify all required IDs were found
 	for id, found := range foundRequired {
 		if !found {
-			return fmt.Errorf("required Process `%v` was not found", id)
+			return fmt.Errorf("required process `%v` was not found", id)
 		}
 	}
 
