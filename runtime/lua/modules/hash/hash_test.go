@@ -627,7 +627,7 @@ func TestHashModuleWithVM_HMAC(t *testing.T) {
 				local results = {}
 				
 				-- Test binary option for each hmac function
-				results.hmac_md5_hex = hash.hmacMd5(input, secret)
+				results.hmac_md5_hex = hash.hmac_md5(input, secret)
 				results.hmac_md5_bin = hash.hmac_md5(input, secret, true)
 				results.hmac_sha1_hex = hash.hmac_sha1(input, secret)
 				results.hmac_sha1_bin = hash.hmac_sha1(input, secret, true)
