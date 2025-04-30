@@ -177,13 +177,12 @@ func createTestEntry(key string, value any) store.Entry {
 	}
 }
 
-func TestSQLStore_Delete(t *testing.T) {
+func MakeStore(t *testing.T) (*SQLStore, *sql.DB, context.Context) {
 	// Create a default config
 	config := createDefaultConfig()
 
 	// Set up database
 	db := setupTestDB(t)
-	defer db.Close()
 	setupSQLStoreTable(t, db, config)
 
 	// Set up registry with working resource
@@ -202,183 +201,78 @@ func TestSQLStore_Delete(t *testing.T) {
 
 	// Create store
 	logger := zap.NewNop()
-	store := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+
+	return NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger), db, ctx
+}
+
+func TestSQLStore_Delete(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
 
 	// Set a test value
 	testKey := registry.ParseID("test:key1")
 	testValue := "test value"
-	err := store.Set(ctx, createTestEntry("test:key1", testValue))
+	err := ss.Set(ctx, createTestEntry("test:key1", testValue))
 	require.NoError(t, err)
 
-	result, err := store.Has(ctx, testKey)
+	result, err := ss.Has(ctx, testKey)
 	require.NoError(t, err)
 	require.True(t, result)
 
 	testKey = registry.ParseID("test:key2")
-	result, err = store.Has(ctx, testKey)
+	result, err = ss.Has(ctx, testKey)
 	require.NoError(t, err)
 	require.False(t, result)
 
-	err = store.Delete(ctx, testKey)
+	err = ss.Delete(ctx, testKey)
 	require.NoError(t, err)
 
-	result, err = store.Has(ctx, testKey)
+	result, err = ss.Has(ctx, testKey)
 	require.NoError(t, err)
 	require.False(t, result)
 }
 
 func TestSQLStore_Has(t *testing.T) {
-	// Create a default config
-	config := createDefaultConfig()
-
-	// Set up database
-	db := setupTestDB(t)
+	ss, db, ctx := MakeStore(t)
 	defer db.Close()
-	setupSQLStoreTable(t, db, config)
-
-	// Set up registry with working resource
-	mockReg := NewMockRegistry()
-	mockReg.resources[config.Database] = &MockResource{
-		value: sqlsvc.DBResource{
-			DB:   db,
-			Type: sqlconfig.KindSQLite,
-		},
-		err: nil,
-	}
-
-	// Create context
-	ctx := createContext(mockReg)
-	ctx = createTranscoderContext(ctx)
-
-	// Create store
-	logger := zap.NewNop()
-	store := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
 
 	// Set a test value
 	testKey := registry.ParseID("test:key1")
 	testValue := "test value"
-	err := store.Set(ctx, createTestEntry("test:key1", testValue))
+	err := ss.Set(ctx, createTestEntry("test:key1", testValue))
 	require.NoError(t, err)
 
-	result, err := store.Has(ctx, testKey)
+	result, err := ss.Has(ctx, testKey)
 	require.NoError(t, err)
 	require.True(t, result)
 
 	testKey = registry.ParseID("test:key2")
-	result, err = store.Has(ctx, testKey)
+	result, err = ss.Has(ctx, testKey)
 	require.NoError(t, err)
 	require.False(t, result)
 }
 
-func TestSQLStore_Set(t *testing.T) {
-	// Create a default config
-	config := createDefaultConfig()
-
-	// Set up database
-	db := setupTestDB(t)
+func TestSQLStore_SetGet(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
 	defer db.Close()
-	setupSQLStoreTable(t, db, config)
-
-	// Set up registry with working resource
-	mockReg := NewMockRegistry()
-	mockReg.resources[config.Database] = &MockResource{
-		value: sqlsvc.DBResource{
-			DB:   db,
-			Type: sqlconfig.KindSQLite,
-		},
-		err: nil,
-	}
-
-	// Create context
-	ctx := createContext(mockReg)
-	ctx = createTranscoderContext(ctx)
-
-	// Create store
-	logger := zap.NewNop()
-	store := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
 
 	// Set a test value
 	testKey := registry.ParseID("test:key1")
 	testValue := "test value"
-	err := store.Set(ctx, createTestEntry("test:key1", testValue))
+	err := ss.Set(ctx, createTestEntry("test:key1", testValue))
 	require.NoError(t, err)
 
-	// Test retrieving the value
-	result, err := store.Get(ctx, testKey)
+	result, err := ss.Get(ctx, testKey)
 
 	require.NoError(t, err)
 	data, ok := result.Data().([]byte)
 	require.True(t, ok)
 
 	assert.Equal(t, testValue, string(data))
-}
 
-// TestSQLStore_Get_Success tests successful retrieval of a value
-func TestSQLStore_Get(t *testing.T) {
-	// Create a default config
-	config := createDefaultConfig()
-
-	// Set up database
-	db := setupTestDB(t)
-	defer db.Close()
-	setupSQLStoreTable(t, db, config)
-
-	// Create test data
-	testKey := registry.ID{NS: "test", Name: "mykey"}
-	testData := map[string]string{"value": "test_value"}
-	jsonData, err := json.Marshal(testData)
-	require.NoError(t, err)
-
-	// Insert test data
-	insertTestData(t, db, config, testKey.String(), jsonData, nil)
-
-	// Set up registry with working resource
-	mockReg := NewMockRegistry()
-	mockReg.resources[config.Database] = &MockResource{
-		value: sqlsvc.DBResource{
-			DB:   db,
-			Type: sqlconfig.KindSQLite,
-		},
-		err: nil,
-	}
-
-	// Create context
-	ctx := createContext(mockReg)
-	ctx = createTranscoderContext(ctx)
-
-	// Create store
-	logger := zap.NewNop()
-	store := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
-
-	// Test Get
-	result, err := store.Get(ctx, testKey)
-
-	// Verify results
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	// Check data content
-	data, ok := result.Data().([]byte)
-	require.True(t, ok)
-
-	var retrieved map[string]string
-	err = json.Unmarshal(data, &retrieved)
-	require.NoError(t, err)
-	assert.Equal(t, testData["value"], retrieved["value"])
-
-	// Test Get with non-existent key
-	nonExistentKey := registry.ID{NS: "test", Name: "non_existent"}
-	result, err = store.Get(ctx, nonExistentKey)
-
-	// Verify results
+	testKey = registry.ParseID("test:keynone")
+	result, err = ss.Get(ctx, testKey)
 	assert.Equal(t, errors.New("key not found"), err)
-	assert.Nil(t, result)
-
-	// Test Get with invalid query (table doesn't exist)
-	result, err = store.Get(ctx, registry.ID{NS: "test", Name: "non_existent_key"})
-
-	// Verify results
-	assert.Error(t, err)
 	assert.Nil(t, result)
 }
 
@@ -419,10 +313,10 @@ func TestSQLStore_Get_ExpiredKey(t *testing.T) {
 
 	// Create store
 	logger := zap.NewNop()
-	store := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+	ss := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
 
 	// Test Get with expired key
-	result, err := store.Get(ctx, testKey)
+	result, err := ss.Get(ctx, testKey)
 	// Verify results - should behave like key not found
 	assert.Equal(t, errors.New("key not found"), err)
 	assert.Nil(t, result)
@@ -470,10 +364,10 @@ func TestSQLStore_Get_ResourceGetError(t *testing.T) {
 
 	// Create store
 	logger := zap.NewNop()
-	store := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+	ss := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
 
 	// Test Get
-	result, err := store.Get(ctx, registry.ID{NS: "test", Name: "key"})
+	result, err := ss.Get(ctx, registry.ID{NS: "test", Name: "key"})
 
 	// Verify results
 	assert.Error(t, err)
