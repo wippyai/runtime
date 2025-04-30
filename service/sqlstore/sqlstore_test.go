@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/ponyruntime/pony/api/store"
 	"testing"
 	"time"
 
@@ -167,6 +168,149 @@ func createContext(reg resource.Registry) context.Context {
 // createTranscoderContext creates a context with the given transcoder
 func createTranscoderContext(ctx context.Context) context.Context {
 	return payload.WithTranscoder(ctx, &MockTranscoder{})
+}
+
+func createTestEntry(key string, value any) store.Entry {
+	return store.Entry{
+		Key:   registry.ParseID(key),
+		Value: payload.New(value),
+	}
+}
+
+func TestSQLStore_Delete(t *testing.T) {
+	// Create a default config
+	config := createDefaultConfig()
+
+	// Set up database
+	db := setupTestDB(t)
+	defer db.Close()
+	setupSQLStoreTable(t, db, config)
+
+	// Set up registry with working resource
+	mockReg := NewMockRegistry()
+	mockReg.resources[config.Database] = &MockResource{
+		value: sqlsvc.DBResource{
+			DB:   db,
+			Type: sqlconfig.KindSQLite,
+		},
+		err: nil,
+	}
+
+	// Create context
+	ctx := createContext(mockReg)
+	ctx = createTranscoderContext(ctx)
+
+	// Create store
+	logger := zap.NewNop()
+	store := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+
+	// Set a test value
+	testKey := registry.ParseID("test:key1")
+	testValue := "test value"
+	err := store.Set(ctx, createTestEntry("test:key1", testValue))
+	require.NoError(t, err)
+
+	result, err := store.Has(ctx, testKey)
+	require.NoError(t, err)
+	require.True(t, result)
+
+	testKey = registry.ParseID("test:key2")
+	result, err = store.Has(ctx, testKey)
+	require.NoError(t, err)
+	require.False(t, result)
+
+	err = store.Delete(ctx, testKey)
+	require.NoError(t, err)
+
+	result, err = store.Has(ctx, testKey)
+	require.NoError(t, err)
+	require.False(t, result)
+}
+
+func TestSQLStore_Has(t *testing.T) {
+	// Create a default config
+	config := createDefaultConfig()
+
+	// Set up database
+	db := setupTestDB(t)
+	defer db.Close()
+	setupSQLStoreTable(t, db, config)
+
+	// Set up registry with working resource
+	mockReg := NewMockRegistry()
+	mockReg.resources[config.Database] = &MockResource{
+		value: sqlsvc.DBResource{
+			DB:   db,
+			Type: sqlconfig.KindSQLite,
+		},
+		err: nil,
+	}
+
+	// Create context
+	ctx := createContext(mockReg)
+	ctx = createTranscoderContext(ctx)
+
+	// Create store
+	logger := zap.NewNop()
+	store := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+
+	// Set a test value
+	testKey := registry.ParseID("test:key1")
+	testValue := "test value"
+	err := store.Set(ctx, createTestEntry("test:key1", testValue))
+	require.NoError(t, err)
+
+	result, err := store.Has(ctx, testKey)
+	require.NoError(t, err)
+	require.True(t, result)
+
+	testKey = registry.ParseID("test:key2")
+	result, err = store.Has(ctx, testKey)
+	require.NoError(t, err)
+	require.False(t, result)
+}
+
+func TestSQLStore_Set(t *testing.T) {
+	// Create a default config
+	config := createDefaultConfig()
+
+	// Set up database
+	db := setupTestDB(t)
+	defer db.Close()
+	setupSQLStoreTable(t, db, config)
+
+	// Set up registry with working resource
+	mockReg := NewMockRegistry()
+	mockReg.resources[config.Database] = &MockResource{
+		value: sqlsvc.DBResource{
+			DB:   db,
+			Type: sqlconfig.KindSQLite,
+		},
+		err: nil,
+	}
+
+	// Create context
+	ctx := createContext(mockReg)
+	ctx = createTranscoderContext(ctx)
+
+	// Create store
+	logger := zap.NewNop()
+	store := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+
+	// Set a test value
+	testKey := registry.ParseID("test:key1")
+	testValue := "test value"
+	err := store.Set(ctx, createTestEntry("test:key1", testValue))
+	require.NoError(t, err)
+
+	// Test retrieving the value
+	result, err := store.Get(ctx, testKey)
+
+	require.NoError(t, err)
+	data, ok := result.Data().([]byte)
+	require.True(t, ok)
+
+	assert.Equal(t, testValue, string(data))
 }
 
 // TestSQLStore_Get_Success tests successful retrieval of a value
