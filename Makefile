@@ -86,19 +86,11 @@ build-runner-embed:
 	mkdir -p ./dist
 	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-embed-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/main.go
 
-lint:
-	docker run --rm -t -v ${PWD}:/app -w /app \
-    --user $(shell id -u):$(shell id -g) \
-    -v $(shell go env GOCACHE):/.cache/go-build -e GOCACHE=/.cache/go-build \
-    -v $(shell go env GOMODCACHE):/.cache/mod -e GOMODCACHE=/.cache/mod \
-    -v ~/.cache/golangci-lint:/.cache/golangci-lint -e GOLANGCI_LINT_CACHE=/.cache/golangci-lint \
-    golangci/golangci-lint:v2.1.5 golangci-lint run --fix
-
 lint-init:
 	# binary will be $(go env GOPATH)/bin/golangci-lint
 	mkdir -p bin
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b bin v2.1.5
 	golangci-lint --version
 
-lint2:
+lint:
 	bin/golangci-lint run
