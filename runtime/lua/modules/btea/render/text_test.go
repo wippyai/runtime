@@ -7,7 +7,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func setupTextState(t *testing.T) *lua.LState {
+func setupTextState(_ *testing.T) *lua.LState {
 	L := lua.NewState()
 	mod := L.NewTable()
 	RegisterTextUtils(L, mod)

@@ -146,7 +146,7 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 	standardMatcher := metadataToMatcher(standardMeta)
 
 	// Filter entries
-	var result []registry.Entry
+	result := make([]registry.Entry, 0)
 	for _, entry := range entries {
 		// Check if entry should be included
 		if !matchesAllCriteria(entry, rootMatchers, regexMatchers, containsMatchers,

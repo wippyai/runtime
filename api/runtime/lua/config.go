@@ -95,6 +95,7 @@ func (c *FunctionConfig) Validate() error {
 	}
 
 	// For flex pools, validate MaxSize
+	//nolint:revive,staticcheck
 	if isFlexPool && c.Pool.MaxSize <= 0 {
 		// No validation error since we'll use DefaultMaxSize
 	}

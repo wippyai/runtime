@@ -292,7 +292,7 @@ func (m *Module) send(l *lua.LState) int {
 		return 2
 	}
 
-	var messages []*pubsub.Message
+	messages := make([]*pubsub.Message, 0)
 	for i := 3; i <= l.GetTop(); i++ {
 		messages = append(messages, &pubsub.Message{
 			Topic:    topic,

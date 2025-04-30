@@ -446,9 +446,9 @@ func TestHashModuleWithVM_HMAC(t *testing.T) {
 			local hash = require("hash")
 			assert(type(hash) == "table")
 			assert(type(hash.hmac_sha256) == "function")
-			assert(type(hash.hmac_sha512) == "function")
-			assert(type(hash.hmac_sha1) == "function")
-			assert(type(hash.hmac_md5) == "function")
+			assert(type(hash.hmacSha512) == "function")
+			assert(type(hash.hmacSha1) == "function")
+			assert(type(hash.hmacMd5) == "function")
 		`, "test")
 		assert.NoError(t, err)
 	})
@@ -473,20 +473,20 @@ func TestHashModuleWithVM_HMAC(t *testing.T) {
 				keyArg:   lua.LNil,
 			},
 			{
-				name:     "hmac_sha512 with number data",
-				function: "hmac_sha512",
+				name:     "hmacSha512 with number data",
+				function: "hmacSha512",
 				dataArg:  lua.LNumber(123),
 				keyArg:   lua.LString("secret"),
 			},
 			{
-				name:     "hmac_sha1 with bool key",
-				function: "hmac_sha1",
+				name:     "hmacSha1 with bool key",
+				function: "hmacSha1",
 				dataArg:  lua.LString("data"),
 				keyArg:   lua.LBool(true),
 			},
 			{
-				name:     "hmac_md5 with table data",
-				function: "hmac_md5",
+				name:     "hmacMd5 with table data",
+				function: "hmacMd5",
 				dataArg:  &lua.LTable{},
 				keyArg:   lua.LString("secret"),
 			},
@@ -550,10 +550,10 @@ func TestHashModuleWithVM_HMAC(t *testing.T) {
 		}
 
 		hmacFuncs := map[string]string{
-			"hmac_md5":    "md5",
-			"hmac_sha1":   "sha1",
+			"hmacMd5":     "md5",
+			"hmacSha1":    "sha1",
 			"hmac_sha256": "sha256",
-			"hmac_sha512": "sha512",
+			"hmacSha512":  "sha512",
 		}
 
 		for _, tc := range testCases {
@@ -627,14 +627,14 @@ func TestHashModuleWithVM_HMAC(t *testing.T) {
 				local results = {}
 				
 				-- Test binary option for each hmac function
-				results.hmac_md5_hex = hash.hmac_md5(input, secret)
-				results.hmac_md5_bin = hash.hmac_md5(input, secret, true)
-				results.hmac_sha1_hex = hash.hmac_sha1(input, secret)
-				results.hmac_sha1_bin = hash.hmac_sha1(input, secret, true)
+				results.hmac_md5_hex = hash.hmacMd5(input, secret)
+				results.hmac_md5_bin = hash.hmacMd5(input, secret, true)
+				results.hmac_sha1_hex = hash.hmacSha1(input, secret)
+				results.hmac_sha1_bin = hash.hmacSha1(input, secret, true)
 				results.hmac_sha256_hex = hash.hmac_sha256(input, secret)
 				results.hmac_sha256_bin = hash.hmac_sha256(input, secret, true)
-				results.hmac_sha512_hex = hash.hmac_sha512(input, secret)
-				results.hmac_sha512_bin = hash.hmac_sha512(input, secret, true)
+				results.hmac_sha512_hex = hash.hmacSha512(input, secret)
+				results.hmac_sha512_bin = hash.hmacSha512(input, secret, true)
 				
 				-- Verify bin and hex are different
 				assert(results.hmac_md5_hex ~= results.hmac_md5_bin)

@@ -221,7 +221,9 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	cm.txNodes[node.ID] = true
 
 	// calculate all dependents
+	//nolint:ineffassign,staticcheck
 	dependents, err := cm.memGraph.GetAllDependents(node.ID)
+	// FIXME do we need to check err?
 
 	invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
 	invalidateIDs = append(invalidateIDs, node.ID)

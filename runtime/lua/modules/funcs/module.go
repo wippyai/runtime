@@ -493,7 +493,7 @@ func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 		return runtime.Task{}, fmt.Errorf("invalid registry ID: %w", err)
 	}
 
-	var payloads []payload.Payload
+	payloads := make([]payload.Payload, 0)
 	for i := targetIndex + 1; i <= l.GetTop(); i++ {
 		val := l.Get(i)
 

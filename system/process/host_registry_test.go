@@ -23,11 +23,11 @@ func (m *mockManagedHost) Send(_ *pubsub.Package) error {
 	return nil
 }
 
-func (m *mockManagedHost) Terminate(_ context.Context, pid pubsub.PID) error {
+func (m *mockManagedHost) Terminate(_ context.Context, _ pubsub.PID) error {
 	return nil
 }
 
-func (m *mockManagedHost) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, error) {
+func (m *mockManagedHost) Launch(_ context.Context, _ *process.Launch) (pubsub.PID, error) {
 	return pubsub.PID{}, nil
 }
 
@@ -37,12 +37,12 @@ func (m *mockDelegatedHost) Send(_ *pubsub.Package) error {
 	return nil
 }
 
-func (m *mockDelegatedHost) Terminate(_ context.Context, pid pubsub.PID) error {
+func (m *mockDelegatedHost) Terminate(_ context.Context, _ pubsub.PID) error {
 	return nil
 }
 
 // Updated to match the Delegated interface with Lifecycle parameter
-func (m *mockDelegatedHost) Launch(_ context.Context, pid pubsub.PID, lf process.Lifecycle, input payload.Payloads) (pubsub.PID, error) {
+func (m *mockDelegatedHost) Launch(_ context.Context, _ pubsub.PID, _ process.Lifecycle, _ payload.Payloads) (pubsub.PID, error) {
 	return pubsub.PID{}, nil
 }
 

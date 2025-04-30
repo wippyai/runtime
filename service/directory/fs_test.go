@@ -172,7 +172,7 @@ func TestFS_Root(t *testing.T) {
 	entries, err := fs.ReadDir("/")
 	require.NoError(t, err)
 	// Expecting the two entries: "file1.txt" and "dir1"
-	var names []string
+	names := make([]string, 0)
 	for _, entry := range entries {
 		names = append(names, entry.Name())
 	}

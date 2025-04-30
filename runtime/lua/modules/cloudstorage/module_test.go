@@ -59,7 +59,7 @@ func newMockCloudStorage() *mockCloudStorage {
 }
 
 // ListObjects implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) ListObjects(ctx context.Context, opts *cloudstorage.ListObjectsOptions) (*cloudstorage.ListObjectsResult, error) {
+func (m *mockCloudStorage) ListObjects(_ context.Context, opts *cloudstorage.ListObjectsOptions) (*cloudstorage.ListObjectsResult, error) {
 	result := &cloudstorage.ListObjectsResult{
 		Objects:     []cloudstorage.ObjectMetadata{},
 		IsTruncated: false,
@@ -87,7 +87,7 @@ func (m *mockCloudStorage) ListObjects(ctx context.Context, opts *cloudstorage.L
 }
 
 // DownloadObject implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) DownloadObject(ctx context.Context, key string, w io.Writer, opts *cloudstorage.DownloadOptions) error {
+func (m *mockCloudStorage) DownloadObject(_ context.Context, key string, w io.Writer, _ *cloudstorage.DownloadOptions) error {
 	obj, exists := m.objects[key]
 	if !exists {
 		return errors.New("object not found")
@@ -99,7 +99,7 @@ func (m *mockCloudStorage) DownloadObject(ctx context.Context, key string, w io.
 }
 
 // UploadObject implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) UploadObject(ctx context.Context, key string, content io.Reader) error {
+func (m *mockCloudStorage) UploadObject(_ context.Context, key string, content io.Reader) error {
 	data, err := io.ReadAll(content)
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func (m *mockCloudStorage) UploadObject(ctx context.Context, key string, content
 }
 
 // DeleteObjects implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) DeleteObjects(ctx context.Context, keys []string) error {
+func (m *mockCloudStorage) DeleteObjects(_ context.Context, keys []string) error {
 	for _, key := range keys {
 		delete(m.objects, key)
 	}
@@ -127,7 +127,7 @@ func (m *mockCloudStorage) DeleteObjects(ctx context.Context, keys []string) err
 }
 
 // PresignedGetURL implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) PresignedGetURL(ctx context.Context, key string, opts *cloudstorage.PresignedGetOptions) (string, error) {
+func (m *mockCloudStorage) PresignedGetURL(_ context.Context, key string, opts *cloudstorage.PresignedGetOptions) (string, error) {
 	_, exists := m.objects[key]
 	if !exists {
 		return "", errors.New("object not found")
@@ -142,7 +142,7 @@ func (m *mockCloudStorage) PresignedGetURL(ctx context.Context, key string, opts
 }
 
 // PresignedPutURL implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) PresignedPutURL(ctx context.Context, key string, opts *cloudstorage.PresignedPutOptions) (string, error) {
+func (m *mockCloudStorage) PresignedPutURL(_ context.Context, key string, opts *cloudstorage.PresignedPutOptions) (string, error) {
 	expiration := opts.Expiration
 	if expiration == 0 {
 		expiration = time.Hour

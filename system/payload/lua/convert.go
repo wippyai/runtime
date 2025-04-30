@@ -28,7 +28,7 @@ func getStructFields(rt reflect.Type) []fieldInfo {
 	if cached, ok := structFieldCache.Load(rt); ok {
 		return cached.([]fieldInfo)
 	}
-	var fields []fieldInfo
+	fields := make([]fieldInfo, 0)
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
 		if !field.IsExported() {
@@ -110,7 +110,7 @@ func GoToLua(v any) (lua.LValue, error) {
 	case time.Time:
 		return lua.LNumber(val.Unix()), nil
 	case payload.Payload:
-		return GoToLua(val.(payload.Payload).Data())
+		return GoToLua(val.Data())
 	case pubsub.PID:
 		return lua.LString(val.String()), nil
 	case []byte:

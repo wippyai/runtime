@@ -189,7 +189,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // Invalidate handles invalidation of functions
-func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
+func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
 	for _, id := range ids {
 		m.log.Debug("invalidating function", zap.String("id", id.String()))
 
@@ -316,7 +316,7 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) (pool, err
 }
 
 // registerCaller registers function in the function system
-func (m *Manager) registerCaller(ctx context.Context, id registry.ID, method string) {
+func (m *Manager) registerCaller(ctx context.Context, id registry.ID, _ string) {
 	m.bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Register,

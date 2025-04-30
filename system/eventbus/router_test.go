@@ -28,7 +28,7 @@ func TestEventRouter(t *testing.T) {
 				System: "test-system",
 				Kind:   "test-kind",
 			},
-			func(ctx context.Context, evt event.Event) error {
+			func(_ context.Context, evt event.Event) error {
 				mu.Lock()
 				receivedEvents = append(receivedEvents, evt)
 				mu.Unlock()
@@ -91,7 +91,7 @@ func TestEventRouter(t *testing.T) {
 			// Exact match handler
 			NewBaseHandler(
 				Pattern{System: "system.service1", Kind: "created"},
-				func(ctx context.Context, evt event.Event) error {
+				func(_ context.Context, evt event.Event) error {
 					checkAndSignal("exact", evt)
 					return nil
 				},
@@ -99,7 +99,7 @@ func TestEventRouter(t *testing.T) {
 			// Single star handler - matches one segment
 			NewBaseHandler(
 				Pattern{System: "system.*", Kind: "created"},
-				func(ctx context.Context, evt event.Event) error {
+				func(_ context.Context, evt event.Event) error {
 					checkAndSignal("singlestar", evt)
 					return nil
 				},
@@ -107,7 +107,7 @@ func TestEventRouter(t *testing.T) {
 			// Double star handler - matches multiple segments
 			NewBaseHandler(
 				Pattern{System: "system.**", Kind: "created"},
-				func(ctx context.Context, evt event.Event) error {
+				func(_ context.Context, evt event.Event) error {
 					checkAndSignal("doublestar", evt)
 					return nil
 				},
@@ -178,7 +178,7 @@ func TestEventRouter(t *testing.T) {
 
 		handler := NewBaseHandler(
 			Pattern{System: "test", Kind: "error"},
-			func(ctx context.Context, evt event.Event) error {
+			func(_ context.Context, evt event.Event) error {
 				defer close(errorReceived)
 				return fmt.Errorf("test error: %s", evt.Data)
 			},
@@ -229,7 +229,7 @@ func TestEventRouter(t *testing.T) {
 					System: fmt.Sprintf("system-%d", i),
 					Kind:   "*",
 				},
-				func(ctx context.Context, evt event.Event) error {
+				func(_ context.Context, _ event.Event) error {
 					wg.Done()
 					return nil
 				},

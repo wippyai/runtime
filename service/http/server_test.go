@@ -50,6 +50,7 @@ func createServerTempDir(t *testing.T, files map[string]string) (string, func())
 		require.NoError(t, err)
 
 		// Write file content
+		//nolint:gosec
 		err = os.WriteFile(fullPath, []byte(content), 0644)
 		require.NoError(t, err)
 	}
@@ -342,6 +343,7 @@ func TestServerService_StartStop(t *testing.T) {
 	var lastErr error
 
 	for i := 0; i < 3; i++ {
+		//nolint:noctx
 		resp, lastErr = client.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
 		if lastErr == nil {
 			break
@@ -468,7 +470,7 @@ func TestServerService_Middleware(t *testing.T) {
 	var lastErr error
 
 	// Set a custom request ID in the client request to ensure middleware processes it
-	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s/api/test", cfg.Addr), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://%s/api/test", cfg.Addr), nil)
 	require.NoError(t, err)
 	req.Header.Set("X-Request-Id", "test-request-id")
 
@@ -602,6 +604,7 @@ func TestEnsureRunning(t *testing.T) {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}),
+		ReadHeaderTimeout: time.Second,
 	}
 
 	serverErrCh := make(chan error, 1)
@@ -706,6 +709,7 @@ func TestContextListener(t *testing.T) {
 	var lastErr error
 
 	for i := 0; i < 3; i++ {
+		//nolint:noctx
 		resp, lastErr = client.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
 		if lastErr == nil {
 			break

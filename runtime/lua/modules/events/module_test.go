@@ -31,7 +31,7 @@ func TestEventsModule_BasicSubscribe(t *testing.T) {
 		logger,
 		engine.WithLoader(mod.Name(), mod.Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-		engine.WithGlobalFunction("mark_ready", func(l *luaapi.LState) int {
+		engine.WithGlobalFunction("mark_ready", func(_ *luaapi.LState) int {
 			close(ready)
 			return 0
 		}),

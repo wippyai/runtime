@@ -205,7 +205,7 @@ func waitForEvents(wg *sync.WaitGroup, eventChan chan event.Event) []event.Event
 	wg.Wait()
 	close(eventChan)
 
-	var events []event.Event
+	events := make([]event.Event, 0)
 	for evt := range eventChan {
 		events = append(events, evt)
 	}

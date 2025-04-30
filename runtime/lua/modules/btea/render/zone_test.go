@@ -48,7 +48,7 @@ func (m *mockLuaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //nolint:unused
 func (m *mockLuaModel) View() string { return "" }
 
-func setupZoneState(t *testing.T) *lua.LState {
+func setupZoneState(_ *testing.T) *lua.LState {
 	L := lua.NewState()
 	mod := L.NewTable()
 	RegisterZone(L, mod)

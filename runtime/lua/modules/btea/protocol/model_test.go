@@ -85,8 +85,9 @@ func TestTryGetModel(t *testing.T) {
 		// Test direct model
 		directModel := testModel{
 			ViewStr:  "test",
-			UpdateFn: func(msg tea.Msg) (tea.Model, tea.Cmd) { return nil, nil },
+			UpdateFn: func(_ tea.Msg) (tea.Model, tea.Cmd) { return nil, nil },
 		}
+		//nolint:ineffassign,staticcheck
 		model, ok := TryGetModel(l, l.NewUserData())
 		assert.False(t, ok, "should reject empty userdata")
 
@@ -103,9 +104,9 @@ func TestTryGetModel(t *testing.T) {
 
 		// Test Lua table with model methods
 		luaModel := l.NewTable()
-		l.SetField(luaModel, "init", l.NewFunction(func(l *lua.LState) int { return 0 }))
-		l.SetField(luaModel, "update", l.NewFunction(func(l *lua.LState) int { return 0 }))
-		l.SetField(luaModel, "view", l.NewFunction(func(l *lua.LState) int { return 0 }))
+		l.SetField(luaModel, "init", l.NewFunction(func(_ *lua.LState) int { return 0 }))
+		l.SetField(luaModel, "update", l.NewFunction(func(_ *lua.LState) int { return 0 }))
+		l.SetField(luaModel, "view", l.NewFunction(func(_ *lua.LState) int { return 0 }))
 		model, ok = TryGetModel(l, luaModel)
 		assert.True(t, ok, "should accept Lua model")
 		_, isWrapper := model.(*LuaModelWrapper)

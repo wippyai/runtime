@@ -158,7 +158,7 @@ func GetAllCoroutineStacks(L *lua.LState) []*StackTrace {
 
 	// We need to get any global coroutines first
 	globals := L.Get(lua.GlobalsIndex).(*lua.LTable)
-	globals.ForEach(func(key, value lua.LValue) {
+	globals.ForEach(func(_, value lua.LValue) {
 		if co, ok := value.(*lua.LState); ok {
 			trace := GetStackTrace(co)
 			// Only add if it has frames (active/yielded coroutine)

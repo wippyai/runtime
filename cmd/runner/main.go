@@ -519,6 +519,7 @@ func (a *App) StartProfiler() {
 	go func() {
 		profilerAddr := "localhost:6060"
 		a.logger.Info("starting pprof server", zap.String("address", profilerAddr))
+		//nolint:gosec
 		if err := httpbase.ListenAndServe(profilerAddr, nil); err != nil {
 			if !errors.Is(err, httpbase.ErrServerClosed) {
 				a.logger.Error("pprof server failed", zap.Error(err))
@@ -701,8 +702,8 @@ func loadApplicationState(
 
 	// TODO: move it somewhere else
 	baseURL := "https://modules.platform.wippy.ai"
-	if modulesUrl := os.Getenv("WIPPY_MODULES_URL"); modulesUrl != "" {
-		baseURL = modulesUrl
+	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
+		baseURL = modulesURL
 	}
 
 	m := moduleloader.NewManager(baseURL)

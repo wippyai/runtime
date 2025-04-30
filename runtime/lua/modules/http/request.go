@@ -385,6 +385,7 @@ func requestBodyJSON(l *lua.LState) int {
 	body, readErr := io.ReadAll(req.request.Body)
 	defer func() {
 		err := req.request.Body.Close()
+		//nolint:revive,staticcheck
 		if err != nil {
 			// suppressed for now
 		}

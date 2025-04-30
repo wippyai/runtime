@@ -162,6 +162,6 @@ func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
 }
 
 // Update updates an existing process host
-func (m *Manager) Update(_ context.Context, entry registry.Entry) error {
+func (m *Manager) Update(_ context.Context, _ registry.Entry) error {
 	return fmt.Errorf("unable to update process host")
 }

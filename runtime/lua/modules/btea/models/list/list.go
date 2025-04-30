@@ -645,21 +645,21 @@ func newList(l *lua.LState) int {
 }
 
 // Helper functions for configuration
-func getIntOrDefault(l *lua.LState, t *lua.LTable, key string, def int) int {
+func getIntOrDefault(_ *lua.LState, t *lua.LTable, key string, def int) int {
 	if v := t.RawGetString(key); v.Type() == lua.LTNumber {
 		return int(lua.LVAsNumber(v))
 	}
 	return def
 }
 
-func getStringOrDefault(l *lua.LState, t *lua.LTable, key string, def string) string {
+func getStringOrDefault(_ *lua.LState, t *lua.LTable, key string, def string) string {
 	if v := t.RawGetString(key); v.Type() == lua.LTString {
 		return lua.LVAsString(v)
 	}
 	return def
 }
 
-func getBoolOrDefault(l *lua.LState, t *lua.LTable, key string, def bool) bool {
+func getBoolOrDefault(_ *lua.LState, t *lua.LTable, key string, def bool) bool {
 	if v := t.RawGetString(key); v.Type() == lua.LTBool {
 		return lua.LVAsBool(v)
 	}

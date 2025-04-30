@@ -201,7 +201,7 @@ func (m *MemoryStore) Delete(_ context.Context, key registry.ID) error {
 }
 
 // Has checks if a key exists without retrieving the value
-func (m *MemoryStore) Has(ctx context.Context, key registry.ID) (bool, error) {
+func (m *MemoryStore) Has(_ context.Context, key registry.ID) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -275,7 +275,7 @@ func (m *MemoryStore) cleanup() {
 }
 
 // Acquire implements resource.Provider interface
-func (m *MemoryStore) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (m *MemoryStore) Acquire(_ context.Context, _ registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

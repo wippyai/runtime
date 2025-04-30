@@ -72,12 +72,12 @@ func (m *Manager) Load(ctx context.Context) error {
 		return fmt.Errorf("download commits: %w", err)
 	}
 
-	moduleIds := make([]string, 0, len(contents))
+	moduleIDs := make([]string, 0, len(contents))
 	for _, item := range contents {
-		moduleIds = append(moduleIds, item.GetCommit().GetModuleId())
+		moduleIDs = append(moduleIDs, item.GetCommit().GetModuleId())
 	}
 
-	modules, err := m.listModules(ctx, moduleIds)
+	modules, err := m.listModules(ctx, moduleIDs)
 	if err != nil {
 		return fmt.Errorf("list modules: %w", err)
 	}

@@ -48,7 +48,7 @@ type simpleExecutorProvider struct {
 }
 
 // Acquire implements resource.Provider
-func (p *simpleExecutorProvider) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (p *simpleExecutorProvider) Acquire(_ context.Context, id registry.ID, _ resource.AccessMode) (resource.Resource[any], error) {
 	// Simple mock provider: always return the factory wrapped in a mock resource handle.
 	// Ignore mode and context for this test provider.
 	return &mockResource{id: id, resValue: p.factory}, nil

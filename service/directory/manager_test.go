@@ -120,7 +120,7 @@ func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload
 	return p, nil
 }
 
-func newTestDirectoryManager(t *testing.T) (*Manager, event.Bus) {
+func newTestDirectoryManager(_ *testing.T) (*Manager, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 

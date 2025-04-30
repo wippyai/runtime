@@ -633,7 +633,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Test concurrent validation with fewer operations and proper synchronization
 	// Create new tokens for concurrent validation test
-	var concurrentTokens []security.Token
+	concurrentTokens := make([]security.Token, 0)
 	for i := 0; i < 10; i++ { // Much smaller number
 		actor := security.Actor{
 			ID:   fmt.Sprintf("concurrent-user-%d", i),
@@ -709,7 +709,9 @@ func TestStoreResourceCleanup(t *testing.T) {
 
 	// This should return an error but might not in some implementations
 	// that don't check ctx.Done() early enough
+	//nolint:ineffassign,staticcheck
 	_, _, err = ts.Validate(cancelCtx, token)
+	// FIXME maybe add require.NoError(t, err)
 	// We don't assert on the error here, as the implementation might handle
 	// the canceled context differently
 

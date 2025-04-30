@@ -120,7 +120,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // handleTemplateAdd adds a new template to its corresponding set
-func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) handleTemplateAdd(_ context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -178,7 +178,7 @@ func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) e
 }
 
 // handleTemplateUpdate updates an existing template in its set
-func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) handleTemplateUpdate(_ context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -309,7 +309,7 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 }
 
 // handleTemplateDelete removes a template from its set
-func (m *Manager) handleTemplateDelete(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) handleTemplateDelete(_ context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

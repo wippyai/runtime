@@ -1444,14 +1444,14 @@ func TestController_RetryDelay(t *testing.T) {
 	var mu sync.Mutex
 	var startTimes []time.Time
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
+		startFunc: func(_ context.Context) (<-chan any, error) {
 			mu.Lock()
 			startTimes = append(startTimes, time.Now())
 			mu.Unlock()
 			// Always fail immediately to trigger retries.
 			return nil, errors.New("startup error")
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(_ context.Context) error {
 			return nil
 		},
 	}

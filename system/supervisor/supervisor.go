@@ -140,7 +140,7 @@ func (s *Supervisor) Stop() error {
 
 	// Spawn all controllers under lock
 	s.mu.RLock()
-	var operations []Operation
+	operations := make([]Operation, 0)
 	for id, ctrl := range s.controllers {
 		operations = append(operations, Operation{
 			Type:         OperationStop,
@@ -311,14 +311,12 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 					zap.Error(err),
 				)
 			}
-		} else {
-			if details != nil {
-				s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
-					zap.String("serviceID", id),
-					zap.String("status", status),
-					zap.Any("details", details),
-				)
-			}
+		} else if details != nil {
+			s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
+				zap.String("serviceID", id),
+				zap.String("status", status),
+				zap.Any("details", details),
+			)
 		}
 
 		s.bus.Send(s.ctx, event.Event{

@@ -322,6 +322,8 @@ func analyzeTable(table *lua.LTable) (isArray bool, isObject bool, maxArrayIndex
 	}
 
 	// Check if this looks like an array (sequential numeric keys)
+	// FIXME implement
+	//nolint:revive,staticcheck
 	if isArray && arrayCount != int(maxArrayIndex) {
 		// It's a sparse array
 		// We'll return isArray=true but the caller needs to check if sparse arrays are allowed

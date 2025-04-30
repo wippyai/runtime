@@ -46,8 +46,8 @@ func (s *valueStore) GetOrStore(key any, value any) (any, bool) {
 
 // CompareAndSwap performs atomic compare-and-swap operation.
 // Returns true if the swap was successful.
-func (s *valueStore) CompareAndSwap(key any, old any, new any) bool {
-	return s.values.CompareAndSwap(key, old, new)
+func (s *valueStore) CompareAndSwap(key any, old any, current any) bool {
+	return s.values.CompareAndSwap(key, old, current)
 }
 
 func (s *valueStore) reset() {
@@ -155,7 +155,7 @@ func (r *resourceManager) Close() error {
 	r.closed = true
 
 	// Create a slice of functions to execute without holding the lock
-	var closers []func() error
+	closers := make([]func() error, 0)
 	for e := r.closers.Back(); e != nil; e = e.Prev() {
 		closers = append(closers, e.Value.(func() error))
 	}

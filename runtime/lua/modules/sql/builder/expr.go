@@ -11,7 +11,7 @@ import (
 )
 
 // Update the luaTableToMap function in expr.go to handle SQL_NULL special marker
-func luaTableToMap(l *lua.LState, table *lua.LTable) map[string]interface{} {
+func luaTableToMap(_ *lua.LState, table *lua.LTable) map[string]interface{} {
 	result := make(map[string]interface{})
 	table.ForEach(func(key, value lua.LValue) {
 		// Only use string keys

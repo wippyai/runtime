@@ -368,7 +368,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 				Name: fmt.Sprintf("handler.%d", idx),
 			}
 
-			handler := func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+			handler := func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 				resultChan := make(chan *runtime.Result, 1)
 				resultChan <- &runtime.Result{
 					Value: payload.New(fmt.Sprintf("result %d", idx)),

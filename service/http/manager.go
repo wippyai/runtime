@@ -320,7 +320,7 @@ func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) 
 //
 
 // handleRouterCreate adds a new router to a server
-func (m *Manager) handleRouterCreate(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) handleRouterCreate(_ context.Context, entry registry.Entry) error {
 	cfg, err := decodeEntity[config.RouterConfig](entry, m.dtt)
 	if err != nil {
 		return err
@@ -349,7 +349,7 @@ func (m *Manager) handleRouterCreate(ctx context.Context, entry registry.Entry) 
 // handleRouterUpdate updates an existing router
 // CRITICAL: When moving a router between servers, we must ensure all endpoints
 // are properly migrated to prevent data loss.
-func (m *Manager) handleRouterUpdate(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) handleRouterUpdate(_ context.Context, entry registry.Entry) error {
 	cfg, err := decodeEntity[config.RouterConfig](entry, m.dtt)
 	if err != nil {
 		return err
@@ -411,7 +411,7 @@ func (m *Manager) handleRouterUpdate(ctx context.Context, entry registry.Entry) 
 }
 
 // handleRouterDelete removes a router from a server
-func (m *Manager) handleRouterDelete(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) handleRouterDelete(_ context.Context, entry registry.Entry) error {
 	serverID, exists := m.routerServers[entry.ID]
 	if !exists {
 		return fmt.Errorf("router %s not found", entry.ID)
@@ -481,7 +481,7 @@ func (m *Manager) handleEndpointUpsert(ctx context.Context, entry registry.Entry
 }
 
 // handleEndpointDelete removes an endpoint from a router
-func (m *Manager) handleEndpointDelete(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) handleEndpointDelete(_ context.Context, entry registry.Entry) error {
 	cfg, err := decodeEntity[config.EndpointConfig](entry, m.dtt)
 	if err != nil {
 		return err
@@ -550,7 +550,7 @@ func (m *Manager) handleStaticUpsert(ctx context.Context, entry registry.Entry) 
 }
 
 // handleStaticDelete removes a static file handler
-func (m *Manager) handleStaticDelete(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) handleStaticDelete(_ context.Context, entry registry.Entry) error {
 	cfg, err := decodeEntity[config.StaticConfig](entry, m.dtt)
 	if err != nil {
 		return err
