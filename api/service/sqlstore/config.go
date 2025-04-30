@@ -115,7 +115,7 @@ func (c *SQLConfig) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("invalid CleanupInterval duration format: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 

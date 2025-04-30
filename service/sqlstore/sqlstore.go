@@ -5,6 +5,7 @@ import (
 	sql2 "database/sql"
 	"encoding/json"
 	"fmt"
+	sqlconfig "github.com/ponyruntime/pony/api/service/sql"
 	"github.com/ponyruntime/pony/api/service/sqlstore"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/sql"
@@ -18,10 +19,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// SQLStore is a SQL-based implementation of the store.Store interface
-
-const CleanupInterval = time.Second * 60
-
 // that also functions as a resource.Provider
 type SQLStore struct {
 	id     registry.ID
@@ -29,7 +26,8 @@ type SQLStore struct {
 	log    *zap.Logger
 	mu     sync.RWMutex
 
-	data       map[string]*store.Entry
+	f_now string
+
 	closed     bool
 	statusChan chan any
 	stopChan   chan struct{}
@@ -76,12 +74,13 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 
 	// Build query to retrieve value and check expiration
 	query := fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s = $1 AND (%s IS NULL OR %s > now())",
+		"SELECT %s FROM %s WHERE %s = $1 AND (%s IS NULL OR %s > %s)",
 		s.config.PayloadColumnName,
 		s.config.TableName,
 		s.config.IDColumnName,
 		s.config.ExpireColumnName,
 		s.config.ExpireColumnName,
+		s.now(conn.(sql.DBResource).Type),
 	)
 
 	var data []byte
@@ -104,7 +103,6 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 // Set stores or updates a value with the given key
 // Overwrites any existing value if the key already exists
 func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
-
 	reg := resource.GetResources(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
@@ -142,16 +140,14 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 		return err
 	}
 
-	s.log.Debug(fmt.Sprintf("%#v\n", valueBytes))
-
 	var query string
 	var args []interface{}
 
 	// Determine expiration time if TTL is set
-	var expiryTime *time.Time
+	var expiryDate *time.Time
 	if entry.TTL > 0 {
 		t := time.Now().Add(entry.TTL)
-		expiryTime = &t
+		expiryDate = &t
 	}
 
 	var exists bool
@@ -167,7 +163,7 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 			s.config.PayloadColumnName,
 			s.config.ExpireColumnName,
 		)
-		args = []interface{}{entry.Key.String(), valueBytes, nil}
+		args = []interface{}{entry.Key.String(), valueBytes, expiryDate.UTC()}
 	} else {
 		// Update existing entry
 		query = fmt.Sprintf(
@@ -177,7 +173,7 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 			s.config.ExpireColumnName,
 			s.config.IDColumnName,
 		)
-		args = []interface{}{valueBytes, expiryTime, entry.Key.String()}
+		args = []interface{}{valueBytes, expiryDate.UTC(), entry.Key.String()}
 	}
 
 	// Execute the query
@@ -268,11 +264,12 @@ func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
 
 	// Build query to check if key exists and is not expired
 	query := fmt.Sprintf(
-		"SELECT 1 FROM %s WHERE %s = ? AND (%s IS NULL OR %s > datetime('now'))",
+		"SELECT 1 FROM %s WHERE %s = ? AND (%s IS NULL OR %s > %s)",
 		s.config.TableName,
 		s.config.IDColumnName,
 		s.config.ExpireColumnName,
 		s.config.ExpireColumnName,
+		s.now(conn.(sql.DBResource).Type),
 	)
 
 	var exists bool
@@ -288,6 +285,15 @@ func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func (s *SQLStore) now(dbType registry.Kind) string {
+	switch dbType {
+	case sqlconfig.KindSQLite:
+		return "datetime('now')"
+	default:
+		return "now()"
+	}
 }
 
 // Acquire implements resource.Provider interface
@@ -383,10 +389,11 @@ func (s *SQLStore) cleanup(ctx context.Context) {
 	}
 
 	query := fmt.Sprintf(
-		"DELETE FROM %s WHERE %s IS NOT NULL AND %s < now()",
+		"DELETE FROM %s WHERE %s IS NOT NULL AND %s < %s",
 		s.config.TableName,
 		s.config.ExpireColumnName,
 		s.config.ExpireColumnName,
+		s.now(conn.(sql.DBResource).Type),
 	)
 
 	ret, err := db.ExecContext(ctx, query)
@@ -398,7 +405,9 @@ func (s *SQLStore) cleanup(ctx context.Context) {
 	}
 	rows, _ := ret.RowsAffected()
 
-	s.log.Info(fmt.Sprintf("sqlstore store cleanup cycle. %d rows affected", rows), zap.String("time", time.Now().String()))
+	if rows > 0 {
+		s.log.Info(fmt.Sprintf("sqlstore store cleanup cycle. %d rows affected", rows), zap.String("time", time.Now().String()))
+	}
 }
 
 func (s *SQLStore) Start(ctx context.Context) (<-chan any, error) {
