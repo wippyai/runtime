@@ -16,7 +16,7 @@ require (
 	github.com/coder/websocket v1.8.12
 	github.com/go-chi/chi/v5 v5.2.0
 	github.com/go-sql-driver/mysql v1.9.0
-	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.10.9
@@ -36,7 +36,7 @@ require (
 	github.com/tree-sitter/tree-sitter-php v0.23.11
 	github.com/tree-sitter/tree-sitter-python v0.23.6
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
-	github.com/wippyai/module-registry-proto v0.0.0-20250428175736-5d2c86e17844
+	github.com/wippyai/module-registry-proto v0.0.0-20250429182210-958a6f1f68c3
 	github.com/xuri/excelize/v2 v2.9.0
 	github.com/yuin/gopher-lua v0.0.0-00010101000000-000000000000
 	go.temporal.io/api v1.44.1

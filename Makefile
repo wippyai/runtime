@@ -1,8 +1,8 @@
 run:
-	go run --tags "fts5 sqlite_vec" -race ./cmd/main.go run -c config.json
+	go run --tags "fts5 sqlite_vec" -race ./cmd/runner/main.go run -c config.json
 
 debug:
-	dlv debug --build-flags "--tags=fts5,sqlite_vec -race" ./cmd/main.go -- run -c config.json
+	dlv debug --build-flags "--tags=fts5,sqlite_vec -race" ./cmd/runner/main.go -- run -c config.json
 
 test-clean:
 	go clean -testcache
@@ -52,7 +52,7 @@ build-runner-cross: build-runner-check
 # Check if cross-compilation is happening with CGO
 build-runner-check:
 	@echo "Note: Cross-compilation with CGO_ENABLED=1 requires appropriate toolchains"
-	@echo "For linux/arm64: apt-get install gcc-aarch64-linux-gnu libc6-dev-arm64-cross"
+	@echo "For linux/arm64: apt-get install gcc-aarch64-linux-gnu libc6-dev-arm64-cross libsqlite3-dev"
 	@echo "For darwin: osxcross toolchain"
 	@echo "For windows: mingw-w64"
 

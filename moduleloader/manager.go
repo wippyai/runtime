@@ -119,14 +119,25 @@ func (m *Manager) getAllGraphCommits(ctx context.Context, deps []ManifestDepende
 			return nil, fmt.Errorf("invalid dependency: %s", dep.Name)
 		}
 
+		if isLabel(dep.Version) {
+			refs = append(refs, &modulev1.ResourceRef{
+				Value: &modulev1.ResourceRef_Name_{
+					Name: &modulev1.ResourceRef_Name{
+						Organization: split[0],
+						Module:       split[1],
+						Version:      &modulev1.ResourceRef_Name_Label{Label: dep.Version},
+					},
+				},
+			})
+			continue
+		}
+
 		refs = append(refs, &modulev1.ResourceRef{
 			Value: &modulev1.ResourceRef_Name_{
 				Name: &modulev1.ResourceRef_Name{
 					Organization: split[0],
 					Module:       split[1],
-					Version: &modulev1.ResourceRef_Name_Ref{
-						Ref: dep.Version,
-					},
+					Version:      &modulev1.ResourceRef_Name_Ref{Ref: dep.Version},
 				},
 			},
 		})
@@ -206,4 +217,9 @@ func (*Manager) writeContents(
 		}
 	}
 	return nil
+}
+
+// todo: better label detection
+func isLabel(s string) bool {
+	return len(s) <= 60
 }
