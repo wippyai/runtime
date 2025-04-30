@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -25,7 +26,7 @@ func TestKeyBinding(t *testing.T) {
 		RegisterKeyBinding(vm.State(), mod)
 		vm.State().SetGlobal("btea", mod)
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
             -- Spawn a key binding
             local binding = btea.bind({
                 keys = {"ctrl+c", "esc"},
@@ -57,7 +58,7 @@ func TestKeyBinding(t *testing.T) {
 		RegisterKeyBinding(vm.State(), mod)
 		vm.State().SetGlobal("btea", mod)
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
             -- Spawn a binding for space key
             local binding = btea.bind({
                 keys = {"space"},
@@ -104,7 +105,7 @@ func TestKeyBinding(t *testing.T) {
 		RegisterKeyBinding(vm.State(), mod)
 		vm.State().SetGlobal("btea", mod)
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
             -- Test empty keys
             local binding = btea.bind({
                 keys = {} -- empty but valid keys table

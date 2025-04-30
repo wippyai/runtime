@@ -90,8 +90,7 @@ func (a *App) Init() tea.Cmd {
 
 // Update processes bubbletea messages. It listens for the exit key and sends updates to Lua.
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	if msg, ok := msg.(tea.KeyMsg); ok {
 		if msg.String() == ExitKey {
 			a.scheduleCancel()
 			return a, nil

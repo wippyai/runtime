@@ -146,6 +146,9 @@ func listSetItems(l *lua.LState) int {
 					items = append(items, item)
 				}
 			}
+		case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTString, lua.LTFunction, lua.LTThread, lua.LTChannel:
+			// FIXME rework on demand
+			fallthrough
 		default:
 		}
 	})
@@ -626,6 +629,9 @@ func newList(l *lua.LState) int {
 						items = append(items, item)
 					}
 				}
+			case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTString, lua.LTFunction, lua.LTThread, lua.LTChannel:
+				// FIXME rework on demand
+				fallthrough
 			default:
 			}
 		})

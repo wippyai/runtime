@@ -19,6 +19,8 @@ type Package struct {
 }
 
 // Object pool for Package instances to reduce memory allocation overhead
+//
+//nolint:gochecknoglobals
 var packagePool = sync.Pool{
 	New: func() interface{} {
 		return &Package{

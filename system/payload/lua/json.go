@@ -8,6 +8,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+//nolint:gochecknoglobals
 var state = lua.NewState()
 
 // RegisterJSON registers JSON<->Lua transcoders

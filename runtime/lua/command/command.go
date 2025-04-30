@@ -17,8 +17,10 @@ import (
 
 var (
 	ErrCommandCompleted = errors.New("command already completed")
-	ErrCommandCanceled  = errors.New("command canceled")
-	commandCounter      atomic.Uint64
+
+	ErrCommandCanceled = errors.New("command canceled")
+	//nolint:gochecknoglobals
+	commandCounter atomic.Uint64
 )
 
 // Command represents an asynchronous operation

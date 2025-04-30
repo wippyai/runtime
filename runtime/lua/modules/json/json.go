@@ -31,12 +31,15 @@ type EncodeOptions struct {
 }
 
 // DefaultEncodeOptions provides sensible defaults for JSON encoding
+//
+//nolint:gochecknoglobals
 var DefaultEncodeOptions = EncodeOptions{
 	MaxDepth:                DefaultMaxDepth,
 	AllowSparseArrays:       false,
 	TreatMixedKeysAsObjects: false,
 }
 
+//nolint:gochecknoglobals
 var jsonValuePool = sync.Pool{
 	New: func() any {
 		return &jsonValue{}

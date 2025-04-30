@@ -60,13 +60,13 @@ func setupLuaWithInsertModule(t *testing.T) (*engine.CoroutineVM, *engine.Runner
 // Helper function to register placeholder formats for testing
 //
 //nolint:unused
-func registerTestPlaceholderFormats(L *lua.LState, modTable *lua.LTable) {
+func registerTestPlaceholderFormats(l *lua.LState, modTable *lua.LTable) {
 	// Create userdata for each placeholder format
-	questionFormat := L.NewUserData()
+	questionFormat := l.NewUserData()
 	questionFormat.Value = questionPlaceholderFormat{}
 	modTable.RawSetString("question", questionFormat)
 
-	dollarFormat := L.NewUserData()
+	dollarFormat := l.NewUserData()
 	dollarFormat.Value = dollarPlaceholderFormat{}
 	modTable.RawSetString("dollar", dollarFormat)
 }

@@ -39,6 +39,9 @@ func asInt(l *lua.LState) int {
 	case lua.LTString:
 		// Could add string-to-int conversion here if needed
 		intValue = 0 // Default for now
+	case lua.LTNil, lua.LTBool, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		intValue = 0
 	}
@@ -62,6 +65,9 @@ func asBinary(l *lua.LState) int {
 	switch value.Type() {
 	case lua.LTString:
 		binaryValue = []byte(string(value.(lua.LString)))
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		binaryValue = nil
 	}
@@ -84,6 +90,9 @@ func asFloat(l *lua.LState) int {
 	switch value.Type() {
 	case lua.LTNumber:
 		floatValue = float64(value.(lua.LNumber))
+	case lua.LTNil, lua.LTBool, lua.LTString, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		floatValue = 0.0
 	}
@@ -108,6 +117,9 @@ func asText(l *lua.LState) int {
 		textValue = string(value.(lua.LString))
 	case lua.LTNumber:
 		textValue = value.String()
+	case lua.LTNil, lua.LTBool, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		textValue = ""
 	}

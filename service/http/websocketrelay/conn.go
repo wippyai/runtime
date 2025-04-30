@@ -455,7 +455,9 @@ func (c *Connection) forwardPayloadToWebSocket(topic pubsub.Topic, payloads ...p
 			} else {
 				return fmt.Errorf("expected bytes payload but got different type")
 			}
-
+		case payload.YAML, payload.Golang, payload.Lua, payload.Error:
+			// FIXME rework on demand
+			fallthrough
 		default:
 			// Try to transcode to JSON for all other formats
 			pj, err := c.transcoder.Transcode(p, payload.JSON)

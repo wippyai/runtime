@@ -23,6 +23,7 @@ import (
 
 // Common errors
 var (
+	//nolint:gochecknoglobals
 	StateKey          = &ctxapi.Key{Name: "lua.process.state"}
 	ErrRunnerRequired = errors.New("runner is required")
 	ErrNoTranscoder   = errors.New("failed to get transcoder")
@@ -365,8 +366,7 @@ func (s *State) handleTopologyMessage(msg *pubsub.Message) bool {
 	data := msg.Payloads[0].Data()
 
 	// Handle different event types
-	switch event := data.(type) {
-	case *topology.ExitEvent:
+	if event, ok := data.(*topology.ExitEvent); ok {
 		if event.Kind == topology.KindLinkDown {
 			// Link down event - terminate if not trapping
 			var exitErr error

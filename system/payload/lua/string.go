@@ -72,6 +72,8 @@ func (t *ToString) Transcode(p payload.Payload) (payload.Payload, error) {
 	case lua.LTTable:
 		// For tables, use a simplified string representation
 		result = fmt.Sprintf("%v", ToGoAny(lv))
+	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
+		// FIXME implement
 	default:
 		// For other types, just use the string representation
 		result = lv.String()

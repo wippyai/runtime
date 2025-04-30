@@ -341,10 +341,8 @@ func insertRunWith(l *lua.LState) int {
 	// Check for DB or Transaction
 	ud := l.CheckUserData(2)
 
-	switch v := ud.Value.(type) {
-	case DBTypeGetter:
-		switch v.GetDBType() {
-		case sql.KindPostgres:
+	if v, ok := ud.Value.(DBTypeGetter); ok {
+		if v.GetDBType() == sql.KindPostgres {
 			wrapper = &insertBuilderWrapper{
 				builder: wrapper.builder.PlaceholderFormat(squirrel.Dollar),
 			}

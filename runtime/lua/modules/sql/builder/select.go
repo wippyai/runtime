@@ -167,7 +167,9 @@ func selectWhere(l *lua.LState) int {
 			l.ArgError(2, "expected string, table, or Sqlizer")
 			return 0
 		}
-
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTThread, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		l.ArgError(2, "expected string, table, or Sqlizer")
 		return 0
@@ -376,7 +378,9 @@ func selectHaving(l *lua.LState) int {
 			l.ArgError(2, "expected string, table, or Sqlizer")
 			return 0
 		}
-
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTThread, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		l.ArgError(2, "expected string, table, or Sqlizer")
 		return 0
@@ -574,10 +578,8 @@ func selectRunWith(l *lua.LState) int {
 	// Check for DB or Transaction
 	ud := l.CheckUserData(2)
 
-	switch v := ud.Value.(type) {
-	case DBTypeGetter:
-		switch v.GetDBType() {
-		case sql.KindPostgres:
+	if v, ok := ud.Value.(DBTypeGetter); ok {
+		if v.GetDBType() == sql.KindPostgres {
 			wrapper = &selectBuilderWrapper{
 				builder: wrapper.builder.PlaceholderFormat(squirrel.Dollar),
 			}

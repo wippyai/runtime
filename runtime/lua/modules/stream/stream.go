@@ -15,6 +15,7 @@ var (
 	ErrInvalidReader = fmt.Errorf("invalid reader")
 
 	// DefaultChunkSize is the default size to read in chunks if not specified
+	//nolint:gochecknoglobals
 	DefaultChunkSize int64 = 32 * 1024 // 32KB by default
 )
 

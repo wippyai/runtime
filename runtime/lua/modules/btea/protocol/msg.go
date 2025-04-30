@@ -9,6 +9,7 @@ import (
 )
 
 var (
+	//nolint:gochecknoglobals
 	staticState = lua.NewState()
 )
 

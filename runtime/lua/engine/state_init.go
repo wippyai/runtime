@@ -10,8 +10,10 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+//nolint:gochecknoglobals
 var SharedState *lua.LState
 
+//nolint:gochecknoinits
 func init() {
 	SharedState, _ = newLuaState()
 	errors.RegisterErrorsModule(SharedState)

@@ -21,6 +21,7 @@ type fieldInfo struct {
 	index int
 }
 
+//nolint:gochecknoglobals
 var structFieldCache sync.Map // map[reflect.Type][]fieldInfo
 
 // getStructFields returns cached field info for a given struct type.
@@ -191,6 +192,32 @@ func GoToLua(v any) (lua.LValue, error) {
 				} else {
 					lval, err = GoToLua(fieldValue.Interface())
 				}
+			case reflect.Invalid,
+				reflect.Bool,
+				reflect.Int,
+				reflect.Int8,
+				reflect.Int16,
+				reflect.Int32,
+				reflect.Int64,
+				reflect.Uint,
+				reflect.Uint8,
+				reflect.Uint16,
+				reflect.Uint32,
+				reflect.Uint64,
+				reflect.Uintptr,
+				reflect.Float32,
+				reflect.Float64,
+				reflect.Complex64,
+				reflect.Complex128,
+				reflect.Array,
+				reflect.Chan,
+				reflect.Func,
+				reflect.String,
+				reflect.Struct,
+				reflect.UnsafePointer:
+				// FIXME rework on demand
+				fallthrough
+
 			default:
 				lval, err = GoToLua(fieldValue.Interface())
 			}
@@ -203,6 +230,30 @@ func GoToLua(v any) (lua.LValue, error) {
 		}
 		return table, nil
 
+	case reflect.Invalid,
+		reflect.Bool,
+		reflect.Int,
+		reflect.Int8,
+		reflect.Int16,
+		reflect.Int32,
+		reflect.Int64,
+		reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64,
+		reflect.Uintptr,
+		reflect.Float32,
+		reflect.Float64,
+		reflect.Complex64,
+		reflect.Complex128,
+		reflect.Chan,
+		reflect.Func,
+		reflect.Interface,
+		reflect.String,
+		reflect.UnsafePointer:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}

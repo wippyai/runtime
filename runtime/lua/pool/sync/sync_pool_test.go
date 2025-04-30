@@ -125,12 +125,14 @@ func setupTestFactory(opts ...testOption) (api.Factory, error) {
 		},
 	}
 
+	//nolint:gocritic
 	factoryOpts := append(cfg.factoryOpts,
 		component.WithEngineOption(engine.WithGlobalValue("_VERSION", lua.LString("test"))),
 	)
 
 	// all rest of the functions
 	for _, fn := range cfg.functions[1:] {
+		//nolint:gocritic
 		factoryOpts = append(cfg.factoryOpts,
 			component.WithEngineOption(engine.WithFunctionProto(fn.name, fn.proto)),
 		)

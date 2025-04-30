@@ -247,9 +247,9 @@ func setupTestEnvironment(t *testing.T, mockStorage cloudstorage.Storage) (*engi
 }
 
 // registerTestHelpers registers any helper functions needed for testing
-func registerTestHelpers(L *lua.LState) {
+func registerTestHelpers(l *lua.LState) {
 	// Register function to create a buffer in Lua
-	L.SetGlobal("create_buffer", L.NewFunction(func(L *lua.LState) int {
+	l.SetGlobal("create_buffer", l.NewFunction(func(L *lua.LState) int {
 		buf := &bytes.Buffer{}
 		ud := L.NewUserData()
 		ud.Value = buf

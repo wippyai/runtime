@@ -33,6 +33,8 @@ const (
 )
 
 // ContextListener is the context key for the HTTP listener
+//
+//nolint:gochecknoglobals
 var ContextListener = &contextapi.Key{Name: "listener"}
 
 // ServerService combines HTTP server and router functionality

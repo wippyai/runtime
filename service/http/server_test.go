@@ -364,6 +364,7 @@ func TestServerService_StartStop(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify server is stopped
+	//nolint:bodyclose,noctx
 	_, err = http.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
 	assert.Error(t, err)
 

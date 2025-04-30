@@ -28,11 +28,11 @@ type mockLuaModel struct {
 }
 
 //nolint:unused
-func newMockLuaModel(L *lua.LState) *mockLuaModel {
-	m := &mockLuaModel{L: L}
-	m.ud = L.NewUserData()
+func newMockLuaModel(l *lua.LState) *mockLuaModel {
+	m := &mockLuaModel{L: l}
+	m.ud = l.NewUserData()
 	m.ud.Value = m
-	L.SetMetatable(m.ud, L.GetTypeMetatable("btea.Model"))
+	l.SetMetatable(m.ud, l.GetTypeMetatable("btea.Model"))
 	return m
 }
 

@@ -124,6 +124,7 @@ func setupTestFactory(opts ...testOption) (api.Factory, error) {
 		},
 	}
 
+	//nolint:gocritic
 	factoryOpts := append(cfg.factoryOpts,
 		component.WithEngineOption(engine.WithGlobalValue("_VERSION", lua.LString("test"))),
 	)

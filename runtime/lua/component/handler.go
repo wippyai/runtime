@@ -40,8 +40,7 @@ func (h *Handler) Pattern() eventbus.Pattern {
 func (h *Handler) Handle(ctx context.Context, evt event.Event) error {
 	// Handle Lua events first
 	if evt.System == api.System {
-		switch evt.Kind {
-		case api.InvalidateNodes:
+		if evt.Kind == api.InvalidateNodes {
 			if ids, ok := evt.Data.([]registry.ID); ok {
 				h.entity.Invalidate(ctx, ids)
 			}

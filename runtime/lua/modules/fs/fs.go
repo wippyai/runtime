@@ -65,12 +65,13 @@ func registerFS(l *lua.LState) {
 // If the path is relative, it is joined with the current cwd.
 func (f *FS) resolvePath(p string) string {
 	var res string
-	if p == "" {
+	switch {
+	case p == "":
 		res = f.cwd
-	} else if p[0] == '/' {
+	case p[0] == '/':
 		// Absolute path: remove the leading slash.
 		res = p[1:]
-	} else {
+	default:
 		res = filepath.Join(f.cwd, p)
 	}
 	if res == "" {

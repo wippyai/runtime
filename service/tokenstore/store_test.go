@@ -68,6 +68,9 @@ func (t *jsonTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 			return err
 		}
 		return json.Unmarshal(data, v)
+	case payload.YAML, payload.String, payload.Lua, payload.Bytes, payload.Error:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		return nil
 	}

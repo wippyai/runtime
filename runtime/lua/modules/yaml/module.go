@@ -270,13 +270,14 @@ func processNode(node *yaml.Node, options *YAMLOptions, depth int) {
 		isNested := depth > 1
 
 		// Apply sequence style
-		if options.SequenceStyle == "flow" {
+		switch {
+		case options.SequenceStyle == "flow":
 			node.Style = yaml.FlowStyle
-		} else if options.SequenceStyle == "block" {
+		case options.SequenceStyle == "block":
 			node.Style = 0 // Default block style
-		} else if options.CompactSequences &&
+		case options.CompactSequences &&
 			(options.CompactNestedSequences || !isNested) &&
-			isSimpleSequence(node, options) {
+			isSimpleSequence(node, options):
 			// Apply flow style for short, simple sequences
 			// Only apply to nested sequences if CompactNestedSequences is true
 			node.Style = yaml.FlowStyle

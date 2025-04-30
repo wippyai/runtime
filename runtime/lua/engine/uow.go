@@ -9,6 +9,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+//nolint:gochecknoglobals
 var unitOfWorkPool = sync.Pool{
 	New: func() interface{} {
 		return &unitOfWork{
@@ -58,7 +59,7 @@ func NewUnitOfWork(parentCtx context.Context, state *lua.LState) (UnitOfWork, co
 		state.SetContext(ctx)
 		uw.AddCleanup(func() error {
 			if state.Context() != nil {
-				state.SetContext(nil)
+				state.SetContext(context.Background())
 			}
 			return nil
 		})
@@ -226,4 +227,5 @@ func (u *unitOfWork) reset() {
 // Context key for UnitOfWork
 type unitOfWorkKeyType struct{}
 
+//nolint:gochecknoglobals
 var unitOfWorkKey = unitOfWorkKeyType{}

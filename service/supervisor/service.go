@@ -15,6 +15,7 @@ import (
 	"github.com/ponyruntime/pony/internal/uniqid"
 )
 
+//nolint:gochecknoglobals
 var supID = uniqid.NewGenerator()
 
 // Service represents a running process service instance

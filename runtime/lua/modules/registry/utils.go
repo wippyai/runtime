@@ -16,16 +16,20 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 
 	// Extract ID
 	idVal := table.RawGetString("id")
-	if idVal.Type() == lua.LTTable {
+	switch idVal.Type() {
+	case lua.LTTable:
 		idTable := idVal.(*lua.LTable)
 		var err error
 		entry.ID, err = tableToID(l, idTable)
 		if err != nil {
 			return entry, err
 		}
-	} else if idVal.Type() == lua.LTString {
+	case lua.LTString:
 		entry.ID = regapi.ParseID(idVal.String())
-	} else {
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
+	default:
 		return entry, errors.New("entry must have valid id field")
 	}
 

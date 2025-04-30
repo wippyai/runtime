@@ -149,17 +149,18 @@ func parseOptions(value lua.LValue) (*requestOptions, error) {
 				contentValue := fileTable.RawGetString("content")
 				readerValue := fileTable.RawGetString("reader")
 
-				if contentValue != lua.LNil && contentValue.Type() == lua.LTString {
+				switch {
+				case contentValue != lua.LNil && contentValue.Type() == lua.LTString:
 					// Handle string content
 					file.Content = contentValue.String()
-				} else if readerValue != lua.LNil && readerValue.Type() == lua.LTUserData {
+				case readerValue != lua.LNil && readerValue.Type() == lua.LTUserData:
 					// Handle reader object
 					if reader, ok := readerValue.(*lua.LUserData).Value.(io.Reader); ok {
 						file.Reader = reader
 					} else {
 						return // Skip if not a valid reader
 					}
-				} else {
+				default:
 					// Neither content nor reader provided, skip this entry
 					return
 				}

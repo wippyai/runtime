@@ -27,21 +27,21 @@ func (m *Module) Name() string {
 
 // Loader registers the module's functions into Lua state
 // It extends the os table if it exists, or creates a new one
-func (m *Module) Loader(L *lua.LState) int {
-	L.GetGlobal("os")
-	osTable := L.Get(-1)
+func (m *Module) Loader(l *lua.LState) int {
+	l.GetGlobal("os")
+	osTable := l.Get(-1)
 
 	var osTab *lua.LTable
 	if osTable.Type() == lua.LTNil {
-		osTab = L.CreateTable(0, 3) // Exactly 3 functions
-		L.SetGlobal("os", osTab)
+		osTab = l.CreateTable(0, 3) // Exactly 3 functions
+		l.SetGlobal("os", osTab)
 	} else {
 		osTab = osTable.(*lua.LTable)
 	}
 
-	osTab.RawSetString("time", L.NewFunction(osTime))
-	osTab.RawSetString("date", L.NewFunction(osDate))
-	osTab.RawSetString("clock", L.NewFunction(m.osClock))
+	osTab.RawSetString("time", l.NewFunction(osTime))
+	osTab.RawSetString("date", l.NewFunction(osDate))
+	osTab.RawSetString("clock", l.NewFunction(m.osClock))
 
 	// We don't push anything on the stack as we're extending the os global
 	return 0
@@ -49,9 +49,9 @@ func (m *Module) Loader(L *lua.LState) int {
 
 // osClock implements os.clock() function
 // Returns the elapsed time since the module was loaded
-func (m *Module) osClock(L *lua.LState) int {
+func (m *Module) osClock(l *lua.LState) int {
 	elapsed := time.Since(m.startTime).Seconds()
-	L.Push(lua.LNumber(elapsed))
+	l.Push(lua.LNumber(elapsed))
 	return 1
 }
 
@@ -59,27 +59,27 @@ func (m *Module) osClock(L *lua.LState) int {
 // In standard Lua:
 // - Without arguments: returns current time
 // - With table argument: returns time for specified date/time
-func osTime(L *lua.LState) int {
+func osTime(l *lua.LState) int {
 	// Case: no args - return current time as Unix timestamp
-	if L.GetTop() == 0 {
-		L.Push(lua.LNumber(time.Now().Unix()))
+	if l.GetTop() == 0 {
+		l.Push(lua.LNumber(time.Now().Unix()))
 		return 1
 	}
 
 	// Case: table arg - convert table fields to time
-	tbl := L.CheckTable(1)
+	tbl := l.CheckTable(1)
 
-	year := getIntField(L, tbl, "year", time.Now().Year())
-	month := getIntField(L, tbl, "month", int(time.Now().Month()))
-	day := getIntField(L, tbl, "day", time.Now().Day())
-	hour := getIntField(L, tbl, "hour", 0)
-	mn := getIntField(L, tbl, "min", 0)
-	sec := getIntField(L, tbl, "sec", 0)
+	year := getIntField(l, tbl, "year", time.Now().Year())
+	month := getIntField(l, tbl, "month", int(time.Now().Month()))
+	day := getIntField(l, tbl, "day", time.Now().Day())
+	hour := getIntField(l, tbl, "hour", 0)
+	mn := getIntField(l, tbl, "min", 0)
+	sec := getIntField(l, tbl, "sec", 0)
 	// Ignore isdst field as Go handles DST automatically
 
 	// Create time using provided fields
 	t := time.Date(year, time.Month(month), day, hour, mn, sec, 0, time.Local)
-	L.Push(lua.LNumber(t.Unix()))
+	l.Push(lua.LNumber(t.Unix()))
 	return 1
 }
 
@@ -116,17 +116,17 @@ func getIntField(_ *lua.LState, table *lua.LTable, key string, defaultValue int)
 // - "%z" - timezone (e.g., -0700)
 // - "%Z" - timezone name (e.g., MST)
 // - "%%" - percent sign
-func osDate(L *lua.LState) int {
+func osDate(l *lua.LState) int {
 	// Get format string (default "%c")
 	format := "%c"
-	if L.GetTop() >= 1 {
-		format = L.CheckString(1)
+	if l.GetTop() >= 1 {
+		format = l.CheckString(1)
 	}
 
 	// Get time (default now)
 	var t time.Time
-	if L.GetTop() >= 2 {
-		timestamp := L.CheckNumber(2)
+	if l.GetTop() >= 2 {
+		timestamp := l.CheckNumber(2)
 		t = time.Unix(int64(timestamp), 0)
 	} else {
 		t = time.Now()
@@ -146,18 +146,18 @@ func osDate(L *lua.LState) int {
 
 	// If format is "*t", return a table with date/time components
 	if format == "*t" {
-		return osDateTable(L, t)
+		return osDateTable(l, t)
 	}
 
 	// Otherwise format the date/time string
 	result := formatDate(format, t)
-	L.Push(lua.LString(result))
+	l.Push(lua.LString(result))
 	return 1
 }
 
 // osDateTable returns a table with date/time components
-func osDateTable(L *lua.LState, t time.Time) int {
-	tbl := L.CreateTable(0, 9) // Exactly 9 fields
+func osDateTable(l *lua.LState, t time.Time) int {
+	tbl := l.CreateTable(0, 9) // Exactly 9 fields
 
 	// Set all date/time fields using RawSetString for better performance
 	tbl.RawSetString("year", lua.LNumber(t.Year()))
@@ -173,7 +173,7 @@ func osDateTable(L *lua.LState, t time.Time) int {
 	_, isDST := t.Zone()
 	tbl.RawSetString("isdst", lua.LBool(isDST != 0))
 
-	L.Push(tbl)
+	l.Push(tbl)
 	return 1
 }
 

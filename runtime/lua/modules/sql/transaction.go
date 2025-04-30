@@ -347,7 +347,7 @@ func txSavepoint(l *lua.LState) int {
 	// Sanitize the savepoint name to prevent SQL injection
 	// Only allow alphanumeric and underscore characters
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
 			l.Push(lua.LNil)
 			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
 			return 2
@@ -393,7 +393,7 @@ func txRollbackTo(l *lua.LState) int {
 
 	// Sanitize the savepoint name
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
 			l.Push(lua.LNil)
 			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
 			return 2
@@ -439,7 +439,7 @@ func txReleaseSavepoint(l *lua.LState) int {
 
 	// Sanitize the savepoint name
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
 			l.Push(lua.LNil)
 			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
 			return 2

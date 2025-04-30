@@ -220,6 +220,9 @@ func (t *testTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 			goVal = "converted value"
 		}
 		return payload.New(goVal), nil
+	case payload.JSON, payload.YAML, payload.String, payload.Bytes, payload.Error:
+		// FIXME rework on demand
+		return p, nil
 	}
 	return p, nil
 }
