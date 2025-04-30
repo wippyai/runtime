@@ -146,8 +146,10 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 	// Determine expiration time if TTL is set
 	var expiryDate *time.Time
 	if entry.TTL > 0 {
-		t := time.Now().Add(entry.TTL)
+		t := time.Now().Add(entry.TTL).UTC()
 		expiryDate = &t
+	} else {
+		expiryDate = nil
 	}
 
 	var exists bool
@@ -163,7 +165,7 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 			s.config.PayloadColumnName,
 			s.config.ExpireColumnName,
 		)
-		args = []interface{}{entry.Key.String(), valueBytes, expiryDate.UTC()}
+		args = []interface{}{entry.Key.String(), valueBytes, expiryDate}
 	} else {
 		// Update existing entry
 		query = fmt.Sprintf(
@@ -173,7 +175,7 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 			s.config.ExpireColumnName,
 			s.config.IDColumnName,
 		)
-		args = []interface{}{valueBytes, expiryDate.UTC(), entry.Key.String()}
+		args = []interface{}{valueBytes, expiryDate, entry.Key.String()}
 	}
 
 	// Execute the query
