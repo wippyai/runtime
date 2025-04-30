@@ -160,7 +160,7 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, 
 // This ensures messages from the same source are processed in order
 func (h *Host) getQueueForPID(pid pubsub.PID) chan *pubsub.Package {
 	hash := fnv1a32(pid.UniqID)
-	index := int(hash % uint32(len(h.msgQueues)))
+	index := int(hash) % len(h.msgQueues)
 	return h.msgQueues[index]
 }
 

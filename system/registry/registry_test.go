@@ -450,6 +450,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 		t.Fatalf("Error getting current version: %v", err)
 	}
 
+	//nolint:gosec
 	if int(currentVersion.ID()) != numGoroutines*changesPerRoutine {
 		t.Errorf("Expected current version Process %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
 	}

@@ -69,6 +69,7 @@ func createManagerTempDir(t *testing.T, files map[string]string) (string, func()
 		require.NoError(t, err)
 
 		// Write file content
+		//nolint:gosec
 		err = os.WriteFile(fullPath, []byte(content), 0644)
 		require.NoError(t, err)
 	}

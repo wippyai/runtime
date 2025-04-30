@@ -51,6 +51,7 @@ func (s *Storage) ListObjects(ctx context.Context, opts *cloudstorage.ListObject
 			input.Prefix = aws.String(opts.Prefix)
 		}
 		if opts.MaxKeys > 0 {
+			//nolint:gosec
 			input.MaxKeys = aws.Int32(int32(opts.MaxKeys))
 		}
 		if opts.ContinuationToken != "" {

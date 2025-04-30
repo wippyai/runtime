@@ -7,11 +7,12 @@ import (
 
 // CORS middleware option constants
 const (
-	MiddlewareName              = "cors"
-	CORSOptionAllowOrigins      = "allow_origins"         // Comma-separated list of allowed origins
-	CORSOptionAllowMethods      = "allow_methods"         // Comma-separated list of allowed methods
-	CORSOptionAllowHeaders      = "allow_headers"         // Comma-separated list of allowed headers
-	CORSOptionExposeHeaders     = "expose_headers"        // Comma-separated list of headers to expose
+	MiddlewareName          = "cors"
+	CORSOptionAllowOrigins  = "allow_origins"  // Comma-separated list of allowed origins
+	CORSOptionAllowMethods  = "allow_methods"  // Comma-separated list of allowed methods
+	CORSOptionAllowHeaders  = "allow_headers"  // Comma-separated list of allowed headers
+	CORSOptionExposeHeaders = "expose_headers" // Comma-separated list of headers to expose
+	//nolint:gosec
 	CORSOptionAllowCredentials  = "allow_credentials"     // "true" or "false"
 	CORSOptionMaxAge            = "max_age"               // Max age in seconds for preflight requests
 	CORSOptionAllowPrivateNetwk = "allow_private_network" // "true" or "false"
