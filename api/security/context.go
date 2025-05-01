@@ -10,11 +10,10 @@ import (
 
 // Context keys
 var (
-	//nolint:gochecknoglobals
 	actorCtx = &ctxapi.Key{Name: "security.actor"}
-	//nolint:gochecknoglobals
+
 	scopeCtx = &ctxapi.Key{Name: "security.scope"}
-	//nolint:gochecknoglobals
+
 	registryCtx = &ctxapi.Key{Name: "security.registry"}
 )
 

@@ -3,8 +3,8 @@ package hash
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/md5"  //nolint:gosec
-	"crypto/sha1" //nolint:gosec
+	"crypto/md5"  //nolint:gosec // ok for tests. G505: Blocklisted import crypto/md5: weak cryptographic primitive
+	"crypto/sha1" //nolint:gosec // ok for tests. G505: Blocklisted import crypto/sha1: weak cryptographic primitive
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
@@ -22,11 +22,11 @@ func calculateHash(data string, hashType string) string {
 	var sum []byte
 	switch hashType {
 	case "md5":
-		h := md5.New() //nolint:gosec
+		h := md5.New() //nolint:gosec // ok for now
 		h.Write([]byte(data))
 		sum = h.Sum(nil)
 	case "sha1":
-		h := sha1.New() //nolint:gosec
+		h := sha1.New() //nolint:gosec // ok for now
 		h.Write([]byte(data))
 		sum = h.Sum(nil)
 	case "sha256":
@@ -45,11 +45,11 @@ func calculateRawHash(data string, hashType string) []byte {
 	var sum []byte
 	switch hashType {
 	case "md5":
-		h := md5.New() //nolint:gosec
+		h := md5.New() //nolint:gosec // ok for now
 		h.Write([]byte(data))
 		sum = h.Sum(nil)
 	case "sha1":
-		h := sha1.New() //nolint:gosec
+		h := sha1.New() //nolint:gosec // ok for now
 		h.Write([]byte(data))
 		sum = h.Sum(nil)
 	case "sha256":

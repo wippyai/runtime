@@ -16,7 +16,7 @@ func Send(l *lua.LState, ch *Channel, value ...lua.LValue) error {
 
 	return uw.Tasks().Schedule(func() {
 		err := send(l.Context(), ch, value...)
-		//nolint:revive,staticcheck
+		//nolint:revive,staticcheck // ok for now
 		if err != nil {
 			// log.Printf("error sending value to channel: %v", err)
 		}
@@ -32,7 +32,7 @@ func Close(l *lua.LState, ch *Channel) error {
 
 	return uw.Tasks().Schedule(func() {
 		err := closeChannel(l.Context(), ch)
-		//nolint:revive,staticcheck
+		//nolint:revive,staticcheck // ok for now
 		if err != nil {
 			// log.Printf("error closing channel: %v", err)
 		}

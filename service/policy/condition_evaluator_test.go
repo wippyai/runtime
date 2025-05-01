@@ -10,18 +10,18 @@ import (
 
 // mockActor implements the security.Actor interface for testing
 //
-//nolint:unused
+//nolint:unused // to be used in tests
 type mockActor struct {
 	id   string
 	meta registry.Metadata
 }
 
-//nolint:unused
+//nolint:unused // to be used in tests
 func (m *mockActor) ID() string {
 	return m.id
 }
 
-//nolint:unused
+//nolint:unused // to be used in tests
 func (m *mockActor) Meta() registry.Metadata {
 	return m.meta
 }

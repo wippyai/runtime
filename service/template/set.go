@@ -16,7 +16,7 @@ import (
 
 // TemplateSet represents a set of templates with shared configuration
 //
-//nolint:revive
+//nolint:revive // name TemplateSet used for better readability
 type TemplateSet struct {
 	id      registry.ID
 	jetSet  *jet.Set

@@ -7,7 +7,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 )
 
-//nolint:gochecknoglobals
 var uowContext = ctxapi.Key{Name: "channel.context"}
 
 type layerContext struct {

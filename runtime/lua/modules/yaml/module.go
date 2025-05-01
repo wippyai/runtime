@@ -12,7 +12,7 @@ import (
 
 // YAMLOptions holds all formatting options for YAML encoding
 //
-//nolint:revive
+//nolint:revive // used for better readability
 type YAMLOptions struct {
 	// Basic formatting options
 	Indent        int      // Number of spaces for indentation (default: 2)

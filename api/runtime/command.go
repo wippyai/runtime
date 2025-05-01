@@ -5,7 +5,6 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 )
 
-//nolint:gochecknoglobals
 var CancellerCtx = &context.Key{Name: "runtime.canceller"}
 
 type (

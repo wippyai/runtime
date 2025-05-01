@@ -21,7 +21,6 @@ type fieldInfo struct {
 	index int
 }
 
-//nolint:gochecknoglobals
 var structFieldCache sync.Map // map[reflect.Type][]fieldInfo
 
 // getStructFields returns cached field info for a given struct type.
@@ -51,7 +50,7 @@ func ToGoAny(v lua.LValue) any {
 		return nil
 	}
 
-	switch v.Type() { //nolint:exhaustive
+	switch v.Type() {
 	case lua.LTNil:
 		return nil
 	case lua.LTBool:
@@ -67,6 +66,9 @@ func ToGoAny(v lua.LValue) any {
 			return tableToMap(tbl)
 		}
 		return tableToSlice(tbl, maxn)
+	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		return v.String()
 	}

@@ -9,7 +9,6 @@ import (
 )
 
 var (
-	//nolint:gochecknoglobals
 	staticState = lua.NewState()
 )
 
@@ -154,7 +153,7 @@ func luaToMouseMsg(tbl *lua.LTable) (tea.MouseMsg, error) {
 	return msg, nil
 }
 
-//nolint:unparam
+//nolint:unparam // ok for now
 func luaToWindowSizeMsg(tbl *lua.LTable) (tea.WindowSizeMsg, error) {
 	return tea.WindowSizeMsg{
 		Width:  int(lua.LVAsNumber(tbl.RawGetString("width"))),

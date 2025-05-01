@@ -15,7 +15,6 @@ import (
 	"github.com/ponyruntime/pony/internal/uniqid"
 )
 
-//nolint:gochecknoglobals
 var supID = uniqid.NewGenerator()
 
 // Service represents a running process service instance
@@ -145,7 +144,7 @@ func (svc *Service) Stop(ctx context.Context) error {
 		time.Now().Add(svc.config.Lifecycle.StopTimeout),
 	))
 	// FIXME handle error
-	//nolint:revive,staticcheck
+	//nolint:revive,staticcheck // ignore for now
 	if err != nil {
 		// ignoring for now
 	}

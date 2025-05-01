@@ -146,7 +146,7 @@ func registerFile(l *lua.LState) {
 
 // Helper function to extract Unit of Work from Lua state
 //
-//nolint:unused
+//nolint:unused // to be used in tests
 func getUnitOfWork(l *lua.LState) engine.UnitOfWork {
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {

@@ -66,11 +66,11 @@ func (f *Factory) CreateVM() (api.VM, error) {
 
 	// Create and return VM using the factory
 	// FIXME somewhy err ignored
-	//nolint:staticcheck
+	//nolint:staticcheck // ok for now
 	vm, err := realFactory.CreateVM()
 	if err := realFactory.Close(); err != nil {
 		// FIXME always true
-		//nolint:staticcheck
+		//nolint:staticcheck // ok for now
 		if vm != nil {
 			vm.Close()
 		}

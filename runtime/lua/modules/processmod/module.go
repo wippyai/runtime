@@ -16,9 +16,8 @@ import (
 
 // Channel context keys for UoW storage
 var (
-	//nolint:gochecknoglobals
 	inboxChannel = &context.Key{Name: "process.channel.inbox"}
-	//nolint:gochecknoglobals
+
 	eventsChannel = &context.Key{Name: "process.channel.events"}
 )
 

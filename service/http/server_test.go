@@ -50,7 +50,7 @@ func createServerTempDir(t *testing.T, files map[string]string) (string, func())
 		require.NoError(t, err)
 
 		// Write file content
-		//nolint:gosec
+		//nolint:gosec // used in tests
 		err = os.WriteFile(fullPath, []byte(content), 0644)
 		require.NoError(t, err)
 	}
@@ -343,7 +343,7 @@ func TestServerService_StartStop(t *testing.T) {
 	var lastErr error
 
 	for i := 0; i < 3; i++ {
-		//nolint:noctx
+		//nolint:noctx // noctx is not needed because we are not reading the body
 		resp, lastErr = client.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
 		if lastErr == nil {
 			break
@@ -364,7 +364,7 @@ func TestServerService_StartStop(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify server is stopped
-	//nolint:bodyclose,noctx
+	//nolint:bodyclose,noctx // bodyclose is not needed because we are not reading the body
 	_, err = http.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
 	assert.Error(t, err)
 
@@ -710,7 +710,7 @@ func TestContextListener(t *testing.T) {
 	var lastErr error
 
 	for i := 0; i < 3; i++ {
-		//nolint:noctx
+		//nolint:noctx // noctx is not needed because we are not reading the body
 		resp, lastErr = client.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
 		if lastErr == nil {
 			break

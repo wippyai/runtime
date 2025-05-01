@@ -2,8 +2,8 @@ package hash
 
 import (
 	"crypto/hmac"
-	"crypto/md5"  //nolint:gosec
-	"crypto/sha1" //nolint:gosec
+	"crypto/md5"  //nolint:gosec // ok for now. G505: Blocklisted import crypto/md5: weak cryptographic primitive
+	"crypto/sha1" //nolint:gosec // ok for now. G505: Blocklisted import crypto/sha1: weak cryptographic primitive
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
@@ -87,7 +87,7 @@ func (m *Module) md5(l *lua.LState) int {
 	}
 
 	str := l.ToString(1)
-	result, err := computeHash(md5.New(), str, raw) //nolint:gosec
+	result, err := computeHash(md5.New(), str, raw) //nolint:gosec // ok for now
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -109,7 +109,7 @@ func (m *Module) sha1(l *lua.LState) int {
 	}
 
 	str := l.ToString(1)
-	result, err := computeHash(sha1.New(), str, raw) //nolint:gosec
+	result, err := computeHash(sha1.New(), str, raw) //nolint:gosec // ok for now
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -197,7 +197,7 @@ func (m *Module) fnv64(l *lua.LState) int {
 	return 1
 }
 
-//nolint:revive
+//nolint:revive // used in snakecase style
 func (m *Module) hmac_sha256(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
 		l.ArgError(1, "string expected")
@@ -223,7 +223,7 @@ func (m *Module) hmac_sha256(l *lua.LState) int {
 	return 1
 }
 
-//nolint:revive
+//nolint:revive // used in snakecase style
 func (m *Module) hmac_sha512(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
 		l.ArgError(1, "string expected")
@@ -250,7 +250,7 @@ func (m *Module) hmac_sha512(l *lua.LState) int {
 	return 1
 }
 
-//nolint:revive
+//nolint:revive // used in snakecase style
 func (m *Module) hmac_sha1(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
 		l.ArgError(1, "string expected")
@@ -277,7 +277,7 @@ func (m *Module) hmac_sha1(l *lua.LState) int {
 	return 1
 }
 
-//nolint:revive
+//nolint:revive // used in snakecase style
 func (m *Module) hmac_md5(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
 		l.ArgError(1, "string expected")

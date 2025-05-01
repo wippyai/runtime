@@ -29,7 +29,7 @@ func createTestDBConfig() *config.DBConfig {
 	}
 }
 
-//nolint:unused
+//nolint:unused // to be used in tests
 func createTestSQLiteConfig() *config.SQLiteConfig {
 	return &config.SQLiteConfig{
 		File: ":memory:",

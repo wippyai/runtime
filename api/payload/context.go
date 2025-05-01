@@ -8,7 +8,7 @@ import (
 )
 
 // transcoderCtx is the context key used to store and retrieve the transcoder instance
-var transcoderCtx = &ctxapi.Key{Name: "payload.transcoder"} //nolint:gochecknoglobals
+var transcoderCtx = &ctxapi.Key{Name: "payload.transcoder"}
 
 // GetTranscoder retrieves the Transcoder from the provided context.
 // Returns nil if no Transcoder is found in the context.

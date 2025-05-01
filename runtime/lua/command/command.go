@@ -19,7 +19,7 @@ var (
 	ErrCommandCompleted = errors.New("command already completed")
 
 	ErrCommandCanceled = errors.New("command canceled")
-	//nolint:gochecknoglobals
+
 	commandCounter atomic.Uint64
 )
 

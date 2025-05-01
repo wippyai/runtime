@@ -314,7 +314,7 @@ func (m *Module) send(l *lua.LState) int {
 
 // createPayloadsFromArgs converts Lua arguments to process payloads
 //
-//nolint:unparam
+//nolint:unparam // ok for now
 func (m *Module) createPayloadsFromArgs(l *lua.LState, startIndex int) payload.Payloads {
 	var payloads payload.Payloads
 

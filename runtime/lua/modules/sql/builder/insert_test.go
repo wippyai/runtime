@@ -59,7 +59,7 @@ func setupLuaWithInsertModule(t *testing.T) (*engine.CoroutineVM, *engine.Runner
 
 // Helper function to register placeholder formats for testing
 //
-//nolint:unused
+//nolint:unused // to be used in tests
 func registerTestPlaceholderFormats(l *lua.LState, modTable *lua.LTable) {
 	// Create userdata for each placeholder format
 	questionFormat := l.NewUserData()
@@ -73,18 +73,18 @@ func registerTestPlaceholderFormats(l *lua.LState, modTable *lua.LTable) {
 
 // Simple implementations for placeholder formats for testing purposes
 
-//nolint:unused
+//nolint:unused // ok for now
 type questionPlaceholderFormat struct{}
 
-//nolint:unused
+//nolint:unused // ok for now
 type dollarPlaceholderFormat struct{}
 
-//nolint:unused
+//nolint:unused // ok for now
 func (questionPlaceholderFormat) ReplacePlaceholders(sql string) (string, error) {
 	return sql, nil
 }
 
-//nolint:unused
+//nolint:unused // ok for now
 func (dollarPlaceholderFormat) ReplacePlaceholders(sql string) (string, error) {
 	return sql, nil // Just a stub for testing
 }

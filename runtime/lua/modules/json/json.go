@@ -32,14 +32,13 @@ type EncodeOptions struct {
 
 // DefaultEncodeOptions provides sensible defaults for JSON encoding
 //
-//nolint:gochecknoglobals
+
 var DefaultEncodeOptions = EncodeOptions{
 	MaxDepth:                DefaultMaxDepth,
 	AllowSparseArrays:       false,
 	TreatMixedKeysAsObjects: false,
 }
 
-//nolint:gochecknoglobals
 var jsonValuePool = sync.Pool{
 	New: func() any {
 		return &jsonValue{}
@@ -326,7 +325,7 @@ func analyzeTable(table *lua.LTable) (isArray bool, isObject bool, maxArrayIndex
 
 	// Check if this looks like an array (sequential numeric keys)
 	// FIXME implement
-	//nolint:revive,staticcheck
+	//nolint:revive,staticcheck // ignore for now
 	if isArray && arrayCount != int(maxArrayIndex) {
 		// It's a sparse array
 		// We'll return isArray=true but the caller needs to check if sparse arrays are allowed

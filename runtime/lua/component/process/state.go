@@ -23,7 +23,6 @@ import (
 
 // Common errors
 var (
-	//nolint:gochecknoglobals
 	StateKey          = &ctxapi.Key{Name: "lua.process.state"}
 	ErrRunnerRequired = errors.New("runner is required")
 	ErrNoTranscoder   = errors.New("failed to get transcoder")

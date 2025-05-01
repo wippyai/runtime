@@ -56,7 +56,7 @@ func makeEntryWithMeta(id registry.ID, kind string, data string, meta map[string
 
 // Helper function to compare change sets and report detailed differences
 //
-//nolint:unparam
+//nolint:unparam // bool return value is required by testing pattern but not used
 func compareChangeSets(t *testing.T, got, want registry.ChangeSet) bool {
 	t.Helper()
 
@@ -155,7 +155,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, _ := CreateChangeSetFromEntries(tt.entries)
-			compareChangeSets(t, got, tt.want)
+			_ = compareChangeSets(t, got, tt.want)
 		})
 	}
 }
@@ -320,7 +320,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 
 			// Only compare change sets if not expecting an error
 			if !tt.expectError {
-				compareChangeSets(t, got, tt.want)
+				_ = compareChangeSets(t, got, tt.want)
 			}
 		})
 	}

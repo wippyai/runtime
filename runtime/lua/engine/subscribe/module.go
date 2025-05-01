@@ -8,7 +8,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-//nolint:gochecknoglobals
 var chanID = atomic.Uint64{}
 
 type subscribe struct {

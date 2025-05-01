@@ -47,7 +47,6 @@ const (
 	CloseCodeTLSHandshake    = 1015
 )
 
-//nolint:gochecknoglobals
 var closeCodes = map[string]int{
 	"NORMAL":              CloseCodeNormal,
 	"GOING_AWAY":          CloseCodeGoingAway,
@@ -202,7 +201,7 @@ func wsConnect(l *lua.LState) int {
 	}
 
 	// Establish connection.
-	//nolint:bodyclose
+	//nolint:bodyclose // bodyclose is not needed because we are not reading the body
 	conn, _, err := websocket.Dial(dialCtx, url, opts)
 	if dialCancel != nil {
 		dialCancel()

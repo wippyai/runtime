@@ -51,7 +51,7 @@ func withFunction(source string, method string) testOption {
 
 // withEngineOption adds an engine option to the configuration
 //
-//nolint:unused
+//nolint:unused // to be used in tests
 func withEngineOption(opt engine.Option) testOption {
 	return func(cfg *testFactoryConfig) {
 		cfg.engineOpts = append(cfg.engineOpts, opt)
@@ -60,7 +60,7 @@ func withEngineOption(opt engine.Option) testOption {
 
 // withFactoryOption adds a factory option to the configuration
 //
-//nolint:unused
+//nolint:unused // to be used in tests
 func withFactoryOption(opt component.Option) testOption {
 	return func(cfg *testFactoryConfig) {
 		cfg.factoryOpts = append(cfg.factoryOpts, opt)
@@ -124,7 +124,7 @@ func setupTestFactory(opts ...testOption) (api.Factory, error) {
 		},
 	}
 
-	//nolint:gocritic
+	//nolint:gocritic // new array used only for comparison
 	factoryOpts := append(cfg.factoryOpts,
 		component.WithEngineOption(engine.WithGlobalValue("_VERSION", lua.LString("test"))),
 	)

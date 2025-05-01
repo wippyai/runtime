@@ -11,8 +11,6 @@ linters:
     - errcheck
     - errorlint
     - exhaustive
-    - gochecknoglobals
-    - gochecknoinits
     - gocritic
     - goprintffuncname
     - gosec
@@ -45,6 +43,7 @@ linters:
       locale: US
     nolintlint:
       require-specific: true
+      require-explanation: true
     prealloc:
       simple: true
       range-loops: true

@@ -147,7 +147,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 				assert.NotEmpty(t, parts[2], "Signature should not be empty")
 
 				// Parse the token using Go's JWT library to verify it's valid
-				//nolint:revive
+				//nolint:revive // ok for now
 				parsedToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
 					// FIXME do we need to use "tc" instead of "token"?
 					return []byte(tc.key), nil

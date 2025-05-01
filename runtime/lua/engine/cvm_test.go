@@ -2927,7 +2927,7 @@ func TestCoroutineVM_GoErrorPropagation(t *testing.T) {
 		consumerTask.Resumed = producerTask.Yielded
 
 		// Step consumer - should fail with wrapped error
-		//nolint:ineffassign,staticcheck
+		//nolint:ineffassign,staticcheck // ok for now
 		tasks, err = vm.Step(consumerTask)
 		if err == nil {
 			t.Fatal("expected error when resuming with Go error")
@@ -3045,7 +3045,7 @@ func TestCoroutineVM_PcallErrorHandling(t *testing.T) {
 		consumerTask.Resumed = producerTask.Yielded
 
 		// Step consumer - should fail with wrapped error that includes both contexts
-		//nolint:ineffassign,staticcheck
+		//nolint:ineffassign,staticcheck // ok for now
 		tasks, err = vm.Step(consumerTask)
 		if err == nil {
 			t.Fatal("expected error when resuming with Go error")
@@ -3199,7 +3199,7 @@ func TestCoroutineVM_PcallErrorHandling(t *testing.T) {
 		consumerTask.Resumed = producerTask.Yielded
 
 		// Step consumer - should fail with wrapped error that includes both contexts
-		//nolint:ineffassign,staticcheck
+		//nolint:ineffassign,staticcheck // ok for now
 		tasks, err = vm.Step(consumerTask)
 		if err == nil {
 			t.Fatal("expected error when resuming with Go error")

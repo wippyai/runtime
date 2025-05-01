@@ -519,7 +519,7 @@ func (a *App) StartProfiler() {
 	go func() {
 		profilerAddr := "localhost:6060"
 		a.logger.Info("starting pprof server", zap.String("address", profilerAddr))
-		//nolint:gosec
+		//nolint:gosec // ok for now
 		if err := httpbase.ListenAndServe(profilerAddr, nil); err != nil {
 			if !errors.Is(err, httpbase.ErrServerClosed) {
 				a.logger.Error("pprof server failed", zap.Error(err))

@@ -156,7 +156,7 @@ func (c *Compiler) Compile(
 	return compiled, nil
 }
 
-//nolint:unparam
+//nolint:unparam // ok for now
 func (c *Compiler) preloadModule(memGraph *MemoryGraph, pre Preload, compiled *CompiledMain) (*CompiledMain, error) {
 	node, err := memGraph.GetNode(pre.ModuleID)
 	if err != nil {

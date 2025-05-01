@@ -118,7 +118,7 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(rm)
-	//nolint:noctx
+	//nolint:noctx // noctx is not needed because we are not reading the body
 	resp, err := http.Get(server.URL + "/api/users/123")
 	require.NoError(t, err)
 
@@ -126,7 +126,7 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 	assert.NoError(t, resp.Body.Close())
 
 	// Test 404 for non-existent route
-	//nolint:noctx
+	//nolint:noctx // noctx is not needed because we are not reading the body
 	resp, err = http.Get(server.URL + "/api/nonexistent")
 	require.NoError(t, err)
 
@@ -177,7 +177,7 @@ func TestRouteManager_MultipleRouters(t *testing.T) {
 
 	// Test each router's endpoint
 	for _, r := range routerIDs {
-		//nolint:noctx
+		//nolint:noctx // noctx is not needed because we are not reading the body
 		resp, err := http.Get(server.URL + r.prefix + "/test")
 		require.NoError(t, err)
 
@@ -223,7 +223,7 @@ func TestRouteManager_Middleware(t *testing.T) {
 	defer server.Close()
 
 	// Test middleware application
-	//nolint:noctx
+	//nolint:noctx // noctx is not needed because we are not reading the body
 	resp, err := http.Get(server.URL + "/api/test")
 	require.NoError(t, err)
 

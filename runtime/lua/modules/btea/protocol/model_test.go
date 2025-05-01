@@ -87,7 +87,7 @@ func TestTryGetModel(t *testing.T) {
 			ViewStr:  "test",
 			UpdateFn: func(_ tea.Msg) (tea.Model, tea.Cmd) { return nil, nil },
 		}
-		//nolint:ineffassign,staticcheck
+		//nolint:ineffassign,staticcheck // ok for now
 		model, ok := TryGetModel(l, l.NewUserData())
 		assert.False(t, ok, "should reject empty userdata")
 

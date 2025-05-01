@@ -21,13 +21,11 @@ import (
 )
 
 var (
-	//nolint:gochecknoglobals
 	bteaBuild *code.BuildOptions
-	//nolint:gochecknoglobals
+
 	layers component.Option
 )
 
-//nolint:gochecknoinits
 func init() {
 	bteaBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).

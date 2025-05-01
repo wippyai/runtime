@@ -92,18 +92,18 @@ func (m *mockResourceRegistry) Exists(id registry.ID) bool {
 	return ok
 }
 
-//nolint:unused
+//nolint:unused // ok for now
 type typeError struct {
 	expected string
 	actual   any
 }
 
-//nolint:unused
+//nolint:unused // ok for now
 func (e typeError) Error() string {
 	return "type error: expected " + e.expected + " got " + typeName(e.actual)
 }
 
-//nolint:unused
+//nolint:unused // ok for now
 func typeName(v any) string {
 	if v == nil {
 		return "<nil>"
@@ -113,7 +113,7 @@ func typeName(v any) string {
 
 // --- Test Setup Helper ---
 
-//nolint:unparam
+//nolint:unparam // ok for now
 func setupLuaWithExec(t *testing.T, logger *zap.Logger) (*engine.CoroutineVM, engine.UnitOfWork, *engine.Runner) {
 	// 1. Create the actual native executor factory
 	nativeFactory := native.NewNativeExecutor(logger, &apiexec.NativeExecutorConfig{})

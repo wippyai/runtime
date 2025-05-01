@@ -12,7 +12,7 @@ import (
 
 // Define context key for subscribe layer
 //
-//nolint:gochecknoglobals
+
 var subContext = ctxapi.Key{Name: "subscribe.context"}
 
 // layerContext maintains state for subscribe operations

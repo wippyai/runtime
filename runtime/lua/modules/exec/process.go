@@ -83,7 +83,7 @@ func WrapProcess(l *lua.LState, handle apiexec.Process, log *zap.Logger) *lua.LU
 // It handles locking and idempotency. forceStop determines if SIGKILL is used.
 // Returns true if cleanup was performed, false if already closed.
 //
-//nolint:unparam
+//nolint:unparam // ok for now
 func (p *Process) internalClose(forceStop bool) bool {
 	p.mu.Lock()
 	if p.closed {

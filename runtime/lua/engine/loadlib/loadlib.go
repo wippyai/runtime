@@ -33,7 +33,7 @@ func OpenRestrictedPackage(l *lua.LState) int {
 
 // Package functions map
 //
-//nolint:gochecknoglobals
+// ok for now
 var packageFuncs = map[string]lua.LGFunction{
 	"loadlib": restrictedLoadLib,
 	"seeall":  seeAll,

@@ -24,13 +24,10 @@ import (
 )
 
 var (
-	//nolint:gochecknoglobals
 	functionBuild *code.BuildOptions
-	//nolint:gochecknoglobals
-	layers component.Option
+	layers        component.Option
 )
 
-//nolint:gochecknoinits
 func init() {
 	functionBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).

@@ -341,7 +341,7 @@ func makeMultipartRequest(
 
 // parseFormValues parses a form encoded string into a map
 //
-//nolint:unparam
+//nolint:unparam // ok for now
 func parseFormValues(form string) (map[string][]string, error) {
 	values := make(map[string][]string)
 	for _, pair := range strings.Split(form, "&") {

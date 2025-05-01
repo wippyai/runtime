@@ -163,7 +163,7 @@ func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload
 
 // setupTestEnvironment creates a test environment with mocked dependencies
 //
-//nolint:unparam
+//nolint:unparam // used in tests
 func setupTestEnvironment() (*Manager, event.Bus, *MockResourceRegistry, context.Context) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
@@ -227,7 +227,7 @@ func setupResourceEventsListener(ctx context.Context, bus event.Bus) (chan event
 
 // waitForResourceEvent waits for a resource event with the specified kind
 //
-//nolint:unparam
+//nolint:unparam // used in tests
 func waitForResourceEvent(t *testing.T, eventChan chan event.Event, expectedKind event.Kind, timeout time.Duration) event.Event {
 	t.Helper()
 

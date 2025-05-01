@@ -16,7 +16,7 @@ type Module struct{}
 
 // Ctx is the context key for the upstream channel
 //
-//nolint:gochecknoglobals
+
 var Ctx = &ctxapi.Key{Name: "upstream"}
 
 // NewUpstreamModule creates a new upstream module instance

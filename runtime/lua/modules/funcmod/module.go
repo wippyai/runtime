@@ -20,11 +20,11 @@ import (
 // Channel context keys for UoW storage
 var (
 	// subscribedKey is used to track whether we've already set up subscriptions
-	//nolint:gochecknoglobals
+
 	subscribedKey = &ctxapi.Key{Name: "function.subscribed"}
-	//nolint:gochecknoglobals
+
 	inboxChannel = &ctxapi.Key{Name: "function.channel.inbox"}
-	//nolint:gochecknoglobals
+
 	eventsChannel = &ctxapi.Key{Name: "function.channel.events"}
 )
 

@@ -712,7 +712,7 @@ func TestStoreResourceCleanup(t *testing.T) {
 
 	// This should return an error but might not in some implementations
 	// that don't check ctx.Done() early enough
-	//nolint:ineffassign,staticcheck
+	//nolint:ineffassign,staticcheck // ignore for now
 	_, _, err = ts.Validate(cancelCtx, token)
 	// FIXME maybe add require.NoError(t, err)
 	// We don't assert on the error here, as the implementation might handle

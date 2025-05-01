@@ -30,7 +30,7 @@ type RequestConfig struct {
 }
 
 // checkRequest gets and verifies Request userdata from Lua state
-func checkRequest(l *lua.LState, n int) (*Request, error) { //nolint:unparam
+func checkRequest(l *lua.LState, n int) (*Request, error) { //nolint:unparam // ok for now
 	ud := l.CheckUserData(n)
 	if ud == nil {
 		return nil, fmt.Errorf("argument %d must be a Request", n)
@@ -385,7 +385,7 @@ func requestBodyJSON(l *lua.LState) int {
 	body, readErr := io.ReadAll(req.request.Body)
 	defer func() {
 		err := req.request.Body.Close()
-		//nolint:revive,staticcheck
+		//nolint:revive,staticcheck // ignore for now
 		if err != nil {
 			// suppressed for now
 		}

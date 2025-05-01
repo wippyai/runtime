@@ -32,7 +32,9 @@ func newTestEvent(system event.System, kind event.Kind, data any) event.Event {
 }
 
 // Helper function to wait for a specified number of eventbus or timeout
-func waitForEvents(t *testing.T, ch chan event.Event, numEvents int, timeout time.Duration) []event.Event { //nolint:unparam
+//
+//nolint:unparam // used in tests
+func waitForEvents(t *testing.T, ch chan event.Event, numEvents int, timeout time.Duration) []event.Event {
 	t.Helper()
 	receivedEvents := make([]event.Event, 0, numEvents)
 	timer := time.NewTimer(timeout)

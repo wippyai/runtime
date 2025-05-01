@@ -20,13 +20,11 @@ import (
 )
 
 var (
-	//nolint:gochecknoglobals
 	processBuild *code.BuildOptions
-	//nolint:gochecknoglobals
+
 	layers component.Option
 )
 
-//nolint:gochecknoinits
 func init() {
 	processBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).

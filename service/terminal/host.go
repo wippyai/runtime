@@ -197,7 +197,7 @@ func (t *Terminal) prepareContext(
 	return pCtx
 }
 
-//nolint:unparam
+//nolint:unparam // ok for now
 func (t *Terminal) handleTerminate() error {
 	if runner := t.runner.Load(); runner != nil {
 		runner.Stop()

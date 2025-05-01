@@ -4,7 +4,6 @@ import tea "github.com/charmbracelet/bubbletea"
 
 // Initialize key mappings
 var (
-	//nolint:gochecknoglobals
 	keyTypeMap = map[tea.KeyType]string{
 		// Control keys using tea constants
 		tea.KeyCtrlAt:           "ctrl+@", // null, \0
@@ -106,7 +105,7 @@ var (
 	}
 
 	// Mouse buttons
-	//nolint:gochecknoglobals
+
 	mouseButtonMap = map[tea.MouseButton]string{
 		tea.MouseButtonNone:       "none",
 		tea.MouseButtonLeft:       "left",
@@ -121,15 +120,13 @@ var (
 		tea.MouseButton10:         "button10",
 		tea.MouseButton11:         "button11",
 	}
-	//nolint:gochecknoglobals
+
 	keyTypeFromStr = make(map[string]tea.KeyType)
-	//nolint:gochecknoglobals
+
 	mouseButtonFromStr = make(map[string]tea.MouseButton)
 )
 
 // Initialize reverse mappings
-//
-//nolint:gochecknoinits
 func init() {
 	// Generate reverse key mapping
 	keyTypeFromStr = make(map[string]tea.KeyType, len(keyTypeMap))

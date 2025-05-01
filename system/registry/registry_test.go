@@ -450,7 +450,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 		t.Fatalf("Error getting current version: %v", err)
 	}
 
-	//nolint:gosec
+	//nolint:gosec // used in tests
 	if int(currentVersion.ID()) != numGoroutines*changesPerRoutine {
 		t.Errorf("Expected current version Process %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
 	}
@@ -485,7 +485,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 	}
 
 	// Mock the runner to return a new state that includes the changes
-	//nolint:gocritic
+	//nolint:gocritic // new array used only for comparison
 	newState := append(initialState, changes[0].Entry)
 	runner.newState = newState
 
@@ -562,7 +562,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		},
 	}
 
-	//nolint:gocritic
+	//nolint:gocritic // new array used only for comparison
 	newState := append(initialState, changes[0].Entry)
 
 	rollbackErr := errors.New("rollback failed")
