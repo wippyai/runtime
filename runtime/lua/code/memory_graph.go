@@ -266,7 +266,8 @@ func (m *MemoryGraph) DependencyLevels() ([][]*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	levels := make([][]*Node, 0)
+	//nolint:prealloc // ok for now
+	var levels [][]*Node
 	for i := 0; i < gl.LevelCount(); i++ {
 		levelIDs, err := gl.GetLevel(i)
 		if err != nil {
