@@ -34,7 +34,7 @@ func (ti *TextInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (ti *TextInput) View() string {
-	return ti.View()
+	return ti.model.View()
 }
 
 const (

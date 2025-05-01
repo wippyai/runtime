@@ -3,10 +3,11 @@ package websocket
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/security"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/ponyruntime/pony/runtime/lua/security"
 
 	"github.com/coder/websocket"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -200,6 +201,7 @@ func wsConnect(l *lua.LState) int {
 	}
 
 	// Establish connection.
+	//nolint:bodyclose // bodyclose is not needed because we are not reading the body
 	conn, _, err := websocket.Dial(dialCtx, url, opts)
 	if dialCancel != nil {
 		dialCancel()

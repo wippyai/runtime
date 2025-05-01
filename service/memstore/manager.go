@@ -3,8 +3,9 @@ package memstore
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/service/memstore"
 	"sync"
+
+	"github.com/ponyruntime/pony/api/service/memstore"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"

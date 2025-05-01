@@ -80,7 +80,7 @@ func TestLoadFile(t *testing.T) {
 	}
 
 	configFile := filepath.Join("listener", "listener.yaml")
-	mainFile := filepath.Join("main.yaml")
+	mainFile := "main.yaml"
 
 	tests := []struct {
 		name        string

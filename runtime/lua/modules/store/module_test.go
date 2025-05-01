@@ -37,9 +37,9 @@ type mockResourceRegistry struct {
 }
 
 func (m *mockResourceRegistry) Acquire(
-	ctx context.Context,
+	_ context.Context,
 	id registry.ID,
-	mode resource.AccessMode,
+	_ resource.AccessMode,
 ) (resource.Resource[any], error) {
 	res, ok := m.resources[id]
 	if !ok {
@@ -69,6 +69,8 @@ type mockStore struct {
 }
 
 // NewMockStore creates a new test store with initial test data
+//
+//nolint:revive // used in tests
 func NewMockStore() *mockStore {
 	return &mockStore{
 		data:  make(map[string]payload.Payload),
@@ -176,7 +178,8 @@ func setupTestTranscoder() payload.Transcoder {
 }
 
 func (t *testTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
-	if format == payload.Lua {
+	switch format {
+	case payload.Lua:
 		// Convert Go to Lua
 		data := p.Data()
 		var luaVal lua.LValue
@@ -197,7 +200,7 @@ func (t *testTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 			luaVal = lua.LString("converted value")
 		}
 		return payload.NewPayload(luaVal, payload.Lua), nil
-	} else if format == payload.Golang {
+	case payload.Golang:
 		// Convert Lua to Go
 		luaVal, ok := p.Data().(lua.LValue)
 		if !ok {
@@ -217,11 +220,14 @@ func (t *testTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 			goVal = "converted value"
 		}
 		return payload.New(goVal), nil
+	case payload.JSON, payload.YAML, payload.String, payload.Bytes, payload.Error:
+		// FIXME rework on demand
+		return p, nil
 	}
 	return p, nil
 }
 
-func (t *testTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (t *testTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
 	// Simple implementation for testing
 	return nil
 }

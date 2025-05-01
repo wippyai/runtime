@@ -24,7 +24,7 @@ func NewSimpleTranscoder() *SimpleTranscoder {
 	return &SimpleTranscoder{}
 }
 
-func (t *SimpleTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+func (t *SimpleTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
 
@@ -69,6 +69,7 @@ func createManagerTempDir(t *testing.T, files map[string]string) (string, func()
 		require.NoError(t, err)
 
 		// Write file content
+		//nolint:gosec // used in tests
 		err = os.WriteFile(fullPath, []byte(content), 0644)
 		require.NoError(t, err)
 	}

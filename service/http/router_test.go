@@ -35,7 +35,7 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 		endpointID := registry.ID{NS: "test", Name: "endpoint1"}
 
 		// Add route to router
-		err := rm.AddRoute(routerID, endpointID, "GET", "/test", funcID, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err := rm.AddRoute(routerID, endpointID, "GET", "/test", funcID, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		require.NoError(t, err)
@@ -118,6 +118,7 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(rm)
+	//nolint:noctx // noctx is not needed because we are not reading the body
 	resp, err := http.Get(server.URL + "/api/users/123")
 	require.NoError(t, err)
 
@@ -125,6 +126,7 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 	assert.NoError(t, resp.Body.Close())
 
 	// Test 404 for non-existent route
+	//nolint:noctx // noctx is not needed because we are not reading the body
 	resp, err = http.Get(server.URL + "/api/nonexistent")
 	require.NoError(t, err)
 
@@ -157,7 +159,7 @@ func TestRouteManager_MultipleRouters(t *testing.T) {
 
 		// Save router name in a closure variable to avoid sharing across iterations
 		routerName := r.name
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("X-Router", routerName)
 			w.WriteHeader(http.StatusOK)
 		})
@@ -175,6 +177,7 @@ func TestRouteManager_MultipleRouters(t *testing.T) {
 
 	// Test each router's endpoint
 	for _, r := range routerIDs {
+		//nolint:noctx // noctx is not needed because we are not reading the body
 		resp, err := http.Get(server.URL + r.prefix + "/test")
 		require.NoError(t, err)
 
@@ -205,7 +208,7 @@ func TestRouteManager_Middleware(t *testing.T) {
 	funcID := registry.ID{NS: "test", Name: "func1"}
 	endpointID := registry.ID{NS: "test", Name: "endpoint1"}
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -220,6 +223,7 @@ func TestRouteManager_Middleware(t *testing.T) {
 	defer server.Close()
 
 	// Test middleware application
+	//nolint:noctx // noctx is not needed because we are not reading the body
 	resp, err := http.Get(server.URL + "/api/test")
 	require.NoError(t, err)
 

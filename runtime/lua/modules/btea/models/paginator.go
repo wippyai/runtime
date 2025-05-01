@@ -23,7 +23,7 @@ func (p *Paginator) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (p *Paginator) View() string {
-	return p.View()
+	return p.model.View()
 }
 
 // RegisterPaginator registers the paginator component

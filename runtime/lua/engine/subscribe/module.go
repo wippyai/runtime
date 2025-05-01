@@ -49,49 +49,49 @@ func (m *Module) Name() string {
 }
 
 // Loader registers the module functions
-func (m *Module) Loader(L *lua.LState) int {
+func (m *Module) Loader(l *lua.LState) int {
 	// Spawn module table
-	mod := L.NewTable()
+	mod := l.NewTable()
 
 	// Register functions
-	L.SetField(mod, "subscribe", L.NewFunction(subscribeFunc))
-	L.SetField(mod, "unsubscribe", L.NewFunction(unsubscribeFunc))
+	l.SetField(mod, "subscribe", l.NewFunction(subscribeFunc))
+	l.SetField(mod, "unsubscribe", l.NewFunction(unsubscribeFunc))
 
 	// Register module
-	L.Push(mod)
+	l.Push(mod)
 	return 1
 }
 
-func subscribeFunc(L *lua.LState) int {
-	topic := L.CheckString(1)
+func subscribeFunc(l *lua.LState) int {
+	topic := l.CheckString(1)
 	if topic == "" {
-		L.RaiseError("topic cannot be empty")
+		l.RaiseError("topic cannot be empty")
 		return 0
 	}
 
 	chName := fmt.Sprintf("subscribe.%s.%d", topic, chanID.Add(1))
 	ch := channel.Named(chName, 1)
-	return Subscribe(L, ch, topic)
+	return Subscribe(l, ch, topic)
 }
 
-func unsubscribeFunc(L *lua.LState) int {
-	ch := channel.CheckChannel(L)
-	return Unsubscribe(L, ch)
+func unsubscribeFunc(l *lua.LState) int {
+	ch := channel.CheckChannel(l)
+	return Unsubscribe(l, ch)
 }
 
 // Subscribe subscribes to a topic and returns a channel
-func Subscribe(L *lua.LState, ch *channel.Channel, topic string) int {
+func Subscribe(l *lua.LState, ch *channel.Channel, topic string) int {
 	req := &subscribe{
 		topic:   topic,
 		channel: ch,
 	}
-	L.Push(req)
+	l.Push(req)
 	return -1
 }
 
 // Unsubscribe unsubscribes from a topic via channel
-func Unsubscribe(L *lua.LState, ch *channel.Channel) int {
+func Unsubscribe(l *lua.LState, ch *channel.Channel) int {
 	req := &unsubscribe{channel: ch}
-	L.Push(req)
+	l.Push(req)
 	return -1
 }

@@ -72,6 +72,8 @@ func performSleep(ctx context.Context, duration time.Duration) error {
 	time.Sleep(duration)
 	return nil
 }
+
+//nolint:unused // to be used in tests
 func sleep(l *lua.LState) int {
 	duration, err := parseDurationValue(l.Get(1))
 	if err != nil {

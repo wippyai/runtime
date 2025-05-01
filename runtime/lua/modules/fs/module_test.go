@@ -48,9 +48,9 @@ type mockResourceRegistry struct {
 }
 
 func (m *mockResourceRegistry) Acquire(
-	ctx context.Context,
+	_ context.Context,
 	id registry.ID,
-	mode resource.AccessMode,
+	_ resource.AccessMode,
 ) (resource.Resource[any], error) {
 	res, ok := m.resources[id]
 	if !ok {
@@ -245,7 +245,7 @@ func (m *mockFS) Open(name string) (fs.File, error) {
 	return newMockFile(file.name, string(buf)), nil
 }
 
-func (m *mockFS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, error) {
+func (m *mockFS) OpenFile(name string, flag int, _ fs.FileMode) (fsapi.File, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -394,7 +394,7 @@ func (m *mockFS) Remove(name string) error {
 	return fs.ErrNotExist
 }
 
-func (m *mockFS) Mkdir(name string, perm fs.FileMode) error {
+func (m *mockFS) Mkdir(name string, _ fs.FileMode) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 

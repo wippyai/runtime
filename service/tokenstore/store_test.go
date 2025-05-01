@@ -3,12 +3,14 @@ package tokenstore_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"go.uber.org/zap"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -66,6 +68,9 @@ func (t *jsonTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 			return err
 		}
 		return json.Unmarshal(data, v)
+	case payload.YAML, payload.String, payload.Lua, payload.Bytes, payload.Error:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		return nil
 	}
@@ -81,7 +86,7 @@ func (p *testPolicy) ID() registry.ID {
 	return p.id
 }
 
-func (p *testPolicy) Evaluate(actor security.Actor, action, resource string, meta registry.Metadata) security.Result {
+func (p *testPolicy) Evaluate(_ security.Actor, _, _ string, _ registry.Metadata) security.Result {
 	return p.decision
 }
 
@@ -450,7 +455,7 @@ func TestEdgeCases(t *testing.T) {
 	assert.Error(t, err)
 	// The error could be either TokenInvalid or TokenNotFound depending on whether the
 	// token format is recognized but not found or rejected outright
-	assert.True(t, err == security.ErrTokenInvalid || err == security.ErrTokenNotFound,
+	assert.True(t, errors.Is(err, security.ErrTokenInvalid) || errors.Is(err, security.ErrTokenNotFound),
 		"Expected either token invalid or token not found error, got: %v", err)
 
 	// Test case: Create token with never expiring TTL
@@ -631,7 +636,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Test concurrent validation with fewer operations and proper synchronization
 	// Create new tokens for concurrent validation test
-	var concurrentTokens []security.Token
+	concurrentTokens := make([]security.Token, 0)
 	for i := 0; i < 10; i++ { // Much smaller number
 		actor := security.Actor{
 			ID:   fmt.Sprintf("concurrent-user-%d", i),
@@ -701,15 +706,17 @@ func TestStoreResourceCleanup(t *testing.T) {
 	token, err := ts.Create(ctx, actor, nil, security.TokenDetails{})
 	require.NoError(t, err)
 
-	// Validate with a cancelled context to simulate an error
+	// Validate with a canceled context to simulate an error
 	cancelCtx, cancel := context.WithCancel(ctx)
 	cancel() // Cancel immediately
 
 	// This should return an error but might not in some implementations
 	// that don't check ctx.Done() early enough
+	//nolint:ineffassign,staticcheck // ignore for now
 	_, _, err = ts.Validate(cancelCtx, token)
+	// FIXME maybe add require.NoError(t, err)
 	// We don't assert on the error here, as the implementation might handle
-	// the cancelled context differently
+	// the canceled context differently
 
 	// We should still be able to validate with a valid context
 	validatedActor, _, err := ts.Validate(ctx, token)

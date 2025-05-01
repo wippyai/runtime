@@ -67,13 +67,13 @@ func (sf StackFrame) String() string {
 }
 
 // GetStackTrace captures a complete stack trace from a Lua state
-func GetStackTrace(L *lua.LState) *StackTrace {
+func GetStackTrace(l *lua.LState) *StackTrace {
 	trace := &StackTrace{
-		ThreadID: fmt.Sprintf("%p", L),
+		ThreadID: fmt.Sprintf("%p", l),
 	}
 
 	for level := 0; ; level++ {
-		frame, ok := getStackFrame(L, level)
+		frame, ok := getStackFrame(l, level)
 		if !ok {
 			break
 		}
@@ -84,15 +84,15 @@ func GetStackTrace(L *lua.LState) *StackTrace {
 }
 
 // getStackFrame captures information about a single stack frame
-func getStackFrame(L *lua.LState, level int) (StackFrame, bool) {
-	ar, ok := L.GetStack(level)
+func getStackFrame(l *lua.LState, level int) (StackFrame, bool) {
+	ar, ok := l.GetStack(level)
 	if !ok {
 		return StackFrame{}, false
 	}
 
 	// Spawn debug info with function info
-	funcTable := L.NewTable()
-	if _, err := L.GetInfo("nSluf", ar, funcTable); err != nil {
+	funcTable := l.NewTable()
+	if _, err := l.GetInfo("nSluf", ar, funcTable); err != nil {
 		return StackFrame{}, false
 	}
 
@@ -110,7 +110,7 @@ func getStackFrame(L *lua.LState, level int) (StackFrame, bool) {
 		fn := funcTable.RawGet(lua.LString("f"))
 		if luaFn, ok := fn.(*lua.LFunction); ok {
 			// Iterate over globals and see if any key maps to this function
-			globals := L.Get(lua.GlobalsIndex).(*lua.LTable)
+			globals := l.Get(lua.GlobalsIndex).(*lua.LTable)
 			globals.ForEach(func(key, value lua.LValue) {
 				if globalFn, ok := value.(*lua.LFunction); ok && globalFn == luaFn {
 					// Use the global key as the function name.
@@ -126,7 +126,7 @@ func getStackFrame(L *lua.LState, level int) (StackFrame, bool) {
 
 	// Spawn locals (parameters and local variables)
 	for i := 1; ; i++ {
-		name, value := L.GetLocal(ar, i)
+		name, value := l.GetLocal(ar, i)
 		if name == "" {
 			break
 		}
@@ -137,7 +137,7 @@ func getStackFrame(L *lua.LState, level int) (StackFrame, bool) {
 	if fn := funcTable.RawGet(lua.LString("f")); fn != lua.LNil {
 		if luaFn, ok := fn.(*lua.LFunction); ok {
 			for i := 1; ; i++ {
-				name, value := L.GetUpvalue(luaFn, i)
+				name, value := l.GetUpvalue(luaFn, i)
 				if name == "" {
 					break
 				}
@@ -150,15 +150,15 @@ func getStackFrame(L *lua.LState, level int) (StackFrame, bool) {
 }
 
 // GetAllCoroutineStacks gets stack traces for all coroutines in the registry
-func GetAllCoroutineStacks(L *lua.LState) []*StackTrace {
+func GetAllCoroutineStacks(l *lua.LState) []*StackTrace {
 	var traces []*StackTrace
 
 	// AddCleanup main thread
-	traces = append(traces, GetStackTrace(L))
+	traces = append(traces, GetStackTrace(l))
 
 	// We need to get any global coroutines first
-	globals := L.Get(lua.GlobalsIndex).(*lua.LTable)
-	globals.ForEach(func(key, value lua.LValue) {
+	globals := l.Get(lua.GlobalsIndex).(*lua.LTable)
+	globals.ForEach(func(_, value lua.LValue) {
 		if co, ok := value.(*lua.LState); ok {
 			trace := GetStackTrace(co)
 			// Only add if it has frames (active/yielded coroutine)

@@ -3,8 +3,9 @@ package native
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/service/exec/native"
 	"sync"
+
+	"github.com/ponyruntime/pony/service/exec/native"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"

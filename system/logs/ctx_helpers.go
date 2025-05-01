@@ -35,7 +35,7 @@ func (c *ConfigurationManager) GetConfig(ctx context.Context, bus event.Bus) (ap
 	// Set up subscription first
 	path := fmt.Sprintf("get-logs-config-%d", c.opCounter.Add(1))
 	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigState, func(e event.Event) {
-		if string(e.Path) == path {
+		if e.Path == path {
 			if cfg, ok := e.Data.(api.Config); ok {
 				select {
 				case configCh <- cfg:
@@ -75,7 +75,7 @@ func (c *ConfigurationManager) SetConfig(ctx context.Context, bus event.Bus, cfg
 	// Set up subscription first
 	path := fmt.Sprintf("set-logs-config-%d", c.opCounter.Add(1))
 	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigState, func(e event.Event) {
-		if string(e.Path) == path {
+		if e.Path == path {
 			if confirm, ok := e.Data.(api.Config); ok {
 				select {
 				case confirmCh <- confirm:

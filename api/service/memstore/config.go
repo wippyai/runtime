@@ -3,9 +3,10 @@ package memstore
 import (
 	"encoding/json"
 	"fmt"
+	"time"
+
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"time"
 )
 
 // Registry kind constant for the memory KV store

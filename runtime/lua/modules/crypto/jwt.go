@@ -195,7 +195,7 @@ func parsePrivateKey(pemString string) (*rsa.PrivateKey, error) {
 		// Try PKCS8 format if PKCS1 fails
 		privateKey, err2 := x509.ParsePKCS8PrivateKey(block.Bytes)
 		if err2 != nil {
-			return nil, fmt.Errorf("failed to parse private key: %v (PKCS1), %v (PKCS8)", err, err2)
+			return nil, fmt.Errorf("failed to parse private key: %w (PKCS1), %w (PKCS8)", err, err2)
 		}
 
 		rsaKey, ok := privateKey.(*rsa.PrivateKey)
@@ -230,7 +230,7 @@ func parsePublicKey(pemString string) (*rsa.PublicKey, error) {
 	// Try PKIX public key
 	pubKey, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse public key: %v", err)
+		return nil, fmt.Errorf("failed to parse public key: %w", err)
 	}
 
 	rsaKey, ok := pubKey.(*rsa.PublicKey)

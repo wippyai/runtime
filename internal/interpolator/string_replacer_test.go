@@ -408,7 +408,7 @@ func TestReplace(t *testing.T) {
 				t.Errorf("Replace() error = %v, expectedError %v", err, tt.expectedError)
 				return
 			}
-			if result == nil && tt.expectedOutput == nil { //nolint:revive
+			if result == nil && tt.expectedOutput == nil { //nolint:revive // ok for now
 				// OK
 			} else if !reflect.DeepEqual(result, tt.expectedOutput) {
 				t.Errorf("Replace() = %v, expected %v", result, tt.expectedOutput)

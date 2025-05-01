@@ -10,10 +10,10 @@ import (
 // Context keys for storing topology-related data
 var (
 	// topologyCtx is used to store the topology instance
-	topologyCtx = &ctxapi.Key{Name: "topology.topology"} //nolint:gochecknoglobals
+	topologyCtx = &ctxapi.Key{Name: "topology.topology"}
 
 	// registryCtx is used to store the Target registry
-	registryCtx = &ctxapi.Key{Name: "topology.registry"} //nolint:gochecknoglobals
+	registryCtx = &ctxapi.Key{Name: "topology.registry"}
 )
 
 // WithPIDRegistry attaches a Target registry to the provided context.

@@ -114,7 +114,7 @@ func parseOptions(value lua.LValue) (*requestOptions, error) {
 		if filesTable, ok := filesValue.(*lua.LTable); ok {
 			opts.files = make([]*fileOption, 0)
 
-			filesTable.ForEach(func(k, v lua.LValue) {
+			filesTable.ForEach(func(_, v lua.LValue) {
 				if v.Type() != lua.LTTable {
 					return // Skip non-table values
 				}
@@ -149,17 +149,18 @@ func parseOptions(value lua.LValue) (*requestOptions, error) {
 				contentValue := fileTable.RawGetString("content")
 				readerValue := fileTable.RawGetString("reader")
 
-				if contentValue != lua.LNil && contentValue.Type() == lua.LTString {
+				switch {
+				case contentValue != lua.LNil && contentValue.Type() == lua.LTString:
 					// Handle string content
 					file.Content = contentValue.String()
-				} else if readerValue != lua.LNil && readerValue.Type() == lua.LTUserData {
+				case readerValue != lua.LNil && readerValue.Type() == lua.LTUserData:
 					// Handle reader object
 					if reader, ok := readerValue.(*lua.LUserData).Value.(io.Reader); ok {
 						file.Reader = reader
 					} else {
 						return // Skip if not a valid reader
 					}
-				} else {
+				default:
 					// Neither content nor reader provided, skip this entry
 					return
 				}
@@ -174,7 +175,7 @@ func parseOptions(value lua.LValue) (*requestOptions, error) {
 
 // escapeQuotes escapes quotes in MIME header values
 func escapeQuotes(s string) string {
-	return strings.Replace(s, `"`, `\"`, -1)
+	return strings.ReplaceAll(s, `"`, `\"`)
 }
 
 // makeRequest creates an HTTP request with the given method, URL, and options
@@ -339,6 +340,8 @@ func makeMultipartRequest(
 }
 
 // parseFormValues parses a form encoded string into a map
+//
+//nolint:unparam // ok for now
 func parseFormValues(form string) (map[string][]string, error) {
 	values := make(map[string][]string)
 	for _, pair := range strings.Split(form, "&") {

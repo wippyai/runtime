@@ -1,6 +1,16 @@
 version: "1.0"
 namespace: system
 
+# Exports section declares what this system makes available to dependent modules
+exports:
+  - name: NAMESPACE
+    description: "System namespace reference"
+    value: "ns:system"
+
+  - name: API_ROUTER
+    description: "Main API router for endpoints"
+    value: "system:api"
+
 entries:
   - name: aws_config
     kind: config.aws
@@ -78,6 +88,9 @@ entries:
     prefix: /api/v1
     timeouts:
       request: 30s
+    middleware:
+      - cors
+      - websocket_relay
 
   - name: terminal
     kind: terminal.host

@@ -1,6 +1,7 @@
 package btea
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -17,7 +18,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local btea = require("btea")
 			assert(type(btea) == "table", "btea module should be a table")	
 		`, "test_load")

@@ -186,7 +186,7 @@ func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator stri
 	switch operator {
 	case "exists":
 		if boolValue, ok := compareValue.(bool); ok {
-			return true == boolValue, nil
+			return boolValue, nil
 		}
 		return true, nil
 

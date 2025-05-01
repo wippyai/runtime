@@ -37,7 +37,7 @@ func NewManager(log *zap.Logger, bus event.Bus, procs process.Manager) *Manager 
 // Creates a function handler for process.* entries with default_host metadata
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	// Check if entry kind starts with "process."
-	if !strings.HasPrefix(string(entry.Kind), "process.") {
+	if !strings.HasPrefix(entry.Kind, "process.") {
 		return nil // Not a process entry
 	}
 
@@ -48,7 +48,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Register function handler
-	m.registerHandler(ctx, entry.ID, pubsub.HostID(defaultHost))
+	m.registerHandler(ctx, entry.ID, defaultHost)
 
 	m.log.Info("registered process function handler",
 		zap.String("id", entry.ID.String()),
@@ -61,7 +61,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Updates function handler when process entries change
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	// Check if entry kind starts with "process."
-	if !strings.HasPrefix(string(entry.Kind), "process.") {
+	if !strings.HasPrefix(entry.Kind, "process.") {
 		return nil // Not a process entry
 	}
 
@@ -75,7 +75,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Register new handler with updated config
-	m.registerHandler(ctx, entry.ID, pubsub.HostID(defaultHost))
+	m.registerHandler(ctx, entry.ID, defaultHost)
 
 	m.log.Info("updated process function handler",
 		zap.String("id", entry.ID.String()),
@@ -88,7 +88,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Removes function handler when process entries are deleted
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	// Check if entry kind starts with "process."
-	if !strings.HasPrefix(string(entry.Kind), "process.") {
+	if !strings.HasPrefix(entry.Kind, "process.") {
 		return nil // Not a process entry
 	}
 
@@ -109,7 +109,7 @@ func (m *Manager) registerHandler(ctx context.Context, id registry.ID, hostID pu
 		System: function.System,
 		Kind:   function.Register,
 		Path:   id.String(),
-		Data:   function.Func(handler),
+		Data:   handler,
 	})
 }
 

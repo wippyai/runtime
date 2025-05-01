@@ -227,7 +227,7 @@ func TestCore_Write(t *testing.T) {
 				if event.Kind != api.Entry {
 					t.Error("unexpected kind in event")
 				}
-				if string(event.Path) != entry.LoggerName {
+				if event.Path != entry.LoggerName {
 					t.Error("unexpected path in event")
 				}
 			} else if len(bus.sendCalls) > 0 {

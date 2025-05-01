@@ -18,15 +18,15 @@ func TestOnCompleteAggregation(t *testing.T) {
 	var sum int
 
 	// Define first callback.
-	cb1 := func(pid pubsub.PID, result *runtime.Result) {
-		sum += 1
+	cb1 := func(_ pubsub.PID, _ *runtime.Result) {
+		sum++
 	}
 
 	// Attach the first onComplete callback.
 	ctx = process.WithAddedOnComplete(ctx, cb1)
 
 	// Define a second callback.
-	cb2 := func(pid pubsub.PID, result *runtime.Result) {
+	cb2 := func(_ pubsub.PID, _ *runtime.Result) {
 		sum += 2
 	}
 
@@ -60,10 +60,10 @@ func TestOnStartAggregation(t *testing.T) {
 	ctx := context.Background()
 	sum := 0
 
-	cb1 := func(pid pubsub.PID, proc process.Process) { sum += 1 }
+	cb1 := func(_ pubsub.PID, _ process.Process) { sum++ }
 	ctx = process.WithAddedOnStart(ctx, cb1)
 
-	cb2 := func(pid pubsub.PID, proc process.Process) { sum += 2 }
+	cb2 := func(_ pubsub.PID, _ process.Process) { sum += 2 }
 	ctx = process.WithAddedOnStart(ctx, cb2)
 
 	onStart := process.GetOnStart(ctx)
@@ -99,10 +99,10 @@ func TestSingleCallbacks(t *testing.T) {
 	ctx := context.Background()
 	var completeCalled, startCalled bool
 
-	cb1 := func(pid pubsub.PID, result *runtime.Result) { completeCalled = true }
+	cb1 := func(_ pubsub.PID, _ *runtime.Result) { completeCalled = true }
 	ctx = process.WithAddedOnComplete(ctx, cb1)
 
-	cb2 := func(pid pubsub.PID, proc process.Process) { startCalled = true }
+	cb2 := func(_ pubsub.PID, _ process.Process) { startCalled = true }
 	ctx = process.WithAddedOnStart(ctx, cb2)
 
 	onComplete := process.GetOnComplete(ctx)

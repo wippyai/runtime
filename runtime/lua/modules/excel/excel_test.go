@@ -34,11 +34,11 @@ func createTestWorkbook() (*bytes.Buffer, error) {
 	f := excelize.NewFile()
 
 	// Add test sheet and data
-	f.NewSheet("TestSheet")
-	f.SetCellValue("TestSheet", "A1", "Name")
-	f.SetCellValue("TestSheet", "B1", "Age")
-	f.SetCellValue("TestSheet", "A2", "Alice")
-	f.SetCellValue("TestSheet", "B2", 30)
+	_, _ = f.NewSheet("TestSheet")
+	_ = f.SetCellValue("TestSheet", "A1", "Name")
+	_ = f.SetCellValue("TestSheet", "B1", "Age")
+	_ = f.SetCellValue("TestSheet", "A2", "Alice")
+	_ = f.SetCellValue("TestSheet", "B2", 30)
 
 	// Save to buffer
 	buf := new(bytes.Buffer)

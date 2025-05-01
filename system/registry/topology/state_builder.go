@@ -91,8 +91,8 @@ func (b *StateBuilder) ApplyOperation(state StateMap, op registry.Operation) (St
 			delete(newState, op.Entry.ID)
 		} else {
 			b.log.Warn("Attempted to delete non-existent entry",
-				zap.String("namespace", string(op.Entry.ID.NS)),
-				zap.String("name", string(op.Entry.ID.Name)))
+				zap.String("namespace", op.Entry.ID.NS),
+				zap.String("name", op.Entry.ID.Name))
 		}
 	default:
 		return nil, fmt.Errorf("unknown operation kind: %s", op.Kind)
@@ -111,8 +111,8 @@ func (b *StateBuilder) GetInverseOperation(state StateMap, op registry.Operation
 		originalEntry, exists := state[op.Entry.ID]
 		if !exists {
 			b.log.Warn("Original entry not found for update operation, cannot create inverse",
-				zap.String("namespace", string(op.Entry.ID.NS)),
-				zap.String("name", string(op.Entry.ID.Name)))
+				zap.String("namespace", op.Entry.ID.NS),
+				zap.String("name", op.Entry.ID.Name))
 			return registry.Operation{}, fmt.Errorf("original entry not found for Process {ns: %s, name: %s}",
 				op.Entry.ID.NS, op.Entry.ID.Name)
 		}
@@ -122,8 +122,8 @@ func (b *StateBuilder) GetInverseOperation(state StateMap, op registry.Operation
 		originalEntry, exists := state[op.Entry.ID]
 		if !exists {
 			b.log.Warn("Original entry not found for delete operation, cannot create inverse",
-				zap.String("namespace", string(op.Entry.ID.NS)),
-				zap.String("name", string(op.Entry.ID.Name)))
+				zap.String("namespace", op.Entry.ID.NS),
+				zap.String("name", op.Entry.ID.Name))
 			return registry.Operation{}, fmt.Errorf("original entry not found for Process {ns: %s, name: %s}",
 				op.Entry.ID.NS, op.Entry.ID.Name)
 		}
@@ -238,7 +238,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 			for _, entry := range to {
 				if dependsOn, ok := entry.Meta[registry.TagDependsOn].([]string); ok {
 					for _, dep := range dependsOn {
-						if resolveDependencyID(string(entry.ID.NS), dep) == op.Entry.ID {
+						if resolveDependencyID(entry.ID.NS, dep) == op.Entry.ID {
 							dependedOnBy = append(dependedOnBy, entry.ID.String())
 						}
 					}

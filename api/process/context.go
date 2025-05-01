@@ -11,12 +11,15 @@ import (
 // Context keys for storing process-related information in context.Context
 var (
 	// managerCtx is the context key for storing a process Manager.
+
 	managerCtx = ctxapi.Key{Name: "process.manager"}
 
 	// onCompleteCtx is the context key for storing process completion callbacks.
+
 	onCompleteCtx = ctxapi.Key{Name: "process.onComplete"}
 
 	// onStartCtx is the context key for storing process start callbacks.
+
 	onStartCtx = ctxapi.Key{Name: "process.onStart"}
 )
 

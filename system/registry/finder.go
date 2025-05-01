@@ -146,7 +146,7 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 	standardMatcher := metadataToMatcher(standardMeta)
 
 	// Filter entries
-	var result []registry.Entry
+	result := make([]registry.Entry, 0)
 	for _, entry := range entries {
 		// Check if entry should be included
 		if !matchesAllCriteria(entry, rootMatchers, regexMatchers, containsMatchers,
@@ -179,16 +179,16 @@ func matchesAllCriteria(
 				return false
 			}
 		case "name":
-			if strVal, ok := value.(string); ok && string(entry.ID.Name) != strVal {
+			if strVal, ok := value.(string); ok && entry.ID.Name != strVal {
 				return false
 			}
 		case "ns":
-			if strVal, ok := value.(string); ok && string(entry.ID.NS) != strVal {
+			if strVal, ok := value.(string); ok && entry.ID.NS != strVal {
 				return false
 			}
 		case "id":
 			// Match the full ID string
-			fullID := string(entry.ID.NS) + ":" + string(entry.ID.Name)
+			fullID := entry.ID.NS + ":" + entry.ID.Name
 			if strVal, ok := value.(string); ok && fullID != strVal {
 				return false
 			}

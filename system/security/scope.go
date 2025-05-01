@@ -17,10 +17,8 @@ func NewScope(policies []security.Policy) security.Scope {
 		policies: make(map[registry.ID]security.Policy),
 	}
 
-	if policies != nil {
-		for _, policy := range policies {
-			scope.policies[policy.ID()] = policy
-		}
+	for _, policy := range policies {
+		scope.policies[policy.ID()] = policy
 	}
 
 	return scope

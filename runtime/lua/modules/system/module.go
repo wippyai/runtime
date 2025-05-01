@@ -1,10 +1,11 @@
 package system
 
 import (
-	"github.com/ponyruntime/pony/runtime/lua/security"
 	"os"
 	"runtime"
 	"runtime/debug"
+
+	"github.com/ponyruntime/pony/runtime/lua/security"
 
 	lua "github.com/yuin/gopher-lua"
 )

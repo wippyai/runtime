@@ -16,16 +16,20 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 
 	// Extract ID
 	idVal := table.RawGetString("id")
-	if idVal.Type() == lua.LTTable {
+	switch idVal.Type() {
+	case lua.LTTable:
 		idTable := idVal.(*lua.LTable)
 		var err error
 		entry.ID, err = tableToID(l, idTable)
 		if err != nil {
 			return entry, err
 		}
-	} else if idVal.Type() == lua.LTString {
+	case lua.LTString:
 		entry.ID = regapi.ParseID(idVal.String())
-	} else {
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
+	default:
 		return entry, errors.New("entry must have valid id field")
 	}
 
@@ -34,7 +38,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 	if kindVal.Type() != lua.LTString {
 		return entry, errors.New("entry must have kind field")
 	}
-	entry.Kind = regapi.Kind(kindVal.String())
+	entry.Kind = kindVal.String()
 
 	// Extract metadata
 	metaVal := table.RawGetString("meta")
@@ -106,7 +110,7 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 
 // convertFilterToMetadata converts a Lua filter table to registry metadata
 // for use with the finder interface
-func convertFilterToMetadata(l *lua.LState, filterTable *lua.LTable) regapi.Metadata {
+func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) regapi.Metadata {
 	meta := regapi.Metadata{}
 
 	// Process top-level filter properties directly

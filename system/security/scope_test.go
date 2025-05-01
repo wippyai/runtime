@@ -18,15 +18,15 @@ func (m *MockPolicy) ID() registry.ID {
 	return m.id
 }
 
-func (m *MockPolicy) Evaluate(actor security.Actor, action, resource string, meta registry.Metadata) security.Result {
+func (m *MockPolicy) Evaluate(_ security.Actor, _, _ string, _ registry.Metadata) security.Result {
 	return m.decision
 }
 
 func NewMockPolicy(ns, name string, decision security.Result) security.Policy {
 	return &MockPolicy{
 		id: registry.ID{
-			NS:   registry.Namespace(ns),
-			Name: registry.Name(name),
+			NS:   ns,
+			Name: name,
 		},
 		decision: decision,
 	}

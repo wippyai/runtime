@@ -31,15 +31,15 @@ const (
 // mapDBTypeFromResourceKind maps a registry.Kind to a database type string
 func mapDBTypeFromResourceKind(dbType string) string {
 	switch dbType {
-	case string(sql.KindPostgres):
+	case sql.KindPostgres:
 		return TypePostgres
-	case string(sql.KindMySQL):
+	case sql.KindMySQL:
 		return TypeMySQL
-	case string(sql.KindSQLite):
+	case sql.KindSQLite:
 		return TypeSQLite
-	case string(sql.KindMSSQL):
+	case sql.KindMSSQL:
 		return TypeMSSQL
-	case string(sql.KindOracle):
+	case sql.KindOracle:
 		return TypeOracle
 	default:
 		return TypeUnknown

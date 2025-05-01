@@ -30,58 +30,30 @@ func RegisterCmd(l *lua.LState, mod *lua.LTable) {
 	cmdsTbl := l.NewTable()
 
 	// Screen management commands
-	l.SetField(cmdsTbl, "clear_screen", WrapCommand(l, func() tea.Msg {
-		return tea.ClearScreen()
-	}))
-	l.SetField(cmdsTbl, "enter_alt_screen", WrapCommand(l, func() tea.Msg {
-		return tea.EnterAltScreen()
-	}))
-	l.SetField(cmdsTbl, "exit_alt_screen", WrapCommand(l, func() tea.Msg {
-		return tea.ExitAltScreen()
-	}))
+	l.SetField(cmdsTbl, "clear_screen", WrapCommand(l, tea.ClearScreen))
+	l.SetField(cmdsTbl, "enter_alt_screen", WrapCommand(l, tea.EnterAltScreen))
+	l.SetField(cmdsTbl, "exit_alt_screen", WrapCommand(l, tea.ExitAltScreen))
 
 	// Mouse control commands
-	l.SetField(cmdsTbl, "enable_mouse_cell_motion", WrapCommand(l, func() tea.Msg {
-		return tea.EnableMouseCellMotion()
-	}))
-	l.SetField(cmdsTbl, "enable_mouse_all_motion", WrapCommand(l, func() tea.Msg {
-		return tea.EnableMouseAllMotion()
-	}))
-	l.SetField(cmdsTbl, "disable_mouse", WrapCommand(l, func() tea.Msg {
-		return tea.DisableMouse()
-	}))
+	l.SetField(cmdsTbl, "enable_mouse_cell_motion", WrapCommand(l, tea.EnableMouseCellMotion))
+	l.SetField(cmdsTbl, "enable_mouse_all_motion", WrapCommand(l, tea.EnableMouseAllMotion))
+	l.SetField(cmdsTbl, "disable_mouse", WrapCommand(l, tea.DisableMouse))
 
 	// Cursor control commands
-	l.SetField(cmdsTbl, "hide_cursor", WrapCommand(l, func() tea.Msg {
-		return tea.HideCursor()
-	}))
-	l.SetField(cmdsTbl, "show_cursor", WrapCommand(l, func() tea.Msg {
-		return tea.ShowCursor()
-	}))
+	l.SetField(cmdsTbl, "hide_cursor", WrapCommand(l, tea.HideCursor))
+	l.SetField(cmdsTbl, "show_cursor", WrapCommand(l, tea.ShowCursor))
 
 	// Paste mode commands
-	l.SetField(cmdsTbl, "enable_bracketed_paste", WrapCommand(l, func() tea.Msg {
-		return tea.EnableBracketedPaste()
-	}))
-	l.SetField(cmdsTbl, "disable_bracketed_paste", WrapCommand(l, func() tea.Msg {
-		return tea.DisableBracketedPaste()
-	}))
+	l.SetField(cmdsTbl, "enable_bracketed_paste", WrapCommand(l, tea.EnableBracketedPaste))
+	l.SetField(cmdsTbl, "disable_bracketed_paste", WrapCommand(l, tea.DisableBracketedPaste))
 
 	// Focus reporting commands
-	l.SetField(cmdsTbl, "enable_report_focus", WrapCommand(l, func() tea.Msg {
-		return tea.EnableReportFocus()
-	}))
-	l.SetField(cmdsTbl, "disable_report_focus", WrapCommand(l, func() tea.Msg {
-		return tea.DisableReportFocus()
-	}))
+	l.SetField(cmdsTbl, "enable_report_focus", WrapCommand(l, tea.EnableReportFocus))
+	l.SetField(cmdsTbl, "disable_report_focus", WrapCommand(l, tea.DisableReportFocus))
 
 	// Control commands
-	l.SetField(cmdsTbl, "quit", WrapCommand(l, func() tea.Msg {
-		return tea.Quit()
-	}))
-	l.SetField(cmdsTbl, "suspend", WrapCommand(l, func() tea.Msg {
-		return tea.Suspend()
-	}))
+	l.SetField(cmdsTbl, "quit", WrapCommand(l, tea.Quit))
+	l.SetField(cmdsTbl, "suspend", WrapCommand(l, tea.Suspend))
 
 	// Window
 	l.SetField(cmdsTbl, "set_window_title", l.NewFunction(setWindowTitleCmd))

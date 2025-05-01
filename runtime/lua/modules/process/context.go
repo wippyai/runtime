@@ -2,6 +2,8 @@ package process
 
 import (
 	contextbase "context"
+	"strings"
+
 	"github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
@@ -13,7 +15,6 @@ import (
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"strings"
 )
 
 // WithContext represents a process spawner with context values
@@ -50,7 +51,7 @@ func (m *Module) withContext(l *lua.LState) int {
 
 		// Check for security-related keys before proceeding
 		hasSecurity := false
-		ctxTable.ForEach(func(k, v lua.LValue) {
+		ctxTable.ForEach(func(k, _ lua.LValue) {
 			if hasSecurity {
 				return
 			}

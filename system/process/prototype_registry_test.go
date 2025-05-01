@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func newTestPrototypeRegistry(t *testing.T) (*PrototypeRegistry, event.Bus) {
+func newTestPrototypeRegistry(_ *testing.T) (*PrototypeRegistry, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	reg := NewPrototypeFactory(bus, logger)

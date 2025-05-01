@@ -2,9 +2,10 @@ package template
 
 import (
 	"context"
+	"testing"
+
 	templatesvc "github.com/ponyruntime/pony/service/template"
 	lua2 "github.com/ponyruntime/pony/system/payload/lua"
-	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -40,9 +41,9 @@ type mockResourceRegistry struct {
 }
 
 func (m *mockResourceRegistry) Acquire(
-	ctx context.Context,
+	_ context.Context,
 	id registry.ID,
-	mode resource.AccessMode,
+	_ resource.AccessMode,
 ) (resource.Resource[any], error) {
 	res, ok := m.resources[id]
 	if !ok {

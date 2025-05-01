@@ -2,6 +2,7 @@ package builder
 
 import (
 	"fmt"
+
 	"github.com/Masterminds/squirrel"
 	"github.com/ponyruntime/pony/api/service/sql"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -58,7 +59,7 @@ func registerUpdateBuilderType(l *lua.LState) {
 		"from":               updateFrom,
 		"from_select":        updateFromSelect,
 		"placeholder_format": updatePlaceholderFormat,
-		"to_sql":             updateToSql,
+		"to_sql":             updateToSQL,
 		"run_with":           updateRunWith,
 	}
 
@@ -209,7 +210,9 @@ func updateWhere(l *lua.LState) int {
 			l.ArgError(2, "expected string, table, or Sqlizer")
 			return 0
 		}
-
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTThread, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		l.ArgError(2, "expected string, table, or Sqlizer")
 		return 0
@@ -394,9 +397,9 @@ func updatePlaceholderFormat(l *lua.LState) int {
 	return 1
 }
 
-// updateToSql generates the SQL and args
+// updateToSQL generates the SQL and args
 // Usage: sql, args = builder:to_sql()
-func updateToSql(l *lua.LState) int {
+func updateToSQL(l *lua.LState) int {
 	wrapper := checkUpdateBuilder(l)
 	if wrapper == nil {
 		return 0
@@ -437,10 +440,8 @@ func updateRunWith(l *lua.LState) int {
 
 	// Check for DB or Transaction
 	ud := l.CheckUserData(2)
-	switch v := ud.Value.(type) {
-	case DBTypeGetter:
-		switch v.GetDBType() {
-		case sql.KindPostgres:
+	if v, ok := ud.Value.(DBTypeGetter); ok {
+		if v.GetDBType() == sql.KindPostgres {
 			wrapper = &updateBuilderWrapper{
 				builder: wrapper.builder.PlaceholderFormat(squirrel.Dollar),
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
@@ -428,7 +429,7 @@ func (m *Module) async(l *lua.LState) int {
 	cmd := command.NewCommand(
 		l,
 		runtimeTask.ID.String(),
-		func(cmd runtime.Command) { cancel() },
+		func(_ runtime.Command) { cancel() },
 		runtimeTask.Payloads...,
 	)
 
@@ -492,6 +493,7 @@ func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 		return runtime.Task{}, fmt.Errorf("invalid registry ID: %w", err)
 	}
 
+	//nolint:prealloc // ok for now
 	var payloads []payload.Payload
 	for i := targetIndex + 1; i <= l.GetTop(); i++ {
 		val := l.Get(i)

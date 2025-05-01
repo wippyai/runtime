@@ -22,7 +22,8 @@ import (
 
 var (
 	bteaBuild *code.BuildOptions
-	layers    component.Option
+
+	layers component.Option
 )
 
 func init() {

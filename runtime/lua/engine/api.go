@@ -53,7 +53,7 @@ type ValueStore interface {
 
 	// CompareAndSwap performs atomic compare-and-swap operation.
 	// Returns true if the swap was successful.
-	CompareAndSwap(key any, old any, new any) bool
+	CompareAndSwap(key any, old any, current any) bool
 }
 
 // Tasks manages coroutine coordination and task lifecycle.

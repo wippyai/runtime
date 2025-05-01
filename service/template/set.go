@@ -15,6 +15,8 @@ import (
 )
 
 // TemplateSet represents a set of templates with shared configuration
+//
+//nolint:revive // name TemplateSet used for better readability
 type TemplateSet struct {
 	id      registry.ID
 	jetSet  *jet.Set
@@ -180,7 +182,7 @@ func (s *TemplateSet) RenderTemplate(name string, vars map[string]any) (string, 
 
 	// Render the template
 	if err := jetTemplate.Execute(&buf, jetVars, nil); err != nil {
-		return "", fmt.Errorf("%w: %v", ErrRenderFailed, err)
+		return "", fmt.Errorf("%w: %w", ErrRenderFailed, err)
 	}
 
 	return buf.String(), nil

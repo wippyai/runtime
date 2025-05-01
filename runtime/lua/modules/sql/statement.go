@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 
@@ -56,7 +57,7 @@ func CheckStatement(l *lua.LState) *Statement {
 }
 
 // registerStatement registers statement methods
-func registerStatement(l *lua.LState, log *zap.Logger) {
+func registerStatement(l *lua.LState, _ *zap.Logger) {
 	methods := map[string]lua.LGFunction{
 		"query":   stmtQuery,
 		"execute": stmtExecute,

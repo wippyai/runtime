@@ -2,12 +2,13 @@ package terminal
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
 	"io"
 	"os"
 	"sync"
+
+	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/runtime"
 )
 
 // RunnerConfig holds the configuration for a Runner.
@@ -50,7 +51,7 @@ func NewTerminalRunner(
 	// Derive a runner context from the provided terminal context.
 	runnerCtx, cancel := context.WithCancel(ctx)
 
-	runnerCtx = process.WithAddedOnComplete(runnerCtx, func(pid pubsub.PID, result *runtime.Result) {
+	runnerCtx = process.WithAddedOnComplete(runnerCtx, func(_ pubsub.PID, _ *runtime.Result) {
 		cancel()
 	})
 

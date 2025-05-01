@@ -3,7 +3,6 @@ package host
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/ponyruntime/pony/api/process"
@@ -129,7 +128,6 @@ type Factory interface {
 type DefaultHostFactory struct {
 	poolFactory ProcessPoolFactory
 	msgFactory  MessageHostFactory
-	mu          sync.RWMutex
 }
 
 // NewDefaultHostFactory creates a new DefaultHostFactory with default factories

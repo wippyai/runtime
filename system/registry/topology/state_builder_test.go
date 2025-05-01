@@ -1224,7 +1224,7 @@ func validateNamespaceOrder(t *testing.T, delta registry.ChangeSet, dependencies
 	nsLastPos := make(map[string]int)
 
 	for i, op := range delta {
-		ns := string(op.Entry.ID.NS)
+		ns := op.Entry.ID.NS
 		if firstPos, exists := nsFirstPos[ns]; !exists || i < firstPos {
 			nsFirstPos[ns] = i
 		}

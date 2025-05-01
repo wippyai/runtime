@@ -2,6 +2,7 @@ package builder
 
 import (
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/service/sql"
 
 	"github.com/Masterminds/squirrel"
@@ -54,7 +55,7 @@ func registerDeleteBuilderType(l *lua.LState) {
 		"offset":             deleteOffset,
 		"suffix":             deleteSuffix,
 		"placeholder_format": deletePlaceholderFormat,
-		"to_sql":             deleteToSql,
+		"to_sql":             deleteToSQL,
 		"run_with":           deleteRunWith,
 	}
 
@@ -153,6 +154,9 @@ func deleteWhere(l *lua.LState) int {
 			l.ArgError(2, "expected string, table, or Sqlizer")
 			return 0
 		}
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTThread, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 
 	default:
 		l.ArgError(2, "expected string, table, or Sqlizer")
@@ -288,9 +292,9 @@ func deletePlaceholderFormat(l *lua.LState) int {
 	return 1
 }
 
-// deleteToSql generates the SQL and args
+// deleteToSQL generates the SQL and args
 // Usage: sql, args = builder:to_sql()
-func deleteToSql(l *lua.LState) int {
+func deleteToSQL(l *lua.LState) int {
 	wrapper := checkDeleteBuilder(l)
 	if wrapper == nil {
 		return 0
@@ -332,10 +336,8 @@ func deleteRunWith(l *lua.LState) int {
 	// Check for DB or Transaction
 	ud := l.CheckUserData(2)
 
-	switch v := ud.Value.(type) {
-	case DBTypeGetter:
-		switch v.GetDBType() {
-		case sql.KindPostgres:
+	if v, ok := ud.Value.(DBTypeGetter); ok {
+		if v.GetDBType() == sql.KindPostgres {
 			wrapper = &deleteBuilderWrapper{
 				builder: wrapper.builder.PlaceholderFormat(squirrel.Dollar),
 			}

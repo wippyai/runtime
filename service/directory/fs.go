@@ -53,7 +53,6 @@ func NewDirectoryFS(dirPath string, mode fs.FileMode, shouldCreate bool) (*FS, e
 		if err := os.MkdirAll(dirPath, mode); err != nil {
 			return nil, fmt.Errorf("create directory (shouldCreate=true): %w", err)
 		}
-
 	}
 
 	root, err := os.OpenRoot(absPath)
@@ -176,7 +175,7 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 	}
 
 	// Restrict permissions to the FS's mode.
-	perm = perm & d.mode
+	perm &= d.mode
 
 	f, err := d.root.OpenFile(norm, flag, perm)
 	if err != nil {
@@ -271,7 +270,7 @@ func (d *FS) Mkdir(name string, perm fs.FileMode) error {
 		return err
 	}
 
-	perm = perm & d.mode
+	perm &= d.mode
 
 	if err := d.root.Mkdir(norm, perm); err != nil {
 		return &fs.PathError{
