@@ -4,13 +4,15 @@ import (
 	"context"
 	sql2 "database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sync"
+	"time"
+
 	sqlconfig "github.com/ponyruntime/pony/api/service/sql"
 	"github.com/ponyruntime/pony/api/service/sqlstore"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/sql"
-	"sync"
-	"time"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -25,8 +27,6 @@ type SQLStore struct {
 	config *sqlstore.SQLConfig
 	log    *zap.Logger
 	mu     sync.RWMutex
-
-	f_now string
 
 	closed     bool
 	statusChan chan any
@@ -86,7 +86,7 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 	var data []byte
 	err = db.QueryRowContext(ctx, query, key.String()).Scan(&data)
 	if err != nil {
-		if err == sql2.ErrNoRows {
+		if errors.Is(err, sql2.ErrNoRows) {
 			return nil, store.ErrKeyNotFound
 		}
 		s.log.Error("failed to execute get query",
@@ -96,6 +96,12 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 	}
 	p := payload.NewPayload(data, payload.JSON)
 	err = json.Unmarshal(data, p)
+	if err != nil {
+		s.log.Error("failed to unmarshal data",
+			zap.String("error", err.Error()),
+			zap.String("key", key.String()))
+		return nil, err
+	}
 
 	return p, nil
 }
@@ -156,7 +162,7 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 	err = db.QueryRowContext(ctx, existsQuery, entry.Key.String()).Scan(&exists)
 
 	// Insert or update based on existence
-	if err == sql2.ErrNoRows {
+	if errors.Is(err, sql2.ErrNoRows) {
 		// Insert a new entry
 		query = fmt.Sprintf(
 			"INSERT INTO %s (%s, %s, %s) VALUES ($1, $2, $3)",
@@ -277,7 +283,7 @@ func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
 	var exists bool
 	err = db.QueryRowContext(ctx, query, key.String()).Scan(&exists)
 	if err != nil {
-		if err == sql2.ErrNoRows {
+		if errors.Is(err, sql2.ErrNoRows) {
 			return false, nil
 		}
 		s.log.Error("failed to execute has query",
@@ -299,7 +305,7 @@ func (s *SQLStore) now(dbType registry.Kind) string {
 }
 
 // Acquire implements resource.Provider interface
-func (s *SQLStore) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (s *SQLStore) Acquire(_ context.Context, _ registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -340,7 +346,6 @@ func (r *storeResource) Release() {
 	}
 
 	r.closed = true
-	return
 }
 
 func (s *SQLStore) cleanupLoop(ctx context.Context) {

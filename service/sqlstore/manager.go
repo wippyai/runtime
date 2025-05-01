@@ -3,9 +3,10 @@ package sqlstore
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/service/sqlstore"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
