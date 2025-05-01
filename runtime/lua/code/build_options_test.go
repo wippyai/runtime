@@ -77,7 +77,7 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		}
 		err := opts.Validate(nodes)
 		assert.Error(t, err)
-		assert.Equal(t, "Process `:foo` is not allowed in this build", err.Error())
+		assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
 	})
 
 	t.Run("same Process in required and denied", func(t *testing.T) {
@@ -91,7 +91,7 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		}
 		err := opts.Validate(nodes)
 		assert.Error(t, err)
-		assert.Equal(t, "Process `:foo` is not allowed in this build", err.Error())
+		assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
 	})
 
 	t.Run("same Process added multiple times to lists", func(t *testing.T) {
@@ -175,7 +175,7 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 				WithMode(AllowAll).
 				WithRequired(registry.ID{Name: "foo"}),
 			wantError: true,
-			errorMsg:  "required Process `:foo` was not found",
+			errorMsg:  "required process `:foo` was not found",
 		},
 		{
 			name: "empty nodes in DenyAll mode",
@@ -190,7 +190,7 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 				WithAllowed(registry.ID{Name: "foo"}).
 				WithRequired(registry.ID{Name: "foo"}),
 			wantError: true,
-			errorMsg:  "required Process `:foo` was not found",
+			errorMsg:  "required process `:foo` was not found",
 		},
 	}
 
@@ -232,7 +232,7 @@ func TestBuildOptions_ModificationAfterSetup(t *testing.T) {
 	opts.WithDenied(fooID)
 	err := opts.Validate(nodes)
 	assert.Error(t, err)
-	assert.Equal(t, "Process `:foo` is not allowed in this build", err.Error())
+	assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
 }
 
 func TestBuildOptions_Validate(t *testing.T) {
@@ -273,7 +273,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "Process `:foo` is not allowed in this build",
+			errorMsg:  "process `:foo` is not allowed in this build",
 		},
 		{
 			name: "AllowListed mode - only allow listed",
@@ -296,7 +296,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "Process `:bar` is not in the allowed IDs list",
+			errorMsg:  "process `:bar` is not in the allowed IDs list",
 		},
 		{
 			name: "DenyAll mode - only allow required",
@@ -318,7 +318,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "Process `:bar` is not allowed (DenyAll mode)",
+			errorMsg:  "process `:bar` is not allowed (DenyAll mode)",
 		},
 		{
 			name: "StrictListed mode - required must be allowed",
@@ -343,7 +343,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "required Process `:foo` must also be in allowed list (StrictListed mode)",
+			errorMsg:  "required process `:foo` must also be in allowed list (StrictListed mode)",
 		},
 		{
 			name: "Missing required Process",
@@ -354,7 +354,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "required Process `:foo` was not found",
+			errorMsg:  "required process `:foo` was not found",
 		},
 		{
 			name: "Denied takes precedence over required",
@@ -366,7 +366,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "foo"}: createNode("foo"),
 			},
 			wantError: true,
-			errorMsg:  "Process `:foo` is not allowed in this build",
+			errorMsg:  "process `:foo` is not allowed in this build",
 		},
 	}
 

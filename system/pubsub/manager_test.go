@@ -44,15 +44,15 @@ func (n *mockNode) UnregisterHost(id string) {
 	n.hosts.Delete(id)
 }
 
-func (n *mockNode) Send(pkg *api.Package) error {
+func (n *mockNode) Send(_ *api.Package) error {
 	return n.sendErr
 }
 
-func (n *mockNode) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
+func (n *mockNode) Attach(_ api.PID, _ chan *api.Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }
 
-func (n *mockNode) Detach(pid api.PID) {
+func (n *mockNode) Detach(_ api.PID) {
 	// No-op for testing
 }
 
@@ -61,15 +61,15 @@ type mockHost struct {
 	sendErr error
 }
 
-func (h *mockHost) Send(pkg *api.Package) error {
+func (h *mockHost) Send(_ *api.Package) error {
 	return h.sendErr
 }
 
-func (h *mockHost) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
+func (h *mockHost) Attach(_ api.PID, _ chan *api.Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }
 
-func (h *mockHost) Detach(pid api.PID) {
+func (h *mockHost) Detach(_ api.PID) {
 	// No-op for testing
 }
 

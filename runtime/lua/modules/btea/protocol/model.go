@@ -110,7 +110,7 @@ func TryGetModel(l *lua.LState, v lua.LValue) (tea.Model, bool) {
 }
 
 // UpdateModelValue handles updating model state
-func UpdateModelValue(l *lua.LState, v lua.LValue, newModel tea.Model) bool {
+func UpdateModelValue(_ *lua.LState, v lua.LValue, newModel tea.Model) bool {
 	ud, ok := v.(*lua.LUserData)
 	if !ok {
 		return false

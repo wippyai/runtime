@@ -14,11 +14,11 @@ func (ck *Key) String() string {
 // todo: move to individual packages and make proper accessor funcs
 var (
 	// EnvCtx represents the environment variables context key
-	EnvCtx = &Key{Name: "env"} //nolint:gochecknoglobals
+	EnvCtx = &Key{Name: "env"}
 	// ValuesCtx represents the values storage context key
-	ValuesCtx = &Key{Name: "values"} //nolint:gochecknoglobals
+	ValuesCtx = &Key{Name: "values"}
 	// WakeUpKey represents a callback that can be used to notify process host about async process activity
-	WakeUpKey = &Key{Name: "wakeup"} //nolint:gochecknoglobals
+	WakeUpKey = &Key{Name: "wakeup"}
 	// TerminalCtx represents the terminal manager context key
-	TerminalCtx = &Key{Name: "terminal"} //nolint:gochecknoglobals
+	TerminalCtx = &Key{Name: "terminal"}
 )

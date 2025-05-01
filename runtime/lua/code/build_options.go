@@ -99,7 +99,7 @@ func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 	if o.Mode == StrictListed {
 		for _, required := range o.Required {
 			if !contains(o.Allowed, required) {
-				return fmt.Errorf("required Process `%v` must also be in allowed list (StrictListed mode)", required)
+				return fmt.Errorf("required process `%v` must also be in allowed list (StrictListed mode)", required)
 			}
 		}
 	}
@@ -114,7 +114,7 @@ func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 	for id := range nodes {
 		// Check denied IDs first (highest precedence)
 		if contains(o.Denied, id) {
-			return fmt.Errorf("Process `%v` is not allowed in this build", id)
+			return fmt.Errorf("process `%v` is not allowed in this build", id)
 		}
 
 		// Mark required IDs as found
@@ -122,7 +122,7 @@ func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 			foundRequired[id] = true
 			// In StrictListed mode, required IDs must still be explicitly allowed
 			if o.Mode == StrictListed && !contains(o.Allowed, id) {
-				return fmt.Errorf("Process `%v` is required but not allowed (StrictListed mode)", id)
+				return fmt.Errorf("process `%v` is required but not allowed (StrictListed mode)", id)
 			}
 			continue
 		}
@@ -133,17 +133,17 @@ func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 			// Allow anything not explicitly denied (already checked above)
 		case AllowListed, StrictListed:
 			if !contains(o.Allowed, id) {
-				return fmt.Errorf("Process `%v` is not in the allowed IDs list", id)
+				return fmt.Errorf("process `%v` is not in the allowed IDs list", id)
 			}
 		case DenyAll:
-			return fmt.Errorf("Process `%v` is not allowed (DenyAll mode)", id)
+			return fmt.Errorf("process `%v` is not allowed (DenyAll mode)", id)
 		}
 	}
 
 	// Verify all required IDs were found
 	for id, found := range foundRequired {
 		if !found {
-			return fmt.Errorf("required Process `%v` was not found", id)
+			return fmt.Errorf("required process `%v` was not found", id)
 		}
 	}
 

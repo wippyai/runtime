@@ -20,8 +20,11 @@ import (
 // Channel context keys for UoW storage
 var (
 	// subscribedKey is used to track whether we've already set up subscriptions
+
 	subscribedKey = &ctxapi.Key{Name: "function.subscribed"}
-	inboxChannel  = &ctxapi.Key{Name: "function.channel.inbox"}
+
+	inboxChannel = &ctxapi.Key{Name: "function.channel.inbox"}
+
 	eventsChannel = &ctxapi.Key{Name: "function.channel.events"}
 )
 

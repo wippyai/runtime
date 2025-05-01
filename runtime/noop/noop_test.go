@@ -131,7 +131,7 @@ func TestNoopRuntime_Add(t *testing.T) {
 			require.Equal(t, 1, bus.sendCount)
 			require.Equal(t, function.System, bus.lastEvent.System)
 			require.Equal(t, function.Register, bus.lastEvent.Kind)
-			require.Equal(t, event.Path(tt.entry.ID.String()), bus.lastEvent.Path)
+			require.Equal(t, tt.entry.ID.String(), bus.lastEvent.Path)
 		})
 	}
 }
@@ -232,7 +232,7 @@ func TestNoopRuntime_Delete(t *testing.T) {
 			require.Equal(t, 1, bus.sendCount)
 			require.Equal(t, function.System, bus.lastEvent.System)
 			require.Equal(t, function.Delete, bus.lastEvent.Kind)
-			require.Equal(t, event.Path(tt.entry.ID.String()), bus.lastEvent.Path)
+			require.Equal(t, tt.entry.ID.String(), bus.lastEvent.Path)
 		})
 	}
 }

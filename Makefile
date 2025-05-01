@@ -85,3 +85,12 @@ build-runner-embed:
 	cp -r $(EMBED_DIR)/* ./embed/data/ 2>/dev/null || :
 	mkdir -p ./dist
 	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-embed-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/main.go
+
+lint-init:
+	# binary will be bin/golangci-lint
+	mkdir -p bin
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b bin v2.1.5
+	golangci-lint --version
+
+lint:
+	bin/golangci-lint run

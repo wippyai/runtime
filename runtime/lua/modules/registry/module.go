@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"errors"
+
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/security"
@@ -74,7 +75,7 @@ func (m *Module) Loader(l *lua.LState) int {
 }
 
 // Helper function to convert an ID table to a registry ID
-func tableToID(l *lua.LState, table *lua.LTable) (regapi.ID, error) {
+func tableToID(_ *lua.LState, table *lua.LTable) (regapi.ID, error) {
 	ns := table.RawGetString("ns")
 	name := table.RawGetString("name")
 
@@ -83,8 +84,8 @@ func tableToID(l *lua.LState, table *lua.LTable) (regapi.ID, error) {
 	}
 
 	return regapi.ID{
-		NS:   regapi.Namespace(ns.String()),
-		Name: regapi.Name(name.String()),
+		NS:   ns.String(),
+		Name: name.String(),
 	}, nil
 }
 

@@ -19,28 +19,28 @@ import (
 type mockFS struct{}
 
 // Implement ReadFS methods
-func (m *mockFS) Open(name string) (fs.File, error) {
+func (m *mockFS) Open(_ string) (fs.File, error) {
 	return &mockFile{}, nil
 }
 
-func (m *mockFS) Stat(name string) (fs.FileInfo, error) {
+func (m *mockFS) Stat(_ string) (fs.FileInfo, error) {
 	return &mockFileInfo{}, nil
 }
 
-func (m *mockFS) ReadDir(name string) ([]fs.DirEntry, error) {
+func (m *mockFS) ReadDir(_ string) ([]fs.DirEntry, error) {
 	return []fs.DirEntry{&mockDirEntry{}}, nil
 }
 
 // Implement WriteFS methods
-func (m *mockFS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, error) {
+func (m *mockFS) OpenFile(_ string, _ int, _ fs.FileMode) (fsapi.File, error) {
 	return &mockFile{}, nil
 }
 
-func (m *mockFS) Remove(name string) error {
+func (m *mockFS) Remove(_ string) error {
 	return nil
 }
 
-func (m *mockFS) Mkdir(name string, perm fs.FileMode) error {
+func (m *mockFS) Mkdir(_ string, _ fs.FileMode) error {
 	return nil
 }
 
@@ -63,7 +63,7 @@ func (m *mockFile) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (m *mockFile) Seek(offset int64, whence int) (int64, error) {
+func (m *mockFile) Seek(_ int64, _ int) (int64, error) {
 	return 0, nil
 }
 
@@ -117,7 +117,7 @@ func (m *mockDirEntry) Info() (fs.FileInfo, error) {
 	return &mockFileInfo{}, nil
 }
 
-func newTestFSRegistry(t *testing.T) (*Registry, event.Bus) {
+func newTestFSRegistry(_ *testing.T) (*Registry, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	registry := NewFSRegistry(bus, logger)

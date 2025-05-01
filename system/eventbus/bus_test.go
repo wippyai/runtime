@@ -32,7 +32,9 @@ func newTestEvent(system event.System, kind event.Kind, data any) event.Event {
 }
 
 // Helper function to wait for a specified number of eventbus or timeout
-func waitForEvents(t *testing.T, ch chan event.Event, numEvents int, timeout time.Duration) []event.Event { //nolint:unparam
+//
+//nolint:unparam // used in tests
+func waitForEvents(t *testing.T, ch chan event.Event, numEvents int, timeout time.Duration) []event.Event {
 	t.Helper()
 	receivedEvents := make([]event.Event, 0, numEvents)
 	timer := time.NewTimer(timeout)
@@ -502,7 +504,7 @@ func TestHighConcurrencyStress(t *testing.T) {
 			for j := 0; j < messagesPerPub; j++ {
 				e := event.Event{
 					System: "stress-test",
-					Kind:   event.Kind(fmt.Sprintf("event-%d-%d", pubID, j)),
+					Kind:   fmt.Sprintf("event-%d-%d", pubID, j),
 					Data:   payload.New(fmt.Sprintf("data-%d-%d", pubID, j)),
 				}
 				b.Send(context.Background(), e)
@@ -569,7 +571,7 @@ func TestConcurrentSubscribeWithFilter(t *testing.T) {
 		go func(idx int, sys string, k string) {
 			defer wg.Done()
 			var err error
-			subscriberIDs[idx], err = b.SubscribeP(context.Background(), event.System(sys), event.Kind(k), subscriberChans[idx])
+			subscriberIDs[idx], err = b.SubscribeP(context.Background(), sys, k, subscriberChans[idx])
 			require.NoError(t, err)
 		}(i, system, kind)
 	}
@@ -586,8 +588,8 @@ func TestConcurrentSubscribeWithFilter(t *testing.T) {
 			kind := fmt.Sprintf("kind-%d.test", msgID%numKinds)
 
 			e := event.Event{
-				System: event.System(system),
-				Kind:   event.Kind(kind),
+				System: system,
+				Kind:   kind,
 				Data:   payload.New(fmt.Sprintf("data-%d", msgID)),
 			}
 			b.Send(context.Background(), e)
@@ -655,7 +657,7 @@ func TestConcurrentBusClosing(t *testing.T) {
 			<-startSignal // Wait for signal to start
 
 			ch := make(chan event.Event, 10)
-			subID, err := b.Subscribe(context.Background(), event.System(fmt.Sprintf("system-%d", id)), ch)
+			subID, err := b.Subscribe(context.Background(), fmt.Sprintf("system-%d", id), ch)
 			if err != nil {
 				// Either got "bus is closed" error or succeeded
 				if err.Error() != "bus is closed" {

@@ -185,6 +185,9 @@ func tokenStoreCreate(l *lua.LState) int {
 		case lua.LTNumber:
 			// Assume milliseconds
 			expiration = time.Duration(exp.(lua.LNumber)) * time.Millisecond
+		case lua.LTNil, lua.LTBool, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
+			// FIXME rework on demand
+			fallthrough
 		default:
 			l.Push(lua.LNil)
 			l.Push(lua.LString("expiration must be string or number"))

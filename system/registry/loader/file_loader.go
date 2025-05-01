@@ -142,6 +142,8 @@ func (l *FileLoader) loadFileAsPayload(fSys fs.FS, path string, format payload.F
 		p = payload.NewPayload(data, payload.JSON)
 	case payload.YAML:
 		p = payload.NewPayload(data, payload.YAML)
+	case payload.String, payload.Golang, payload.Lua, payload.Bytes, payload.Error:
+		// FIXME implement
 	default:
 		return nil, fmt.Errorf("unsupported file format: %s", format)
 	}

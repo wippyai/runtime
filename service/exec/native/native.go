@@ -3,13 +3,14 @@ package native
 import (
 	"errors"
 	"fmt"
-	execapi "github.com/ponyruntime/pony/api/service/exec"
 	"io"
 	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
 	"syscall"
+
+	execapi "github.com/ponyruntime/pony/api/service/exec"
 
 	"go.uber.org/zap"
 )
@@ -112,8 +113,8 @@ func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
 
 	e.log.Debug("initializing command", zap.String("command", e.command))
 
-	// G204: Subprocess launched with a potential tainted input or cmd arguments
-	command := exec.Command("sh", "-c", e.command) //nolint:gosec
+	//nolint:gosec // G204: Subprocess launched with a potential tainted input or cmd arguments
+	command := exec.Command("sh", "-c", e.command)
 	if e.envs != nil {
 		command.Env = os.Environ()
 		for k, v := range e.envs {

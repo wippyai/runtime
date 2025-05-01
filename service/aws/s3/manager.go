@@ -247,5 +247,4 @@ func (r *s3Resource) Release() {
 	}
 
 	r.closed = true
-	return
 }

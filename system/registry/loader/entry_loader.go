@@ -161,7 +161,7 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder, exports map[strin
 
 		filteredRequirements := make([]requirementExport, 0)
 		for _, re := range requirementExports {
-			if slices.ContainsFunc(re.Requirement.Targets, func(target RequirementTarget) bool {
+			if slices.ContainsFunc(re.Targets, func(target RequirementTarget) bool {
 				return target.Name == "" || strings.EqualFold(target.Name, name)
 			}) {
 				filteredRequirements = append(filteredRequirements, re)
@@ -189,7 +189,7 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder, exports map[strin
 
 func applyRequirements(rawEntry map[string]any, reqs []requirementExport) {
 	for _, req := range reqs {
-		for _, target := range req.Requirement.Targets {
+		for _, target := range req.Targets {
 			setNestedValueAtPath(rawEntry, target.Value, req.ExportValue)
 		}
 	}
@@ -264,9 +264,9 @@ func appendToArray(obj map[string]any, key string, value any) {
 func handleIntermediatePathPart(current map[string]any, cleanPart string, isArrayPart bool) map[string]any {
 	if isArrayPart {
 		return navigateOrCreateArrayElement(current, cleanPart)
-	} else {
-		return navigateOrCreateObject(current, cleanPart)
 	}
+
+	return navigateOrCreateObject(current, cleanPart)
 }
 
 // navigateOrCreateArrayElement ensures there's an array at the specified key

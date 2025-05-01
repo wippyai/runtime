@@ -109,7 +109,7 @@ func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 	c.bus.Send(context.Background(), event.Event{
 		System: api.System,
 		Kind:   api.Entry,
-		Path:   event.Path(ent.LoggerName),
+		Path:   ent.LoggerName,
 		Data: struct {
 			Entry  zapcore.Entry   `json:"entry"`
 			Fields []zapcore.Field `json:"fields"`

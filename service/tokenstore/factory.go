@@ -3,6 +3,7 @@ package tokenstore
 import (
 	"context"
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/service/tokenstore"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -32,7 +33,7 @@ func NewFactory(
 }
 
 // CreateTokenStore creates a token store from a registry entry
-func (f *Factory) CreateTokenStore(ctx context.Context, entry registry.Entry) (security.TokenStore, error) {
+func (f *Factory) CreateTokenStore(_ context.Context, entry registry.Entry) (security.TokenStore, error) {
 	// Decode configuration
 	cfg := new(tokenstore.Config)
 	if err := f.dtt.Unmarshal(entry.Data, cfg); err != nil {

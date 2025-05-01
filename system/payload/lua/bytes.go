@@ -80,6 +80,9 @@ func (t *ToBytes) Transcode(p payload.Payload) (payload.Payload, error) {
 	case lua.LTTable:
 		// For tables, convert to string representation first
 		result = []byte(fmt.Sprintf("%v", ToGoAny(lv)))
+	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		// For other types, use string representation
 		result = []byte(lv.String())

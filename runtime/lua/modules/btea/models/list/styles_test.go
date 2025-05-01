@@ -161,7 +161,7 @@ func TestGetStyleFromUserData(t *testing.T) {
 		},
 		{
 			name: "non-userdata value",
-			setupValue: func(l *lua.LState) lua.LValue {
+			setupValue: func(_ *lua.LState) lua.LValue {
 				return lua.LString("not userdata")
 			},
 			expectStyle: lipgloss.Style{},

@@ -3,8 +3,9 @@ package sync
 import (
 	"context"
 	"fmt"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	"sync"
+
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"

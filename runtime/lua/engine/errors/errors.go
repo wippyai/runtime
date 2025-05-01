@@ -123,7 +123,7 @@ func New(err error) *WrappedError {
 }
 
 // WrapError creates a new wrapped error with the given Context.
-func WrapError(L *lua.LState, err error, context string) *WrappedError {
+func WrapError(l *lua.LState, err error, context string) *WrappedError {
 	if err == nil {
 		return nil
 	}
@@ -131,7 +131,7 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 	// Spawn new stack traces
 	goStack := make([]uintptr, 64)
 	n := runtime.Callers(2, goStack)
-	luaStack := inspect.GetStackTrace(L)
+	luaStack := inspect.GetStackTrace(l)
 
 	// If already wrapped, preserve Context
 	var we *WrappedError
@@ -164,30 +164,30 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 }
 
 // RaiseError wraps a Go error and raises it in the Lua state.
-func RaiseError(L *lua.LState, err error) {
-	wrapped := WrapError(L, err, "")
+func RaiseError(l *lua.LState, err error) {
+	wrapped := WrapError(l, err, "")
 
-	ud := L.NewUserData()
+	ud := l.NewUserData()
 	ud.Value = wrapped
-	ud.Metatable = L.GetTypeMetatable("error")
-	L.Error(ud, 1)
+	ud.Metatable = l.GetTypeMetatable("error")
+	l.Error(ud, 1)
 }
 
 // ToValue wraps a Go error in a Lua userdata and returns it as a Lua value.
-func ToValue(L *lua.LState, err error) lua.LValue {
+func ToValue(l *lua.LState, err error) lua.LValue {
 	var w *WrappedError
 	if errors.As(err, &w) {
-		ud := L.NewUserData()
+		ud := l.NewUserData()
 		ud.Value = w
-		ud.Metatable = L.GetTypeMetatable("error")
+		ud.Metatable = l.GetTypeMetatable("error")
 		return ud
 	}
 
-	wrapped := WrapError(L, err, "")
+	wrapped := WrapError(l, err, "")
 
-	ud := L.NewUserData()
+	ud := l.NewUserData()
 	ud.Value = wrapped
-	ud.Metatable = L.GetTypeMetatable("error")
+	ud.Metatable = l.GetTypeMetatable("error")
 	return ud
 }
 
@@ -247,12 +247,12 @@ func (e *WrappedError) Format(s fmt.State, verb rune) {
 
 // RegisterErrorsModule registers the errors module in Lua.
 // RegisterErrorsModule registers the errors module in Lua.
-func RegisterErrorsModule(L *lua.LState) {
+func RegisterErrorsModule(l *lua.LState) {
 	// Create errors module table with exact size
-	mod := L.CreateTable(0, 3) // pre-allocate for 3 functions
+	mod := l.CreateTable(0, 3) // pre-allocate for 3 functions
 
 	// Register error type with just metamethods
-	value.RegisterMetamethods(L, "error", map[string]lua.LGFunction{
+	value.RegisterMetamethods(l, "error", map[string]lua.LGFunction{
 		"__tostring": func(L *lua.LState) int {
 			if ud := L.CheckUserData(1); ud != nil {
 				if err, ok := ud.Value.(error); ok {
@@ -265,40 +265,40 @@ func RegisterErrorsModule(L *lua.LState) {
 	})
 
 	// Add functions to module with direct access
-	mod.RawSetString("new", L.NewFunction(newError))
-	mod.RawSetString("wrap", L.NewFunction(wrapError))
-	mod.RawSetString("call_stack", L.NewFunction(callStack))
+	mod.RawSetString("new", l.NewFunction(newError))
+	mod.RawSetString("wrap", l.NewFunction(wrapError))
+	mod.RawSetString("call_stack", l.NewFunction(callStack))
 
 	// Set global with direct access
-	L.SetGlobal("errors", mod)
+	l.SetGlobal("errors", mod)
 }
 
 // callStack implements the errors.call_stack() function in Lua.
 // Returns the Lua stack trace as a Lua table for easier analysis.
-func callStack(L *lua.LState) int {
-	v := L.Get(1)
+func callStack(l *lua.LState) int {
+	v := l.Get(1)
 	ud, ok := v.(*lua.LUserData)
 	if !ok {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 		return 1
 	}
 
 	w, ok := ud.Value.(*WrappedError)
 	if !ok {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 		return 1
 	}
 
 	// Create a table representation of the stack trace
-	err := L.NewTable()
+	err := l.NewTable()
 
 	// Set thread Source
 	err.RawSetString("thread", lua.LString(w.LuaStack.ThreadID))
 
 	// Create frames table array
-	framesTable := L.NewTable()
+	framesTable := l.NewTable()
 	for i, frame := range w.LuaStack.Frames {
-		frameTable := L.NewTable()
+		frameTable := l.NewTable()
 
 		// Add frame details
 		frameTable.RawSetString("level", lua.LNumber(frame.Level))
@@ -311,30 +311,30 @@ func callStack(L *lua.LState) int {
 	}
 
 	err.RawSetString("frames", framesTable)
-	L.Push(err)
+	l.Push(err)
 
 	return 1
 }
 
 // newError implements errors.new(message) in Lua.
-func newError(L *lua.LState) int {
-	msg := L.CheckString(1)
+func newError(l *lua.LState) int {
+	msg := l.CheckString(1)
 	// Spawn new wrapped error
-	wrappedErr := WrapError(L, fmt.Errorf("%s", msg), "")
+	wrappedErr := WrapError(l, fmt.Errorf("%s", msg), "")
 
 	// Return as userdata with error metatable
-	ud := L.NewUserData()
+	ud := l.NewUserData()
 	ud.Value = wrappedErr
-	ud.Metatable = L.GetTypeMetatable("error")
-	L.Push(ud)
+	ud.Metatable = l.GetTypeMetatable("error")
+	l.Push(ud)
 
 	return 1
 }
 
 // wrapError implements errors.wrap(parent, new_error) in Lua.
-func wrapError(L *lua.LState) int {
-	parent := L.CheckAny(1) // Parent error
-	newErr := L.CheckAny(2) // New error message/error
+func wrapError(l *lua.LState) int {
+	parent := l.CheckAny(1) // Parent error
+	newErr := l.CheckAny(2) // New error message/error
 
 	// Handle parent error
 	var parentErr error
@@ -344,13 +344,13 @@ func wrapError(L *lua.LState) int {
 		if err, ok := v.Value.(error); ok {
 			parentErr = err
 		} else {
-			L.ArgError(1, "parent must be string or error object")
+			l.ArgError(1, "parent must be string or error object")
 			return 0
 		}
 	case lua.LString:
 		parentErr = fmt.Errorf("%s", string(v))
 	default:
-		L.ArgError(1, "parent must be string or error object")
+		l.ArgError(1, "parent must be string or error object")
 		return 0
 	}
 
@@ -361,24 +361,24 @@ func wrapError(L *lua.LState) int {
 		if err, ok := v.Value.(error); ok {
 			context = err.Error()
 		} else {
-			L.ArgError(2, "new error must be string or error object")
+			l.ArgError(2, "new error must be string or error object")
 			return 0
 		}
 	case lua.LString:
 		context = string(v)
 	default:
-		L.ArgError(2, "new error must be string or error object")
+		l.ArgError(2, "new error must be string or error object")
 		return 0
 	}
 
 	// Spawn new wrapped error
-	wrappedErr := WrapError(L, parentErr, context)
+	wrappedErr := WrapError(l, parentErr, context)
 
 	// Return as userdata with error metatable
-	ud := L.NewUserData()
+	ud := l.NewUserData()
 	ud.Value = wrappedErr
-	ud.Metatable = L.GetTypeMetatable("error")
-	L.Push(ud)
+	ud.Metatable = l.GetTypeMetatable("error")
+	l.Push(ud)
 
 	return 1
 }

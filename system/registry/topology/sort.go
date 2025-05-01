@@ -38,7 +38,7 @@ func resolveDependencyID(sourceNS string, depStr string) registry.ID {
 	// Otherwise, inherit the source namespace
 	return registry.ID{
 		NS:   sourceNS,
-		Name: registry.Name(depStr),
+		Name: depStr,
 	}
 }
 
@@ -79,9 +79,7 @@ func SortEntriesByDependency(entries []registry.Entry) ([]registry.Entry, error)
 	for _, entry := range entries {
 		dependencies := entry.Meta.TagValue(registry.TagDependsOn)
 
-		for _, ddep := range fetchDependencies(entry) {
-			dependencies = append(dependencies, ddep)
-		}
+		dependencies = append(dependencies, fetchDependencies(entry)...)
 
 		for _, dep := range dependencies {
 			depType, value := parseDependency(dep)

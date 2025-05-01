@@ -144,7 +144,7 @@ func (t *taskCoordinator) Ready() int {
 	ready := int(t.updCount.Load() + t.wakeCount.Load())
 	if t.undelivered.Load() {
 		// this flag is true until executeScheduled is called with empty list
-		ready = ready + 1
+		ready++
 	}
 
 	return ready

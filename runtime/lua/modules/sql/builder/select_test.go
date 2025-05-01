@@ -101,9 +101,9 @@ func TestSelectBasic(t *testing.T) {
 	assert.Equal(t, 0, args.Len())
 
 	// Empty SELECT should error
-	emptySql := resultTable.RawGetString("empty_sql")
+	emptySQL := resultTable.RawGetString("empty_sql")
 	emptyError := resultTable.RawGetString("empty_error")
-	assert.Equal(t, lua.LNil, emptySql)
+	assert.Equal(t, lua.LNil, emptySQL)
 	assert.Contains(t, emptyError.String(), "select statements must have at least one result column")
 }
 

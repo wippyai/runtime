@@ -18,7 +18,7 @@ type Response struct {
 }
 
 // checkResponse gets and verifies Response userdata from Lua state
-func checkResponse(l *lua.LState, n int) (*Response, error) { //nolint:unparam
+func checkResponse(l *lua.LState, n int) (*Response, error) { //nolint:unparam // ok for now
 	ud := l.CheckUserData(n)
 	if ud == nil {
 		return nil, fmt.Errorf("argument %d must be a Response", n)

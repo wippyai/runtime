@@ -129,7 +129,7 @@ func TestTTL(t *testing.T) {
 }
 
 func TestConcurrency(t *testing.T) {
-	t.Run("concurrent reads", func(t *testing.T) {
+	t.Run("concurrent reads", func(_ *testing.T) {
 		cache := New[string, int]()
 		defer cache.Close()
 
@@ -166,7 +166,7 @@ func TestConcurrency(t *testing.T) {
 		}
 	})
 
-	t.Run("mixed operations", func(t *testing.T) {
+	t.Run("mixed operations", func(_ *testing.T) {
 		cache := New[string, int]()
 		defer cache.Close()
 
@@ -320,7 +320,7 @@ func TestCleanup(t *testing.T) {
 		}
 	})
 
-	t.Run("close stops cleanup", func(t *testing.T) {
+	t.Run("close stops cleanup", func(_ *testing.T) {
 		cache := New[string, int](
 			WithTTL(1*time.Hour),
 			WithGCInterval(10*time.Millisecond),

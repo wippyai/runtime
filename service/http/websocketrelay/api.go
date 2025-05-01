@@ -1,4 +1,4 @@
-package websocket_relay
+package websocketrelay
 
 import (
 	"net/http"

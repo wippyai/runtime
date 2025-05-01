@@ -96,7 +96,7 @@ func (m *Module) setOptions(l *lua.LState) int {
 
 	options := l.CheckTable(1)
 	var firstKey string
-	options.ForEach(func(k lua.LValue, v lua.LValue) {
+	options.ForEach(func(k lua.LValue, _ lua.LValue) {
 		if firstKey == "" && k.Type() == lua.LTString {
 			firstKey = string(k.(lua.LString))
 		}
@@ -292,6 +292,7 @@ func (m *Module) send(l *lua.LState) int {
 		return 2
 	}
 
+	//nolint:prealloc // ok for now
 	var messages []*pubsub.Message
 	for i := 3; i <= l.GetTop(); i++ {
 		messages = append(messages, &pubsub.Message{
@@ -313,6 +314,8 @@ func (m *Module) send(l *lua.LState) int {
 }
 
 // createPayloadsFromArgs converts Lua arguments to process payloads
+//
+//nolint:unparam // ok for now
 func (m *Module) createPayloadsFromArgs(l *lua.LState, startIndex int) payload.Payloads {
 	var payloads payload.Payloads
 
@@ -674,6 +677,9 @@ func (m *Module) cancel(l *lua.LState) int {
 		case lua.LTNumber:
 			ms := l.CheckNumber(2)
 			deadline = time.Now().Add(time.Duration(ms) * time.Millisecond)
+		case lua.LTNil, lua.LTBool, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
+			// FIXME rework on demand
+			fallthrough
 		default:
 			l.Push(lua.LNil)
 			l.Push(lua.LString("deadline must be either a duration string or milliseconds number"))

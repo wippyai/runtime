@@ -2,11 +2,13 @@ package memstore_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/service/memstore"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ponyruntime/pony/service/memstore"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -19,7 +21,7 @@ import (
 )
 
 // createTestStore is a helper function that creates a memory store with default test configuration
-func createTestStore(t *testing.T) *memstore.MemoryStore {
+func createTestStore(_ *testing.T) *memstore.MemoryStore {
 	logger := zap.NewNop()
 	config := &memcfg.MemoryConfig{
 		MaxSize:         100,
@@ -371,7 +373,7 @@ func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 				// Set
 				err := ms.Set(ctx, createTestEntry(key.String(), value))
 				// Either no error or store full is acceptable during concurrent test
-				if err != nil && err != store.ErrStoreFull {
+				if err != nil && !errors.Is(err, store.ErrStoreFull) {
 					assert.Fail(t, "Unexpected error on Set: %v", err)
 				}
 

@@ -48,11 +48,6 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 				return nil
 			}
 
-			if _, ok := listener.(registry.EntryListener); !ok {
-				// Skip if listener does not implement EntryListener (typically for transaction listeners only)
-				return nil
-			}
-
 			// Pattern match on entry.Kind
 			if !w.Match(entry.Kind) {
 				return nil

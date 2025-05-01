@@ -30,10 +30,10 @@ func (m *mockRegistry) GetEntry(id registry.ID) (registry.Entry, error) {
 // Other registry methods not needed for this test
 func (m *mockRegistry) Current() (registry.Version, error) { return nil, nil }
 func (m *mockRegistry) History() registry.History          { return nil }
-func (m *mockRegistry) Apply(ctx context.Context, cs registry.ChangeSet) (registry.Version, error) {
+func (m *mockRegistry) Apply(_ context.Context, _ registry.ChangeSet) (registry.Version, error) {
 	return nil, nil
 }
-func (m *mockRegistry) ApplyVersion(ctx context.Context, v registry.Version) error { return nil }
+func (m *mockRegistry) ApplyVersion(_ context.Context, _ registry.Version) error { return nil }
 
 // TestFinder_Find tests the advanced finding capabilities
 func TestFinder_Find(t *testing.T) {
@@ -203,7 +203,7 @@ func TestFinder_Find(t *testing.T) {
 			// Verify correct IDs returned
 			var resultIDs []string
 			for _, entry := range results {
-				resultIDs = append(resultIDs, string(entry.ID.Name))
+				resultIDs = append(resultIDs, entry.ID.Name)
 			}
 
 			// Check that all expected IDs are present

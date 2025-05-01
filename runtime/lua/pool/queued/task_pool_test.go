@@ -50,7 +50,7 @@ func (m *mockTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 }
 
 // Implement Unmarshaler interface
-func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *mockTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
 	return fmt.Errorf("unmarshal not implemented for testing")
 }
 
@@ -80,7 +80,7 @@ func createTestTask(id string, args ...interface{}) runtime.Task {
 }
 
 // waitForResult waits for a result from the given channel with timeout
-func waitForResult(t testing.TB, resultChan chan *runtime.Result, timeout time.Duration) (*runtime.Result, error) {
+func waitForResult(_ testing.TB, resultChan chan *runtime.Result, timeout time.Duration) (*runtime.Result, error) {
 	select {
 	case result, ok := <-resultChan:
 		if !ok {

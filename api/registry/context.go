@@ -3,11 +3,12 @@ package registry
 
 import (
 	"context"
+
 	ctxapi "github.com/ponyruntime/pony/api/context"
 )
 
 // Context key for storing registry-related data
-var registryCtx = &ctxapi.Key{Name: "registry.registry"} //nolint:gochecknoglobals
+var registryCtx = &ctxapi.Key{Name: "registry.registry"}
 
 // WithRegistry attaches a Registry instance to the provided context.
 // This allows the Registry to be retrieved later using the GetRegistry function.

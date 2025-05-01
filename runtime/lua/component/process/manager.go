@@ -21,7 +21,8 @@ import (
 
 var (
 	processBuild *code.BuildOptions
-	layers       component.Option
+
+	layers component.Option
 )
 
 func init() {

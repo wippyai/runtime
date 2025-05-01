@@ -132,6 +132,7 @@ func createFactoryTempDir(t *testing.T, files map[string]string) (string, func()
 		require.NoError(t, err)
 
 		// Write file content
+		//nolint:gosec // used in tests
 		err = os.WriteFile(fullPath, []byte(content), 0644)
 		require.NoError(t, err)
 	}
@@ -165,7 +166,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 
 	t.Run("successful handler creation", func(t *testing.T) {
 		// Register test function
-		registry.Register(cfg.Func, func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+		registry.Register(cfg.Func, func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 			resultCh := make(chan *runtime.Result, 1)
 
 			// Get request context
@@ -212,7 +213,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 
 	t.Run("function registry error", func(t *testing.T) {
 		// Register test function that returns an error
-		registry.Register(cfg.Func, func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+		registry.Register(cfg.Func, func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 			return nil, fmt.Errorf("function error")
 		})
 
@@ -429,7 +430,7 @@ func TestSPAHandler(t *testing.T) {
 }
 
 func TestWrapWithCacheControl(t *testing.T) {
-	mockHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 

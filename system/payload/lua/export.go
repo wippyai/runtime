@@ -20,6 +20,9 @@ func processLuaValue(value lua.LValue) lua.LValue {
 		return deepCopyTable(value.(*lua.LTable))
 	case lua.LTUserData:
 		return lua.LNil // Skip userdata
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTString, lua.LTFunction, lua.LTThread, lua.LTChannel:
+		// FIXME implement
+		return value
 	default:
 		return value // Pass through other types unchanged
 	}
