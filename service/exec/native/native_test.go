@@ -46,7 +46,7 @@ func TestExecutor_Execute(t *testing.T) {
 			err = process.Start()
 
 			go func() {
-				process.Wait()
+				_ = process.Wait()
 			}()
 
 			if tt.wantErr {
@@ -78,7 +78,7 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	assert.NoError(t, err)
 
 	go func() {
-		process.Wait()
+		_ = process.Wait()
 	}()
 
 	go func() {
@@ -123,7 +123,7 @@ func TestExecutor_Stdout(t *testing.T) {
 	assert.NoError(t, err)
 
 	go func() {
-		process.Wait()
+		_ = process.Wait()
 		assert.Equal(t, "terminated", processExecutor.State())
 	}()
 
@@ -161,7 +161,7 @@ func TestExecutor_EmptyCmd(t *testing.T) {
 	assert.NoError(t, err)
 
 	go func() {
-		process.Wait()
+		_ = process.Wait()
 	}()
 
 	sb := new(strings.Builder)
@@ -196,7 +196,7 @@ func TestExecutor_Stderr(t *testing.T) {
 	assert.NoError(t, err)
 
 	go func() {
-		process.Wait()
+		_ = process.Wait()
 	}()
 
 	sb := new(strings.Builder)
@@ -233,7 +233,7 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 	assert.NoError(t, err)
 
 	go func() {
-		process.Wait()
+		_ = process.Wait()
 	}()
 
 	// Wait for an error message in stderr
@@ -305,7 +305,7 @@ func TestExecutor_WriteStdin(t *testing.T) {
 				assert.NoError(t, err)
 
 				go func() {
-					process.Wait()
+					_ = process.Wait()
 				}()
 
 				go func() {

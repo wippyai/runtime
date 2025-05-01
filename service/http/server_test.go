@@ -50,6 +50,7 @@ func createServerTempDir(t *testing.T, files map[string]string) (string, func())
 		require.NoError(t, err)
 
 		// Write file content
+		//nolint:gosec // used in tests
 		err = os.WriteFile(fullPath, []byte(content), 0644)
 		require.NoError(t, err)
 	}
@@ -194,7 +195,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 		endpointID := registry.ID{NS: "test", Name: "endpoint1"}
 
 		// Add endpoint
-		err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		require.NoError(t, err)
@@ -255,7 +256,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 
 		endpointID := registry.ID{NS: "test", Name: "endpoint3"}
 
-		err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		require.NoError(t, err)
@@ -300,7 +301,7 @@ func TestServerService_StartStop(t *testing.T) {
 
 	endpointID := registry.ID{NS: "test", Name: "endpoint4"}
 
-	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("test"))
 	}))
@@ -342,6 +343,7 @@ func TestServerService_StartStop(t *testing.T) {
 	var lastErr error
 
 	for i := 0; i < 3; i++ {
+		//nolint:noctx // noctx is not needed because we are not reading the body
 		resp, lastErr = client.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
 		if lastErr == nil {
 			break
@@ -362,6 +364,7 @@ func TestServerService_StartStop(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify server is stopped
+	//nolint:bodyclose,noctx // bodyclose is not needed because we are not reading the body
 	_, err = http.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
 	assert.Error(t, err)
 
@@ -384,7 +387,7 @@ func TestServerService_Middleware(t *testing.T) {
 
 	// Create middleware factory for the test
 	middlewareFactory := NewDefaultMiddlewareFactory(
-		WithMiddlewareCreator("request_id", func(options map[string]string) func(http.Handler) http.Handler {
+		WithMiddlewareCreator("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
 			return func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					// Pass through any existing request ID
@@ -398,7 +401,7 @@ func TestServerService_Middleware(t *testing.T) {
 				})
 			}
 		}),
-		WithMiddlewareCreator("real_ip", func(options map[string]string) func(http.Handler) http.Handler {
+		WithMiddlewareCreator("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
 			return func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					// Simple pass-through middleware for testing
@@ -468,7 +471,7 @@ func TestServerService_Middleware(t *testing.T) {
 	var lastErr error
 
 	// Set a custom request ID in the client request to ensure middleware processes it
-	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s/api/test", cfg.Addr), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://%s/api/test", cfg.Addr), nil)
 	require.NoError(t, err)
 	req.Header.Set("X-Request-Id", "test-request-id")
 
@@ -519,7 +522,7 @@ func TestCreateMiddleware(t *testing.T) {
 				})
 			}
 		}),
-		WithMiddlewareCreator("recoverer", func(options map[string]string) func(http.Handler) http.Handler {
+		WithMiddlewareCreator("recoverer", func(_ map[string]string) func(http.Handler) http.Handler {
 			return func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					defer func() {
@@ -531,7 +534,7 @@ func TestCreateMiddleware(t *testing.T) {
 				})
 			}
 		}),
-		WithMiddlewareCreator("request_id", func(options map[string]string) func(http.Handler) http.Handler {
+		WithMiddlewareCreator("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
 			return func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					r.Header.Set("X-Request-Id", "test-id")
@@ -539,7 +542,7 @@ func TestCreateMiddleware(t *testing.T) {
 				})
 			}
 		}),
-		WithMiddlewareCreator("real_ip", func(options map[string]string) func(http.Handler) http.Handler {
+		WithMiddlewareCreator("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
 			return func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					next.ServeHTTP(w, r)
@@ -599,9 +602,10 @@ func TestEnsureRunning(t *testing.T) {
 	// Serve a separate HTTP server on that port to simulate our server already running
 	httpServer := &http.Server{
 		Addr: cfg.Addr,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}),
+		ReadHeaderTimeout: time.Second,
 	}
 
 	serverErrCh := make(chan error, 1)
@@ -706,6 +710,7 @@ func TestContextListener(t *testing.T) {
 	var lastErr error
 
 	for i := 0; i < 3; i++ {
+		//nolint:noctx // noctx is not needed because we are not reading the body
 		resp, lastErr = client.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
 		if lastErr == nil {
 			break

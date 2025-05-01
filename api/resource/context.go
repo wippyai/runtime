@@ -8,7 +8,7 @@ import (
 )
 
 // Context key for storing resource-related data
-var resourcesCtx = &ctxapi.Key{Name: "resource.registry"} //nolint:gochecknoglobals
+var resourcesCtx = &ctxapi.Key{Name: "resource.registry"}
 
 // WithResources attaches a Resource Registry instance to the provided context.
 // This allows the Registry to be retrieved later using the GetResources function.

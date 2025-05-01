@@ -32,8 +32,6 @@ type ProcessPool struct {
 	processWG    sync.WaitGroup  // Active processes WaitGroup
 	ctx          context.Context
 	cancel       context.CancelFunc
-
-	count atomic.Int32
 }
 
 // NewProcessPool creates a new process pool
@@ -57,7 +55,7 @@ func NewProcessPool(
 
 // Add registers a new process with the pool
 func (p *ProcessPool) Add(pid pubsub.PID, proc process.Process) error {
-	if p.maxProcesses != 0 && p.numProcesses.Load() >= int32(p.maxProcesses) {
+	if p.maxProcesses != 0 && int(p.numProcesses.Load()) >= p.maxProcesses {
 		p.log.Warn("max processes reached, cannot add new process", zap.String("pid", pid.String()))
 		return process.ErrMaxProcesses
 	}

@@ -46,9 +46,9 @@ type mockResourceRegistry struct {
 }
 
 func (m *mockResourceRegistry) Acquire(
-	ctx context.Context,
+	_ context.Context,
 	id registry.ID,
-	mode resource.AccessMode,
+	_ resource.AccessMode,
 ) (resource.Resource[any], error) {
 	res, ok := m.resources[id]
 	if !ok {

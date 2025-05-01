@@ -18,6 +18,8 @@ type MultipartFile struct {
 }
 
 // checkMultipartFile gets and verifies MultipartFile userdata from Lua state
+//
+//nolint:unparam // ok for now
 func checkMultipartFile(l *lua.LState, n int) (*MultipartFile, error) {
 	ud := l.CheckUserData(n)
 	if ud == nil {

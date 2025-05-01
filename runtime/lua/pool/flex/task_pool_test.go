@@ -3,13 +3,14 @@ package flex
 import (
 	"context"
 	"fmt"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	runtime2 "runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	api "github.com/ponyruntime/pony/api/runtime/lua"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
@@ -55,7 +56,7 @@ func (m *mockTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 }
 
 // Implement Unmarshaler interface
-func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *mockTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
 	return fmt.Errorf("unmarshal not implemented for testing")
 }
 
@@ -85,7 +86,7 @@ func createTestTask(id string, args ...interface{}) runtime.Task {
 }
 
 // waitForResult waits for a result from the given channel with timeout
-func waitForResult(t testing.TB, resultChan chan *runtime.Result, timeout time.Duration) (*runtime.Result, error) {
+func waitForResult(_ testing.TB, resultChan chan *runtime.Result, timeout time.Duration) (*runtime.Result, error) {
 	select {
 	case result, ok := <-resultChan:
 		if !ok {
@@ -100,7 +101,6 @@ func waitForResult(t testing.TB, resultChan chan *runtime.Result, timeout time.D
 // TestFactory is a mock factory for testing
 type TestFactory struct {
 	createVMCalls int32
-	closed        bool
 	shouldFail    bool
 }
 
@@ -128,7 +128,7 @@ type TestVM struct {
 }
 
 // Execute implements the VM interface
-func (vm *TestVM) Execute(ctx context.Context, method string, args ...lua.LValue) (lua.LValue, error) {
+func (vm *TestVM) Execute(_ context.Context, method string, args ...lua.LValue) (lua.LValue, error) {
 	if vm.closed {
 		return nil, fmt.Errorf("VM is closed")
 	}

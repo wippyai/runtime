@@ -105,6 +105,7 @@ var (
 	}
 
 	// Mouse buttons
+
 	mouseButtonMap = map[tea.MouseButton]string{
 		tea.MouseButtonNone:       "none",
 		tea.MouseButtonLeft:       "left",
@@ -119,7 +120,9 @@ var (
 		tea.MouseButton10:         "button10",
 		tea.MouseButton11:         "button11",
 	}
-	keyTypeFromStr     = make(map[string]tea.KeyType)
+
+	keyTypeFromStr = make(map[string]tea.KeyType)
+
 	mouseButtonFromStr = make(map[string]tea.MouseButton)
 )
 

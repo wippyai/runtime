@@ -37,11 +37,8 @@ func NewDirectoryFSFactory() *FSFactory {
 func (f *FSFactory) CreateFS(cfg CreateFSConfig) (fsapi.FS, error) {
 	// Create the filesystem using the factory
 	if cfg.Name == dirapi.TypeNameEmbed {
-
 		dirPath := filepath.Clean(cfg.DirPath)
-		if strings.HasPrefix(dirPath, "./") {
-			dirPath = dirPath[2:]
-		}
+		dirPath = strings.TrimPrefix(dirPath, "./")
 
 		if _, err := fs.Stat(embed.FS(), dirPath); err != nil {
 			return nil, fmt.Errorf("embed stat: %w", err)

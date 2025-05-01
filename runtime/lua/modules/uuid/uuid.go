@@ -211,6 +211,9 @@ func (*Module) variant(l *lua.LState) int {
 		variant = "Microsoft"
 	case uuid.Invalid:
 		variant = "Invalid"
+	case uuid.Microsoft, uuid.Future:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		variant = "NCS"
 	}
@@ -251,6 +254,9 @@ func (*Module) parse(l *lua.LState) int {
 		variant = "Microsoft"
 	case uuid.Invalid:
 		variant = "Invalid"
+	case uuid.Microsoft, uuid.Future:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		variant = "NCS"
 	}

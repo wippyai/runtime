@@ -80,7 +80,7 @@ func (r *Layer) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, erro
 				for _, result := range opNext.next {
 					t, err := vm.GetTask(result.State)
 					if err != nil {
-						return nil, fmt.Errorf("State not found!: %w", err)
+						return nil, fmt.Errorf("state not found!: %w", err)
 					}
 
 					if result.Error != nil {

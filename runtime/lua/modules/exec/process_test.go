@@ -3,6 +3,10 @@ package exec
 import (
 	"context"
 	"fmt" // Import fmt
+	"runtime"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
@@ -16,9 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"runtime"
-	"testing"
-	"time"
 )
 
 // --- Mock Resource Setup ---
@@ -47,7 +48,7 @@ type simpleExecutorProvider struct {
 }
 
 // Acquire implements resource.Provider
-func (p *simpleExecutorProvider) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (p *simpleExecutorProvider) Acquire(_ context.Context, id registry.ID, _ resource.AccessMode) (resource.Resource[any], error) {
 	// Simple mock provider: always return the factory wrapped in a mock resource handle.
 	// Ignore mode and context for this test provider.
 	return &mockResource{id: id, resValue: p.factory}, nil
@@ -91,15 +92,18 @@ func (m *mockResourceRegistry) Exists(id registry.ID) bool {
 	return ok
 }
 
+//nolint:unused // ok for now
 type typeError struct {
 	expected string
 	actual   any
 }
 
+//nolint:unused // ok for now
 func (e typeError) Error() string {
 	return "type error: expected " + e.expected + " got " + typeName(e.actual)
 }
 
+//nolint:unused // ok for now
 func typeName(v any) string {
 	if v == nil {
 		return "<nil>"
@@ -109,6 +113,7 @@ func typeName(v any) string {
 
 // --- Test Setup Helper ---
 
+//nolint:unparam // ok for now
 func setupLuaWithExec(t *testing.T, logger *zap.Logger) (*engine.CoroutineVM, engine.UnitOfWork, *engine.Runner) {
 	// 1. Create the actual native executor factory
 	nativeFactory := native.NewNativeExecutor(logger, &apiexec.NativeExecutorConfig{})
@@ -343,7 +348,7 @@ func TestWorkingDirAndEnv(t *testing.T) {
 	require.NoError(t, err)
 }
 
-//func TestWriteStdinAndStderr(t *testing.T) {
+// func TestWriteStdinAndStderr(t *testing.T) {
 //	logger := zap.NewNop()
 //	vm, _, runner := setupLuaWithExec(t, logger)
 //
@@ -474,7 +479,7 @@ func TestProcessWaitAndClose(t *testing.T) {
 	require.NoError(t, err)
 }
 
-//func TestMultiplyCallsToStream(t *testing.T) {
+// func TestMultiplyCallsToStream(t *testing.T) {
 //	l, oLogger := mocklogger.ZapTestLogger(zap.DebugLevel)
 //	vm, _, runner := setupLuaWithExec(t, l)
 //

@@ -193,8 +193,6 @@ github.com/tree-sitter/tree-sitter-rust v0.21.3-0.20240818005432-2b43eafe6447 h1
 github.com/tree-sitter/tree-sitter-rust v0.21.3-0.20240818005432-2b43eafe6447/go.mod h1:1Oh95COkkTn6Ezp0vcMbvfhRP5gLeqqljR0BYnBzWvc=
 github.com/tree-sitter/tree-sitter-typescript v0.23.2 h1:/Odvphn18PniVixb9e97X0DbNVsU6Qocv9mfkyzdXwU=
 github.com/tree-sitter/tree-sitter-typescript v0.23.2/go.mod h1:zjzMXT/Ulffel2xfOcAkQQkiAkmgnbtPGlFQw/5X4xA=
-github.com/wippyai/module-registry-proto v0.0.0-20250428175736-5d2c86e17844 h1:QmGdhZwd7kR0vlvjPPY4nSLMvxZQngjEBFBRyttgpQM=
-github.com/wippyai/module-registry-proto v0.0.0-20250428175736-5d2c86e17844/go.mod h1:vzjh4Kq6uCh74Rft++LOO99BBQKGEFgt1h6+/WAqM6o=
 github.com/wippyai/module-registry-proto v0.0.0-20250429182210-958a6f1f68c3 h1:YKf89CyWxpTtJbMkRkcAbolpTjERqv4rEHZvcScw/D8=
 github.com/wippyai/module-registry-proto v0.0.0-20250429182210-958a6f1f68c3/go.mod h1:vzjh4Kq6uCh74Rft++LOO99BBQKGEFgt1h6+/WAqM6o=
 github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d h1:llb0neMWDQe87IzJLS4Ci7psK/lVsjIS2otl+1WyRyY=

@@ -25,7 +25,7 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (t *Table) View() string {
-	return t.View()
+	return t.model.View()
 }
 
 // RegisterTable registers the table widget to Lua.
@@ -379,9 +379,9 @@ func tableHeight(l *lua.LState) int {
 
 // luaTableToColumns converts a Lua table (list of column tables)
 // to a slice of tablewidget.Column.
-func luaTableToColumns(l *lua.LState, tbl *lua.LTable) []table.Column {
+func luaTableToColumns(_ *lua.LState, tbl *lua.LTable) []table.Column {
 	var cols []table.Column
-	tbl.ForEach(func(key, value lua.LValue) {
+	tbl.ForEach(func(_, value lua.LValue) {
 		if colTbl, ok := value.(*lua.LTable); ok {
 			title := ""
 			width := 0
@@ -398,9 +398,9 @@ func luaTableToColumns(l *lua.LState, tbl *lua.LTable) []table.Column {
 }
 
 // luaTableToRows converts a Lua table (list of row tables) to a slice of tablewidget.Row.
-func luaTableToRows(l *lua.LState, tbl *lua.LTable) []table.Row {
+func luaTableToRows(_ *lua.LState, tbl *lua.LTable) []table.Row {
 	var rows []table.Row
-	tbl.ForEach(func(key, value lua.LValue) {
+	tbl.ForEach(func(_, value lua.LValue) {
 		// Each row is expected to be a Lua table (array of strings)
 		if rowTbl, ok := value.(*lua.LTable); ok {
 			var row table.Row

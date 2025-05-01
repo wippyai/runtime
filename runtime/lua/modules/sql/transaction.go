@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -67,7 +68,7 @@ func CheckTransaction(l *lua.LState) *Transaction {
 }
 
 // registerTransaction registers transaction methods
-func registerTransaction(l *lua.LState, log *zap.Logger) {
+func registerTransaction(l *lua.LState, _ *zap.Logger) {
 	methods := map[string]lua.LGFunction{
 		// Standard transaction methods
 		"query":    txQuery,
@@ -346,7 +347,7 @@ func txSavepoint(l *lua.LState) int {
 	// Sanitize the savepoint name to prevent SQL injection
 	// Only allow alphanumeric and underscore characters
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
 			l.Push(lua.LNil)
 			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
 			return 2
@@ -392,7 +393,7 @@ func txRollbackTo(l *lua.LState) int {
 
 	// Sanitize the savepoint name
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
 			l.Push(lua.LNil)
 			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
 			return 2
@@ -438,7 +439,7 @@ func txReleaseSavepoint(l *lua.LState) int {
 
 	// Sanitize the savepoint name
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
 			l.Push(lua.LNil)
 			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
 			return 2

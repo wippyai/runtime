@@ -96,10 +96,10 @@ func CheckParams(l *lua.LState, index int) (interface{}, error) {
 		}
 
 		return result, nil
-	} else {
-		// For now, we only support positional parameters
-		return nil, fmt.Errorf("only positional parameters (array-like tables) are supported")
 	}
+
+	// For now, we only support positional parameters
+	return nil, fmt.Errorf("only positional parameters (array-like tables) are supported")
 }
 
 // RowsToTable converts SQL rows to a Lua table

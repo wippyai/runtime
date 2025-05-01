@@ -105,7 +105,7 @@ func (h *Host) Send(pkg *api.Package) error {
 
 	// Use UniqID for hashing as it's the most specific part of Source
 	hash := fnv1a32(pkg.Source.UniqID)
-	workerIndex := int(hash % uint32(len(h.jobQueues)))
+	workerIndex := int(hash) % len(h.jobQueues)
 
 	// Send to the determined worker queue
 	select {

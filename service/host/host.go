@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/security"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/ponyruntime/pony/api/security"
 
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/logs"
@@ -159,7 +160,7 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, 
 // This ensures messages from the same source are processed in order
 func (h *Host) getQueueForPID(pid pubsub.PID) chan *pubsub.Package {
 	hash := fnv1a32(pid.UniqID)
-	index := int(hash % uint32(len(h.msgQueues)))
+	index := int(hash) % len(h.msgQueues)
 	return h.msgQueues[index]
 }
 
@@ -252,7 +253,7 @@ func (h *Host) startMessageWorkers() {
 		h.msgWG.Add(1)
 		queue := h.msgQueues[i]
 
-		go func(workerID int, q chan *pubsub.Package) {
+		go func(_ int, q chan *pubsub.Package) {
 			defer h.msgWG.Done()
 
 			for {
@@ -310,7 +311,7 @@ func (h *Host) Stop(ctx context.Context) error {
 }
 
 // Terminate stops a running process and detaches its routing.
-func (h *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
+func (h *Host) Terminate(_ context.Context, pid pubsub.PID) error {
 	if !h.running.Load() {
 		return errors.New("host is not running, cannot launch new process")
 	}

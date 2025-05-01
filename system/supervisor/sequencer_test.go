@@ -45,7 +45,7 @@ func (s *executableService) Stop() error {
 
 // Collect events for exact number of expected events
 func collectEvents(t *testing.T, events chan operationEvent, count int, expectStart bool) []string {
-	var result []string
+	result := make([]string, 0)
 	for i := 0; i < count; i++ {
 		event := <-events
 		require.Equal(t, expectStart, event.isStart,
@@ -130,7 +130,7 @@ func TestSequencer_BasicDependencyOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read start events in order
-	var startOrder []string
+	startOrder := make([]string, 0)
 	for i := 0; i < len(services); i++ {
 		event := <-events
 		require.True(t, event.isStart, "expected start event")
@@ -167,7 +167,7 @@ func TestSequencer_BasicDependencyOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read stop events in order
-	var stopOrder []string
+	stopOrder := make([]string, 0)
 	for i := 0; i < len(services); i++ {
 		event := <-events
 		require.False(t, event.isStart, "expected stop event")
@@ -222,7 +222,7 @@ func TestSequencer_ParallelExecution(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read first two events (should be A and B in any order)
-	var firstTwo []string
+	firstTwo := make([]string, 0)
 	for i := 0; i < 2; i++ {
 		event := <-events
 		require.True(t, event.isStart, "expected start event")
@@ -292,7 +292,8 @@ func TestSequencer_MixedOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read all events in order
-	var stopOrder, startOrder []string
+	stopOrder := make([]string, 0)
+	startOrder := make([]string, 0)
 	// First two should be stops
 	for i := 0; i < 2; i++ {
 		event := <-events

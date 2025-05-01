@@ -28,7 +28,7 @@ func getStructFields(rt reflect.Type) []fieldInfo {
 	if cached, ok := structFieldCache.Load(rt); ok {
 		return cached.([]fieldInfo)
 	}
-	var fields []fieldInfo
+	fields := make([]fieldInfo, 0)
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
 		if !field.IsExported() {
@@ -50,7 +50,7 @@ func ToGoAny(v lua.LValue) any {
 		return nil
 	}
 
-	switch v.Type() { //nolint:exhaustive
+	switch v.Type() {
 	case lua.LTNil:
 		return nil
 	case lua.LTBool:
@@ -66,6 +66,9 @@ func ToGoAny(v lua.LValue) any {
 			return tableToMap(tbl)
 		}
 		return tableToSlice(tbl, maxn)
+	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		return v.String()
 	}
@@ -110,7 +113,7 @@ func GoToLua(v any) (lua.LValue, error) {
 	case time.Time:
 		return lua.LNumber(val.Unix()), nil
 	case payload.Payload:
-		return GoToLua(val.(payload.Payload).Data())
+		return GoToLua(val.Data())
 	case pubsub.PID:
 		return lua.LString(val.String()), nil
 	case []byte:
@@ -191,6 +194,32 @@ func GoToLua(v any) (lua.LValue, error) {
 				} else {
 					lval, err = GoToLua(fieldValue.Interface())
 				}
+			case reflect.Invalid,
+				reflect.Bool,
+				reflect.Int,
+				reflect.Int8,
+				reflect.Int16,
+				reflect.Int32,
+				reflect.Int64,
+				reflect.Uint,
+				reflect.Uint8,
+				reflect.Uint16,
+				reflect.Uint32,
+				reflect.Uint64,
+				reflect.Uintptr,
+				reflect.Float32,
+				reflect.Float64,
+				reflect.Complex64,
+				reflect.Complex128,
+				reflect.Array,
+				reflect.Chan,
+				reflect.Func,
+				reflect.String,
+				reflect.Struct,
+				reflect.UnsafePointer:
+				// FIXME rework on demand
+				fallthrough
+
 			default:
 				lval, err = GoToLua(fieldValue.Interface())
 			}
@@ -203,6 +232,30 @@ func GoToLua(v any) (lua.LValue, error) {
 		}
 		return table, nil
 
+	case reflect.Invalid,
+		reflect.Bool,
+		reflect.Int,
+		reflect.Int8,
+		reflect.Int16,
+		reflect.Int32,
+		reflect.Int64,
+		reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64,
+		reflect.Uintptr,
+		reflect.Float32,
+		reflect.Float64,
+		reflect.Complex64,
+		reflect.Complex128,
+		reflect.Chan,
+		reflect.Func,
+		reflect.Interface,
+		reflect.String,
+		reflect.UnsafePointer:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}

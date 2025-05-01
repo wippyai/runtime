@@ -47,7 +47,7 @@ func NewProcessManager(
 }
 
 // preparePID creates and validates a pid for the process
-func (m *Manager) preparePID(ps *api.Start, managed bool) (pubsub.PID, error) {
+func (m *Manager) preparePID(ps *api.Start, managed bool) pubsub.PID {
 	pid := pubsub.PID{
 		Host:   ps.HostID,
 		ID:     ps.Source,
@@ -62,7 +62,7 @@ func (m *Manager) preparePID(ps *api.Start, managed bool) (pubsub.PID, error) {
 		pid.UniqID = m.generator.Generate()
 	}
 
-	return pid, nil
+	return pid
 }
 
 // launchOnHost handles the actual process launch on either managed or delegated hosts
@@ -113,10 +113,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pubsub.PID, erro
 	}
 
 	_, managed := host.(api.Managed)
-	pid, err := m.preparePID(start, managed)
-	if err != nil {
-		return pubsub.PID{}, err
-	}
+	pid := m.preparePID(start, managed)
 
 	// The topology registration and monitoring/linking will be handled by the host
 	// during the actual process launch, so we don't need to do it here anymore.
@@ -154,7 +151,7 @@ func (m *Manager) Terminate(ctx context.Context, pid pubsub.PID) error {
 // AttachLifecycle returns a context with topology callbacks attached for the specified lifecycle
 func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) context.Context {
 	// OnStart callback adds topology integration when a process starts
-	ctx = api.WithAddedOnStart(ctx, func(pid pubsub.PID, proc api.Process) {
+	ctx = api.WithAddedOnStart(ctx, func(pid pubsub.PID, _ api.Process) {
 		// Get topology from context
 		topo := topology.GetTopology(ctx)
 		if topo == nil {

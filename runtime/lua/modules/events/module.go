@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
@@ -141,8 +142,8 @@ func (m *Module) subscribe(l *lua.LState) int {
 				if err != nil {
 					m.log.Error("failed to convert event data to Lua",
 						zap.Error(err),
-						zap.String("system", string(evt.System)),
-						zap.String("kind", string(evt.Kind)))
+						zap.String("system", evt.System),
+						zap.String("kind", evt.Kind))
 				} else {
 					evtTable.RawSetString("data", luaData)
 				}
@@ -157,8 +158,8 @@ func (m *Module) subscribe(l *lua.LState) int {
 				if err := channel.Send(l, ch, evtTable); err != nil {
 					m.log.Error("failed to send event to channel",
 						zap.Error(err),
-						zap.String("system", string(evt.System)),
-						zap.String("kind", string(evt.Kind)))
+						zap.String("system", evt.System),
+						zap.String("kind", evt.Kind))
 				}
 			}
 		},
@@ -238,8 +239,8 @@ func (m *Module) subClose(l *lua.LState) int {
 	if err := channel.Close(l, sub.ch); err != nil {
 		m.log.Error("failed to close subscription channel",
 			zap.Error(err),
-			zap.String("system", string(sub.system)),
-			zap.String("kind", string(sub.kind)))
+			zap.String("system", sub.system),
+			zap.String("kind", sub.kind))
 	}
 
 	l.Push(lua.LTrue)

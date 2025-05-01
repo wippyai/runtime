@@ -35,7 +35,6 @@ type Operation struct {
 // Sequencer handles ordered processing of service operations based on dependencies
 type Sequencer struct {
 	logger *zap.Logger
-	mu     sync.RWMutex
 }
 
 // NewSequencer creates a new sequence processor
@@ -79,7 +78,7 @@ func (sp *Sequencer) Transition(ctx context.Context, operations ...Operation) er
 	return nil
 }
 
-func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Operation) error {
+func (sp *Sequencer) processStartOperations(_ context.Context, operations []Operation) error {
 	// Build dependency graph for starts
 	g := graph.New[string, any]()
 
@@ -147,7 +146,7 @@ func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Op
 	return nil
 }
 
-func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Operation) error {
+func (sp *Sequencer) processStopOperations(_ context.Context, operations []Operation) error {
 	g := graph.New[string, any]()
 	opMap := make(map[string]Operation)
 

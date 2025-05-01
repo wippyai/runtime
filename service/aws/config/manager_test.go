@@ -62,14 +62,14 @@ func NewMockTranscoder() *MockTranscoder {
 	}
 }
 
-func (m *MockTranscoder) Marshal(v any) ([]byte, error) {
+func (m *MockTranscoder) Marshal(_ any) ([]byte, error) {
 	if m.marshalError != nil {
 		return nil, m.marshalError
 	}
 	return m.mockData, nil
 }
 
-func (m *MockTranscoder) Unmarshal(data payload.Payload, v any) error {
+func (m *MockTranscoder) Unmarshal(_ payload.Payload, v any) error {
 	if m.unmarshalError != nil {
 		return m.unmarshalError
 	}
@@ -84,7 +84,7 @@ func (m *MockTranscoder) Unmarshal(data payload.Payload, v any) error {
 	return nil
 }
 
-func (m *MockTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
 
@@ -133,6 +133,8 @@ func setupResourceEventsListener(ctx context.Context, bus event.Bus) (chan event
 }
 
 // waitForResourceEvent waits for a resource event with the specified kind
+//
+//nolint:unparam // bool return value is required by testing pattern but not used
 func waitForResourceEvent(t *testing.T, eventChan chan event.Event, expectedKind event.Kind, timeout time.Duration) event.Event {
 	t.Helper()
 

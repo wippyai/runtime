@@ -40,10 +40,8 @@ func TestGetLogger(t *testing.T) {
 			expectNopLogger: false,
 		},
 		{
-			name: "context without logger",
-			setupContext: func() context.Context {
-				return context.Background()
-			},
+			name:            "context without logger",
+			setupContext:    context.Background,
 			expectNopLogger: true,
 		},
 		{

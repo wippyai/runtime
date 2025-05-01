@@ -176,7 +176,7 @@ func (h *testSupervisorHarness) registerServices(services map[string]bool) {
 		h.sup.handleEvent(event.Event{
 			System: supervisor.System,
 			Kind:   supervisor.Register,
-			Path:   event.Path(serviceID),
+			Path:   serviceID,
 			Data: &supervisor.Entry{
 				Service: svc,
 				Config: supervisor.LifecycleConfig{
@@ -199,7 +199,7 @@ func (h *testSupervisorHarness) registerServiceWithDeps(serviceID string, autoSt
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
-		Path:   event.Path(serviceID),
+		Path:   serviceID,
 		Data: &supervisor.Entry{
 			Service: h.service(serviceID),
 			Config: supervisor.LifecycleConfig{
@@ -246,7 +246,7 @@ func (h *testSupervisorHarness) removeService(serviceID string) {
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
-		Path:   event.Path(serviceID),
+		Path:   serviceID,
 	})
 }
 
@@ -688,7 +688,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
-		Path:   event.Path(serviceID),
+		Path:   serviceID,
 		Data: &supervisor.Entry{
 			Service: svc,
 			Config: supervisor.LifecycleConfig{
@@ -721,7 +721,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Start,
-		Path:   event.Path(serviceID),
+		Path:   serviceID,
 	})
 
 	// wait for service to start
@@ -737,7 +737,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Stop,
-		Path:   event.Path(serviceID),
+		Path:   serviceID,
 	})
 
 	// wait for service to stop
@@ -758,7 +758,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
-		Path:   event.Path(serviceID),
+		Path:   serviceID,
 	})
 
 	h.sup.bus.Send(ctx, event.Event{

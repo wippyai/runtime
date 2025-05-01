@@ -53,7 +53,6 @@ func NewRouteManager() *RouteManager {
 func (rm *RouteManager) AddRouter(id registry.ID, prefix string,
 	middleware []func(http.Handler) http.Handler,
 	postMiddleware []func(http.Handler) http.Handler) error {
-
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 

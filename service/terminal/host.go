@@ -3,11 +3,12 @@ package terminal
 import (
 	"context"
 	"errors"
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/security"
 	"os"
 	"sync/atomic"
 	"time"
+
+	ctxapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/security"
 
 	logsapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/process"
@@ -38,8 +39,6 @@ type op struct {
 	result   chan error
 	response chan pubsub.PID
 	// For attach operation
-	attachCh chan *pubsub.Package
-	detach   chan context.CancelFunc
 }
 
 // Terminal manages a terminal session and hosts terminal processes.
@@ -198,6 +197,7 @@ func (t *Terminal) prepareContext(
 	return pCtx
 }
 
+//nolint:unparam // ok for now
 func (t *Terminal) handleTerminate() error {
 	if runner := t.runner.Load(); runner != nil {
 		runner.Stop()
@@ -213,7 +213,7 @@ func (t *Terminal) handleSend(msgBatch *pubsub.Package) error {
 	return runner.Send(msgBatch)
 }
 
-func (t *Terminal) cleanup(result *runtime.Result) {
+func (t *Terminal) cleanup(_ *runtime.Result) {
 	t.logCtrl.RestoreBaseConfig(context.Background())
 	t.runner.Swap(nil)
 }
@@ -249,14 +249,14 @@ func (t *Terminal) execOp(ctx context.Context, op op) error {
 // This implementation always returns an error as only terminal processes
 // can be attached to the terminal host.
 // It implements part of the pubsub.Host interface.
-func (t *Terminal) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFunc, error) {
+func (t *Terminal) Attach(_ pubsub.PID, _ chan *pubsub.Package) (context.CancelFunc, error) {
 	return nil, errors.New("only terminal process can be attached to the host")
 }
 
 // Detach detaches a process from the terminal.
 // This is a no-op in the current implementation.
 // It implements part of the pubsub.Host interface.
-func (t *Terminal) Detach(pid pubsub.PID) {
+func (t *Terminal) Detach(_ pubsub.PID) {
 	// nothing
 }
 
@@ -296,7 +296,7 @@ func (t *Terminal) Launch(ctx context.Context, pl *process.Launch) (pubsub.PID, 
 
 // Terminate terminates the currently running process.
 // It implements part of the process.Host interface.
-func (t *Terminal) Terminate(ctx context.Context, pid pubsub.PID) error {
+func (t *Terminal) Terminate(ctx context.Context, _ pubsub.PID) error {
 	return t.execOp(ctx, op{
 		typ:    opTerminate,
 		result: make(chan error, 1),

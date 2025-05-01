@@ -17,18 +17,18 @@ type dummyHost struct {
 	attachCalled int32
 }
 
-func (d *dummyHost) Send(pkg *api.Package) error {
+func (d *dummyHost) Send(_ *api.Package) error {
 	atomic.AddInt32(&d.sendCalled, 1)
 	return nil
 }
 
-func (d *dummyHost) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
+func (d *dummyHost) Attach(_ api.PID, _ chan *api.Package) (context.CancelFunc, error) {
 	atomic.AddInt32(&d.attachCalled, 1)
 	cancel := func() {}
 	return cancel, nil
 }
 
-func (d *dummyHost) Detach(pid api.PID) {
+func (d *dummyHost) Detach(_ api.PID) {
 	// No-op for testing
 }
 
@@ -37,7 +37,7 @@ type dummyUpstream struct {
 	sendCalled int32
 }
 
-func (d *dummyUpstream) Send(pkg *api.Package) error {
+func (d *dummyUpstream) Send(_ *api.Package) error {
 	atomic.AddInt32(&d.sendCalled, 1)
 	return nil
 }

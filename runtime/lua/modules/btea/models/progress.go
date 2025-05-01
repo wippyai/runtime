@@ -26,7 +26,7 @@ func (p *Progress) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (p *Progress) View() string {
-	return p.View()
+	return p.model.View()
 }
 
 // RegisterProgress registers the progress component

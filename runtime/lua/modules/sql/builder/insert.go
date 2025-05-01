@@ -2,6 +2,7 @@ package builder
 
 import (
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/service/sql"
 
 	"github.com/Masterminds/squirrel"
@@ -55,7 +56,7 @@ func registerInsertBuilderType(l *lua.LState) {
 		"suffix":             insertSuffix,
 		"options":            insertOptions,
 		"placeholder_format": insertPlaceholderFormat,
-		"to_sql":             insertToSql,
+		"to_sql":             insertToSQL,
 		"run_with":           insertRunWith,
 	}
 
@@ -296,9 +297,9 @@ func insertPlaceholderFormat(l *lua.LState) int {
 	return 1
 }
 
-// insertToSql generates the SQL and args
+// insertToSQL generates the SQL and args
 // Usage: sql, args = builder:to_sql()
-func insertToSql(l *lua.LState) int {
+func insertToSQL(l *lua.LState) int {
 	wrapper := checkInsertBuilder(l)
 	if wrapper == nil {
 		return 0
@@ -340,10 +341,8 @@ func insertRunWith(l *lua.LState) int {
 	// Check for DB or Transaction
 	ud := l.CheckUserData(2)
 
-	switch v := ud.Value.(type) {
-	case DBTypeGetter:
-		switch v.GetDBType() {
-		case sql.KindPostgres:
+	if v, ok := ud.Value.(DBTypeGetter); ok {
+		if v.GetDBType() == sql.KindPostgres {
 			wrapper = &insertBuilderWrapper{
 				builder: wrapper.builder.PlaceholderFormat(squirrel.Dollar),
 			}

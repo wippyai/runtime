@@ -10,12 +10,12 @@ import (
 // Context keys for storing pubsub-related data in context
 var (
 	// pidCtx is used to store process identifier in context
-	pidCtx = &ctxapi.Key{Name: "pubsub.pid"} //nolint:gochecknoglobals
+	pidCtx = &ctxapi.Key{Name: "pubsub.pid"}
 
 	// nodeCtx is used to store the Node instance in context
-	nodeCtx = &ctxapi.Key{Name: "pubsub.node"} //nolint:gochecknoglobals
+	nodeCtx = &ctxapi.Key{Name: "pubsub.node"}
 	// hostCtx is used to store the Host instance in context
-	hostCtx = &ctxapi.Key{Name: "pubsub.host"} //nolint:gochecknoglobals
+	hostCtx = &ctxapi.Key{Name: "pubsub.host"}
 )
 
 // WithPID attaches a process identifier (PID) to the provided context.

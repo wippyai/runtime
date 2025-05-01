@@ -247,7 +247,7 @@ func helpView(l *lua.LState) int {
 	return 1
 }
 
-func (h *Help) setStylesFromTable(l *lua.LState, styles *lua.LTable) {
+func (h *Help) setStylesFromTable(_ *lua.LState, styles *lua.LTable) {
 	styles.ForEach(func(k, v lua.LValue) {
 		if style, ok := v.(*lua.LUserData); ok {
 			if s, ok := style.Value.(*render.Style); ok {

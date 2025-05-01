@@ -16,7 +16,8 @@ import (
 
 // Channel context keys for UoW storage
 var (
-	inboxChannel  = &context.Key{Name: "process.channel.inbox"}
+	inboxChannel = &context.Key{Name: "process.channel.inbox"}
+
 	eventsChannel = &context.Key{Name: "process.channel.events"}
 )
 
@@ -149,7 +150,7 @@ func (m *Module) setOptions(l *lua.LState) int {
 	}
 
 	// Check for any other options - first one becomes error
-	options.ForEach(func(k lua.LValue, v lua.LValue) {
+	options.ForEach(func(k lua.LValue, _ lua.LValue) {
 		if k.Type() == lua.LTString {
 			keyStr := string(k.(lua.LString))
 			if keyStr != "trap_links" && unsupportedOption == "" {

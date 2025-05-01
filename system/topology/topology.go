@@ -72,7 +72,7 @@ func (t *Topology) Release(caller, pid pubsub.PID) error {
 	watchers.Delete(caller.String())
 
 	empty := true
-	watchers.Range(func(key, value interface{}) bool {
+	watchers.Range(func(_, _ interface{}) bool {
 		empty = false
 		return false
 	})

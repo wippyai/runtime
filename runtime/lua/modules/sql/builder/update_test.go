@@ -615,9 +615,9 @@ func TestUpdateWithNullValues(t *testing.T) {
 
 	// Check if the SQL structure is correct
 	hasEmailSet := bool(resultTable.RawGetString("has_email_set").(lua.LBool))
-	hasWhereId := bool(resultTable.RawGetString("has_where_id").(lua.LBool))
+	hasWhereID := bool(resultTable.RawGetString("has_where_id").(lua.LBool))
 	assert.True(t, hasEmailSet)
-	assert.True(t, hasWhereId)
+	assert.True(t, hasWhereID)
 }
 
 // TestUpdateErrors tests error handling

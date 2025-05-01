@@ -193,7 +193,7 @@ func TestContexter_Iterate(t *testing.T) {
 	t.Run("iterate over empty contexter", func(t *testing.T) {
 		ctx := NewContexter[string]()
 		count := 0
-		ctx.Iterate(func(key string, value string) {
+		ctx.Iterate(func(_ string, _ string) {
 			count++
 		})
 		if count != 0 {

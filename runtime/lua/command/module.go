@@ -2,7 +2,6 @@ package command
 
 import (
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
@@ -48,7 +47,7 @@ func RegisterCommand(l *lua.LState) {
 // newCommandFunc creates a new command from Lua
 // Params: cmdType (string), ...(payloads)
 func newCommandFunc(l *lua.LState) int {
-	cmdType := runtime.Type(l.CheckString(1))
+	cmdType := l.CheckString(1)
 	if cmdType == "" {
 		l.RaiseError("command type cannot be empty")
 		return 0
