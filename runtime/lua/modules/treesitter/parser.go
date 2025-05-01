@@ -98,7 +98,7 @@ func newParser(l *lua.LState) int {
 func (p *ParserWrapper) parseWithContext(ctx context.Context, code []byte, oldTree *TreeWrapper) (*treesitter.Tree, error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		timeout := time.Until(deadline)
-		p.parser.SetTimeoutMicros(uint64(timeout.Microseconds())) //nolint:gosec
+		p.parser.SetTimeoutMicros(uint64(timeout.Microseconds())) //nolint:gosec // looks like hard to overflow
 	}
 
 	var cflag uintptr

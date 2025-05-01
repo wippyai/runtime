@@ -2,8 +2,9 @@ package exec
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/runtime/lua/security"
 	"sync" // Import sync
+
+	"github.com/ponyruntime/pony/runtime/lua/security"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"

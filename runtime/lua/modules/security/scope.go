@@ -98,9 +98,12 @@ func scopeWithout(l *lua.LState) int {
 		}
 
 		policyID = registry.ID{
-			NS:   registry.Namespace(ns.String()),
-			Name: registry.Name(name.String()),
+			NS:   ns.String(),
+			Name: name.String(),
 		}
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTThread, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		l.ArgError(2, "Policy ID expected as string, table, or policy object")
 		return 0
@@ -152,6 +155,8 @@ func scopeEvaluate(l *lua.LState) int {
 		resultValue = lua.LString("allow")
 	case secapi.Deny:
 		resultValue = lua.LString("deny")
+	case secapi.Undefined:
+		resultValue = lua.LString("undefined")
 	default:
 		resultValue = lua.LString("undefined")
 	}
@@ -195,9 +200,12 @@ func scopeContains(l *lua.LState) int {
 		}
 
 		policyID = registry.ID{
-			NS:   registry.Namespace(ns.String()),
-			Name: registry.Name(name.String()),
+			NS:   ns.String(),
+			Name: name.String(),
 		}
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTThread, lua.LTChannel:
+		// FIXME rework on demand
+		fallthrough
 	default:
 		l.ArgError(2, "Policy ID expected as string, table, or policy object")
 		return 0

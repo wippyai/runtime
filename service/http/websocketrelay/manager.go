@@ -1,11 +1,12 @@
-package websocket_relay
+package websocketrelay
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ponyruntime/pony/api/topology"
 	"net/http"
+
+	"github.com/ponyruntime/pony/api/topology"
 
 	"github.com/coder/websocket"
 	"github.com/ponyruntime/pony/api/payload"
@@ -73,7 +74,7 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 		// Set default message topic if not provided
 		messageTopic := WSMessageTopic
 		if config.MessageTopic != "" {
-			messageTopic = pubsub.Topic(config.MessageTopic)
+			messageTopic = config.MessageTopic
 		}
 
 		// Get dependencies from request context

@@ -20,28 +20,35 @@ func (m *mockTeaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 func (m *mockTeaModel) View() string { return "" }
 
+//nolint:unused // to be used in tests
 type mockLuaModel struct {
 	lastMsg tea.Msg
 	L       *lua.LState
 	ud      *lua.LUserData
 }
 
-func newMockLuaModel(L *lua.LState) *mockLuaModel {
-	m := &mockLuaModel{L: L}
-	m.ud = L.NewUserData()
+//nolint:unused // ok for now
+func newMockLuaModel(l *lua.LState) *mockLuaModel {
+	m := &mockLuaModel{L: l}
+	m.ud = l.NewUserData()
 	m.ud.Value = m
-	L.SetMetatable(m.ud, L.GetTypeMetatable("btea.Model"))
+	l.SetMetatable(m.ud, l.GetTypeMetatable("btea.Model"))
 	return m
 }
 
+//nolint:unused // ok for now
 func (m *mockLuaModel) Init() tea.Cmd { return nil }
+
+//nolint:unused // ok for now
 func (m *mockLuaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.lastMsg = msg
 	return m, nil
 }
+
+//nolint:unused // ok for now
 func (m *mockLuaModel) View() string { return "" }
 
-func setupZoneState(t *testing.T) *lua.LState {
+func setupZoneState(_ *testing.T) *lua.LState {
 	L := lua.NewState()
 	mod := L.NewTable()
 	RegisterZone(L, mod)

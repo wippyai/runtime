@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -196,7 +197,7 @@ func storeGetValue(l *lua.LState) int {
 	// Get value from store
 	val, err := storeObj.store.Get(l.Context(), parsedKey)
 	if err != nil {
-		if err == store.ErrKeyNotFound {
+		if errors.Is(err, store.ErrKeyNotFound) {
 			l.Push(lua.LNil)
 			l.Push(lua.LString("key not found"))
 			return 2
@@ -339,7 +340,7 @@ func storeDelete(l *lua.LState) int {
 	// Delete value from store
 	err := storeObj.store.Delete(l.Context(), parsedKey)
 	if err != nil {
-		if err == store.ErrKeyNotFound {
+		if errors.Is(err, store.ErrKeyNotFound) {
 			l.Push(lua.LFalse)
 			l.Push(lua.LNil)
 			return 2

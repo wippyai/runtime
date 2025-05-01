@@ -3,18 +3,17 @@ package sql
 import (
 	"context"
 	"fmt"
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	"strconv"
 	"sync"
 
-	config "github.com/ponyruntime/pony/api/service/sql"
-	config2 "github.com/ponyruntime/pony/internal/config"
-
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
+	config "github.com/ponyruntime/pony/api/service/sql"
 	"github.com/ponyruntime/pony/api/supervisor"
+	config2 "github.com/ponyruntime/pony/internal/config"
 	"go.uber.org/zap"
 )
 
@@ -235,13 +234,13 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, poo
 		Data: resource.Entry{
 			ID:       entry.ID,
 			Provider: pool,
-			Meta:     map[string]interface{}{"type": string(entry.Kind)},
+			Meta:     map[string]interface{}{"type": entry.Kind},
 		},
 	})
 
 	m.log.Info("added database service",
 		zap.String("id", entry.ID.String()),
-		zap.String("kind", string(entry.Kind)))
+		zap.String("kind", entry.Kind))
 
 	return nil
 }
@@ -259,7 +258,7 @@ func (m *Manager) updateService(ctx context.Context, entry registry.Entry, lifec
 
 	m.log.Info("updated database service",
 		zap.String("id", entry.ID.String()),
-		zap.String("kind", string(entry.Kind)))
+		zap.String("kind", entry.Kind))
 }
 
 // unregisterService handles the common service unregistration logic

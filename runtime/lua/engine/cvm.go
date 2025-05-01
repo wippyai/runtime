@@ -290,9 +290,10 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 			}
 		}
 
-		if state == lua.ResumeYield {
+		switch state {
+		case lua.ResumeYield:
 			yieldedTasks = append(yieldedTasks, task)
-		} else if state == lua.ResumeOK || state == lua.ResumeError {
+		case lua.ResumeOK, lua.ResumeError:
 			if task.output != nil {
 				if top := task.thread.GetTop(); top > 0 {
 					task.output <- &Update{State: task.thread, Result: values}

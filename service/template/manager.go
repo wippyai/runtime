@@ -120,7 +120,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // handleTemplateAdd adds a new template to its corresponding set
-func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) handleTemplateAdd(_ context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -148,7 +148,7 @@ func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) e
 	// Determine template name (using meta name or ID name as fallback)
 	templateName := cfg.Meta.StringValue("name")
 	if templateName == "" {
-		templateName = string(entry.ID.Name)
+		templateName = entry.ID.Name
 	}
 
 	// Check if template already exists in the set
@@ -178,7 +178,7 @@ func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) e
 }
 
 // handleTemplateUpdate updates an existing template in its set
-func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) handleTemplateUpdate(_ context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -222,7 +222,7 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 		// Determine template name for the target set (using meta name or ID name as fallback)
 		newTemplateName := cfg.Meta.StringValue("name")
 		if newTemplateName == "" {
-			newTemplateName = string(entry.ID.Name)
+			newTemplateName = entry.ID.Name
 		}
 
 		// Check if template already exists in the target set
@@ -232,7 +232,7 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 
 		// Remove from source set
 		if err := sourceSet.RemoveTemplate(existingTemplate.Name); err != nil {
-			if err != ErrTemplateNotFound {
+			if !errors.Is(err, ErrTemplateNotFound) {
 				return fmt.Errorf("failed to remove template from source set: %w", err)
 			}
 		}
@@ -262,7 +262,7 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 		// Determine if the template name has changed
 		newTemplateName := cfg.Meta.StringValue("name")
 		if newTemplateName == "" {
-			newTemplateName = string(entry.ID.Name)
+			newTemplateName = entry.ID.Name
 		}
 
 		if newTemplateName != existingTemplate.Name {
@@ -275,7 +275,7 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 
 			// Remove old template
 			if err := set.RemoveTemplate(existingTemplate.Name); err != nil {
-				if err != ErrTemplateNotFound {
+				if !errors.Is(err, ErrTemplateNotFound) {
 					return fmt.Errorf("failed to remove old template: %w", err)
 				}
 			}
@@ -309,7 +309,7 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 }
 
 // handleTemplateDelete removes a template from its set
-func (m *Manager) handleTemplateDelete(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) handleTemplateDelete(_ context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -329,7 +329,7 @@ func (m *Manager) handleTemplateDelete(ctx context.Context, entry registry.Entry
 
 	// Remove the template from the set
 	if err := set.RemoveTemplate(templateEntry.Name); err != nil {
-		if err != ErrTemplateNotFound {
+		if !errors.Is(err, ErrTemplateNotFound) {
 			return fmt.Errorf("failed to remove template: %w", err)
 		}
 	}
@@ -532,5 +532,5 @@ func (m *Manager) Acquire(
 	m.mu.RUnlock()
 
 	// Create a resource for the template
-	return set.Acquire(ctx, registry.ID{Name: registry.Name(entry.Name)}, mode)
+	return set.Acquire(ctx, registry.ID{Name: entry.Name}, mode)
 }

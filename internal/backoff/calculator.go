@@ -84,7 +84,7 @@ func (b *Calculator) calculateIntervalWithJitter() time.Duration {
 
 	// Calculate jitter as a random value between -jitter and +jitter
 	jitterRange := float64(b.baseBackoff) * b.policy.Jitter
-	jitter := (rand.Float64() * 2 * jitterRange) - jitterRange //nolint:gosec
+	jitter := (rand.Float64() * 2 * jitterRange) - jitterRange //nolint:gosec // ok for now
 
 	interval := b.baseBackoff + time.Duration(jitter)
 	if interval < 0 {

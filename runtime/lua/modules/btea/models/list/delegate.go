@@ -186,7 +186,7 @@ func wrapModelForLua(l *lua.LState, m *list.Model) *lua.LUserData {
 	return ud
 }
 
-func wrapItemForLua(l *lua.LState, item list.Item) lua.LValue {
+func wrapItemForLua(_ *lua.LState, item list.Item) lua.LValue {
 	if li, ok := item.(*LuaItem); ok {
 		return li.value
 	}

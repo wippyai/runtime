@@ -2,8 +2,9 @@ package http
 
 import (
 	"errors"
-	"go.uber.org/zap"
 	"net/http"
+
+	"go.uber.org/zap"
 )
 
 // MiddlewareAPI defines the interface for creating middleware handlers
@@ -34,7 +35,7 @@ func WithLogger(logger *zap.Logger) MiddlewareFactoryOption {
 // WithMiddleware adds a simple middleware handler to the factory
 func WithMiddleware(name string, handler func(http.Handler) http.Handler) MiddlewareFactoryOption {
 	return func(f *MiddlewareFactory) {
-		f.middlewareMap[name] = func(options map[string]string) func(http.Handler) http.Handler {
+		f.middlewareMap[name] = func(_ map[string]string) func(http.Handler) http.Handler {
 			return handler
 		}
 	}

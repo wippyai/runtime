@@ -597,9 +597,9 @@ func TestStatementDataTypes(t *testing.T) {
 
 	assert.Equal(t, float64(42), float64(intVal), "Integer value mismatch")
 	assert.InDelta(t, 3.14159, float64(realVal), 0.00001, "Real value mismatch")
-	assert.Equal(t, "Hello, world!", string(textVal), "Text value mismatch")
+	assert.Equal(t, "Hello, world!", textVal, "Text value mismatch")
 	assert.True(t, boolVal == lua.LTrue || boolVal == lua.LNumber(1), "Boolean value should be true or 1")
-	assert.True(t, bool(hasNull), "Null value was not properly handled")
+	assert.True(t, hasNull, "Null value was not properly handled")
 }
 
 // TestStatementClose tests explicit closing of a prepared statement

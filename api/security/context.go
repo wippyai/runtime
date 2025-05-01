@@ -10,8 +10,10 @@ import (
 
 // Context keys
 var (
-	actorCtx    = &ctxapi.Key{Name: "security.actor"}
-	scopeCtx    = &ctxapi.Key{Name: "security.scope"}
+	actorCtx = &ctxapi.Key{Name: "security.actor"}
+
+	scopeCtx = &ctxapi.Key{Name: "security.scope"}
+
 	registryCtx = &ctxapi.Key{Name: "security.registry"}
 )
 

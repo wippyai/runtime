@@ -71,8 +71,8 @@ func (r *PolicyRegistry) handleEvent(e event.Event) {
 		r.deletePolicy(e)
 	default:
 		r.logger.Warn("unknown policy event kind",
-			zap.String("kind", string(e.Kind)),
-			zap.String("path", string(e.Path)))
+			zap.String("kind", e.Kind),
+			zap.String("path", e.Path))
 	}
 }
 
@@ -80,7 +80,7 @@ func (r *PolicyRegistry) registerPolicy(e event.Event) {
 	entry, ok := e.Data.(*security.PolicyEntry)
 	if !ok {
 		r.logger.Error("invalid policy payload",
-			zap.String("policy", string(e.Path)),
+			zap.String("policy", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 		return
 	}
@@ -104,7 +104,7 @@ func (r *PolicyRegistry) updatePolicy(e event.Event) {
 	entry, ok := e.Data.(security.PolicyEntry)
 	if !ok {
 		r.logger.Error("invalid policy update payload",
-			zap.String("policy", string(e.Path)),
+			zap.String("policy", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 		return
 	}

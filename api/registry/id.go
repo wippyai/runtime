@@ -14,7 +14,7 @@ func (t ID) String() string {
 // It serializes the ID as a string in the format "namespace:name" or just "name" if namespace is empty.
 func (t ID) MarshalJSON() ([]byte, error) {
 	if t.NS == "" {
-		return json.Marshal(string(t.Name))
+		return json.Marshal(t.Name)
 	}
 	return json.Marshal(fmt.Sprintf("%s:%s", t.NS, t.Name))
 }
@@ -41,13 +41,13 @@ func ParseID(s string) ID {
 		// Alias-only format
 		return ID{
 			NS:   "",
-			Name: Name(parts[0]),
+			Name: parts[0],
 		}
 	}
 	// Has colon - parse as ns:name
 	return ID{
-		NS:   Namespace(parts[0]),
-		Name: Name(parts[1]),
+		NS:   parts[0],
+		Name: parts[1],
 	}
 }
 
@@ -64,12 +64,12 @@ func (t *ID) UnmarshalJSON(data []byte) error {
 		if len(parts) == 1 {
 			// Alias-only format
 			t.NS = ""
-			t.Name = Name(parts[0])
+			t.Name = parts[0]
 			return nil
 		}
 		// Has colon - parse as ns:name
-		t.NS = Namespace(parts[0])
-		t.Name = Name(parts[1])
+		t.NS = parts[0]
+		t.Name = parts[1]
 		return nil
 	}
 

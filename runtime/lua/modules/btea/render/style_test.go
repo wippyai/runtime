@@ -13,7 +13,7 @@ import (
 // setupState initializes a new Lua state with the btea module registered.
 // It also sets the lipgloss color profile to TrueColor to ensure ANSI escape codes
 // are applied (e.g., for bold styling).
-func setupState(t *testing.T) *lua.LState {
+func setupState(_ *testing.T) *lua.LState {
 	// Force ANSI color output.
 	lipgloss.SetColorProfile(termenv.ANSI)
 

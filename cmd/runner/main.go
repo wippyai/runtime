@@ -5,8 +5,23 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
+	"github.com/ponyruntime/pony/moduleloader"
+
+	iofs "io/fs"
+	httpbase "net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"runtime/pprof"
+	"strings"
+	"syscall"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
 	"github.com/ponyruntime/pony/runtime/lua/modules/events"
@@ -23,17 +38,6 @@ import (
 	"github.com/ponyruntime/pony/service/sqlstore"
 	"github.com/ponyruntime/pony/service/template"
 	"github.com/ponyruntime/pony/service/tokenstore"
-	iofs "io/fs"
-	httpbase "net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"runtime"
-	"runtime/debug"
-	"runtime/pprof"
-	"strings"
-	"syscall"
-	"time"
 
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
@@ -89,7 +93,7 @@ import (
 	fsdir "github.com/ponyruntime/pony/service/directory"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
-	"github.com/ponyruntime/pony/service/http/websocket_relay"
+	"github.com/ponyruntime/pony/service/http/websocketrelay"
 	"github.com/ponyruntime/pony/service/memstore"
 	"github.com/ponyruntime/pony/service/policy"
 	"github.com/ponyruntime/pony/service/sql"
@@ -516,6 +520,7 @@ func (a *App) StartProfiler() {
 	go func() {
 		profilerAddr := "localhost:6060"
 		a.logger.Info("starting pprof server", zap.String("address", profilerAddr))
+		//nolint:gosec // ok for now
 		if err := httpbase.ListenAndServe(profilerAddr, nil); err != nil {
 			if !errors.Is(err, httpbase.ErrServerClosed) {
 				a.logger.Error("pprof server failed", zap.Error(err))
@@ -681,7 +686,6 @@ func loadApplicationState(
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
 ) (regapi.ChangeSet, error) {
-
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
@@ -696,6 +700,28 @@ func loadApplicationState(
 	entries, err := folderLoader.LoadFS(fs, vars)
 	if err != nil {
 		return nil, fmt.Errorf("load entries: %w", err)
+	}
+
+	// TODO: move it somewhere else
+	baseURL := "https://modules.platform.wippy.ai"
+	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
+		baseURL = modulesURL
+	}
+
+	m := moduleloader.NewManager(baseURL)
+	if err := m.Load(context.Background()); err != nil {
+		mainLogger.Error("load modules from registry", zap.Error(err))
+	} else {
+		vendorDir, err := os.OpenRoot(moduleloader.VendorFolder)
+		if err != nil {
+			return nil, fmt.Errorf("open vendor folder: %w", err)
+		}
+
+		dependencyEntries, err := folderLoader.LoadFS(vendorDir.FS(), vars)
+		if err != nil {
+			return nil, fmt.Errorf("load dependencies: %w", err)
+		}
+		entries = append(entries, dependencyEntries...)
 	}
 
 	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
@@ -734,7 +760,7 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 	}
 
 	// Create websocket relay manager
-	relayManager := websocket_relay.NewWebSocketRelay(a.ctx, a.logger.Named("ws"))
+	relayManager := websocketrelay.NewWebSocketRelay(a.ctx, a.logger.Named("ws"))
 
 	// Create middleware factory with all standard middleware
 	midFactory := http.NewDefaultMiddlewareFactory(

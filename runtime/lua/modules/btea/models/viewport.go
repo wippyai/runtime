@@ -25,7 +25,7 @@ func (v *Viewport) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (v *Viewport) View() string {
-	return v.View()
+	return v.model.View()
 }
 
 // RegisterViewport registers the viewport component
@@ -124,22 +124,22 @@ func checkViewport(l *lua.LState) *Viewport {
 // Core methods
 
 // Width returns the viewport's width
-func viewportWidth(L *lua.LState) int {
-	v := checkViewport(L)
+func viewportWidth(l *lua.LState) int {
+	v := checkViewport(l)
 	if v == nil {
 		return 0
 	}
-	L.Push(lua.LNumber(v.model.Width))
+	l.Push(lua.LNumber(v.model.Width))
 	return 1
 }
 
 // Height returns the viewport's height
-func viewportHeight(L *lua.LState) int {
-	v := checkViewport(L)
+func viewportHeight(l *lua.LState) int {
+	v := checkViewport(l)
 	if v == nil {
 		return 0
 	}
-	L.Push(lua.LNumber(v.model.Height))
+	l.Push(lua.LNumber(v.model.Height))
 	return 1
 }
 

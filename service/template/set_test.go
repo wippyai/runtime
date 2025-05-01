@@ -2,7 +2,12 @@ package template
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"reflect"
+	"sync"
+	"testing"
+
 	"github.com/CloudyKit/jet/v6"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -12,9 +17,6 @@ import (
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"reflect"
-	"sync"
-	"testing"
 )
 
 // Helper to create test template set
@@ -531,7 +533,7 @@ func TestTemplateSet_ConcurrentOperations(t *testing.T) {
 			defer wg.Done()
 			name := fmt.Sprintf("template-%d", i)
 			err := set.UpdateTemplate(name, "Updated content << i >>")
-			if err != nil && err != ErrTemplateNotFound {
+			if err != nil && !errors.Is(err, ErrTemplateNotFound) {
 				errChan <- err
 			}
 		}(i)

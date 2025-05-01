@@ -26,7 +26,7 @@ type dummyModule struct {
 }
 
 // Loader is a dummy loader implementation.
-func (d *dummyModule) Loader(L *lua.LState) int {
+func (d *dummyModule) Loader(_ *lua.LState) int {
 	return 0
 }
 

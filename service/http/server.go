@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	pubsubsys "github.com/ponyruntime/pony/system/pubsub"
 	"net"
 	"net/http"
 	"runtime"
 	"sync"
 	"time"
+
+	pubsubsys "github.com/ponyruntime/pony/system/pubsub"
 
 	"github.com/go-chi/chi/v5/middleware"
 	contextapi "github.com/ponyruntime/pony/api/context"
@@ -32,6 +33,8 @@ const (
 )
 
 // ContextListener is the context key for the HTTP listener
+//
+
 var ContextListener = &contextapi.Key{Name: "listener"}
 
 // ServerService combines HTTP server and router functionality
@@ -159,7 +162,7 @@ func (s *ServerService) Remove(id registry.ID) error {
 }
 
 // Rebuild rebuilds the entire router with the current configuration
-func (s *ServerService) Rebuild(ctx context.Context) error {
+func (s *ServerService) Rebuild(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

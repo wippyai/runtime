@@ -20,7 +20,6 @@ type ConnPool struct {
 	db     *sql.DB
 	status chan any
 
-	mu     sync.RWMutex
 	wg     sync.WaitGroup // tracks active resource users
 	closed atomic.Bool
 	config atomic.Pointer[any] // either *config.DBConfig or *config.SQLiteConfig
@@ -158,7 +157,7 @@ func getDriver(kind registry.Kind) string {
 		return "postgres"
 
 	default:
-		return string(kind)
+		return kind
 	}
 }
 

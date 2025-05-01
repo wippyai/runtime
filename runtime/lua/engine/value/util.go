@@ -6,9 +6,9 @@ import (
 
 // GetTypeMetatable retrieves a type's metatable directly from registry
 // without using the heavy GetField mechanism
-func GetTypeMetatable(L *lua.LState, typeName string) *lua.LTable {
+func GetTypeMetatable(l *lua.LState, typeName string) *lua.LTable {
 	// Get registry table directly
-	registry := L.Get(lua.RegistryIndex)
+	registry := l.Get(lua.RegistryIndex)
 	regTable, ok := registry.(*lua.LTable)
 	if !ok {
 		return nil // Registry isn't a table (shouldn't happen)
@@ -26,16 +26,16 @@ func GetTypeMetatable(L *lua.LState, typeName string) *lua.LTable {
 // RegisterTypeMethods efficiently registers methods for a type with minimal overhead.
 // It takes separate maps for metamethods and regular methods, either of which can be nil.
 func RegisterTypeMethods(
-	L *lua.LState,
+	l *lua.LState,
 	typeName string,
 	metamethods map[string]lua.LGFunction,
 	methods map[string]lua.LGFunction,
 ) *lua.LTable {
 	// Get registry table directly and ensure it's a table
-	registry := L.Get(lua.RegistryIndex)
+	registry := l.Get(lua.RegistryIndex)
 	regTable, ok := registry.(*lua.LTable)
 	if !ok {
-		L.RaiseError("registry is not a table")
+		l.RaiseError("registry is not a table")
 		return nil
 	}
 
@@ -49,22 +49,20 @@ func RegisterTypeMethods(
 			mt = existing
 		} else {
 			// Unexpected value in registry, create new metatable
-			mt = L.CreateTable(0, len(metamethods)+1) // +1 for possible __index
+			mt = l.CreateTable(0, len(metamethods)+1) // +1 for possible __index
 		}
 	} else {
 		// Create new metatable with exact size
-		mt = L.CreateTable(0, len(metamethods)+1) // +1 for possible __index
+		mt = l.CreateTable(0, len(metamethods)+1) // +1 for possible __index
 	}
 
 	// Add metamethods directly to metatable
-	if metamethods != nil {
-		for name, fn := range metamethods {
-			mt.RawSetString(name, L.NewFunction(fn))
-		}
+	for name, fn := range metamethods {
+		mt.RawSetString(name, l.NewFunction(fn))
 	}
 
 	// Handle regular methods if any
-	if methods != nil && len(methods) > 0 {
+	if len(methods) > 0 {
 		// Check if __index already exists and is a table
 		indexVal := mt.RawGetString("__index")
 		var indexTable *lua.LTable
@@ -74,14 +72,14 @@ func RegisterTypeMethods(
 			indexTable = existing
 		} else {
 			// Create a new methods table with exact size
-			indexTable = L.CreateTable(0, len(methods))
+			indexTable = l.CreateTable(0, len(methods))
 			// Set __index to the methods table
 			mt.RawSetString("__index", indexTable)
 		}
 
 		// Add all methods to methodsTable directly
 		for name, fn := range methods {
-			indexTable.RawSetString(name, L.NewFunction(fn))
+			indexTable.RawSetString(name, l.NewFunction(fn))
 		}
 	}
 
@@ -91,12 +89,12 @@ func RegisterTypeMethods(
 	return mt
 }
 
-func RegisterMetamethods(L *lua.LState, typeName string, metamethods map[string]lua.LGFunction) *lua.LTable {
-	return RegisterTypeMethods(L, typeName, metamethods, nil)
+func RegisterMetamethods(l *lua.LState, typeName string, metamethods map[string]lua.LGFunction) *lua.LTable {
+	return RegisterTypeMethods(l, typeName, metamethods, nil)
 }
 
-func RegisterMethods(L *lua.LState, typeName string, methods map[string]lua.LGFunction) *lua.LTable {
-	return RegisterTypeMethods(L, typeName, nil, methods)
+func RegisterMethods(l *lua.LState, typeName string, methods map[string]lua.LGFunction) *lua.LTable {
+	return RegisterTypeMethods(l, typeName, nil, methods)
 }
 
 // GetField retrieves a field value from a Lua value following Lua's field access rules.
@@ -126,7 +124,7 @@ func RegisterMethods(L *lua.LState, typeName string, methods map[string]lua.LGFu
 //   - lua.LNil and false if not found or on any error
 //
 // This function never panics and safely handles all error conditions.
-func GetField(L *lua.LState, value lua.LValue, field string) (lua.LValue, bool) {
+func GetField(l *lua.LState, value lua.LValue, field string) (lua.LValue, bool) {
 	// Direct table access first (most common case)
 	if table, ok := value.(*lua.LTable); ok {
 		v := table.RawGetString(field)
@@ -136,7 +134,7 @@ func GetField(L *lua.LState, value lua.LValue, field string) (lua.LValue, bool) 
 	}
 
 	// Check metatable for __index (works for both tables and userdata)
-	if mt := L.GetMetatable(value); mt != nil {
+	if mt := l.GetMetatable(value); mt != nil {
 		mtTable, ok := mt.(*lua.LTable)
 		if !ok {
 			return lua.LNil, false
@@ -149,12 +147,12 @@ func GetField(L *lua.LState, value lua.LValue, field string) (lua.LValue, bool) 
 
 		switch index.Type() {
 		case lua.LTFunction:
-			L.Push(index)
-			L.Push(value)
-			L.Push(lua.LString(field))
-			if err := L.PCall(2, 1, nil); err == nil {
-				ret := L.Get(-1)
-				L.Pop(1)
+			l.Push(index)
+			l.Push(value)
+			l.Push(lua.LString(field))
+			if err := l.PCall(2, 1, nil); err == nil {
+				ret := l.Get(-1)
+				l.Pop(1)
 				return ret, ret != lua.LNil
 			}
 			return lua.LNil, false
@@ -165,7 +163,9 @@ func GetField(L *lua.LState, value lua.LValue, field string) (lua.LValue, bool) 
 				return v, v != lua.LNil
 			}
 			return lua.LNil, false
-
+		case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTString, lua.LTUserData, lua.LTThread, lua.LTChannel:
+			// FIXME rework on demand
+			fallthrough
 		default:
 			// Any other __index type is invalid according to Lua spec
 			return lua.LNil, false
@@ -195,9 +195,9 @@ func GetField(L *lua.LState, value lua.LValue, field string) (lua.LValue, bool) 
 //   - nil and false if not found or value is not a function
 //
 // This function never panics and safely handles all error conditions.
-func GetFunc(L *lua.LState, value lua.LValue, field string) (*lua.LFunction, bool) {
+func GetFunc(l *lua.LState, value lua.LValue, field string) (*lua.LFunction, bool) {
 	// Spawn the field using standard field access
-	if v, ok := GetField(L, value, field); ok {
+	if v, ok := GetField(l, value, field); ok {
 		// Check if it's a function
 		if fn, ok := v.(*lua.LFunction); ok {
 			return fn, true

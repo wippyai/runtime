@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 	"github.com/ponyruntime/pony/runtime/lua/security"
 
@@ -165,7 +166,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 	}
 
 	// Create and wrap DB with UoW integration
-	db := NewDB(uw, res, sqlRes.DB, string(sqlRes.Type), log)
+	db := NewDB(uw, res, sqlRes.DB, sqlRes.Type, log)
 
 	// Create userdata
 	ud := WrapDB(l, db)

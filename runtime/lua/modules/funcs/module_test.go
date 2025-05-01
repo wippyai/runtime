@@ -3,9 +3,10 @@ package funcs
 import (
 	"context"
 	"fmt"
-	lua2 "github.com/yuin/gopher-lua"
 	"strings"
 	"testing"
+
+	lua2 "github.com/yuin/gopher-lua"
 
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/registry"
@@ -32,7 +33,7 @@ type mockExecutor struct {
 	err    error
 }
 
-func (m *mockExecutor) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+func (m *mockExecutor) Call(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 	if m.err != nil {
 		return nil, m.err
 	}

@@ -3,9 +3,10 @@ package config
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	serviceaws "github.com/ponyruntime/pony/api/service/aws/config"
-	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -255,7 +256,7 @@ func (m *Manager) createAWSConfig(ctx context.Context, cfg *serviceaws.Config) (
 	// Add credentials if provided
 	if accessKey != "" && secretKey != "" {
 		options = append(options, config.WithCredentialsProvider(
-			aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
+			aws.CredentialsProviderFunc(func(_ context.Context) (aws.Credentials, error) {
 				return aws.Credentials{
 					AccessKeyID:     accessKey,
 					SecretAccessKey: secretKey,

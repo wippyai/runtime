@@ -112,7 +112,9 @@ func (v *VM) Execute(ctx context.Context, funcName string, args ...lua.LValue) (
 		ctx = context.Background()
 	}
 
+	//nolint:ineffassign,staticcheck // ignore for now
 	uw, ctx := NewUnitOfWork(ctx, v.state)
+	// FIXME do we need to return UOW context?
 	uw.AddCleanup(func() error {
 		v.state.RemoveContext()
 		return nil

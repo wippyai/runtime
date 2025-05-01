@@ -58,7 +58,7 @@ func NewUnitOfWork(parentCtx context.Context, state *lua.LState) (UnitOfWork, co
 		state.SetContext(ctx)
 		uw.AddCleanup(func() error {
 			if state.Context() != nil {
-				state.SetContext(nil)
+				state.SetContext(context.Background())
 			}
 			return nil
 		})
@@ -224,4 +224,6 @@ func (u *unitOfWork) reset() {
 }
 
 // Context key for UnitOfWork
-var unitOfWorkKey = struct{}{}
+type unitOfWorkKeyType struct{}
+
+var unitOfWorkKey = unitOfWorkKeyType{}

@@ -46,7 +46,7 @@ func TestMiddlewareFactory(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 
 		// Create a test handler that the middleware will wrap
-		testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 
@@ -91,7 +91,7 @@ func TestMiddlewareFactory(t *testing.T) {
 
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/", nil)
-		testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 
@@ -117,7 +117,7 @@ func TestMiddlewareFactory(t *testing.T) {
 	t.Run("middleware creator returning nil", func(t *testing.T) {
 		factory := NewDefaultMiddlewareFactory(
 			WithLogger(logger),
-			WithMiddlewareCreator("nil-creator", func(options map[string]string) func(http.Handler) http.Handler {
+			WithMiddlewareCreator("nil-creator", func(_ map[string]string) func(http.Handler) http.Handler {
 				return nil
 			}),
 		)

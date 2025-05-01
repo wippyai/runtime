@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry/topology"
@@ -107,7 +108,7 @@ func (br *BusRunner) applyOperation(
 		op.Entry.Kind = entry.Kind
 	}
 
-	if op.Entry.Kind == registry.KindEntry {
+	if op.Entry.Kind == registry.KindEntry || op.Entry.Kind == registry.KindNamespaceDefinition {
 		br.log.Debug("processing entry",
 			zap.String("id", op.Entry.ID.String()),
 			zap.Any("meta", op.Entry.Meta))

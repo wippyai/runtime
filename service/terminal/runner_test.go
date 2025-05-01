@@ -19,7 +19,7 @@ type DummyProcess struct {
 	maxSteps  int
 }
 
-func (dp *DummyProcess) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads) error {
+func (dp *DummyProcess) Start(_ context.Context, _ pubsub.PID, _ payload.Payloads) error {
 	// No-op startup.
 	return nil
 }
@@ -34,7 +34,7 @@ func (dp *DummyProcess) Step() error {
 	return nil
 }
 
-func (dp *DummyProcess) Send(msg *pubsub.Package) error {
+func (dp *DummyProcess) Send(_ *pubsub.Package) error {
 	// Accept all messages.
 	return nil
 }
