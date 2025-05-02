@@ -59,6 +59,13 @@ func (rm *RouteManager) AddRouter(id registry.ID, prefix string,
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
+	// Check for duplicate prefixes
+	for _, existingRouter := range rm.routers {
+		if existingRouter.prefix == prefix {
+			return fmt.Errorf("router with prefix %s already exists", prefix)
+		}
+	}
+
 	// Check if the router already exists
 	if existingRouter, exists := rm.routers[id]; exists {
 		// Update existing router instead of returning an error
