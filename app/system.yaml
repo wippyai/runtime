@@ -51,7 +51,7 @@ entries:
       comment: Directory for uploads
     directory: ./app/uploads/
     mode: "0755"
-    should_create_dir: true
+    auto_init: true
 
   - name: gateway
     kind: http.service
