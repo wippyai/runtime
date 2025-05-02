@@ -53,15 +53,20 @@ type ServerService struct {
 }
 
 // NewServerService creates a new ServerService instance
-func NewServerService(id registry.ID, cfg *config.ServerConfig, middleware MiddlewareAPI) *ServerService {
+func NewServerService(id registry.ID, cfg *config.ServerConfig, middleware MiddlewareAPI) (*ServerService, error) {
+	routeManager, err := NewRouteManager()
+	if err != nil {
+		return nil, err
+	}
+
 	return &ServerService{
 		id:            id,
 		config:        cfg,
-		routeMgr:      NewRouteManager(),
+		routeMgr:      routeManager,
 		statusChan:    make(chan any, StatusBuffer),
 		mountPaths:    make(map[registry.ID]string),
 		middlewareFac: middleware,
-	}
+	}, nil
 }
 
 // UpdateConfig updates the server configuration
@@ -166,7 +171,10 @@ func (s *ServerService) Rebuild(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.routeMgr.Build()
+	err := s.routeMgr.Build()
+	if err != nil {
+		return err
+	}
 
 	// If server is running, we need to update its handler
 	if s.started && s.server != nil {

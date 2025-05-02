@@ -12,7 +12,8 @@ import (
 )
 
 func TestRouteManager_BasicOperations(t *testing.T) {
-	rm := NewRouteManager()
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
 
 	t.Run("add and update router", func(t *testing.T) {
 		routerID := registry.ID{NS: "test", Name: "router1"}
@@ -87,11 +88,12 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 }
 
 func TestRouteManager_ServeHTTP(t *testing.T) {
-	rm := NewRouteManager()
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
 
 	// Add test router
 	routerID := registry.ID{NS: "test", Name: "router1"}
-	err := rm.AddRouter(routerID, "/api", nil, nil)
+	err = rm.AddRouter(routerID, "/api", nil, nil)
 	require.NoError(t, err)
 
 	// Add test endpoint
@@ -114,7 +116,8 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 	require.NoError(t, err)
 
 	// Build the router
-	rm.Build()
+	err = rm.Build()
+	require.NoError(t, err)
 
 	// Create a test server
 	server := httptest.NewServer(rm)
@@ -137,7 +140,8 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 }
 
 func TestRouteManager_MultipleRouters(t *testing.T) {
-	rm := NewRouteManager()
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
 
 	// Add multiple test routers
 	routerIDs := []struct {
@@ -169,7 +173,8 @@ func TestRouteManager_MultipleRouters(t *testing.T) {
 	}
 
 	// Build the router
-	rm.Build()
+	err = rm.Build()
+	require.NoError(t, err)
 
 	// Create a test server
 	server := httptest.NewServer(rm)
@@ -188,7 +193,8 @@ func TestRouteManager_MultipleRouters(t *testing.T) {
 }
 
 func TestRouteManager_Middleware(t *testing.T) {
-	rm := NewRouteManager()
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
 
 	// Create middleware that adds a header
 	testMiddleware := func(next http.Handler) http.Handler {
@@ -201,7 +207,7 @@ func TestRouteManager_Middleware(t *testing.T) {
 	// Add router with middleware
 	routerID := registry.ID{NS: "test", Name: "router1"}
 	middleware := []func(http.Handler) http.Handler{testMiddleware}
-	err := rm.AddRouter(routerID, "/api", middleware, nil)
+	err = rm.AddRouter(routerID, "/api", middleware, nil)
 	require.NoError(t, err)
 
 	// Add test endpoint
@@ -216,7 +222,8 @@ func TestRouteManager_Middleware(t *testing.T) {
 	require.NoError(t, err)
 
 	// Build the router
-	rm.Build()
+	err = rm.Build()
+	require.NoError(t, err)
 
 	// Create a test server
 	server := httptest.NewServer(rm)
@@ -230,4 +237,38 @@ func TestRouteManager_Middleware(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "applied", resp.Header.Get("X-Test-Middleware"))
 	assert.NoError(t, resp.Body.Close())
+}
+
+func TestRouteManager_DuplicateRoutes(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	// Add router
+	routerID := registry.ID{NS: "test", Name: "router1"}
+	err = rm.AddRouter(routerID, "/api", nil, nil)
+	require.NoError(t, err)
+
+	// Add first test endpoint
+	funcID1 := registry.ID{NS: "test", Name: "func1"}
+	endpointID1 := registry.ID{NS: "test", Name: "endpoint1"}
+	handler1 := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	err = rm.AddRoute(routerID, endpointID1, "GET", "/test", funcID1, handler1)
+	require.NoError(t, err)
+
+	// Add second test endpoint with the same path and method
+	funcID2 := registry.ID{NS: "test", Name: "func2"}
+	endpointID2 := registry.ID{NS: "test", Name: "endpoint2"}
+	handler2 := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	err = rm.AddRoute(routerID, endpointID2, "GET", "/test", funcID2, handler2)
+	// AddRoute should fail due to duplicate routes
+	require.ErrorContains(t, err, "route with path /test and method GET already exists in router test:router1")
+
+	err = rm.Build()
+	assert.NoError(t, err)
 }
