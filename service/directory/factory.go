@@ -13,10 +13,10 @@ import (
 
 // CreateFSConfig is a config for CreateFS.
 type CreateFSConfig struct {
-	Name            string
-	DirPath         string
-	Mode            fs.FileMode
-	ShouldCreateDir bool
+	Name     string
+	DirPath  string
+	Mode     fs.FileMode
+	AutoInit bool
 }
 
 // FSFactoryAPI defines the interface for creating filesystem instances
@@ -49,5 +49,5 @@ func (f *FSFactory) CreateFS(cfg CreateFSConfig) (fsapi.FS, error) {
 		}
 		return NewReadOnlyFS(fsys), nil
 	}
-	return NewDirectoryFS(cfg.DirPath, cfg.Mode, cfg.ShouldCreateDir)
+	return NewDirectoryFS(cfg.DirPath, cfg.Mode, cfg.AutoInit)
 }

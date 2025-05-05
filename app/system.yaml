@@ -45,6 +45,14 @@ entries:
     directory: ./app/public/
     mode: "0755"
 
+  - name: uploads
+    kind: fs.directory
+    meta:
+      comment: Directory for uploads
+    directory: ./app/uploads/
+    mode: "0755"
+    auto_init: true
+
   - name: gateway
     kind: http.service
     meta:
