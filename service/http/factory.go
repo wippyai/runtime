@@ -192,7 +192,7 @@ func NewServerFactory(middlewareFactory MiddlewareAPI) *ServerFactory {
 
 // CreateServer creates a new HTTP server from the provided configuration
 func (f *ServerFactory) CreateServer(id registry.ID, cfg *config.ServerConfig) (Server, error) {
-	return NewServerService(id, cfg, f.middlewareFactory), nil
+	return NewServerService(id, cfg, f.middlewareFactory)
 }
 
 // wrapWithCacheControl wraps an HTTP handler with Cache-Control header

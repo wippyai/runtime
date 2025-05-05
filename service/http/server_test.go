@@ -78,7 +78,8 @@ func TestServerService_Basic(t *testing.T) {
 
 		id := registry.ID{NS: "test", Name: "server1"}
 		middleware := NewDefaultMiddlewareFactory()
-		server := NewServerService(id, cfg, middleware)
+		server, err := NewServerService(id, cfg, middleware)
+		require.NoError(t, err)
 
 		assert.NotNil(t, server)
 		assert.Equal(t, cfg, server.config)
@@ -98,7 +99,8 @@ func TestServerService_Basic(t *testing.T) {
 
 		id := registry.ID{NS: "test", Name: "server1"}
 		middleware := NewDefaultMiddlewareFactory()
-		server := NewServerService(id, cfg, middleware)
+		server, err := NewServerService(id, cfg, middleware)
+		require.NoError(t, err)
 
 		// Update config before starting server
 		newCfg := &config.ServerConfig{
@@ -163,7 +165,8 @@ func TestServerService_RouterOperations(t *testing.T) {
 
 	id := registry.ID{NS: "test", Name: "server1"}
 	middleware := NewDefaultMiddlewareFactory()
-	server := NewServerService(id, cfg, middleware)
+	server, err := NewServerService(id, cfg, middleware)
+	require.NoError(t, err)
 
 	t.Run("add and delete router", func(t *testing.T) {
 		routerID := registry.ID{NS: "test", Name: "router1"}
@@ -288,7 +291,8 @@ func TestServerService_StartStop(t *testing.T) {
 
 	id := registry.ID{NS: "test", Name: "server1"}
 	middleware := NewDefaultMiddlewareFactory()
-	server := NewServerService(id, cfg, middleware)
+	server, err := NewServerService(id, cfg, middleware)
+	require.NoError(t, err)
 
 	// Add router and endpoint
 	routerID := registry.ID{NS: "test", Name: "router4"}
@@ -411,7 +415,8 @@ func TestServerService_Middleware(t *testing.T) {
 		}),
 	)
 
-	server := NewServerService(id, cfg, middlewareFactory)
+	server, err := NewServerService(id, cfg, middlewareFactory)
+	require.NoError(t, err)
 
 	// Add router with middleware
 	routerID := registry.ID{NS: "test", Name: "router5"}
@@ -551,7 +556,8 @@ func TestCreateMiddleware(t *testing.T) {
 		}),
 	)
 
-	server := NewServerService(id, &config.ServerConfig{}, middlewareFactory)
+	server, err := NewServerService(id, &config.ServerConfig{}, middlewareFactory)
+	require.NoError(t, err)
 
 	t.Run("timeout middleware", func(t *testing.T) {
 		options := map[string]string{"timeout": "10s"}
@@ -597,7 +603,8 @@ func TestEnsureRunning(t *testing.T) {
 
 	id := registry.ID{NS: "test", Name: "server1"}
 	middleware := NewDefaultMiddlewareFactory()
-	server := NewServerService(id, cfg, middleware)
+	server, err := NewServerService(id, cfg, middleware)
+	require.NoError(t, err)
 
 	// Serve a separate HTTP server on that port to simulate our server already running
 	httpServer := &http.Server{
@@ -652,7 +659,8 @@ func TestContextListener(t *testing.T) {
 
 	id := registry.ID{NS: "test", Name: "server1"}
 	middleware := NewDefaultMiddlewareFactory()
-	server := NewServerService(id, cfg, middleware)
+	server, err := NewServerService(id, cfg, middleware)
+	require.NoError(t, err)
 
 	// Add a test endpoint that verifies the listener context is set
 	routerID := registry.ID{NS: "test", Name: "router6"}
