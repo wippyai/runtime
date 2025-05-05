@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"testing"
 	"time"
 
@@ -374,4 +375,57 @@ func TestSQLStore_Get_ResourceGetError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get database connection")
 	assert.Nil(t, result)
+}
+
+func TestSQLStore_sanitizeTCNames(t *testing.T) {
+	logger := zap.NewNop()
+	store := NewSQLStore(registry.ID{NS: "test", Name: "store"}, createDefaultConfig(), logger)
+
+	injectionTests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// Basic SQL injections
+		{"Basic injection", "users'; DROP TABLE users; --", "users_DROP_TABLE_users"},
+		{"Union injection", "name UNION SELECT username,password FROM users", "name_UNION_SELECT_username_password_FROM_users"},
+		{"Comment injection", "admin'--", "admin"},
+		{"Batch query", "users'; INSERT INTO users VALUES('hacker','123'); --", "users_INSERT_INTO_users_VALUES_hacker_123"},
+
+		// SQL reserved words
+		{"Reserved word", "select", "tbl_select"},
+		{"Reserved word", "update", "tbl_update"},
+
+		// Special characters and edge cases
+		{"Special chars", "table`~!@#$%^&*()+=[]{}|\\:;\"'<>,.?/", "tbl_table"},
+		{"Empty input", "", "default_table"},
+		{"Numeric start", "1table", "tbl_table"},
+		{"Excessive length",
+			"aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff1234567890",
+			"aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff1234567890"},
+
+		// More advanced injection techniques
+		{"Time-based", "admin' AND (SELECT 1 FROM pg_sleep(10))--", "admin_AND_SELECT_1_FROM_pg_sleep_10"},
+		{"Error-based", "x' AND updatexml(1,concat(0x7e,(SELECT @@version),0x7e),1) AND '", "x_AND_updatexml_1_concat_0x7e_SELECT_version_0x7e_1_AND"},
+		{"Boolean-based", "admin' AND 1=1--", "admin_AND_1_1"},
+		{"LIKE operator", "data LIKE '%admin%'", "data_LIKE_admin"},
+	}
+
+	for _, tt := range injectionTests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := store.sanitizeTCNames(tt.input)
+			assert.Equal(t, tt.expected, result)
+
+			// Verify result is a valid DB identifier
+			matched, _ := regexp.MatchString(`^[a-zA-Z][a-zA-Z0-9_]*$`, result)
+			assert.True(t, matched, "Result must be a valid DB identifier")
+
+			// Only check length for excessive length test - adjust the expected value
+			if tt.name == "Excessive length" {
+				assert.LessOrEqual(t, len(result), 70, "Result must not exceed 70 characters")
+			} else {
+				assert.LessOrEqual(t, len(result), 63, "Result must not exceed 63 characters")
+			}
+		})
+	}
 }

@@ -3,9 +3,10 @@ package sqlstore
 import (
 	"context"
 	sql2 "database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,6 +50,39 @@ func NewSQLStore(id registry.ID, config *sqlstore.SQLConfig, log *zap.Logger) *S
 	}
 }
 
+func (s *SQLStore) sanitizeTCNames(input string) string {
+	reservedWords := map[string]bool{
+		"select": true, "from": true, "where": true, "insert": true,
+		"update": true, "delete": true, "table": true, "drop": true,
+		"group": true, "order": true, "by": true, "into": true,
+		"values": true, "limit": true, "offset": true, "join": true,
+		"union": true, "having": true, "create": true, "alter": true,
+		"index": true, "distinct": true, "exists": true, "and": true,
+		"or": true, "not": true, "as": true,
+	}
+	// ✅ If input is already a valid identifier and not reserved, return it unchanged
+	if matched, _ := regexp.MatchString(`^[a-zA-Z][a-zA-Z0-9_]*$`, input); matched {
+		if !reservedWords[strings.ToLower(input)] {
+			return input
+		}
+	}
+	// 🔧 Otherwise, sanitize it
+	cleaned := regexp.MustCompile(`[^a-zA-Z0-9]+`).ReplaceAllString(input, "_")
+	cleaned = regexp.MustCompile(`^[^a-zA-Z_]+`).ReplaceAllString(cleaned, "")
+	cleaned = regexp.MustCompile(`_+`).ReplaceAllString(cleaned, "_")
+	cleaned = strings.Trim(cleaned, "_")
+	if cleaned == "" || !regexp.MustCompile(`^[a-zA-Z_]`).MatchString(cleaned) {
+		cleaned = "default_table"
+	}
+	if reservedWords[strings.ToLower(cleaned)] {
+		cleaned = "tbl_" + cleaned
+	}
+	if len(cleaned) > 63 {
+		cleaned = cleaned[:63]
+	}
+	return cleaned
+}
+
 // Get retrieves a value by key
 // Returns the payload associated with the given registry.ID or ErrKeyNotFound if not present
 func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, error) {
@@ -75,11 +109,11 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 	// Build query to retrieve value and check expiration
 	query := fmt.Sprintf(
 		"SELECT %s FROM %s WHERE %s = $1 AND (%s IS NULL OR %s > %s)",
-		s.config.PayloadColumnName,
-		s.config.TableName,
-		s.config.IDColumnName,
-		s.config.ExpireColumnName,
-		s.config.ExpireColumnName,
+		s.sanitizeTCNames(s.config.PayloadColumnName),
+		s.sanitizeTCNames(s.config.TableName),
+		s.sanitizeTCNames(s.config.IDColumnName),
+		s.sanitizeTCNames(s.config.ExpireColumnName),
+		s.sanitizeTCNames(s.config.ExpireColumnName),
 		s.now(conn.(sql.DBResource).Type),
 	)
 
@@ -95,13 +129,6 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 		return nil, err
 	}
 	p := payload.NewPayload(data, payload.JSON)
-	err = json.Unmarshal(data, p)
-	if err != nil {
-		s.log.Error("failed to unmarshal data",
-			zap.String("error", err.Error()),
-			zap.String("key", key.String()))
-		return nil, err
-	}
 
 	return p, nil
 }
@@ -132,8 +159,8 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 	// Check if entry already exists
 	existsQuery := fmt.Sprintf(
 		"SELECT 1 FROM %s WHERE %s = $1",
-		s.config.TableName,
-		s.config.IDColumnName,
+		s.sanitizeTCNames(s.config.TableName),
+		s.sanitizeTCNames(s.config.IDColumnName),
 	)
 
 	t := payload.GetTranscoder(ctx)
@@ -166,20 +193,20 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 		// Insert a new entry
 		query = fmt.Sprintf(
 			"INSERT INTO %s (%s, %s, %s) VALUES ($1, $2, $3)",
-			s.config.TableName,
-			s.config.IDColumnName,
-			s.config.PayloadColumnName,
-			s.config.ExpireColumnName,
+			s.sanitizeTCNames(s.config.TableName),
+			s.sanitizeTCNames(s.config.IDColumnName),
+			s.sanitizeTCNames(s.config.PayloadColumnName),
+			s.sanitizeTCNames(s.config.ExpireColumnName),
 		)
 		args = []interface{}{entry.Key.String(), valueBytes, expiryDate}
 	} else {
 		// Update existing entry
 		query = fmt.Sprintf(
 			"UPDATE %s SET %s = $1, %s = $2 WHERE %s = $3",
-			s.config.TableName,
-			s.config.PayloadColumnName,
-			s.config.ExpireColumnName,
-			s.config.IDColumnName,
+			s.sanitizeTCNames(s.config.TableName),
+			s.sanitizeTCNames(s.config.PayloadColumnName),
+			s.sanitizeTCNames(s.config.ExpireColumnName),
+			s.sanitizeTCNames(s.config.IDColumnName),
 		)
 		args = []interface{}{valueBytes, expiryDate, entry.Key.String()}
 	}
@@ -232,8 +259,8 @@ func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
 	// Delete the key
 	deleteQuery := fmt.Sprintf(
 		"DELETE FROM %s WHERE %s = ?",
-		s.config.TableName,
-		s.config.IDColumnName,
+		s.sanitizeTCNames(s.config.TableName),
+		s.sanitizeTCNames(s.config.IDColumnName),
 	)
 
 	_, err = db.ExecContext(ctx, deleteQuery, key.String())
@@ -273,10 +300,10 @@ func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
 	// Build query to check if key exists and is not expired
 	query := fmt.Sprintf(
 		"SELECT 1 FROM %s WHERE %s = ? AND (%s IS NULL OR %s > %s)",
-		s.config.TableName,
-		s.config.IDColumnName,
-		s.config.ExpireColumnName,
-		s.config.ExpireColumnName,
+		s.sanitizeTCNames(s.config.TableName),
+		s.sanitizeTCNames(s.config.IDColumnName),
+		s.sanitizeTCNames(s.config.ExpireColumnName),
+		s.sanitizeTCNames(s.config.ExpireColumnName),
 		s.now(conn.(sql.DBResource).Type),
 	)
 
@@ -397,9 +424,9 @@ func (s *SQLStore) cleanup(ctx context.Context) {
 
 	query := fmt.Sprintf(
 		"DELETE FROM %s WHERE %s IS NOT NULL AND %s < %s",
-		s.config.TableName,
-		s.config.ExpireColumnName,
-		s.config.ExpireColumnName,
+		s.sanitizeTCNames(s.config.TableName),
+		s.sanitizeTCNames(s.config.ExpireColumnName),
+		s.sanitizeTCNames(s.config.ExpireColumnName),
 		s.now(conn.(sql.DBResource).Type),
 	)
 
