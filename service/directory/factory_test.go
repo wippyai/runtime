@@ -27,10 +27,10 @@ func TestFSFactory_CreateFS(t *testing.T) {
 	t.Run("DirectoryFS", func(t *testing.T) {
 		// Create a directory filesystem (empty type name)
 		config := CreateFSConfig{
-			Name:            "",
-			DirPath:         root,
-			Mode:            0755,
-			ShouldCreateDir: false,
+			Name:     "",
+			DirPath:  root,
+			Mode:     0755,
+			AutoInit: false,
 		}
 		filesystem, err := factory.CreateFS(config)
 		require.NoError(t, err, "CreateFS should not return an error")
@@ -43,20 +43,20 @@ func TestFSFactory_CreateFS(t *testing.T) {
 
 		// Test error case with invalid path
 		invalidConfig := CreateFSConfig{
-			Name:            "",
-			DirPath:         "/nonexistent/invalid/path",
-			Mode:            0755,
-			ShouldCreateDir: false,
+			Name:     "",
+			DirPath:  "/nonexistent/invalid/path",
+			Mode:     0755,
+			AutoInit: false,
 		}
 		_, err = factory.CreateFS(invalidConfig)
 		assert.Error(t, err, "CreateFS should return error for invalid path")
 
 		// Test creating directory that doesn't exist
 		createDirConfig := CreateFSConfig{
-			Name:            "",
-			DirPath:         root + "/new_dir",
-			Mode:            0755,
-			ShouldCreateDir: true,
+			Name:     "",
+			DirPath:  root + "/new_dir",
+			Mode:     0755,
+			AutoInit: true,
 		}
 		newDirFS, err := factory.CreateFS(createDirConfig)
 		require.NoError(t, err, "CreateFS should not return an error when creating a new directory")
@@ -66,10 +66,10 @@ func TestFSFactory_CreateFS(t *testing.T) {
 	t.Run("EmbedFS", func(t *testing.T) {
 		// Test creating an embed filesystem
 		config := CreateFSConfig{
-			Name:            directory.TypeNameEmbed,
-			DirPath:         "./",
-			Mode:            0,
-			ShouldCreateDir: false,
+			Name:     directory.TypeNameEmbed,
+			DirPath:  "./",
+			Mode:     0,
+			AutoInit: false,
 		}
 		filesystem, err := factory.CreateFS(config)
 		require.NoError(t, err, "CreateFS should not return an error for embed filesystem")
@@ -86,10 +86,10 @@ func TestFSFactory_CreateFS(t *testing.T) {
 
 		// Test invalid subdirectory in embed filesystem
 		invalidConfig := CreateFSConfig{
-			Name:            directory.TypeNameEmbed,
-			DirPath:         "nonexistent",
-			Mode:            0,
-			ShouldCreateDir: false,
+			Name:     directory.TypeNameEmbed,
+			DirPath:  "nonexistent",
+			Mode:     0,
+			AutoInit: false,
 		}
 		_, err = factory.CreateFS(invalidConfig)
 		assert.Error(t, err, "CreateFS should return error for invalid embed path")
