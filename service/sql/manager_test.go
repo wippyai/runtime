@@ -241,7 +241,9 @@ func TestNewManagerWithFactory(t *testing.T) {
 	})
 }
 func TestManager_Add(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+
 	manager, bus, factory := newTestManager(t)
 
 	// Setup event listener for supervisor and resource events
@@ -359,7 +361,10 @@ func TestManager_Update(t *testing.T) {
 	envContexter.SetValue("POSTGRESQL_DEFAULT_DATABASE", "test-db")
 	envContexter.SetValue("POSTGRESQL_DEFAULT_USERNAME", "test-user")
 	envContexter.SetValue("POSTGRESQL_DEFAULT_PASSWORD", "test-pwd")
-	ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, envContexter)
+
+	rootCtx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+	ctx := context.WithValue(rootCtx, ctxapi.EnvCtx, envContexter)
 
 	// Setup event listener for supervisor events
 	supervisorEvents := make(chan event.Event, 2)
@@ -467,7 +472,10 @@ func TestManager_Delete(t *testing.T) {
 	envContexter.SetValue("POSTGRESQL_DEFAULT_DATABASE", "test-db")
 	envContexter.SetValue("POSTGRESQL_DEFAULT_USERNAME", "test-user")
 	envContexter.SetValue("POSTGRESQL_DEFAULT_PASSWORD", "test-pwd")
-	ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, envContexter)
+
+	rootCtx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+	ctx := context.WithValue(rootCtx, ctxapi.EnvCtx, envContexter)
 
 	// Setup event listeners
 	supervisorEvents := make(chan event.Event, 2)
@@ -507,10 +515,16 @@ func TestManager_Delete(t *testing.T) {
 
 	// Drain events channels
 	for len(supervisorEvents) > 0 {
-		<-supervisorEvents
+		select {
+		case <-supervisorEvents:
+		default:
+		}
 	}
 	for len(resourceEvents) > 0 {
-		<-resourceEvents
+		select {
+		case <-resourceEvents:
+		default:
+		}
 	}
 
 	tests := []struct {
