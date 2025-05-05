@@ -38,14 +38,17 @@ type RouteManager struct {
 }
 
 // NewRouteManager creates a new route manager instance
-func NewRouteManager() *RouteManager {
+func NewRouteManager() (*RouteManager, error) {
 	rm := &RouteManager{
 		routers: make(map[registry.ID]*RouterEntry),
 		mounts:  make(map[string]http.Handler),
 	}
-	rm.Build()
+	err := rm.Build()
+	if err != nil {
+		return nil, err
+	}
 
-	return rm
+	return rm, nil
 }
 
 // AddRouter adds a new router or updates an existing one
@@ -55,6 +58,13 @@ func (rm *RouteManager) AddRouter(id registry.ID, prefix string,
 	postMiddleware []func(http.Handler) http.Handler) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
+
+	// Check for duplicate prefixes
+	for _, existingRouter := range rm.routers {
+		if existingRouter.prefix == prefix {
+			return fmt.Errorf("router with prefix %s already exists", prefix)
+		}
+	}
 
 	// Check if the router already exists
 	if existingRouter, exists := rm.routers[id]; exists {
@@ -206,12 +216,15 @@ func (rm *RouteManager) Unmount(path string) error {
 }
 
 // Build rebuilds the entire router from the current configuration
-func (rm *RouteManager) Build() {
+func (rm *RouteManager) Build() error {
 	router := chi.NewRouter()
 
 	// Add root mounts first
 	for path, handler := range rm.mounts {
-		router.Mount(path, handler)
+		err := mount(router, path, handler)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Build each router with its middleware and routes
@@ -270,11 +283,28 @@ func (rm *RouteManager) Build() {
 		}
 
 		// Mount subrouter
-		router.Mount(re.prefix, subRouter)
+		err := mount(router, re.prefix, subRouter)
+		if err != nil {
+			return err
+		}
 	}
 
 	var h http.Handler = router
 	rm.router.Store(&h)
+
+	return nil
+}
+
+func mount(router *chi.Mux, pattern string, handler http.Handler) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("mount failed for %s", pattern)
+		}
+	}()
+
+	router.Mount(pattern, handler)
+
+	return nil
 }
 
 // createChain creates a middleware chain that will call middlewares in order,
