@@ -1,4 +1,4 @@
-package memstore
+package memenvstore
 
 import (
 	"context"
@@ -9,39 +9,40 @@ import (
 
 // MemoryStorage implements envstorage.Storage interface using in-memory map
 type MemoryStorage struct {
-	values map[string]string
-	mutex  sync.RWMutex
+	values sync.Map
 	log    *zap.Logger
 }
 
 // NewMemoryStorage creates a new memory-based storage
-func NewMemoryStorage(log *zap.Logger) *MemoryStorage {
+func NewMemoryStorage(defaultValues map[string]string, log *zap.Logger) *MemoryStorage {
+	values := sync.Map{}
+	for key, value := range defaultValues {
+		values.Store(key, value)
+	}
+
 	return &MemoryStorage{
-		values: make(map[string]string),
+		values: values,
 		log:    log.With(zap.String("component", "memstorage")),
 	}
 }
 
 // Get retrieves a value from storage
 func (s *MemoryStorage) Get(_ context.Context, key string) (string, bool) {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-	value, exists := s.values[key]
-	return value, exists
+	value, exists := s.values.Load(key)
+	if !exists {
+		return "", false
+	}
+	return value.(string), true
 }
 
 // Set stores a value in storage
 func (s *MemoryStorage) Set(_ context.Context, key, value string) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	s.values[key] = value
+	s.values.Store(key, value)
 	return nil
 }
 
 // Delete removes a value from storage
 func (s *MemoryStorage) Delete(_ context.Context, key string) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	delete(s.values, key)
+	s.values.Delete(key)
 	return nil
 }

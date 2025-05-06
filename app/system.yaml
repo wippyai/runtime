@@ -133,11 +133,3 @@ entries:
     file: "./app/data/app.db"
     lifecycle:
       auto_start: true
-
-  - name: openai.key
-    kind: env.variable
-    meta:
-      type: secret_key
-    variable: OPENAI_KEY
-    default:
-    readonly: true
