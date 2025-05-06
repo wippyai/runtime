@@ -3,6 +3,8 @@ package sqlstore
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -73,6 +75,31 @@ func (c *SQLConfig) Validate() error {
 		return fmt.Errorf("cleanup_interval must be greater than or equal to 0")
 	}
 
+	// Validate the database ID and table name for SQL injection prevention
+	if !c.IsSafe(c.Database.Name) {
+		return fmt.Errorf("database ID is invalid")
+	}
+
+	// Validate the table name and column names for SQL injection prevention
+	if !c.IsSafe(c.TableName) {
+		return fmt.Errorf("table_name is invalid")
+	}
+
+	// Validate the column names for SQL injection prevention
+	if !c.IsSafe(c.IDColumnName) {
+		return fmt.Errorf("id_column_name is invalid")
+	}
+
+	// Validate the column names for SQL injection prevention
+	if !c.IsSafe(c.PayloadColumnName) {
+		return fmt.Errorf("payload_column_name is invalid")
+	}
+	
+	// Validate the column names for SQL injection prevention
+	if !c.IsSafe(c.ExpireColumnName) {
+		return fmt.Errorf("expire_column_name is invalid")
+	}
+
 	return nil
 }
 
@@ -128,4 +155,63 @@ func (c *SQLConfig) MarshalJSON() ([]byte, error) {
 	}{
 		Alias: (*Alias)(c),
 	})
+}
+
+func (c *SQLConfig) IsSafe(input string) bool {
+	// Check for SQL reserved words that might indicate an injection attempt
+	reservedWords := map[string]bool{
+		"select": true, "from": true, "where": true, "insert": true,
+		"update": true, "delete": true, "table": true, "drop": true,
+		"group": true, "order": true, "by": true, "into": true,
+		"values": true, "limit": true, "offset": true, "join": true,
+		"union": true, "having": true, "create": true, "alter": true,
+		"index": true, "distinct": true, "exists": true, "and": true,
+		"or": true, "not": true, "as": true,
+	}
+
+	// If input contains SQL syntax characters or patterns, flag as potential injection
+	sqlPatterns := []string{
+		`'.*'`,           // String literal
+		`--`,             // SQL comment
+		`;`,              // Statement terminator
+		`/\*.*\*/`,       // Block comment
+		`union\s+select`, // UNION SELECT
+		`drop\s+table`,   // DROP TABLE
+		`delete\s+from`,  // DELETE FROM
+	}
+
+	if len(input) > 63 {
+		return false
+	}
+	// Check input against SQL patterns
+	for _, pattern := range sqlPatterns {
+		matched, _ := regexp.MatchString(pattern, strings.ToLower(input))
+		if matched {
+			return false
+		}
+	}
+
+	// Check if input contains SQL reserved words
+	words := strings.Fields(strings.ToLower(input))
+	for _, word := range words {
+		// Clean the word of any punctuation
+		cleanWord := regexp.MustCompile(`[^\w]`).ReplaceAllString(word, "")
+		if reservedWords[cleanWord] {
+			return false
+		}
+	}
+
+	// Check for valid identifier pattern
+	// If it's NOT a valid identifier, it might be an injection attempt
+	if matched, _ := regexp.MatchString(`^[a-zA-Z][a-zA-Z0-9_]*$`, input); !matched {
+		return false
+	}
+
+	// Count quotes - an odd number or multiple quotes may indicate injection
+	if strings.Count(input, "'") > 0 || strings.Count(input, "\"") > 0 {
+		return false
+	}
+
+	// Input appears safe
+	return true
 }
