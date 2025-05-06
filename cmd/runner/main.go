@@ -35,6 +35,7 @@ import (
 	"github.com/ponyruntime/pony/service/http/cors"
 	"github.com/ponyruntime/pony/service/http/firewall"
 	"github.com/ponyruntime/pony/service/processfunc"
+	"github.com/ponyruntime/pony/service/sqlstore"
 	"github.com/ponyruntime/pony/service/template"
 	"github.com/ponyruntime/pony/service/tokenstore"
 
@@ -601,6 +602,7 @@ func main() {
 		WithProcessSupervisor(app),
 		WithEphemeralHost(app),
 		WithSQLManager(app),
+		WithSQLStore(app),
 		WithAWSConfigManager(app),
 		WithS3Manager(app),
 		WithProcessFunctionBridge(app),
@@ -899,6 +901,17 @@ func WithMemStore(a *App) eventbus.EventHandler {
 	)
 
 	return reghandler.NewRegistryHandler("store.memory", manager)
+}
+
+func WithSQLStore(a *App) eventbus.EventHandler {
+	// Create manager with required dependencies
+	manager := sqlstore.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("sqlstore"),
+	)
+
+	return reghandler.NewRegistryHandler("store.sql", manager)
 }
 
 func WithNativeExecutor(a *App) eventbus.EventHandler {
