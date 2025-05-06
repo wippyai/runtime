@@ -15,7 +15,6 @@ type Manager struct {
 	ctx        context.Context
 	log        *zap.Logger
 	bus        event.Bus
-	values     sync.Map // map[string]string
 	storages   sync.Map // map[event.Path]envstorageapi.Storage
 	subscriber *eventbus.Subscriber
 }
