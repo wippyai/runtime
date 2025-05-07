@@ -5,30 +5,31 @@ import (
 	"fmt"
 	"sync"
 
-	envstorageapi "github.com/ponyruntime/pony/api/envstorage"
+	"github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
+	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
 )
 
-type Manager struct {
+type Registry struct {
 	ctx        context.Context
 	log        *zap.Logger
 	bus        event.Bus
-	storages   sync.Map // map[event.Path]envstorageapi.Storage
+	storages   sync.Map // map[event.Path]env.Storage
 	subscriber *eventbus.Subscriber
 }
 
-func NewManager(bus event.Bus, log *zap.Logger) *Manager {
-	return &Manager{
+func NewRegistry(bus event.Bus, log *zap.Logger) *Registry {
+	return &Registry{
 		log: log,
 		bus: bus,
 	}
 }
 
-func (s *Manager) Start(ctx context.Context) error {
+func (s *Registry) Start(ctx context.Context) error {
 	s.ctx = ctx
-	subscriber, err := eventbus.NewSubscriber(ctx, s.bus, envstorageapi.System, "", s.handleEvent)
+	subscriber, err := eventbus.NewSubscriber(ctx, s.bus, env.System, "", s.handleEvent)
 	if err != nil {
 		return fmt.Errorf("failed to create subscriber: %w", err)
 	}
@@ -36,20 +37,20 @@ func (s *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *Manager) Stop() error {
+func (s *Registry) Stop() error {
 	if s.subscriber != nil {
 		s.bus.Unsubscribe(s.ctx, s.subscriber.ID())
 	}
 	return nil
 }
 
-func (s *Manager) handleEvent(e event.Event) {
+func (s *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case envstorageapi.Register:
+	case env.StorageRegister:
 		s.registerStorage(e)
-	case envstorageapi.Delete:
+	case env.StorageDelete:
 		s.deleteStorage(e)
-	case envstorageapi.Accept, envstorageapi.Reject:
+	case registry.Accept, registry.Reject:
 		// nothing, self emitted
 	default:
 		s.log.Warn("unknown event kind",
@@ -58,8 +59,8 @@ func (s *Manager) handleEvent(e event.Event) {
 	}
 }
 
-func (s *Manager) registerStorage(e event.Event) {
-	storage, ok := e.Data.(envstorageapi.Storage)
+func (s *Registry) registerStorage(e event.Event) {
+	storage, ok := e.Data.(env.Storage)
 	if !ok {
 		s.log.Error("invalid storage payload",
 			zap.String("storage", e.Path),
@@ -74,7 +75,7 @@ func (s *Manager) registerStorage(e event.Event) {
 	s.sendAccept(e.Path)
 }
 
-func (s *Manager) deleteStorage(e event.Event) {
+func (s *Registry) deleteStorage(e event.Event) {
 	if _, exists := s.storages.LoadAndDelete(e.Path); !exists {
 		s.log.Warn("storage not found", zap.String("storage", e.Path))
 		s.sendReject(e.Path, "storage not found")
@@ -85,19 +86,53 @@ func (s *Manager) deleteStorage(e event.Event) {
 	s.sendAccept(e.Path)
 }
 
-func (s *Manager) sendAccept(path event.Path) {
+func (s *Registry) sendAccept(path event.Path) {
 	s.bus.Send(s.ctx, event.Event{
-		System: envstorageapi.System,
-		Kind:   envstorageapi.Accept,
+		System: env.System,
+		Kind:   registry.Accept,
 		Path:   path,
 	})
 }
 
-func (s *Manager) sendReject(path event.Path, reason string) {
+func (s *Registry) sendReject(path event.Path, reason string) {
 	s.bus.Send(s.ctx, event.Event{
-		System: envstorageapi.System,
-		Kind:   envstorageapi.Reject,
+		System: env.System,
+		Kind:   registry.Reject,
 		Path:   path,
 		Data:   reason,
 	})
+}
+
+// GetStorage retrieves an env storage by name
+func (s *Registry) GetStorage(ctx context.Context, name string) (env.Storage, error) {
+	storage, ok := s.storages.Load(name)
+	if !ok {
+		return nil, env.ErrStorageNotFound
+	}
+	return storage.(env.Storage), nil
+}
+
+// All returns all env storages
+func (s *Registry) All(ctx context.Context) ([]env.Storage, error) {
+	var storages []env.Storage
+	s.storages.Range(func(key, value interface{}) bool {
+		storages = append(storages, value.(env.Storage))
+		return true
+	})
+	return storages, nil
+}
+
+// Get retrieves an environment variable by name from a specific storage
+func (s *Registry) Get(ctx context.Context, storageName, name string) (string, error) {
+	storage, err := s.GetStorage(ctx, storageName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get storage %s: %w", storageName, err)
+	}
+
+	value, err := storage.Get(ctx, name)
+	if err != nil {
+		return "", fmt.Errorf("failed to get variable %s from storage %s: %w", name, storageName, err)
+	}
+
+	return value, nil
 }

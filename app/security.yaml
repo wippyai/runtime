@@ -74,19 +74,3 @@ entries:
       type: envstorage
     groups:
       - app:user
-
-  - name: openai_api_key
-    kind: env.variable
-    meta:
-      type: secret_key
-    variable: OPENAI_API_KEY
-    default:
-    readonly: true # no overwrite from runtime
-
-  - name: openai_api_url
-    kind: env.variable
-    meta:
-      type: secret_key
-    variable: OPENAI_API_URL
-    default:
-    readonly: true # no overwrite from runtime

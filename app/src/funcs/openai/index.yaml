@@ -31,3 +31,28 @@ entries:
 #    imports:
 #      test: wippy.test:test
 #      llm_query: app.funcs.openai:llm_query
+
+  - name: memory
+    kind: envstorage.memory
+    meta:
+      type: envstorage
+      comment: Memory storage for environment variables
+
+  - name: openai_api_key
+    kind: env.variable
+    meta:
+      type: secret_key
+    variable: OPENAI_API_KEY
+    storage: app.funcs.openai:memory
+    default:
+    readonly: true # no overwrite from runtime
+
+  - name: openai_api_url
+    kind: env.variable
+    meta:
+      type: secret_key
+    variable: OPENAI_API_URL
+    storage: app.funcs.openai:memory
+    default:
+    readonly: true # no overwrite from runtime
+
