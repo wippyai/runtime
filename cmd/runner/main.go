@@ -703,7 +703,7 @@ func loadApplicationState(
 	}
 
 	// TODO: move it somewhere else
-	baseURL := "https://modules.platform.wippy.ai"
+	baseURL := "https://modules.wippy.ai"
 	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
 		baseURL = modulesURL
 	}
