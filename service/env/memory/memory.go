@@ -1,4 +1,4 @@
-package memenvstore
+package memory
 
 import (
 	"context"
@@ -51,4 +51,18 @@ func (s *MemoryStorage) Set(ctx context.Context, key, value string) error {
 func (s *MemoryStorage) Delete(ctx context.Context, key string) error {
 	s.values.Delete(key)
 	return nil
+}
+
+// List returns all variable names and values in this storage
+func (s *MemoryStorage) List(ctx context.Context) (map[string]string, error) {
+	result := make(map[string]string)
+	s.values.Range(func(key, value interface{}) bool {
+		if strKey, ok := key.(string); ok {
+			if strValue, ok := value.(string); ok {
+				result[strKey] = strValue
+			}
+		}
+		return true
+	})
+	return result, nil
 }

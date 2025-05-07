@@ -1,4 +1,4 @@
-package envstorage
+package env
 
 import (
 	"context"
@@ -17,6 +17,7 @@ type Registry struct {
 	log        *zap.Logger
 	bus        event.Bus
 	storages   sync.Map // map[event.Path]env.Storage
+	variables  sync.Map // map[name]env.Variable
 	subscriber *eventbus.Subscriber
 }
 
@@ -29,7 +30,7 @@ func NewRegistry(bus event.Bus, log *zap.Logger) *Registry {
 
 func (s *Registry) Start(ctx context.Context) error {
 	s.ctx = ctx
-	subscriber, err := eventbus.NewSubscriber(ctx, s.bus, env.System, "", s.handleEvent)
+	subscriber, err := eventbus.NewSubscriber(ctx, s.bus, env.System, "env.*", s.handleEvent)
 	if err != nil {
 		return fmt.Errorf("failed to create subscriber: %w", err)
 	}
@@ -71,6 +72,27 @@ func (s *Registry) registerStorage(e event.Event) {
 	}
 
 	s.storages.Store(e.Path, storage)
+
+	variables, err := storage.List(s.ctx)
+	if err != nil {
+		s.log.Error("failed to list storage variables",
+			zap.String("storage", e.Path),
+			zap.Error(err))
+		s.sendReject(e.Path, "failed to list storage variables")
+		return
+	}
+
+	for name, value := range variables {
+		s.variables.Store(name, env.Variable{
+			Name:         name,
+			EnvName:      name,
+			DefaultValue: value,
+			StorageID:    e.Path,
+			Meta:         registry.Metadata{}, // TODO
+			ReadOnly:     true,                // TODO
+		})
+	}
+
 	s.log.Debug("storage registered", zap.String("storage", e.Path))
 	s.sendAccept(e.Path)
 }
@@ -81,6 +103,15 @@ func (s *Registry) deleteStorage(e event.Event) {
 		s.sendReject(e.Path, "storage not found")
 		return
 	}
+
+	// Delete all variables associated with this storage
+	s.variables.Range(func(key, value interface{}) bool {
+		v := value.(env.Variable)
+		if v.StorageID == e.Path {
+			s.variables.Delete(key)
+		}
+		return true
+	})
 
 	s.log.Debug("storage removed", zap.String("storage", e.Path))
 	s.sendAccept(e.Path)
@@ -103,14 +134,14 @@ func (s *Registry) sendReject(path event.Path, reason string) {
 	})
 }
 
-// GetStorage retrieves an env storage by name
-func (s *Registry) GetStorage(ctx context.Context, name string) (env.Storage, error) {
-	storage, ok := s.storages.Load(name)
-	if !ok {
-		return nil, env.ErrStorageNotFound
-	}
-	return storage.(env.Storage), nil
-}
+//// GetStorage retrieves an env storage by name
+//func (s *Registry) GetStorage(ctx context.Context, name string) (env.Storage, error) {
+//	storage, ok := s.storages.Load(name)
+//	if !ok {
+//		return nil, env.ErrStorageNotFound
+//	}
+//	return storage.(env.Storage), nil
+//}
 
 // All returns all env storages
 func (s *Registry) All(ctx context.Context) ([]env.Storage, error) {
@@ -123,16 +154,34 @@ func (s *Registry) All(ctx context.Context) ([]env.Storage, error) {
 }
 
 // Get retrieves an environment variable by name from a specific storage
-func (s *Registry) Get(ctx context.Context, storageName, name string) (string, error) {
-	storage, err := s.GetStorage(ctx, storageName)
-	if err != nil {
-		return "", fmt.Errorf("failed to get storage %s: %w", storageName, err)
+func (s *Registry) Get(ctx context.Context, name string) (string, error) {
+	// storage, err := s.GetStorage(ctx, storageName)
+	// if err != nil {
+	// 	return "", fmt.Errorf("failed to get storage %s: %w", storageName, err)
+	// }
+
+	var value string
+	var found bool
+
+	s.storages.Range(func(key, value interface{}) bool {
+		storage := value.(env.Storage)
+		v, err := storage.Get(ctx, name)
+		if err == nil && v != "" {
+			value = v
+			found = true
+			return false // Stop iteration after finding value
+		}
+		return true // Continue iteration if not found
+	})
+
+	if !found {
+		return "", env.ErrVariableNotFound
 	}
 
-	value, err := storage.Get(ctx, name)
-	if err != nil {
-		return "", fmt.Errorf("failed to get variable %s from storage %s: %w", name, storageName, err)
-	}
+	// value, err := storage.Get(ctx, name)
+	// if err != nil {
+	// 	return "", fmt.Errorf("failed to get variable %s from storage %s: %w", name, storageName, err)
+	// }
 
 	return value, nil
 }

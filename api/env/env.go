@@ -3,7 +3,6 @@ package env
 import (
 	"context"
 	"errors"
-
 	"fmt"
 
 	"github.com/ponyruntime/pony/api/event"
@@ -14,14 +13,19 @@ const (
 	// System identifies the environment system in the event bus
 	System event.System = "env"
 
-	// VariableRegister is sent TO env service to register a new variable
-	VariableRegister event.Kind = "env.variable.register"
-	// VariableDelete is sent TO env service to delete a variable
-	VariableDelete event.Kind = "env.variable.delete"
-	// StorageRegister is sent TO env service to register a new storage backend
+	// StorageRegister is sent TO env service to register
 	StorageRegister event.Kind = "env.storage.register"
 	// StorageDelete is sent TO env service to delete a storage backend
 	StorageDelete event.Kind = "env.storage.delete"
+)
+
+// Registry kind constants for different SQL database types
+const (
+	// KindMemory identifies a Memory ENV store
+	KindMemory registry.Kind = "env.memory"
+
+	// KindFile identifies a File ENV store
+	KindFile registry.Kind = "env.file"
 )
 
 // Common errors returned by the env package
@@ -41,6 +45,9 @@ type (
 		// Set stores a variable's value
 		Set(ctx context.Context, name, value string) error
 
+		// Delete removes a variable from storage
+		Delete(ctx context.Context, name string) error
+
 		// List returns all variable names and values in this storage
 		List(ctx context.Context) (map[string]string, error)
 	}
@@ -48,10 +55,7 @@ type (
 	// Registry defines the interface for accessing environment variables
 	Registry interface {
 		// Get retrieves an environment variable by name from a specific storage
-		Get(ctx context.Context, storageName, name string) (string, error)
-
-		// GetStorage retrieves an env storage by name
-		GetStorage(ctx context.Context, name string) (Storage, error)
+		Get(ctx context.Context, name string) (string, error)
 
 		// All returns all env storages
 		All(ctx context.Context) ([]Storage, error)

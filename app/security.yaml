@@ -68,9 +68,9 @@ entries:
     lifecycle:
       auto_start: true
 
-  - name: memenvstorage
-    kind: envstorage.memory
+  - name: env
+    kind: env.memory
     meta:
-      type: envstorage
+      type: env
     groups:
       - app:user

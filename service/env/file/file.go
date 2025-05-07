@@ -1,4 +1,4 @@
-package fileenvstore
+package file
 
 //
 //import (
