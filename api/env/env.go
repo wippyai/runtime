@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/pony/api/resource"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/supervisor"
 )
 
 const (
@@ -39,6 +41,10 @@ var (
 type (
 	// Storage defines the interface for environment variable storage backends
 	Storage interface {
+		supervisor.Service
+
+		resource.Provider
+
 		// Get retrieves a variable's value
 		Get(ctx context.Context, name string) (string, error)
 

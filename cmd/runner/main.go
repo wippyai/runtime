@@ -5,6 +5,19 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	env2 "github.com/ponyruntime/pony/service/env"
+	iofs "io/fs"
+	httpbase "net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"runtime/pprof"
+	"strings"
+	"syscall"
+	"time"
+
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
 	ctxapi "github.com/ponyruntime/pony/api/context"
@@ -108,17 +121,6 @@ import (
 	"github.com/ponyruntime/pony/system/topology"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	iofs "io/fs"
-	httpbase "net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"runtime"
-	"runtime/debug"
-	"runtime/pprof"
-	"strings"
-	"syscall"
-	"time"
 
 	// supported dbs
 	_ "github.com/go-sql-driver/mysql"
@@ -606,6 +608,7 @@ func main() {
 	app.services = eventbus.WithHandlers(append(
 		WithLuaRuntime(app),
 		WithYamlPolicies(app),
+		WithEnvManager(app),
 		WithDirectoryManager(app),
 		WithHTTPService(app),
 		WithTokenStoreManager(app),
@@ -872,6 +875,14 @@ func WithS3Manager(a *App) eventbus.EventHandler {
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("cloudstorage.s3"),
+	))
+}
+
+func WithEnvManager(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("env", env2.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("env"),
 	))
 }
 

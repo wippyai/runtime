@@ -32,6 +32,15 @@ entries:
 #      test: wippy.test:test
 #      llm_query: app.funcs.openai:llm_query
 
+  - name: envmemory
+    kind: env.memory
+    meta:
+      type: env
+      comment: Memory storage for environment variables
+    lifecycle:
+      auto_start: true
+
+
   - name: memory
     kind: envstorage.memory
     meta:

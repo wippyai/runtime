@@ -134,11 +134,3 @@ entries:
     lifecycle:
       auto_start: true
 
-  - name: envmemory
-    kind: env.memory
-    meta:
-      type: env
-      comment: Memory storage for environment variables
-    lifecycle:
-      auto_start: true
-
