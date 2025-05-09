@@ -13,13 +13,7 @@ import (
 const (
 	// KindClient identifies a temporal client component
 	KindClient registry.Kind = "temporal.client"
-
-	// ClientCtx is the context key for storing client references
-	ClientCtx = ctxKey("temporal_client")
 )
-
-// ctxKey is a type for context keys
-type ctxKey string
 
 // AuthType represents the authentication type for Temporal connection
 type AuthType string
@@ -51,9 +45,10 @@ type ConnectionConfig struct {
 
 // AuthConfig defines authentication parameters for Temporal service
 type AuthConfig struct {
-	Type    AuthType `json:"type"`               // Authentication type
-	APIKey  string   `json:"api_key,omitempty"`  // API key for authentication
-	KeyFile string   `json:"key_file,omitempty"` // Path to API key file (alternative to inline key)
+	Type      AuthType `json:"type"`                  // Authentication type
+	APIKey    string   `json:"api_key,omitempty"`     // API key for authentication
+	APIKeyEnv string   `json:"api_key_env,omitempty"` // Environment variable containing API key
+	KeyFile   string   `json:"key_file,omitempty"`    // Path to API key file (alternative to inline key)
 
 	// TLS-specific configuration (for future use)
 	CertFile string `json:"cert_file,omitempty"` // TLS certificate file
@@ -147,8 +142,8 @@ func (c *ClientConfig) Validate() error {
 	case AuthTypeNone:
 		// No validation needed
 	case AuthTypeAPIKey:
-		if c.Auth.APIKey == "" && c.Auth.KeyFile == "" {
-			return fmt.Errorf("API key or key file path must be provided when using API key authentication")
+		if c.Auth.APIKey == "" && c.Auth.APIKeyEnv == "" && c.Auth.KeyFile == "" {
+			return fmt.Errorf("API key, API key environment variable, or key file path must be provided when using API key authentication")
 		}
 	case AuthTypeTLS:
 		if (c.Auth.CertPEM == "" || c.Auth.KeyPEM == "") && c.Auth.CertFile == "" {

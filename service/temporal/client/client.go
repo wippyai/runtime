@@ -148,24 +148,6 @@ func (s *Client) ID() registry.ID {
 	return s.id
 }
 
-// Context returns the context of the client
-func (s *Client) Context() context.Context {
-	return s.ctx
-}
-
-// OnContext adds client reference to context
-func (s *Client) OnContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, api.ClientCtx, s)
-}
-
-// FromContext extracts client from context
-func FromContext(ctx context.Context) *Client {
-	if c, ok := ctx.Value(api.ClientCtx).(*Client); ok {
-		return c
-	}
-	return nil
-}
-
 // GetTaskQueueName applies prefix to a task queue name if configured
 func (s *Client) GetTaskQueueName(name string) string {
 	if s.tqPrefix == "" {
@@ -274,8 +256,8 @@ type clientResource struct {
 	closed atomic.Bool
 }
 
-// ClientResource is the resource provided to consumers
-type ClientResource struct {
+// Resource is the resource provided to consumers
+type Resource struct {
 	Client client.Client
 	Prefix string
 }
@@ -286,7 +268,7 @@ func (r *clientResource) Get() (any, error) {
 		return nil, resource.ErrResourceReleased
 	}
 
-	return ClientResource{
+	return Resource{
 		Client: r.tcl,
 		Prefix: r.client.tqPrefix,
 	}, nil

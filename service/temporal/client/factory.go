@@ -1,3 +1,5 @@
+// factory.go changes
+
 package client
 
 import (
@@ -11,6 +13,8 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 // ClientFactory is an interface for creating client instances
@@ -29,13 +33,15 @@ func NewDefaultClientFactory() *DefaultClientFactory {
 
 // APIKeyHeadersProvider implements the client.HeadersProvider interface for API key authentication
 type APIKeyHeadersProvider struct {
-	apiKey string
+	apiKey    string
+	namespace string
 }
 
-// GetHeaders returns headers with API key authorization
+// GetHeaders returns headers with API key authorization and namespace
 func (p *APIKeyHeadersProvider) GetHeaders(ctx context.Context) (map[string]string, error) {
 	return map[string]string{
-		"Authorization": "Bearer " + p.apiKey,
+		"Authorization":      "Bearer " + p.apiKey,
+		"temporal-namespace": p.namespace,
 	}, nil
 }
 
@@ -83,8 +89,34 @@ func BuildClientOptions(
 			return options, fmt.Errorf("failed to resolve API key: %w", err)
 		}
 
-		// Set API key in client options
-		options.HeadersProvider = &APIKeyHeadersProvider{apiKey: apiKey}
+		// Check if we can use the new API key credentials method (SDK v1.26.0+)
+		if _, ok := interface{}(client.Options{}).(interface{ SetAPIKey(string) }); ok {
+			// New SDK version supports direct API key credentials
+			options.Credentials = client.NewAPIKeyStaticCredentials(apiKey)
+
+			// Add the namespace header via gRPC interceptor
+			options.ConnectionOptions.DialOptions = append(
+				options.ConnectionOptions.DialOptions,
+				grpc.WithUnaryInterceptor(
+					func(ctx context.Context, method string, req any, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+						return invoker(
+							metadata.AppendToOutgoingContext(ctx, "temporal-namespace", cfg.Connect.Namespace),
+							method,
+							req,
+							reply,
+							cc,
+							opts...,
+						)
+					},
+				),
+			)
+		} else {
+			// Older SDK version - use headers provider with both headers
+			options.HeadersProvider = &APIKeyHeadersProvider{
+				apiKey:    apiKey,
+				namespace: cfg.Connect.Namespace,
+			}
+		}
 	} else if cfg.Auth.Type == api.AuthTypeTLS {
 		// TLS authentication would be configured here
 		logger.Warn("TLS authentication is not fully implemented yet")
