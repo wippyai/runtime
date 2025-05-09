@@ -5,6 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/service/temporal/client"
+	"github.com/ponyruntime/pony/service/temporal/dataconverter"
+	"go.temporal.io/sdk/converter"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
@@ -609,6 +612,7 @@ func main() {
 		WithMemStore(app),
 		WithNativeExecutor(app),
 		WithJetTemplates(app),
+		WithTemporalClient(app),
 	)...)
 	// --------------------------------------------------
 
@@ -1009,4 +1013,20 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		component.NewHandler("process.lua", processes),
 		component.NewHandler("btea.app.lua", terminalApps),
 	}
+}
+
+// WithTemporalClient creates and registers the Temporal client manager
+func WithTemporalClient(a *App) eventbus.EventHandler {
+	// Create data converter, you can customize it here
+	dc := dataconverter.NewDataConverter(a.dtt, converter.GetDefaultDataConverter())
+
+	// Create manager with required dependencies
+	manager := client.NewClientManagerWithFactory(
+		a.logger.Named("temporal.client"),
+		client.NewDefaultClientFactory(),
+		dc,
+	)
+
+	// Register handler for Temporal client entries
+	return reghandler.NewRegistryHandler("temporal.client", manager)
 }

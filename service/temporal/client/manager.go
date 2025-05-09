@@ -27,7 +27,6 @@ type Manager struct {
 	mu       sync.RWMutex
 	configs  map[registry.ID]*api.ClientConfig
 	services map[registry.ID]*Client
-	tqMap    map[registry.ID][]registry.ID // Tracks task queues using each client
 }
 
 // NewClientManager creates a new client manager instance
@@ -43,7 +42,6 @@ func NewClientManagerWithFactory(logger *zap.Logger, factory ClientFactory, dc c
 		dc:       dc,
 		configs:  make(map[registry.ID]*api.ClientConfig),
 		services: make(map[registry.ID]*Client),
-		tqMap:    make(map[registry.ID][]registry.ID),
 	}
 }
 
@@ -74,6 +72,27 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unexpected entry kind: %s", entry.Kind)
 	}
 
+	// Make sure transcoder is initialized
+	if m.dtt == nil {
+		m.dtt = payload.GetTranscoder(ctx)
+		if m.dtt == nil {
+			return fmt.Errorf("transcoder is not available, service might not be fully initialized")
+		}
+	}
+
+	// Make sure the bus is initialized
+	if m.bus == nil {
+		m.bus = event.GetBus(ctx)
+		if m.bus == nil {
+			return fmt.Errorf("event bus is not available, service might not be fully initialized")
+		}
+	}
+
+	// Print debug information
+	m.log.Debug("processing temporal client entry",
+		zap.String("id", entry.ID.String()),
+		zap.String("kind", string(entry.Kind)))
+
 	cfg, err := config.DecodeAndInitConfig[api.ClientConfig](m.dtt, entry)
 	if err != nil {
 		return fmt.Errorf("failed to decode client config: %w", err)
@@ -103,7 +122,6 @@ func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.Client
 
 	// Store configuration
 	m.configs[id] = cfg
-	m.tqMap[id] = make([]registry.ID, 0)
 
 	// Create new service
 	service, err := m.factory.CreateClient(m.log, id, dc, cfg)
@@ -153,6 +171,26 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unexpected entry kind: %s", entry.Kind)
 	}
 
+	// Make sure transcoder is initialized
+	if m.dtt == nil {
+		m.dtt = payload.GetTranscoder(ctx)
+		if m.dtt == nil {
+			return fmt.Errorf("transcoder is not available, service might not be fully initialized")
+		}
+	}
+
+	// Make sure the bus is initialized
+	if m.bus == nil {
+		m.bus = event.GetBus(ctx)
+		if m.bus == nil {
+			return fmt.Errorf("event bus is not available, service might not be fully initialized")
+		}
+	}
+
+	m.log.Debug("updating temporal client entry",
+		zap.String("id", entry.ID.String()),
+		zap.String("kind", string(entry.Kind)))
+
 	cfg, err := config.DecodeAndInitConfig[api.ClientConfig](m.dtt, entry)
 	if err != nil {
 		return fmt.Errorf("failed to decode client config: %w", err)
@@ -197,6 +235,18 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unexpected entry kind: %s", entry.Kind)
 	}
 
+	// Make sure bus is initialized
+	if m.bus == nil {
+		m.bus = event.GetBus(ctx)
+		if m.bus == nil {
+			return fmt.Errorf("event bus is not available, service might not be fully initialized")
+		}
+	}
+
+	m.log.Debug("deleting temporal client entry",
+		zap.String("id", entry.ID.String()),
+		zap.String("kind", string(entry.Kind)))
+
 	return m.DeleteClient(ctx, entry.ID)
 }
 
@@ -207,11 +257,6 @@ func (m *Manager) DeleteClient(ctx context.Context, id registry.ID) error {
 
 	if _, exists := m.configs[id]; !exists {
 		return fmt.Errorf("client config %s not found", id)
-	}
-
-	// Check if there are active task queues
-	if tqs := m.tqMap[id]; len(tqs) > 0 {
-		return fmt.Errorf("client %s still has %d active task queues", id, len(tqs))
 	}
 
 	// Unregister from supervisor
@@ -231,7 +276,6 @@ func (m *Manager) DeleteClient(ctx context.Context, id registry.ID) error {
 
 	delete(m.configs, id)
 	delete(m.services, id)
-	delete(m.tqMap, id)
 
 	m.log.Info("deleted client", zap.String("id", id.String()))
 	return nil
@@ -267,43 +311,6 @@ func (m *Manager) Has(id registry.ID) bool {
 	return exists
 }
 
-// RegisterTaskQueue adds a task queue to the client's registry
-func (m *Manager) RegisterTaskQueue(clientID registry.ID, queueID registry.ID) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, exists := m.services[clientID]; !exists {
-		return fmt.Errorf("client %s not initialized", clientID)
-	}
-
-	// Add to tracking map
-	m.tqMap[clientID] = append(m.tqMap[clientID], queueID)
-	return nil
-}
-
-// UnregisterTaskQueue removes a task queue from the client's registry
-func (m *Manager) UnregisterTaskQueue(clientID registry.ID, queueID registry.ID) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	queues, exists := m.tqMap[clientID]
-	if !exists {
-		return fmt.Errorf("client %s not found", clientID)
-	}
-
-	// Remove from tracking map
-	for i, id := range queues {
-		if id == queueID {
-			// Remove by swapping with last element and truncating
-			queues[i] = queues[len(queues)-1]
-			m.tqMap[clientID] = queues[:len(queues)-1]
-			return nil
-		}
-	}
-
-	return fmt.Errorf("task queue %s not found for client %s", queueID, clientID)
-}
-
 // GetTaskQueueName applies the client's prefix to a task queue name
 func (m *Manager) GetTaskQueueName(clientID registry.ID, queueName string) (string, error) {
 	client, err := m.GetClient(clientID)
@@ -311,17 +318,4 @@ func (m *Manager) GetTaskQueueName(clientID registry.ID, queueName string) (stri
 		return "", err
 	}
 	return client.GetTaskQueueName(queueName), nil
-}
-
-// GetActiveTaskQueues returns the number of task queues associated with a client
-func (m *Manager) GetActiveTaskQueues(clientID registry.ID) int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	queues, exists := m.tqMap[clientID]
-	if !exists {
-		return 0
-	}
-
-	return len(queues)
 }
