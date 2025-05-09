@@ -133,3 +133,11 @@ entries:
     file: "./app/data/app.db"
     lifecycle:
       auto_start: true
+
+  - name: temporal
+    kind: temporal.client
+    meta:
+      comment: "Default Temporal service."
+    connect:
+      address: "localhost:7233"
+      namespace: "default"
