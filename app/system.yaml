@@ -141,3 +141,14 @@ entries:
     connect:
       address: "localhost:7233"
       namespace: "default"
+    auth:
+      type: "none"
+    health_check:
+      interval: 60s
+      enabled: true
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 3
+        backoff_factor: 1.5

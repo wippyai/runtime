@@ -1,6 +1,7 @@
 package temporal
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -64,6 +65,43 @@ type AuthConfig struct {
 type HealthCheckConfig struct {
 	Interval time.Duration `json:"interval"` // How often to check client health
 	Enabled  bool          `json:"enabled"`  // Whether health check is enabled
+}
+
+// UnmarshalJSON implements custom unmarshaling for HealthCheckConfig to handle time.Duration fields.
+func (c *HealthCheckConfig) UnmarshalJSON(data []byte) error {
+	type Alias HealthCheckConfig
+	aux := &struct {
+		Interval string `json:"interval"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	var err error
+	if aux.Interval != "" {
+		c.Interval, err = time.ParseDuration(aux.Interval)
+		if err != nil {
+			return fmt.Errorf("invalid Interval duration format: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements custom marshaling for HealthCheckConfig to handle time.Duration fields.
+func (c *HealthCheckConfig) MarshalJSON() ([]byte, error) {
+	type Alias HealthCheckConfig
+	return json.Marshal(&struct {
+		Interval string `json:"interval"`
+		*Alias
+	}{
+		Interval: c.Interval.String(),
+		Alias:    (*Alias)(c),
+	})
 }
 
 // InitDefaults initializes the ClientConfig with default values
