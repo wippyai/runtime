@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,57 +41,6 @@ type Client struct {
 	exit       chan struct{}
 }
 
-// NewClient creates a new client service instance
-func NewClient(
-	logger *zap.Logger,
-	id registry.ID,
-	dc converter.DataConverter,
-	config *api.ClientConfig,
-) *Client {
-	return &Client{
-		log:            logger,
-		id:             id,
-		dc:             dc,
-		config:         config,
-		tqPrefix:       config.TQPrefix,
-		healthInterval: config.HealthCheck.Interval,
-		healthEnabled:  config.HealthCheck.Enabled,
-		statusChan:     make(chan any, 3), // Buffer for status updates
-		exit:           make(chan struct{}),
-	}
-}
-
-func (s *Client) OnContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, api.ClientCtx, s)
-}
-
-func FromContext(ctx context.Context) *Client {
-	if c, ok := ctx.Value(api.ClientCtx).(*Client); ok {
-		return c
-	}
-	return nil
-}
-
-func (s *Client) ID() registry.ID {
-	return s.id
-}
-
-func (s *Client) Context() context.Context {
-	return s.ctx
-}
-
-// GetTaskQueueName applies prefix to a task queue name if configured
-func (s *Client) GetTaskQueueName(name string) string {
-	if s.tqPrefix == "" {
-		return name
-	}
-	// Only apply prefix if it's not already there
-	if strings.HasPrefix(name, s.tqPrefix) {
-		return name
-	}
-	return s.tqPrefix + name
-}
-
 // Start implements supervisor.Service interface
 func (s *Client) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
@@ -103,36 +53,10 @@ func (s *Client) Start(ctx context.Context) (<-chan any, error) {
 		}
 	}
 
-	// Create client options
-	options := client.Options{
-		HostPort:      s.config.Connect.Address,
-		Namespace:     s.config.Connect.Namespace,
-		Logger:        newZapLogger(s.log),
-		DataConverter: s.dc,
-	}
-
-	// Configure authentication based on type
-	switch s.config.Auth.Type {
-	case api.AuthTypeAPIKey:
-		apiKey, err := resolveAPIKey(s.config.Auth)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve API key: %w", err)
-		}
-
-		// Set API key in client options
-		options.HeadersProvider = func(ctx context.Context) map[string]string {
-			return map[string]string{
-				"Authorization": "Bearer " + apiKey,
-			}
-		}
-
-	case api.AuthTypeTLS:
-		// TLS authentication would be configured here
-		// This would typically involve setting up certificates
-		s.log.Warn("TLS authentication is not fully implemented yet")
-
-	case api.AuthTypeNone:
-		// No authentication needed
+	// Build client options with our configuration
+	options, err := BuildClientOptions(s.config, s.log, s.dc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build client options: %w", err)
 	}
 
 	// Create temporal client
@@ -146,6 +70,9 @@ func (s *Client) Start(ctx context.Context) (<-chan any, error) {
 
 	// verify client connectivity
 	if i, err := s.client.WorkflowService().GetSystemInfo(ctx, nil); err != nil {
+		// Close the client if we can't connect
+		s.client.Close()
+		s.client = nil
 		return nil, fmt.Errorf("failed to verify client connectivity: %w", err)
 	} else {
 		s.log.Info("temporal client started",
@@ -214,6 +141,41 @@ func (s *Client) Stop(ctx context.Context) error {
 
 	s.mu.Unlock()
 	return nil
+}
+
+// ID returns the registry ID of the client
+func (s *Client) ID() registry.ID {
+	return s.id
+}
+
+// Context returns the context of the client
+func (s *Client) Context() context.Context {
+	return s.ctx
+}
+
+// OnContext adds client reference to context
+func (s *Client) OnContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, api.ClientCtx, s)
+}
+
+// FromContext extracts client from context
+func FromContext(ctx context.Context) *Client {
+	if c, ok := ctx.Value(api.ClientCtx).(*Client); ok {
+		return c
+	}
+	return nil
+}
+
+// GetTaskQueueName applies prefix to a task queue name if configured
+func (s *Client) GetTaskQueueName(name string) string {
+	if s.tqPrefix == "" {
+		return name
+	}
+	// Only apply prefix if it's not already there
+	if strings.HasPrefix(name, s.tqPrefix) {
+		return name
+	}
+	return s.tqPrefix + name
 }
 
 // GetClient returns the temporal client instance
@@ -341,5 +303,6 @@ func (r *clientResource) Release() {
 
 // Ensure Client implements required interfaces
 var (
-	_ resource.Provider = (*Client)(nil)
+	_ resource.Provider  = (*Client)(nil)
+	_ supervisor.Service = (*Client)(nil)
 )
