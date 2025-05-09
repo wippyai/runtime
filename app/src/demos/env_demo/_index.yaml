@@ -17,11 +17,19 @@ entries:
       size: 2
       workers: 4
 
+  - name: envmemory
+    kind: env.storage
+    meta:
+      type: envstorage
+      comment: Memory storage for environment variables
+    type: memory
+
   - name: env_demo.endpoint
     kind: http.endpoint
     meta:
       comment: "ENV demo endpoint"
-    method: POST
+      router: system:api
+    method: GET
     path: /env/demo
     func: env_demo
 

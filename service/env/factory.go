@@ -9,9 +9,7 @@ import (
 )
 
 type EnvStorageFactoryAPI interface {
-	CreateMemoryEnvStorage(kind registry.Kind, cfg *env2.StorageMemoryConfig, log *zap.Logger) (*MemoryStorage, error)
-
-	//CreateFileEnvStorage(kind registry.Kind, cfg *env2.StorageMemoryConfig) (*FileStorage, error)
+	CreateMemoryEnvStorage(kind registry.Kind, cfg *env2.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error)
 }
 
 type DefaultEnvStorageFactory struct{}
@@ -20,15 +18,17 @@ func NewDefaultEnvStorageFactory() *DefaultEnvStorageFactory {
 	return &DefaultEnvStorageFactory{}
 }
 
-func (f *DefaultEnvStorageFactory) CreateMemoryEnvStorage(kind registry.Kind, cfg *env2.StorageMemoryConfig, log *zap.Logger) (*MemoryStorage, error) {
+func (f *DefaultEnvStorageFactory) CreateMemoryEnvStorage(kind registry.Kind, cfg *env2.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	storage := NewMemoryStorage(nil, log)
+	defaultValues := map[string]string{
+		"OPENAI_API_KEY": "OPENAI_API_KEY-test",
+		"OPENAI_API_URL": "OPENAI_API_URL-test",
+	}
+
+	storage := NewMemoryStorage(defaultValues, log)
 
 	return storage, nil
 }
-
-//func (f *DefaultEnvStorageFactory) CreateFileEnvStorage() {
-//}

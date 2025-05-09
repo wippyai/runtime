@@ -879,7 +879,7 @@ func WithS3Manager(a *App) eventbus.EventHandler {
 }
 
 func WithEnvManager(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("env", env2.NewManager(
+	return reghandler.NewRegistryHandler("env.*", env2.NewManager(
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("env"),

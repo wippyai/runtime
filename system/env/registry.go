@@ -12,12 +12,17 @@ import (
 	"go.uber.org/zap"
 )
 
+type EnvValue struct {
+	value string
+}
+
 type Registry struct {
 	ctx        context.Context
 	log        *zap.Logger
 	bus        event.Bus
 	storages   sync.Map // map[event.Path]env.Storage
 	variables  sync.Map // map[name]env.Variable
+	values     sync.Map // map[name]Value
 	subscriber *eventbus.Subscriber
 }
 
@@ -46,11 +51,19 @@ func (s *Registry) Stop() error {
 }
 
 func (s *Registry) handleEvent(e event.Event) {
+	s.log.Info("received", zap.Any("event", e))
+
 	switch e.Kind {
 	case env.StorageRegister:
 		s.registerStorage(e)
 	case env.StorageDelete:
 		s.deleteStorage(e)
+	case env.VariableRegister:
+		s.registerVariable(e)
+	case env.VariableDelete:
+		// TODO
+	case env.VariableUpdate:
+		// TODO
 	case registry.Accept, registry.Reject:
 		// nothing, self emitted
 	default:
@@ -72,27 +85,6 @@ func (s *Registry) registerStorage(e event.Event) {
 	}
 
 	s.storages.Store(e.Path, storage)
-
-	variables, err := storage.List(s.ctx)
-	if err != nil {
-		s.log.Error("failed to list storage variables",
-			zap.String("storage", e.Path),
-			zap.Error(err))
-		s.sendReject(e.Path, "failed to list storage variables")
-		return
-	}
-
-	for name, value := range variables {
-		s.variables.Store(name, env.Variable{
-			Name:         name,
-			EnvName:      name,
-			DefaultValue: value,
-			StorageID:    e.Path,
-			Meta:         registry.Metadata{}, // TODO
-			ReadOnly:     true,                // TODO
-		})
-	}
-
 	s.log.Debug("storage registered", zap.String("storage", e.Path))
 	s.sendAccept(e.Path)
 }
@@ -114,6 +106,23 @@ func (s *Registry) deleteStorage(e event.Event) {
 	})
 
 	s.log.Debug("storage removed", zap.String("storage", e.Path))
+	s.sendAccept(e.Path)
+}
+
+func (s *Registry) registerVariable(e event.Event) {
+	variable, ok := e.Data.(env.Variable)
+	if !ok {
+		s.log.Error("invalid variable payload",
+			zap.String("type", fmt.Sprintf("%T", e.Data)),
+			zap.Any("event", e))
+		s.sendReject(e.Path, "invalid variable data type")
+		return
+	}
+
+	s.variables.Store(variable.Name, variable)
+	s.log.Debug("variable registered",
+		zap.String("name", variable.Name),
+		zap.String("storage", variable.StorageID))
 	s.sendAccept(e.Path)
 }
 
@@ -155,33 +164,45 @@ func (s *Registry) All(ctx context.Context) ([]env.Storage, error) {
 
 // Get retrieves an environment variable by name from a specific storage
 func (s *Registry) Get(ctx context.Context, name string) (string, error) {
-	// storage, err := s.GetStorage(ctx, storageName)
-	// if err != nil {
-	// 	return "", fmt.Errorf("failed to get storage %s: %w", storageName, err)
-	// }
+	s.log.Info("getting environment variable",
+		zap.String("name", name))
 
-	var value string
+	var valueDeclaration env.Variable
 	var found bool
 
-	s.storages.Range(func(key, value interface{}) bool {
-		storage := value.(env.Storage)
-		v, err := storage.Get(ctx, name)
-		if err == nil && v != "" {
-			value = v
+	s.variables.Range(func(key, value interface{}) bool {
+		declaration := value.(env.Variable)
+		if declaration.Name == name {
+			valueDeclaration = declaration
 			found = true
-			return false // Stop iteration after finding value
+			return false
 		}
-		return true // Continue iteration if not found
+		return true
 	})
 
 	if !found {
+		s.log.Error("variable not found", zap.String("name", name))
 		return "", env.ErrVariableNotFound
 	}
 
-	// value, err := storage.Get(ctx, name)
-	// if err != nil {
-	// 	return "", fmt.Errorf("failed to get variable %s from storage %s: %w", name, storageName, err)
-	// }
+	storedStorage, found := s.storages.Load(valueDeclaration.StorageID)
+	if !found {
+		s.log.Error("storage not found", zap.String("storage", valueDeclaration.StorageID))
+		return "", fmt.Errorf("storage %s not found", valueDeclaration.StorageID)
+	}
+
+	storage, ok := storedStorage.(env.Storage)
+	if !ok {
+		s.log.Error("invalid storage type", zap.String("storage", valueDeclaration.StorageID))
+		return "", fmt.Errorf("invalid storage type for %s", valueDeclaration.StorageID)
+	}
+
+	value, err := storage.Get(ctx, valueDeclaration.EnvName)
+	if err != nil {
+		s.log.Error("failed to get variable", zap.String("name", name), zap.Error(err))
+		return "", fmt.Errorf("failed to get variable %s from storage %s: %w",
+			valueDeclaration.EnvName, valueDeclaration.StorageID, err)
+	}
 
 	return value, nil
 }

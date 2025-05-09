@@ -5,7 +5,7 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 )
 
-type StorageMemoryConfig struct {
+type CreateMemoryEnvStorageConfig struct {
 	Name string `json:"name"`
 
 	Kind registry.Kind `json:"kind"`
@@ -16,7 +16,7 @@ type StorageMemoryConfig struct {
 }
 
 // Validate checks if the configuration is valid.
-func (c *StorageMemoryConfig) Validate() error {
+func (c *CreateMemoryEnvStorageConfig) Validate() error {
 	return nil
 }
 

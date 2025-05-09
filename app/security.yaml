@@ -67,10 +67,3 @@ entries:
     cleanup_interval: 10m
     lifecycle:
       auto_start: true
-
-  - name: env
-    kind: env.memory
-    meta:
-      type: env
-    groups:
-      - app:user

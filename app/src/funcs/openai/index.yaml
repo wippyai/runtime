@@ -32,27 +32,14 @@ entries:
 #      test: wippy.test:test
 #      llm_query: app.funcs.openai:llm_query
 
-  - name: envmemory
-    kind: env.memory
-    meta:
-      type: env
-      comment: Memory storage for environment variables
-    lifecycle:
-      auto_start: true
-
-
-  - name: memory
-    kind: envstorage.memory
-    meta:
-      type: envstorage
-      comment: Memory storage for environment variables
-
   - name: openai_api_key
     kind: env.variable
     meta:
       type: secret_key
+      depends_on:
+        - memory
     variable: OPENAI_API_KEY
-    storage: app.funcs.openai:memory
+    storage: memory
     default:
     readonly: true # no overwrite from runtime
 
@@ -60,8 +47,10 @@ entries:
     kind: env.variable
     meta:
       type: secret_key
+      depends_on:
+        - memory
     variable: OPENAI_API_URL
-    storage: app.funcs.openai:memory
+    storage: memory
     default:
     readonly: true # no overwrite from runtime
 

@@ -4,30 +4,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/resource"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/supervisor"
 )
 
 const (
-	// System identifies the environment system in the event bus
 	System event.System = "env"
 
-	// StorageRegister is sent TO env service to register
-	StorageRegister event.Kind = "env.storage.register"
-	// StorageDelete is sent TO env service to delete a storage backend
-	StorageDelete event.Kind = "env.storage.delete"
+	StorageRegister  event.Kind = "env.storageregister"
+	StorageDelete    event.Kind = "env.storagedelete"
+	VariableRegister event.Kind = "env.variableregister"
+	VariableDelete   event.Kind = "env.variabledelete"
+	VariableUpdate   event.Kind = "env.variableupdate"
 )
 
-// Registry kind constants for different SQL database types
 const (
-	// KindMemory identifies a Memory ENV store
-	KindMemory registry.Kind = "env.memory"
-
-	// KindFile identifies a File ENV store
-	KindFile registry.Kind = "env.file"
+	KindVariable registry.Kind = "env.variable"
+	KindMemory   registry.Kind = "env.storage"
+	KindFile     registry.Kind = "env.storage.file"
 )
 
 // Common errors returned by the env package
