@@ -6,10 +6,8 @@ import (
 	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/service/temporal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -18,28 +16,22 @@ import (
 
 // Manager handles temporal service events
 type Manager struct {
-	log       *zap.Logger
-	bus       event.Bus
-	dtt       payload.Transcoder
-	resources resource.Registry
-	factory   HostFactory
-	hosts     sync.Map // map[registry.ID]WorkerHost
+	log     *zap.Logger
+	bus     event.Bus
+	factory HostFactory
+	hosts   sync.Map // map[registry.ID]WorkerHost
 }
 
-// NewManagerWithFactory creates a new temporal service manager with a custom task queue factory
-func NewManagerWithFactory(
+// NewManager creates a new temporal service manager with a custom task queue factory
+func NewManager(
 	bus event.Bus,
-	dtt payload.Transcoder,
-	resources resource.Registry,
 	logger *zap.Logger,
 	factory HostFactory,
 ) *Manager {
 	return &Manager{
-		log:       logger,
-		bus:       bus,
-		dtt:       dtt,
-		resources: resources,
-		factory:   factory,
+		log:     logger,
+		bus:     bus,
+		factory: factory,
 	}
 }
 
