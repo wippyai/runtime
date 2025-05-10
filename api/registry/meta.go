@@ -75,6 +75,10 @@ func (m Metadata) MapValue(key string) Metadata {
 		if m, ok := v.(Metadata); ok {
 			return m
 		}
+
+		if m, ok := v.(map[string]any); ok {
+			return m
+		}
 	}
 	return nil
 }

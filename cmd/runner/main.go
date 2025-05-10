@@ -617,6 +617,7 @@ func main() {
 		WithTemporalClient(app),
 		WithTemporalSystem(app),
 		WithTemporalWorkers(app),
+		WithTemporalFunctions(app),
 	)...)
 	// --------------------------------------------------
 
@@ -1050,4 +1051,17 @@ func WithTemporalSystem(a *App) eventbus.EventHandler {
 func WithTemporalWorkers(a *App) eventbus.EventHandler {
 	manager := temporalaux.NewWorkerManager(a.eventBus, a.dtt, a.logger.Named("temporal.workers"))
 	return reghandler.NewRegistryHandler("temporal.worker", manager)
+}
+
+// WithTemporalFunctions creates and registers the Temporal function listener
+// to automatically register Lua functions as Temporal activities when appropriately tagged
+func WithTemporalFunctions(a *App) eventbus.EventHandler {
+	// Create the function listener
+	functionListener := temporalaux.NewFunctionListener(
+		a.eventBus,
+		a.logger.Named("temporal.functions"),
+	)
+
+	// This handler listens for all function.* registry events
+	return functionListener
 }
