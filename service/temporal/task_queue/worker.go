@@ -47,6 +47,7 @@ type DefaultWorkerFactory struct{}
 
 // temporalWorker wraps the Temporal worker implementation
 type temporalWorker struct {
+	ctx          context.Context
 	worker       worker.Worker
 	logger       *zap.Logger
 	funcRegistry function.Registry
@@ -73,6 +74,7 @@ func (f *DefaultWorkerFactory) CreateWorker(
 
 	// Create worker wrapper
 	tw := &temporalWorker{
+		ctx:          ctx,
 		worker:       w,
 		logger:       logger,
 		funcRegistry: funcRegistry,
@@ -159,7 +161,8 @@ func (w *temporalWorker) registerActivity(reg *temporal.ActivityRegistration, na
 // This is used for ID-based function calls
 func (w *temporalWorker) handleFunctionRegistryActivity(id registry.ID) func(ctx context.Context, input payload.Payloads) (payload.Payloads, error) {
 	return func(ctx context.Context, input payload.Payloads) (payload.Payloads, error) {
-		resultCh, err := w.funcRegistry.Call(ctx, runtime.Task{ID: id, Payloads: input})
+		// todo: mix activity context as well
+		resultCh, err := w.funcRegistry.Call(w.ctx, runtime.Task{ID: id, Payloads: input})
 		if err != nil {
 			return nil, err
 		}
