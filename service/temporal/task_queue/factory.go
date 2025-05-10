@@ -41,8 +41,8 @@ type DefaultFactory struct {
 	logger *zap.Logger
 }
 
-// NewDefaultTaskQueueFactory creates a new DefaultFactory with the provided logger
-func NewDefaultTaskQueueFactory(logger *zap.Logger) *DefaultFactory {
+// NewDefaultHostFactory creates a new DefaultFactory with the provided logger
+func NewDefaultHostFactory(logger *zap.Logger) *DefaultFactory {
 	return &DefaultFactory{
 		logger: logger,
 	}

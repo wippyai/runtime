@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/service/temporal/client"
 	"github.com/ponyruntime/pony/service/temporal/dataconverter"
+	temporal "github.com/ponyruntime/pony/service/temporal/task_queue"
 	"go.temporal.io/sdk/converter"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -613,6 +614,7 @@ func main() {
 		WithNativeExecutor(app),
 		WithJetTemplates(app),
 		WithTemporalClient(app),
+		WithTemporalHosts(app),
 	)...)
 	// --------------------------------------------------
 
@@ -1029,4 +1031,16 @@ func WithTemporalClient(a *App) eventbus.EventHandler {
 
 	// Register handler for Temporal client entries
 	return reghandler.NewRegistryHandler("temporal.client", manager)
+}
+
+// WithTemporalHosts creates and registers the Temporal hosts manager
+func WithTemporalHosts(a *App) eventbus.EventHandler {
+	// Create manager with required dependencies
+	manager := temporal.NewManager(
+		a.eventBus,
+		a.logger.Named("temporal"),
+		temporal.NewDefaultHostFactory(a.logger.Named("temporal.host")),
+	)
+
+	return manager
 }
