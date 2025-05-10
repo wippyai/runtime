@@ -8,9 +8,7 @@ entries:
       comment: "Simple data processing function"
       temporal_activity:
         name: "ProcessData"
-        task_queue: "system:simple_queue" #todO: make auto register work!
-      #depends_on:
-      #  - system:simple_queue
+        task_queue: "system:simple_queue"
     source: file://process_data.lua
     method: handler
     modules: [ "json" ]
