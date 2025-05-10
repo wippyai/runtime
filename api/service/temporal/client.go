@@ -9,12 +9,6 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 )
 
-// Registry kind constants for Temporal service components
-const (
-	// KindClient identifies a temporal client component
-	KindClient registry.Kind = "temporal.client"
-)
-
 // AuthType represents the authentication type for Temporal connection
 type AuthType string
 
