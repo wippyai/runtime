@@ -1,5 +1,5 @@
 version: "1.0"
-namespace: app.demos.snake
+#namespace: app.demos.snake
 
 meta:
   depends_on: [ "ns:system", "ns:wippy.lib" ]

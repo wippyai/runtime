@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/ponyruntime/pony/api/payload"
@@ -30,6 +31,13 @@ const (
 	CmdWorkerFailed = "worker_failed"
 )
 
+// workerState holds all worker-related state, allowing atomic updates
+type workerState struct {
+	worker    Worker
+	interrupt chan interface{}
+	done      chan struct{}
+}
+
 // WorkerHost implements the WorkerHostAPI interface for Temporal task queues
 type WorkerHost struct {
 	id       registry.ID
@@ -41,17 +49,16 @@ type WorkerHost struct {
 
 	// Client is acquired from resources when needed
 	clientResource resource.Resource[any]
-	client         atomic.Value // holds tmcli.Client
+	client         atomic.Pointer[tmcli.Client]
 	clientPrefix   string
 
 	// Command channel for worker operations
-	cmdCh   chan command
-	done    chan struct{}
-	running atomic.Bool
+	cmdCh    chan command
+	hostDone chan struct{}
+	running  atomic.Bool
 
-	// Worker handling
-	currentWorker    Worker
-	currentInterrupt chan interface{}
+	// Worker handling - all worker state in a single atomic pointer
+	workerState atomic.Pointer[workerState]
 
 	// Workflow and Activity registry - using name as key
 	workflows  map[string]*temporal.WorkflowRegistration
@@ -80,15 +87,22 @@ func NewTaskQueueHost(config *temporal.TaskQueueRegistration, logger *zap.Logger
 		id:            config.ID,
 		config:        config,
 		log:           logger.With(zap.String("task_queue", config.TaskQueue)),
-		statusCh:      make(chan any, 10),
-		cmdCh:         make(chan command, 10),
-		done:          make(chan struct{}),
 		workflows:     make(map[string]*temporal.WorkflowRegistration),
 		activities:    make(map[string]*temporal.ActivityRegistration),
 		workerFactory: &DefaultWorkerFactory{},
 	}
+
+	// Initialize empty worker state
+	emptyState := &workerState{
+		worker:    nil,
+		interrupt: nil,
+		done:      nil,
+	}
+	host.workerState.Store(emptyState)
+
 	// Explicitly initialize running to false
 	host.running.Store(false)
+
 	return host
 }
 
@@ -102,7 +116,7 @@ func (h *WorkerHost) Update(config *temporal.TaskQueueRegistration) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.log.Info("Updating task queue host configuration")
+	h.log.Info("updating task queue host configuration")
 	h.config = config
 
 	// If the worker is running, we'll need to rebuild it
@@ -138,23 +152,26 @@ func (h *WorkerHost) Start(ctx context.Context) (<-chan any, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.log.Info("Starting task queue host")
+	h.log.Info("starting task queue host")
 
 	// Store the parent context
 	h.ctx = ctx
+	h.cmdCh = make(chan command)
+	h.hostDone = make(chan struct{})
+	h.statusCh = make(chan any, 10)
 
 	// Get client from resource system when starting
 	temporalClient, err := h.acquireClient(h.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to acquire client: %w", err)
 	}
-	h.client.Store(temporalClient)
+	h.client.Store(&temporalClient)
 
 	// Start the worker management goroutine
 	go h.workerManager()
 
-	h.log.Info("Task queue host started successfully")
-	h.statusCh <- "Task queue host started"
+	h.log.Info("task queue host started successfully")
+	h.statusCh <- "task queue host started"
 
 	return h.statusCh, nil
 }
@@ -162,60 +179,58 @@ func (h *WorkerHost) Start(ctx context.Context) (<-chan any, error) {
 // Stop gracefully stops the task queue host
 func (h *WorkerHost) Stop(ctx context.Context) error {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	h.log.Info("Stopping task queue host")
+	h.log.Info("stopping task queue host")
 
 	// Set running to false
 	h.running.Store(false)
 
 	// Close command channel to signal worker manager to stop
 	close(h.cmdCh)
+	h.mu.Unlock()
 
 	// Wait for worker manager to exit
 	select {
-	case <-h.done:
+	case <-h.hostDone:
 		// Worker manager exited cleanly
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 
-	h.log.Info("Task queue host stopped successfully")
+	h.log.Info("task queue host stopped successfully")
 	return nil
 }
 
 // workerManager is the main goroutine that manages worker lifecycle
 func (h *WorkerHost) workerManager() {
-	defer close(h.done)
+	defer close(h.hostDone)
+	defer close(h.statusCh)
 
 	// Initial worker creation
 	if err := h.rebuildWorker(); err != nil {
-		h.log.Error("Failed to build initial worker", zap.Error(err))
+		h.log.Error("failed to build initial worker", zap.Error(err))
 		if h.statusCh != nil {
 			h.statusCh <- err.Error()
-			close(h.statusCh)
-			h.statusCh = nil
 		}
-		h.running.Store(false) // Ensure running is set to false on error
+		h.running.Store(false)
 		return
 	}
 
 	for {
 		select {
 		case <-h.ctx.Done():
-			h.log.Debug("Worker manager stopping due to context cancellation")
-			h.stopWorker()
+			h.log.Debug("worker manager stopping due to context cancellation")
+			h.stopWorker(h.ctx)
 			h.releaseClient()
-			h.running.Store(false) // Set running to false when stopping
+			h.running.Store(false)
 			return
 
 		case cmd, ok := <-h.cmdCh:
 			if !ok {
 				// Command channel closed, stop the worker manager
-				h.log.Debug("Worker manager stopping due to command channel close")
-				h.stopWorker()
+				h.log.Debug("worker manager stopping due to command channel close")
+				h.stopWorker(h.ctx)
 				h.releaseClient()
-				h.running.Store(false) // Set running to false when stopping
+				h.running.Store(false)
 				return
 			}
 
@@ -271,17 +286,15 @@ func (h *WorkerHost) workerManager() {
 					errObj = fmt.Errorf("worker failed with unknown error")
 				}
 
-				h.log.Error("Worker failed", zap.Error(errObj))
+				h.log.Error("worker failed", zap.Error(errObj))
 				if h.statusCh != nil {
 					h.statusCh <- errObj.Error()
-					close(h.statusCh)
-					h.statusCh = nil
 				}
 
 				// Clean up and exit the worker manager
-				h.stopWorker()
+				h.stopWorker(h.ctx)
 				h.releaseClient()
-				h.running.Store(false) // Set running to false on worker failure
+				h.running.Store(false)
 				return
 			}
 
@@ -289,27 +302,66 @@ func (h *WorkerHost) workerManager() {
 			select {
 			case cmd.respC <- resp:
 			default:
-				h.log.Warn("Failed to send command response", zap.String("cmd", cmd.cmd))
+				h.log.Warn("failed to send command response", zap.String("cmd", cmd.cmd))
 			}
 
 			// Rebuild worker if needed
 			if needsRebuild {
 				if err := h.rebuildWorker(); err != nil {
-					h.log.Error("Failed to rebuild worker", zap.Error(err))
+					h.log.Error("failed to rebuild worker", zap.Error(err))
 				}
 			}
 		}
 	}
 }
 
-// stopWorker gracefully stops the current worker if it exists
-func (h *WorkerHost) stopWorker() {
-	if h.currentWorker != nil && h.currentInterrupt != nil {
-		h.log.Info("Stopping worker")
-		close(h.currentInterrupt)
-		h.currentWorker = nil
-		h.currentInterrupt = nil
+// stopWorker gracefully stops the current worker if it exists and waits for it to exit
+func (h *WorkerHost) stopWorker(ctx context.Context) {
+	// Get current worker state
+	state := h.workerState.Load()
+	if state == nil || state.worker == nil || state.interrupt == nil || state.done == nil {
+		return
 	}
+
+	h.log.Info("stopping worker")
+
+	// Create a cleanup context with timeout
+	cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Create a notification channel for this stop operation
+	stopComplete := make(chan struct{})
+
+	// Close the interrupt channel to signal worker to stop
+	close(state.interrupt)
+
+	// Wait for worker to exit or timeout
+	go func() {
+		// Wait for worker goroutine to signal completion
+		select {
+		case <-state.done:
+			close(stopComplete)
+		case <-cleanupCtx.Done():
+			h.log.Warn("timed out waiting for worker to stop")
+			close(stopComplete)
+		}
+	}()
+
+	// Wait for either worker to stop or timeout
+	select {
+	case <-stopComplete:
+		h.log.Info("worker stopped successfully")
+	case <-ctx.Done():
+		h.log.Warn("context cancelled while waiting for worker to stop")
+	}
+
+	// Store an empty worker state with atomic swap
+	emptyState := &workerState{
+		worker:    nil,
+		interrupt: nil,
+		done:      nil,
+	}
+	h.workerState.Swap(emptyState)
 }
 
 // releaseClient releases the client resource
@@ -318,35 +370,32 @@ func (h *WorkerHost) releaseClient() {
 	defer h.mu.Unlock()
 
 	if h.clientResource != nil {
-		h.log.Debug("Releasing client resource")
+		h.log.Debug("releasing client resource")
 		h.clientResource.Release()
 		h.clientResource = nil
-		h.client.Store(nil)
-	}
-
-	if h.statusCh != nil {
-		close(h.statusCh)
-		h.statusCh = nil
+		h.client.Store(nil) // Reset the client pointer
 	}
 }
 
 // rebuildWorker creates a new worker instance and registers all workflows and activities
 func (h *WorkerHost) rebuildWorker() error {
-	h.log.Info("Building worker")
+	h.log.Info("building worker")
 
-	// Get client from atomic value
-	clientVal := h.client.Load()
-	if clientVal == nil {
+	// Get client
+	clientPtr := h.client.Load()
+	if clientPtr == nil {
 		return fmt.Errorf("client not available")
 	}
-	temporalClient := clientVal.(tmcli.Client)
+	temporalClient := *clientPtr
+
+	// Get current worker state and prepare to replace it
+	oldState := h.workerState.Load()
 
 	// Create a new interrupt channel for this worker
 	interruptCh := make(chan interface{})
 
-	// If there's an existing worker, prepare to stop it after the new one starts
-	oldWorker := h.currentWorker
-	oldInterrupt := h.currentInterrupt
+	// Create a new done channel for this worker
+	doneCh := make(chan struct{})
 
 	// Create worker with workflows and activities
 	h.mu.RLock()
@@ -365,11 +414,18 @@ func (h *WorkerHost) rebuildWorker() error {
 		return fmt.Errorf("failed to create worker: %w", err)
 	}
 
+	// Create the new worker state
+	newState := &workerState{
+		worker:    worker,
+		interrupt: interruptCh,
+		done:      doneCh,
+	}
+
 	// Start the worker in a separate goroutine
 	go func() {
-		h.log.Info("Starting worker")
+		h.log.Info("starting worker")
 		if err := worker.Run(interruptCh); err != nil {
-			h.log.Error("Worker failed", zap.Error(err))
+			h.log.Error("worker failed", zap.Error(err))
 
 			// Send failure notification to main loop
 			respC := make(chan cmdResponse, 1)
@@ -388,21 +444,33 @@ func (h *WorkerHost) rebuildWorker() error {
 			}
 		}
 
-		h.log.Info("Worker stopped")
+		h.log.Info("worker stopped")
+		// Signal that this worker has stopped
+		close(doneCh)
 	}()
 
-	// Update current worker reference
-	h.currentWorker = worker
-	h.currentInterrupt = interruptCh
+	// Atomically swap in the new worker state
+	h.workerState.Swap(newState)
 
 	// Stop old worker after new one is started
-	if oldWorker != nil && oldInterrupt != nil {
-		h.log.Info("Stopping old worker")
-		close(oldInterrupt)
+	if oldState != nil && oldState.worker != nil && oldState.interrupt != nil && oldState.done != nil {
+		h.log.Info("stopping old worker")
+		close(oldState.interrupt)
+
+		// Wait for old worker to exit with a timeout
+		cleanupCtx, cancel := context.WithTimeout(h.ctx, 10*time.Second)
+		defer cancel()
+
+		select {
+		case <-oldState.done:
+			h.log.Info("old worker stopped successfully")
+		case <-cleanupCtx.Done():
+			h.log.Warn("timed out waiting for old worker to stop")
+		}
 	}
 
 	h.running.Store(true)
-	h.log.Info("Worker built successfully")
+	h.log.Info("worker built successfully")
 	return nil
 }
 
@@ -546,11 +614,11 @@ func (h *WorkerHost) DeleteActivityByName(ctx context.Context, activityName stri
 
 // Launch implements process.Delegated by starting a workflow based on the PID
 func (h *WorkerHost) Launch(ctx context.Context, pid pubsub.PID, lifecycle process.Lifecycle, input payload.Payloads) (pubsub.PID, error) {
-	clientVal := h.client.Load()
-	if clientVal == nil {
+	clientPtr := h.client.Load()
+	if clientPtr == nil {
 		return pubsub.PID{}, fmt.Errorf("task queue host not started")
 	}
-	temporalClient := clientVal.(tmcli.Client)
+	temporalClient := *clientPtr
 
 	// Generate a UUID v4 for the PID if not provided
 	if pid.UniqID == "" {
@@ -561,7 +629,7 @@ func (h *WorkerHost) Launch(ctx context.Context, pid pubsub.PID, lifecycle proce
 		pid.UniqID = u.String()
 	}
 
-	h.log.Info("Launch workflow request received",
+	h.log.Info("launch workflow request received",
 		zap.String("pid", pid.String()),
 		zap.Int("payloads", len(input)))
 
@@ -594,7 +662,7 @@ func (h *WorkerHost) Launch(ctx context.Context, pid pubsub.PID, lifecycle proce
 		return pubsub.PID{}, fmt.Errorf("failed to launch workflow: %w", err)
 	}
 
-	h.log.Info("Workflow launched",
+	h.log.Info("workflow launched",
 		zap.String("pid", pid.String()),
 		zap.String("run_id", run.GetRunID()))
 
@@ -603,13 +671,13 @@ func (h *WorkerHost) Launch(ctx context.Context, pid pubsub.PID, lifecycle proce
 
 // Terminate implements process.Delegated by terminating the workflow
 func (h *WorkerHost) Terminate(ctx context.Context, pid pubsub.PID) error {
-	clientVal := h.client.Load()
-	if clientVal == nil {
+	clientPtr := h.client.Load()
+	if clientPtr == nil {
 		return fmt.Errorf("task queue host not started")
 	}
-	temporalClient := clientVal.(tmcli.Client)
+	temporalClient := *clientPtr
 
-	h.log.Info("Terminate workflow request received", zap.String("pid", pid.String()))
+	h.log.Info("terminate workflow request received", zap.String("pid", pid.String()))
 
 	// Terminate the workflow via Temporal
 	err := temporalClient.TerminateWorkflow(ctx, pid.UniqID, "", "Terminated by host")
@@ -622,12 +690,12 @@ func (h *WorkerHost) Terminate(ctx context.Context, pid pubsub.PID) error {
 
 // Send implements pubsub.Host
 func (h *WorkerHost) Send(pkg *pubsub.Package) error {
-	// Get client from atomic value
-	clientVal := h.client.Load()
-	if clientVal == nil {
+	// Get client
+	clientPtr := h.client.Load()
+	if clientPtr == nil {
 		return fmt.Errorf("task queue host not started")
 	}
-	temporalClient := clientVal.(tmcli.Client)
+	temporalClient := *clientPtr
 
 	// Look for workflow by target ID (using name)
 	h.mu.RLock()
@@ -636,7 +704,7 @@ func (h *WorkerHost) Send(pkg *pubsub.Package) error {
 	h.mu.RUnlock()
 
 	if pkg.Target.UniqID == "" {
-		h.log.Warn("Cannot send signal to workflow without instance ID")
+		h.log.Warn("cannot send signal to workflow without instance ID")
 		return fmt.Errorf("cannot send signal to workflow without instance ID")
 	}
 
@@ -650,13 +718,13 @@ func (h *WorkerHost) Send(pkg *pubsub.Package) error {
 
 			err := temporalClient.CancelWorkflow(h.ctx, pkg.Target.UniqID, "")
 			if err != nil {
-				h.log.Warn("Failed to cancel workflow",
+				h.log.Warn("failed to cancel workflow",
 					zap.String("workflow_id", pkg.Target.UniqID),
 					zap.Error(err))
 				return fmt.Errorf("failed to cancel workflow: %w", err)
 			}
 
-			h.log.Info("Workflow cancelled", zap.String("workflow_id", pkg.Target.UniqID))
+			h.log.Info("workflow cancelled", zap.String("workflow_id", pkg.Target.UniqID))
 			return nil
 		}
 
@@ -683,14 +751,14 @@ func (h *WorkerHost) Send(pkg *pubsub.Package) error {
 			)
 
 			if err != nil {
-				h.log.Error("Failed to start workflow with signal",
+				h.log.Error("failed to start workflow with signal",
 					zap.String("workflow", wfName),
 					zap.String("signal", msg.Topic),
 					zap.Error(err))
 				return fmt.Errorf("failed to start workflow with signal: %w", err)
 			}
 
-			h.log.Info("Started workflow with signal",
+			h.log.Info("started workflow with signal",
 				zap.String("workflow", wfName),
 				zap.String("workflow_id", run.GetID()),
 				zap.String("run_id", run.GetRunID()),
@@ -701,14 +769,14 @@ func (h *WorkerHost) Send(pkg *pubsub.Package) error {
 
 		err := temporalClient.SignalWorkflow(h.ctx, pkg.Target.UniqID, "", msg.Topic, msg.Payloads)
 		if err != nil {
-			h.log.Warn("Failed to send signal",
+			h.log.Warn("failed to send signal",
 				zap.String("workflow_id", pkg.Target.UniqID),
 				zap.String("signal", msg.Topic),
 				zap.Error(err))
 			return fmt.Errorf("failed to send signal: %w", err)
 		}
 
-		h.log.Debug("Signal sent",
+		h.log.Debug("signal sent",
 			zap.String("workflow_id", pkg.Target.UniqID),
 			zap.String("signal", msg.Topic))
 		return nil
@@ -719,13 +787,13 @@ func (h *WorkerHost) Send(pkg *pubsub.Package) error {
 
 // Attach implements pubsub.Host
 func (h *WorkerHost) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFunc, error) {
-	h.log.Warn("Temporal does not accept external attachments")
-	return nil, fmt.Errorf("direct channel attachment not supported for Temporal workflows")
+	h.log.Warn("temporal does not accept external attachments")
+	return nil, fmt.Errorf("direct channel attachment not supported for temporal workflows")
 }
 
 // Detach implements pubsub.Host
 func (h *WorkerHost) Detach(pid pubsub.PID) {
-	h.log.Warn("Temporal does not accept external attachments")
+	h.log.Warn("temporal does not accept external attachments")
 }
 
 // Ensure WorkerHost implements all required interfaces
