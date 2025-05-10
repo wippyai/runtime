@@ -540,6 +540,12 @@ func (m *Manager) validateActivityRegistration(reg *temporal.ActivityRegistratio
 }
 
 func (m *Manager) sendRejectEvent(ctx context.Context, kind event.Kind, source event.Event, reason string) {
+	m.log.Error("event rejected",
+		zap.String("system", source.System),
+		zap.String("kind", source.Kind),
+		zap.String("path", source.Path),
+		zap.String("reason", reason))
+
 	m.bus.Send(ctx, event.Event{
 		System: temporal.System,
 		Kind:   kind,

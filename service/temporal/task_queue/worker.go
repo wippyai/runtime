@@ -113,6 +113,9 @@ func (w *temporalWorker) registerWorkflow(reg *temporal.WorkflowRegistration, na
 	w.worker.RegisterWorkflowWithOptions(reg.Handler, workflow.RegisterOptions{
 		Name: reg.Name,
 	})
+
+	w.logger.Debug(fmt.Sprintf("registered workflow %s", name))
+
 	return nil
 }
 
@@ -131,6 +134,12 @@ func (w *temporalWorker) registerActivity(reg *temporal.ActivityRegistration, na
 				Name: reg.Name,
 			},
 		)
+
+		w.logger.Debug("registered function as activity",
+			zap.String("activity", reg.Name),
+			zap.String("function", idHandler.String()),
+			zap.String("task_queue", reg.TaskQueue.String()))
+
 		return nil
 	}
 
@@ -138,6 +147,11 @@ func (w *temporalWorker) registerActivity(reg *temporal.ActivityRegistration, na
 	w.worker.RegisterActivityWithOptions(reg.Handler, activity.RegisterOptions{
 		Name: reg.Name,
 	})
+
+	w.logger.Debug("registered activity",
+		zap.String("activity", reg.Name),
+		zap.String("task_queue", reg.TaskQueue.String()))
+
 	return nil
 }
 
