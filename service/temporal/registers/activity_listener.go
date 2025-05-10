@@ -69,7 +69,7 @@ func (l *FunctionListener) Handle(ctx context.Context, evt event.Event) error {
 // handleFunctionEntry registers a function as a Temporal activity if it has appropriate metadata
 func (l *FunctionListener) handleFunctionEntry(ctx context.Context, entry registry.Entry) error {
 	// Check if entry is a function type
-	if !isFunctionEntry(entry) {
+	if !isActivityTarget(entry) {
 		return nil
 	}
 
@@ -117,7 +117,7 @@ func (l *FunctionListener) handleFunctionEntry(ctx context.Context, entry regist
 // handleFunctionDelete handles deletion of a function
 func (l *FunctionListener) handleFunctionDelete(ctx context.Context, entry registry.Entry) error {
 	// Check if entry is a function type
-	if !isFunctionEntry(entry) {
+	if !isActivityTarget(entry) {
 		return nil
 	}
 
@@ -146,9 +146,9 @@ func (l *FunctionListener) handleFunctionDelete(ctx context.Context, entry regis
 
 // Helper methods
 
-// isFunctionEntry checks if an entry is a function type
-func isFunctionEntry(entry registry.Entry) bool {
-	return strings.HasPrefix(string(entry.Kind), "function.")
+// isActivityTarget checks if an entry is a function type
+func isActivityTarget(entry registry.Entry) bool {
+	return strings.HasPrefix(string(entry.Kind), "function.") || strings.HasPrefix(string(entry.Kind), "process.")
 }
 
 // getActivityMetadata extracts the temporal activity metadata map
