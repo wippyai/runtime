@@ -152,3 +152,12 @@ entries:
         initial_delay: 5s
         max_attempts: 3
         backoff_factor: 1.5
+
+  - name: analytics_queue
+    kind: temporal.worker
+    meta:
+      comment: "Simple task queue worker"
+    client: system:temporal
+    task_queue: "simple-task-queue-2"
+    lifecycle:
+      auto_start: true

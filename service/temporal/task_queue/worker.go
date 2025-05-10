@@ -94,7 +94,7 @@ func (f *DefaultWorkerFactory) CreateWorker(
 		}
 	}
 
-	logger.Info("Created new worker",
+	logger.Info("created new worker",
 		zap.String("task_queue", taskQueue),
 		zap.Int("workflows", len(workflows)),
 		zap.Int("activities", len(activities)))

@@ -1,5 +1,5 @@
 version: "1.0"
-namespace: app.demos.message_sending
+#namespace: app.demos.message_sending
 
 meta:
   depends_on: [ "ns:system", "ns:wippy.actor" ]
