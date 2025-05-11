@@ -5,7 +5,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/runtime/lua/command"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
@@ -45,8 +44,9 @@ func GetExecContext(ctx context.Context) interface{} {
 func (m *Module) Loader(l *lua.LState) int {
 	command.RegisterCommand(l)
 
-	mod := l.CreateTable(0, 1)
-	mod.RawSetString("request", l.NewFunction(addCommandFunc))
+	mod := l.CreateTable(0, 2)
+	mod.RawSetString("command", l.NewFunction(addCommandFunc))
+	mod.RawSetString("request", l.NewFunction(requestFunc))
 	l.Push(mod)
 
 	return 1
@@ -79,17 +79,45 @@ func addCommandFunc(l *lua.LState) int {
 
 	// Add the command to the queue
 	queue.Push(cmd)
+	l.Push(command.WrapCommand(l, cmd))
+	return 1
+}
 
-	// Wake up the unit of work to process the new command
-	uw.Tasks().WakeUp()
+// requestFunc accepts an external command and adds it to the workflow's pipeline
+// Params: command
+func requestFunc(l *lua.LState) int {
+	// Check that argument is a command
+	ud := l.CheckUserData(1)
+	cmd, ok := ud.Value.(*command.Command)
+	if !ok {
+		l.ArgError(1, "command expected")
+		return 0
+	}
 
-	// Return success
-	l.Push(lua.LBool(true))
+	// Get unit of work from context
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("no unit of work context found")
+		return 0
+	}
+
+	// Get command queue from unit of work
+	queue := GetCommandQueue(uw)
+	if queue == nil {
+		l.RaiseError("command queue not available")
+		return 0
+	}
+
+	// Add the command to the queue
+	queue.Push(cmd)
+
+	// Return the same command
+	l.Push(ud)
 	return 1
 }
 
 // commandToRuntime converts a Lua value to a runtime.Command
-func commandToRuntime(l *lua.LState, value lua.LValue) runtime.Command {
+func commandToRuntime(l *lua.LState, value lua.LValue) *command.Command {
 	// For table representation of a command
 	if table, ok := value.(*lua.LTable); ok {
 		cmdType := lua.LVAsString(table.RawGetString("type"))
@@ -112,13 +140,6 @@ func commandToRuntime(l *lua.LState, value lua.LValue) runtime.Command {
 
 		// Create a new command
 		return command.NewCommand(l, cmdType, nil, params...)
-	}
-
-	// For userdata representation (already a command)
-	if ud, ok := value.(*lua.LUserData); ok {
-		if cmd, ok := ud.Value.(runtime.Command); ok {
-			return cmd
-		}
 	}
 
 	return nil

@@ -6,6 +6,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/runtime"
 	"log"
 	"time"
 
@@ -39,11 +40,12 @@ func (f *DefinitionFactory) NewWorkflowDefinition() bindings.WorkflowDefinition 
 
 // Definition is a simple workflow definition implementation
 type Definition struct {
-	id  registry.ID
-	ctx context.Context
-	env bindings.WorkflowEnvironment
-	dc  converter.DataConverter
-	wfl process.Workflow
+	id     registry.ID
+	ctx    context.Context
+	env    bindings.WorkflowEnvironment
+	dc     converter.DataConverter
+	wfl    process.Workflow
+	result *runtime.Result
 }
 
 // Execute implements WorkflowDefinition.Execute
@@ -84,8 +86,13 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		return
 	}
 
+	// Completion callback
+	ctx := process.WithAddedOnComplete(d.ctx, func(pid pubsub.PID, result *runtime.Result) {
+		d.result = result
+	})
+
 	// Start the workflow using the runner
-	if err := d.wfl.Start(d.ctx, pid, payloads); err != nil {
+	if err := d.wfl.Start(ctx, pid, payloads); err != nil {
 		d.env.Complete(nil, err)
 		return
 	}
@@ -94,16 +101,7 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 	env.RegisterSignalHandler(func(name string, input *commonpb.Payloads, header *commonpb.Header) error {
 		log.Printf("SIGNAL!")
 
-		//values, err := w.fromPayloads(input)
-		//if err != nil {
-		//	return err
-		//}
-		//
-		//if len(values) == 0 {
-		//	return w.runner.SendValue(name, lua2.LNil)
-		//}
-		//
-		//return w.runner.SendValue(name, values[0])
+		//d.wfl.Send(pubsub.NewPackage())
 
 		return nil
 	})
@@ -111,21 +109,43 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 
 // OnWorkflowTaskStarted implements WorkflowDefinition.OnWorkflowTaskStarted
 func (d *Definition) OnWorkflowTaskStarted(timeout time.Duration) {
-	// This is just a placeholder implementation
-	// The real implementation would process workflow tasks
+	// iterate workflow until we advance internal state
+	for {
+		err := d.wfl.Step()
+		if d.result != nil {
+			res, err := d.dc.ToPayloads(payload.Payloads{d.result.Value})
+			if err != nil {
+				panic(err)
+			}
 
-	log.Printf("HELLO WORLD")
+			// we are done, ignore anything else
+			d.env.Complete(res, d.result.Error)
+			return
+		}
 
-	// For now, just complete the workflow
-	d.env.Complete(nil, nil)
+		if err != nil {
+			panic(err)
+		}
+
+		if d.wfl.Ready() == 0 {
+			break
+		}
+	}
+
+	commands := d.wfl.Commands()
+
+	for _, cmd := range commands {
+		log.Printf("Command: %s", cmd)
+	}
 }
 
 // StackTrace implements WorkflowDefinition.StackTrace
 func (d *Definition) StackTrace() string {
+	// todo: implement stack trace
 	return fmt.Sprintf("WorkflowID: %s", d.id.String())
 }
 
 // Close implements WorkflowDefinition.Close
 func (d *Definition) Close() {
-	// No resources to clean up in this simple implementation
+	d.wfl.Terminate()
 }
