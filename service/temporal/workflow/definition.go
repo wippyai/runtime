@@ -103,6 +103,11 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		//d.wfl.Send(pubsub.NewPackage())
 		return nil
 	})
+
+	env.RegisterQueryHandler(func(name string, input *commonpb.Payloads, header *commonpb.Header) (*commonpb.Payloads, error) {
+		log.Printf("QUERY! %v", name)
+		return nil, nil
+	})
 }
 
 // OnWorkflowTaskStarted implements WorkflowDefinition.OnWorkflowTaskStarted
@@ -113,6 +118,11 @@ func (d *Definition) OnWorkflowTaskStarted(timeout time.Duration) {
 		if d.result != nil {
 			if d.result.Error != nil {
 				d.env.Complete(nil, d.result.Error)
+				return
+			}
+
+			if d.result.Value == nil {
+				d.env.Complete(nil, nil)
 				return
 			}
 
