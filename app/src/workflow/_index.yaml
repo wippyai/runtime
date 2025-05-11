@@ -6,5 +6,9 @@ entries:
     kind: workflow.lua
     meta:
       comment: "Simple echo workflow"
+      temporal_workflow:
+        name: "EchoWorkflow"
+        task_queue: "system:simple_queue"
+      default_host: "system:simple_queue"
     source: file://simple.lua
     method: run

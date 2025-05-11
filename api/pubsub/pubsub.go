@@ -77,6 +77,10 @@ type (
 		Detach(PID)
 	}
 
+	TransparentHost interface {
+		Host
+	}
+
 	// Node represents a messaging node that can host and route messages between multiple hosts
 	Node interface {
 		Host

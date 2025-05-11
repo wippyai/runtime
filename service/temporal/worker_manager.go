@@ -3,7 +3,6 @@ package temporal
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
@@ -28,7 +27,7 @@ func NewWorkerManager(
 	log *zap.Logger,
 ) *WorkerManager {
 	return &WorkerManager{
-		log: log.With(zap.String("component", "temporal_worker_manager")),
+		log: log,
 		dtt: dtt,
 		bus: bus,
 	}
@@ -147,37 +146,13 @@ func (m *WorkerManager) createTaskQueueRegistration(id registry.ID, cfg *tempora
 		Identity:                cfg.WorkerOptions.Identity,
 		BuildID:                 cfg.WorkerOptions.BuildID,
 		UseBuildIDForVersioning: cfg.WorkerOptions.UseBuildIDForVersioning,
-	}
 
-	// Parse duration fields from string to time.Duration
-	if cfg.WorkerOptions.StickyScheduleToStartTimeout != "" {
-		if d, err := time.ParseDuration(cfg.WorkerOptions.StickyScheduleToStartTimeout); err == nil {
-			options.StickyScheduleToStartTimeout = d
-		}
-	}
-
-	if cfg.WorkerOptions.WorkerStopTimeout != "" {
-		if d, err := time.ParseDuration(cfg.WorkerOptions.WorkerStopTimeout); err == nil {
-			options.WorkerStopTimeout = d
-		}
-	}
-
-	if cfg.WorkerOptions.DeadlockDetectionTimeout != "" {
-		if d, err := time.ParseDuration(cfg.WorkerOptions.DeadlockDetectionTimeout); err == nil {
-			options.DeadlockDetectionTimeout = d
-		}
-	}
-
-	if cfg.WorkerOptions.MaxHeartbeatThrottleInterval != "" {
-		if d, err := time.ParseDuration(cfg.WorkerOptions.MaxHeartbeatThrottleInterval); err == nil {
-			options.MaxHeartbeatThrottleInterval = d
-		}
-	}
-
-	if cfg.WorkerOptions.DefaultHeartbeatThrottleInterval != "" {
-		if d, err := time.ParseDuration(cfg.WorkerOptions.DefaultHeartbeatThrottleInterval); err == nil {
-			options.DefaultHeartbeatThrottleInterval = d
-		}
+		// Directly assign time.Duration fields
+		StickyScheduleToStartTimeout:     cfg.WorkerOptions.StickyScheduleToStartTimeout,
+		WorkerStopTimeout:                cfg.WorkerOptions.WorkerStopTimeout,
+		DeadlockDetectionTimeout:         cfg.WorkerOptions.DeadlockDetectionTimeout,
+		MaxHeartbeatThrottleInterval:     cfg.WorkerOptions.MaxHeartbeatThrottleInterval,
+		DefaultHeartbeatThrottleInterval: cfg.WorkerOptions.DefaultHeartbeatThrottleInterval,
 	}
 
 	return &temporal.TaskQueueRegistration{

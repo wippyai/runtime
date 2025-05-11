@@ -94,7 +94,7 @@ func main() {
 
 	// Start massive parallel workflow execution
 	log.Println("Starting 700,000 workflow executions in batches of 5...")
-	startMassiveWorkflows(c, workerTaskQueue, ctx)
+	//startMassiveWorkflows(c, workerTaskQueue, ctx)
 
 	// Wait for worker to complete before exiting
 	wg.Wait()
