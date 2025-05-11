@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -26,31 +27,6 @@ type LuaDataResult struct {
 	Status    string `json:"status"`
 	Message   string `json:"message"`
 	Timestamp int64  `json:"timestamp"`
-}
-
-// SimpleActivity is a simple activity that returns a greeting (kept for backward compatibility)
-func SimpleActivity(ctx context.Context, name string) (string, error) {
-	log.Printf("SimpleActivity executed with name: %s", name)
-	return "Hello, " + name + "!", nil
-}
-
-// SimpleWorkflow is a simple workflow that executes an activity (kept for backward compatibility)
-func SimpleWorkflow(ctx workflow.Context, name string) (string, error) {
-	options := workflow.ActivityOptions{
-		StartToCloseTimeout: time.Minute,
-	}
-	ctx = workflow.WithActivityOptions(ctx, options)
-
-	var result string
-	err := workflow.ExecuteActivity(ctx, SimpleActivity, name).Get(ctx, &result)
-	if err != nil {
-		return "", err
-	}
-
-	workflow.Sleep(ctx, 5*time.Second)
-	log.Printf("Workflow completed after 5s delay")
-
-	return result, nil
 }
 
 // ProcessDataWorkflow executes the Lua activity registered as "ProcessData"
@@ -116,8 +92,9 @@ func main() {
 		startWorker(c, workerTaskQueue, ctx.Done())
 	}()
 
-	// Start workflow that calls the Lua activity
-	startWorkflow(c, workerTaskQueue)
+	// Start massive parallel workflow execution
+	log.Println("Starting 700,000 workflow executions in batches of 5...")
+	startMassiveWorkflows(c, workerTaskQueue, ctx)
 
 	// Wait for worker to complete before exiting
 	wg.Wait()
@@ -127,10 +104,8 @@ func main() {
 func startWorker(c client.Client, taskQueue string, stopCh <-chan struct{}) {
 	w := worker.New(c, taskQueue, worker.Options{})
 
-	// Register both workflows for compatibility
+	// Register only the Lua workflow
 	w.RegisterWorkflow(ProcessDataWorkflow)
-	w.RegisterWorkflow(SimpleWorkflow)
-	w.RegisterActivity(SimpleActivity)
 
 	log.Printf("Worker registered and running with task queue: %s", taskQueue)
 
@@ -152,40 +127,94 @@ func startWorker(c client.Client, taskQueue string, stopCh <-chan struct{}) {
 	}
 }
 
-func startWorkflow(c client.Client, taskQueue string) {
-	// Create input for the Lua activity
-	input := LuaDataInput{
-		ID:   "test-123",
-		Name: "Test Data Item",
+func startMassiveWorkflows(c client.Client, taskQueue string, ctx context.Context) {
+	const totalRuns = 7000000
+	const batchSize = 500
+	const logFrequency = 1000 // Log progress every 1000 batches
+
+	// Rate limiting - don't start more than this many workflows per second
+	const maxStartRate = 300 // Adjust based on your system capacity
+	rateLimiter := time.Tick(time.Second / time.Duration(maxStartRate) * time.Duration(batchSize))
+
+	var totalCompleted int64
+	var totalFailed int64
+	var completedMutex sync.Mutex
+
+	startTime := time.Now()
+
+	for batch := 0; batch < totalRuns/batchSize; batch++ {
+		select {
+		case <-ctx.Done():
+			log.Println("Context cancelled, stopping workflow execution")
+			return
+		case <-rateLimiter:
+			// Rate limiting applied
+		}
+
+		var batchWg sync.WaitGroup
+		batchWg.Add(batchSize)
+
+		// Start batch of workflows concurrently
+		for i := 0; i < batchSize; i++ {
+			go func(index int) {
+				defer batchWg.Done()
+
+				batchID := batch*batchSize + index
+				workflowID := fmt.Sprintf("process-data-workflow-%d", batchID)
+
+				// Create input for the Lua activity
+				input := LuaDataInput{
+					ID:   fmt.Sprintf("test-%d", batchID),
+					Name: fmt.Sprintf("Test Data Item %d", batchID),
+				}
+
+				workflowOptions := client.StartWorkflowOptions{
+					ID:        workflowID,
+					TaskQueue: taskQueue,
+				}
+
+				we, err := c.ExecuteWorkflow(context.Background(), workflowOptions, ProcessDataWorkflow, input)
+				if err != nil {
+					log.Printf("Failed to start workflow %s: %v", workflowID, err)
+
+					completedMutex.Lock()
+					totalFailed++
+					completedMutex.Unlock()
+					return
+				}
+
+				// Wait for workflow to complete with timeout
+				resultCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+
+				var result LuaDataResult
+				err = we.Get(resultCtx, &result)
+
+				completedMutex.Lock()
+				if err != nil {
+					totalFailed++
+				} else {
+					totalCompleted++
+				}
+
+				// Log progress periodically
+				currentBatch := batch + 1
+				if index == 0 && currentBatch%logFrequency == 0 {
+					elapsedTime := time.Since(startTime)
+					progress := float64(currentBatch*batchSize) / float64(totalRuns) * 100
+
+					log.Printf("Progress: %.2f%% (%d/%d) - Completed: %d, Failed: %d, Elapsed: %v",
+						progress, currentBatch*batchSize, totalRuns, totalCompleted, totalFailed, elapsedTime)
+				}
+				completedMutex.Unlock()
+			}(i)
+		}
+
+		// Wait for all workflows in this batch to complete
+		batchWg.Wait()
 	}
 
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        "process-data-workflow",
-		TaskQueue: taskQueue,
-	}
-
-	log.Printf("Starting workflow on task queue: %s", taskQueue)
-	we, err := c.ExecuteWorkflow(context.Background(), workflowOptions, ProcessDataWorkflow, input)
-	if err != nil {
-		log.Fatalln("Unable to execute workflow:", err)
-	}
-
-	log.Printf("Started workflow to call Lua activity, WorkflowID: %s, RunID: %s", we.GetID(), we.GetRunID())
-
-	// Set a timeout for workflow completion
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Wait for workflow completion
-	var result LuaDataResult
-	err = we.Get(ctx, &result)
-	if err != nil {
-		log.Printf("Unable to get workflow result: %v", err)
-		log.Println("Workflow may still be running, but we won't wait longer")
-	} else {
-		log.Printf("Workflow completed. Lua activity result: %+v", result)
-	}
-
-	log.Printf("Task queue used for worker: %s", taskQueue)
-	log.Printf("Task queue used for Lua activity: simple-task-queue-2")
+	totalTime := time.Since(startTime)
+	log.Printf("All workflow executions finished - Completed: %d, Failed: %d, Total time: %v",
+		totalCompleted, totalFailed, totalTime)
 }

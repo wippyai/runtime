@@ -99,6 +99,8 @@ type (
 
 	Workflow interface {
 		Process
+
+		// Commands to process and return to the workflow.
 		Commands() []runtime.Command
 	}
 
