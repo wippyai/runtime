@@ -130,16 +130,16 @@ func changesDelete(l *lua.LState) int {
 		return 0
 	}
 
-	// Get ID - parameter check, no coroutine needed
+	// Get id - parameter check, no coroutine needed
 	idVal := l.Get(2)
 	var id regapi.ID
 
 	switch v := idVal.(type) {
 	case lua.LString:
-		// Parse string ID
+		// Parse string id
 		id = regapi.ParseID(string(v))
 	case *lua.LTable:
-		// Parse table ID
+		// Parse table id
 		ns := v.RawGetString("ns")
 		name := v.RawGetString("name")
 		id = regapi.ID{
@@ -148,7 +148,7 @@ func changesDelete(l *lua.LState) int {
 		}
 	default:
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid ID format"))
+		l.Push(lua.LString("invalid id format"))
 		return 2
 	}
 

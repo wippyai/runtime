@@ -14,7 +14,7 @@ import (
 // Module provides functionality to send values upstream from Lua
 type Module struct{}
 
-// Ctx is the context key for the upstream channel
+// ctx is the context key for the upstream channel
 //
 
 var Ctx = &ctxapi.Key{Name: "upstream"}

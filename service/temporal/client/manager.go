@@ -281,7 +281,7 @@ func (m *Manager) DeleteClient(ctx context.Context, id registry.ID) error {
 	return nil
 }
 
-// GetClient retrieves an existing client by ID
+// GetClient retrieves an existing client by id
 func (m *Manager) GetClient(id registry.ID) (*Client, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -293,7 +293,7 @@ func (m *Manager) GetClient(id registry.ID) (*Client, error) {
 	return service, nil
 }
 
-// GetConfig retrieves a client config by ID
+// GetConfig retrieves a client config by id
 func (m *Manager) GetConfig(id registry.ID) (*api.ClientConfig, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

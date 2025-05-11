@@ -185,7 +185,7 @@ func (c *TaskQueueRegistration) GetLifecycleConfig() supervisor.LifecycleConfig 
 
 // WorkflowRegistration represents a request to register a workflow
 type WorkflowRegistration struct {
-	TaskQueue     registry.ID                  // ID of the task queue to use
+	TaskQueue     registry.ID                  // id of the task queue to use
 	Name          string                       // Name for the workflow registration
 	Options       *client.StartWorkflowOptions // Default options for workflow execution
 	WakeUpSignals []string                     // Signals to automatically start workflow on
@@ -194,24 +194,24 @@ type WorkflowRegistration struct {
 
 // ActivityRegistration represents a request to register an activity
 type ActivityRegistration struct {
-	TaskQueue registry.ID // ID of the task queue to use
+	TaskQueue registry.ID // id of the task queue to use
 	Name      string      // Name for the activity registration
 	Handler   any         // Optional handler for the activity
 }
 
 // TaskQueueDeletion represents a request to delete a task queue
 type TaskQueueDeletion struct {
-	TaskQueue registry.ID // Task queue ID to delete
+	TaskQueue registry.ID // Task queue id to delete
 }
 
 // WorkflowDeletion represents a request to delete a workflow
 type WorkflowDeletion struct {
-	TaskQueue    registry.ID // Task queue ID where the workflow is registered
+	TaskQueue    registry.ID // Task queue id where the workflow is registered
 	WorkflowName string      // Name of the workflow to delete
 }
 
 // ActivityDeletion represents a request to delete an activity
 type ActivityDeletion struct {
-	TaskQueue    registry.ID // Task queue ID where the activity is registered
+	TaskQueue    registry.ID // Task queue id where the activity is registered
 	ActivityName string      // Name of the activity to delete
 }

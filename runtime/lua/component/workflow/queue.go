@@ -8,8 +8,8 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 )
 
-// CommandQueueKey is used to store and retrieve the command queue from UnitOfWork
-var CommandQueueKey = &struct{ name string }{"workflow.commandQueue"}
+// commandQueueKey is used to store and retrieve the command queue from UnitOfWork
+var commandQueueKey = &struct{ name string }{"workflow.commandQueue"}
 
 // CommandQueue represents a thread-safe queue of runtime commands using container/list
 type CommandQueue struct {
@@ -58,6 +58,26 @@ func (q *CommandQueue) Count() int {
 	return q.commands.Len()
 }
 
+// Flush empties the queue and returns all commands that were in it
+func (q *CommandQueue) Flush() []runtime.Command {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	// Get all commands
+	result := make([]runtime.Command, q.commands.Len())
+
+	i := 0
+	for e := q.commands.Front(); e != nil; e = e.Next() {
+		result[i] = e.Value.(runtime.Command)
+		i++
+	}
+
+	// Clear the queue
+	q.commands.Init()
+
+	return result
+}
+
 // GetCommandQueue retrieves the command queue from UnitOfWork
 // Creates a new queue if one doesn't exist
 func GetCommandQueue(uw engine.UnitOfWork) *CommandQueue {
@@ -65,7 +85,7 @@ func GetCommandQueue(uw engine.UnitOfWork) *CommandQueue {
 		return nil
 	}
 
-	val, exists := uw.Values().Get(CommandQueueKey)
+	val, exists := uw.Values().Get(commandQueueKey)
 	if exists {
 		if queue, ok := val.(*CommandQueue); ok {
 			return queue
@@ -74,6 +94,6 @@ func GetCommandQueue(uw engine.UnitOfWork) *CommandQueue {
 
 	// Create a new queue if none exists
 	queue := NewCommandQueue()
-	uw.Values().Set(CommandQueueKey, queue)
+	uw.Values().Set(commandQueueKey, queue)
 	return queue
 }

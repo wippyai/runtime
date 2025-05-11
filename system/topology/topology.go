@@ -34,7 +34,7 @@ func (t *Topology) Send(pkg *pubsub.Package) error {
 	return t.upstream.Send(pkg)
 }
 
-// Register adds a process ID to the registry, allowing it to be monitored
+// Register adds a process id to the registry, allowing it to be monitored
 // and linked with other processes.
 func (t *Topology) Register(pid pubsub.PID) error {
 	t.registry.LoadOrStore(pid.String(), true)

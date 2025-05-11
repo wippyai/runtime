@@ -400,7 +400,7 @@ func (h *WorkerHost) rebuildWorker() error {
 	// Create worker with workflows and activities
 	h.mu.RLock()
 	worker, err := h.workerFactory.CreateWorker(
-		h.ctx,
+		pubsub.WithHost(h.ctx, h),
 		h.config,
 		temporalClient,
 		h.getQueueNameWithPrefix(h.config.TaskQueue),
@@ -646,7 +646,7 @@ func (h *WorkerHost) Launch(ctx context.Context, pid pubsub.PID, lifecycle proce
 	}
 
 	options := *wf.Options
-	options.ID = pid.UniqID // Always use the provided ID
+	options.ID = pid.UniqID // Always use the provided id
 	options.TaskQueue = queueName
 
 	// Use the workflow name
@@ -693,15 +693,15 @@ func (h *WorkerHost) Send(pkg *pubsub.Package) error {
 	}
 	temporalClient := *clientPtr
 
-	// Look for workflow by target ID (using name)
+	// Look for workflow by target id (using name)
 	h.mu.RLock()
 	wfName := pkg.Target.ID.Name
 	workflow, exists := h.workflows[wfName]
 	h.mu.RUnlock()
 
 	if pkg.Target.UniqID == "" {
-		h.log.Warn("cannot send signal to workflow without instance ID")
-		return fmt.Errorf("cannot send signal to workflow without instance ID")
+		h.log.Warn("cannot send signal to workflow without instance id")
+		return fmt.Errorf("cannot send signal to workflow without instance id")
 	}
 
 	// Process each message
@@ -709,7 +709,7 @@ func (h *WorkerHost) Send(pkg *pubsub.Package) error {
 		// Handle cancel message
 		if msg.Topic == topology.KindCancel {
 			if pkg.Target.UniqID == "" {
-				return fmt.Errorf("cancel requires workflow instance ID")
+				return fmt.Errorf("cancel requires workflow instance id")
 			}
 
 			err := temporalClient.CancelWorkflow(h.ctx, pkg.Target.UniqID, "")

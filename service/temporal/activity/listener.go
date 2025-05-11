@@ -77,7 +77,7 @@ func (l *FunctionListener) handleFunctionEntry(ctx context.Context, entry regist
 		return nil // Not a temporal activity
 	}
 
-	// Get task queue ID
+	// Get task queue id
 	taskQueueID, err := l.getTaskQueueID(activityMeta, entry.ID.NS)
 	if err != nil {
 		l.log.Warn("skipping function registration as activity",
@@ -93,7 +93,7 @@ func (l *FunctionListener) handleFunctionEntry(ctx context.Context, entry regist
 	activityReg := &temporal.ActivityRegistration{
 		TaskQueue: taskQueueID,
 		Name:      activityName,
-		Handler:   entry.ID, // Use function ID as handler
+		Handler:   entry.ID, // Use function id as handler
 	}
 
 	// Send activity registration event
@@ -159,14 +159,14 @@ func (l *FunctionListener) getActivityMetadata(entry registry.Entry) registry.Me
 	return entry.Meta.MapValue(MetaTemporalActivity)
 }
 
-// getTaskQueueID extracts and validates the task queue ID
+// getTaskQueueID extracts and validates the task queue id
 func (l *FunctionListener) getTaskQueueID(activityMeta registry.Metadata, defaultNS string) (registry.ID, error) {
 	taskQueueStr := activityMeta.StringValue(MetaActivityTaskQueue)
 	if taskQueueStr == "" {
 		return registry.ID{}, fmt.Errorf("missing required task_queue in temporal_activity metadata")
 	}
 
-	// Parse the task queue ID, inheriting namespace from function if not specified
+	// Parse the task queue id, inheriting namespace from function if not specified
 	taskQueueID := registry.ParseID(taskQueueStr)
 	if taskQueueID.NS == "" {
 		taskQueueID = taskQueueID.WithDefaultNS(defaultNS)

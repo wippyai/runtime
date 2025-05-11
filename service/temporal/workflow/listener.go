@@ -96,7 +96,7 @@ func (l *WorkflowListener) handleFunctionEntry(ctx context.Context, entry regist
 		return nil // Not a temporal workflow
 	}
 
-	// Get task queue ID
+	// Get task queue id
 	taskQueueID, err := l.getTaskQueueID(workflowMeta, entry.ID.NS)
 	if err != nil {
 		l.log.Warn("skipping workflow registration",
@@ -195,14 +195,14 @@ func (l *WorkflowListener) getWorkflowMetadata(entry registry.Entry) registry.Me
 	return entry.Meta.MapValue(MetaTemporalWorkflow)
 }
 
-// getTaskQueueID extracts and validates the task queue ID
+// getTaskQueueID extracts and validates the task queue id
 func (l *WorkflowListener) getTaskQueueID(workflowMeta registry.Metadata, defaultNS string) (registry.ID, error) {
 	taskQueueStr := workflowMeta.StringValue(MetaWorkflowTaskQueue)
 	if taskQueueStr == "" {
 		return registry.ID{}, fmt.Errorf("missing required task_queue in temporal_workflow metadata")
 	}
 
-	// Parse the task queue ID, inheriting namespace from function if not specified
+	// Parse the task queue id, inheriting namespace from function if not specified
 	taskQueueID := registry.ParseID(taskQueueStr)
 	if taskQueueID.NS == "" {
 		taskQueueID = taskQueueID.WithDefaultNS(defaultNS)

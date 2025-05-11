@@ -60,7 +60,7 @@ func GetRegistry(ctx context.Context) (Registry, bool) {
 	return reg, ok
 }
 
-// GetPolicy retrieves a policy by ID using the registry from context
+// GetPolicy retrieves a policy by id using the registry from context
 func GetPolicy(ctx context.Context, id registry.ID) (Policy, error) {
 	reg, ok := GetRegistry(ctx)
 	if !ok {
@@ -69,7 +69,7 @@ func GetPolicy(ctx context.Context, id registry.ID) (Policy, error) {
 	return reg.GetPolicy(id)
 }
 
-// GetPolicyGroup retrieves a policy group by ID using the registry from context
+// GetPolicyGroup retrieves a policy group by id using the registry from context
 func GetPolicyGroup(ctx context.Context, id registry.ID) (Scope, error) {
 	reg, ok := GetRegistry(ctx)
 	if !ok {

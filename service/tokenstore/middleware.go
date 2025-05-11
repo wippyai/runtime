@@ -17,7 +17,7 @@ const (
 	// MiddlewareName is the name to register this middleware with
 	MiddlewareName = "token_auth"
 
-	// OptionTokenStore is the option key for the token store ID
+	// OptionTokenStore is the option key for the token store id
 	OptionTokenStore = "token_store"
 
 	// OptionHeaderName is the option key for the header name

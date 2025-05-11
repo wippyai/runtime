@@ -113,7 +113,7 @@ func (o *BuildOptions) Validate(mainID registry.ID, nodes map[registry.ID]*Node)
 	// Validate nodes
 	for id := range nodes {
 		if id == mainID {
-			// Skip main ID as it is always allowed
+			// Skip main id as it is always allowed
 			continue
 		}
 

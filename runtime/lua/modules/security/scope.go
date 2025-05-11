@@ -70,7 +70,7 @@ func scopeWithout(l *lua.LState) int {
 		return 0
 	}
 
-	// Check if the policy ID is passed as string or ID object
+	// Check if the policy id is passed as string or id object
 	var policyID registry.ID
 
 	switch l.Get(2).Type() {
@@ -78,22 +78,22 @@ func scopeWithout(l *lua.LState) int {
 		idStr := l.CheckString(2)
 		policyID = registry.ParseID(idStr)
 	case lua.LTUserData:
-		// Assuming userdata might be a Policy with ID() method
+		// Assuming userdata might be a Policy with id() method
 		policyUD := l.CheckUserData(2)
 		if policy, ok := policyUD.Value.(secapi.Policy); ok {
 			policyID = policy.ID()
 		} else {
-			l.ArgError(2, "Policy or policy ID string expected")
+			l.ArgError(2, "Policy or policy id string expected")
 			return 0
 		}
 	case lua.LTTable:
-		// ID might be represented as a table with ns and name fields
+		// id might be represented as a table with ns and name fields
 		idTable := l.CheckTable(2)
 		ns := idTable.RawGetString("ns")
 		name := idTable.RawGetString("name")
 
 		if ns == lua.LNil || name == lua.LNil {
-			l.ArgError(2, "ID table must have ns and name fields")
+			l.ArgError(2, "id table must have ns and name fields")
 			return 0
 		}
 
@@ -105,7 +105,7 @@ func scopeWithout(l *lua.LState) int {
 		// FIXME rework on demand
 		fallthrough
 	default:
-		l.ArgError(2, "Policy ID expected as string, table, or policy object")
+		l.ArgError(2, "Policy id expected as string, table, or policy object")
 		return 0
 	}
 
@@ -172,7 +172,7 @@ func scopeContains(l *lua.LState) int {
 		return 0
 	}
 
-	// Get policy ID
+	// Get policy id
 	var policyID registry.ID
 
 	switch l.Get(2).Type() {
@@ -185,17 +185,17 @@ func scopeContains(l *lua.LState) int {
 		if policy, ok := policyUD.Value.(secapi.Policy); ok {
 			policyID = policy.ID()
 		} else {
-			l.ArgError(2, "Policy or policy ID string expected")
+			l.ArgError(2, "Policy or policy id string expected")
 			return 0
 		}
 	case lua.LTTable:
-		// ID might be represented as a table with ns and name fields
+		// id might be represented as a table with ns and name fields
 		idTable := l.CheckTable(2)
 		ns := idTable.RawGetString("ns")
 		name := idTable.RawGetString("name")
 
 		if ns == lua.LNil || name == lua.LNil {
-			l.ArgError(2, "ID table must have ns and name fields")
+			l.ArgError(2, "id table must have ns and name fields")
 			return 0
 		}
 
@@ -207,7 +207,7 @@ func scopeContains(l *lua.LState) int {
 		// FIXME rework on demand
 		fallthrough
 	default:
-		l.ArgError(2, "Policy ID expected as string, table, or policy object")
+		l.ArgError(2, "Policy id expected as string, table, or policy object")
 		return 0
 	}
 

@@ -25,9 +25,9 @@ func NewFinder(r registry.EntryReader) registry.Finder {
 //
 // Root fields (special prefixes):
 //   - ".kind": Match entry's Kind field (exact match)
-//   - ".name": Match entry's ID.Name field (exact match)
-//   - ".ns": Match entry's ID.Namespace field (exact match)
-//   - ".id": Match entry's full ID (exact match)
+//   - ".name": Match entry's id.Name field (exact match)
+//   - ".ns": Match entry's id.Namespace field (exact match)
+//   - ".id": Match entry's full id (exact match)
 //
 // Metadata field matching operators:
 //   - "field" or "meta.field": Standard equality match for the field
@@ -187,7 +187,7 @@ func matchesAllCriteria(
 				return false
 			}
 		case "id":
-			// Match the full ID string
+			// Match the full id string
 			fullID := entry.ID.NS + ":" + entry.ID.Name
 			if strVal, ok := value.(string); ok && fullID != strVal {
 				return false

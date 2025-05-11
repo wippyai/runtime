@@ -18,7 +18,7 @@ type Node struct {
 	upstream atomic.Pointer[api.Receiver] // Parent plane
 }
 
-// NewNode creates a new messaging node with the specified node ID and optional
+// NewNode creates a new messaging node with the specified node id and optional
 // upstream receiver. If upstream is not nil, the node will forward messages
 // to it when they are destined for other nodes.
 func NewNode(nodeID api.NodeID, upstream *api.Receiver) *Node {
