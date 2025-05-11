@@ -1,4 +1,4 @@
-package temporal
+package activity
 
 import (
 	"context"
@@ -15,9 +15,7 @@ import (
 // Function metadata keys
 const (
 	// MetaTemporalActivity is the metadata key for temporal activity configuration
-	MetaTemporalActivity = "temporal_activity"
-
-	// Activity config keys within the temporal_activity map
+	MetaTemporalActivity  = "temporal_activity"
 	MetaActivityName      = "name"
 	MetaActivityTaskQueue = "task_queue"
 )

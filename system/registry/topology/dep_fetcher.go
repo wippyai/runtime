@@ -21,6 +21,8 @@ var DependencyPaths = []PathConfig{
 	{Path: "meta.groups", Description: "Group membership list in metadata", AllowWildcard: true},
 	{Path: "data.server", Description: "Reference to HTTP server in data section"},
 	{Path: "meta.temporal_activity.task_queue", Description: "Task queue for Temporal activity"},
+	{Path: "meta.host", Description: "Reference to a host component in metadata"},
+	{Path: "meta.default_host", Description: "Reference to the default host component in metadata"},
 	{Path: "data.router", Description: "Reference to router component in data section"},
 	{Path: "data.fs", Description: "Reference to filesystem"},
 	{Path: "data.store", Description: "Reference to a store (e.g., 'session')"},

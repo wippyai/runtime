@@ -3,6 +3,7 @@ package temporal
 import (
 	"context"
 	"fmt"
+	temporaltq "github.com/ponyruntime/pony/service/temporal/task_queue"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
@@ -14,21 +15,21 @@ import (
 	"go.uber.org/zap"
 )
 
-// Manager handles temporal service events
-type Manager struct {
+// System handles temporal service events
+type System struct {
 	log     *zap.Logger
 	bus     event.Bus
-	factory HostFactory
+	factory temporaltq.HostFactory
 	hosts   sync.Map // map[registry.ID]WorkerHost
 }
 
-// NewManager creates a new temporal service manager with a custom task queue factory
-func NewManager(
+// NewSystem creates a new temporal service manager with a custom task queue factory
+func NewSystem(
 	bus event.Bus,
 	logger *zap.Logger,
-	factory HostFactory,
-) *Manager {
-	return &Manager{
+	factory temporaltq.HostFactory,
+) *System {
+	return &System{
 		log:     logger,
 		bus:     bus,
 		factory: factory,
@@ -36,12 +37,12 @@ func NewManager(
 }
 
 // Pattern returns the event matching criteria for this handler
-func (m *Manager) Pattern() eventbus.Pattern {
+func (m *System) Pattern() eventbus.Pattern {
 	return eventbus.Pattern{System: temporal.System, Kind: "*"}
 }
 
 // Handle processes temporal system events
-func (m *Manager) Handle(ctx context.Context, evt event.Event) error {
+func (m *System) Handle(ctx context.Context, evt event.Event) error {
 	if evt.System != temporal.System {
 		return nil // Ignore non-temporal events
 	}
@@ -78,7 +79,7 @@ func (m *Manager) Handle(ctx context.Context, evt event.Event) error {
 
 // Task Queue Handlers
 
-func (m *Manager) handleTaskQueueRegister(ctx context.Context, evt event.Event) error {
+func (m *System) handleTaskQueueRegister(ctx context.Context, evt event.Event) error {
 	// Parse task queue registration from event
 	registration, ok := evt.Data.(*temporal.TaskQueueRegistration)
 	if !ok {
@@ -122,7 +123,7 @@ func (m *Manager) handleTaskQueueRegister(ctx context.Context, evt event.Event) 
 		System: pubsub.System,
 		Kind:   pubsub.HostRegister,
 		Path:   registration.ID.String(),
-		Data:   pubsub.Host(host),
+		Data:   pubsub.TransparentHost(host),
 	})
 
 	// Register with supervisor
@@ -151,7 +152,7 @@ func (m *Manager) handleTaskQueueRegister(ctx context.Context, evt event.Event) 
 	return nil
 }
 
-func (m *Manager) handleTaskQueueUpdate(ctx context.Context, evt event.Event) error {
+func (m *System) handleTaskQueueUpdate(ctx context.Context, evt event.Event) error {
 	// Parse task queue registration from event
 	registration, ok := evt.Data.(*temporal.TaskQueueRegistration)
 	if !ok {
@@ -172,7 +173,7 @@ func (m *Manager) handleTaskQueueUpdate(ctx context.Context, evt event.Event) er
 		return fmt.Errorf("task queue %s not found", registration.ID.String())
 	}
 
-	host, ok := hostValue.(WorkerHostAPI)
+	host, ok := hostValue.(temporaltq.WorkerHostAPI)
 	if !ok {
 		m.sendRejectEvent(ctx, temporal.TaskQueueReject, evt,
 			fmt.Sprintf("invalid host type for %s", registration.ID.String()))
@@ -211,7 +212,7 @@ func (m *Manager) handleTaskQueueUpdate(ctx context.Context, evt event.Event) er
 	return nil
 }
 
-func (m *Manager) handleTaskQueueDelete(ctx context.Context, evt event.Event) error {
+func (m *System) handleTaskQueueDelete(ctx context.Context, evt event.Event) error {
 	// Parse task queue deletion from event
 	deletion, ok := evt.Data.(*temporal.TaskQueueDeletion)
 	if !ok {
@@ -253,7 +254,7 @@ func (m *Manager) handleTaskQueueDelete(ctx context.Context, evt event.Event) er
 
 // Workflow Handlers
 
-func (m *Manager) handleWorkflowRegister(ctx context.Context, evt event.Event) error {
+func (m *System) handleWorkflowRegister(ctx context.Context, evt event.Event) error {
 	// Parse workflow registration from event
 	registration, ok := evt.Data.(*temporal.WorkflowRegistration)
 	if !ok {
@@ -274,7 +275,7 @@ func (m *Manager) handleWorkflowRegister(ctx context.Context, evt event.Event) e
 		return fmt.Errorf("task queue %s not found", registration.TaskQueue.String())
 	}
 
-	host, ok := hostValue.(WorkerHostAPI)
+	host, ok := hostValue.(temporaltq.WorkerHostAPI)
 	if !ok {
 		m.sendRejectEvent(ctx, temporal.WorkflowReject, evt,
 			fmt.Sprintf("invalid host type for %s", registration.TaskQueue.String()))
@@ -303,7 +304,7 @@ func (m *Manager) handleWorkflowRegister(ctx context.Context, evt event.Event) e
 	return nil
 }
 
-func (m *Manager) handleWorkflowUpdate(ctx context.Context, evt event.Event) error {
+func (m *System) handleWorkflowUpdate(ctx context.Context, evt event.Event) error {
 	// Parse workflow registration from event
 	registration, ok := evt.Data.(*temporal.WorkflowRegistration)
 	if !ok {
@@ -324,7 +325,7 @@ func (m *Manager) handleWorkflowUpdate(ctx context.Context, evt event.Event) err
 		return fmt.Errorf("task queue %s not found", registration.TaskQueue.String())
 	}
 
-	host, ok := hostValue.(WorkerHostAPI)
+	host, ok := hostValue.(temporaltq.WorkerHostAPI)
 	if !ok {
 		m.sendRejectEvent(ctx, temporal.WorkflowReject, evt,
 			fmt.Sprintf("invalid host type for %s", registration.TaskQueue.String()))
@@ -353,7 +354,7 @@ func (m *Manager) handleWorkflowUpdate(ctx context.Context, evt event.Event) err
 	return nil
 }
 
-func (m *Manager) handleWorkflowDelete(ctx context.Context, evt event.Event) error {
+func (m *System) handleWorkflowDelete(ctx context.Context, evt event.Event) error {
 	// Parse workflow deletion from event
 	deletion, ok := evt.Data.(*temporal.WorkflowDeletion)
 	if !ok {
@@ -366,7 +367,7 @@ func (m *Manager) handleWorkflowDelete(ctx context.Context, evt event.Event) err
 		return fmt.Errorf("task queue %s not found", deletion.TaskQueue.String())
 	}
 
-	host, ok := hostValue.(WorkerHostAPI)
+	host, ok := hostValue.(temporaltq.WorkerHostAPI)
 	if !ok {
 		return fmt.Errorf("invalid host type for %s", deletion.TaskQueue.String())
 	}
@@ -384,7 +385,7 @@ func (m *Manager) handleWorkflowDelete(ctx context.Context, evt event.Event) err
 
 // Activity Handlers
 
-func (m *Manager) handleActivityRegister(ctx context.Context, evt event.Event) error {
+func (m *System) handleActivityRegister(ctx context.Context, evt event.Event) error {
 	// Parse activity registration from event
 	registration, ok := evt.Data.(*temporal.ActivityRegistration)
 	if !ok {
@@ -405,7 +406,7 @@ func (m *Manager) handleActivityRegister(ctx context.Context, evt event.Event) e
 		return fmt.Errorf("task queue %s not found", registration.TaskQueue.String())
 	}
 
-	host, ok := hostValue.(WorkerHostAPI)
+	host, ok := hostValue.(temporaltq.WorkerHostAPI)
 	if !ok {
 		m.sendRejectEvent(ctx, temporal.ActivityReject, evt,
 			fmt.Sprintf("invalid host type for %s", registration.TaskQueue.String()))
@@ -434,7 +435,7 @@ func (m *Manager) handleActivityRegister(ctx context.Context, evt event.Event) e
 	return nil
 }
 
-func (m *Manager) handleActivityUpdate(ctx context.Context, evt event.Event) error {
+func (m *System) handleActivityUpdate(ctx context.Context, evt event.Event) error {
 	// Parse activity registration from event
 	registration, ok := evt.Data.(*temporal.ActivityRegistration)
 	if !ok {
@@ -455,7 +456,7 @@ func (m *Manager) handleActivityUpdate(ctx context.Context, evt event.Event) err
 		return fmt.Errorf("task queue %s not found", registration.TaskQueue.String())
 	}
 
-	host, ok := hostValue.(WorkerHostAPI)
+	host, ok := hostValue.(temporaltq.WorkerHostAPI)
 	if !ok {
 		m.sendRejectEvent(ctx, temporal.ActivityReject, evt,
 			fmt.Sprintf("invalid host type for %s", registration.TaskQueue.String()))
@@ -484,7 +485,7 @@ func (m *Manager) handleActivityUpdate(ctx context.Context, evt event.Event) err
 	return nil
 }
 
-func (m *Manager) handleActivityDelete(ctx context.Context, evt event.Event) error {
+func (m *System) handleActivityDelete(ctx context.Context, evt event.Event) error {
 	// Parse activity deletion from event
 	deletion, ok := evt.Data.(*temporal.ActivityDeletion)
 	if !ok {
@@ -497,7 +498,7 @@ func (m *Manager) handleActivityDelete(ctx context.Context, evt event.Event) err
 		return fmt.Errorf("task queue %s not found", deletion.TaskQueue.String())
 	}
 
-	host, ok := hostValue.(WorkerHostAPI)
+	host, ok := hostValue.(temporaltq.WorkerHostAPI)
 	if !ok {
 		return fmt.Errorf("invalid host type for %s", deletion.TaskQueue.String())
 	}
@@ -515,7 +516,7 @@ func (m *Manager) handleActivityDelete(ctx context.Context, evt event.Event) err
 
 // Helper methods
 
-func (m *Manager) validateWorkflowRegistration(reg *temporal.WorkflowRegistration) error {
+func (m *System) validateWorkflowRegistration(reg *temporal.WorkflowRegistration) error {
 	if reg.Name == "" {
 		return fmt.Errorf("workflow name cannot be empty")
 	}
@@ -527,7 +528,7 @@ func (m *Manager) validateWorkflowRegistration(reg *temporal.WorkflowRegistratio
 	return nil
 }
 
-func (m *Manager) validateActivityRegistration(reg *temporal.ActivityRegistration) error {
+func (m *System) validateActivityRegistration(reg *temporal.ActivityRegistration) error {
 	if reg.Name == "" {
 		return fmt.Errorf("activity name cannot be empty")
 	}
@@ -539,7 +540,7 @@ func (m *Manager) validateActivityRegistration(reg *temporal.ActivityRegistratio
 	return nil
 }
 
-func (m *Manager) sendRejectEvent(ctx context.Context, kind event.Kind, source event.Event, reason string) {
+func (m *System) sendRejectEvent(ctx context.Context, kind event.Kind, source event.Event, reason string) {
 	m.log.Error("event rejected",
 		zap.String("system", source.System),
 		zap.String("kind", source.Kind),
@@ -554,5 +555,5 @@ func (m *Manager) sendRejectEvent(ctx context.Context, kind event.Kind, source e
 	})
 }
 
-// Ensure Manager implements EventHandler interface
-var _ eventbus.EventHandler = (*Manager)(nil)
+// Ensure System implements EventHandler interface
+var _ eventbus.EventHandler = (*System)(nil)

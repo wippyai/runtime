@@ -1,6 +1,7 @@
 package temporal
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -41,12 +42,12 @@ type WorkerOptionsConfig struct {
 	WorkerLocalActivitiesPerSecond float64 `json:"worker_local_activities_per_second,omitempty"`
 	TaskQueueActivitiesPerSecond   float64 `json:"task_queue_activities_per_second,omitempty"`
 
-	// Timeouts and intervals (as string durations, will be parsed)
-	StickyScheduleToStartTimeout     string `json:"sticky_schedule_to_start_timeout,omitempty"`
-	WorkerStopTimeout                string `json:"worker_stop_timeout,omitempty"`
-	DeadlockDetectionTimeout         string `json:"deadlock_detection_timeout,omitempty"`
-	MaxHeartbeatThrottleInterval     string `json:"max_heartbeat_throttle_interval,omitempty"`
-	DefaultHeartbeatThrottleInterval string `json:"default_heartbeat_throttle_interval,omitempty"`
+	// Timeouts and intervals (as time.Duration)
+	StickyScheduleToStartTimeout     time.Duration `json:"sticky_schedule_to_start_timeout,omitempty"`
+	WorkerStopTimeout                time.Duration `json:"worker_stop_timeout,omitempty"`
+	DeadlockDetectionTimeout         time.Duration `json:"deadlock_detection_timeout,omitempty"`
+	MaxHeartbeatThrottleInterval     time.Duration `json:"max_heartbeat_throttle_interval,omitempty"`
+	DefaultHeartbeatThrottleInterval time.Duration `json:"default_heartbeat_throttle_interval,omitempty"`
 
 	// Feature flags
 	EnableLoggingInReplay       bool `json:"enable_logging_in_replay,omitempty"`
@@ -60,6 +61,92 @@ type WorkerOptionsConfig struct {
 	Identity                string `json:"identity,omitempty"`
 	BuildID                 string `json:"build_id,omitempty"`
 	UseBuildIDForVersioning bool   `json:"use_build_id_for_versioning,omitempty"`
+}
+
+// UnmarshalJSON implements custom unmarshaling for WorkerOptionsConfig to handle time.Duration fields.
+func (c *WorkerOptionsConfig) UnmarshalJSON(data []byte) error {
+	type Alias WorkerOptionsConfig
+	aux := &struct {
+		StickyScheduleToStartTimeout     string `json:"sticky_schedule_to_start_timeout,omitempty"`
+		WorkerStopTimeout                string `json:"worker_stop_timeout,omitempty"`
+		DeadlockDetectionTimeout         string `json:"deadlock_detection_timeout,omitempty"`
+		MaxHeartbeatThrottleInterval     string `json:"max_heartbeat_throttle_interval,omitempty"`
+		DefaultHeartbeatThrottleInterval string `json:"default_heartbeat_throttle_interval,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	var err error
+
+	if aux.StickyScheduleToStartTimeout != "" {
+		c.StickyScheduleToStartTimeout, err = time.ParseDuration(aux.StickyScheduleToStartTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid StickyScheduleToStartTimeout duration format: %w", err)
+		}
+	}
+
+	if aux.WorkerStopTimeout != "" {
+		c.WorkerStopTimeout, err = time.ParseDuration(aux.WorkerStopTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid WorkerStopTimeout duration format: %w", err)
+		}
+	}
+
+	if aux.DeadlockDetectionTimeout != "" {
+		c.DeadlockDetectionTimeout, err = time.ParseDuration(aux.DeadlockDetectionTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid DeadlockDetectionTimeout duration format: %w", err)
+		}
+	}
+
+	if aux.MaxHeartbeatThrottleInterval != "" {
+		c.MaxHeartbeatThrottleInterval, err = time.ParseDuration(aux.MaxHeartbeatThrottleInterval)
+		if err != nil {
+			return fmt.Errorf("invalid MaxHeartbeatThrottleInterval duration format: %w", err)
+		}
+	}
+
+	if aux.DefaultHeartbeatThrottleInterval != "" {
+		c.DefaultHeartbeatThrottleInterval, err = time.ParseDuration(aux.DefaultHeartbeatThrottleInterval)
+		if err != nil {
+			return fmt.Errorf("invalid DefaultHeartbeatThrottleInterval duration format: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements custom marshaling for WorkerOptionsConfig to handle time.Duration fields.
+func (c *WorkerOptionsConfig) MarshalJSON() ([]byte, error) {
+	type Alias WorkerOptionsConfig
+	return json.Marshal(&struct {
+		StickyScheduleToStartTimeout     string `json:"sticky_schedule_to_start_timeout,omitempty"`
+		WorkerStopTimeout                string `json:"worker_stop_timeout,omitempty"`
+		DeadlockDetectionTimeout         string `json:"deadlock_detection_timeout,omitempty"`
+		MaxHeartbeatThrottleInterval     string `json:"max_heartbeat_throttle_interval,omitempty"`
+		DefaultHeartbeatThrottleInterval string `json:"default_heartbeat_throttle_interval,omitempty"`
+		*Alias
+	}{
+		StickyScheduleToStartTimeout:     durationToString(c.StickyScheduleToStartTimeout),
+		WorkerStopTimeout:                durationToString(c.WorkerStopTimeout),
+		DeadlockDetectionTimeout:         durationToString(c.DeadlockDetectionTimeout),
+		MaxHeartbeatThrottleInterval:     durationToString(c.MaxHeartbeatThrottleInterval),
+		DefaultHeartbeatThrottleInterval: durationToString(c.DefaultHeartbeatThrottleInterval),
+		Alias:                            (*Alias)(c),
+	})
+}
+
+// Helper function to convert duration to string, but only if it's not zero
+func durationToString(d time.Duration) string {
+	if d == 0 {
+		return ""
+	}
+	return d.String()
 }
 
 // InitDefaults initializes default values for WorkerConfig
@@ -80,8 +167,8 @@ func (c *WorkerConfig) InitDefaults() {
 	if c.WorkerOptions.MaxConcurrentSessionExecutionSize <= 0 {
 		c.WorkerOptions.MaxConcurrentSessionExecutionSize = 1000
 	}
-	if c.WorkerOptions.StickyScheduleToStartTimeout == "" {
-		c.WorkerOptions.StickyScheduleToStartTimeout = "5s"
+	if c.WorkerOptions.StickyScheduleToStartTimeout == 0 {
+		c.WorkerOptions.StickyScheduleToStartTimeout = 5 * time.Second
 	}
 	if c.WorkerOptions.MaxConcurrentActivityTaskPollers <= 0 {
 		c.WorkerOptions.MaxConcurrentActivityTaskPollers = 2
@@ -128,37 +215,6 @@ func (c *WorkerConfig) Validate() error {
 	// Cannot disable both workflow and activity workers
 	if c.WorkerOptions.DisableWorkflowWorker && c.WorkerOptions.LocalActivityWorkerOnly {
 		return fmt.Errorf("cannot set both DisableWorkflowWorker and LocalActivityWorkerOnly")
-	}
-
-	// Validate all duration fields
-	if c.WorkerOptions.StickyScheduleToStartTimeout != "" {
-		if _, err := time.ParseDuration(c.WorkerOptions.StickyScheduleToStartTimeout); err != nil {
-			return fmt.Errorf("invalid sticky schedule to start timeout: %w", err)
-		}
-	}
-
-	if c.WorkerOptions.WorkerStopTimeout != "" {
-		if _, err := time.ParseDuration(c.WorkerOptions.WorkerStopTimeout); err != nil {
-			return fmt.Errorf("invalid worker stop timeout: %w", err)
-		}
-	}
-
-	if c.WorkerOptions.DeadlockDetectionTimeout != "" {
-		if _, err := time.ParseDuration(c.WorkerOptions.DeadlockDetectionTimeout); err != nil {
-			return fmt.Errorf("invalid deadlock detection timeout: %w", err)
-		}
-	}
-
-	if c.WorkerOptions.MaxHeartbeatThrottleInterval != "" {
-		if _, err := time.ParseDuration(c.WorkerOptions.MaxHeartbeatThrottleInterval); err != nil {
-			return fmt.Errorf("invalid max heartbeat throttle interval: %w", err)
-		}
-	}
-
-	if c.WorkerOptions.DefaultHeartbeatThrottleInterval != "" {
-		if _, err := time.ParseDuration(c.WorkerOptions.DefaultHeartbeatThrottleInterval); err != nil {
-			return fmt.Errorf("invalid default heartbeat throttle interval: %w", err)
-		}
 	}
 
 	return nil

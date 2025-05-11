@@ -6,10 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/component/workflow"
+	temporalsys "github.com/ponyruntime/pony/service/temporal"
+	"github.com/ponyruntime/pony/service/temporal/activity"
 	"github.com/ponyruntime/pony/service/temporal/client"
 	"github.com/ponyruntime/pony/service/temporal/dataconverter"
-	temporalaux "github.com/ponyruntime/pony/service/temporal/registers"
 	temporal "github.com/ponyruntime/pony/service/temporal/task_queue"
+	tworkflow "github.com/ponyruntime/pony/service/temporal/workflow"
 	"go.temporal.io/sdk/converter"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -618,6 +620,7 @@ func main() {
 		WithTemporalSystem(app),
 		WithTemporalWorkers(app),
 		WithTemporalFunctions(app),
+		WithTemporalWorkflows(app),
 	)...)
 	// --------------------------------------------------
 
@@ -1041,7 +1044,7 @@ func WithTemporalClient(a *App) eventbus.EventHandler {
 // WithTemporalSystem creates and registers the Temporal hosts manager
 func WithTemporalSystem(a *App) eventbus.EventHandler {
 	// Create manager with required dependencies
-	manager := temporal.NewManager(
+	manager := temporalsys.NewSystem(
 		a.eventBus,
 		a.logger.Named("temporal"),
 		temporal.NewDefaultHostFactory(a.logger.Named("temporal.host")),
@@ -1051,19 +1054,26 @@ func WithTemporalSystem(a *App) eventbus.EventHandler {
 }
 
 func WithTemporalWorkers(a *App) eventbus.EventHandler {
-	manager := temporalaux.NewWorkerManager(a.eventBus, a.dtt, a.logger.Named("temporal.workers"))
+	manager := temporalsys.NewWorkerManager(a.eventBus, a.dtt, a.logger.Named("temporal.workers"))
 	return reghandler.NewRegistryHandler("temporal.worker", manager)
 }
 
-// WithTemporalFunctions creates and registers the Temporal function listener
-// to automatically register Lua functions as Temporal activities when appropriately tagged
 func WithTemporalFunctions(a *App) eventbus.EventHandler {
-	// Create the function listener
-	functionListener := temporalaux.NewFunctionListener(
+	functionListener := activity.NewFunctionListener(
 		a.eventBus,
 		a.logger.Named("temporal.functions"),
 	)
 
 	// This handler listens for all function.* registry events
 	return functionListener
+}
+
+func WithTemporalWorkflows(a *App) eventbus.EventHandler {
+	wflListener := tworkflow.NewWorkflowListener(
+		a.eventBus,
+		a.logger.Named("temporal.workflows"),
+	)
+
+	// This handler listens for all function.* registry events
+	return wflListener
 }

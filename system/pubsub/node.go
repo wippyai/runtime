@@ -70,6 +70,21 @@ func (n *Node) Send(pkg *api.Package) error {
 		return fmt.Errorf("host %s not found in node", pkg.Target.Host)
 	}
 
+	// Transparent hosts can manage routing for us (if represented locally), e.g. Temporal, NATS, etc
+	if h, ok := n.hosts.Load(pkg.Target.Host); ok {
+		host, ok := h.(api.TransparentHost)
+		if !ok {
+			return fmt.Errorf("host %s has invalid type", pkg.Target.Host)
+		}
+
+		err := host.Send(pkg)
+		if err != nil {
+			return fmt.Errorf("host %s failed to send package: %w", pkg.Target.Host, err)
+		}
+
+		return nil
+	}
+
 	// Handle upstream messages if we have an upstream configured
 	if upstream := n.upstream.Load(); upstream != nil {
 		return (*upstream).Send(pkg)
