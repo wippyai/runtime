@@ -2,8 +2,7 @@ package workflow
 
 import (
 	"context"
-	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
-
+	"github.com/ponyruntime/pony/runtime/lua/command"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -42,6 +41,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Create module table
 	mod := l.CreateTable(0, 5)
 
+	command.RegisterCommand(l)
+
 	// Register functions
 	mod.RawSetString("request", l.NewFunction(addCommandFunc))
 
@@ -53,24 +54,24 @@ func (m *Module) Loader(l *lua.LState) int {
 // addCommandFunc adds a command to the workflow's pipeline
 // Params: command
 func addCommandFunc(l *lua.LState) int {
-	// Get command from arguments
-	cmdValue := l.CheckAny(1)
-	cmd := commandToRuntime(l, cmdValue)
-	if cmd == nil {
-		l.ArgError(1, "command expected")
-		return 0
-	}
-
-	// Get workflow from context
-	workflow := getWorkflow(l) // todo use proper context
-	if workflow == nil {
-		return 0
-	}
-
-	// Add the command to the workflow
-	workflow.AddCommand(cmd)
-
-	// Return success
-	l.Push(lua.LBool(true))
+	//// Get command from arguments
+	//cmdValue := l.CheckAny(1)
+	//cmd := commandToRuntime(l, cmdValue)
+	//if cmd == nil {
+	//	l.ArgError(1, "command expected")
+	//	return 0
+	//}
+	//
+	//// Get workflow from context
+	//workflow := getWorkflow(l) // todo use proper context
+	//if workflow == nil {
+	//	return 0
+	//}
+	//
+	//// Add the command to the workflow
+	//workflow.AddCommand(cmd)
+	//
+	//// Return success
+	//l.Push(lua.LBool(true))
 	return 1
 }
