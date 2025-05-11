@@ -82,6 +82,7 @@ type (
 		Source  string                 `json:"source"`            // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
+		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 	}
 )
 
@@ -188,6 +189,18 @@ func (c *WorkflowConfig) Validate() error {
 		}
 		if id.Name == "" {
 			return fmt.Errorf("import :name cannot be empty")
+		}
+	}
+
+	// Validate modules
+	for _, module := range c.Modules {
+		if module == "" {
+			return fmt.Errorf("module cannot be empty")
+		}
+
+		id := registry.ParseID(module)
+		if id.NS != "" {
+			return fmt.Errorf("module cannot have a namespace")
 		}
 	}
 

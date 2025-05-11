@@ -12,3 +12,5 @@ entries:
       default_host: "system:simple_queue"
     source: file://simple.lua
     method: run
+    modules:
+      - json

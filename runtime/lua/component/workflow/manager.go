@@ -25,7 +25,11 @@ var (
 
 func init() {
 	workflowBuild = code.NewBuildOptions().
-		WithMode(code.DenyAll).
+		WithMode(code.AllowListed).
+		WithAllowed(
+			registry.ID{Name: "json"},
+			registry.ID{Name: "base64"},
+		).
 		WithPreloaded(
 			code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}},
 			code.Preload{Name: "payload", ModuleID: registry.ID{Name: "payload"}},
@@ -73,7 +77,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, nil)); err != nil {
+	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add workflow node: %w", err)
 	}
 
@@ -105,7 +109,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, nil)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to update workflow node: %w", err)
 	}
 
