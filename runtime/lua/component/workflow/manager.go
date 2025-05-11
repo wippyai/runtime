@@ -28,8 +28,8 @@ func init() {
 		WithMode(code.DenyAll).
 		WithPreloaded(
 			code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}},
-			code.Preload{Name: "workflow", ModuleID: registry.ID{Name: "workflow"}},
 			code.Preload{Name: "payload", ModuleID: registry.ID{Name: "payload"}},
+			code.Preload{Name: "workflow", ModuleID: registry.ID{Name: "workflow"}},
 		)
 
 	layers = component.WithRunnerOption(

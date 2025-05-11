@@ -1,0 +1,10 @@
+version: "1.0"
+namespace: simple
+
+entries:
+  - name: echo
+    kind: workflow.lua
+    meta:
+      comment: "Simple echo workflow"
+    source: file://simple.lua
+    method: run
