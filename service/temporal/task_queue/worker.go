@@ -15,6 +15,10 @@ import (
 	"go.uber.org/zap"
 )
 
+type ContextDefinition interface {
+	WithContext(ctx context.Context) any
+}
+
 // Worker is an interface that abstracts the Temporal worker functionality
 type Worker interface {
 	// Start the worker in a non-blocking fashion
@@ -111,8 +115,14 @@ func (w *temporalWorker) registerWorkflow(reg *temporal.WorkflowRegistration, na
 		return fmt.Errorf("workflow handler cannot be nil for %s", name)
 	}
 
+	handler := reg.Handler
+	cwf, ok := handler.(ContextDefinition)
+	if ok {
+		handler = cwf.WithContext(w.ctx) // If the workflow handler is a ContextDefinition, set the context
+	}
+
 	// Register the workflow with the worker
-	w.worker.RegisterWorkflowWithOptions(reg.Handler, workflow.RegisterOptions{
+	w.worker.RegisterWorkflowWithOptions(handler, workflow.RegisterOptions{
 		Name: reg.Name,
 	})
 
@@ -127,7 +137,7 @@ func (w *temporalWorker) registerActivity(reg *temporal.ActivityRegistration, na
 		return fmt.Errorf("activity handler cannot be nil for %s", name)
 	}
 
-	// Check if the handler is an ID (for function registry)
+	// Check if the handler is an id (for function registry)
 	if idHandler, ok := reg.Handler.(registry.ID); ok {
 		// Use function registry for executing this activity
 		w.worker.RegisterActivityWithOptions(
@@ -158,7 +168,7 @@ func (w *temporalWorker) registerActivity(reg *temporal.ActivityRegistration, na
 }
 
 // handleFunctionRegistryActivity creates an activity handler that executes a function through the registry
-// This is used for ID-based function calls
+// This is used for id-based function calls
 func (w *temporalWorker) handleFunctionRegistryActivity(id registry.ID) func(ctx context.Context, input payload.Payloads) (payload.Payloads, error) {
 	return func(ctx context.Context, input payload.Payloads) (payload.Payloads, error) {
 		// todo: mix activity context as well

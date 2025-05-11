@@ -135,7 +135,7 @@ func (m *Manager) createHandler(processID registry.ID, hostID pubsub.HostID) fun
 			return resultCh, fmt.Errorf("no pubsub node found in context")
 		}
 
-		// Generate unique ID for process caller
+		// Generate unique id for process caller
 		callerUniqID := fmt.Sprintf("processfunc-%s", task.ID.String())
 
 		// Create caller PID

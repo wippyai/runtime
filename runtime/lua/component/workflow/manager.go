@@ -44,7 +44,7 @@ type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
 	bus     event.Bus
-	configs sync.Map // map[registry.ID]*api.WorkflowConfig
+	configs sync.Map // map[registry.id]*api.WorkflowConfig
 }
 
 // NewManager creates a new workflow manager instance

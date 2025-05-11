@@ -609,7 +609,7 @@ func TestUpdateWithNullValues(t *testing.T) {
 	sql := resultTable.RawGetString("sql").String()
 	assert.Contains(t, sql, "UPDATE users SET email = ? WHERE id = ?")
 
-	// Verify args count - should be 2 (NULL value and ID)
+	// Verify args count - should be 2 (NULL value and id)
 	argsCount := int(resultTable.RawGetString("args_count").(lua.LNumber))
 	assert.Equal(t, 2, argsCount)
 

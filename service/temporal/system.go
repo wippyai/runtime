@@ -20,7 +20,7 @@ type System struct {
 	log     *zap.Logger
 	bus     event.Bus
 	factory temporaltq.HostFactory
-	hosts   sync.Map // map[registry.ID]WorkerHost
+	hosts   sync.Map // map[registry.id]WorkerHost
 }
 
 // NewSystem creates a new temporal service manager with a custom task queue factory
@@ -92,7 +92,7 @@ func (m *System) handleTaskQueueRegister(ctx context.Context, evt event.Event) e
 		return fmt.Errorf("invalid task queue registration: %w", err)
 	}
 
-	// Check if task queue ID already exists
+	// Check if task queue id already exists
 	if _, exists := m.hosts.Load(registration.ID); exists {
 		m.sendRejectEvent(ctx, temporal.TaskQueueReject, evt,
 			fmt.Sprintf("task queue %s already registered", registration.ID.String()))
@@ -267,7 +267,7 @@ func (m *System) handleWorkflowRegister(ctx context.Context, evt event.Event) er
 		return fmt.Errorf("invalid workflow registration: %w", err)
 	}
 
-	// Get the host from the hosts map using task queue ID
+	// Get the host from the hosts map using task queue id
 	hostValue, exists := m.hosts.Load(registration.TaskQueue)
 	if !exists {
 		m.sendRejectEvent(ctx, temporal.WorkflowReject, evt,
@@ -317,7 +317,7 @@ func (m *System) handleWorkflowUpdate(ctx context.Context, evt event.Event) erro
 		return fmt.Errorf("invalid workflow registration: %w", err)
 	}
 
-	// Get the host from the hosts map using task queue ID
+	// Get the host from the hosts map using task queue id
 	hostValue, exists := m.hosts.Load(registration.TaskQueue)
 	if !exists {
 		m.sendRejectEvent(ctx, temporal.WorkflowReject, evt,
@@ -361,7 +361,7 @@ func (m *System) handleWorkflowDelete(ctx context.Context, evt event.Event) erro
 		return fmt.Errorf("expected WorkflowDeletion, got %T", evt.Data)
 	}
 
-	// Get the host from the hosts map using task queue ID
+	// Get the host from the hosts map using task queue id
 	hostValue, exists := m.hosts.Load(deletion.TaskQueue)
 	if !exists {
 		return fmt.Errorf("task queue %s not found", deletion.TaskQueue.String())
@@ -398,7 +398,7 @@ func (m *System) handleActivityRegister(ctx context.Context, evt event.Event) er
 		return fmt.Errorf("invalid activity registration: %w", err)
 	}
 
-	// Get the host from the hosts map using task queue ID
+	// Get the host from the hosts map using task queue id
 	hostValue, exists := m.hosts.Load(registration.TaskQueue)
 	if !exists {
 		m.sendRejectEvent(ctx, temporal.ActivityReject, evt,
@@ -448,7 +448,7 @@ func (m *System) handleActivityUpdate(ctx context.Context, evt event.Event) erro
 		return fmt.Errorf("invalid activity registration: %w", err)
 	}
 
-	// Get the host from the hosts map using task queue ID
+	// Get the host from the hosts map using task queue id
 	hostValue, exists := m.hosts.Load(registration.TaskQueue)
 	if !exists {
 		m.sendRejectEvent(ctx, temporal.ActivityReject, evt,
@@ -492,7 +492,7 @@ func (m *System) handleActivityDelete(ctx context.Context, evt event.Event) erro
 		return fmt.Errorf("expected ActivityDeletion, got %T", evt.Data)
 	}
 
-	// Get the host from the hosts map using task queue ID
+	// Get the host from the hosts map using task queue id
 	hostValue, exists := m.hosts.Load(deletion.TaskQueue)
 	if !exists {
 		return fmt.Errorf("task queue %s not found", deletion.TaskQueue.String())

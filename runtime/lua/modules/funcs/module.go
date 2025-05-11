@@ -269,13 +269,13 @@ func (m *Module) withScope(l *lua.LState) int {
 	return 1
 }
 
-// validateRegistryID validates a registry ID
+// validateRegistryID validates a registry id
 func validateRegistryID(id registry.ID) error {
 	if id.NS == "" {
-		return fmt.Errorf("namespace is required, got empty namespace in ID: %s", id.String())
+		return fmt.Errorf("namespace is required, got empty namespace in id: %s", id.String())
 	}
 	if id.Name == "" {
-		return fmt.Errorf("name is required, got empty name in ID: %s", id.String())
+		return fmt.Errorf("name is required, got empty name in id: %s", id.String())
 	}
 	return nil
 }
@@ -296,7 +296,7 @@ func (m *Module) call(l *lua.LState) int {
 		return 0
 	}
 
-	// Get target function ID for security check
+	// Get target function id for security check
 	targetIndex := 1
 	if l.Get(1).Type() == lua.LTUserData {
 		targetIndex = 2 // Skip self parameter
@@ -309,11 +309,11 @@ func (m *Module) call(l *lua.LState) int {
 		return 2
 	}
 
-	// Parse registry ID for security check
+	// Parse registry id for security check
 	regID := registry.ParseID(target)
 	if err := validateRegistryID(regID); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("invalid registry ID: %v", err)))
+		l.Push(lua.LString(fmt.Sprintf("invalid registry id: %v", err)))
 		return 2
 	}
 
@@ -378,7 +378,7 @@ func (m *Module) async(l *lua.LState) int {
 		return 0
 	}
 
-	// Get target function ID for security check
+	// Get target function id for security check
 	targetIndex := 1
 	if l.Get(1).Type() == lua.LTUserData {
 		targetIndex = 2 // Skip self parameter
@@ -390,10 +390,10 @@ func (m *Module) async(l *lua.LState) int {
 		return 0
 	}
 
-	// Parse registry ID for security check
+	// Parse registry id for security check
 	regID := registry.ParseID(target)
 	if err := validateRegistryID(regID); err != nil {
-		l.RaiseError("invalid registry ID: %v", err)
+		l.RaiseError("invalid registry id: %v", err)
 		return 0
 	}
 
@@ -487,10 +487,10 @@ func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 		return runtime.Task{}, errors.New("target name is required")
 	}
 
-	// Parse and validate registry ID
+	// Parse and validate registry id
 	regID := registry.ParseID(target)
 	if err := validateRegistryID(regID); err != nil {
-		return runtime.Task{}, fmt.Errorf("invalid registry ID: %w", err)
+		return runtime.Task{}, fmt.Errorf("invalid registry id: %w", err)
 	}
 
 	//nolint:prealloc // ok for now

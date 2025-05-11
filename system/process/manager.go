@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/pony/api/registry"
 	"time"
 
 	api "github.com/ponyruntime/pony/api/process"
@@ -15,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// HostLookup defines an interface for finding hosts by ID
+// HostLookup defines an interface for finding hosts by id
 type HostLookup interface {
 	GetHost(hostID string) (api.Host, bool)
 }
@@ -103,6 +104,11 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PI
 	default:
 		return pubsub.PID{}, fmt.Errorf("invalid host type: %T", host)
 	}
+}
+
+// Create instantiates a new process prototype
+func (m *Manager) Create(id registry.ID) (api.Process, error) {
+	return m.prototypes.Create(id)
 }
 
 // Start launches a process, passing the lifecycle information to the host

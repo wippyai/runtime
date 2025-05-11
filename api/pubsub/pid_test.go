@@ -61,7 +61,7 @@ func TestPIDJSONMarshaling(t *testing.T) {
 				t.Errorf("Host mismatch: expected %s, got %s", tc.pid.Host, pid.Host)
 			}
 			if pid.ID.String() != tc.pid.ID.String() {
-				t.Errorf("ID mismatch: expected %s, got %s", tc.pid.ID.String(), pid.ID.String())
+				t.Errorf("id mismatch: expected %s, got %s", tc.pid.ID.String(), pid.ID.String())
 			}
 			if pid.UniqID != tc.pid.UniqID {
 				t.Errorf("UniqID mismatch: expected %s, got %s", tc.pid.UniqID, pid.UniqID)

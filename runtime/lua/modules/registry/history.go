@@ -53,7 +53,7 @@ func historyVersions(l *lua.LState) int {
 	return 2
 }
 
-// historyGetVersion retrieves a specific version by ID
+// historyGetVersion retrieves a specific version by id
 func historyGetVersion(l *lua.LState) int {
 	// Get history
 	history := checkHistory(l)
@@ -61,11 +61,11 @@ func historyGetVersion(l *lua.LState) int {
 		return 0
 	}
 
-	// Get version ID - parameter check
+	// Get version id - parameter check
 	vID := l.CheckNumber(2)
 	if vID <= 0 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid version ID"))
+		l.Push(lua.LString("invalid version id"))
 		return 2
 	}
 
