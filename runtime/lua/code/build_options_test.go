@@ -75,7 +75,7 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		nodes := map[registry.ID]*Node{
 			fooID: {ID: fooID},
 		}
-		err := opts.Validate(nodes)
+		err := opts.Validate(registry.ID{}, nodes)
 		assert.Error(t, err)
 		assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
 	})
@@ -89,7 +89,7 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		nodes := map[registry.ID]*Node{
 			fooID: {ID: fooID},
 		}
-		err := opts.Validate(nodes)
+		err := opts.Validate(registry.ID{}, nodes)
 		assert.Error(t, err)
 		assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
 	})
@@ -196,7 +196,7 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.opts.Validate(map[registry.ID]*Node{})
+			err := tt.opts.Validate(registry.ID{}, map[registry.ID]*Node{})
 			if tt.wantError {
 				assert.Error(t, err)
 				if tt.errorMsg != "" {
@@ -221,16 +221,16 @@ func TestBuildOptions_ModificationAfterSetup(t *testing.T) {
 	nodes := map[registry.ID]*Node{
 		fooID: {ID: fooID},
 	}
-	assert.NoError(t, opts.Validate(nodes))
+	assert.NoError(t, opts.Validate(registry.ID{}, nodes))
 
 	// AddCleanup new allowed Process and test
 	opts.WithAllowed(barID)
 	nodes[barID] = &Node{ID: barID}
-	assert.NoError(t, opts.Validate(nodes))
+	assert.NoError(t, opts.Validate(registry.ID{}, nodes))
 
 	// AddCleanup denied Process and test
 	opts.WithDenied(fooID)
-	err := opts.Validate(nodes)
+	err := opts.Validate(registry.ID{}, nodes)
 	assert.Error(t, err)
 	assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
 }
@@ -372,7 +372,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.opts.Validate(tt.nodes)
+			err := tt.opts.Validate(registry.ID{}, tt.nodes)
 			if tt.wantError {
 				assert.Error(t, err)
 				if tt.errorMsg != "" {
