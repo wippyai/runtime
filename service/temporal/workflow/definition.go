@@ -97,12 +97,10 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		return
 	}
 
-	// todo: register handlers
+	// Register signal handler
 	env.RegisterSignalHandler(func(name string, input *commonpb.Payloads, header *commonpb.Header) error {
 		log.Printf("SIGNAL!")
-
 		//d.wfl.Send(pubsub.NewPackage())
-
 		return nil
 	})
 }
@@ -113,13 +111,18 @@ func (d *Definition) OnWorkflowTaskStarted(timeout time.Duration) {
 	for {
 		err := d.wfl.Step()
 		if d.result != nil {
+			if d.result.Error != nil {
+				d.env.Complete(nil, d.result.Error)
+				return
+			}
+
 			res, err := d.dc.ToPayloads(payload.Payloads{d.result.Value})
 			if err != nil {
 				panic(err)
 			}
 
 			// we are done, ignore anything else
-			d.env.Complete(res, d.result.Error)
+			d.env.Complete(res, nil)
 			return
 		}
 
@@ -132,10 +135,15 @@ func (d *Definition) OnWorkflowTaskStarted(timeout time.Duration) {
 		}
 	}
 
-	commands := d.wfl.Commands()
+	// Get the transcoder for command execution
+	transcoder := payload.GetTranscoder(d.ctx)
 
+	// Process commands
+	commands := d.wfl.Commands()
 	for _, cmd := range commands {
-		log.Printf("Command: %s", cmd)
+		if err := ExecuteCommand(cmd, d.env, d.dc, transcoder); err != nil {
+			panic(fmt.Errorf("failed to execute command: %w", err))
+		}
 	}
 }
 
