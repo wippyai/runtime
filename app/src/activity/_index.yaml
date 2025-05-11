@@ -13,4 +13,4 @@ entries:
     method: handler
     modules: [ "json" ]
     pool:
-      size: 2
+      size: 20

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/component/workflow"
 	"github.com/ponyruntime/pony/service/temporal/client"
 	"github.com/ponyruntime/pony/service/temporal/dataconverter"
 	temporalaux "github.com/ponyruntime/pony/service/temporal/registers"
@@ -59,7 +60,6 @@ import (
 	topapi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/embed"
 	"github.com/ponyruntime/pony/runtime/lua/code"
-	"github.com/ponyruntime/pony/runtime/lua/command"
 	bteaapp "github.com/ponyruntime/pony/runtime/lua/component/btea"
 	funclua "github.com/ponyruntime/pony/runtime/lua/component/function"
 	"github.com/ponyruntime/pony/runtime/lua/component/library"
@@ -975,7 +975,6 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				payloadmod.NewPayloadModule(),
 				task.NewTaskModule(),
 				hash.NewHashModule(),
-				command.NewCommandModule(),
 				yamlmod.NewYAMLModule(),
 				registrymod.NewLoaderModule(a.logger.Named("loader")),
 				events.NewEventsModule(a.logger.Named("events")),
@@ -998,24 +997,26 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				cloudstorage.NewModule(),
 				system.NewSystemModule(),
 			},
-			ProtoCacheSize: 600,
-			MainCacheSize:  100,
+			ProtoCacheSize: 6000,
+			MainCacheSize:  1000,
 		},
 	)
 	if err != nil {
 		panic(err)
 	}
 
-	funcs := funclua.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
-	libraries := library.NewManager(a.logger.Named("lua.libs"), codeManager)
+	funcs := funclua.NewManager(a.logger.Named("lua.func"), codeManager, a.eventBus)
+	libraries := library.NewManager(a.logger.Named("lua.lib"), codeManager)
 	processes := proclua.NewProcessManager(a.logger.Named("lua.proc"), codeManager, a.eventBus)
-	terminalApps := bteaapp.NewBteaManager(a.logger.Named("lua.bteaapp"), codeManager, a.eventBus)
+	workflows := workflow.NewManager(a.logger.Named("lua.wf"), codeManager, a.eventBus)
+	terminalApps := bteaapp.NewBteaManager(a.logger.Named("lua.term"), codeManager, a.eventBus)
 
 	return []eventbus.EventHandler{
 		reghandler.NewTransactionHandler(codeManager),
 		component.NewHandler("function.lua", funcs),
 		component.NewHandler("library.lua", libraries),
 		component.NewHandler("process.lua", processes),
+		component.NewHandler("workflow.lua", workflows),
 		component.NewHandler("btea.app.lua", terminalApps),
 	}
 }

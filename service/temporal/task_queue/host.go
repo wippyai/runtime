@@ -457,14 +457,10 @@ func (h *WorkerHost) rebuildWorker() error {
 		h.log.Info("stopping old worker")
 		close(oldState.interrupt)
 
-		// Wait for old worker to exit with a timeout
-		cleanupCtx, cancel := context.WithTimeout(h.ctx, 10*time.Second)
-		defer cancel()
-
 		select {
 		case <-oldState.done:
 			h.log.Info("old worker stopped successfully")
-		case <-cleanupCtx.Done():
+		case <-h.ctx.Done():
 			h.log.Warn("timed out waiting for old worker to stop")
 		}
 	}
