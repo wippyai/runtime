@@ -99,13 +99,15 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 
 	// Register signal handler
 	env.RegisterSignalHandler(func(name string, input *commonpb.Payloads, header *commonpb.Header) error {
-		log.Printf("SIGNAL!")
+		log.Printf("SIGNAL! %v", name)
 		//d.wfl.Send(pubsub.NewPackage())
 		return nil
 	})
 
 	env.RegisterQueryHandler(func(name string, input *commonpb.Payloads, header *commonpb.Header) (*commonpb.Payloads, error) {
 		log.Printf("QUERY! %v", name)
+		// todo: send as task plus callback to wait for!
+
 		return nil, nil
 	})
 }
