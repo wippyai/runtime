@@ -63,6 +63,7 @@ func (s *Registry) handleEvent(e event.Event) {
 
 	switch e.Kind {
 	case env.StorageRegister:
+		s.log.Info("processing event -- ", zap.Any("event", e))
 		s.registerStorage(e)
 	case env.StorageDelete:
 		s.deleteStorage(e)
@@ -82,6 +83,7 @@ func (s *Registry) handleEvent(e event.Event) {
 }
 
 func (s *Registry) registerStorage(e event.Event) {
+	s.log.Info("registering storage", zap.String("storage", e.Path))
 	storage, ok := e.Data.(env.Storage)
 	if !ok {
 		s.log.Error("invalid storage payload",
@@ -92,8 +94,9 @@ func (s *Registry) registerStorage(e event.Event) {
 		return
 	}
 
+	s.log.Info("registering storage >>", zap.String("storage", e.Path))
 	s.storages.Store(e.Path, storage)
-	s.log.Debug("storage registered", zap.String("storage", e.Path))
+	s.log.Info("registering storage >>>", zap.String("storage", e.Path))
 	s.sendAccept(e.Path)
 }
 
@@ -153,7 +156,7 @@ func (s *Registry) registerVariable(e event.Event) {
 
 	variableValue, err := storage.Get(context.Background(), variableName)
 	if err != nil {
-		s.log.Error("storage not found", zap.String("storage", storageID.String()))
+		s.log.Error("variable not found", zap.String("variable", variableName), zap.Error(err))
 		return
 	}
 

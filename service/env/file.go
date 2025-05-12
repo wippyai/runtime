@@ -1,10 +1,12 @@
 package env
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -35,11 +37,37 @@ func (s *FileStorage) Get(_ context.Context, key string) (string, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	value, exists := s.values[key]
-	if !exists {
-		return "", nil
+	// Open file for reading
+	file, err := os.Open(s.filepath)
+	if err != nil {
+		return "", err
 	}
-	return value, nil
+	defer file.Close()
+
+	// Read file line by line
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if commentIndex := strings.Index(line, "#"); commentIndex != -1 {
+			line = line[:commentIndex]
+		}
+		line = strings.TrimSpace(line)
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if parts[0] == key {
+			return parts[1], nil
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+
+	return "", os.ErrNotExist
 }
 
 // Set stores a value in storage

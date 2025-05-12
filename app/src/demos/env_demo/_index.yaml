@@ -28,7 +28,7 @@ entries:
     meta:
       type: envstorage
       comment: Memory storage for environment variables
-    file_path: "./be-common-components/.env.sample"
+    file_path: "../be-common-components/.env.sample"
 
   - name: env_demo.endpoint
     kind: http.endpoint
