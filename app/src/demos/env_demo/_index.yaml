@@ -18,11 +18,17 @@ entries:
       workers: 4
 
   - name: envmemory
-    kind: env.storage
+    kind: env.storagememory
     meta:
       type: envstorage
       comment: Memory storage for environment variables
-    type: memory
+
+  - name: envfile
+    kind: env.storagefile
+    meta:
+      type: envstorage
+      comment: Memory storage for environment variables
+    file_path: "./be-common-components/.env.sample"
 
   - name: env_demo.endpoint
     kind: http.endpoint
@@ -52,5 +58,16 @@ entries:
         - app.env.demo:envmemory
     variable: OPENAI_API_URL
     storage: app.env.demo:envmemory
+    default:
+    readonly: true # no overwrite from runtime
+
+  - name: document_loaders_host
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - app.env.demo:envfile
+    variable: DOCUMENT_LOADERS_HOST
+    storage: app.env.demo:envfile
     default:
     readonly: true # no overwrite from runtime

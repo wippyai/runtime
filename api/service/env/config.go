@@ -1,6 +1,7 @@
 package env
 
 import (
+	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 )
@@ -20,13 +21,23 @@ func (c *CreateMemoryEnvStorageConfig) Validate() error {
 	return nil
 }
 
-type StorageFileConfig struct {
+type CreateFileEnvStorageConfig struct {
 	Name string `json:"name"`
 
-	FileName string `json:"file_name"`
+	Kind registry.Kind `json:"kind"`
+
+	Meta registry.Metadata `json:"meta"`
+
+	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
+
+	FilePath string `json:"file_path"`
 }
 
 // Validate checks if the configuration is valid.
-func (c *StorageFileConfig) Validate() error {
+func (c *CreateFileEnvStorageConfig) Validate() error {
+	if c.FilePath == "" {
+		return fmt.Errorf("file path cannot be empty")
+	}
+
 	return nil
 }

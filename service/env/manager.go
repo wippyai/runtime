@@ -53,8 +53,10 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.logger.Info(fmt.Sprintf("received Add %s, %s", entry.ID, entry.Kind))
 
 	switch entry.Kind {
-	case env.KindStorage:
+	case env.KindStorageMemory:
 		return m.handleMemoryStorageAdd(ctx, entry)
+	case env.KindStorageFile:
+		return m.handleFileStorageAdd(ctx, entry)
 	case env.KindVariable:
 		return m.handleVariableAdd(ctx, entry)
 	default:
@@ -63,16 +65,28 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) handleMemoryStorageAdd(ctx context.Context, entry registry.Entry) error {
-	if _, exists := m.storages[entry.ID]; exists {
-		return fmt.Errorf("service %s already exists", entry.ID)
-	}
-
 	cfg, err := internalconfig.DecodeAndInitConfig[serviceenv.CreateMemoryEnvStorageConfig](m.dtt, entry)
 	if err != nil {
 		return err
 	}
 
 	storage, err := m.factory.CreateMemoryEnvStorage(entry.Kind, cfg, m.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create env storage: %w", err)
+	}
+
+	m.storages[entry.ID] = storage
+
+	return m.registerService(ctx, entry, storage, cfg.Lifecycle)
+}
+
+func (m *Manager) handleFileStorageAdd(ctx context.Context, entry registry.Entry) error {
+	cfg, err := internalconfig.DecodeAndInitConfig[serviceenv.CreateFileEnvStorageConfig](m.dtt, entry)
+	if err != nil {
+		return err
+	}
+
+	storage, err := m.factory.CreateFileEnvStorage(entry.Kind, cfg, m.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create env storage: %w", err)
 	}
@@ -109,7 +123,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.logger.Info(fmt.Sprintf("received Update %s, %s", entry.ID, entry.Kind))
 
 	switch entry.Kind {
-	case env.KindStorage, env.KindFile:
+	case env.KindStorageMemory, env.KindStorageFile:
 		storage, ok := entry.Data.(env.Storage)
 		if !ok {
 			return fmt.Errorf("invalid storage type")
@@ -153,7 +167,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.logger.Info(fmt.Sprintf("received Delete %s, %s", entry.ID, entry.Kind))
 
 	switch entry.Kind {
-	case env.KindStorage, env.KindFile:
+	case env.KindStorageMemory, env.KindStorageFile:
 		m.mu.Lock()
 		delete(m.storages, entry.ID)
 		m.mu.Unlock()

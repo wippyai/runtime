@@ -22,9 +22,9 @@ const (
 )
 
 const (
-	KindVariable registry.Kind = "env.variable"
-	KindStorage  registry.Kind = "env.storage"
-	KindFile     registry.Kind = "env.storage.file"
+	KindVariable      registry.Kind = "env.variable"
+	KindStorageMemory registry.Kind = "env.storagememory"
+	KindStorageFile   registry.Kind = "env.storagefile"
 )
 
 // Common errors returned by the env package

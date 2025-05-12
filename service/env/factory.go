@@ -4,12 +4,13 @@ import (
 	"fmt"
 
 	"github.com/ponyruntime/pony/api/registry"
-	env2 "github.com/ponyruntime/pony/api/service/env"
+	envservice "github.com/ponyruntime/pony/api/service/env"
 	"go.uber.org/zap"
 )
 
 type EnvStorageFactoryAPI interface {
-	CreateMemoryEnvStorage(kind registry.Kind, cfg *env2.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error)
+	CreateMemoryEnvStorage(kind registry.Kind, cfg *envservice.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error)
+	CreateFileEnvStorage(kind registry.Kind, cfg *envservice.CreateFileEnvStorageConfig, log *zap.Logger) (*FileStorage, error)
 }
 
 type DefaultEnvStorageFactory struct{}
@@ -18,7 +19,7 @@ func NewDefaultEnvStorageFactory() *DefaultEnvStorageFactory {
 	return &DefaultEnvStorageFactory{}
 }
 
-func (f *DefaultEnvStorageFactory) CreateMemoryEnvStorage(_ registry.Kind, cfg *env2.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error) {
+func (f *DefaultEnvStorageFactory) CreateMemoryEnvStorage(_ registry.Kind, cfg *envservice.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -29,6 +30,16 @@ func (f *DefaultEnvStorageFactory) CreateMemoryEnvStorage(_ registry.Kind, cfg *
 	}
 
 	storage := NewMemoryStorage(defaultValues, log)
+
+	return storage, nil
+}
+
+func (f *DefaultEnvStorageFactory) CreateFileEnvStorage(_ registry.Kind, cfg *envservice.CreateFileEnvStorageConfig, log *zap.Logger) (*FileStorage, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	storage := NewFileStorage(cfg.FilePath, log)
 
 	return storage, nil
 }

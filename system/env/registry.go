@@ -3,8 +3,9 @@ package env
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/pubsub"
 	"sync"
+
+	"github.com/ponyruntime/pony/api/pubsub"
 
 	"github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
@@ -214,7 +215,7 @@ func (s *Registry) Get(ctx context.Context, name string) (string, error) {
 	s.log.Info("getting environment variable",
 		zap.String("name", name))
 
-	//s.log.Info("ctx values", zap.Any("ctx", ctx))
+	// s.log.Info("ctx values", zap.Any("ctx", ctx))
 
 	pid, found := pubsub.GetPID(ctx)
 	if !found {
@@ -247,8 +248,8 @@ func (s *Registry) Get(ctx context.Context, name string) (string, error) {
 
 	return returnValue, nil
 
-	//var valueDeclaration env.Variable
-	//var found bool
+	// var valueDeclaration env.Variable
+	// var found bool
 	//
 	//s.variables.Range(func(key, value interface{}) bool {
 	//	declaration := value.(env.Variable)

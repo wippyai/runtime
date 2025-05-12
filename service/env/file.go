@@ -34,6 +34,7 @@ func NewFileStorage(filepath string, log *zap.Logger) *FileStorage {
 func (s *FileStorage) Get(_ context.Context, key string) (string, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
+
 	value, exists := s.values[key]
 	if !exists {
 		return "", nil
