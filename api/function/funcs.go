@@ -25,6 +25,9 @@ const (
 	Accept event.Kind = "function.accept"
 	// Reject is sent FROM function nodes when a handler registration is rejected
 	Reject event.Kind = "function.reject"
+
+	// Interceptors are used to modify the behavior of function calls
+
 )
 
 type (
@@ -49,4 +52,7 @@ type (
 		// for streaming results and any immediate errors.
 		Call(context.Context, runtime.Task) (chan *runtime.Result, error)
 	}
+
+	// CallInterceptor is a function that can modify the behavior of a function call.
+	CallInterceptor func(context.Context, runtime.Task) (chan *runtime.Result, error)
 )
