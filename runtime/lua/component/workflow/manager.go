@@ -25,11 +25,12 @@ var (
 
 func init() {
 	workflowBuild = code.NewBuildOptions().
-		WithMode(code.AllowListed).
-		WithAllowed(
-			registry.ID{Name: "json"},
-			registry.ID{Name: "base64"},
-		).
+		//WithMode(code.AllowListed).
+		//WithAllowed(
+		//	registry.ID{Name: "json"},
+		//	registry.ID{Name: "base64"},
+		//).
+		// todO: proper allow list + libraries
 		WithPreloaded(
 			code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}},
 			code.Preload{Name: "payload", ModuleID: registry.ID{Name: "payload"}},

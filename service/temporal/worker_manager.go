@@ -128,24 +128,20 @@ func (m *WorkerManager) createTaskQueueRegistration(id registry.ID, cfg *tempora
 		MaxConcurrentLocalActivityExecutionSize: cfg.WorkerOptions.MaxConcurrentLocalActivityExecutionSize,
 		MaxConcurrentSessionExecutionSize:       cfg.WorkerOptions.MaxConcurrentSessionExecutionSize,
 		MaxConcurrentEagerActivityExecutionSize: cfg.WorkerOptions.MaxConcurrentEagerActivityExecutionSize,
-
-		MaxConcurrentActivityTaskPollers: cfg.WorkerOptions.MaxConcurrentActivityTaskPollers,
-		MaxConcurrentWorkflowTaskPollers: cfg.WorkerOptions.MaxConcurrentWorkflowTaskPollers,
-
-		WorkerActivitiesPerSecond:      cfg.WorkerOptions.WorkerActivitiesPerSecond,
-		WorkerLocalActivitiesPerSecond: cfg.WorkerOptions.WorkerLocalActivitiesPerSecond,
-		TaskQueueActivitiesPerSecond:   cfg.WorkerOptions.TaskQueueActivitiesPerSecond,
-
-		EnableLoggingInReplay:       cfg.WorkerOptions.EnableLoggingInReplay,
-		EnableSessionWorker:         cfg.WorkerOptions.EnableSessionWorker,
-		DisableWorkflowWorker:       cfg.WorkerOptions.DisableWorkflowWorker,
-		LocalActivityWorkerOnly:     cfg.WorkerOptions.LocalActivityWorkerOnly,
-		DisableEagerActivities:      cfg.WorkerOptions.DisableEagerActivities,
-		DisableRegistrationAliasing: cfg.WorkerOptions.DisableRegistrationAliasing,
-
-		Identity:                cfg.WorkerOptions.Identity,
-		BuildID:                 cfg.WorkerOptions.BuildID,
-		UseBuildIDForVersioning: cfg.WorkerOptions.UseBuildIDForVersioning,
+		MaxConcurrentActivityTaskPollers:        cfg.WorkerOptions.MaxConcurrentActivityTaskPollers,
+		MaxConcurrentWorkflowTaskPollers:        cfg.WorkerOptions.MaxConcurrentWorkflowTaskPollers,
+		WorkerActivitiesPerSecond:               cfg.WorkerOptions.WorkerActivitiesPerSecond,
+		WorkerLocalActivitiesPerSecond:          cfg.WorkerOptions.WorkerLocalActivitiesPerSecond,
+		TaskQueueActivitiesPerSecond:            cfg.WorkerOptions.TaskQueueActivitiesPerSecond,
+		EnableLoggingInReplay:                   cfg.WorkerOptions.EnableLoggingInReplay,
+		EnableSessionWorker:                     cfg.WorkerOptions.EnableSessionWorker,
+		DisableWorkflowWorker:                   cfg.WorkerOptions.DisableWorkflowWorker,
+		LocalActivityWorkerOnly:                 cfg.WorkerOptions.LocalActivityWorkerOnly,
+		DisableEagerActivities:                  cfg.WorkerOptions.DisableEagerActivities,
+		DisableRegistrationAliasing:             cfg.WorkerOptions.DisableRegistrationAliasing,
+		Identity:                                cfg.WorkerOptions.Identity,
+		BuildID:                                 cfg.WorkerOptions.BuildID,
+		UseBuildIDForVersioning:                 cfg.WorkerOptions.UseBuildIDForVersioning,
 
 		// Directly assign time.Duration fields
 		StickyScheduleToStartTimeout:     cfg.WorkerOptions.StickyScheduleToStartTimeout,

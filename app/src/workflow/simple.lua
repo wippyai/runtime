@@ -1,37 +1,36 @@
+local temporal = require("temporal")
 local json = require("json")
 
-local function run(...)
-    print("we doing work")
+-- Create a ProcessData activity with configuration
+local process_data = temporal.activity("ProcessData", {
+    task_queue = "simple-task-queue-2",
+    start_to_close_timeout = "25s"
+})
 
-    local cmd = workflow.command({
-        type = "activity",
-        params = {
-            "ProcessData",
-            {
-                task_queue = "simple-task-queue-2",
-                start_to_close_timeout = "25s",
-            },
-            {
-                id = "123",
-                name = "Test Data"
-            }
-        }
+local function run(...)
+    print("Starting workflow execution")
+
+    -- Execute the activity with input data
+    local handle = process_data({
+        id = "123",
+        name = "Test Data"
     })
 
-    -- Wait for command response
-    local result, err = cmd:response():receive()
+    -- Wait for the activity to complete
+    local result = handle:wait()
 
-    if err then
-        print("Command failed: " .. tostring(err))
+    if result then
+        print("Activity succeeded with result:", json.encode(result))
     else
-        print("Command succeeded with result:", json.encode(result))
+        local err = handle:error()
+        if err then
+            print("Activity failed:", tostring(err))
+        else
+            print("Activity completed with no result")
+        end
     end
 
-    -- Example of using request with an external command:
-    -- local externalCmd = some_function_that_creates_command()
-    -- wf.request(externalCmd)
-
-    -- Just return whatever arguments we received
+    -- Return whatever arguments we received
     return ...
 end
 

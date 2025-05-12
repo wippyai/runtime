@@ -171,10 +171,10 @@ func (c *WorkerConfig) InitDefaults() {
 		c.WorkerOptions.StickyScheduleToStartTimeout = 5 * time.Second
 	}
 	if c.WorkerOptions.MaxConcurrentActivityTaskPollers <= 0 {
-		c.WorkerOptions.MaxConcurrentActivityTaskPollers = 2
+		c.WorkerOptions.MaxConcurrentActivityTaskPollers = 20
 	}
 	if c.WorkerOptions.MaxConcurrentWorkflowTaskPollers <= 0 {
-		c.WorkerOptions.MaxConcurrentWorkflowTaskPollers = 2
+		c.WorkerOptions.MaxConcurrentWorkflowTaskPollers = 20
 	}
 }
 
