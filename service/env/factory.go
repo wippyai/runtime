@@ -18,7 +18,7 @@ func NewDefaultEnvStorageFactory() *DefaultEnvStorageFactory {
 	return &DefaultEnvStorageFactory{}
 }
 
-func (f *DefaultEnvStorageFactory) CreateMemoryEnvStorage(kind registry.Kind, cfg *env2.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error) {
+func (f *DefaultEnvStorageFactory) CreateMemoryEnvStorage(_ registry.Kind, cfg *env2.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/api/event"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,8 @@ func setupManagerTest(t *testing.T) (*Manager, event.Bus) {
 	t.Helper()
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
-	manager := NewManager(bus, logger)
+	dtt := &mockTranscoder{}
+	manager := NewManager(bus, dtt, logger)
 
 	t.Cleanup(func() {
 		_ = manager.Stop()
@@ -25,6 +27,21 @@ func setupManagerTest(t *testing.T) (*Manager, event.Bus) {
 	})
 
 	return manager, bus
+}
+
+// mockTranscoder implements payload.Transcoder for testing
+type mockTranscoder struct{}
+
+func (m *mockTranscoder) Marshal(v interface{}) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+	return nil
+}
+
+func (m *mockTranscoder) Transcode(p payload.Payload, f payload.Format) (payload.Payload, error) {
+	return p, nil
 }
 
 func TestManager_StartStop(t *testing.T) {

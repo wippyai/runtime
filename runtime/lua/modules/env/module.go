@@ -52,6 +52,7 @@ func (m *Module) get(l *lua.LState) int {
 	}
 
 	envRegistry := env.GetRegistry(l.Context())
+
 	value, err := envRegistry.Get(l.Context(), key)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -62,23 +63,6 @@ func (m *Module) get(l *lua.LState) int {
 	l.Push(lua.LString(value))
 	l.Push(lua.LNil)
 	return 2
-
-	//envCtx, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string])
-	//if !ok {
-	//	l.RaiseError("invalid environment context")
-	//	return 0
-	//}
-
-	//value, ok := envCtx.Value(key)
-	//if !ok {
-	//	l.Push(lua.LNil)
-	//	l.Push(lua.LNil)
-	//	return 2
-	//}
-	//
-	//l.Push(lua.LString(value))
-	//l.Push(lua.LNil)
-	//return 2
 }
 
 func (m *Module) getAll(l *lua.LState) int {

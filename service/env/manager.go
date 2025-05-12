@@ -17,6 +17,14 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	System    = env.System
+	VarState  = "var.state"
+	SetVar    = "var.set"
+	GetVar    = "var.get"
+	DeleteVar = "var.delete"
+)
+
 // Manager manages environment storage and handles environment-related events
 type Manager struct {
 	ctx      context.Context
@@ -45,7 +53,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.logger.Info(fmt.Sprintf("received Add %s, %s", entry.ID, entry.Kind))
 
 	switch entry.Kind {
-	case env.KindMemory:
+	case env.KindStorage:
 		return m.handleMemoryStorageAdd(ctx, entry)
 	case env.KindVariable:
 		return m.handleVariableAdd(ctx, entry)
@@ -68,6 +76,8 @@ func (m *Manager) handleMemoryStorageAdd(ctx context.Context, entry registry.Ent
 	if err != nil {
 		return fmt.Errorf("failed to create env storage: %w", err)
 	}
+
+	m.storages[entry.ID] = storage
 
 	return m.registerService(ctx, entry, storage, cfg.Lifecycle)
 }
@@ -99,7 +109,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.logger.Info(fmt.Sprintf("received Update %s, %s", entry.ID, entry.Kind))
 
 	switch entry.Kind {
-	case env.KindMemory, env.KindFile:
+	case env.KindStorage, env.KindFile:
 		storage, ok := entry.Data.(env.Storage)
 		if !ok {
 			return fmt.Errorf("invalid storage type")
@@ -143,7 +153,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.logger.Info(fmt.Sprintf("received Delete %s, %s", entry.ID, entry.Kind))
 
 	switch entry.Kind {
-	case env.KindMemory, env.KindFile:
+	case env.KindStorage, env.KindFile:
 		m.mu.Lock()
 		delete(m.storages, entry.ID)
 		m.mu.Unlock()
@@ -221,9 +231,106 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, sto
 		},
 	})
 
+	// Register as registry storage
+	m.bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   entry.ID.String(),
+		Data:   storage,
+	})
+
 	m.logger.Info("added env storage",
 		zap.String("id", entry.ID.String()),
 		zap.String("kind", entry.Kind))
 
 	return nil
+}
+
+// Start starts the manager
+func (m *Manager) Start(ctx context.Context) error {
+	m.ctx = ctx
+
+	// Subscribe to environment variable events
+	sub, err := eventbus.NewSubscriber(
+		ctx,
+		m.bus,
+		System,
+		VarState,
+		func(e event.Event) {
+			m.handleEvent(e)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to events: %w", err)
+	}
+	m.sub = sub
+
+	return nil
+}
+
+// Stop stops the manager
+func (m *Manager) Stop() error {
+	if m.sub != nil {
+		m.sub.Close()
+	}
+	return nil
+}
+
+// SetVar sets an environment variable
+func (m *Manager) SetVar(key, value string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Send event to notify listeners
+	m.bus.Send(m.ctx, event.Event{
+		System: System,
+		Kind:   VarState,
+		Path:   key,
+		Data:   value,
+	})
+}
+
+// GetVar gets an environment variable
+func (m *Manager) GetVar(key string) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// For now, just return empty string
+	// In a real implementation, this would check the storage
+	return "", false
+}
+
+// DeleteVar deletes an environment variable
+func (m *Manager) DeleteVar(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Send event to notify listeners
+	m.bus.Send(m.ctx, event.Event{
+		System: System,
+		Kind:   VarState,
+		Path:   key,
+	})
+}
+
+// handleEvent processes incoming events
+func (m *Manager) handleEvent(e event.Event) {
+	switch e.Kind {
+	case SetVar:
+		if strValue, ok := e.Data.(string); ok {
+			m.SetVar(e.Path, strValue)
+		}
+	case GetVar:
+		value, exists := m.GetVar(e.Path)
+		if exists {
+			m.bus.Send(m.ctx, event.Event{
+				System: System,
+				Kind:   VarState,
+				Path:   e.Path,
+				Data:   value,
+			})
+		}
+	case DeleteVar:
+		m.DeleteVar(e.Path)
+	}
 }

@@ -23,7 +23,7 @@ const (
 
 const (
 	KindVariable registry.Kind = "env.variable"
-	KindMemory   registry.Kind = "env.storage"
+	KindStorage  registry.Kind = "env.storage"
 	KindFile     registry.Kind = "env.storage.file"
 )
 

@@ -32,25 +32,25 @@ entries:
 #      test: wippy.test:test
 #      llm_query: app.funcs.openai:llm_query
 
-  - name: openai_api_key
-    kind: env.variable
-    meta:
-      type: secret_key
-      depends_on:
-        - memory
-    variable: OPENAI_API_KEY
-    storage: memory
-    default:
-    readonly: true # no overwrite from runtime
-
-  - name: openai_api_url
-    kind: env.variable
-    meta:
-      type: secret_key
-      depends_on:
-        - memory
-    variable: OPENAI_API_URL
-    storage: memory
-    default:
-    readonly: true # no overwrite from runtime
-
+#  - name: openai_api_key
+#    kind: env.variable
+#    meta:
+#      type: secret_key
+#      depends_on:
+#        - memory
+#    variable: OPENAI_API_KEY
+#    storage: memory
+#    default:
+#    readonly: true # no overwrite from runtime
+#
+#  - name: openai_api_url
+#    kind: env.variable
+#    meta:
+#      type: secret_key
+#      depends_on:
+#        - memory
+#    variable: OPENAI_API_URL
+#    storage: memory
+#    default:
+#    readonly: true # no overwrite from runtime
+#

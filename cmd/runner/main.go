@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	env2 "github.com/ponyruntime/pony/service/env"
 	iofs "io/fs"
 	httpbase "net/http"
 	"os"
@@ -17,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	env2 "github.com/ponyruntime/pony/service/env"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"

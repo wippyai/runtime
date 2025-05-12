@@ -37,8 +37,10 @@ entries:
     kind: env.variable
     meta:
       type: secret_key
+      depends_on:
+        - app.env.demo:envmemory
     variable: OPENAI_API_KEY
-    storage: envmemory
+    storage: app.env.demo:envmemory
     default:
     readonly: true # no overwrite from runtime
 
@@ -46,7 +48,9 @@ entries:
     kind: env.variable
     meta:
       type: secret_key
+      depends_on:
+        - app.env.demo:envmemory
     variable: OPENAI_API_URL
-    storage: envmemory
+    storage: app.env.demo:envmemory
     default:
     readonly: true # no overwrite from runtime
