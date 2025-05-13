@@ -60,6 +60,9 @@ type (
 		// Get retrieves an environment variable by name from a specific storage
 		Get(ctx context.Context, name string) (string, error)
 
+		// Set stores an environment variable by name in a specific storage
+		Set(ctx context.Context, name string, value string) error
+
 		// All returns all env storages
 		All(ctx context.Context) ([]Storage, error)
 	}

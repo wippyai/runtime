@@ -293,3 +293,51 @@ func (s *Registry) Get(ctx context.Context, name string) (string, error) {
 	//
 	//return value, nil
 }
+
+func (s *Registry) Set(ctx context.Context, name string, value string) error {
+	s.log.Debug("setting variable", zap.String("name", name), zap.String("value", value))
+
+	var valueDeclaration env.Variable
+	var found bool
+
+	s.variables.Range(func(key, value interface{}) bool {
+		declaration := value.(env.Variable)
+		if declaration.Name == name {
+			valueDeclaration = declaration
+			found = true
+			return false // Stop iteration once found
+		}
+		return true // Continue iteration if not found
+	})
+
+	if !found {
+		s.log.Error("variable not found", zap.String("name", name))
+		return env.ErrVariableNotFound
+	}
+
+	if valueDeclaration.ReadOnly {
+		s.log.Error("variable is read-only", zap.String("name", name))
+		return env.ErrVariableReadOnly
+	}
+
+	storedStorage, found := s.storages.Load(valueDeclaration.StorageID)
+	if !found {
+		s.log.Error("storage not found", zap.String("storage", valueDeclaration.StorageID))
+		return fmt.Errorf("storage %s not found", valueDeclaration.StorageID)
+	}
+
+	storage, ok := storedStorage.(env.Storage)
+	if !ok {
+		s.log.Error("invalid storage type", zap.String("storage", valueDeclaration.StorageID))
+		return fmt.Errorf("invalid storage type for %s", valueDeclaration.StorageID)
+	}
+
+	err := storage.Set(ctx, valueDeclaration.EnvName, value)
+	if err != nil {
+		s.log.Error("failed to set variable", zap.String("name", name), zap.Error(err))
+		return fmt.Errorf("failed to set variable %s in storage %s: %w",
+			valueDeclaration.EnvName, valueDeclaration.StorageID, err)
+	}
+
+	return nil
+}

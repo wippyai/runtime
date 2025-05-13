@@ -2,6 +2,7 @@ package env
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -41,12 +42,14 @@ func (s *MemoryStorage) Get(ctx context.Context, key string) (string, error) {
 	if !ok {
 		return "", nil
 	}
+
 	return strValue, nil
 }
 
 // Set stores a value in storage
 func (s *MemoryStorage) Set(ctx context.Context, key, value string) error {
 	s.values.Store(key, value)
+
 	return nil
 }
 
@@ -117,6 +120,24 @@ func (r *memoryResource) Get() (any, error) {
 	}
 
 	return r.storage, nil
+}
+
+// Set implements resource.Resource interface
+func (r *memoryResource) Set(value any) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return resource.ErrResourceClosed
+	}
+
+	storage, ok := value.(*MemoryStorage)
+	if !ok {
+		return fmt.Errorf("invalid storage type: expected *MemoryStorage, got %T", value)
+	}
+
+	r.storage = storage
+	return nil
 }
 
 // Release implements resource.Resource interface

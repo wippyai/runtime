@@ -71,3 +71,46 @@ entries:
     storage: app.env.demo:envfile
     default:
     readonly: true # no overwrite from runtime
+
+  - name: memory_test_env
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - app.env.demo:envmemory
+    variable: MEMORY_TEST_ENV
+    storage: app.env.demo:envmemory
+    default:
+    readonly: false
+
+  - name: memory_test_env_readonly
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - app.env.demo:envmemory
+    variable: MEMORY_TEST_ENV_READONLY
+    storage: app.env.demo:envmemory
+    default:
+    readonly: true
+
+  - name: file_test_env
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - app.env.demo:envfile
+    variable: FILE_TEST_ENV
+    storage: app.env.demo:envfile
+    default:
+
+  - name: file_test_env_readonly
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - app.env.demo:envfile
+    variable: FILE_TEST_ENV_READONLY
+    storage: app.env.demo:envfile
+    default:
+    readonly: true

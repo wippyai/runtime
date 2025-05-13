@@ -27,7 +27,7 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	t.RawSetString("get", l.NewFunction(m.get))
 	t.RawSetString("get_all", l.NewFunction(m.getAll))
-
+	t.RawSetString("set", l.NewFunction(m.set))
 	l.Push(t)
 	return 1
 }
@@ -61,6 +61,45 @@ func (m *Module) get(l *lua.LState) int {
 	}
 
 	l.Push(lua.LString(value))
+	l.Push(lua.LNil)
+	return 2
+}
+
+func (m *Module) set(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.RaiseError("no context found")
+		return 0
+	}
+
+	key := l.CheckString(1)
+	if key == "" {
+		l.ArgError(1, "empty key")
+		return 0
+	}
+
+	value := l.CheckString(2)
+	if value == "" {
+		l.ArgError(2, "empty value")
+		return 0
+	}
+
+	// Add security check for setting specific environment variable
+	if !security.IsAllowed(l.Context(), "env.set", key, nil) {
+		l.RaiseError("not allowed to set environment variable: %s", key)
+		return 0
+	}
+
+	envRegistry := env.GetRegistry(l.Context())
+
+	err := envRegistry.Set(l.Context(), key, value)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	l.Push(lua.LTrue)
 	l.Push(lua.LNil)
 	return 2
 }

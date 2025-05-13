@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,10 +36,11 @@ func NewFileStorage(filepath string, log *zap.Logger) *FileStorage {
 // Get retrieves a value from storage
 func (s *FileStorage) Get(_ context.Context, key string) (string, error) {
 	s.mutex.RLock()
-	defer s.mutex.RUnlock()
+	filepath := s.filepath
+	s.mutex.RUnlock()
 
 	// Open file for reading
-	file, err := os.Open(s.filepath)
+	file, err := os.Open(filepath)
 	if err != nil {
 		return "", err
 	}
@@ -72,11 +74,73 @@ func (s *FileStorage) Get(_ context.Context, key string) (string, error) {
 
 // Set stores a value in storage
 func (s *FileStorage) Set(_ context.Context, key, value string) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 
-	s.values[key] = value
-	return s.save()
+	// Read the file line by line and update the matching key
+	tempPath := s.filepath + ".tmp"
+
+	// Open source file for reading
+	inFile, err := os.Open(s.filepath)
+	if err != nil {
+		return err
+	}
+	defer inFile.Close()
+
+	// Create temporary file for writing
+	outFile, err := os.Create(tempPath)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	scanner := bufio.NewScanner(inFile)
+	writer := bufio.NewWriter(outFile)
+	updated := false
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.SplitN(line, "=", 2)
+
+		if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {
+			// Found the key, update the value while preserving any comment
+			commentIndex := strings.Index(line, "#")
+			if commentIndex != -1 {
+				fmt.Fprintf(writer, "%s=%s %s\n", key, value, line[commentIndex:])
+			} else {
+				fmt.Fprintf(writer, "%s=%s\n", key, value)
+			}
+			updated = true
+		} else {
+			// Keep the original line
+			fmt.Fprintln(writer, line)
+		}
+	}
+
+	if err = scanner.Err(); err != nil {
+		return err
+	}
+
+	// If key wasn't found, append it
+	if !updated {
+		fmt.Fprintf(writer, "%s=%s\n", key, value)
+	}
+
+	// Flush writer before closing files
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+
+	// Close files before rename
+	inFile.Close()
+	outFile.Close()
+
+	// Replace the original file with a temporary file
+	if err = os.Rename(tempPath, s.filepath); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Delete removes a value from storage
