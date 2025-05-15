@@ -20,7 +20,7 @@ local function handler(args)
 
     local headers = {
         ["Content-Type"] = "application/json",
-        ["Authorization"] = "Bearer " .. (env.get("OPENAI_KEY") or "")
+        ["Authorization"] = "Bearer " .. (env.get("openai_api_key") or "")
     }
 
     local body = json.encode({

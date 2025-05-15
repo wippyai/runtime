@@ -1,9 +1,10 @@
 package env
 
 import (
-	"github.com/ponyruntime/pony/api/supervisor"
 	"testing"
 	"time"
+
+	"github.com/ponyruntime/pony/api/supervisor"
 
 	"github.com/ponyruntime/pony/api/registry"
 	envservice "github.com/ponyruntime/pony/api/service/env"

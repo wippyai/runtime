@@ -145,4 +145,4 @@ entries:
     meta:
       type: envstorage
       comment: Memory storage for environment variables
-    file_path: "./app/data/.env.sample"
+    file_path: "./app/env/.env.sample"
