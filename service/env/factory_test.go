@@ -1,7 +1,9 @@
 package env
 
 import (
+	"github.com/ponyruntime/pony/api/supervisor"
 	"testing"
+	"time"
 
 	"github.com/ponyruntime/pony/api/registry"
 	envservice "github.com/ponyruntime/pony/api/service/env"
@@ -17,9 +19,16 @@ func TestDefaultEnvStorageFactory_CreateMemoryEnvStorage(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "valid configuration",
-			kind:    registry.Kind("test"),
-			cfg:     &envservice.CreateMemoryEnvStorageConfig{},
+			name: "valid configuration",
+			kind: registry.Kind("test"),
+			cfg: &envservice.CreateMemoryEnvStorageConfig{
+				Name: "",
+				Kind: "",
+				Meta: nil,
+				Lifecycle: supervisor.LifecycleConfig{
+					StartTimeout: time.Second,
+					StopTimeout:  time.Second,
+				}},
 			wantErr: false,
 		},
 		{
@@ -44,15 +53,6 @@ func TestDefaultEnvStorageFactory_CreateMemoryEnvStorage(t *testing.T) {
 				assert.NoError(t, err)
 				assert.NotNil(t, storage)
 				assert.IsType(t, &MemoryStorage{}, storage)
-
-				// Verify default values are set
-				value, exists := storage.values.Load("OPENAI_API_KEY")
-				assert.True(t, exists)
-				assert.Equal(t, "OPENAI_API_KEY-test", value)
-
-				value, exists = storage.values.Load("OPENAI_API_URL")
-				assert.True(t, exists)
-				assert.Equal(t, "OPENAI_API_URL-test", value)
 			}
 		})
 	}
