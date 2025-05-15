@@ -17,19 +17,6 @@ entries:
       size: 2
       workers: 4
 
-  - name: envmemory
-    kind: env.storagememory
-    meta:
-      type: envstorage
-      comment: Memory storage for environment variables
-
-  - name: envfile
-    kind: env.storagefile
-    meta:
-      type: envstorage
-      comment: Memory storage for environment variables
-    file_path: "../be-common-components/.env.sample"
-
   - name: env_demo.endpoint
     kind: http.endpoint
     meta:
@@ -44,9 +31,9 @@ entries:
     meta:
       type: secret_key
       depends_on:
-        - app.env.demo:envmemory
+        - system:envmemory
     variable: OPENAI_API_KEY
-    storage: app.env.demo:envmemory
+    storage: system:envmemory
     default:
     readonly: true # no overwrite from runtime
 
@@ -55,9 +42,9 @@ entries:
     meta:
       type: secret_key
       depends_on:
-        - app.env.demo:envmemory
+        - system:envmemory
     variable: OPENAI_API_URL
-    storage: app.env.demo:envmemory
+    storage: system:envmemory
     default:
     readonly: true # no overwrite from runtime
 
@@ -66,9 +53,9 @@ entries:
     meta:
       type: secret_key
       depends_on:
-        - app.env.demo:envfile
+        - system:envfile
     variable: DOCUMENT_LOADERS_HOST
-    storage: app.env.demo:envfile
+    storage: system:envfile
     default:
     readonly: true # no overwrite from runtime
 
@@ -77,9 +64,9 @@ entries:
     meta:
       type: secret_key
       depends_on:
-        - app.env.demo:envmemory
+        - system:envmemory
     variable: MEMORY_TEST_ENV
-    storage: app.env.demo:envmemory
+    storage: system:envmemory
     default:
     readonly: false
 
@@ -88,9 +75,9 @@ entries:
     meta:
       type: secret_key
       depends_on:
-        - app.env.demo:envmemory
+        - system:envmemory
     variable: MEMORY_TEST_ENV_READONLY
-    storage: app.env.demo:envmemory
+    storage: system:envmemory
     default:
     readonly: true
 
@@ -99,9 +86,9 @@ entries:
     meta:
       type: secret_key
       depends_on:
-        - app.env.demo:envfile
+        - system:envfile
     variable: FILE_TEST_ENV
-    storage: app.env.demo:envfile
+    storage: system:envfile
     default:
 
   - name: file_test_env_readonly
@@ -109,8 +96,8 @@ entries:
     meta:
       type: secret_key
       depends_on:
-        - app.env.demo:envfile
+        - system:envfile
     variable: FILE_TEST_ENV_READONLY
-    storage: app.env.demo:envfile
+    storage: system:envfile
     default:
     readonly: true

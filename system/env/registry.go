@@ -72,19 +72,11 @@ func (s *Registry) handleEvent(e event.Event) {
 			zap.String("path", e.Path),
 			zap.Any("data_type", fmt.Sprintf("%T", e.Data)))
 		s.registerStorage(e)
-	// case env.StorageDelete:
-	//	s.log.Debug("processing storage delete event",
-	//		zap.String("path", e.Path))
-	//	s.deleteStorage(e)
 	case env.VariableRegister:
 		s.log.Debug("processing variable register event",
 			zap.String("path", e.Path),
 			zap.Any("data_type", fmt.Sprintf("%T", e.Data)))
 		s.registerVariable(e)
-	// case env.VariableDelete:
-	//	s.log.Debug("processing variable delete event (not implemented)",
-	//		zap.String("path", e.Path))
-	//	s.deleteVariable(e)
 	case env.VariableUpdate:
 		s.log.Debug("processing variable update event",
 			zap.String("path", e.Path))
