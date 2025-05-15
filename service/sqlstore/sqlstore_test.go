@@ -140,6 +140,7 @@ func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig, key st
 		expireVal = nil
 	}
 
+	//nolint:gosec // FIXME variables should be verified at the config.Validate() step
 	query := `INSERT INTO ` + config.TableName + ` (` +
 		config.IDColumnName + `, ` +
 		config.PayloadColumnName + `, ` +

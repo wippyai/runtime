@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-//func TestEventBus_MultipleSubscribers(t *testing.T) {
+// func TestEventBus_MultipleSubscribers(t *testing.T) {
 //	ctx := context.Background()
 //	bus := eventbus.NewBus()
 //
@@ -66,6 +66,7 @@ import (
 func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
 	defer logger.Sync()
 
 	ctx := context.Background()
@@ -75,6 +76,7 @@ func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
 	reg := NewRegistry(bus, logger)
 	err = reg.Start(ctx)
 	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
 	defer reg.Stop()
 
 	// Create a memory storage
@@ -129,7 +131,7 @@ func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
 }
 
 //
-//func TestEventBus_StorageDelete(t *testing.T) {
+// func TestEventBus_StorageDelete(t *testing.T) {
 //	ctx := context.Background()
 //	bus := eventbus.NewBus()
 //	registry := NewRegistry(bus, zap.NewNop())
@@ -165,7 +167,7 @@ func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
 //	assert.Len(t, storages, 0)
 //}
 
-//func TestEventBus_VariableRegister(t *testing.T) {
+// func TestEventBus_VariableRegister(t *testing.T) {
 //	ctx := context.Background()
 //	bus := eventbus.NewBus()
 //	registry := NewRegistry(bus, zap.NewNop())
@@ -212,7 +214,7 @@ func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
 //}
 
 // ??
-//func TestEventBus_VariableDelete(t *testing.T) {
+// func TestEventBus_VariableDelete(t *testing.T) {
 //	logger, err := zap.NewDevelopment()
 //	require.NoError(t, err)
 //	defer logger.Sync()
@@ -285,6 +287,7 @@ func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
 func TestEventBus_VariableUpdate(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
 	defer logger.Sync()
 
 	ctx := context.Background()
@@ -294,6 +297,7 @@ func TestEventBus_VariableUpdate(t *testing.T) {
 	reg := NewRegistry(bus, logger)
 	err = reg.Start(ctx)
 	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
 	defer reg.Stop()
 
 	{
@@ -377,6 +381,7 @@ func TestEventBus_VariableUpdate(t *testing.T) {
 func TestEventBus_ReadOnlyVariable(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
 	defer logger.Sync()
 
 	ctx := context.Background()
@@ -386,6 +391,7 @@ func TestEventBus_ReadOnlyVariable(t *testing.T) {
 	reg := NewRegistry(bus, logger)
 	err = reg.Start(ctx)
 	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
 	defer reg.Stop()
 
 	// Create a memory storage

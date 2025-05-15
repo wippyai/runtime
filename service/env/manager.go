@@ -13,25 +13,22 @@ import (
 	serviceenv "github.com/ponyruntime/pony/api/service/env"
 	"github.com/ponyruntime/pony/api/supervisor"
 	internalconfig "github.com/ponyruntime/pony/internal/config"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
 )
 
 const (
 	System = env.System
 	// VarState  = "var.state"
-	//SetVar    = "var.set"
-	//GetVar    = "var.get"
-	//DeleteVar = "var.delete"
+	// SetVar    = "var.set"
+	// GetVar    = "var.get"
+	// DeleteVar = "var.delete"
 )
 
 // Manager manages environment storage and handles environment-related events
 type Manager struct {
-	ctx      context.Context
 	logger   *zap.Logger
 	dtt      payload.Transcoder
 	bus      event.Bus
-	sub      *eventbus.Subscriber
 	mu       sync.RWMutex
 	storages map[registry.ID]env.Storage
 	factory  EnvStorageFactoryAPI
@@ -283,7 +280,7 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, sto
 //}
 //
 //// Stop stops the manager and unsubscribes from events
-//func (m *Manager) Stop() error {
+// func (m *Manager) Stop() error {
 //	if m.sub != nil {
 //		m.sub.Close()
 //	}

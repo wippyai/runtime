@@ -72,7 +72,7 @@ func (s *Registry) handleEvent(e event.Event) {
 			zap.String("path", e.Path),
 			zap.Any("data_type", fmt.Sprintf("%T", e.Data)))
 		s.registerStorage(e)
-	//case env.StorageDelete:
+	// case env.StorageDelete:
 	//	s.log.Debug("processing storage delete event",
 	//		zap.String("path", e.Path))
 	//	s.deleteStorage(e)
@@ -81,7 +81,7 @@ func (s *Registry) handleEvent(e event.Event) {
 			zap.String("path", e.Path),
 			zap.Any("data_type", fmt.Sprintf("%T", e.Data)))
 		s.registerVariable(e)
-	//case env.VariableDelete:
+	// case env.VariableDelete:
 	//	s.log.Debug("processing variable delete event (not implemented)",
 	//		zap.String("path", e.Path))
 	//	s.deleteVariable(e)
@@ -122,26 +122,6 @@ func (s *Registry) registerStorage(e event.Event) {
 	s.storages.Store(e.Path, storage)
 	s.log.Debug("storage registered successfully",
 		zap.String("storage", e.Path))
-	s.sendAccept(e.Path)
-}
-
-func (s *Registry) deleteStorage(e event.Event) {
-	if _, exists := s.storages.LoadAndDelete(e.Path); !exists {
-		s.log.Warn("storage not found", zap.String("storage", e.Path))
-		s.sendReject(e.Path, "storage not found")
-		return
-	}
-
-	// Delete all variables associated with this storage
-	s.variables.Range(func(key, value interface{}) bool {
-		v := value.(env.Variable)
-		if v.StorageID == e.Path {
-			s.variables.Delete(key)
-		}
-		return true
-	})
-
-	s.log.Debug("storage removed", zap.String("storage", e.Path))
 	s.sendAccept(e.Path)
 }
 
@@ -217,10 +197,6 @@ func (s *Registry) registerVariable(e event.Event) {
 		zap.Any("id", variableID),
 		zap.Any("value", value))
 	s.sendAccept(e.Path)
-}
-
-func (s *Registry) deleteVariable(e event.Event) {
-	// FIXME implement
 }
 
 func (s *Registry) updateVariable(e event.Event) {

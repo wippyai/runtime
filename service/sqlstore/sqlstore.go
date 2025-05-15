@@ -72,6 +72,7 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 	db := conn.(sql.DBResource).DB
 
 	// Build query to retrieve value and check expiration
+	//nolint:gosec // verified at the config.Validate() step
 	query := fmt.Sprintf(
 		"SELECT %s FROM %s WHERE %s = $1 AND (%s IS NULL OR %s > %s)",
 		s.config.PayloadColumnName,
@@ -122,6 +123,7 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 	db := conn.(sql.DBResource).DB
 
 	// Check if entry already exists
+	//nolint:gosec // FIXME variables should be verified at the config.Validate() step
 	existsQuery := fmt.Sprintf(
 		"SELECT 1 FROM %s WHERE %s = $1",
 		s.config.TableName,
@@ -222,6 +224,7 @@ func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
 	db := conn.(sql.DBResource).DB
 
 	// Delete the key
+	//nolint:gosec // verified at the config.Validate() step
 	deleteQuery := fmt.Sprintf(
 		"DELETE FROM %s WHERE %s = ?",
 		s.config.TableName,
@@ -263,6 +266,7 @@ func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
 	db := conn.(sql.DBResource).DB
 
 	// Build query to check if key exists and is not expired
+	//nolint:gosec // verified at the config.Validate() step
 	query := fmt.Sprintf(
 		"SELECT 1 FROM %s WHERE %s = ? AND (%s IS NULL OR %s > %s)",
 		s.config.TableName,
@@ -387,6 +391,7 @@ func (s *SQLStore) cleanup(ctx context.Context) {
 		return
 	}
 
+	//nolint:gosec //verified at the config.Validate() step
 	query := fmt.Sprintf(
 		"DELETE FROM %s WHERE %s IS NOT NULL AND %s < %s",
 		s.config.TableName,

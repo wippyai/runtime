@@ -47,7 +47,8 @@ func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 	return nil
 }
 
-func setupTestManager(t *testing.T) (*Manager, *eventbus.Bus) {
+//nolint:unparam // ok for now
+func setupTestManager(_ *testing.T) (*Manager, *eventbus.Bus) {
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
 	dtt := &mockTranscoder{}

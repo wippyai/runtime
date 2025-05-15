@@ -24,7 +24,7 @@ type mockResourceRegistry struct {
 	resources map[registry.ID]resource.Resource[any]
 }
 
-func (m *mockResourceRegistry) Get(ctx context.Context, name string) (string, error) {
+func (m *mockResourceRegistry) Get(_ context.Context, name string) (string, error) {
 	value, ok := m.vars[name]
 	if !ok {
 		return "", envapi.ErrVariableNotFound
@@ -32,12 +32,12 @@ func (m *mockResourceRegistry) Get(ctx context.Context, name string) (string, er
 	return value, nil
 }
 
-func (m *mockResourceRegistry) Set(ctx context.Context, name string, value string) error {
+func (m *mockResourceRegistry) Set(_ context.Context, name string, value string) error {
 	m.vars[name] = value
 	return nil
 }
 
-func (m *mockResourceRegistry) All(ctx context.Context) ([]envapi.Storage, error) {
+func (m *mockResourceRegistry) All(_ context.Context) ([]envapi.Storage, error) {
 	// For testing purposes, we return an empty slice since we don't need actual storage
 	return []envapi.Storage{}, nil
 }
@@ -78,15 +78,15 @@ func newTestScope() *testScope {
 	}
 }
 
-func (s *testScope) With(policy security.Policy) security.Scope {
+func (s *testScope) With(_ security.Policy) security.Scope {
 	return s
 }
 
-func (s *testScope) Without(policyID registry.ID) security.Scope {
+func (s *testScope) Without(_ registry.ID) security.Scope {
 	return s
 }
 
-func (s *testScope) Evaluate(actor security.Actor, action, resource string, meta registry.Metadata) security.Result {
+func (s *testScope) Evaluate(_ security.Actor, action, resource string, _ registry.Metadata) security.Result {
 	key := action + ":" + resource
 	if s.allowed[key] {
 		return security.Allow
@@ -94,7 +94,7 @@ func (s *testScope) Evaluate(actor security.Actor, action, resource string, meta
 	return security.Deny
 }
 
-func (s *testScope) Contains(policyID registry.ID) bool {
+func (s *testScope) Contains(_ registry.ID) bool {
 	return false
 }
 
@@ -171,10 +171,11 @@ func TestEnvModule(t *testing.T) {
 		scope, _ := security.GetScope(L.Context())
 		scope.(*testScope).Allow("env.get", "test_var")
 
-		registry.Set(context.Background(), "test_var", "test_value")
+		err := registry.Set(context.Background(), "test_var", "test_value")
+		require.NoError(t, err, "failed to set new value")
 
 		// Import our test function
-		err := vm.Import(`
+		err = vm.Import(`
 			function test_env_get()
 				local env = require("env")
 				local value, err = env.get("test_var")
