@@ -14,9 +14,16 @@ type Module struct {
 	baseLogger *zap.Logger
 }
 
-// Logger represents a Lua userdata object wrapping zap.Logger
+// LoggerOp represents a modification to be applied to a logger
+type LoggerOp struct {
+	Type   string      // "with" or "named"
+	Fields []zap.Field // for "with" operations
+	Name   string      // for "named" operations
+}
+
+// Logger represents a Lua userdata object wrapping logger operations
 type Logger struct {
-	logger *zap.Logger
+	operations []LoggerOp // Stack of operations to apply to context logger
 }
 
 // NewLoggerModule creates a new logger module
@@ -42,30 +49,46 @@ func (m *Module) Loader(l *lua.LState) int {
 		"with":  loggerWith,
 		"named": loggerNamed,
 	}
-	// Create UserData without initializing the logger - we'll use context logger
+	// Create UserData with empty operations list
 	ud := l.NewUserData()
-	ud.Value = &Logger{logger: nil}
+	ud.Value = &Logger{operations: make([]LoggerOp, 0)}
 	ud.Metatable = value.RegisterMethods(l, "logger.Logger", methods)
 	l.Push(ud)
 	return 1
 }
 
-// Helper function to get logger either from UserData or context
-// NEVER returns nil - always gets a valid logger or panics if truly impossible
-func getEffectiveLogger(l *lua.LState) *zap.Logger {
-	// First try to get from UserData
+// Helper function to apply operations to a logger
+func applyOperations(baseLogger *zap.Logger, operations []LoggerOp) *zap.Logger {
+	logger := baseLogger
+	for _, op := range operations {
+		switch op.Type {
+		case "with":
+			logger = logger.With(op.Fields...)
+		case "named":
+			logger = logger.Named(op.Name)
+		}
+	}
+	return logger
+}
+
+// Helper function to get the effective logger
+func getEffectiveLogger(l *lua.LState) (*zap.Logger, []LoggerOp) {
+	// Get operations from UserData if available
+	var operations []LoggerOp
 	if l.GetTop() >= 1 {
 		if ud := l.Get(1); ud.Type() == lua.LTUserData {
 			if userdata, ok := ud.(*lua.LUserData); ok {
-				if logger, ok := userdata.Value.(*Logger); ok && logger != nil && logger.logger != nil {
-					return logger.logger
+				if logger, ok := userdata.Value.(*Logger); ok && logger != nil {
+					operations = logger.operations
 				}
 			}
 		}
 	}
 
-	// If we get here, use context logger
-	return logs.GetLogger(l.Context())
+	// Get the base logger from context
+	baseLogger := logs.GetLogger(l.Context())
+
+	return baseLogger, operations
 }
 
 // Helper function to convert Lua table to zap fields
@@ -94,13 +117,16 @@ func tableToFields(table *lua.LTable) []zap.Field {
 
 // Logger methods implementations
 func loggerDebug(l *lua.LState) int {
-	// Get the effective logger - either from UserData or context
-	zapLogger := getEffectiveLogger(l)
+	// Get the base logger and operations
+	baseLogger, operations := getEffectiveLogger(l)
 
-	// Skip if no logger (shouldn't happen with proper fallbacks)
-	if zapLogger == nil {
+	// Skip if no base logger
+	if baseLogger == nil {
 		return 0
 	}
+
+	// Apply operations to get the effective logger
+	zapLogger := applyOperations(baseLogger, operations)
 
 	msg := l.CheckString(2)
 	var fields []zap.Field
@@ -115,13 +141,16 @@ func loggerDebug(l *lua.LState) int {
 }
 
 func loggerInfo(l *lua.LState) int {
-	// Get the effective logger - either from UserData or context
-	zapLogger := getEffectiveLogger(l)
+	// Get the base logger and operations
+	baseLogger, operations := getEffectiveLogger(l)
 
-	// Skip if no logger (shouldn't happen with proper fallbacks)
-	if zapLogger == nil {
+	// Skip if no base logger
+	if baseLogger == nil {
 		return 0
 	}
+
+	// Apply operations to get the effective logger
+	zapLogger := applyOperations(baseLogger, operations)
 
 	msg := l.CheckString(2)
 	var fields []zap.Field
@@ -136,13 +165,16 @@ func loggerInfo(l *lua.LState) int {
 }
 
 func loggerWarn(l *lua.LState) int {
-	// Get the effective logger - either from UserData or context
-	zapLogger := getEffectiveLogger(l)
+	// Get the base logger and operations
+	baseLogger, operations := getEffectiveLogger(l)
 
-	// Skip if no logger (shouldn't happen with proper fallbacks)
-	if zapLogger == nil {
+	// Skip if no base logger
+	if baseLogger == nil {
 		return 0
 	}
+
+	// Apply operations to get the effective logger
+	zapLogger := applyOperations(baseLogger, operations)
 
 	msg := l.CheckString(2)
 	var fields []zap.Field
@@ -157,13 +189,16 @@ func loggerWarn(l *lua.LState) int {
 }
 
 func loggerError(l *lua.LState) int {
-	// Get the effective logger - either from UserData or context
-	zapLogger := getEffectiveLogger(l)
+	// Get the base logger and operations
+	baseLogger, operations := getEffectiveLogger(l)
 
-	// Skip if no logger (shouldn't happen with proper fallbacks)
-	if zapLogger == nil {
+	// Skip if no base logger
+	if baseLogger == nil {
 		return 0
 	}
+
+	// Apply operations to get the effective logger
+	zapLogger := applyOperations(baseLogger, operations)
 
 	msg := l.CheckString(2)
 	var fields []zap.Field
@@ -183,12 +218,16 @@ func loggerError(l *lua.LState) int {
 }
 
 func loggerWith(l *lua.LState) int {
-	// Get the effective logger - either from UserData or context
-	zapLogger := getEffectiveLogger(l)
-
-	// Skip if no logger (shouldn't happen with proper fallbacks)
-	if zapLogger == nil {
-		return 0
+	// Get current operations from UserData
+	var currentOps []LoggerOp
+	if l.GetTop() >= 1 {
+		if ud := l.Get(1); ud.Type() == lua.LTUserData {
+			if userdata, ok := ud.(*lua.LUserData); ok {
+				if logger, ok := userdata.Value.(*Logger); ok && logger != nil {
+					currentOps = logger.operations
+				}
+			}
+		}
 	}
 
 	fields := l.CheckTable(2)
@@ -197,24 +236,36 @@ func loggerWith(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new logger with fields
-	newLogger := zapLogger.With(tableToFields(fields)...)
+	// Create new "with" operation
+	withOp := LoggerOp{
+		Type:   "with",
+		Fields: tableToFields(fields),
+	}
 
-	// Spawn new userdata
+	// Create new operations list with the added "with"
+	newOps := make([]LoggerOp, len(currentOps)+1)
+	copy(newOps, currentOps)
+	newOps[len(currentOps)] = withOp
+
+	// Spawn new userdata with the new operations
 	newUd := l.NewUserData()
-	newUd.Value = &Logger{logger: newLogger}
+	newUd.Value = &Logger{operations: newOps}
 	newUd.Metatable = value.GetTypeMetatable(l, "logger.Logger")
 	l.Push(newUd)
 	return 1
 }
 
 func loggerNamed(l *lua.LState) int {
-	// Get the effective logger - either from UserData or context
-	zapLogger := getEffectiveLogger(l)
-
-	// Skip if no logger (shouldn't happen with proper fallbacks)
-	if zapLogger == nil {
-		return 0
+	// Get current operations from UserData
+	var currentOps []LoggerOp
+	if l.GetTop() >= 1 {
+		if ud := l.Get(1); ud.Type() == lua.LTUserData {
+			if userdata, ok := ud.(*lua.LUserData); ok {
+				if logger, ok := userdata.Value.(*Logger); ok && logger != nil {
+					currentOps = logger.operations
+				}
+			}
+		}
 	}
 
 	name := l.CheckString(2)
@@ -223,12 +274,20 @@ func loggerNamed(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new named logger
-	newLogger := zapLogger.Named(name)
+	// Create new "named" operation
+	namedOp := LoggerOp{
+		Type: "named",
+		Name: name,
+	}
 
-	// Spawn new userdata
+	// Create new operations list with the added "named"
+	newOps := make([]LoggerOp, len(currentOps)+1)
+	copy(newOps, currentOps)
+	newOps[len(currentOps)] = namedOp
+
+	// Spawn new userdata with the new operations
 	newUd := l.NewUserData()
-	newUd.Value = &Logger{logger: newLogger}
+	newUd.Value = &Logger{operations: newOps}
 	newUd.Metatable = value.GetTypeMetatable(l, "logger.Logger")
 	l.Push(newUd)
 	return 1
