@@ -17,8 +17,6 @@ import (
 	"syscall"
 	"time"
 
-	env2 "github.com/ponyruntime/pony/service/env"
-
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
 	ctxapi "github.com/ponyruntime/pony/api/context"
@@ -84,6 +82,7 @@ import (
 	"github.com/ponyruntime/pony/service/aws/config"
 	"github.com/ponyruntime/pony/service/aws/s3"
 	fsdir "github.com/ponyruntime/pony/service/directory"
+	envservice "github.com/ponyruntime/pony/service/env"
 	native "github.com/ponyruntime/pony/service/exec"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
@@ -94,6 +93,7 @@ import (
 	"github.com/ponyruntime/pony/service/policy"
 	"github.com/ponyruntime/pony/service/processfunc"
 	"github.com/ponyruntime/pony/service/sql"
+	"github.com/ponyruntime/pony/service/sqlstore"
 	service "github.com/ponyruntime/pony/service/supervisor"
 	"github.com/ponyruntime/pony/service/template"
 	"github.com/ponyruntime/pony/service/terminal"
@@ -617,6 +617,7 @@ func main() {
 		WithProcessSupervisor(app),
 		WithEphemeralHost(app),
 		WithSQLManager(app),
+		WithSQLStore(app),
 		WithAWSConfigManager(app),
 		WithS3Manager(app),
 		WithProcessFunctionBridge(app),
@@ -717,7 +718,7 @@ func loadApplicationState(
 	}
 
 	// TODO: move it somewhere else
-	baseURL := "https://modules.platform.wippy.ai"
+	baseURL := "https://modules.wippy.ai"
 	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
 		baseURL = modulesURL
 	}
@@ -880,7 +881,7 @@ func WithS3Manager(a *App) eventbus.EventHandler {
 }
 
 func WithEnvManager(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("env.*", env2.NewManager(
+	return reghandler.NewRegistryHandler("env.*", envservice.NewManager(
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("env"),
@@ -923,6 +924,17 @@ func WithMemStore(a *App) eventbus.EventHandler {
 	)
 
 	return reghandler.NewRegistryHandler("store.memory", manager)
+}
+
+func WithSQLStore(a *App) eventbus.EventHandler {
+	// Create manager with required dependencies
+	manager := sqlstore.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("sqlstore"),
+	)
+
+	return reghandler.NewRegistryHandler("store.sql", manager)
 }
 
 func WithNativeExecutor(a *App) eventbus.EventHandler {
