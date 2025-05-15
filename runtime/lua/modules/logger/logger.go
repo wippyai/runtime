@@ -2,15 +2,12 @@ package logger
 
 import (
 	"errors"
-
+	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-
 	transcoder "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
-
-// todo: can it work via dot notation?
 
 // Module represents a logger Lua module
 type Module struct {
@@ -45,14 +42,30 @@ func (m *Module) Loader(l *lua.LState) int {
 		"with":  loggerWith,
 		"named": loggerNamed,
 	}
-
-	// Base logger is our module entry
+	// Create UserData without initializing the logger - we'll use context logger
 	ud := l.NewUserData()
-	ud.Value = &Logger{logger: m.baseLogger}
+	ud.Value = &Logger{logger: nil}
 	ud.Metatable = value.RegisterMethods(l, "logger.Logger", methods)
-
 	l.Push(ud)
 	return 1
+}
+
+// Helper function to get logger either from UserData or context
+// NEVER returns nil - always gets a valid logger or panics if truly impossible
+func getEffectiveLogger(l *lua.LState) *zap.Logger {
+	// First try to get from UserData
+	if l.GetTop() >= 1 {
+		if ud := l.Get(1); ud.Type() == lua.LTUserData {
+			if userdata, ok := ud.(*lua.LUserData); ok {
+				if logger, ok := userdata.Value.(*Logger); ok && logger != nil && logger.logger != nil {
+					return logger.logger
+				}
+			}
+		}
+	}
+
+	// If we get here, use context logger
+	return logs.GetLogger(l.Context())
 }
 
 // Helper function to convert Lua table to zap fields
@@ -63,7 +76,6 @@ func tableToFields(table *lua.LTable) []zap.Field {
 		if !ok {
 			return
 		}
-
 		switch v.Type() {
 		case lua.LTString:
 			fields = append(fields, zap.String(string(key), string(v.(lua.LString))))
@@ -77,85 +89,84 @@ func tableToFields(table *lua.LTable) []zap.Field {
 			fields = append(fields, zap.Any(string(key), transcoder.ToGoAny(v)))
 		}
 	})
-
 	return fields
 }
 
 // Logger methods implementations
 func loggerDebug(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
+	// Get the effective logger - either from UserData or context
+	zapLogger := getEffectiveLogger(l)
+
+	// Skip if no logger (shouldn't happen with proper fallbacks)
+	if zapLogger == nil {
 		return 0
 	}
 
 	msg := l.CheckString(2)
 	var fields []zap.Field
-
 	if l.GetTop() > 2 {
 		if tbl := l.CheckTable(3); tbl != nil {
 			fields = tableToFields(tbl)
 		}
 	}
 
-	logger.logger.Debug(msg, fields...)
+	zapLogger.Debug(msg, fields...)
 	return 0
 }
 
 func loggerInfo(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
+	// Get the effective logger - either from UserData or context
+	zapLogger := getEffectiveLogger(l)
+
+	// Skip if no logger (shouldn't happen with proper fallbacks)
+	if zapLogger == nil {
 		return 0
 	}
 
 	msg := l.CheckString(2)
 	var fields []zap.Field
-
 	if l.GetTop() > 2 {
 		if tbl := l.CheckTable(3); tbl != nil {
 			fields = tableToFields(tbl)
 		}
 	}
 
-	logger.logger.Info(msg, fields...)
+	zapLogger.Info(msg, fields...)
 	return 0
 }
 
 func loggerWarn(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
+	// Get the effective logger - either from UserData or context
+	zapLogger := getEffectiveLogger(l)
+
+	// Skip if no logger (shouldn't happen with proper fallbacks)
+	if zapLogger == nil {
 		return 0
 	}
 
 	msg := l.CheckString(2)
 	var fields []zap.Field
-
 	if l.GetTop() > 2 {
 		if tbl := l.CheckTable(3); tbl != nil {
 			fields = tableToFields(tbl)
 		}
 	}
 
-	logger.logger.Warn(msg, fields...)
+	zapLogger.Warn(msg, fields...)
 	return 0
 }
 
 func loggerError(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
+	// Get the effective logger - either from UserData or context
+	zapLogger := getEffectiveLogger(l)
+
+	// Skip if no logger (shouldn't happen with proper fallbacks)
+	if zapLogger == nil {
 		return 0
 	}
 
 	msg := l.CheckString(2)
 	var fields []zap.Field
-
 	if l.GetTop() > 2 {
 		if tbl := l.CheckTable(3); tbl != nil {
 			// Handle special error field
@@ -163,20 +174,20 @@ func loggerError(l *lua.LState) int {
 				fields = append(fields, zap.Error(errors.New(errValue.String())))
 				tbl.RawSetString("error", lua.LNil) // Done error from table
 			}
-
 			fields = append(fields, tableToFields(tbl)...)
 		}
 	}
 
-	logger.logger.Error(msg, fields...)
+	zapLogger.Error(msg, fields...)
 	return 0
 }
 
 func loggerWith(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
+	// Get the effective logger - either from UserData or context
+	zapLogger := getEffectiveLogger(l)
+
+	// Skip if no logger (shouldn't happen with proper fallbacks)
+	if zapLogger == nil {
 		return 0
 	}
 
@@ -186,24 +197,23 @@ func loggerWith(l *lua.LState) int {
 		return 0
 	}
 
-	// Spawn new logger with fields
-	newLogger := logger.logger.With(tableToFields(fields)...)
+	// Create new logger with fields
+	newLogger := zapLogger.With(tableToFields(fields)...)
 
 	// Spawn new userdata
 	newUd := l.NewUserData()
 	newUd.Value = &Logger{logger: newLogger}
 	newUd.Metatable = value.GetTypeMetatable(l, "logger.Logger")
-
 	l.Push(newUd)
-
 	return 1
 }
 
 func loggerNamed(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
+	// Get the effective logger - either from UserData or context
+	zapLogger := getEffectiveLogger(l)
+
+	// Skip if no logger (shouldn't happen with proper fallbacks)
+	if zapLogger == nil {
 		return 0
 	}
 
@@ -213,14 +223,13 @@ func loggerNamed(l *lua.LState) int {
 		return 0
 	}
 
-	// Spawn new named logger
-	newLogger := logger.logger.Named(name)
+	// Create new named logger
+	newLogger := zapLogger.Named(name)
 
 	// Spawn new userdata
 	newUd := l.NewUserData()
 	newUd.Value = &Logger{logger: newLogger}
 	newUd.Metatable = value.GetTypeMetatable(l, "logger.Logger")
 	l.Push(newUd)
-
 	return 1
 }
