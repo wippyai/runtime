@@ -3,7 +3,6 @@ package env
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,7 +18,6 @@ import (
 // FileStorage implements env.Storage interface using a JSON file
 type FileStorage struct {
 	filepath string
-	values   map[string]string
 	mutex    sync.RWMutex
 	log      *zap.Logger
 }
@@ -28,7 +26,6 @@ type FileStorage struct {
 func NewFileStorage(filepath string, log *zap.Logger) *FileStorage {
 	return &FileStorage{
 		filepath: filepath,
-		values:   make(map[string]string),
 		log:      log.With(zap.String("component", "filestorage"), zap.String("filepath", filepath)),
 	}
 }
@@ -74,8 +71,8 @@ func (s *FileStorage) Get(_ context.Context, key string) (string, error) {
 
 // Set stores a value in storage
 func (s *FileStorage) Set(_ context.Context, key, value string) error {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	// Read the file line by line and update the matching key
 	tempPath := s.filepath + ".tmp"
@@ -87,7 +84,7 @@ func (s *FileStorage) Set(_ context.Context, key, value string) error {
 	}
 	defer inFile.Close()
 
-	// Create temporary file for writing
+	// Create a temporary file for writing
 	outFile, err := os.Create(tempPath)
 	if err != nil {
 		return err
@@ -148,8 +145,55 @@ func (s *FileStorage) Delete(_ context.Context, key string) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	delete(s.values, key)
-	return s.save()
+	// Read the file line by line and remove the matching key
+	tempPath := s.filepath + ".tmp"
+
+	// Open source file for reading
+	inFile, err := os.Open(s.filepath)
+	if err != nil {
+		return err
+	}
+	defer inFile.Close()
+
+	// Create a temporary file for writing
+	outFile, err := os.Create(tempPath)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	scanner := bufio.NewScanner(inFile)
+	writer := bufio.NewWriter(outFile)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.SplitN(line, "=", 2)
+
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) != key {
+			// Keep lines that don't match the key
+			fmt.Fprintln(writer, line)
+		}
+	}
+
+	if err = scanner.Err(); err != nil {
+		return err
+	}
+
+	// Flush writer before closing files
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+
+	// Close files before rename
+	inFile.Close()
+	outFile.Close()
+
+	// Replace the original file with a temporary file
+	if err = os.Rename(tempPath, s.filepath); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // List returns all variable names and values in this storage
@@ -157,20 +201,49 @@ func (s *FileStorage) List(_ context.Context) (map[string]string, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	// Create a copy of the map to avoid concurrent access issues
-	result := make(map[string]string, len(s.values))
-	for k, v := range s.values {
-		result[k] = v
+	result := make(map[string]string)
+
+	// Open file for reading
+	file, err := os.Open(s.filepath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return result, nil
+		}
+		return nil, err
 	}
+	defer file.Close()
+
+	// Read file line by line
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if commentIndex := strings.Index(line, "#"); commentIndex != -1 {
+			line = line[:commentIndex]
+		}
+		line = strings.TrimSpace(line)
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		result[parts[0]] = parts[1]
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
 	return result, nil
 }
 
 // Start implements supervisor.Service interface
-func (s *FileStorage) Start(ctx context.Context) (<-chan any, error) {
+func (s *FileStorage) Start(_ context.Context) (<-chan any, error) {
 	statusCh := make(chan any, 1)
 
-	// Load existing values from file
-	if err := s.load(); err != nil {
+	// Ensure directory exists
+	dir := filepath.Dir(s.filepath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
 
@@ -179,15 +252,12 @@ func (s *FileStorage) Start(ctx context.Context) (<-chan any, error) {
 }
 
 // Stop implements supervisor.Service interface
-func (s *FileStorage) Stop(ctx context.Context) error {
-	// Save any pending changes before stopping
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	return s.save()
+func (s *FileStorage) Stop(_ context.Context) error {
+	return nil
 }
 
 // Acquire implements resource.Provider interface
-func (s *FileStorage) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (s *FileStorage) Acquire(_ context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
 		return nil, resource.ErrResourceLocked
@@ -231,35 +301,4 @@ func (r *fileResource) Release() {
 	}
 
 	r.closed = true
-}
-
-// load reads the storage file and loads values into memory
-func (s *FileStorage) load() error {
-	data, err := os.ReadFile(s.filepath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// File doesn't exist yet, that's ok
-			return nil
-		}
-		return err
-	}
-
-	return json.Unmarshal(data, &s.values)
-}
-
-// save writes the current values to the storage file
-func (s *FileStorage) save() error {
-	// Ensure directory exists
-	dir := filepath.Dir(s.filepath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	data, err := json.Marshal(s.values)
-	if err != nil {
-		return err
-	}
-
-	//nolint:gosec // keep for now
-	return os.WriteFile(s.filepath, data, 0644)
 }

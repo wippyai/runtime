@@ -39,6 +39,11 @@ func (m *Module) get(l *lua.LState) int {
 		return 0
 	}
 
+	if _, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); !ok {
+		l.RaiseError("invalid environment context")
+		return 0
+	}
+
 	key := l.CheckString(1)
 	if key == "" {
 		l.ArgError(1, "empty key")
@@ -52,11 +57,15 @@ func (m *Module) get(l *lua.LState) int {
 	}
 
 	envRegistry := env.GetRegistry(l.Context())
+	if envRegistry == nil {
+		l.RaiseError("environment registry not found")
+		return 0
+	}
 
 	value, err := envRegistry.Get(l.Context(), key)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
@@ -69,6 +78,11 @@ func (m *Module) set(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.RaiseError("no context found")
+		return 0
+	}
+
+	if _, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); !ok {
+		l.RaiseError("invalid environment context")
 		return 0
 	}
 
@@ -91,6 +105,10 @@ func (m *Module) set(l *lua.LState) int {
 	}
 
 	envRegistry := env.GetRegistry(l.Context())
+	if envRegistry == nil {
+		l.RaiseError("environment registry not found")
+		return 0
+	}
 
 	err := envRegistry.Set(l.Context(), key, value)
 	if err != nil {
@@ -107,16 +125,20 @@ func (m *Module) set(l *lua.LState) int {
 func (m *Module) getAll(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
-		return 2
+		l.RaiseError("no context found")
+		return 0
 	}
 
 	envCtx, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string])
 	if !ok {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid environment context"))
-		return 2
+		l.RaiseError("invalid environment context")
+		return 0
+	}
+
+	envRegistry := env.GetRegistry(l.Context())
+	if envRegistry == nil {
+		l.RaiseError("environment registry not found")
+		return 0
 	}
 
 	result := l.CreateTable(0, envCtx.Len())

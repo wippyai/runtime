@@ -14,8 +14,8 @@ import (
 const (
 	System event.System = "env"
 
-	StorageRegister  event.Kind = "env.storageregister"
-	StorageDelete    event.Kind = "env.storagedelete"
+	StorageRegister event.Kind = "env.storageregister"
+	//StorageDelete    event.Kind = "env.storagedelete"
 	VariableRegister event.Kind = "env.variableregister"
 	VariableDelete   event.Kind = "env.variabledelete"
 	VariableUpdate   event.Kind = "env.variableupdate"

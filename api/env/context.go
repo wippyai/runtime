@@ -8,16 +8,16 @@ import (
 )
 
 // Context key for the environment registry
-var registryCtx = &ctxapi.Key{Name: "env.registry"}
+var RegistryCtxKey = &ctxapi.Key{Name: "env.registry"}
 
 // WithRegistry returns a new context with the provided Registry attached
 func WithRegistry(ctx context.Context, reg Registry) context.Context {
-	return context.WithValue(ctx, registryCtx, reg)
+	return context.WithValue(ctx, RegistryCtxKey, reg)
 }
 
 // GetRegistry retrieves the environment registry from the context
 func GetRegistry(ctx context.Context) Registry {
-	if reg, ok := ctx.Value(registryCtx).(Registry); ok {
+	if reg, ok := ctx.Value(RegistryCtxKey).(Registry); ok {
 		return reg
 	}
 	return nil

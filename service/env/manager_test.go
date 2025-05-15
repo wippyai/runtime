@@ -2,224 +2,129 @@ package env
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
+	"github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/resource"
+	serviceenv "github.com/ponyruntime/pony/api/service/env"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
-func setupManagerTest(t *testing.T) (*Manager, event.Bus) {
-	t.Helper()
+// mockTranscoder implements payload.Transcoder for testing
+type mockTranscoder struct{}
+
+func (m *mockTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+	return payload.NewPayload(p, format), nil
+}
+
+func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+	// Type switches based on expected output type and source payload
+	switch dest := v.(type) {
+	case *serviceenv.CreateMemoryEnvStorageConfig:
+		if src, ok := p.Data().(*serviceenv.CreateMemoryEnvStorageConfig); ok {
+			*dest = *src
+			return nil
+		}
+	case *serviceenv.CreateFileEnvStorageConfig:
+		if src, ok := p.Data().(*serviceenv.CreateFileEnvStorageConfig); ok {
+			*dest = *src
+			return nil
+		}
+	case *env.Variable:
+		if src, ok := p.Data().(*env.Variable); ok {
+			*dest = *src
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func setupTestManager(t *testing.T) (*Manager, *eventbus.Bus) {
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
 	dtt := &mockTranscoder{}
 	manager := NewManager(bus, dtt, logger)
 
-	t.Cleanup(func() {
-		_ = manager.Stop()
-		bus.Stop()
-	})
-
 	return manager, bus
 }
 
-// mockTranscoder implements payload.Transcoder for testing
-type mockTranscoder struct{}
+func TestNewManager(t *testing.T) {
+	bus := eventbus.NewBus()
+	logger := zap.NewNop()
+	dtt := &mockTranscoder{}
 
-func (m *mockTranscoder) Marshal(v interface{}) ([]byte, error) {
-	return nil, nil
+	manager := NewManager(bus, dtt, logger)
+
+	assert.NotNil(t, manager)
+	assert.Equal(t, bus, manager.bus)
+	assert.Equal(t, dtt, manager.dtt)
+	assert.Equal(t, logger, manager.logger)
+	assert.NotNil(t, manager.storages)
+	assert.NotNil(t, manager.factory)
 }
 
-func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
-	return nil
-}
+func TestManager_Add_MemoryStorage(t *testing.T) {
+	manager, _ := setupTestManager(t)
 
-func (m *mockTranscoder) Transcode(p payload.Payload, f payload.Format) (payload.Payload, error) {
-	return p, nil
-}
+	entry := registry.Entry{
+		ID:   registry.ID{NS: "test", Name: "memory"},
+		Kind: env.KindStorageMemory,
+		Data: payload.New(&serviceenv.CreateMemoryEnvStorageConfig{
+			Lifecycle: supervisor.LifecycleConfig{
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
+			},
+		}),
+	}
 
-func TestManager_StartStop(t *testing.T) {
-	manager, _ := setupManagerTest(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	err := manager.Start(ctx)
-	require.NoError(t, err, "Manager should start without error")
-
-	err = manager.Stop()
-	require.NoError(t, err, "Manager should stop without error")
-}
-
-func TestManager_SetGetDelete(t *testing.T) {
-	manager, bus := setupManagerTest(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	require.NoError(t, manager.Start(ctx))
-
-	// Test direct API calls
-	manager.SetVar("TEST_VAR", "test_value")
-	value, exists := manager.GetVar("TEST_VAR")
-	require.True(t, exists)
-	assert.Equal(t, "test_value", value)
-
-	manager.DeleteVar("TEST_VAR")
-	_, exists = manager.GetVar("TEST_VAR")
-	assert.False(t, exists)
-
-	// Test event-based operations
-	responses := make(chan event.Event, 3)
-	sub, err := eventbus.NewSubscriber(
-		ctx,
-		bus,
-		System,
-		VarState,
-		func(e event.Event) {
-			responses <- e
-		},
-	)
+	err := manager.Add(context.Background(), entry)
 	require.NoError(t, err)
-	defer sub.Close()
 
-	// Test SetVar event
-	bus.Send(ctx, event.Event{
-		System: System,
-		Kind:   SetVar,
-		Path:   "EVENT_VAR",
-		Data:   "event_value",
-	})
+	// Verify storage was added
+	manager.mu.RLock()
+	storage, exists := manager.storages[entry.ID]
+	manager.mu.RUnlock()
 
-	select {
-	case resp := <-responses:
-		assert.Equal(t, VarState, resp.Kind)
-		assert.Equal(t, "EVENT_VAR", resp.Path)
-		assert.Equal(t, "event_value", resp.Data)
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for set response")
-	}
-
-	// Test GetVar event
-	bus.Send(ctx, event.Event{
-		System: System,
-		Kind:   GetVar,
-		Path:   "EVENT_VAR",
-	})
-
-	select {
-	case resp := <-responses:
-		assert.Equal(t, VarState, resp.Kind)
-		assert.Equal(t, "EVENT_VAR", resp.Path)
-		assert.Equal(t, "event_value", resp.Data)
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for get response")
-	}
-
-	// Test DeleteVar event
-	bus.Send(ctx, event.Event{
-		System: System,
-		Kind:   DeleteVar,
-		Path:   "EVENT_VAR",
-	})
-
-	select {
-	case resp := <-responses:
-		assert.Equal(t, VarState, resp.Kind)
-		assert.Equal(t, "EVENT_VAR", resp.Path)
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for delete response")
-	}
-
-	// Verify variable is deleted
-	_, exists = manager.GetVar("EVENT_VAR")
-	assert.False(t, exists)
+	assert.True(t, exists)
+	assert.NotNil(t, storage)
 }
 
-func TestManager_InvalidEvents(t *testing.T) {
-	manager, bus := setupManagerTest(t)
+func TestManager_Acquire(t *testing.T) {
+	manager, _ := setupTestManager(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	require.NoError(t, manager.Start(ctx))
-
-	tests := []struct {
-		name      string
-		sendEvent event.Event
-	}{
-		{
-			name: "invalid data type",
-			sendEvent: event.Event{
-				System: System,
-				Kind:   SetVar,
-				Path:   "TEST_VAR",
-				Data:   123, // Should be string
+	// Add a memory storage first
+	entry := registry.Entry{
+		ID:   registry.ID{NS: "test", Name: "memory"},
+		Kind: env.KindStorageMemory,
+		Data: payload.New(&serviceenv.CreateMemoryEnvStorageConfig{
+			Lifecycle: supervisor.LifecycleConfig{
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
 			},
-		},
-		{
-			name: "nil data",
-			sendEvent: event.Event{
-				System: System,
-				Kind:   SetVar,
-				Path:   "TEST_VAR",
-			},
-		},
-		{
-			name: "wrong system",
-			sendEvent: event.Event{
-				System: "wrong.system",
-				Kind:   SetVar,
-				Path:   "TEST_VAR",
-				Data:   "test_value",
-			},
-		},
+		}),
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bus.Send(ctx, tt.sendEvent)
-			time.Sleep(50 * time.Millisecond) // Give manager time to process
+	err := manager.Add(context.Background(), entry)
+	require.NoError(t, err)
 
-			// Variable should not be set
-			_, exists := manager.GetVar(tt.sendEvent.Path)
-			assert.False(t, exists)
-		})
-	}
-}
+	// Test successful acquisition
+	res, err := manager.Acquire(context.Background(), entry.ID, resource.ModeNormal)
+	require.NoError(t, err)
+	assert.NotNil(t, res)
 
-func TestManager_ConcurrentAccess(t *testing.T) {
-	manager, _ := setupManagerTest(t)
+	// Test acquisition with non-existent storage
+	_, err = manager.Acquire(context.Background(), registry.ID{NS: "test", Name: "non-existent"}, resource.ModeNormal)
+	assert.Error(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	require.NoError(t, manager.Start(ctx))
-
-	// Test concurrent access to the same variable
-	done := make(chan struct{})
-	for i := 0; i < 10; i++ {
-		go func(i int) {
-			manager.SetVar("CONCURRENT_VAR", fmt.Sprintf("value_%d", i))
-			value, exists := manager.GetVar("CONCURRENT_VAR")
-			assert.True(t, exists)
-			assert.NotEmpty(t, value)
-			done <- struct{}{}
-		}(i)
-	}
-
-	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Fatal("timeout waiting for concurrent operations")
-		}
-	}
+	// Test acquisition with unsupported mode
+	_, err = manager.Acquire(context.Background(), entry.ID, resource.ModeExclusive)
+	assert.Equal(t, resource.ErrResourceLocked, err)
 }

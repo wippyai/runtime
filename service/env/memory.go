@@ -32,7 +32,7 @@ func NewMemoryStorage(defaultValues map[string]string, log *zap.Logger) *MemoryS
 }
 
 // Get retrieves a value from storage
-func (s *MemoryStorage) Get(ctx context.Context, key string) (string, error) {
+func (s *MemoryStorage) Get(_ context.Context, key string) (string, error) {
 	value, exists := s.values.Load(key)
 	if !exists {
 		return "", nil
@@ -47,20 +47,20 @@ func (s *MemoryStorage) Get(ctx context.Context, key string) (string, error) {
 }
 
 // Set stores a value in storage
-func (s *MemoryStorage) Set(ctx context.Context, key, value string) error {
+func (s *MemoryStorage) Set(_ context.Context, key, value string) error {
 	s.values.Store(key, value)
 
 	return nil
 }
 
 // Delete removes a value from storage
-func (s *MemoryStorage) Delete(ctx context.Context, key string) error {
+func (s *MemoryStorage) Delete(_ context.Context, key string) error {
 	s.values.Delete(key)
 	return nil
 }
 
 // List returns all variable names and values in this storage
-func (s *MemoryStorage) List(ctx context.Context) (map[string]string, error) {
+func (s *MemoryStorage) List(_ context.Context) (map[string]string, error) {
 	result := make(map[string]string)
 	s.values.Range(func(key, value interface{}) bool {
 		if strKey, ok := key.(string); ok {
@@ -74,7 +74,7 @@ func (s *MemoryStorage) List(ctx context.Context) (map[string]string, error) {
 }
 
 // Start implements supervisor.Service interface
-func (s *MemoryStorage) Start(ctx context.Context) (<-chan any, error) {
+func (s *MemoryStorage) Start(_ context.Context) (<-chan any, error) {
 	// Memory storage is always ready, no need for actual startup
 	statusCh := make(chan any, 1)
 	statusCh <- supervisor.Running
@@ -82,13 +82,13 @@ func (s *MemoryStorage) Start(ctx context.Context) (<-chan any, error) {
 }
 
 // Stop implements supervisor.Service interface
-func (s *MemoryStorage) Stop(ctx context.Context) error {
+func (s *MemoryStorage) Stop(_ context.Context) error {
 	// Memory storage doesn't need cleanup, just return nil
 	return nil
 }
 
 // Acquire implements resource.Provider interface
-func (s *MemoryStorage) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (s *MemoryStorage) Acquire(_ context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
 		return nil, resource.ErrResourceLocked
