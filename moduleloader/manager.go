@@ -152,14 +152,9 @@ func (m *Manager) getAllGraphCommits(ctx context.Context, deps []ManifestDepende
 }
 
 func (m *Manager) listModules(ctx context.Context, ids []string) (map[string]*modulev1.Module, error) {
-	refs := make([]*modulev1.ModuleRef, 0, len(ids))
-	for _, id := range ids {
-		refs = append(refs, &modulev1.ModuleRef{Value: &modulev1.ModuleRef_Id{Id: id}})
-	}
-
 	resp, err := m.moduleClient.ListModules(ctx, &connect.Request[modulev1.ListModulesRequest]{
 		Msg: &modulev1.ListModulesRequest{
-			ModuleRefs: refs,
+			ModuleIds: ids,
 		},
 	})
 	if err != nil {
