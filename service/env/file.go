@@ -57,8 +57,11 @@ func (s *FileStorage) Get(_ context.Context, key string) (string, error) {
 		if len(parts) != 2 {
 			continue
 		}
-		if parts[0] == key {
-			return parts[1], nil
+
+		keyParsed := strings.TrimSpace(parts[0])
+		valueParsed := strings.TrimSpace(parts[1])
+		if keyParsed == key {
+			return valueParsed, nil
 		}
 	}
 
@@ -227,7 +230,10 @@ func (s *FileStorage) List(_ context.Context) (map[string]string, error) {
 		if len(parts) != 2 {
 			continue
 		}
-		result[parts[0]] = parts[1]
+		keyParsed := strings.TrimSpace(parts[0])
+		valueParsed := strings.TrimSpace(parts[1])
+
+		result[keyParsed] = valueParsed
 	}
 
 	if err := scanner.Err(); err != nil {
