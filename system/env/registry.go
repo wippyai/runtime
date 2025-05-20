@@ -59,32 +59,14 @@ func (s *Registry) Stop() error {
 }
 
 func (s *Registry) handleEvent(e event.Event) {
-	s.log.Info("handleEvent called",
-		zap.String("system", e.System),
-		zap.String("kind", e.Kind),
-		zap.String("path", e.Path),
-		zap.Any("data_type", fmt.Sprintf("%T", e.Data)),
-		zap.Any("data", e.Data))
-
 	switch e.Kind {
 	case env.StorageRegister:
-		s.log.Debug("processing storage register event",
-			zap.String("path", e.Path),
-			zap.Any("data_type", fmt.Sprintf("%T", e.Data)))
 		s.registerStorage(e)
 	case env.VariableRegister:
-		s.log.Debug("processing variable register event",
-			zap.String("path", e.Path),
-			zap.Any("data_type", fmt.Sprintf("%T", e.Data)))
 		s.registerVariable(e)
 	case env.VariableUpdate:
-		s.log.Debug("processing variable update event",
-			zap.String("path", e.Path))
 		s.updateVariable(e)
 	case registry.Accept, registry.Reject:
-		s.log.Debug("processing accept/reject event",
-			zap.String("kind", e.Kind),
-			zap.String("path", e.Path))
 		// nothing, self emitted
 	default:
 		s.log.Warn("unknown event kind",
@@ -94,10 +76,6 @@ func (s *Registry) handleEvent(e event.Event) {
 }
 
 func (s *Registry) registerStorage(e event.Event) {
-	s.log.Debug("registerStorage called",
-		zap.String("storage", e.Path),
-		zap.Any("data_type", fmt.Sprintf("%T", e.Data)))
-
 	storage, ok := e.Data.(env.Storage)
 	if !ok {
 		s.log.Error("invalid storage payload",
@@ -108,20 +86,11 @@ func (s *Registry) registerStorage(e event.Event) {
 		return
 	}
 
-	s.log.Debug("registering storage",
-		zap.String("storage", e.Path),
-		zap.Any("storage_type", fmt.Sprintf("%T", storage)))
 	s.storages.Store(e.Path, storage)
-	s.log.Debug("storage registered successfully",
-		zap.String("storage", e.Path))
 	s.sendAccept(e.Path)
 }
 
 func (s *Registry) registerVariable(e event.Event) {
-	s.log.Debug("registerVariable called",
-		zap.String("variable", e.Path),
-		zap.Any("data_type", fmt.Sprintf("%T", e.Data)))
-
 	variable, ok := e.Data.(env.Variable)
 	if !ok {
 		s.log.Error("invalid variable payload",
@@ -131,23 +100,13 @@ func (s *Registry) registerVariable(e event.Event) {
 		return
 	}
 
-	s.log.Debug("processing variable registration",
-		zap.String("name", variable.Name),
-		zap.String("env_name", variable.EnvName),
-		zap.String("storage_id", variable.StorageID))
-
 	// Store variable by its name
 	s.variables.Store(variable.Name, variable)
-	s.log.Debug("variable stored in variables map",
-		zap.String("name", variable.Name),
-		zap.String("storage", variable.StorageID))
 
 	variableID := registry.ParseID(e.Path)
 	storageID := registry.ParseID(variable.StorageID)
 	variableName := variable.EnvName
 
-	s.log.Debug("looking up storage",
-		zap.String("storage_id", storageID.String()))
 	storedStorage, found := s.storages.Load(storageID.String())
 	if !found {
 		s.log.Error("storage not found",
@@ -185,9 +144,6 @@ func (s *Registry) registerVariable(e event.Event) {
 	}
 
 	s.values.Store(variableID, value)
-	s.log.Info("variable value stored successfully",
-		zap.Any("id", variableID),
-		zap.Any("value", value))
 	s.sendAccept(e.Path)
 }
 
@@ -197,8 +153,6 @@ func (s *Registry) updateVariable(e event.Event) {
 }
 
 func (s *Registry) sendAccept(path event.Path) {
-	s.log.Info("sending accept event",
-		zap.String("path", path))
 	s.bus.Send(s.ctx, event.Event{
 		System: env.System,
 		Kind:   registry.Accept,
@@ -207,9 +161,6 @@ func (s *Registry) sendAccept(path event.Path) {
 }
 
 func (s *Registry) sendReject(path event.Path, reason string) {
-	s.log.Info("sending reject event",
-		zap.String("path", path),
-		zap.String("reason", reason))
 	s.bus.Send(s.ctx, event.Event{
 		System: env.System,
 		Kind:   registry.Reject,
@@ -232,9 +183,6 @@ func (s *Registry) All(_ context.Context) ([]env.Storage, error) {
 
 // Get retrieves an environment variable by name from a specific storage
 func (s *Registry) Get(ctx context.Context, name string) (string, error) {
-	s.log.Info("getting environment variable",
-		zap.String("name", name))
-
 	pid, found := pubsub.GetPID(ctx)
 	if !found {
 		s.log.Error("pubsub context not found")
@@ -294,8 +242,6 @@ func (s *Registry) Get(ctx context.Context, name string) (string, error) {
 		return "", env.ErrVariableNotFound
 	}
 
-	s.log.Info("value stored", zap.Any("value", value))
-
 	returnValue := value.Value
 	if returnValue == "" {
 		returnValue = value.DefaultValue
@@ -305,8 +251,6 @@ func (s *Registry) Get(ctx context.Context, name string) (string, error) {
 }
 
 func (s *Registry) Set(ctx context.Context, name string, value string) error {
-	s.log.Debug("setting variable", zap.String("name", name), zap.String("value", value))
-
 	pid, found := pubsub.GetPID(ctx)
 	if !found {
 		s.log.Error("pubsub context not found")

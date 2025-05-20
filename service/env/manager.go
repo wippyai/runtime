@@ -43,8 +43,6 @@ func NewManager(bus event.Bus, dtt payload.Transcoder, logger *zap.Logger) *Mana
 
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	m.logger.Info("received entry Add", zap.Any("id", entry))
-
 	switch entry.Kind {
 	case env.KindStorageMemory:
 		return m.handleMemoryStorageAdd(ctx, entry)
@@ -113,8 +111,6 @@ func (m *Manager) handleVariableAdd(ctx context.Context, entry registry.Entry) e
 
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	m.logger.Info(fmt.Sprintf("received Update %s, %s", entry.ID, entry.Kind))
-
 	switch entry.Kind {
 	case env.KindStorageMemory, env.KindStorageFile:
 		storage, ok := entry.Data.(env.Storage)
@@ -157,8 +153,6 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	m.logger.Info(fmt.Sprintf("received Delete %s, %s", entry.ID, entry.Kind))
-
 	switch entry.Kind {
 	case env.KindStorageMemory, env.KindStorageFile:
 		m.mu.Lock()
@@ -210,10 +204,6 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 // registerService handles the common service registration logic
 func (m *Manager) registerService(ctx context.Context, entry registry.Entry, storage env.Storage, lifecycle supervisor.LifecycleConfig) error {
 	m.storages[entry.ID] = storage
-
-	m.logger.Info("added env storage. entry",
-		zap.Any("entry", entry),
-	)
 
 	// Register with supervisor
 	m.bus.Send(ctx, event.Event{
