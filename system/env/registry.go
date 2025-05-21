@@ -248,7 +248,12 @@ func (s *Registry) getEnvValue(ctx context.Context, name string) (*EnvValue, err
 	}
 
 	// If not found by name, try to get by env name
-	return s.getEnvValueByEnvName(ctx, name)
+	value, err = s.getEnvValueByEnvName(ctx, name)
+	if err == nil {
+		return value, nil
+	}
+
+	return nil, env.ErrVariableNotFound
 }
 
 func (s *Registry) getEnvValueByName(ctx context.Context, name string) (*EnvValue, error) {
@@ -256,8 +261,6 @@ func (s *Registry) getEnvValueByName(ctx context.Context, name string) (*EnvValu
 
 	ns := nameID.NS
 	if ns == "" {
-		s.log.Info("no namespace for name", zap.String("name", name))
-
 		pid, pidFound := pubsub.GetPID(ctx)
 		if !pidFound {
 			s.log.Error("pubsub context not found")
@@ -318,7 +321,6 @@ func (s *Registry) getEnvDeclarationByEnvName(_ context.Context, envName string)
 	})
 
 	if !found {
-		s.log.Error("variable not found", zap.String("name", envName))
 		return nil, env.ErrVariableNotFound
 	}
 
@@ -346,7 +348,7 @@ func (s *Registry) Set(ctx context.Context, name string, value string) error {
 	}
 
 	if envValue.ReadOnly {
-		s.log.Error("variable is read-only", zap.String("name", name))
+		s.log.Warn("variable is read-only", zap.String("name", name))
 		return env.ErrVariableReadOnly
 	}
 
