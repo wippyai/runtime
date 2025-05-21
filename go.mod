@@ -2,8 +2,6 @@ module github.com/ponyruntime/pony
 
 go 1.24.0
 
-replace github.com/wippyai/module-registry-proto v0.0.0-20250515143507-a801542ebd3c => /Users/yuvboxx/Projects/wippyai/module-registry-proto
-
 require (
 	connectrpc.com/connect v1.18.1
 	github.com/CloudyKit/jet/v6 v6.3.1
@@ -40,7 +38,7 @@ require (
 	github.com/tree-sitter/tree-sitter-php v0.23.11
 	github.com/tree-sitter/tree-sitter-python v0.23.6
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
-	github.com/wippyai/module-registry-proto v0.0.0-20250515143507-a801542ebd3c
+	github.com/wippyai/module-registry-proto v0.0.0-20250521135035-f690ab5a1c89
 	github.com/xuri/excelize/v2 v2.9.0
 	github.com/yuin/gopher-lua v0.0.0-00010101000000-000000000000
 	go.temporal.io/api v1.44.1
@@ -103,7 +101,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
-	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d // indirect
 	github.com/xuri/nfp v0.0.0-20240318013403-ab9948c2c4a7 // indirect
 	go.opentelemetry.io/otel v1.34.0 // indirect
