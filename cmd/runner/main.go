@@ -5,11 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/joho/godotenv"
-	"github.com/ponyruntime/pony/moduleloader"
-
 	iofs "io/fs"
 	httpbase "net/http"
 	"os"
@@ -22,24 +17,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/component"
-	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
-	"github.com/ponyruntime/pony/runtime/lua/modules/events"
-	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
-	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
-	"github.com/ponyruntime/pony/runtime/lua/modules/store"
-	"github.com/ponyruntime/pony/runtime/lua/modules/system"
-	luatemplate "github.com/ponyruntime/pony/runtime/lua/modules/template"
-	yamlmod "github.com/ponyruntime/pony/runtime/lua/modules/yaml"
-	native "github.com/ponyruntime/pony/service/exec"
-	"github.com/ponyruntime/pony/service/http/cors"
-	"github.com/ponyruntime/pony/service/http/firewall"
-	"github.com/ponyruntime/pony/service/processfunc"
-	"github.com/ponyruntime/pony/service/sqlstore"
-	"github.com/ponyruntime/pony/service/template"
-	"github.com/ponyruntime/pony/service/tokenstore"
-
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/joho/godotenv"
 	ctxapi "github.com/ponyruntime/pony/api/context"
+	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	funcapi "github.com/ponyruntime/pony/api/function"
@@ -53,8 +34,10 @@ import (
 	secapi "github.com/ponyruntime/pony/api/security"
 	topapi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/embed"
+	"github.com/ponyruntime/pony/moduleloader"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/command"
+	"github.com/ponyruntime/pony/runtime/lua/component"
 	bteaapp "github.com/ponyruntime/pony/runtime/lua/component/btea"
 	funclua "github.com/ponyruntime/pony/runtime/lua/component/function"
 	"github.com/ponyruntime/pony/runtime/lua/component/library"
@@ -66,8 +49,11 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/cloudstorage"
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
-	"github.com/ponyruntime/pony/runtime/lua/modules/env"
+	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
+	envlua "github.com/ponyruntime/pony/runtime/lua/modules/env"
+	"github.com/ponyruntime/pony/runtime/lua/modules/events"
 	"github.com/ponyruntime/pony/runtime/lua/modules/excel"
+	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
 	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
 	"github.com/ponyruntime/pony/runtime/lua/modules/funcmod"
 	fncallmod "github.com/ponyruntime/pony/runtime/lua/modules/funcs"
@@ -81,24 +67,38 @@ import (
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
 	processmodapi "github.com/ponyruntime/pony/runtime/lua/modules/processmod"
 	registrymod "github.com/ponyruntime/pony/runtime/lua/modules/registry"
+	securitymod "github.com/ponyruntime/pony/runtime/lua/modules/security"
 	sqlmod "github.com/ponyruntime/pony/runtime/lua/modules/sql"
+	"github.com/ponyruntime/pony/runtime/lua/modules/store"
+	"github.com/ponyruntime/pony/runtime/lua/modules/system"
+	luatemplate "github.com/ponyruntime/pony/runtime/lua/modules/template"
 	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
+	yamlmod "github.com/ponyruntime/pony/runtime/lua/modules/yaml"
 	"github.com/ponyruntime/pony/runtime/lua/task"
 	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/aws/config"
 	"github.com/ponyruntime/pony/service/aws/s3"
 	fsdir "github.com/ponyruntime/pony/service/directory"
+	envservice "github.com/ponyruntime/pony/service/env"
+	native "github.com/ponyruntime/pony/service/exec"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
+	"github.com/ponyruntime/pony/service/http/cors"
+	"github.com/ponyruntime/pony/service/http/firewall"
 	"github.com/ponyruntime/pony/service/http/websocketrelay"
 	"github.com/ponyruntime/pony/service/memstore"
 	"github.com/ponyruntime/pony/service/policy"
+	"github.com/ponyruntime/pony/service/processfunc"
 	"github.com/ponyruntime/pony/service/sql"
+	"github.com/ponyruntime/pony/service/sqlstore"
 	service "github.com/ponyruntime/pony/service/supervisor"
+	"github.com/ponyruntime/pony/service/template"
 	"github.com/ponyruntime/pony/service/terminal"
+	"github.com/ponyruntime/pony/service/tokenstore"
+	"github.com/ponyruntime/pony/system/env"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/fs"
 	"github.com/ponyruntime/pony/system/function"
@@ -149,6 +149,7 @@ type App struct {
 	prototypes  *process.PrototypeRegistry
 	hosts       *process.HostRegistry
 	fsRegistry  *fs.Registry
+	envRegistry *env.Registry
 	resources   *resource.Registry
 
 	// mesh
@@ -277,6 +278,9 @@ func (a *App) Initialize() error {
 	// fs
 	a.fsRegistry = fs.NewFSRegistry(a.eventBus, a.logger.Named("fs"))
 
+	// env
+	a.envRegistry = env.NewRegistry(a.eventBus, a.logger.Named("env"))
+
 	// Initialize core function registry
 	a.funcs = function.NewFunctionRegistry(a.eventBus, funcHost, a.logger.Named("funcs"))
 	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
@@ -299,6 +303,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	ctx = event.WithBus(ctx, a.eventBus)
 	ctx = secapi.WithRegistry(ctx, a.security)
 	ctx = fsapi.WithFSRegistry(ctx, a.fsRegistry)
+	ctx = envapi.WithRegistry(ctx, a.envRegistry)
 	ctx = regapi.WithRegistry(ctx, a.reg)
 	ctx = payload.WithTranscoder(ctx, a.dtt)
 	ctx = funcapi.WithFunctions(ctx, a.funcs)
@@ -322,6 +327,11 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	if err := a.fsRegistry.Start(ctx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start filesystem service: %w", err)
+	}
+
+	if err := a.envRegistry.Start(ctx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start env registry: %w", err)
 	}
 
 	if err := a.resources.Start(ctx); err != nil {
@@ -447,6 +457,10 @@ func (a *App) Stop() error {
 
 	if err := a.fsRegistry.Stop(); err != nil {
 		a.logger.Error("failed to stop filesystem registry", zap.Error(err))
+	}
+
+	if err := a.envRegistry.Stop(); err != nil {
+		a.logger.Error("failed to stop env registry", zap.Error(err))
 	}
 
 	if err := a.security.Stop(); err != nil {
@@ -595,6 +609,7 @@ func main() {
 	app.services = eventbus.WithHandlers(append(
 		WithLuaRuntime(app),
 		WithYamlPolicies(app),
+		WithEnvManager(app),
 		WithDirectoryManager(app),
 		WithHTTPService(app),
 		WithTokenStoreManager(app),
@@ -865,6 +880,14 @@ func WithS3Manager(a *App) eventbus.EventHandler {
 	))
 }
 
+func WithEnvManager(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("env.*", envservice.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("env"),
+	))
+}
+
 func WithSQLManager(a *App) eventbus.EventHandler {
 	// Create manager with required dependencies
 	manager, err := sql.NewManager(
@@ -950,7 +973,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		a.eventBus,
 		code.Config{
 			Modules: []luaapi.Module{
-				env.NewEnvModule(),
+				envlua.NewEnvModule(),
 				ostime.NewOSTimeModule(),
 				channel.NewChannelModule(),
 				timemod.NewTimeModule(),

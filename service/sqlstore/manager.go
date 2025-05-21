@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/service/sqlstore"
-	"github.com/ponyruntime/pony/api/supervisor"
-
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
+	"github.com/ponyruntime/pony/api/service/sqlstore"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/internal/config"
 	"go.uber.org/zap"
 )

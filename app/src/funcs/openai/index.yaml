@@ -31,3 +31,14 @@ entries:
 #    imports:
 #      test: wippy.test:test
 #      llm_query: app.funcs.openai:llm_query
+
+  - name: openai_api_key
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envfile
+    variable: OPENAI_API_KEY
+    storage: system:envfile
+    default:
+    readonly: true # no overwrite from runtime

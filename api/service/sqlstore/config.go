@@ -94,7 +94,7 @@ func (c *SQLConfig) Validate() error {
 	if !c.IsSafe(c.PayloadColumnName) {
 		return fmt.Errorf("payload_column_name is invalid")
 	}
-	
+
 	// Validate the column names for SQL injection prevention
 	if !c.IsSafe(c.ExpireColumnName) {
 		return fmt.Errorf("expire_column_name is invalid")

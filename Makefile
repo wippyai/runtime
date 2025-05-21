@@ -94,3 +94,4 @@ lint-init:
 
 lint:
 	bin/golangci-lint run
+

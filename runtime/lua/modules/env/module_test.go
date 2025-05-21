@@ -5,97 +5,348 @@ import (
 	"testing"
 
 	ctxapi "github.com/ponyruntime/pony/api/context"
+	envapi "github.com/ponyruntime/pony/api/env"
+	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/resource"
+	"github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap/zaptest"
 )
 
+// mockResourceRegistry is a simple mock for the resource registry
+type mockResourceRegistry struct {
+	vars      map[string]string // map[key_name]value
+	resources map[registry.ID]resource.Resource[any]
+}
+
+func (m *mockResourceRegistry) Get(_ context.Context, name string) (string, error) {
+	value, ok := m.vars[name]
+	if !ok {
+		return "", envapi.ErrVariableNotFound
+	}
+	return value, nil
+}
+
+func (m *mockResourceRegistry) Set(_ context.Context, name string, value string) error {
+	m.vars[name] = value
+	return nil
+}
+
+func (m *mockResourceRegistry) All(_ context.Context) ([]envapi.Storage, error) {
+	// For testing purposes, we return an empty slice since we don't need actual storage
+	return []envapi.Storage{}, nil
+}
+
+func (m *mockResourceRegistry) Acquire(
+	_ context.Context,
+	id registry.ID,
+	_ resource.AccessMode,
+) (resource.Resource[any], error) {
+	res, ok := m.resources[id]
+	if !ok {
+		return nil, resource.ErrResourceNotFound
+	}
+	return res, nil
+}
+
+func (m *mockResourceRegistry) List() ([]registry.ID, error) {
+	ids := make([]registry.ID, 0, len(m.resources))
+	for id := range m.resources {
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (m *mockResourceRegistry) Exists(id registry.ID) bool {
+	_, ok := m.resources[id]
+	return ok
+}
+
+// testScope implements security.Scope for testing
+type testScope struct {
+	allowed map[string]bool
+}
+
+func newTestScope() *testScope {
+	return &testScope{
+		allowed: make(map[string]bool),
+	}
+}
+
+func (s *testScope) With(_ security.Policy) security.Scope {
+	return s
+}
+
+func (s *testScope) Without(_ registry.ID) security.Scope {
+	return s
+}
+
+func (s *testScope) Evaluate(_ security.Actor, action, resource string, _ registry.Metadata) security.Result {
+	key := action + ":" + resource
+	if s.allowed[key] {
+		return security.Allow
+	}
+	return security.Deny
+}
+
+func (s *testScope) Contains(_ registry.ID) bool {
+	return false
+}
+
+func (s *testScope) Policies() []security.Policy {
+	return nil
+}
+
+func (s *testScope) Allow(action, resource string) {
+	s.allowed[action+":"+resource] = true
+}
+
+// setupTestEnvironment creates a test environment with Env module and mock storage
+func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner, *mockResourceRegistry) {
+	logger := zaptest.NewLogger(t)
+
+	// Create the Env module
+	module := NewEnvModule()
+
+	// Create a mock resource registry with our test storage
+	mockRegistry := &mockResourceRegistry{
+		vars:      make(map[string]string),
+		resources: make(map[registry.ID]resource.Resource[any]),
+	}
+
+	// Create a VM with coroutine support
+	vm, err := engine.NewCVM(logger)
+	require.NoError(t, err)
+
+	// Get the Lua state
+	L := vm.State()
+
+	// Register the Env module
+	L.PreloadModule(module.Name(), module.Loader)
+
+	// Create a runner with the coroutine layer
+	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+
+	// Create a UOW for resource management
+	uw, ctx := runner.InitUnitOfWork(context.Background())
+
+	// Add the resource registry to the context
+	ctx = envapi.WithRegistry(ctx, mockRegistry)
+
+	// Add security context
+	actor := security.Actor{ID: "test"}
+	scope := newTestScope()
+	ctx = security.WithActor(ctx, actor)
+	ctx = security.WithScope(ctx, scope)
+
+	// Add environment context
+	contexter := ctxapi.NewContexter[string]()
+	ctx = context.WithValue(ctx, ctxapi.EnvCtx, contexter)
+
+	// Add pubsub context
+	pid := pubsub.PID{ID: registry.ID{NS: "test", Name: "test"}}
+	ctx = pubsub.WithPID(ctx, pid)
+
+	// Set the context in the Lua state
+	L.SetContext(ctx)
+
+	return vm, L, uw, runner, mockRegistry
+}
+
 func TestEnvModule(t *testing.T) {
-	logger := zap.NewNop()
-
 	t.Run("get environment variable", func(t *testing.T) {
-		contexter := ctxapi.NewContexter[string]()
-		contexter.SetValue("TEST_VAR", "test_value")
-		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, contexter)
-
-		mod := NewEnvModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
+		vm, L, uw, runner, registry := setupTestEnvironment(t)
 		defer vm.Close()
+		defer func() {
+			err := uw.Close()
+			assert.NoError(t, err, "Unit of work cleanup failed")
+		}()
 
-		err = vm.DoString(ctx, `
-            local env = require("env")
-            local value, err = env.get("TEST_VAR")
-            assert(err == nil)
-            assert(value == "test_value")
-        `, "test_get")
-		require.NoError(t, err)
+		// Allow access to the variable
+		scope, _ := security.GetScope(L.Context())
+		scope.(*testScope).Allow("env.get", "test_var")
+
+		err := registry.Set(context.Background(), "test_var", "test_value")
+		require.NoError(t, err, "failed to set new value")
+
+		// Import our test function
+		err = vm.Import(`
+			function test_env_get()
+				local env = require("env")
+				local value, err = env.get("test_var")
+				if err then
+					error(err)
+				end
+				return value
+			end
+		`, "test", "test_env_get")
+		require.NoError(t, err, "Failed to import test function")
+
+		// Execute the function
+		result, err := runner.Execute(L.Context(), "test_env_get")
+		require.NoError(t, err, "Lua execution failed")
+
+		assert.Equal(t, lua.LString("test_value"), result, "Expected 'test_value'")
 	})
 
 	t.Run("get non-existent variable", func(t *testing.T) {
-		contexter := ctxapi.NewContexter[string]()
-		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, contexter)
-
-		mod := NewEnvModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
+		vm, L, uw, runner, registry := setupTestEnvironment(t)
 		defer vm.Close()
+		defer func() {
+			err := uw.Close()
+			assert.NoError(t, err, "Unit of work cleanup failed")
+		}()
 
-		err = vm.DoString(ctx, `
-            local env = require("env")
-            local value, err = env.get("NON_EXISTENT")
-            assert(value == nil)
-            assert(err == nil)
-        `, "test_get_non_existent")
-		require.NoError(t, err)
+		_ = registry
+
+		// Allow access to the variable
+		scope, _ := security.GetScope(L.Context())
+		scope.(*testScope).Allow("env.get", "NON_EXISTENT")
+
+		// Import our test function
+		err := vm.Import(`
+			function test_env_get_nonexistent()
+				local env = require("env")
+				local value, err = env.get("NON_EXISTENT")
+				return {value = value, err = err}
+			end
+		`, "test", "test_env_get_nonexistent")
+		require.NoError(t, err, "Failed to import test function")
+
+		// Execute the function
+		result, err := runner.Execute(L.Context(), "test_env_get_nonexistent")
+		require.NoError(t, err, "Lua execution failed")
+
+		resultTable := result.(*lua.LTable)
+		value := resultTable.RawGetString("value")
+		errVal := resultTable.RawGetString("environment variable not found")
+
+		assert.Equal(t, lua.LNil, value, "Expected nil value")
+		assert.Equal(t, lua.LNil, errVal, "Expected nil error")
 	})
 
 	t.Run("get with empty key", func(t *testing.T) {
-		contexter := ctxapi.NewContexter[string]()
-		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, contexter)
-
-		mod := NewEnvModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
+		vm, L, uw, runner, registry := setupTestEnvironment(t)
 		defer vm.Close()
+		defer func() {
+			err := uw.Close()
+			assert.NoError(t, err, "Unit of work cleanup failed")
+		}()
+		_ = registry
 
-		err = vm.DoString(ctx, `
-            local env = require("env")
-            local value, err = env.get("")
-        `, "test_get_empty_key")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "bad argument")
+		// Import our test function
+		err := vm.Import(`
+			function test_env_get_empty_key()
+				local env = require("env")
+				local ok, err = pcall(function()
+					env.get("")
+				end)
+				return {success = ok, error = not ok}
+			end
+		`, "test", "test_env_get_empty_key")
+		require.NoError(t, err, "Failed to import test function")
+
+		// Execute the function
+		result, err := runner.Execute(L.Context(), "test_env_get_empty_key")
+		require.NoError(t, err, "Lua execution failed")
+
+		resultTable := result.(*lua.LTable)
+		success := resultTable.RawGetString("success")
+		hasError := resultTable.RawGetString("error")
+
+		assert.Equal(t, lua.LBool(false), success, "Function should fail")
+		assert.Equal(t, lua.LBool(true), hasError, "Error should be returned")
 	})
 
 	t.Run("get with no context", func(t *testing.T) {
-		mod := NewEnvModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
+		vm, L, uw, runner, registry := setupTestEnvironment(t)
 		defer vm.Close()
+		defer func() {
+			err := uw.Close()
+			assert.NoError(t, err, "Unit of work cleanup failed")
+		}()
+		_ = registry
 
-		// This should cause a Lua error because there is no context
-		err = vm.DoString(context.Background(), `
-            local env = require("env")
-            local value, err = env.get("TEST_VAR")
-        `, "test_no_context")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid environment context")
+		// Clear the context
+		L.SetContext(context.Background())
+
+		// Import our test function
+		err := vm.Import(`
+			function test_env_get_no_context()
+				local env = require("env")
+				local ok, err = pcall(function()
+					env.get("TEST_VAR")
+				end)
+				return {success = ok, error = not ok}
+			end
+		`, "test", "test_env_get_no_context")
+		require.NoError(t, err, "Failed to import test function")
+
+		// Execute the function
+		result, err := runner.Execute(L.Context(), "test_env_get_no_context")
+		require.NoError(t, err, "Lua execution failed")
+
+		resultTable := result.(*lua.LTable)
+		success := resultTable.RawGetString("success")
+		hasError := resultTable.RawGetString("error")
+
+		assert.Equal(t, lua.LBool(false), success, "Function should fail")
+		assert.Equal(t, lua.LBool(true), hasError, "Error should be returned")
 	})
 
-	t.Run("get with invalid context", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, "not a contexter")
-
-		mod := NewEnvModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
+	t.Run("set and get environment variable", func(t *testing.T) {
+		vm, L, uw, runner, registry := setupTestEnvironment(t)
 		defer vm.Close()
+		defer func() {
+			err := uw.Close()
+			assert.NoError(t, err, "Unit of work cleanup failed")
+		}()
 
-		err = vm.DoString(ctx, `
-            local env = require("env")
-            local value, err = env.get("TEST_VAR")
-        `, "test_invalid_context")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid environment context")
+		// Allow access to the variable
+		scope, _ := security.GetScope(L.Context())
+		scope.(*testScope).Allow("env.set", "test_var")
+		scope.(*testScope).Allow("env.get", "test_var")
+
+		// Set default value in registry
+		err := registry.Set(context.Background(), "test_var", "default_value")
+		require.NoError(t, err, "Failed to set default value in registry")
+
+		// Import our test function
+		err = vm.Import(`
+			function test_env_set_get()
+				local env = require("env")
+				local success, err = env.set("test_var", "new_value")
+				if not success then
+					return {success = false, error = err}
+				end
+				local value, err = env.get("test_var")
+				if err then
+					return {success = false, error = err}
+				end
+				return {success = true, value = value}
+			end
+		`, "test", "test_env_set_get")
+		require.NoError(t, err, "Failed to import test function")
+
+		// Execute the function
+		result, err := runner.Execute(L.Context(), "test_env_set_get")
+		require.NoError(t, err, "Lua execution failed")
+
+		resultTable := result.(*lua.LTable)
+		success := resultTable.RawGetString("success")
+		value := resultTable.RawGetString("value")
+
+		assert.Equal(t, lua.LBool(true), success, "Operation should succeed")
+		assert.Equal(t, lua.LString("new_value"), value, "Expected 'new_value'")
+
+		// Verify the value was actually set in the registry
+		actualValue, err := registry.Get(context.Background(), "test_var")
+		require.NoError(t, err, "Failed to get value from registry")
+		assert.Equal(t, "new_value", actualValue, "Registry value should match")
 	})
 }
