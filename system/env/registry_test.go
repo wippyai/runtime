@@ -304,12 +304,33 @@ func TestEventBus_DuplicateVariable(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "test_value", value)
 
-	// Try to register the same variable again
+	// Try to register the same variable from a different storage
+	// First register the second storage
+	memStorage2 := serviceenv.NewMemoryStorage(map[string]string{
+		"TEST_VAR": "different_value",
+	}, logger)
+
+	storageEvt2 := event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   "test:mock-storage2",
+		Data:   memStorage2,
+	}
+	bus.Send(ctx, storageEvt2)
+	time.Sleep(100 * time.Millisecond)
+
+	variable2 := env.Variable{
+		Name:         "test_var",
+		EnvName:      "TEST_VAR",
+		StorageID:    "test:mock-storage2",
+		DefaultValue: "default_value",
+		ReadOnly:     false,
+	}
 	duplicateVarEvt := event.Event{
 		System: env.System,
 		Kind:   env.VariableRegister,
 		Path:   "test:test_var",
-		Data:   variable,
+		Data:   variable2,
 	}
 	bus.Send(ctx, duplicateVarEvt)
 
@@ -324,36 +345,6 @@ func TestEventBus_DuplicateVariable(t *testing.T) {
 	}
 
 	// Verify we can still get the value and it hasn't changed
-	value, err = reg.Get(ctx, "test_var")
-	require.NoError(t, err)
-	assert.Equal(t, "test_value", value)
-
-	// Try another duplicate registration
-	duplicateVarEvt2 := event.Event{
-		System: env.System,
-		Kind:   env.VariableRegister,
-		Path:   "test:test_var",
-		Data: env.Variable{
-			Name:         "test_var",
-			EnvName:      "TEST_VAR",
-			StorageID:    "test:mock-storage",
-			DefaultValue: "new_default",
-			ReadOnly:     false,
-		},
-	}
-	bus.Send(ctx, duplicateVarEvt2)
-
-	// Wait for reject event with timeout
-	select {
-	case rejectEvt := <-rejectCh:
-		assert.Equal(t, registry.Reject, rejectEvt.Kind)
-		assert.Equal(t, "test:test_var", rejectEvt.Path)
-		assert.Contains(t, rejectEvt.Data.(string), "variable with the name")
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for reject event")
-	}
-
-	// Verify the value still hasn't changed
 	value, err = reg.Get(ctx, "test_var")
 	require.NoError(t, err)
 	assert.Equal(t, "test_value", value)
