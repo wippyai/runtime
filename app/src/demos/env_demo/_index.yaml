@@ -26,39 +26,6 @@ entries:
     path: /env/demo
     func: env_demo
 
-  - name: openai_api_key
-    kind: env.variable
-    meta:
-      type: secret_key
-      depends_on:
-        - system:envmemory
-    variable: OPENAI_API_KEY
-    storage: system:envmemory
-    default:
-    readonly: true # no overwrite from runtime
-
-  - name: openai_api_url
-    kind: env.variable
-    meta:
-      type: secret_key
-      depends_on:
-        - system:envmemory
-    variable: OPENAI_API_URL
-    storage: system:envmemory
-    default:
-    readonly: true # no overwrite from runtime
-
-  - name: document_loaders_host
-    kind: env.variable
-    meta:
-      type: secret_key
-      depends_on:
-        - system:envfile
-    variable: DOCUMENT_LOADERS_HOST
-    storage: system:envfile
-    default:
-    readonly: true # no overwrite from runtime
-
   - name: memory_test_env
     kind: env.variable
     meta:

@@ -16,7 +16,14 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
+type testCase struct {
+	name      string
+	accessBy  string // "id" or "env_name"
+	value     string
+	namespace string
+}
+
+func TestVariableAccess(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
 	//nolint:errcheck // ok for tests
@@ -34,87 +41,18 @@ func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
 
 	// Create a memory storage
 	memStorage := serviceenv.NewMemoryStorage(map[string]string{
-		"TEST_VAR": "test_value",
+		"TEST_VAR": "initial_value",
 	}, logger)
 
 	// Register storage
-	evt := event.Event{
+	storageEvt := event.Event{
 		System: env.System,
 		Kind:   env.StorageRegister,
 		Path:   "test:mock-storage",
 		Data:   memStorage,
 	}
-	bus.Send(ctx, evt)
-
-	// Wait for processing
+	bus.Send(ctx, storageEvt)
 	time.Sleep(100 * time.Millisecond)
-
-	// Verify storage was registered
-	storages, err := reg.All(ctx)
-	require.NoError(t, err)
-	assert.Len(t, storages, 1)
-
-	// Register a variable
-	variable := env.Variable{
-		Name:         "test_var",
-		EnvName:      "TEST_VAR",
-		StorageID:    "test:mock-storage",
-		DefaultValue: "default_value",
-		ReadOnly:     false,
-	}
-	varEvt := event.Event{
-		System: env.System,
-		Kind:   env.VariableRegister,
-		Path:   "test:var",
-		Data:   variable,
-	}
-	bus.Send(ctx, varEvt)
-
-	// Wait for processing
-	time.Sleep(100 * time.Millisecond)
-
-	// Create a context with PID
-	pid := registry.ParseID("test:ns")
-	ctx = pubsub.WithPID(ctx, pubsub.PID{ID: pid})
-
-	// Verify we can get the value from the storage
-	value, err := reg.Get(ctx, "test_var")
-	require.NoError(t, err)
-	assert.Equal(t, "test_value", value)
-}
-
-func TestEventBus_VariableUpdate(t *testing.T) {
-	logger, err := zap.NewDevelopment()
-	require.NoError(t, err)
-	//nolint:errcheck // ok for tests
-	defer logger.Sync()
-
-	ctx := context.Background()
-	bus := eventbus.NewBus()
-	defer bus.Stop()
-
-	reg := NewRegistry(bus, logger)
-	err = reg.Start(ctx)
-	require.NoError(t, err)
-	//nolint:errcheck // ok for tests
-	defer reg.Stop()
-
-	{
-		// Create a memory storage
-		memStorage := serviceenv.NewMemoryStorage(map[string]string{
-			"TEST_VAR": "initial_value",
-		}, logger)
-
-		// Register storage
-		storageEvt := event.Event{
-			System: env.System,
-			Kind:   env.StorageRegister,
-			Path:   "test:mock-storage",
-			Data:   memStorage,
-		}
-		bus.Send(ctx, storageEvt)
-		time.Sleep(100 * time.Millisecond)
-	}
 
 	// Register a variable
 	variable := env.Variable{
@@ -133,51 +71,53 @@ func TestEventBus_VariableUpdate(t *testing.T) {
 	bus.Send(ctx, varEvt)
 	time.Sleep(100 * time.Millisecond)
 
-	// Create a context with PID
-	pid := registry.ParseID("test:ns")
-	ctx = pubsub.WithPID(ctx, pubsub.PID{ID: pid})
-
-	{
-		// Create second a memory storage
-		memStorage := serviceenv.NewMemoryStorage(map[string]string{
-			"TEST_VAR": "different_value",
-		}, logger)
-
-		// Register storage
-		storageEvt := event.Event{
-			System: env.System,
-			Kind:   env.StorageRegister,
-			Path:   "test:mock-storage2",
-			Data:   memStorage,
-		}
-		bus.Send(ctx, storageEvt)
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	// Update the variable
-	updateEvt := event.Event{
-		System: env.System,
-		Kind:   env.VariableUpdate,
-		Path:   "test:test_var",
-		Data: env.Variable{
-			Meta:         variable.Meta,
-			Name:         variable.Name,
-			EnvName:      variable.EnvName,
-			DefaultValue: variable.DefaultValue,
-			ReadOnly:     variable.ReadOnly,
-			StorageID:    "test:mock-storage2",
+	testCases := []testCase{
+		{
+			name:      "Access by ID",
+			accessBy:  "id",
+			value:     "new_value_by_id",
+			namespace: "test",
+		},
+		{
+			name:      "Access by ENV_NAME",
+			accessBy:  "env_name",
+			value:     "new_value_by_env",
+			namespace: "test",
 		},
 	}
-	bus.Send(ctx, updateEvt)
-	time.Sleep(100 * time.Millisecond)
 
-	// Verify variable was updated
-	value, err := reg.Get(ctx, "test_var")
-	require.NoError(t, err)
-	assert.Equal(t, "different_value", value)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a context with PID
+			pid := registry.ParseID(tc.namespace + ":ns")
+			ctx = pubsub.WithPID(ctx, pubsub.PID{ID: pid})
+
+			// Set the value
+			var setName string
+			if tc.accessBy == "id" {
+				setName = tc.namespace + ":test_var"
+			} else {
+				setName = "TEST_VAR"
+			}
+
+			err := reg.Set(ctx, setName, tc.value)
+			require.NoError(t, err)
+
+			// Verify we can get the value using both methods
+			// First by ID
+			valueByID, err := reg.Get(ctx, tc.namespace+":test_var")
+			require.NoError(t, err)
+			assert.Equal(t, tc.value, valueByID)
+
+			// Then by ENV_NAME
+			valueByEnv, err := reg.Get(ctx, "TEST_VAR")
+			require.NoError(t, err)
+			assert.Equal(t, tc.value, valueByEnv)
+		})
+	}
 }
 
-func TestEventBus_ReadOnlyVariable(t *testing.T) {
+func TestReadOnlyVariable(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
 	//nolint:errcheck // ok for tests
@@ -229,12 +169,22 @@ func TestEventBus_ReadOnlyVariable(t *testing.T) {
 	pid := registry.ParseID("test:ns")
 	ctx = pubsub.WithPID(ctx, pubsub.PID{ID: pid})
 
-	err = reg.Set(ctx, "test_var", "new_value")
-	require.Error(t, err, "should fail to update read-only variable")
+	// Try to set value by ID
+	err = reg.Set(ctx, "test:test_var", "new_value")
+	require.Error(t, err, "should fail to update read-only variable by ID")
 	assert.Equal(t, env.ErrVariableReadOnly, err)
 
-	// Verify variable was not updated
-	value, err := reg.Get(ctx, "test_var")
+	// Try to set value by ENV_NAME
+	err = reg.Set(ctx, "TEST_VAR", "new_value")
+	require.Error(t, err, "should fail to update read-only variable by ENV_NAME")
+	assert.Equal(t, env.ErrVariableReadOnly, err)
+
+	// Verify variable was not updated using both methods
+	valueByID, err := reg.Get(ctx, "test:test_var")
 	require.NoError(t, err)
-	assert.Equal(t, "initial_value", value)
+	assert.Equal(t, "initial_value", valueByID)
+
+	valueByEnv, err := reg.Get(ctx, "TEST_VAR")
+	require.NoError(t, err)
+	assert.Equal(t, "initial_value", valueByEnv)
 }

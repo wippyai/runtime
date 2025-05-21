@@ -37,8 +37,8 @@ entries:
     meta:
       type: secret_key
       depends_on:
-        - envfile
+        - system:envfile
     variable: OPENAI_API_KEY
-    storage: envfile
+    storage: system:envfile
     default:
     readonly: true # no overwrite from runtime
