@@ -124,6 +124,14 @@ func (s *Registry) registerVariable(e event.Event) {
 		return
 	}
 
+	storedEnvValue, _ := s.getEnvValue(s.ctx, variable.EnvName)
+	if storedEnvValue != nil {
+		s.log.Error("ENV variable already stored, use another name to avoid collision",
+			zap.String("env-name", variable.EnvName))
+		s.sendReject(e.Path, fmt.Sprintf("variable with the name %s already stored", variable.EnvName))
+		return
+	}
+
 	variableValue, err := storage.Get(s.ctx, variableName)
 	if err != nil {
 		s.log.Error("failed to get variable value",
