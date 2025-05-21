@@ -133,3 +133,16 @@ entries:
     file: "./app/data/app.db"
     lifecycle:
       auto_start: true
+
+  - name: envmemory
+    kind: env.storagememory
+    meta:
+      type: envstorage
+      comment: Memory storage for environment variables
+
+  - name: envfile
+    kind: env.storagefile
+    meta:
+      type: envstorage
+      comment: Memory storage for environment variables
+    file_path: "./app/env/.env.sample"

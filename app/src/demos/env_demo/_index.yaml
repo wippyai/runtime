@@ -1,0 +1,70 @@
+version: "1.0"
+namespace: app.env.demo
+
+meta:
+  depends_on: [ "ns:system" ]
+  comment: "ENV Demo Application"
+
+entries:
+  - name: env_demo
+    kind: function.lua
+    meta:
+      comment: "ENV demo"
+    source: file://env.lua
+    method: handler
+    modules: [ http, env ]
+    pool:
+      size: 2
+      workers: 4
+
+  - name: env_demo.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "ENV demo endpoint"
+      router: system:api
+    method: GET
+    path: /env/demo
+    func: env_demo
+
+  - name: memory_test_env
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envmemory
+    variable: MEMORY_TEST_ENV
+    storage: system:envmemory
+    default:
+    readonly: false
+
+  - name: memory_test_env_readonly
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envmemory
+    variable: MEMORY_TEST_ENV_READONLY
+    storage: system:envmemory
+    default:
+    readonly: true
+
+  - name: file_test_env
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envfile
+    variable: FILE_TEST_ENV
+    storage: system:envfile
+    default:
+
+  - name: file_test_env_readonly
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envfile
+    variable: FILE_TEST_ENV_READONLY
+    storage: system:envfile
+    default:
+    readonly: true
