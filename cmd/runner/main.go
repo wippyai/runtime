@@ -6,6 +6,9 @@ import (
 	"flag"
 	"fmt"
 
+	"github.com/wippyai/module-registry-proto/gen/registry/identity/v1/identityv1connect"
+	"github.com/wippyai/module-registry-proto/gen/registry/module/v1/modulev1connect"
+
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
 	"github.com/ponyruntime/pony/moduleloader"
@@ -708,7 +711,7 @@ func loadApplicationState(
 		baseURL = modulesURL
 	}
 
-	m := moduleloader.NewManager(baseURL)
+	m := newModuleloaderManager(baseURL)
 	if err := m.Load(context.Background()); err != nil {
 		mainLogger.Error("load modules from registry", zap.Error(err))
 	} else {
@@ -1009,4 +1012,22 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		component.NewHandler("process.lua", processes),
 		component.NewHandler("btea.app.lua", terminalApps),
 	}
+}
+
+func newModuleloaderManager(baseURL string) *moduleloader.Manager {
+	client := &httpbase.Client{}
+	organizationClient := identityv1connect.NewOrganizationServiceClient(client, baseURL)
+	moduleClient := modulev1connect.NewModuleServiceClient(client, baseURL)
+	labelClient := modulev1connect.NewLabelServiceClient(client, baseURL)
+	commitClient := modulev1connect.NewCommitServiceClient(client, baseURL)
+	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
+	return moduleloader.NewManager(
+		organizationClient,
+		moduleClient,
+		commitClient,
+		labelClient,
+		downloadClient,
+		moduleloader.FilesystemLoader{},
+		moduleloader.VendorFolder,
+	)
 }
