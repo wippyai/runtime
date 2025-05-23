@@ -50,6 +50,9 @@ const (
 
 	// KindNamespaceDefinition represents namespace definition variable which can be declared by export or any other source.
 	KindNamespaceDefinition Kind = "ns.definition"
+
+	// KindDependencyComponent represents a module dependency entry
+	KindDependencyComponent Kind = "dependency.component"
 )
 
 type (

@@ -383,15 +383,15 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		fSys = osRoot.FS()
 	}
 
+	bootCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+
 	// Load and apply initial state
-	appState, err := loadApplicationState(fSys, a.dtt, a.logger)
+	appState, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("load application state: %w", err)
 	}
-
-	bootCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
-	defer cancel()
 
 	if _, err := a.reg.Apply(bootCtx, appState); err != nil {
 		return fmt.Errorf("failed to apply initial state: %w", err)
@@ -685,6 +685,7 @@ func initLogger(verbose, veryVerbose bool, bus event.Bus) (*zap.Logger, logapi.C
 }
 
 func loadApplicationState(
+	ctx context.Context,
 	fs iofs.FS,
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
@@ -711,8 +712,11 @@ func loadApplicationState(
 		baseURL = modulesURL
 	}
 
-	m := newModuleloaderManager(baseURL)
-	if err := m.Load(context.Background()); err != nil {
+	// Create registry-based loader
+	registryLoader := moduleloader.NewEntryLoader(entries, mainLogger.Named("registry-loader"))
+
+	m := newModuleloaderManager(baseURL, registryLoader)
+	if err := m.Load(ctx); err != nil {
 		mainLogger.Error("load modules from registry", zap.Error(err))
 	} else {
 		vendorDir, err := os.OpenRoot(moduleloader.VendorFolder)
@@ -1014,7 +1018,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 	}
 }
 
-func newModuleloaderManager(baseURL string) *moduleloader.Manager {
+func newModuleloaderManager(baseURL string, loader moduleloader.ManifestLoader) *moduleloader.Manager {
 	client := &httpbase.Client{}
 	organizationClient := identityv1connect.NewOrganizationServiceClient(client, baseURL)
 	moduleClient := modulev1connect.NewModuleServiceClient(client, baseURL)
@@ -1027,7 +1031,7 @@ func newModuleloaderManager(baseURL string) *moduleloader.Manager {
 		commitClient,
 		labelClient,
 		downloadClient,
-		moduleloader.FilesystemLoader{},
+		loader,
 		moduleloader.VendorFolder,
 	)
 }
