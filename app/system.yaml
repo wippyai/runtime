@@ -12,6 +12,13 @@ exports:
     value: "system:api"
 
 entries:
+  - name: helloworld_dependency
+    kind: "dependency.component"
+    meta:
+      description: "Component dependency management demo example"
+    component: "wippyai-test/helloworld"
+    version: ">=v0.0.1"
+
   - name: aws_config
     kind: config.aws
     meta:
