@@ -140,6 +140,7 @@ func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig, key st
 		expireVal = nil
 	}
 
+	//nolint:gosec // it's test
 	query := `INSERT INTO ` + config.TableName + ` (` +
 		config.IDColumnName + `, ` +
 		config.PayloadColumnName + `, ` +

@@ -25,6 +25,11 @@ func (n *Name) UnmarshalYAML(data []byte) error {
 		return err
 	}
 
+	return n.SetName(nameStr)
+}
+
+// SetName converts given string into name.
+func (n *Name) SetName(nameStr string) error {
 	parts := strings.Split(nameStr, "/")
 	if len(parts) != 2 {
 		return fmt.Errorf("invalid name format: %s, expected format: Organization/Module", nameStr)

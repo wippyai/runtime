@@ -78,6 +78,7 @@ func (f *RunnerFactory) Compile() error {
 	return err
 }
 
+//nolint:staticcheck // need to fix SA4023
 func (f *RunnerFactory) CreateVM() (api.VM, error) {
 	return f.CreateRunner()
 }
