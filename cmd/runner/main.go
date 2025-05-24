@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/modules/text"
 	"net/http/pprof"
 
 	"github.com/wippyai/module-registry-proto/gen/registry/identity/v1/identityv1connect"
@@ -936,6 +937,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				hash.NewHashModule(),
 				command.NewCommandModule(),
 				yamlmod.NewYAMLModule(),
+				text.NewTextModule(),
 				registrymod.NewLoaderModule(a.logger.Named("loader")),
 				events.NewEventsModule(a.logger.Named("events")),
 				exec.NewExecModule(a.logger.Named("exec")),

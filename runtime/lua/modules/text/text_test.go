@@ -15,7 +15,7 @@ func TestTextModule(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("module creation and loading", func(t *testing.T) {
-		mod := NewModule()
+		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 		)
@@ -75,7 +75,7 @@ func TestTextModule(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				mod := NewModule()
+				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
 					engine.WithLoader(mod.Name(), mod.Loader),
 				)
@@ -124,7 +124,7 @@ func TestTextModule(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				mod := NewModule()
+				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
 					engine.WithLoader(mod.Name(), mod.Loader),
 				)
@@ -218,7 +218,7 @@ func TestTextModule(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				mod := NewModule()
+				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
 					engine.WithLoader(mod.Name(), mod.Loader),
 				)
@@ -242,7 +242,7 @@ func TestTextModule(t *testing.T) {
 	})
 
 	t.Run("batch splitting functionality", func(t *testing.T) {
-		mod := NewModule()
+		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 		)
@@ -290,7 +290,7 @@ func TestTextModule(t *testing.T) {
 	})
 
 	t.Run("markdown splitting", func(t *testing.T) {
-		mod := NewModule()
+		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 		)
@@ -341,7 +341,7 @@ More content here with **bold** and *italic* text.
 	})
 
 	t.Run("metadata preservation and reuse", func(t *testing.T) {
-		mod := NewModule()
+		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 		)
@@ -408,7 +408,7 @@ More content here with **bold** and *italic* text.
 	})
 
 	t.Run("large document splitting", func(t *testing.T) {
-		mod := NewModule()
+		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 		)
@@ -534,7 +534,7 @@ More content here with **bold** and *italic* text.
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				mod := NewModule()
+				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
 					engine.WithLoader(mod.Name(), mod.Loader),
 				)
@@ -567,7 +567,7 @@ More content here with **bold** and *italic* text.
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				mod := NewModule()
+				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
 					engine.WithLoader(mod.Name(), mod.Loader),
 				)

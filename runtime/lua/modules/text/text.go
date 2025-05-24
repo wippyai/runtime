@@ -10,8 +10,8 @@ import (
 // Module represents the text Lua module
 type Module struct{}
 
-// NewModule creates a new text module
-func NewModule() *Module {
+// NewTextModule creates a new text module
+func NewTextModule() *Module {
 	return &Module{}
 }
 
