@@ -81,7 +81,7 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 		Where(sq.Eq{s.config.IDColumnName: key.String()}).
 		Where(sq.Or{
 			sq.Eq{s.config.ExpireColumnName: nil},
-			sq.Gt{s.config.ExpireColumnName: time.Now()},
+			sq.Gt{s.config.ExpireColumnName: time.Now().UTC()},
 		})
 
 	querySQL, args, err := query.ToSql()
@@ -305,7 +305,7 @@ func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
 		Where(sq.Eq{s.config.IDColumnName: key.String()}).
 		Where(sq.Or{
 			sq.Eq{s.config.ExpireColumnName: nil},
-			sq.Gt{s.config.ExpireColumnName: time.Now()},
+			sq.Gt{s.config.ExpireColumnName: time.Now().UTC()},
 		})
 
 	querySQL, args, err := query.ToSql()
@@ -429,7 +429,7 @@ func (s *SQLStore) cleanup(ctx context.Context) {
 	cleanupQuery := qb.
 		Delete(s.config.TableName).
 		Where(sq.NotEq{s.config.ExpireColumnName: nil}).
-		Where(sq.Lt{s.config.ExpireColumnName: time.Now()})
+		Where(sq.Lt{s.config.ExpireColumnName: time.Now().UTC()})
 
 	querySQL, args, err := cleanupQuery.ToSql()
 	if err != nil {
