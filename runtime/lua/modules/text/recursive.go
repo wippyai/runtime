@@ -18,7 +18,7 @@ func newRecursiveSplitter(l *lua.LState) int {
 	splitter := textsplitter.NewRecursiveCharacter(options...)
 
 	// Wrap it
-	wrapper := &TextSplitterWrapper{
+	wrapper := &SplitterWrapper{
 		splitter: splitter,
 	}
 

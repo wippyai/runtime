@@ -18,7 +18,7 @@ func newMarkdownSplitter(l *lua.LState) int {
 	splitter := textsplitter.NewMarkdownTextSplitter(options...)
 
 	// Wrap it
-	wrapper := &TextSplitterWrapper{
+	wrapper := &SplitterWrapper{
 		splitter: splitter,
 	}
 

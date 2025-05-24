@@ -118,13 +118,13 @@ func parseDiffOptions(table *lua.LTable) *DiffOptions {
 	return options
 }
 
-// checkDiffer checks if the userdata is a valid DifferWrapper
-func checkDiffer(l *lua.LState, idx int) *DifferWrapper {
-	ud := l.CheckUserData(idx)
+// checkDiffer checks if the first argument is a valid DifferWrapper
+func checkDiffer(l *lua.LState) *DifferWrapper {
+	ud := l.CheckUserData(1)
 	if wrapper, ok := ud.Value.(*DifferWrapper); ok {
 		return wrapper
 	}
-	l.ArgError(idx, "expected Differ")
+	l.ArgError(1, "expected Differ")
 	return nil
 }
 
@@ -141,7 +141,7 @@ func registerDiffer(l *lua.LState) {
 
 // differCompare implements the compare method
 func differCompare(l *lua.LState) int {
-	wrapper := checkDiffer(l, 1)
+	wrapper := checkDiffer(l)
 	text1 := l.CheckString(2)
 	text2 := l.CheckString(3)
 
@@ -176,7 +176,7 @@ func differCompare(l *lua.LState) int {
 
 // differPrettyText implements the pretty_text method
 func differPrettyText(l *lua.LState) int {
-	wrapper := checkDiffer(l, 1)
+	wrapper := checkDiffer(l)
 	diffsTable := l.CheckTable(2)
 
 	// Convert Lua diffs back to go-diff format
@@ -211,7 +211,7 @@ func differPrettyText(l *lua.LState) int {
 
 // differPatchMake implements the patch_make method
 func differPatchMake(l *lua.LState) int {
-	wrapper := checkDiffer(l, 1)
+	wrapper := checkDiffer(l)
 	text1 := l.CheckString(2)
 	text2 := l.CheckString(3)
 
@@ -233,7 +233,7 @@ func differPatchMake(l *lua.LState) int {
 
 // differPatchApply implements the patch_apply method
 func differPatchApply(l *lua.LState) int {
-	wrapper := checkDiffer(l, 1)
+	wrapper := checkDiffer(l)
 	patchesTable := l.CheckTable(2)
 	text := l.CheckString(3)
 
@@ -268,7 +268,7 @@ func differPatchApply(l *lua.LState) int {
 
 // differSummarize implements the summarize method
 func differSummarize(l *lua.LState) int {
-	checkDiffer(l, 1)             // Validate the differ object
+	checkDiffer(l)                // Validate the differ object
 	diffsTable := l.CheckTable(2) // Get diffs table from second argument
 
 	var insertions, deletions, equals int

@@ -44,15 +44,15 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
-// TextSplitterWrapper wraps langchain text splitters for Lua
-type TextSplitterWrapper struct {
+// SplitterWrapper wraps langchain text splitters for Lua
+type SplitterWrapper struct {
 	splitter textsplitter.TextSplitter
 }
 
-// checkSplitter checks if the userdata is a valid TextSplitterWrapper
-func checkSplitter(l *lua.LState, idx int) *TextSplitterWrapper {
+// checkSplitter checks if the userdata is a valid SplitterWrapper
+func checkSplitter(l *lua.LState, idx int) *SplitterWrapper {
 	ud := l.CheckUserData(idx)
-	if wrapper, ok := ud.Value.(*TextSplitterWrapper); ok {
+	if wrapper, ok := ud.Value.(*SplitterWrapper); ok {
 		return wrapper
 	}
 	l.ArgError(idx, "expected TextSplitter")
