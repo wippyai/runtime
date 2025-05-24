@@ -23,7 +23,7 @@ func (m *Module) Name() string {
 // Loader registers the module functions and types
 func (m *Module) Loader(l *lua.LState) int {
 	// Create main module table
-	mod := l.CreateTable(0, 2)
+	mod := l.CreateTable(0, 3)
 
 	// Splitter sub-module
 	splitterMod := l.CreateTable(0, 2)
@@ -36,9 +36,15 @@ func (m *Module) Loader(l *lua.LState) int {
 	l.SetField(diffMod, "new", l.NewFunction(newDiffer))
 	l.SetField(mod, "diff", diffMod)
 
+	// Regexp sub-module
+	regexpMod := l.CreateTable(0, 1)
+	l.SetField(regexpMod, "compile", l.NewFunction(newRegexpCompile))
+	l.SetField(mod, "regexp", regexpMod)
+
 	// Register types
 	registerTextSplitter(l)
 	registerDiffer(l)
+	registerRegexp(l)
 
 	l.Push(mod)
 	return 1
