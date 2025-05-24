@@ -461,6 +461,8 @@ func (s *SQLStore) Start(ctx context.Context) (<-chan any, error) {
 		return nil, store.ErrStoreClosed
 	}
 
+	s.statusChan = make(chan any, 1)
+
 	if s.config.CleanupInterval > 0 {
 		s.wg.Add(1)
 		go s.cleanupLoop(ctx)
