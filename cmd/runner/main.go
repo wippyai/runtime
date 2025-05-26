@@ -959,8 +959,8 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				cloudstorage.NewModule(),
 				system.NewSystemModule(),
 			},
-			ProtoCacheSize: 600,
-			MainCacheSize:  100,
+			ProtoCacheSize: 60000,
+			MainCacheSize:  10000,
 		},
 	)
 	if err != nil {
