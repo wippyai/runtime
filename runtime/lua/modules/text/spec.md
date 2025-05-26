@@ -302,6 +302,8 @@ print(pretty)
 -- Output shows insertions/deletions in readable format
 ```
 
+> Use pretty_html for same purposes.
+
 ### `differ:patch_make(text1, text2)`
 
 **Description:**  

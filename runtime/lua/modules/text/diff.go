@@ -133,6 +133,7 @@ func registerDiffer(l *lua.LState) {
 	value.RegisterTypeMethods(l, "Differ", nil, map[string]lua.LGFunction{
 		"compare":     differCompare,
 		"pretty_text": differPrettyText,
+		"pretty_html": differPrettyHtml,
 		"patch_make":  differPatchMake,
 		"patch_apply": differPatchApply,
 		"summarize":   differSummarize,
@@ -205,6 +206,41 @@ func differPrettyText(l *lua.LState) int {
 	prettyText := wrapper.dmp.DiffPrettyText(diffs)
 
 	l.Push(lua.LString(prettyText))
+	l.Push(lua.LNil)
+	return 2
+}
+
+// differPrettyHtml implements the pretty_html method
+func differPrettyHtml(l *lua.LState) int {
+	wrapper := checkDiffer(l)
+	diffsTable := l.CheckTable(2)
+
+	// Convert Lua diffs back to go-diff format
+	var diffs []diffmatchpatch.Diff
+	diffsTable.ForEach(func(_, value lua.LValue) {
+		if diffTable, ok := value.(*lua.LTable); ok {
+			var diff diffmatchpatch.Diff
+
+			operation := diffTable.RawGetString("operation")
+			text := diffTable.RawGetString("text")
+
+			switch operation.String() {
+			case DiffOpEqual:
+				diff.Type = diffmatchpatch.DiffEqual
+			case DiffOpDelete:
+				diff.Type = diffmatchpatch.DiffDelete
+			case DiffOpInsert:
+				diff.Type = diffmatchpatch.DiffInsert
+			}
+			diff.Text = text.String()
+			diffs = append(diffs, diff)
+		}
+	})
+
+	// Generate pretty HTML with proper ins/del tags and styling
+	prettyHtml := wrapper.dmp.DiffPrettyHtml(diffs)
+
+	l.Push(lua.LString(prettyHtml))
 	l.Push(lua.LNil)
 	return 2
 }
