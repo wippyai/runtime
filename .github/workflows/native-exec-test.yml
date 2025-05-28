@@ -3,8 +3,12 @@ name: Native Exec Cross Platform Test
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'service/exec/native/**'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'service/exec/native/**'
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
@@ -12,28 +16,38 @@ jobs:
     name: Build and Run on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Go
         uses: actions/setup-go@v5
-      
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
       - name: Build Go program
-        if: matrix.os == 'ubuntu-latest'
-        run: go build -o test-app ./service/exec/native/testdata
+        run: |
+          # Build the program from the specific testdata directory
+          go build -v -o test-app${{ runner.os == 'windows-latest' && '.exe' || '' }} ./service/exec/native/testdata
+        shell: bash
 
-      - name: Run executable (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: ./test-app
-
-      - name: Build Go program
-        if: matrix.os == 'windows-latest'
-        run: go build -o test-app.exe ./service/exec/native/testdata
-
-      - name: Run executable (Windows)
-        if: matrix.os == 'windows-latest'
-        run: .\test-app.exe
+      - name: Run executable
+        run: |
+          if [[ "${{ runner.os }}" == "windows-latest" ]]; then
+            .\test-app.exe
+          else
+            ./test-app
+          fi
+        shell: bash
