@@ -1,4 +1,4 @@
-name: Cross Platform Build and Test
+name: Native Exec Cross Platform Test
 
 on:
   push:
@@ -23,7 +23,17 @@ jobs:
         uses: actions/setup-go@v5
       
       - name: Build Go program
+        if: matrix.os == 'ubuntu-latest'
         run: go build -o test-app ./service/exec/native/testdata
-      
-      - name: Run executable
+
+      - name: Run executable (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
         run: ./test-app
+
+      - name: Build Go program
+        if: matrix.os == 'windows-latest'
+        run: go build -o test-app.exe ./service/exec/native/testdata
+
+      - name: Run executable (Windows)
+        if: matrix.os == 'windows-latest'
+        run: .\test-app.exe
