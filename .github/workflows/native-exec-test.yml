@@ -1,0 +1,29 @@
+name: Cross Platform Build and Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  build-and-run:
+    name: Build and Run on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+      
+      - name: Build Go program
+        run: go build -o test-app ./service/exec/native/testdata
+      
+      - name: Run executable
+        run: ./test-app
