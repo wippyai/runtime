@@ -16,7 +16,7 @@ func NewNopInterceptor() *NopInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *NopInterceptor) Handle(ctx context.Context, task *runtime.Task, next func() error, opts ...Option) error {
+func (i *NopInterceptor) Handle(ctx context.Context, task *runtime.Task, next func() error) error {
 	return next()
 }
 

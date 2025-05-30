@@ -26,8 +26,7 @@ func NewRateLimitInterceptor(limit interceptor.RateLimit) *RateLimitInterceptor 
 }
 
 // Handle implements the interceptor interface
-func (i *RateLimitInterceptor) Handle(ctx context.Context, task *runtime.Task, next func() error, opts ...Option) error {
-
+func (i *RateLimitInterceptor) Handle(ctx context.Context, task *runtime.Task, next func() error) error {
 	fmt.Println("RateLimitInterceptor")
 
 	i.mu.Lock()

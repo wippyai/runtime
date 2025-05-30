@@ -12,30 +12,12 @@ import (
 	"go.uber.org/zap"
 )
 
-// Event system and kind constants
-const (
-	// System identifies the interceptor system in the event bus
-	System event.System = "interceptor"
-
-	// Register is sent to request registration of a new interceptor
-	Register event.Kind = "interceptor.register"
-	// Update is sent to request update of an existing interceptor
-	Update event.Kind = "interceptor.update"
-	// Delete is sent to request removal of an existing interceptor
-	Delete event.Kind = "interceptor.delete"
-
-	// Accept is sent when an interceptor registration is accepted
-	Accept event.Kind = "interceptor.accept"
-	// Reject is sent when an interceptor registration is rejected
-	Reject event.Kind = "interceptor.reject"
-)
-
 // Registry manages available interceptors
 type Registry struct {
 	ctx          context.Context
 	logger       *zap.Logger
 	bus          event.Bus
-	interceptors []Interceptor
+	interceptors []interceptor.Interceptor
 	mu           sync.RWMutex
 	subscriber   *eventbus.Subscriber
 }
@@ -46,7 +28,7 @@ func NewInterceptorRegistry(bus event.Bus, logger *zap.Logger) *Registry {
 		ctx:          nil,
 		logger:       logger,
 		bus:          bus,
-		interceptors: make([]Interceptor, 0),
+		interceptors: make([]interceptor.Interceptor, 0),
 		mu:           sync.RWMutex{},
 		subscriber:   nil,
 	}
@@ -60,7 +42,7 @@ func (r *Registry) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		r.ctx,
 		r.bus,
-		System,
+		interceptor.System,
 		"*",
 		r.handleEvent,
 	)
@@ -82,15 +64,15 @@ func (r *Registry) Stop() error {
 
 // handleEvent processes incoming events
 func (r *Registry) handleEvent(e event.Event) {
-	r.logger.Debug("Registry.handling event", zap.Any("event", e))
-
 	switch e.Kind {
-	case Register:
+	case interceptor.Register:
 		r.registerInterceptor(e)
-	case Update:
+	case interceptor.Update:
 		r.updateInterceptor(e)
-	case Delete:
+	case interceptor.Delete:
 		r.deleteInterceptor(e)
+	case interceptor.Accept, interceptor.Reject:
+		// ignore
 	default:
 		r.logger.Warn("unknown event kind",
 			zap.String("kind", e.Kind),
@@ -100,7 +82,7 @@ func (r *Registry) handleEvent(e event.Event) {
 
 // registerInterceptor processes a register event
 func (r *Registry) registerInterceptor(e event.Event) {
-	interceptor, ok := e.Data.(Interceptor)
+	interceptor, ok := e.Data.(interceptor.Interceptor)
 	if !ok {
 		r.logger.Error("invalid interceptor payload",
 			zap.String("interceptor", e.Path),
@@ -130,7 +112,7 @@ func (r *Registry) registerInterceptor(e event.Event) {
 
 // updateInterceptor processes an update event
 func (r *Registry) updateInterceptor(e event.Event) {
-	interceptor, ok := e.Data.(Interceptor)
+	interceptor, ok := e.Data.(interceptor.Interceptor)
 	if !ok {
 		r.logger.Error("invalid interceptor payload",
 			zap.String("interceptor", e.Path),
@@ -189,8 +171,8 @@ func (r *Registry) deleteInterceptor(e event.Event) {
 // sendAccept sends an accept event
 func (r *Registry) sendAccept(path event.Path) {
 	r.bus.Send(r.ctx, event.Event{
-		System: System,
-		Kind:   Accept,
+		System: interceptor.System,
+		Kind:   interceptor.Accept,
 		Path:   path,
 	})
 }
@@ -198,15 +180,15 @@ func (r *Registry) sendAccept(path event.Path) {
 // sendReject sends a reject event
 func (r *Registry) sendReject(path event.Path, reason string) {
 	r.bus.Send(r.ctx, event.Event{
-		System: System,
-		Kind:   Reject,
+		System: interceptor.System,
+		Kind:   interceptor.Reject,
 		Path:   path,
 		Data:   reason,
 	})
 }
 
 // Register registers an interceptor with the given name
-func (r *Registry) Register(name string, interceptor Interceptor) error {
+func (r *Registry) Register(name string, interceptor interceptor.Interceptor) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -238,7 +220,7 @@ func (r *Registry) Unregister(name string) error {
 }
 
 // Get returns an interceptor by name
-func (r *Registry) Get(name string) (Interceptor, error) {
+func (r *Registry) Get(name string) (interceptor.Interceptor, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -275,19 +257,19 @@ func (r *Registry) GetChain() interceptor.Chain {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	interceptors := make([]Interceptor, len(r.interceptors))
+	interceptors := make([]interceptor.Interceptor, len(r.interceptors))
 	copy(interceptors, r.interceptors)
 	return NewChain(interceptors...)
 }
 
 // Chain represents a sequence of interceptors that can be executed in order
 type Chain struct {
-	interceptors []Interceptor
+	interceptors []interceptor.Interceptor
 	currentIndex int
 }
 
 // NewChain creates a new Chain with the given interceptors
-func NewChain(interceptors ...Interceptor) Chain {
+func NewChain(interceptors ...interceptor.Interceptor) Chain {
 	return Chain{
 		interceptors: interceptors,
 		currentIndex: 0,

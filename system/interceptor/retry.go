@@ -23,7 +23,7 @@ func NewRetryInterceptor(policy *interceptor.RetryPolicy) *RetryInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *RetryInterceptor) Handle(ctx context.Context, task *runtime.Task, next func() error, opts ...Option) error {
+func (i *RetryInterceptor) Handle(ctx context.Context, task *runtime.Task, next func() error) error {
 	var err error
 	attempt := 0
 

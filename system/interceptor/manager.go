@@ -3,6 +3,7 @@ package interceptor
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/interceptor"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
@@ -25,17 +26,17 @@ func NewManager(eventBus event.Bus, logger *zap.Logger) *Manager {
 
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	interceptor, ok := entry.Data.(Interceptor)
+	ic, ok := entry.Data.Data().(interceptor.Interceptor)
 	if !ok {
 		return fmt.Errorf("invalid interceptor data type")
 	}
 
-	// Send register event to the registry
+	// Register as registry storage
 	m.eventBus.Send(ctx, event.Event{
-		System: System,
-		Kind:   Register,
+		System: interceptor.System,
+		Kind:   interceptor.Register,
 		Path:   entry.ID.String(),
-		Data:   interceptor,
+		Data:   ic,
 	})
 
 	m.logger.Info("sent interceptor registration request",
@@ -45,17 +46,17 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 // Update implements registry.EntryListener
 func (m *Manager) Update(_ context.Context, entry registry.Entry) error {
-	interceptor, ok := entry.Data.(Interceptor)
+	ic, ok := entry.Data.(interceptor.Interceptor)
 	if !ok {
 		return fmt.Errorf("invalid interceptor data type")
 	}
 
 	// Send register event to the registry (same as Add since we don't distinguish)
 	m.eventBus.Send(context.Background(), event.Event{
-		System: System,
-		Kind:   Update,
+		System: interceptor.System,
+		Kind:   interceptor.Update,
 		Path:   fmt.Sprintf("%s/%s", entry.ID.NS, entry.ID.Name),
-		Data:   interceptor,
+		Data:   ic,
 	})
 
 	m.logger.Info("sent interceptor update request",
@@ -67,8 +68,8 @@ func (m *Manager) Update(_ context.Context, entry registry.Entry) error {
 func (m *Manager) Delete(_ context.Context, entry registry.Entry) error {
 	// Send delete event to the registry
 	m.eventBus.Send(context.Background(), event.Event{
-		System: System,
-		Kind:   Delete,
+		System: interceptor.System,
+		Kind:   interceptor.Delete,
 		Path:   fmt.Sprintf("%s/%s", entry.ID.NS, entry.ID.Name),
 	})
 

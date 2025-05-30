@@ -5,6 +5,19 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	iofs "io/fs"
+	"log"
+	httpbase "net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"runtime/pprof"
+	"strings"
+	"syscall"
+	"time"
+
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
 	ctxapi "github.com/ponyruntime/pony/api/context"
@@ -112,18 +125,6 @@ import (
 	"github.com/ponyruntime/pony/system/topology"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	iofs "io/fs"
-	"log"
-	httpbase "net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"runtime"
-	"runtime/debug"
-	"runtime/pprof"
-	"strings"
-	"syscall"
-	"time"
 
 	// supported dbs
 	_ "github.com/go-sql-driver/mysql"
@@ -990,7 +991,7 @@ func WithInterceptorManager(a *App) eventbus.EventHandler {
 	)
 
 	go func() {
-		time.Sleep(10 * time.Second)
+		time.Sleep(time.Second)
 
 		log.Println("sending events")
 
@@ -1009,37 +1010,49 @@ func WithInterceptorManager(a *App) eventbus.EventHandler {
 		}
 
 		// Register default interceptors
-		manager.Add(a.ctx, regapi.Entry{
+		err := manager.Add(a.ctx, regapi.Entry{
 			ID: regapi.ID{
 				NS:   "interceptor",
 				Name: "retry",
 			},
 			Data: payload.New(interceptor.NewRetryInterceptor(retryPolicy)),
 		})
+		if err != nil {
+			log.Println("error adding retry interceptor", err)
+		}
 
-		manager.Add(a.ctx, regapi.Entry{
+		err = manager.Add(a.ctx, regapi.Entry{
 			ID: regapi.ID{
 				NS:   "interceptor",
 				Name: "ratelimit",
 			},
 			Data: payload.New(interceptor.NewRateLimitInterceptor(rateLimit)),
 		})
+		if err != nil {
+			log.Println("error adding ratelimit interceptor", err)
+		}
 
-		manager.Add(a.ctx, regapi.Entry{
+		err = manager.Add(a.ctx, regapi.Entry{
 			ID: regapi.ID{
 				NS:   "interceptor",
 				Name: "nop",
 			},
 			Data: payload.New(interceptor.NewNopInterceptor()),
 		})
+		if err != nil {
+			log.Println("error adding nop interceptor", err)
+		}
 
-		manager.Add(a.ctx, regapi.Entry{
+		err = manager.Add(a.ctx, regapi.Entry{
 			ID: regapi.ID{
 				NS:   "interceptor",
 				Name: "otel",
 			},
 			Data: payload.New(interceptor.NewOTelInterceptor()),
 		})
+		if err != nil {
+			log.Println("error adding otel interceptor", err)
+		}
 	}()
 
 	return reghandler.NewRegistryHandler("interceptor.manager", manager)
