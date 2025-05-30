@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -159,14 +160,33 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 	ctx = pubsub.WithHost(ctx, f.host)
 	ctx = pubsub.WithPID(ctx, pid)
 
+	ir := interceptor.GetInterceptor(ctx)
+	f.logger.Info("interceptor registry", zap.Any("ir", ir))
+
+	if ir != nil {
+		f.logger.Info("calling interceptors")
+		if err := ir.GetChain().Execute(ctx, task); err != nil {
+			f.logger.Error("interceptor chain execution failed",
+				zap.String("function", task.ID.String()),
+				zap.String("pid", pid.String()),
+				zap.Error(err))
+			return nil, fmt.Errorf("interceptor chain execution failed: %w", err)
+		}
+	} else {
+		f.logger.Warn("no interceptor registry found in context",
+			zap.String("function", task.ID.String()),
+			zap.String("pid", pid.String()))
+	}
+
 	ch, err := execHandler(ctx, task)
 	if err != nil {
 		f.logger.Error(err.Error(),
 			zap.String("function", task.ID.String()),
 			zap.String("pid", pid.String()))
+		return nil, err
 	}
 
-	return ch, err
+	return ch, nil
 }
 
 // Ensure Registry implements the operation.Registry interface

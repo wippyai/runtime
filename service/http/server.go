@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	contextapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
@@ -209,6 +210,12 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 
 	ctx = context.WithValue(ctx, config.ContextServerID, s.id)
 	ctx = pubsub.WithHost(ctx, s)
+
+	// Get the interceptor registry from the parent context and add it to the server context
+	if ir := interceptor.GetInterceptor(ctx); ir != nil {
+		ctx = interceptor.WithInterceptor(ctx, ir)
+	}
+
 	s.ctx = ctx
 
 	s.server = &http.Server{
