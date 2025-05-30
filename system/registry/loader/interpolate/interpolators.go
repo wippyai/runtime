@@ -3,6 +3,7 @@ package interpolate
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -56,11 +57,9 @@ func LoadFile(s string, ctx interface{}) (string, error) {
 	systemPath := filepath.FromSlash(filePath)
 	var fullPath string
 
-	fmt.Println(systemPath)
-
 	if filepath.IsAbs(systemPath) {
 		// Handle absolute paths
-		rel, err := filepath.Rel("/", filepath.Clean(filePath))
+		rel, err := filepath.Rel(string(os.PathSeparator), filepath.Clean(filePath))
 		if err != nil {
 			return "", fmt.Errorf("resolve relative path: %w", err)
 		}
