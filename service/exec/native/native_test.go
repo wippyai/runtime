@@ -190,13 +190,24 @@ func TestExecutor_EmptyCmd(t *testing.T) {
 		_ = process.Wait()
 	}()
 
-	// Since our command doesn't output anything, we just want to make sure
-	// we can read from stderr without errors
-	buf := make([]byte, 1)
-	_, err = process.Stderr().Read(buf)
-	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) && !errors.Is(err, fs.ErrClosed) {
-		t.Fatal(err)
+	sb := new(strings.Builder)
+
+	for {
+		// we don't care about the perf here
+		buf := make([]byte, 65536)
+		_, err = process.Stderr().Read(buf)
+		if err != nil {
+			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+				break
+			}
+			t.Fatal(err)
+		}
+
+		sb.Write(buf)
 	}
+
+	assert.Contains(t, sb.String(), "")
 }
 
 func TestExecutor_Stderr(t *testing.T) {
