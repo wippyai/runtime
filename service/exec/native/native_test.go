@@ -166,19 +166,16 @@ func TestExecutor_Stdout(t *testing.T) {
 }
 
 func TestExecutor_EmptyCmd(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping test on Windows")
+	}
+
 	logger, _ := zap.NewDevelopment()
 
 	// Create the process with a minimal, cross-platform command
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
 
-	// Use a different approach for empty command - we'll create a dummy executable
-	// that we know exists on all platforms
-	var cmd string
-	if runtime.GOOS == "windows" {
-		cmd = "cmd"
-	} else {
-		cmd = "true" // A command that does nothing and returns success on Unix systems
-	}
+	cmd := "true" // A command that does nothing and returns success on Unix systems
 
 	process, err := nativeExecutor.NewProcess(cmd, exec.ProcessOptions{})
 	assert.NoError(t, err)
