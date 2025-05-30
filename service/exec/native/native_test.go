@@ -19,17 +19,19 @@ func TestExecutor_Execute(t *testing.T) {
 	tests := []struct {
 		name    string
 		command string
-		wantErr bool
+		wantErr assert.ErrorAssertionFunc
 	}{
 		{
 			name:    "echo command",
 			command: "echo 'hello world'",
-			wantErr: false,
+			wantErr: assert.NoError,
 		},
 		{
 			name:    "invalid command",
 			command: "invalidcommand",
-			wantErr: true, // Now we expect an error for invalid commands
+			wantErr: assert.ErrorAssertionFunc(func(t assert.TestingT, err error, _ ...any) bool {
+				return assert.ErrorContains(t, err, "not found")
+			}),
 		},
 	}
 
@@ -44,20 +46,10 @@ func TestExecutor_Execute(t *testing.T) {
 
 			// Start the process
 			err = process.Start()
-
-			// For invalid commands, we now expect an error from Start()
-			if tt.wantErr {
-				if runtime.GOOS == "windows" {
-					// On Windows, Start() may return an error if the command is not found
-					if err != nil {
-						assert.Contains(t, err.Error(), "executable file not found")
-					}
-				}
-				// Skip rest of the test if we expect errors
+			if tt.wantErr(t, err) {
 				return
 			}
 
-			assert.NoError(t, err)
 			go func() {
 				_ = process.Wait()
 			}()
@@ -71,10 +63,6 @@ func TestExecutor_Execute(t *testing.T) {
 }
 
 func TestExecutor_MegaCommand(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping test on Windows as it depends on Unix commands")
-	}
-
 	logger := zap.NewNop()
 
 	// Create the process
