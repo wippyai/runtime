@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 
 	"github.com/wippyai/module-registry-proto/gen/registry/identity/v1/identityv1connect"
 	"github.com/wippyai/module-registry-proto/gen/registry/module/v1/modulev1connect"
@@ -46,6 +47,7 @@ import (
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	funcapi "github.com/ponyruntime/pony/api/function"
+	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	logapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
 	procapi "github.com/ponyruntime/pony/api/process"
@@ -105,6 +107,7 @@ import (
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/fs"
 	"github.com/ponyruntime/pony/system/function"
+	"github.com/ponyruntime/pony/system/interceptor"
 	"github.com/ponyruntime/pony/system/logs"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
@@ -153,6 +156,7 @@ type App struct {
 	hosts       *process.HostRegistry
 	fsRegistry  *fs.Registry
 	resources   *resource.Registry
+	interceptor *interceptor.Registry
 
 	// mesh
 	node   *pubsub.NodeManager
@@ -285,6 +289,7 @@ func (a *App) Initialize() error {
 	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
 	a.resources = resource.NewResourceRegistry(a.eventBus, a.logger.Named("resources"))
+	a.interceptor = interceptor.NewInterceptorRegistry(a.eventBus, a.logger.Named("interceptors"))
 
 	a.processes = process.NewProcessManager(
 		a.hosts,
@@ -311,6 +316,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	ctx = topapi.WithTopology(ctx, a.topo)
 	ctx = topapi.WithPIDRegistry(ctx, a.pidReg)
 	ctx = logapi.WithLogger(ctx, a.logger)
+	ctx = apiinterceptor.WithInterceptor(ctx, a.interceptor)
 
 	// Spawn environment context
 	envCtx := ctxapi.NewContexter[string]()
@@ -330,6 +336,11 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	if err := a.resources.Start(ctx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start resource service: %w", err)
+	}
+
+	if err := a.interceptor.Start(ctx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start interceptor service: %w", err)
 	}
 
 	// LaunchProcess core function registry
@@ -442,6 +453,10 @@ func (a *App) Stop() error {
 
 	if err := a.hosts.Stop(); err != nil {
 		a.logger.Error("failed to stop hosts registry", zap.Error(err))
+	}
+
+	if err := a.interceptor.Stop(); err != nil {
+		a.logger.Error("failed to stop interceptor service", zap.Error(err))
 	}
 
 	if err := a.resources.Stop(); err != nil {
@@ -612,6 +627,7 @@ func main() {
 		WithMemStore(app),
 		WithNativeExecutor(app),
 		WithJetTemplates(app),
+		WithInterceptorManager(app),
 	)...)
 	// --------------------------------------------------
 
@@ -949,6 +965,69 @@ func WithJetTemplates(a *App) eventbus.EventHandler {
 	)
 
 	return reghandler.NewRegistryHandler("template.(jet|set)", manager)
+}
+
+// WithInterceptorManager creates an event handler for managing interceptors
+func WithInterceptorManager(a *App) eventbus.EventHandler {
+	manager := interceptor.NewManager(
+		a.eventBus,
+		a.logger.Named("interceptor"),
+	)
+
+	go func() {
+		time.Sleep(10 * time.Second)
+
+		log.Println("sending events")
+
+		// Create default retry policy
+		retryPolicy := &apiinterceptor.RetryPolicy{
+			MaxAttempts:     3,
+			InitialInterval: time.Second,
+			MaxInterval:     10 * time.Second,
+			Multiplier:      2.0,
+		}
+
+		// Create default rate limit
+		rateLimit := apiinterceptor.RateLimit{
+			RequestsPerSecond: 100,
+			Burst:             200,
+		}
+
+		// Register default interceptors
+		manager.Add(a.ctx, regapi.Entry{
+			ID: regapi.ID{
+				NS:   "interceptor",
+				Name: "retry",
+			},
+			Data: payload.New(interceptor.NewRetryInterceptor(retryPolicy)),
+		})
+
+		manager.Add(a.ctx, regapi.Entry{
+			ID: regapi.ID{
+				NS:   "interceptor",
+				Name: "ratelimit",
+			},
+			Data: payload.New(interceptor.NewRateLimitInterceptor(rateLimit)),
+		})
+
+		manager.Add(a.ctx, regapi.Entry{
+			ID: regapi.ID{
+				NS:   "interceptor",
+				Name: "nop",
+			},
+			Data: payload.New(interceptor.NewNopInterceptor()),
+		})
+
+		manager.Add(a.ctx, regapi.Entry{
+			ID: regapi.ID{
+				NS:   "interceptor",
+				Name: "otel",
+			},
+			Data: payload.New(interceptor.NewOTelInterceptor()),
+		})
+	}()
+
+	return reghandler.NewRegistryHandler("interceptor.manager", manager)
 }
 
 func WithLuaRuntime(a *App) []eventbus.EventHandler {

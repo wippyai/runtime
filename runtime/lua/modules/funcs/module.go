@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -28,6 +28,7 @@ type Module struct{}
 type Functions struct {
 	funcs  function.Registry
 	dtt    payload.Transcoder
+	ir     interceptor.Registry
 	values *contextapi.Contexter[any]
 
 	// Dedicated fields for security context to prevent overwriting/conflicting with user values
@@ -51,11 +52,12 @@ func (m *Module) Name() string {
 func (m *Module) Loader(l *lua.LState) int {
 	// Register the function executor methods
 	value.RegisterTypeMethods(l, "function.Executor", nil, map[string]lua.LGFunction{
-		"with_context": m.withContext,
-		"with_actor":   m.withActor,
-		"with_scope":   m.withScope,
-		"call":         m.call,
-		"async":        m.async,
+		"with_context":     m.withContext,
+		"with_actor":       m.withActor,
+		"with_scope":       m.withScope,
+		"with_interceptor": m.withInterceptor,
+		"call":             m.call,
+		"async":            m.async,
 	})
 
 	// Create module table
@@ -69,28 +71,33 @@ func (m *Module) Loader(l *lua.LState) int {
 }
 
 // extractDependencies gets the required dependencies from context
-func (m *Module) extractDependencies(l *lua.LState) (function.Registry, payload.Transcoder, error) {
+func (m *Module) extractDependencies(l *lua.LState) (function.Registry, payload.Transcoder, interceptor.Registry, error) {
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
-		return nil, nil, errors.New("no unit of work context found")
+		return nil, nil, nil, errors.New("no unit of work context found")
 	}
 
 	funcs := function.GetRegistry(uw.Context())
 	if funcs == nil {
-		return nil, nil, errors.New("function registry not found in context")
+		return nil, nil, nil, errors.New("function registry not found in context")
 	}
 
 	dtt := payload.GetTranscoder(uw.Context())
 	if dtt == nil {
-		return nil, nil, errors.New("transcoder not found in context")
+		return nil, nil, nil, errors.New("transcoder not found in context")
 	}
 
-	return funcs, dtt, nil
+	ir := interceptor.GetInterceptor(uw.Context())
+	if ir == nil {
+		return nil, nil, nil, errors.New("interceptor registry not found in context")
+	}
+
+	return funcs, dtt, ir, nil
 }
 
 // new creates a new function executor
 func (m *Module) new(l *lua.LState) int {
-	funcs, dtt, err := m.extractDependencies(l)
+	funcs, dtt, ir, err := m.extractDependencies(l)
 	if err != nil {
 		l.RaiseError("failed to create executor: %v", err)
 		return 0
@@ -105,6 +112,7 @@ func (m *Module) new(l *lua.LState) int {
 		funcs:    funcs,
 		dtt:      dtt,
 		values:   values,
+		ir:       ir,
 		hasActor: false,
 		hasScope: false,
 	}
@@ -258,6 +266,54 @@ func (m *Module) withScope(l *lua.LState) int {
 		hasActor: functions.hasActor,
 		scope:    scope,
 		hasScope: true,
+	}
+
+	// Create new userdata with the new Functions instance
+	newUd := l.NewUserData()
+	newUd.Value = newFunctions
+	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
+	l.Push(newUd)
+
+	return 1
+}
+
+// withInterceptor creates a new executor with a specific interceptor
+func (m *Module) withInterceptor(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	functions, ok := ud.Value.(*Functions)
+	if !ok {
+		l.ArgError(1, "functions executor expected")
+		return 0
+	}
+
+	// Add security check for custom interceptor
+	if !security.IsAllowed(l.Context(), "funcs.interceptor", "interceptor", nil) {
+		l.RaiseError("not allowed to call functions with custom interceptor")
+		return 0
+	}
+
+	// Check if we're setting interceptor
+	if l.Get(2).Type() == lua.LTNil {
+		l.ArgError(2, "interceptor cannot be nil")
+		return 0
+	}
+
+	ir := interceptor.GetInterceptor(l.Context())
+	if ir == nil {
+		l.RaiseError("interceptor registry not found in context")
+		return 0
+	}
+
+	// Create new Functions instance with copied values and new interceptor registry
+	newFunctions := &Functions{
+		funcs:    functions.funcs,
+		dtt:      functions.dtt,
+		values:   functions.values.Clone(),
+		actor:    functions.actor,
+		hasActor: functions.hasActor,
+		scope:    functions.scope,
+		hasScope: functions.hasScope,
+		ir:       ir,
 	}
 
 	// Create new userdata with the new Functions instance
