@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	iofs "io/fs"
-	"log"
 	httpbase "net/http"
 	"os"
 	"os/signal"
@@ -401,6 +400,13 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		fSys = osRoot.FS()
 	}
 
+	manager := interceptor.NewManager(a.eventBus, a.logger.Named("interceptor"))
+	err = manager.InitInterceptors(ctx)
+	if err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to initialize interceptors: %w", err)
+	}
+
 	// Load and apply initial state
 	appState, err := loadApplicationState(fSys, a.dtt, a.logger)
 	if err != nil {
@@ -639,7 +645,6 @@ func main() {
 		WithMemStore(app),
 		WithNativeExecutor(app),
 		WithJetTemplates(app),
-		WithInterceptorManager(app),
 	)...)
 	// --------------------------------------------------
 
@@ -981,81 +986,6 @@ func WithJetTemplates(a *App) eventbus.EventHandler {
 	)
 
 	return reghandler.NewRegistryHandler("template.(jet|set)", manager)
-}
-
-// WithInterceptorManager creates an event handler for managing interceptors
-func WithInterceptorManager(a *App) eventbus.EventHandler {
-	manager := interceptor.NewManager(
-		a.eventBus,
-		a.logger.Named("interceptor"),
-	)
-
-	go func() {
-		time.Sleep(time.Second)
-
-		log.Println("sending events")
-
-		// Create default retry policy
-		retryPolicy := &apiinterceptor.RetryPolicy{
-			MaxAttempts:     3,
-			InitialInterval: time.Second,
-			MaxInterval:     10 * time.Second,
-			Multiplier:      2.0,
-		}
-
-		// Create default rate limit
-		rateLimit := apiinterceptor.RateLimit{
-			RequestsPerSecond: 100,
-			Burst:             200,
-		}
-
-		// Register default interceptors
-		err := manager.Add(a.ctx, regapi.Entry{
-			ID: regapi.ID{
-				NS:   "interceptor",
-				Name: "retry",
-			},
-			Data: payload.New(interceptor.NewRetryInterceptor(retryPolicy)),
-		})
-		if err != nil {
-			log.Println("error adding retry interceptor", err)
-		}
-
-		err = manager.Add(a.ctx, regapi.Entry{
-			ID: regapi.ID{
-				NS:   "interceptor",
-				Name: "ratelimit",
-			},
-			Data: payload.New(interceptor.NewRateLimitInterceptor(rateLimit)),
-		})
-		if err != nil {
-			log.Println("error adding ratelimit interceptor", err)
-		}
-
-		err = manager.Add(a.ctx, regapi.Entry{
-			ID: regapi.ID{
-				NS:   "interceptor",
-				Name: "nop",
-			},
-			Data: payload.New(interceptor.NewNopInterceptor()),
-		})
-		if err != nil {
-			log.Println("error adding nop interceptor", err)
-		}
-
-		err = manager.Add(a.ctx, regapi.Entry{
-			ID: regapi.ID{
-				NS:   "interceptor",
-				Name: "otel",
-			},
-			Data: payload.New(interceptor.NewOTelInterceptor()),
-		})
-		if err != nil {
-			log.Println("error adding otel interceptor", err)
-		}
-	}()
-
-	return reghandler.NewRegistryHandler("interceptor.manager", manager)
 }
 
 func WithLuaRuntime(a *App) []eventbus.EventHandler {

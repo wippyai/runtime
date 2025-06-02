@@ -24,7 +24,7 @@ func NewOTelInterceptor() *OTelInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *OTelInterceptor) Handle(ctx context.Context, task *runtime.Task, next func() error) error {
+func (i *OTelInterceptor) Handle(ctx context.Context, _ *runtime.Task, next func() error) error {
 	_, span := i.tracer.Start(ctx, "function_execution")
 	defer span.End()
 

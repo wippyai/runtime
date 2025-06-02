@@ -3,7 +3,10 @@ package interceptor
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/ponyruntime/pony/api/interceptor"
+	"github.com/ponyruntime/pony/api/payload"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
@@ -24,6 +27,69 @@ func NewManager(eventBus event.Bus, logger *zap.Logger) *Manager {
 	}
 }
 
+func (m *Manager) InitInterceptors(ctx context.Context) error {
+	// Create default retry policy
+	retryPolicy := &interceptor.RetryPolicy{
+		MaxAttempts:     3,
+		InitialInterval: time.Second,
+		MaxInterval:     10 * time.Second,
+		Multiplier:      2.0,
+	}
+
+	// Create default rate limit
+	rateLimit := interceptor.RateLimit{
+		RequestsPerSecond: 100,
+		Burst:             200,
+	}
+
+	// Register default interceptors
+	err := m.Add(ctx, registry.Entry{
+		ID: registry.ID{
+			NS:   "interceptor",
+			Name: "retry",
+		},
+		Data: payload.New(NewRetryInterceptor(retryPolicy)),
+	})
+	if err != nil {
+		return fmt.Errorf("error adding retry interceptor: %w", err)
+	}
+
+	err = m.Add(ctx, registry.Entry{
+		ID: registry.ID{
+			NS:   "interceptor",
+			Name: "ratelimit",
+		},
+		Data: payload.New(NewRateLimitInterceptor(rateLimit)),
+	})
+	if err != nil {
+		return fmt.Errorf("error adding ratelimit interceptor: %w", err)
+	}
+
+	err = m.Add(ctx, registry.Entry{
+		ID: registry.ID{
+			NS:   "interceptor",
+			Name: "nop",
+		},
+		Data: payload.New(NewNopInterceptor()),
+	})
+	if err != nil {
+		return fmt.Errorf("error adding nop interceptor: %w", err)
+	}
+
+	err = m.Add(ctx, registry.Entry{
+		ID: registry.ID{
+			NS:   "interceptor",
+			Name: "otel",
+		},
+		Data: payload.New(NewOTelInterceptor()),
+	})
+	if err != nil {
+		return fmt.Errorf("error adding otel interceptor: %w", err)
+	}
+
+	return nil
+}
+
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	ic, ok := entry.Data.Data().(interceptor.Interceptor)
@@ -39,8 +105,6 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Data:   ic,
 	})
 
-	m.logger.Info("sent interceptor registration request",
-		zap.String("id", entry.ID.String()))
 	return nil
 }
 
