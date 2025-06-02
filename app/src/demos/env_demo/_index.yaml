@@ -4,43 +4,12 @@ namespace: app.env.demo
 meta:
   depends_on: [ "ns:system" ]
   comment: "ENV Demo Application"
-  interceptors:
-    global:
-      otel:
-        type: "tracing"
-        enabled: true
-        service_name: "env_demo"
-        custom_attributes:
-          environment: "demo"
-          module: "env_demo"
-      retry:
-        type: "retry"
-        enabled: true
-        max_attempts: 3
-        initial_interval: "1s"
-        max_interval: "10s"
-        multiplier: 2
-      rate_limit:
-        type: "rate_limit"
-        enabled: true
-        requests_per_second: 10
-        burst: 5
 
 entries:
   - name: env_demo
     kind: function.lua
     meta:
       comment: "ENV demo"
-      interceptors:
-        otel:
-          type: "tracing"
-          enabled: true
-          custom_attributes:
-            function_type: "env_test"
-        retry:
-          type: "retry"
-          enabled: true
-          max_attempts: 5
     source: file://env.lua
     method: handler
     modules: [ http, env ]
@@ -53,12 +22,6 @@ entries:
     meta:
       comment: "ENV demo endpoint"
       router: system:api
-      interceptors:
-        rate_limit:
-          type: "rate_limit"
-          enabled: true
-          requests_per_second: 5
-          burst: 2
     method: GET
     path: /env/demo
     func: env_demo

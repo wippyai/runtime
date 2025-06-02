@@ -278,8 +278,6 @@ func NewChain(interceptors ...interceptor.Interceptor) Chain {
 
 // Execute executes the chain of interceptors
 func (c Chain) Execute(ctx context.Context, task runtime.Task) error {
-	fmt.Println("interceptors len", len(c.interceptors))
-
 	if len(c.interceptors) == 0 {
 		return nil
 	}
