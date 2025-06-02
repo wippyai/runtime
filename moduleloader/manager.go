@@ -11,11 +11,11 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/Masterminds/semver/v3"
-	identityv1 "github.com/wippyai/module-registry-proto/gen/registry/identity/v1"
-	"github.com/wippyai/module-registry-proto/gen/registry/identity/v1/identityv1connect"
-	"github.com/wippyai/module-registry-proto/gen/registry/module/v1/modulev1connect"
+	identityv1 "github.com/wippyai/module-registry-proto-go/registry/identity/v1"
+	"github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
+	"github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
 
-	modulev1 "github.com/wippyai/module-registry-proto/gen/registry/module/v1"
+	modulev1 "github.com/wippyai/module-registry-proto-go/registry/module/v1"
 )
 
 // VendorFolder is a name of vendor folder.
