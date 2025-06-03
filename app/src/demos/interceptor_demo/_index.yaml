@@ -6,23 +6,62 @@ meta:
   comment: "Interceptor Demo Application"
 
 entries:
-  - name: interceptor_demo
+  - name: interceptor_demo_otel
     kind: function.lua
     meta:
-      comment: "interceptor demo"
-      retry_attempts: 5
-    source: file://interceptor.lua
+      comment: "interceptor demo otel"
+    source: file://otel.lua
     method: handler
     modules: [ http ]
     pool:
       size: 2
       workers: 4
-
   - name: interceptor_demo.endpoint
     kind: http.endpoint
     meta:
       comment: "interceptor demo endpoint"
       router: system:api
     method: GET
-    path: /interceptor/demo
-    func: interceptor_demo
+    path: /interceptor/demo/otel
+    func: interceptor_demo_otel
+
+  - name: interceptor_demo_retry
+    kind: function.lua
+    meta:
+      comment: "interceptor demo retry"
+    source: file://retry.lua
+    method: handler
+    modules: [ http ]
+    pool:
+      size: 2
+      workers: 4
+      retry_attempts: 5
+  - name: interceptor_demo_retry.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "interceptor demo retry endpoint"
+      router: system:api
+    method: GET
+    path: /interceptor/demo/retry
+    func: interceptor_demo_retry
+
+  - name: interceptor_demo_ratelimit
+    kind: function.lua
+    meta:
+      comment: "interceptor demo ratelimit"
+    source: file://ratelimit.lua
+    method: handler
+    modules: [ http ]
+    pool:
+      size: 2
+      workers: 4
+      ratelimit: 3
+  - name: interceptor_demo_ratelimit.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "interceptor demo rate limit endpoint"
+      router: system:api
+    method: GET
+    path: /interceptor/demo/ratelimit
+    func: interceptor_demo_ratelimit
+

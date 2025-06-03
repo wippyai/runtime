@@ -5,28 +5,27 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/interceptor"
+	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
 	"golang.org/x/time/rate"
 )
 
 // RateLimitInterceptor implements rate limiting functionality
 type RateLimitInterceptor struct {
-	limit   interceptor.RateLimit
+	limit   apiinterceptor.RateLimit
 	limiter *rate.Limiter
 	mu      sync.Mutex
 }
 
 // NewRateLimitInterceptor creates a new rate limit interceptor with the given limit
-func NewRateLimitInterceptor(limit interceptor.RateLimit) *RateLimitInterceptor {
+func NewRateLimitInterceptor(limit apiinterceptor.RateLimit) *RateLimitInterceptor {
 	return &RateLimitInterceptor{
 		limit: limit,
 	}
 }
 
 // Handle implements the interceptor interface
-func (i *RateLimitInterceptor) Handle(ctx context.Context, _ *runtime.Task, next func() error) error {
+func (i *RateLimitInterceptor) Handle(ctx context.Context, next func() error, _ ...apiinterceptor.Option) error {
 	fmt.Println("RateLimitInterceptor")
 
 	i.mu.Lock()

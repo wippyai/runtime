@@ -6,8 +6,7 @@ import (
 	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/interceptor"
-	"github.com/ponyruntime/pony/api/runtime"
+	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -17,7 +16,7 @@ type Registry struct {
 	ctx          context.Context
 	logger       *zap.Logger
 	bus          event.Bus
-	interceptors []interceptor.Interceptor
+	interceptors []apiinterceptor.Interceptor
 	mu           sync.RWMutex
 	subscriber   *eventbus.Subscriber
 }
@@ -28,7 +27,7 @@ func NewInterceptorRegistry(bus event.Bus, logger *zap.Logger) *Registry {
 		ctx:          nil,
 		logger:       logger,
 		bus:          bus,
-		interceptors: make([]interceptor.Interceptor, 0),
+		interceptors: make([]apiinterceptor.Interceptor, 0),
 		mu:           sync.RWMutex{},
 		subscriber:   nil,
 	}
@@ -42,7 +41,7 @@ func (r *Registry) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		r.ctx,
 		r.bus,
-		interceptor.System,
+		apiinterceptor.System,
 		"*",
 		r.handleEvent,
 	)
@@ -65,13 +64,13 @@ func (r *Registry) Stop() error {
 // handleEvent processes incoming events
 func (r *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case interceptor.Register:
+	case apiinterceptor.Register:
 		r.registerInterceptor(e)
-	case interceptor.Update:
+	case apiinterceptor.Update:
 		r.updateInterceptor(e)
-	case interceptor.Delete:
+	case apiinterceptor.Delete:
 		r.deleteInterceptor(e)
-	case interceptor.Accept, interceptor.Reject:
+	case apiinterceptor.Accept, apiinterceptor.Reject:
 		// ignore
 	default:
 		r.logger.Warn("unknown event kind",
@@ -82,7 +81,7 @@ func (r *Registry) handleEvent(e event.Event) {
 
 // registerInterceptor processes a register event
 func (r *Registry) registerInterceptor(e event.Event) {
-	interceptor, ok := e.Data.(interceptor.Interceptor)
+	interceptor, ok := e.Data.(apiinterceptor.Interceptor)
 	if !ok {
 		r.logger.Error("invalid interceptor payload",
 			zap.String("interceptor", e.Path),
@@ -112,7 +111,7 @@ func (r *Registry) registerInterceptor(e event.Event) {
 
 // updateInterceptor processes an update event
 func (r *Registry) updateInterceptor(e event.Event) {
-	interceptor, ok := e.Data.(interceptor.Interceptor)
+	interceptor, ok := e.Data.(apiinterceptor.Interceptor)
 	if !ok {
 		r.logger.Error("invalid interceptor payload",
 			zap.String("interceptor", e.Path),
@@ -171,8 +170,8 @@ func (r *Registry) deleteInterceptor(e event.Event) {
 // sendAccept sends an accept event
 func (r *Registry) sendAccept(path event.Path) {
 	r.bus.Send(r.ctx, event.Event{
-		System: interceptor.System,
-		Kind:   interceptor.Accept,
+		System: apiinterceptor.System,
+		Kind:   apiinterceptor.Accept,
 		Path:   path,
 	})
 }
@@ -180,15 +179,15 @@ func (r *Registry) sendAccept(path event.Path) {
 // sendReject sends a reject event
 func (r *Registry) sendReject(path event.Path, reason string) {
 	r.bus.Send(r.ctx, event.Event{
-		System: interceptor.System,
-		Kind:   interceptor.Reject,
+		System: apiinterceptor.System,
+		Kind:   apiinterceptor.Reject,
 		Path:   path,
 		Data:   reason,
 	})
 }
 
 // Register registers an interceptor with the given name
-func (r *Registry) Register(name string, interceptor interceptor.Interceptor) error {
+func (r *Registry) Register(name string, interceptor apiinterceptor.Interceptor) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -220,7 +219,7 @@ func (r *Registry) Unregister(name string) error {
 }
 
 // Get returns an interceptor by name
-func (r *Registry) Get(name string) (interceptor.Interceptor, error) {
+func (r *Registry) Get(name string) (apiinterceptor.Interceptor, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -253,23 +252,23 @@ func (r *Registry) List() []string {
 }
 
 // GetChain returns all registered interceptors as a Chain
-func (r *Registry) GetChain() interceptor.Chain {
+func (r *Registry) GetChain() apiinterceptor.Chain {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	interceptors := make([]interceptor.Interceptor, len(r.interceptors))
+	interceptors := make([]apiinterceptor.Interceptor, len(r.interceptors))
 	copy(interceptors, r.interceptors)
 	return NewChain(interceptors...)
 }
 
 // Chain represents a sequence of interceptors that can be executed in order
 type Chain struct {
-	interceptors []interceptor.Interceptor
+	interceptors []apiinterceptor.Interceptor
 	currentIndex int
 }
 
 // NewChain creates a new Chain with the given interceptors
-func NewChain(interceptors ...interceptor.Interceptor) Chain {
+func NewChain(interceptors ...apiinterceptor.Interceptor) Chain {
 	return Chain{
 		interceptors: interceptors,
 		currentIndex: 0,
@@ -277,7 +276,7 @@ func NewChain(interceptors ...interceptor.Interceptor) Chain {
 }
 
 // Execute executes the chain of interceptors
-func (c Chain) Execute(ctx context.Context, task runtime.Task) error {
+func (c Chain) Execute(ctx context.Context) error {
 	if len(c.interceptors) == 0 {
 		return nil
 	}
@@ -293,7 +292,7 @@ func (c Chain) Execute(ctx context.Context, task runtime.Task) error {
 		}
 		interceptor := c.interceptors[c.currentIndex]
 		c.currentIndex++
-		return interceptor.Handle(ctx, &task, next)
+		return interceptor.Handle(ctx, next)
 	}
 
 	// Start the chain

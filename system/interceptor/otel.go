@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -24,7 +24,7 @@ func NewOTelInterceptor() *OTelInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *OTelInterceptor) Handle(ctx context.Context, _ *runtime.Task, next func() error) error {
+func (i *OTelInterceptor) Handle(ctx context.Context, next func() error, _ ...apiinterceptor.Option) error {
 	_, span := i.tracer.Start(ctx, "function_execution")
 	defer span.End()
 

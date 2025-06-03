@@ -5,29 +5,34 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ponyruntime/pony/api/interceptor"
+	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
 )
 
 // RetryInterceptor implements retry functionality
 type RetryInterceptor struct {
-	policy *interceptor.RetryPolicy
+	policy *apiinterceptor.RetryPolicy
 }
 
 // NewRetryInterceptor creates a new retry interceptor with the given policy
-func NewRetryInterceptor(policy *interceptor.RetryPolicy) *RetryInterceptor {
+func NewRetryInterceptor(policy *apiinterceptor.RetryPolicy) *RetryInterceptor {
 	return &RetryInterceptor{
 		policy: policy,
 	}
 }
 
 // Handle implements the interceptor interface
-func (i *RetryInterceptor) Handle(ctx context.Context, _ *runtime.Task, next func() error) error {
+func (i *RetryInterceptor) Handle(ctx context.Context, next func() error, opts ...apiinterceptor.Option) error {
 	var err error
 	attempt := 0
 
 	fmt.Println("RetryInterceptor")
+
+	// Create config and apply options
+	config := &apiinterceptor.Config{}
+	for _, opt := range opts {
+		opt(config)
+	}
 
 	for {
 		select {
@@ -35,6 +40,7 @@ func (i *RetryInterceptor) Handle(ctx context.Context, _ *runtime.Task, next fun
 			return ctx.Err()
 		default:
 			err = next()
+			// If no error, return success
 			if err == nil {
 				return nil
 			}

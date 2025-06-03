@@ -165,7 +165,7 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 
 	if ir != nil {
 		f.logger.Info("calling interceptors")
-		if err := ir.GetChain().Execute(ctx, task); err != nil {
+		if err := ir.GetChain().Execute(ctx); err != nil {
 			f.logger.Error("interceptor chain execution failed",
 				zap.String("function", task.ID.String()),
 				zap.String("pid", pid.String()),
