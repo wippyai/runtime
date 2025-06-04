@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
+
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/runtime"
 )
 
 // RetryInterceptor implements retry functionality
@@ -22,8 +25,7 @@ func NewRetryInterceptor(policy *apiinterceptor.RetryPolicy) *RetryInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *RetryInterceptor) Handle(ctx context.Context, next func() error, opts ...apiinterceptor.Option) error {
-	var err error
+func (i *RetryInterceptor) Handle(ctx context.Context, next func() *runtime.Result, opts ...apiinterceptor.Option) *runtime.Result {
 	attempt := 0
 
 	fmt.Println("RetryInterceptor")
@@ -37,17 +39,20 @@ func (i *RetryInterceptor) Handle(ctx context.Context, next func() error, opts .
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return &runtime.Result{Error: ctx.Err()}
 		default:
-			err = next()
-			// If no error, return success
-			if err == nil {
-				return nil
+			result := next()
+
+			// If no error and no retryable status, return success
+			if result == nil || result.Error == nil {
+				return result
 			}
+
+			spew.Dump("retrying")
 
 			attempt++
 			if attempt >= i.policy.MaxAttempts {
-				return err
+				return result
 			}
 
 			interval := i.policy.InitialInterval
@@ -61,7 +66,7 @@ func (i *RetryInterceptor) Handle(ctx context.Context, next func() error, opts .
 
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return &runtime.Result{Error: ctx.Err()}
 			case <-time.After(interval):
 				continue
 			}

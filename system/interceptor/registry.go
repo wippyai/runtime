@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/runtime"
+
 	"github.com/ponyruntime/pony/api/event"
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -264,37 +267,61 @@ func (r *Registry) GetChain() apiinterceptor.Chain {
 // Chain represents a sequence of interceptors that can be executed in order
 type Chain struct {
 	interceptors []apiinterceptor.Interceptor
-	currentIndex int
+	// currentIndex int
 }
 
 // NewChain creates a new Chain with the given interceptors
 func NewChain(interceptors ...apiinterceptor.Interceptor) Chain {
 	return Chain{
 		interceptors: interceptors,
-		currentIndex: 0,
+		// currentIndex: 0,
 	}
 }
 
 // Execute executes the chain of interceptors
-func (c Chain) Execute(ctx context.Context) error {
-	if len(c.interceptors) == 0 {
-		return nil
-	}
-
-	// Reset the chain state
-	c.currentIndex = 0
+func (c Chain) Execute(ctx context.Context, f function.Func, task runtime.Task, opts ...apiinterceptor.Option) (chan *runtime.Result, error) {
+	// Create a result channel
+	resultChan := make(chan *runtime.Result, 1)
 
 	// Create a next function that will be passed to each interceptor
-	var next func() error
-	next = func() error {
-		if c.currentIndex >= len(c.interceptors) {
-			return nil
-		}
-		interceptor := c.interceptors[c.currentIndex]
-		c.currentIndex++
-		return interceptor.Handle(ctx, next)
+	next := c.getNext(ctx, resultChan, 0, f, task, opts...)
+	result := next()
+	if result != nil && result.Error != nil {
+		close(resultChan)
+		return nil, result.Error
 	}
 
-	// Start the chain
-	return next()
+	return resultChan, nil
+}
+
+func (c Chain) getNext(ctx context.Context, resultChan chan *runtime.Result, index int, f function.Func, task runtime.Task, opts ...apiinterceptor.Option) func() *runtime.Result {
+	if index >= len(c.interceptors) {
+		return func() *runtime.Result {
+			// All interceptors have been executed, now run the actual function
+			ch, err := f(ctx, task)
+			if err != nil {
+				fmt.Printf("function returned error: %+v\n", err)
+				return &runtime.Result{Error: err}
+			}
+			// Forward the result from the function's channel to our result channel
+			result := <-ch
+			if result != nil && result.Error != nil {
+				return result
+			}
+
+			fmt.Printf("forwarding function result through interceptor chain: %+v\n", result)
+
+			return result
+		}
+	}
+
+	interceptor := c.interceptors[index]
+
+	return func() *runtime.Result {
+		return interceptor.Handle(
+			ctx,
+			c.getNext(ctx, resultChan, index+1, f, task, opts...),
+			opts...,
+		)
+	}
 }

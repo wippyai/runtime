@@ -17,6 +17,8 @@ local function handler()
 
     -- Ensure the response is sent
     res:flush()
+
+    error("Error Message")
 end
 
 return {

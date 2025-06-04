@@ -6,6 +6,7 @@ import (
 
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -24,7 +25,7 @@ func NewOTelInterceptor() *OTelInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *OTelInterceptor) Handle(ctx context.Context, next func() error, _ ...apiinterceptor.Option) error {
+func (i *OTelInterceptor) Handle(ctx context.Context, next func() *runtime.Result, _ ...apiinterceptor.Option) *runtime.Result {
 	_, span := i.tracer.Start(ctx, "function_execution")
 	defer span.End()
 
@@ -32,10 +33,10 @@ func (i *OTelInterceptor) Handle(ctx context.Context, next func() error, _ ...ap
 
 	// FIXME pass updated ctx to next
 
-	err := next()
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+	result := next()
+	if result != nil && result.Error != nil {
+		span.RecordError(result.Error)
+		span.SetStatus(codes.Error, result.Error.Error())
 	}
 
 	// span.SetAttributes(
@@ -48,7 +49,7 @@ func (i *OTelInterceptor) Handle(ctx context.Context, next func() error, _ ...ap
 
 	span.End()
 
-	return err
+	return result
 }
 
 // Format implements the payload.Payload interface

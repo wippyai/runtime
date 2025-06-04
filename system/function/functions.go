@@ -163,19 +163,35 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 	ir := interceptor.GetInterceptor(ctx)
 	f.logger.Info("interceptor registry", zap.Any("ir", ir))
 
+	//requestContextValue := ctx.Value(http.RequestCtx)
+	//spew.Dump(requestContextValue)
+	//if requestContextValue == nil {
+	//	// TODO
+	//}
+	//
+	//reqCtx, ok := requestContextValue.(*http.RequestContext)
+	//if !ok {
+	//	//
+	//}
+
 	if ir != nil {
 		f.logger.Info("calling interceptors")
-		if err := ir.GetChain().Execute(ctx); err != nil {
+		ch, err := ir.GetChain().Execute(
+			ctx,
+			execHandler,
+			task,
+			//interceptor.WithResponse()
+		)
+		if err != nil {
 			f.logger.Error("interceptor chain execution failed",
 				zap.String("function", task.ID.String()),
 				zap.String("pid", pid.String()),
 				zap.Error(err))
+
 			return nil, fmt.Errorf("interceptor chain execution failed: %w", err)
 		}
-	} else {
-		f.logger.Warn("no interceptor registry found in context",
-			zap.String("function", task.ID.String()),
-			zap.String("pid", pid.String()))
+
+		return ch, nil
 	}
 
 	ch, err := execHandler(ctx, task)
