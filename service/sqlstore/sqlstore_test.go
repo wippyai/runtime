@@ -316,6 +316,7 @@ func TestSQLStore_Get_ExpiredKey(t *testing.T) {
 	// Create store
 	logger := zap.NewNop()
 	ss := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+	ss.cleanup(ctx)
 
 	// Test Get with expired key
 	result, err := ss.Get(ctx, testKey)
