@@ -45,6 +45,8 @@ func (i *RetryInterceptor) Handle(ctx context.Context, next func() *runtime.Resu
 
 			// If no error and no retryable status, return success
 			if result == nil || result.Error == nil {
+				fmt.Println("Retry Interceptor completed")
+
 				return result
 			}
 
@@ -52,6 +54,8 @@ func (i *RetryInterceptor) Handle(ctx context.Context, next func() *runtime.Resu
 
 			attempt++
 			if attempt >= i.policy.MaxAttempts {
+				fmt.Println("Retry Interceptor completed")
+
 				return result
 			}
 
@@ -66,6 +70,7 @@ func (i *RetryInterceptor) Handle(ctx context.Context, next func() *runtime.Resu
 
 			select {
 			case <-ctx.Done():
+				fmt.Println("Retry Interceptor completed")
 				return &runtime.Result{Error: ctx.Err()}
 			case <-time.After(interval):
 				continue

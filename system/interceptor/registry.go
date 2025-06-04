@@ -291,6 +291,8 @@ func (c Chain) Execute(ctx context.Context, f function.Func, task runtime.Task, 
 		return nil, result.Error
 	}
 
+	resultChan <- result
+
 	return resultChan, nil
 }
 

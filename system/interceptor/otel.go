@@ -49,6 +49,8 @@ func (i *OTelInterceptor) Handle(ctx context.Context, next func() *runtime.Resul
 
 	span.End()
 
+	fmt.Println("OTelInterceptor completed")
+
 	return result
 }
 

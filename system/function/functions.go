@@ -163,17 +163,6 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 	ir := interceptor.GetInterceptor(ctx)
 	f.logger.Info("interceptor registry", zap.Any("ir", ir))
 
-	//requestContextValue := ctx.Value(http.RequestCtx)
-	//spew.Dump(requestContextValue)
-	//if requestContextValue == nil {
-	//	// TODO
-	//}
-	//
-	//reqCtx, ok := requestContextValue.(*http.RequestContext)
-	//if !ok {
-	//	//
-	//}
-
 	if ir != nil {
 		f.logger.Info("calling interceptors")
 		ch, err := ir.GetChain().Execute(

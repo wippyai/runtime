@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/hashicorp/golang-lru/v2/expirable"
+	"golang.org/x/time/rate"
+
 	"github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
 
@@ -42,6 +45,8 @@ func (m *Manager) InitInterceptors(ctx context.Context) error {
 		Burst:             200,
 	}
 
+	cache := expirable.NewLRU[string, *rate.Limiter](10000, nil, time.Second)
+
 	// Register default interceptors
 	err := m.Add(ctx, registry.Entry{
 		ID: registry.ID{
@@ -59,7 +64,7 @@ func (m *Manager) InitInterceptors(ctx context.Context) error {
 			NS:   "interceptor",
 			Name: "ratelimit",
 		},
-		Data: payload.New(NewRateLimitInterceptor(rateLimit)),
+		Data: payload.New(NewRateLimitInterceptor(rateLimit, cache)),
 	})
 	if err != nil {
 		return fmt.Errorf("error adding ratelimit interceptor: %w", err)
