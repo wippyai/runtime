@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -566,6 +567,7 @@ func main() {
 	veryVerbose := flag.Bool("vv", false, "enable very verbose debug logging with stack traces")
 	enableProfiling := flag.Bool("p", false, "enable performance profiling")
 	useEmbed := flag.Bool("use-embed", false, "use embedded files")
+	allowInsecureHttp := flag.Bool("allow-insecure-http", false, "allow insecure HTTP connections (not recommended)")
 	flag.Parse()
 
 	args := flag.Args()
@@ -596,7 +598,7 @@ func main() {
 
 	// ------ This is main service initiation point ------
 	app.services = eventbus.WithHandlers(append(
-		WithLuaRuntime(app),
+		WithLuaRuntime(app, *allowInsecureHttp),
 		WithYamlPolicies(app),
 		WithDirectoryManager(app),
 		WithHTTPService(app),
@@ -951,7 +953,14 @@ func WithJetTemplates(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("template.(jet|set)", manager)
 }
 
-func WithLuaRuntime(a *App) []eventbus.EventHandler {
+func WithLuaRuntime(a *App, allowInsecureHttp bool) []eventbus.EventHandler {
+	client := &httpbase.Client{}
+	if allowInsecureHttp {
+		tr := &httpbase.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+		client = &httpbase.Client{Transport: tr}
+	}
 	codeManager, err := code.NewCodeManager(
 		a.logger.Named("lua"),
 		a.eventBus,
@@ -987,7 +996,8 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				httpapimod.NewHTTPAPIModule(a.logger.Named("http")),
 				processmodapi.NewProcessAPIModule(a.logger.Named("inbox")),
 				funcmod.NewFunctionAPIModule(a.logger.Named("inbox")),
-				httpclient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
+				//httpclient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
+				httpclient.NewHTTPClientModule(a.logger.Named("http"), client),
 				websocket.NewWebSocketModule(a.logger.Named("websocket")),
 				treesitter.NewTreeSitterModule(a.logger.Named("tsitter")),
 				btea.NewBteaModule(a.logger.Named("btea")),
