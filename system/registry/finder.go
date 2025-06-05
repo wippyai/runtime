@@ -76,19 +76,20 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 		var operatorPrefix string
 		var fieldWithMeta string
 
-		if strings.HasPrefix(key, "~") {
+		switch {
+		case strings.HasPrefix(key, "~"):
 			operatorPrefix = "~"
 			fieldWithMeta = key[1:]
-		} else if strings.HasPrefix(key, "*") {
+		case strings.HasPrefix(key, "*"):
 			operatorPrefix = "*"
 			fieldWithMeta = key[1:]
-		} else if strings.HasPrefix(key, "^") {
+		case strings.HasPrefix(key, "^"):
 			operatorPrefix = "^"
 			fieldWithMeta = key[1:]
-		} else if strings.HasPrefix(key, "$") {
+		case strings.HasPrefix(key, "$"):
 			operatorPrefix = "$"
 			fieldWithMeta = key[1:]
-		} else {
+		default:
 			// No operator prefix
 			operatorPrefix = ""
 			fieldWithMeta = key
