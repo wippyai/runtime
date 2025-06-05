@@ -6,8 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/modules/text"
+	"github.com/wippyai/module-registry-proto/gen/registry/identity/v1/identityv1connect"
+	"github.com/wippyai/module-registry-proto/gen/registry/module/v1/modulev1connect"
 	"net/http/pprof"
 
+	"github.com/ponyruntime/pony/moduleloader"
 	"github.com/ponyruntime/pony/runtime/lua/component/workflow"
 	temporalsys "github.com/ponyruntime/pony/service/temporal"
 	"github.com/ponyruntime/pony/service/temporal/activity"
@@ -15,12 +18,10 @@ import (
 	"github.com/ponyruntime/pony/service/temporal/dataconverter"
 	temporal "github.com/ponyruntime/pony/service/temporal/task_queue"
 	tworkflow "github.com/ponyruntime/pony/service/temporal/workflow"
-	"github.com/wippyai/module-regi
 	"go.temporal.io/sdk/converter"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
-	"github.com/ponyruntime/pony/moduleloader"
 
 	iofs "io/fs"
 	httpbase "net/http"
@@ -978,11 +979,11 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		panic(err)
 	}
 
-	funcs := funclua.NewManager(a.logger.Named("lua.func"), codeManager, a.eventBus)
-	libraries := library.NewManager(a.logger.Named("lua.lib"), codeManager)
+	funcs := funclua.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
+	libraries := library.NewManager(a.logger.Named("lua.libs"), codeManager)
 	processes := proclua.NewProcessManager(a.logger.Named("lua.proc"), codeManager, a.eventBus)
 	workflows := workflow.NewManager(a.logger.Named("lua.wf"), codeManager, a.eventBus)
-	terminalApps := bteaapp.NewBteaManager(a.logger.Named("lua.term"), codeManager, a.eventBus)
+	terminalApps := bteaapp.NewBteaManager(a.logger.Named("lua.bteaapp"), codeManager, a.eventBus)
 
 	return []eventbus.EventHandler{
 		reghandler.NewTransactionHandler(codeManager),
