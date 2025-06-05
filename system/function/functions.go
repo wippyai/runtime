@@ -165,11 +165,15 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 
 	if ir != nil {
 		f.logger.Info("calling interceptors")
+		// Create a new context with cancel for the interceptor chain
+		execCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
 		ch, err := ir.GetChain().Execute(
-			ctx,
+			execCtx,
 			execHandler,
 			task,
-			//interceptor.WithResponse()
+			interceptor.WithCancel(cancel),
 		)
 		if err != nil {
 			f.logger.Error("interceptor chain execution failed",

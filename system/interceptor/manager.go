@@ -29,67 +29,48 @@ func NewManager(eventBus event.Bus, logger *zap.Logger) *Manager {
 		eventBus: eventBus,
 	}
 }
-
 func (m *Manager) InitInterceptors(ctx context.Context) error {
-	// Create default retry policy
-	retryPolicy := &interceptor.RetryPolicy{
-		MaxAttempts:     3,
-		InitialInterval: time.Second,
-		MaxInterval:     10 * time.Second,
-		Multiplier:      2.0,
-	}
-
-	// Create default rate limit
-	rateLimit := interceptor.RateLimit{
-		RequestsPerSecond: 100,
-		Burst:             200,
-	}
-
-	cache := expirable.NewLRU[string, *rate.Limiter](10000, nil, time.Second)
-
 	// Register default interceptors
-	err := m.Add(ctx, registry.Entry{
-		ID: registry.ID{
-			NS:   "interceptor",
-			Name: "retry",
+	interceptors := []struct {
+		name string
+		ic   interceptor.Interceptor
+	}{
+		{
+			name: "timeout",
+			ic:   NewTimeoutInterceptor(1 * time.Second),
 		},
-		Data: payload.New(NewRetryInterceptor(retryPolicy)),
-	})
-	if err != nil {
-		return fmt.Errorf("error adding retry interceptor: %w", err)
+		{
+			name: "otel",
+			ic:   NewOTelInterceptor(),
+		},
+		{
+			name: "ratelimit",
+			ic: NewRateLimitInterceptor(interceptor.RateLimit{
+				RequestsPerSecond: 10,
+				Burst:             200,
+			}, expirable.NewLRU[string, *rate.Limiter](10000, nil, time.Second)),
+		},
+		{
+			name: "retry",
+			ic: NewRetryInterceptor(&interceptor.RetryPolicy{
+				MaxAttempts:     3,
+				InitialInterval: time.Second,
+				MaxInterval:     10 * time.Second,
+				Multiplier:      2.0,
+			}),
+		},
 	}
 
-	err = m.Add(ctx, registry.Entry{
-		ID: registry.ID{
-			NS:   "interceptor",
-			Name: "ratelimit",
-		},
-		Data: payload.New(NewRateLimitInterceptor(rateLimit, cache)),
-	})
-	if err != nil {
-		return fmt.Errorf("error adding ratelimit interceptor: %w", err)
-	}
-
-	err = m.Add(ctx, registry.Entry{
-		ID: registry.ID{
-			NS:   "interceptor",
-			Name: "nop",
-		},
-		Data: payload.New(NewNopInterceptor()),
-	})
-	if err != nil {
-		return fmt.Errorf("error adding nop interceptor: %w", err)
-	}
-
-	err = m.Add(ctx, registry.Entry{
-		ID: registry.ID{
-			NS:   "interceptor",
-			Name: "otel",
-		},
-		Data: payload.New(NewOTelInterceptor()),
-	})
-	if err != nil {
-		return fmt.Errorf("error adding otel interceptor: %w", err)
+	for _, i := range interceptors {
+		if err := m.Add(ctx, registry.Entry{
+			ID: registry.ID{
+				NS:   "interceptor",
+				Name: i.name,
+			},
+			Data: payload.New(i.ic),
+		}); err != nil {
+			return fmt.Errorf("error adding %s interceptor: %w", i.name, err)
+		}
 	}
 
 	return nil

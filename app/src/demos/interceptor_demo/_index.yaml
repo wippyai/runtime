@@ -65,3 +65,23 @@ entries:
     path: /interceptor/demo/ratelimit
     func: interceptor_demo_ratelimit
 
+  - name: interceptor_demo_timeout
+    kind: function.lua
+    meta:
+      comment: "interceptor demo timeout"
+    source: file://timeout.lua
+    method: handler
+    modules: [ http, time ]
+    pool:
+      size: 2
+      workers: 4
+      timeout: 100ms
+  - name: interceptor_demo_timeout.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "interceptor demo timeout endpoint"
+      router: system:api
+    method: GET
+    path: /interceptor/demo/timeout
+    func: interceptor_demo_timeout
+

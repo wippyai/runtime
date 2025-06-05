@@ -13,13 +13,21 @@ type Option func(*Config)
 
 // Config holds the configuration for an interceptor
 type Config struct {
-	Response *http.Response
+	Response   *http.Response
+	CancelFunc context.CancelFunc
 }
 
 // WithResponse sets the HTTP response for the interceptor
 func WithResponse(resp *http.Response) Option {
 	return func(c *Config) {
 		c.Response = resp
+	}
+}
+
+// WithCancel sets the cancel function for the interceptor
+func WithCancel(cancel context.CancelFunc) Option {
+	return func(c *Config) {
+		c.CancelFunc = cancel
 	}
 }
 
