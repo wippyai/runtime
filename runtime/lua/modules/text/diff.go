@@ -133,7 +133,7 @@ func registerDiffer(l *lua.LState) {
 	value.RegisterTypeMethods(l, "Differ", nil, map[string]lua.LGFunction{
 		"compare":     differCompare,
 		"pretty_text": differPrettyText,
-		"pretty_html": differPrettyHtml,
+		"pretty_html": differPrettyHTML,
 		"patch_make":  differPatchMake,
 		"patch_apply": differPatchApply,
 		"summarize":   differSummarize,
@@ -210,8 +210,8 @@ func differPrettyText(l *lua.LState) int {
 	return 2
 }
 
-// differPrettyHtml implements the pretty_html method
-func differPrettyHtml(l *lua.LState) int {
+// differPrettyHTML implements the pretty_html method
+func differPrettyHTML(l *lua.LState) int {
 	wrapper := checkDiffer(l)
 	diffsTable := l.CheckTable(2)
 
@@ -238,9 +238,9 @@ func differPrettyHtml(l *lua.LState) int {
 	})
 
 	// Generate pretty HTML with proper ins/del tags and styling
-	prettyHtml := wrapper.dmp.DiffPrettyHtml(diffs)
+	prettyHTML := wrapper.dmp.DiffPrettyHtml(diffs)
 
-	l.Push(lua.LString(prettyHtml))
+	l.Push(lua.LString(prettyHTML))
 	l.Push(lua.LNil)
 	return 2
 }
