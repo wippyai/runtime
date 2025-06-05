@@ -281,7 +281,7 @@ func (h *WorkerHost) workerManager() {
 				if errData, ok := cmd.data.(error); ok {
 					errObj = errData
 				} else if errStr, ok := cmd.data.(string); ok {
-					errObj = fmt.Errorf(errStr)
+					errObj = fmt.Errorf("worker failed: %s", errStr)
 				} else {
 					errObj = fmt.Errorf("worker failed with unknown error")
 				}
