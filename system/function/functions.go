@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/interceptor"
@@ -174,6 +175,9 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 			execHandler,
 			task,
 			interceptor.WithCancel(cancel),
+			interceptor.WithTimeout(execCtx, 30*time.Second),
+			interceptor.WithRetry(execCtx, 0),
+			interceptor.WithRateLimit(execCtx, 0, 100),
 		)
 		if err != nil {
 			f.logger.Error("interceptor chain execution failed",

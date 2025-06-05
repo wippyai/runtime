@@ -37,7 +37,7 @@ func (m *Manager) InitInterceptors(ctx context.Context) error {
 	}{
 		{
 			name: "timeout",
-			ic:   NewTimeoutInterceptor(1 * time.Second),
+			ic:   NewTimeoutInterceptor(),
 		},
 		{
 			name: "otel",
@@ -45,16 +45,12 @@ func (m *Manager) InitInterceptors(ctx context.Context) error {
 		},
 		{
 			name: "ratelimit",
-			ic: NewRateLimitInterceptor(interceptor.RateLimit{
-				RequestsPerSecond: 10,
-				Burst:             200,
-			}, expirable.NewLRU[string, *rate.Limiter](10000, nil, time.Second)),
+			// Consider moving cache to functions.Registry and configuring via options
+			ic: NewRateLimitInterceptor(expirable.NewLRU[string, *rate.Limiter](10000, nil, time.Second)),
 		},
 		{
 			name: "retry",
-			ic: NewRetryInterceptor(&interceptor.RetryPolicy{
-				MaxAttempts: 3,
-			}),
+			ic:   NewRetryInterceptor(),
 		},
 	}
 

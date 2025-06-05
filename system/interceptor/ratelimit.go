@@ -3,6 +3,7 @@ package interceptor
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
@@ -14,14 +15,12 @@ import (
 
 // RateLimitInterceptor implements rate limiting functionality
 type RateLimitInterceptor struct {
-	limit apiinterceptor.RateLimit
 	cache *expirable.LRU[string, *rate.Limiter]
 }
 
-// NewRateLimitInterceptor creates a new rate limit interceptor with the given limit
-func NewRateLimitInterceptor(limit apiinterceptor.RateLimit, cache *expirable.LRU[string, *rate.Limiter]) *RateLimitInterceptor {
+// NewRateLimitInterceptor creates a new rate limit interceptor with the given limits
+func NewRateLimitInterceptor(cache *expirable.LRU[string, *rate.Limiter]) *RateLimitInterceptor {
 	return &RateLimitInterceptor{
-		limit: limit,
 		cache: cache,
 	}
 }
@@ -36,6 +35,12 @@ func (i *RateLimitInterceptor) Handle(ctx context.Context, next func() *runtime.
 		opt(config)
 	}
 
+	// If requests per second is 0, skip rate limiting
+	if config.RequestsPerSecond == 0 {
+		fmt.Println("RateLimitInterceptor skipped")
+		return next()
+	}
+
 	pid, ok := pubsub.GetPID(ctx)
 	if !ok {
 		// Handle case where PID is not found in context
@@ -47,8 +52,13 @@ func (i *RateLimitInterceptor) Handle(ctx context.Context, next func() *runtime.
 	// Get or create rate limiter for this PID
 	limiter, ok := i.cache.Get(pidStr)
 	if !ok {
-		limiter = rate.NewLimiter(rate.Limit(i.limit.RequestsPerSecond), i.limit.Burst)
-		i.cache.Add(pidStr, limiter)
+		// Use configured values or fallback to defaults
+		rps := config.RequestsPerSecond
+		if rps != 0 {
+			burst := config.Burst
+			limiter = rate.NewLimiter(rate.Limit(rps), burst)
+			i.cache.Add(pidStr, limiter)
+		}
 	}
 
 	// Wait for rate limit
@@ -58,7 +68,7 @@ func (i *RateLimitInterceptor) Handle(ctx context.Context, next func() *runtime.
 
 	result := next()
 
-	fmt.Println("RateLimitInterceptor completed")
+	fmt.Println("RateLimitInterceptor completed", time.Now().Format(time.RFC3339))
 
 	return result
 }

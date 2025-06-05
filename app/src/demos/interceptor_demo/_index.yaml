@@ -55,7 +55,8 @@ entries:
     pool:
       size: 2
       workers: 4
-      ratelimit: 3
+      requests_per_second: 1
+      burst: 1
   - name: interceptor_demo_ratelimit.endpoint
     kind: http.endpoint
     meta:
@@ -75,7 +76,7 @@ entries:
     pool:
       size: 2
       workers: 4
-      timeout: 100ms
+      timeout: 200ms
   - name: interceptor_demo_timeout.endpoint
     kind: http.endpoint
     meta:
