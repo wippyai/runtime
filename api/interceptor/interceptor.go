@@ -29,16 +29,12 @@ type CommonOptions struct {
 	Timeout     time.Duration
 	RetryPolicy *RetryPolicy
 	RateLimit   *RateLimit
-	WorkflowID  string
-	TaskQueue   string
 }
 
 // RetryPolicy defines retry behavior
 type RetryPolicy struct {
-	MaxAttempts     int
-	InitialInterval time.Duration
-	MaxInterval     time.Duration
-	Multiplier      float64
+	// MaxAttempts limits how many times to retry a failing operation
+	MaxAttempts int
 }
 
 // RateLimit defines rate limiting behavior

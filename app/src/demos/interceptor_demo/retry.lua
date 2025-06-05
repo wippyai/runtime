@@ -13,7 +13,7 @@ local function handler()
     res:set_status(500)
     
     -- Set error message in response body
-    res:write("Internal Server Error - Testing retry functionality")
+    res:write("Internal Server Error - Testing retry functionality\n")
 
     -- Ensure the response is sent
     res:flush()

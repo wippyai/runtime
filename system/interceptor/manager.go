@@ -53,10 +53,7 @@ func (m *Manager) InitInterceptors(ctx context.Context) error {
 		{
 			name: "retry",
 			ic: NewRetryInterceptor(&interceptor.RetryPolicy{
-				MaxAttempts:     3,
-				InitialInterval: time.Second,
-				MaxInterval:     10 * time.Second,
-				Multiplier:      2.0,
+				MaxAttempts: 3,
 			}),
 		},
 	}

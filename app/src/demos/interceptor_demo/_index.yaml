@@ -35,7 +35,7 @@ entries:
     pool:
       size: 2
       workers: 4
-      retry_attempts: 5
+      retry_attempts: 10
   - name: interceptor_demo_retry.endpoint
     kind: http.endpoint
     meta:
