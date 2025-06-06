@@ -8,8 +8,8 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/text"
 	"net/http/pprof"
 
-	"github.com/wippyai/module-registry-proto/gen/registry/identity/v1/identityv1connect"
-	"github.com/wippyai/module-registry-proto/gen/registry/module/v1/modulev1connect"
+	"github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
+	"github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"

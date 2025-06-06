@@ -40,7 +40,7 @@ require (
 	github.com/tree-sitter/tree-sitter-php v0.23.11
 	github.com/tree-sitter/tree-sitter-python v0.23.6
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
-	github.com/wippyai/module-registry-proto v0.0.0-20250523122937-df8c3bcc628f
+	github.com/wippyai/module-registry-proto-go v0.0.1
 	github.com/xuri/excelize/v2 v2.9.0
 	github.com/yuin/gopher-lua v0.0.0-00010101000000-000000000000
 	go.temporal.io/api v1.44.1
