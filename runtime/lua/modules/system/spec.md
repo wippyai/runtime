@@ -1,257 +1,167 @@
-# Lua System Module Specification
+# Wippy Lua System Module Specification
 
 ## Overview
 
-The `system` module provides Lua access to the Go runtime and system information. It exposes functions for monitoring and managing memory, controlling garbage collection, and inspecting runtime characteristics. This module is useful for diagnostic tooling, performance monitoring, and memory-critical applications.
+The `system` module grants Lua scripts access to the Go runtime and system information within Wippy applications. It's designed for diagnostics, performance monitoring, and managing runtime behavior like memory and garbage collection. All operations are subject to Wippy's security permission model.
 
 ## Module Interface
 
-### Module Loading
+### Loading
 
 ```lua
 local system = require("system")
 ```
 
-### Error Handling
+### Return Values & Error Handling
 
-All functions in the module follow a consistent error handling pattern, returning two values:
-
-1. The result value (or nil if an error occurred)
-2. An error message string (or nil if operation was successful)
+All functions return two values:
+1.  The primary result (e.g., a `number`, `string`, `table`, or `boolean`).
+2.  An error message string if an error occurred or permission was denied, otherwise `nil`.
 
 Example:
-
 ```lua
-local stats, err = system.mem_stats()
+local count, err = system.num_goroutines()
 if err then
-    -- handle error
+    print("Error: " .. err)
+    return
 end
+print("Goroutines: " .. count)
 ```
 
-### Global Functions
+### Functions
 
-#### system.mem_stats()
+All functions require appropriate `system.{action}` permissions (e.g., `system.read`, `system.gc`, `system.control`) for a specific resource (e.g., `memory`, `gc_percent`, `gomaxprocs`). The required permission is noted for each function.
 
-Returns detailed memory statistics from the Go runtime.
+---
+**Memory & GC Statistics**
+---
 
-Returns:
-
-- `table, error`: Table with memory statistics, or nil and error message on failure
-
-Example returned table:
-
+#### `system.mem_stats()`
+Returns a table with detailed Go runtime memory statistics.
+*Permission: `system.read` on resource `memory`.*
+**Returns:** `table` (see example below), `error`
 ```lua
-{
-  alloc = 8420344,            -- Currently allocated bytes
-  total_alloc = 25648720,     -- Total bytes allocated (including freed)
-  sys = 24234592,             -- Total memory obtained from OS
-  heap_alloc = 8420344,       -- Bytes of allocated heap objects
-  heap_sys = 16605184,        -- Bytes of heap memory from OS
-  heap_idle = 7274496,        -- Bytes in idle spans
-  heap_in_use = 9330688,      -- Bytes in in-use spans
-  heap_released = 5242880,    -- Bytes of physical memory returned to OS
-  heap_objects = 42675,       -- Number of allocated heap objects
-  stack_in_use = 2359296,     -- Bytes in stack spans in use
-  stack_sys = 2359296,        -- Bytes obtained from system for stack spans
-  mspan_in_use = 352128,      -- Bytes of allocated mspan structures
-  mspan_sys = 491520,         -- Bytes used for mspan structures from system
-  num_gc = 12,                -- Number of completed GC cycles
-  next_gc = 16840688          -- Target heap size of next GC cycle
-}
+-- Example `mem_stats` table structure:
+-- {
+--   alloc = 8420344,        -- Current bytes allocated
+--   total_alloc = 25648720, -- Cumulative bytes allocated
+--   sys = 24234592,         -- Total memory from OS
+--   heap_alloc = 8420344,   -- Heap bytes allocated
+--   heap_sys = 16605184,    -- Heap memory from OS
+--   heap_idle = 7274496,    -- Idle heap bytes
+--   heap_in_use = 9330688,  -- In-use heap bytes
+--   heap_released = 5242880,-- Heap bytes returned to OS
+--   heap_objects = 42675,   -- Number of heap objects
+--   stack_in_use = 2359296, -- Stack bytes in use
+--   stack_sys = 2359296,    -- Stack memory from OS
+--   mspan_in_use = 352128,  -- Mspan structure bytes
+--   mspan_sys = 491520,     -- Mspan system bytes
+--   num_gc = 12,            -- Completed GC cycles
+--   next_gc = 16840688      -- Target heap size for next GC
+-- }
 ```
 
-#### system.allocated()
+#### `system.allocated()`
+Returns current heap allocation in bytes (`mem_stats.alloc`).
+*Permission: `system.read` on resource `memory`.*
+**Returns:** `number`, `error`
 
-Returns the number of bytes of allocated heap objects.
+#### `system.heap_objects()`
+Returns the number of allocated heap objects (`mem_stats.heap_objects`).
+*Permission: `system.read` on resource `memory`.*
+**Returns:** `number`, `error`
 
-Returns:
+---
+**Garbage Collection Control**
+---
 
-- `number, error`: Allocated bytes, or nil and error message on failure
+#### `system.gc()`
+Forces a Go runtime garbage collection cycle.
+*Permission: `system.gc` on resource `gc`.*
+**Returns:** `boolean` (true on success), `error`
 
-#### system.heap_objects()
+#### `system.set_gc_percent(percent: number)`
+Sets the GC target percentage. Lower values trigger GC more frequently. Passing `-1` attempts to disable GC (as per Go's `debug.SetGCPercent` behavior).
+*Permission: `system.gc` on resource `gc_percent`.*
+**Returns:** `number` (previous GC percentage, normalized to 100 if was -1), `error`
 
-Returns the number of allocated heap objects.
+#### `system.get_gc_percent()`
+Gets the current GC target percentage. Returns 100 if GC is effectively disabled or using the default.
+*Permission: `system.read` on resource `gc_percent`.*
+**Returns:** `number`, `error`
 
-Returns:
+---
+**Runtime & Process Control**
+---
 
-- `number, error`: Number of heap objects, or nil and error message on failure
+#### `system.set_memory_limit(limit: number)`
+Sets the Go runtime's soft memory limit in bytes. Use `-1` for "unlimited" (Go's `math.MaxInt64`).
+*Permission: `system.control` on resource `memory_limit`.*
+**Returns:** `number` (previous limit; `math.MaxInt64` for previous "unlimited"), `error`
 
-#### system.gc()
+#### `system.get_memory_limit()`
+Gets the current Go runtime's soft memory limit in bytes. `math.MaxInt64` indicates "unlimited".
+*Permission: `system.read` on resource `memory_limit`.*
+**Returns:** `number`, `error`
 
-Forces a garbage collection.
+#### `system.go_max_procs([procs: number])`
+Gets or sets GOMAXPROCS.
+- With `procs` (positive integer): Sets GOMAXPROCS, returns previous value. *Permission: `system.control` on `gomaxprocs`.*
+- Without `procs`: Gets current GOMAXPROCS. *Permission: `system.read` on `gomaxprocs`.*
+  **Returns:** `number`, `error`
 
-Returns:
+---
+**Runtime & System Information**
+---
 
-- `boolean, error`: true on success, or nil and error message on failure
+#### `system.num_goroutines()`
+Returns the current number of active goroutines.
+*Permission: `system.read` on resource `goroutines`.*
+**Returns:** `number`, `error`
 
-#### system.set_gc_percent(percent: number)
+#### `system.num_cpu()`
+Returns the number of logical CPUs available.
+*Permission: `system.read` on resource `cpu`.*
+**Returns:** `number`, `error`
 
-Sets the garbage collection target percentage. The percentage controls how much CPU time should be spent on garbage collection relative to program execution.
+#### `system.hostname()`
+Returns the system's hostname.
+*Permission: `system.read` on resource `hostname`.*
+**Returns:** `string`, `error`
 
-Parameters:
+#### `system.pid()`
+Returns the current process ID (PID).
+*Permission: `system.read` on resource `pid`.*
+**Returns:** `number`, `error`
 
-- `percent`: Target percentage. A lower value means more frequent garbage collection.
+## Use Cases Summary
 
-Returns:
-
-- `number, error`: Previous GC percentage, or nil and error message on failure
-
-#### system.get_gc_percent()
-
-Gets the current garbage collection target percentage.
-
-Returns:
-
-- `number, error`: Current GC percentage, or nil and error message on failure
-
-#### system.num_goroutines()
-
-Returns the number of currently executing goroutines.
-
-Returns:
-
-- `number, error`: Goroutine count, or nil and error message on failure
-
-#### system.go_max_procs([procs: number])
-
-Gets or sets the maximum number of CPUs that can be executing simultaneously.
-
-Parameters:
-
-- `procs` (optional): Number of processors to use. If not provided, returns the current setting without changing it.
-
-Returns:
-
-- `number, error`: Previous GOMAXPROCS value, or nil and error message on failure
-
-#### system.num_cpu()
-
-Returns the number of logical CPUs available on the current system.
-
-Returns:
-
-- `number, error`: CPU count, or nil and error message on failure
-
-#### system.hostname()
-
-Returns the hostname of the current system.
-
-Returns:
-
-- `string, error`: Hostname, or nil and error message on failure
-
-#### system.pid()
-
-Returns the process ID of the current process.
-
-Returns:
-
-- `number, error`: Process ID, or nil and error message on failure
-
-## Behavior
-
-### Memory Statistics
-
-The `mem_stats()` function provides a comprehensive view of the Go runtime's memory usage. It's useful for:
-
-- Monitoring memory consumption over time
-- Detecting memory leaks
-- Understanding garbage collection behavior
-- Tuning application performance
-
-The function returns a table containing various memory metrics, most importantly:
-
-- `alloc`: Currently allocated bytes
-- `heap_objects`: Number of allocated objects
-- `num_gc`: Number of completed garbage collection cycles
-
-### Garbage Collection
-
-The module provides several functions for monitoring and controlling garbage collection:
-
-- `gc()`: Triggers an immediate garbage collection
-- `set_gc_percent(percent)`: Adjusts how aggressively the garbage collector runs
-- `get_gc_percent()`: Retrieves the current GC target percentage
-
-Lower GC percentage values make garbage collection more aggressive (more CPU time spent on GC, less memory usage), while higher values make it less aggressive (less CPU time on GC, more memory usage).
-
-### Runtime Information
-
-The module exposes information about the Go runtime:
-
-- `num_goroutines()`: Shows how many goroutines are currently active
-- `go_max_procs([procs])`: Controls parallel execution
-- `num_cpu()`: Reports hardware capabilities
-
-This information is useful for diagnosing concurrency issues, tuning parallelism, and understanding resource utilization.
-
-### System Information
-
-Basic system information is available through:
-
-- `hostname()`: Gets the system's hostname
-- `pid()`: Gets the current process ID
-
-These can be useful for logging, monitoring, and diagnostics.
+- **Memory Management:** Use `mem_stats`, `allocated`, `heap_objects` for monitoring. Use `set_memory_limit`, `get_memory_limit` to influence Go's memory targets.
+- **GC Control:** Use `gc` to trigger collections, `set_gc_percent` and `get_gc_percent` to tune GC aggressiveness.
+- **Runtime Tuning:** Use `go_max_procs` to manage CPU parallelism. `num_goroutines` and `num_cpu` provide context.
+- **System Identification:** `hostname` and `pid` for logging and diagnostics.
 
 ## Thread Safety
 
-- All functions in the module are thread-safe
-- They can be called concurrently from different Lua coroutines
-- The underlying Go runtime functions are designed for concurrent access
+Functions are safe for concurrent Lua coroutine use. Operations modifying global Go settings (GC percent, memory limit) are internally mutex-protected within this module.
 
-## Best Practices
+## Best Practices Examples
 
-1. **Memory Monitoring:**
-   ```lua
-   -- Periodically check memory usage
-   local function monitor_memory()
-       local stats, err = system.mem_stats()
-       if err then error(err) end
-       
-       print(string.format("Memory allocated: %.2f MB", stats.alloc / 1024 / 1024))
-       print(string.format("Heap objects: %d", stats.heap_objects))
-       print(string.format("GC cycles: %d", stats.num_gc))
-   end
-   ```
+1.  **Monitor Memory:**
+    ```lua
+    local stats, err = system.mem_stats()
+    if not err then
+        print(string.format("Alloc: %.2fMB, HeapObj: %d, Limit: %.0fMB",
+            stats.alloc/1024/1024, stats.heap_objects, (system.get_memory_limit() or 0)/1024/1024))
+    else print("Error fetching stats: " .. err) end
+    ```
 
-2. **GC Tuning:**
-   ```lua
-   -- Save original GC setting
-   local original, err = system.get_gc_percent()
-   if err then error(err) end
-   
-   -- Make GC more aggressive during bulk processing
-   system.set_gc_percent(50)
-   
-   -- ... perform memory-intensive work ...
-   
-   -- Restore original setting
-   system.set_gc_percent(original)
-   ```
-
-3. **Error Handling:**
-   ```lua
-   local result, err = system.num_goroutines()
-   if err then
-       -- Log the error
-       print("Error getting goroutine count: " .. err)
-       return default_value
-   end
-   return result
-   ```
-
-4. **Resource Check:**
-   ```lua
-   local cpus, err = system.num_cpu()
-   if err then error(err) end
-   
-   local procs, err = system.go_max_procs()
-   if err then error(err) end
-   
-   if procs < cpus then
-       -- Adjust GOMAXPROCS to use all available CPUs
-       system.go_max_procs(cpus)
-       print("Adjusted GOMAXPROCS to use all " .. cpus .. " CPUs")
-   end
-   ```
+2.  **Tune GC Temporarily:**
+    ```lua
+    local original_gc, err_orig = system.get_gc_percent()
+    if err_orig then print("Warn: " .. err_orig) else
+        system.set_gc_percent(50) -- More aggressive
+        -- ... intensive work ...
+        system.set_gc_percent(original_gc) -- Restore
+    end
+    ```

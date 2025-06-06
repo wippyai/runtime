@@ -1,34 +1,49 @@
+// Package system provides a Lua module for accessing Go runtime and system information.
+// It allows Lua scripts to inspect memory usage, control garbage collection,
+// manage GOMAXPROCS, view CPU and goroutine counts, and retrieve system details
+// like hostname and process ID.
+//
+// The module is designed with security in mind, requiring specific permissions
+// for its operations, checked via the security.IsAllowed function.
+// Access to sensitive settings like GC percentage and memory limits is protected
+// by a mutex to ensure safe concurrent access from Lua via this module.
 package system
 
 import (
+	"math"
 	"os"
 	"runtime"
 	"runtime/debug"
+	"sync"
 
 	"github.com/ponyruntime/pony/runtime/lua/security"
-
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Module represents a system Lua module.
-type Module struct{}
+// Module represents the system Lua module.
+// It holds a mutex to protect concurrent access to global runtime settings
+// like GC percentage and memory limit when modified through this module.
+type Module struct {
+	mu sync.Mutex // Mutex to protect access to GC percent and memory limit
+}
 
 // NewSystemModule creates and returns a new instance of the System Module.
 func NewSystemModule() *Module {
-	return &Module{}
+	return &Module{} // mu is initialized to its zero value, which is usable
 }
 
-// Name returns the module's name.
+// Name returns the module's unique name: "system".
 func (m *Module) Name() string {
 	return "system"
 }
 
-// Loader registers the module's functions into Lua state.
+// Loader is the function registered with gopher-lua to load the "system" module.
+// It creates a Lua table populated with the module's functions.
 func (m *Module) Loader(l *lua.LState) int {
-	// Create a module table with exact pre-allocated size
-	mod := l.CreateTable(0, 11) // Exactly 11 functions
+	// Create a module table with exact pre-allocated size for its functions.
+	mod := l.CreateTable(0, 13) // 13 exported functions
 
-	// Register functions using RawSetString for better performance
+	// Register functions using RawSetString for potentially better performance.
 	mod.RawSetString("mem_stats", l.NewFunction(m.memStats))
 	mod.RawSetString("allocated", l.NewFunction(m.allocated))
 	mod.RawSetString("heap_objects", l.NewFunction(m.heapObjects))
@@ -40,23 +55,27 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("num_cpu", l.NewFunction(m.numCPU))
 	mod.RawSetString("hostname", l.NewFunction(m.hostname))
 	mod.RawSetString("pid", l.NewFunction(m.pid))
+	mod.RawSetString("set_memory_limit", l.NewFunction(m.setMemoryLimit))
+	mod.RawSetString("get_memory_limit", l.NewFunction(m.getMemoryLimit))
 
 	l.Push(mod)
-	return 1
+	return 1 // Number of values returned to Lua (the module table)
 }
 
-// memStats returns detailed memory statistics.
+// memStats is a Lua-callable function that returns detailed Go runtime memory statistics.
+// It pushes a table containing fields from runtime.MemStats and a nil error,
+// or nil and an error string if not permitted or an issue occurs.
+// Requires "system.read" permission for the "memory" resource.
 func (*Module) memStats(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "memory", nil) {
-		l.RaiseError("not allowed to access memory statistics")
+		l.RaiseError("permission denied: system.read on memory resource is required for mem_stats")
 		return 0
 	}
 
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
-	// Create a Lua table to hold memory stats
-	statsTable := l.CreateTable(0, 15)
+	statsTable := l.CreateTable(0, 15) // Pre-allocate for the 15 fields exposed
 	statsTable.RawSetString("alloc", lua.LNumber(memStats.Alloc))
 	statsTable.RawSetString("total_alloc", lua.LNumber(memStats.TotalAlloc))
 	statsTable.RawSetString("sys", lua.LNumber(memStats.Sys))
@@ -75,13 +94,15 @@ func (*Module) memStats(l *lua.LState) int {
 
 	l.Push(statsTable)
 	l.Push(lua.LNil) // No error
-	return 2
+	return 2         // Return table and nil error
 }
 
-// allocated returns the number of bytes allocated and not yet freed.
+// allocated is a Lua-callable function that returns the number of bytes currently
+// allocated by the Go runtime and not yet freed (runtime.MemStats.Alloc).
+// Requires "system.read" permission for the "memory" resource.
 func (*Module) allocated(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "memory", nil) {
-		l.RaiseError("not allowed to access memory statistics")
+		l.RaiseError("permission denied: system.read on memory resource is required for allocated")
 		return 0
 	}
 
@@ -93,10 +114,12 @@ func (*Module) allocated(l *lua.LState) int {
 	return 2
 }
 
-// heapObjects returns the number of allocated heap objects.
+// heapObjects is a Lua-callable function that returns the number of allocated
+// heap objects in the Go runtime (runtime.MemStats.HeapObjects).
+// Requires "system.read" permission for the "memory" resource.
 func (*Module) heapObjects(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "memory", nil) {
-		l.RaiseError("not allowed to access memory statistics")
+		l.RaiseError("permission denied: system.read on memory resource is required for heap_objects")
 		return 0
 	}
 	var memStats runtime.MemStats
@@ -107,10 +130,12 @@ func (*Module) heapObjects(l *lua.LState) int {
 	return 2
 }
 
-// gc forces a garbage collection.
+// gc is a Lua-callable function that forces a garbage collection cycle using runtime.GC().
+// Returns true and nil error on success.
+// Requires "system.gc" permission for the "gc" resource.
 func (*Module) gc(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.gc", "gc", nil) {
-		l.RaiseError("not allowed to force garbage collection")
+		l.RaiseError("permission denied: system.gc on gc resource is required to trigger garbage collection")
 		return 0
 	}
 
@@ -121,23 +146,30 @@ func (*Module) gc(l *lua.LState) int {
 	return 2
 }
 
-// setGCPercent sets the garbage collection target percentage.
-func (*Module) setGCPercent(l *lua.LState) int {
+// setGCPercent is a Lua-callable function that sets the Go runtime's garbage
+// collection target percentage using debug.SetGCPercent.
+// It takes one integer argument: the new GC percentage.
+// It returns the previous GC percentage and a nil error.
+// Requires "system.gc" permission for the "gc_percent" resource.
+// Access to this global setting is protected by a mutex.
+func (m *Module) setGCPercent(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.gc", "gc_percent", nil) {
-		l.RaiseError("not allowed to modify garbage collection settings")
+		l.RaiseError("permission denied: system.gc on gc_percent resource is required to set GC percentage")
 		return 0
 	}
 
 	if l.GetTop() < 1 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("percent value required"))
+		l.Push(lua.LString("percent value required for set_gc_percent"))
 		return 2
 	}
-
 	percent := l.CheckInt(1)
-	old := debug.SetGCPercent(percent)
 
-	// Normalize the returned value for consistency
+	m.mu.Lock()
+	old := debug.SetGCPercent(percent)
+	m.mu.Unlock()
+
+	// Normalize the returned previous value if it was the default -1
 	if old < 0 {
 		old = 100
 	}
@@ -147,31 +179,42 @@ func (*Module) setGCPercent(l *lua.LState) int {
 	return 2
 }
 
-// getGCPercent returns the current garbage collection target percentage.
-func (*Module) getGCPercent(l *lua.LState) int {
+// getGCPercent is a Lua-callable function that returns the current Go runtime's
+// garbage collection target percentage.
+// It ensures the GC percentage is restored after querying to avoid side effects.
+// If the actual percentage is -1 (GC disabled or GOGC default), it's normalized to 100.
+// Requires "system.read" permission for the "gc_percent" resource.
+// Access to this global setting is protected by a mutex.
+func (m *Module) getGCPercent(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "gc_percent", nil) {
-		l.RaiseError("not allowed to access garbage collection settings")
+		l.RaiseError("permission denied: system.read on gc_percent resource is required to get GC percentage")
 		return 0
 	}
 
-	// SetGCPercent(-1) returns current value without changing it
-	percent := debug.SetGCPercent(-1)
+	m.mu.Lock()
+	// debug.SetGCPercent(-1) sets GC off and returns the previous value.
+	originalPercent := debug.SetGCPercent(-1)
+	// Restore the original GC percentage immediately.
+	debug.SetGCPercent(originalPercent)
+	m.mu.Unlock()
 
-	// In Go, the GC percent can be -1 if not explicitly set
-	// Convert to 100 which is the standard default in most cases
-	if percent < 0 {
-		percent = 100
+	luaPercentToReturn := originalPercent
+	// In Go, GOGC can be -1. Normalize to 100 for Lua if it was off/default.
+	if luaPercentToReturn < 0 {
+		luaPercentToReturn = 100
 	}
 
-	l.Push(lua.LNumber(percent))
+	l.Push(lua.LNumber(luaPercentToReturn))
 	l.Push(lua.LNil) // No error
 	return 2
 }
 
-// numGoroutines returns the number of goroutines that currently exist.
+// numGoroutines is a Lua-callable function that returns the current number
+// of active goroutines in the Go runtime using runtime.NumGoroutine().
+// Requires "system.read" permission for the "goroutines" resource.
 func (*Module) numGoroutines(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "goroutines", nil) {
-		l.RaiseError("not allowed to access goroutine information")
+		l.RaiseError("permission denied: system.read on goroutines resource is required for num_goroutines")
 		return 0
 	}
 
@@ -182,38 +225,47 @@ func (*Module) numGoroutines(l *lua.LState) int {
 	return 2
 }
 
-// goMaxProcs sets or gets the maximum number of CPUs that can be executing simultaneously.
+// goMaxProcs is a Lua-callable function that gets or sets the maximum number of
+// CPUs that the Go runtime can use simultaneously (GOMAXPROCS).
+//   - If called with an integer argument, it sets GOMAXPROCS to that value and
+//     returns the previous GOMAXPROCS value. Requires "system.control" permission
+//     for the "gomaxprocs" resource.
+//   - If called with no arguments, it returns the current GOMAXPROCS value.
+//     Requires "system.read" permission for the "gomaxprocs" resource.
 func (*Module) goMaxProcs(l *lua.LState) int {
-	if l.GetTop() > 0 {
-		// Setting GOMAXPROCS requires control permission
+	if l.GetTop() > 0 { // Setter
 		if !security.IsAllowed(l.Context(), "system.control", "gomaxprocs", nil) {
-			l.RaiseError("not allowed to modify GOMAXPROCS")
+			l.RaiseError("permission denied: system.control on gomaxprocs resource is required to set GOMAXPROCS")
 			return 0
 		}
-
 		newProcs := l.CheckInt(1)
-		procs := runtime.GOMAXPROCS(newProcs)
-		l.Push(lua.LNumber(procs))
-	} else {
-		// Reading GOMAXPROCS only requires read permission
+		if newProcs <= 0 {
+			l.Push(lua.LNil)
+			l.Push(lua.LString("GOMAXPROCS value must be positive"))
+			return 2
+		}
+		previousProcs := runtime.GOMAXPROCS(newProcs)
+		l.Push(lua.LNumber(previousProcs))
+	} else { // Getter
 		if !security.IsAllowed(l.Context(), "system.read", "gomaxprocs", nil) {
-			l.RaiseError("not allowed to access GOMAXPROCS information")
+			l.RaiseError("permission denied: system.read on gomaxprocs resource is required to get GOMAXPROCS")
 			return 0
 		}
-
-		// Get current GOMAXPROCS if no argument
-		procs := runtime.GOMAXPROCS(-1) // -1 returns current value without changing it
-		l.Push(lua.LNumber(procs))
+		// runtime.GOMAXPROCS(0) returns the current value without changing it.
+		currentProcs := runtime.GOMAXPROCS(0)
+		l.Push(lua.LNumber(currentProcs))
 	}
 
 	l.Push(lua.LNil) // No error
 	return 2
 }
 
-// numCPU returns the number of logical CPUs usable by the current process.
+// numCPU is a Lua-callable function that returns the number of logical CPUs
+// usable by the current process, as reported by runtime.NumCPU().
+// Requires "system.read" permission for the "cpu" resource.
 func (*Module) numCPU(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "cpu", nil) {
-		l.RaiseError("not allowed to access CPU information")
+		l.RaiseError("permission denied: system.read on cpu resource is required for num_cpu")
 		return 0
 	}
 
@@ -224,10 +276,12 @@ func (*Module) numCPU(l *lua.LState) int {
 	return 2
 }
 
-// hostname returns the host name reported by the kernel.
+// hostname is a Lua-callable function that returns the host name reported by
+// the kernel, using os.Hostname().
+// Requires "system.read" permission for the "hostname" resource.
 func (*Module) hostname(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "hostname", nil) {
-		l.RaiseError("not allowed to access hostname information")
+		l.RaiseError("permission denied: system.read on hostname resource is required for hostname")
 		return 0
 	}
 
@@ -243,16 +297,81 @@ func (*Module) hostname(l *lua.LState) int {
 	return 2
 }
 
-// pid returns the process ID of the caller.
+// pid is a Lua-callable function that returns the process ID of the caller
+// using os.Getpid().
+// Requires "system.read" permission for the "pid" resource.
 func (*Module) pid(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "pid", nil) {
-		l.RaiseError("not allowed to access process ID information")
+		l.RaiseError("permission denied: system.read on pid resource is required for pid")
 		return 0
 	}
 
-	pid := os.Getpid()
+	pidNum := os.Getpid()
 
-	l.Push(lua.LNumber(pid))
+	l.Push(lua.LNumber(pidNum))
+	l.Push(lua.LNil) // No error
+	return 2
+}
+
+// setMemoryLimit is a Lua-callable function that sets the Go runtime's soft memory limit
+// using debug.SetMemoryLimit.
+// It takes one integer argument: the memory limit in bytes. A value of -1 means
+// "unlimited" (effectively math.MaxInt64).
+// It returns the previous memory limit in bytes and a nil error.
+// Requires "system.control" permission for the "memory_limit" resource.
+// Access to this global setting is protected by a mutex.
+func (m *Module) setMemoryLimit(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.control", "memory_limit", nil) {
+		l.RaiseError("permission denied: system.control on memory_limit resource is required to set memory limit")
+		return 0
+	}
+
+	if l.GetTop() < 1 {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("memory limit value (bytes) required for set_memory_limit"))
+		return 2
+	}
+	limit := l.CheckInt64(1)
+	if limit < 0 {
+		if limit == -1 { // User convention for "unlimited"
+			limit = math.MaxInt64 // Go's representation of effectively no limit
+		} else {
+			l.Push(lua.LNil)
+			l.Push(lua.LString("memory limit must be non-negative, or -1 for unlimited"))
+			return 2
+		}
+	}
+
+	m.mu.Lock()
+	previousLimit := debug.SetMemoryLimit(limit)
+	m.mu.Unlock()
+
+	l.Push(lua.LNumber(previousLimit))
+	l.Push(lua.LNil) // No error
+	return 2
+}
+
+// getMemoryLimit is a Lua-callable function that returns the current Go runtime's
+// soft memory limit in bytes.
+// It ensures the memory limit is restored after querying to avoid side effects.
+// A returned value of math.MaxInt64 (a very large number) typically indicates
+// an "unlimited" or default high limit.
+// Requires "system.read" permission for the "memory_limit" resource.
+// Access to this global setting is protected by a mutex.
+func (m *Module) getMemoryLimit(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "memory_limit", nil) {
+		l.RaiseError("permission denied: system.read on memory_limit resource is required to get memory limit")
+		return 0
+	}
+
+	m.mu.Lock()
+	// debug.SetMemoryLimit(-1) sets the limit to math.MaxInt64 and returns the *previous* actual limit.
+	currentLimit := debug.SetMemoryLimit(-1)
+	// Restore the actual current limit immediately.
+	debug.SetMemoryLimit(currentLimit)
+	m.mu.Unlock()
+
+	l.Push(lua.LNumber(currentLimit))
 	l.Push(lua.LNil) // No error
 	return 2
 }
