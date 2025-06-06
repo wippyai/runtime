@@ -15,8 +15,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	identityv1 "github.com/wippyai/module-registry-proto/gen/registry/identity/v1"
-	modulev1 "github.com/wippyai/module-registry-proto/gen/registry/module/v1"
+	identityv1 "github.com/wippyai/module-registry-proto-go/registry/identity/v1"
+	modulev1 "github.com/wippyai/module-registry-proto-go/registry/module/v1"
 )
 
 func TestManager_Load(t *testing.T) {
