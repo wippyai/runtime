@@ -77,7 +77,7 @@ func (c *DefinitionConfig) ToDefinition() *contract.Definition {
 	return def
 }
 
-// ToBinding converts a BindingConfig to a Binding
+// ToBinding converts a BindingConfig to a ID
 func (c *BindingConfig) ToBinding() *contract.Binding {
 	binding := &contract.Binding{
 		Contracts: make([]contract.BoundContract, len(c.Contracts)),

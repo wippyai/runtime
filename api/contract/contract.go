@@ -104,11 +104,11 @@ type (
 
 	// Instance represents an opened contract bound to an implementation
 	Instance interface {
+		// ID returns the binding ID used to create this instance
+		ID() registry.ID
+
 		// Implements returns the list of contracts this instance implements
 		Implements() []Contract
-
-		// Binding returns the binding ID used to create this instance
-		Binding() registry.ID
 
 		// Scope returns the metadata/scope this instance was opened with
 		Scope() registry.Metadata

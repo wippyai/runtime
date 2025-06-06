@@ -284,7 +284,7 @@ func (m *Manager) handleDefinitionDelete(ctx context.Context, entry registry.Ent
 	return nil
 }
 
-// --- Contract Binding handlers ---
+// --- Contract ID handlers ---
 
 func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) error {
 	cfg, err := m.decodeBinding(entry)

@@ -101,7 +101,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	scope := registry.Metadata{"required_key": "value"}
 	instance, err := instantiator.Instantiate(ctx, bindingID, scope)
 	require.NoError(t, err)
-	assert.Equal(t, bindingID, instance.Binding())
+	assert.Equal(t, bindingID, instance.ID())
 	assert.Equal(t, scope, instance.Scope())
 	assert.Len(t, instance.Implements(), 1)
 

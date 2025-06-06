@@ -41,12 +41,3 @@ func GetInstantiator(ctx context.Context) Instantiator {
 	}
 	return nil
 }
-
-// GetServices retrieves both the registry and instantiator from the provided context.
-// Returns nil values if not found in the context.
-func GetServices(ctx context.Context) (Registry, Instantiator) {
-	if services, ok := ctx.Value(contractsCtx).(*contractServices); ok {
-		return services.Registry, services.Instantiator
-	}
-	return nil, nil
-}

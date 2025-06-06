@@ -33,7 +33,7 @@ func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, s
 		return nil, err
 	}
 
-	var contracts []contract.Contract
+	contracts := make([]contract.Contract, 0, len(binding.Contracts))
 	for _, bc := range binding.Contracts {
 		contractObj, err := i.registry.GetContract(ctx, bc.Contract)
 		if err != nil {
@@ -43,7 +43,7 @@ func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, s
 	}
 
 	return &instanceImpl{
-		bindingID: bindingID,
+		id:        bindingID,
 		binding:   binding,
 		contracts: contracts,
 		scope:     scope,
@@ -53,7 +53,7 @@ func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, s
 
 // instanceImpl implements contract.Instance interface
 type instanceImpl struct {
-	bindingID registry.ID
+	id        registry.ID
 	binding   *contract.Binding
 	contracts []contract.Contract
 	scope     registry.Metadata
@@ -64,8 +64,8 @@ func (i *instanceImpl) Implements() []contract.Contract {
 	return i.contracts
 }
 
-func (i *instanceImpl) Binding() registry.ID {
-	return i.bindingID
+func (i *instanceImpl) ID() registry.ID {
+	return i.id
 }
 
 func (i *instanceImpl) Scope() registry.Metadata {
