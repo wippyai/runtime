@@ -7,6 +7,9 @@ import (
 	contextapi "github.com/ponyruntime/pony/api/context"
 )
 
+// terminalCtx represents the terminal manager context key
+var terminalCtx = &contextapi.Key{Name: "terminal"}
+
 type PipeContext struct {
 	Stdin  io.Reader
 	Stdout io.Writer
@@ -22,12 +25,12 @@ func NewTerminalContext(stdin io.Reader, stdout, stderr io.Writer) *PipeContext 
 }
 
 func GetTerminalContext(ctx context.Context) *PipeContext {
-	if tc, ok := ctx.Value(contextapi.TerminalCtx).(*PipeContext); ok {
+	if tc, ok := ctx.Value(terminalCtx).(*PipeContext); ok {
 		return tc
 	}
 	return nil
 }
 
 func WithTerminalContext(ctx context.Context, tc *PipeContext) context.Context {
-	return context.WithValue(ctx, contextapi.TerminalCtx, tc)
+	return context.WithValue(ctx, terminalCtx, tc)
 }
