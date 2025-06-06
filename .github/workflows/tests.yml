@@ -42,6 +42,22 @@ jobs:
         run: |
           go mod download
 
+      - name: Setup MSYS2 and GCC
+        if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-sqlite3
+
+      - name: Add MSYS2 to PATH
+        if: matrix.os == 'windows-latest'
+        run: echo "C:\msys64\mingw64\bin" >> $GITHUB_PATH
+        shell: bash
+
       - name: Run golang tests
         env:
           CGO_ENABLED: 1
