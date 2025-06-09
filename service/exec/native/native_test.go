@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -37,7 +38,7 @@ func TestExecutor_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, _ := zap.NewDevelopment()
+			logger := zap.NewNop()
 
 			// Create the process
 			nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
@@ -118,7 +119,7 @@ func TestExecutor_MegaCommand(t *testing.T) {
 }
 
 func TestExecutor_Stdout(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := zap.NewNop()
 
 	// Create the process with platform-compatible echo command
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
@@ -170,7 +171,7 @@ func TestExecutor_EmptyCmd(t *testing.T) {
 		t.Skip("skipping test on Windows")
 	}
 
-	logger, _ := zap.NewDevelopment()
+	logger := zap.NewNop()
 
 	// Create the process with a minimal, cross-platform command
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
@@ -208,7 +209,7 @@ func TestExecutor_EmptyCmd(t *testing.T) {
 }
 
 func TestExecutor_Stderr(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := zap.NewNop()
 
 	// Use a cross-platform way to generate stderr output
 	var command string
@@ -298,7 +299,7 @@ func TestExecutor_WriteStdin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, _ := zap.NewDevelopment()
+			logger := zap.NewNop()
 
 			// Create the process
 			nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
@@ -352,14 +353,14 @@ func TestExecutor_WriteStdin(t *testing.T) {
 }
 
 func TestNativeExecutor_Config(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := zap.NewNop()
 
 	// Test with custom environment and working directory
 	config := &exec.NativeExecutorConfig{
 		DefaultEnv: map[string]string{
 			"TEST_ENV": "test_value",
 		},
-		DefaultWorkDir: "/tmp",
+		DefaultWorkDir: os.TempDir(),
 	}
 
 	executor := NewNativeExecutor(logger, config)
@@ -405,7 +406,7 @@ func TestNativeExecutor_Config(t *testing.T) {
 }
 
 func TestNativeExecutor_Whitelist(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := zap.NewNop()
 
 	tests := []struct {
 		name          string
