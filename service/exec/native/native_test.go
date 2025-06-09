@@ -64,21 +64,15 @@ func TestExecutor_Execute(t *testing.T) {
 }
 
 func TestExecutor_MegaCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("/dev/urandom is not supported on windows")
+	}
 	logger := zap.NewNop()
 
 	// Create the process
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
 
-	// Using direct command equivalents instead of shell piping
-	// We'll use a single command with args for cross-platform compatibility
-	var command string
-	if runtime.GOOS == "windows" {
-		command = "findstr"
-	} else {
-		command = "head"
-	}
-
-	process, err := nativeExecutor.NewProcess(command+" -n 100 /dev/urandom", exec.ProcessOptions{})
+	process, err := nativeExecutor.NewProcess("head -n 100 /dev/urandom", exec.ProcessOptions{})
 	assert.NoError(t, err)
 
 	processExecutor, ok := process.(*ProcessExecutor)
