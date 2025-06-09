@@ -12,8 +12,8 @@ The interceptor system provides a way to add cross-cutting concerns to function 
 Function Execution System
 ├── Options Layer
 │   ├── Common Options Interface
-│   ├── Temporal Compatibility Layer
-│   └── Options Validator
+│   ├── Options Validator
+│   └── Context Management
 │
 ├── Interceptor System
 │   ├── Interceptor Interface
@@ -33,36 +33,35 @@ Function Execution System
 
 ## Core Interfaces
 
-### Execution Context
-
-```go
-type Execution struct {
-    FunctionID   string
-    Options      map[string]interface{}
-    Context      context.Context
-    Interceptors []Interceptor
-    Result       interface{}
-    Error        error
-    StartTime    time.Time
-    EndTime      time.Time
-}
-```
-
 ### Interceptor Interface
 
 ```go
 type Interceptor interface {
-    Before(ctx context.Context, execution *Execution) error
-    After(ctx context.Context, execution *Execution, result interface{}, err error) error
+    // Handle processes the execution and calls next() to continue the chain
+    Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result
 }
 ```
 
-### Option Interface
+### Options Interface
 
 ```go
-type Option interface {
-    Validate() error
-    Apply(execution *Execution) error
+type Options struct {
+    Retry     RetryOptions     `json:"retry,omitempty"`
+    RateLimit RateLimitOptions `json:"ratelimit,omitempty"`
+    Timeout   TimeoutOptions   `json:"timeout,omitempty"`
+}
+
+type RetryOptions struct {
+    MaxAttempts int `json:"attempts"`
+}
+
+type RateLimitOptions struct {
+    RequestsPerSecond int `json:"rps"`
+    Burst            int `json:"burst"`
+}
+
+type TimeoutOptions struct {
+    Timeout Duration `json:"timeout"`
 }
 ```
 
@@ -81,35 +80,66 @@ Interceptors can be configured at multiple levels, following a hierarchical stru
 ```yaml
 # _index.yaml
 version: "1.0"
-meta:
-  interceptors:
-    global:
-      otel:
-        enabled: true
-        service_name: "module_name"
-        custom_attributes:
-          environment: "production"
-      retry:
-        enabled: true
-        max_attempts: 3
-        initial_interval: "1s"
-        max_interval: "10s"
-        multiplier: 2
-      rate_limit:
-        enabled: true
-        requests_per_second: 100
-        burst: 50
+namespace: app.interceptor.demo
 
-  functions:
-    my_function:
-      interceptors:
-        otel:
-          enabled: true
-          custom_attributes:
-            function_type: "critical"
+meta:
+  depends_on: [ "ns:system" ]
+  comment: "Interceptor Demo Application"
+
+entries:
+  - name: interceptor_demo_otel
+    kind: function.lua
+    meta:
+      comment: "interceptor demo otel"
+    source: file://otel.lua
+    method: handler
+    modules: [ http ]
+    pool:
+      size: 2
+      workers: 4
+
+  - name: interceptor_demo_retry
+    kind: function.lua
+    meta:
+      comment: "interceptor demo retry"
+      options:
         retry:
-          enabled: true
-          max_attempts: 5
+          attempts: 10
+    source: file://retry.lua
+    method: handler
+    modules: [ http ]
+    pool:
+      size: 2
+      workers: 4
+
+  - name: interceptor_demo_ratelimit
+    kind: function.lua
+    meta:
+      comment: "interceptor demo ratelimit"
+      options:
+        ratelimit:
+          rps: 1
+          burst: 1
+    source: file://ratelimit.lua
+    method: handler
+    modules: [ http ]
+    pool:
+      size: 2
+      workers: 4
+
+  - name: interceptor_demo_timeout
+    kind: function.lua
+    meta:
+      comment: "interceptor demo timeout"
+      options:
+        timeout:
+          timeout: 200ms
+    source: file://timeout.lua
+    method: handler
+    modules: [ http, time ]
+    pool:
+      size: 2
+      workers: 4
 ```
 
 ## Built-in Interceptors
@@ -119,14 +149,8 @@ meta:
 Provides distributed tracing and metrics collection.
 
 ```go
-type Config struct {
-    Enabled          bool
-    ServiceName      string
-    CustomAttributes map[string]string
-}
-
-type Interceptor struct {
-    config Config
+type OTelInterceptor struct {
+    tracer trace.Tracer
 }
 ```
 
@@ -142,36 +166,48 @@ Features:
 Handles automatic retries for failed function executions.
 
 ```go
-type RetryPolicy struct {
-    MaxAttempts     int
-    InitialInterval time.Duration
-    MaxInterval     time.Duration
-    Multiplier      float64
+type RetryInterceptor struct {
+    // No additional fields needed
 }
 ```
 
 Features:
 - Configurable retry attempts
-- Exponential backoff
-- Maximum interval limits
-- Custom retry conditions
+- Immediate retry on failure
+- Context-aware cancellation
+- Error propagation
 
 ### Rate Limit
 
 Controls the rate of function executions.
 
 ```go
-type RateLimit struct {
-    RequestsPerSecond int
-    Burst            int
+type RateLimitInterceptor struct {
+    cache *expirable.LRU[string, *rate.Limiter]
 }
 ```
 
 Features:
 - Per-second rate limiting
 - Burst allowance
-- Configurable limits
-- Queue management
+- PID-based rate limiting
+- LRU cache for limiters
+
+### Timeout
+
+Enforces execution time limits.
+
+```go
+type TimeoutInterceptor struct {
+    // No additional fields needed
+}
+```
+
+Features:
+- Configurable timeout duration
+- Context-based cancellation
+- Graceful timeout handling
+- Error propagation
 
 ## Execution Flow
 
@@ -200,28 +236,20 @@ type Chain struct {
     interceptors []Interceptor
 }
 
-func (c *Chain) Execute(ctx context.Context, execution *Execution, fn func(context.Context, *Execution) (interface{}, error)) (interface{}, error) {
-    // Execute before hooks
-    for _, interceptor := range c.interceptors {
-        if err := interceptor.Before(ctx, execution); err != nil {
-            return nil, fmt.Errorf("interceptor before hook failed: %w", err)
-        }
+func (c Chain) Execute(ctx context.Context, f function.Func, task runtime.Task) (chan *runtime.Result, error) {
+    // Create a result channel
+    resultChan := make(chan *runtime.Result, 1)
+
+    // Create a next function that will be passed to each interceptor
+    next := c.getNext(ctx, resultChan, 0, f, task)
+    result := next()
+    if result != nil && result.Error != nil {
+        close(resultChan)
+        return nil, result.Error
     }
 
-    // Execute the function
-    result, err := fn(ctx, execution)
-    execution.Result = result
-    execution.Error = err
-
-    // Execute after hooks in reverse order
-    for i := len(c.interceptors) - 1; i >= 0; i-- {
-        interceptor := c.interceptors[i]
-        if err := interceptor.After(ctx, execution, result, err); err != nil {
-            return nil, fmt.Errorf("interceptor after hook failed: %w", err)
-        }
-    }
-
-    return result, err
+    resultChan <- result
+    return resultChan, nil
 }
 ```
 
@@ -231,14 +259,19 @@ The registry manages available interceptors:
 
 ```go
 type Registry struct {
-    interceptors sync.Map // map[string]Interceptor
+    ctx          context.Context
+    logger       *zap.Logger
+    bus          event.Bus
+    interceptors []Interceptor
+    mu           sync.RWMutex
+    subscriber   *eventbus.Subscriber
 }
 ```
 
 Features:
 - Thread-safe interceptor registration
-- Name-based interceptor lookup
-- Dynamic interceptor management
+- Event-based interceptor management
+- Dynamic interceptor updates
 - List available interceptors
 
 ## Usage Example
@@ -270,6 +303,7 @@ The interceptor system provides standardized error handling:
 - Configuration caching
 - Option validation caching
 - Minimal overhead for disabled interceptors
+- LRU cache for rate limiters
 
 ## Security
 
@@ -277,6 +311,7 @@ The interceptor system provides standardized error handling:
 - Interceptor permissions
 - Configuration validation
 - Access control
+- PID-based rate limiting
 
 ## Monitoring and Observability
 
@@ -284,6 +319,7 @@ The interceptor system provides standardized error handling:
 - Option usage statistics
 - Error rates and types
 - Performance metrics
+- OpenTelemetry integration
 
 ## Extension Points
 
@@ -293,6 +329,7 @@ The system can be extended through:
 - Custom options
 - Custom validators
 - Custom error handlers
+- Event-based interceptor management
 
 ## Best Practices
 
@@ -300,21 +337,25 @@ The system can be extended through:
    - Keep global configurations minimal
    - Use function-specific configurations when needed
    - Document all custom interceptors
+   - Validate configuration values
 
 2. **Performance**
    - Disable unused interceptors
    - Use appropriate retry policies
    - Monitor interceptor performance
+   - Configure appropriate rate limits
 
 3. **Error Handling**
    - Implement proper error handling in custom interceptors
    - Use appropriate error types
    - Log relevant information
+   - Handle context cancellation
 
 4. **Security**
    - Validate all configurations
    - Implement proper access control
    - Monitor for security issues
+   - Use PID-based rate limiting
 
 ## Implementation Status
 
@@ -324,12 +365,17 @@ Currently implemented:
 - Registry system
 - Configuration loader
 - OpenTelemetry interceptor
-
-In progress:
 - Retry interceptor
 - Rate limit interceptor
-- Function executor integration
-- Tests and documentation
+- Timeout interceptor
+- Event-based management
+- Context propagation
+
+In progress:
+- Enhanced monitoring capabilities
+- Performance optimizations
+- Additional security features
+- Documentation improvements
 
 ## Future Considerations
 
@@ -337,4 +383,6 @@ In progress:
 - More built-in interceptors
 - Enhanced monitoring capabilities
 - Performance optimizations
-- Additional security features 
+- Additional security features
+- Improved error handling
+- Better context management 
