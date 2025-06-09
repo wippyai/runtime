@@ -2,6 +2,7 @@ package lua
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/api/interceptor"
 
 	"github.com/ponyruntime/pony/api/registry"
 )
@@ -36,6 +37,10 @@ type (
 		MaxSize   int  `json:"max_size"`   // Maximum size for lazy pool / concurrent executions (default: 100)
 	}
 
+	FunctionConfigMeta struct {
+		Options interceptor.Options `json:"options"`
+	}
+
 	// FunctionConfig defines the configuration for a Lua function component.
 	// It includes the source code, execution method, required libraries and modules,
 	// and VM pool settings.
@@ -45,6 +50,7 @@ type (
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 		Pool    PoolConfig             `json:"pool,omitempty"`    // VM pool configuration
+		Meta    FunctionConfigMeta     `json:"meta,omitempty"`    // meta
 	}
 
 	// LibraryConfig defines the configuration for a Lua library component.

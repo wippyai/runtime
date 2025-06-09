@@ -3,6 +3,7 @@ package interceptor
 import (
 	"context"
 	"fmt"
+	"time"
 
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
@@ -18,15 +19,16 @@ func NewTimeoutInterceptor() *TimeoutInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *TimeoutInterceptor) Handle(ctx context.Context, next func() *runtime.Result, opts ...apiinterceptor.Option) *runtime.Result {
+func (i *TimeoutInterceptor) Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result {
 	// Create config and apply options
-	config := &apiinterceptor.Config{}
-	for _, opt := range opts {
-		opt(config)
-	}
+
+	// FIXME remove, added for debugging
+	fmt.Println("TimeoutInterceptor")
+
+	options := apiinterceptor.GetOptionsFromContext(ctx)
 
 	// Use configured timeout or fallback to default
-	timeout := config.Timeout
+	timeout := options.Timeout.Timeout
 	// If timeout is 0, skip timeout
 	if timeout == 0 {
 		fmt.Println("TimeoutInterceptor skipped")
@@ -34,7 +36,7 @@ func (i *TimeoutInterceptor) Handle(ctx context.Context, next func() *runtime.Re
 	}
 
 	// Create a timeout context
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout))
 	defer cancel()
 
 	// Create a channel to receive the result
@@ -49,11 +51,12 @@ func (i *TimeoutInterceptor) Handle(ctx context.Context, next func() *runtime.Re
 	select {
 	case <-timeoutCtx.Done():
 		if timeoutCtx.Err() == context.DeadlineExceeded {
-			if config.CancelFunc != nil {
-				config.CancelFunc()
-			}
+			cancelFunc := apiinterceptor.GetCancelFromContext(ctx)
+			cancelFunc()
+
 			return &runtime.Result{Error: fmt.Errorf("operation timed out after %v", timeout)}
 		}
+
 		return &runtime.Result{Error: timeoutCtx.Err()}
 	case result := <-resultChan:
 		return result

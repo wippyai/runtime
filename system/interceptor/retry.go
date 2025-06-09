@@ -21,19 +21,15 @@ func NewRetryInterceptor() *RetryInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *RetryInterceptor) Handle(ctx context.Context, next func() *runtime.Result, opts ...apiinterceptor.Option) *runtime.Result {
+func (i *RetryInterceptor) Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result {
 	attempt := 0
 
 	fmt.Println("RetryInterceptor")
 
-	// Create config and apply options
-	config := &apiinterceptor.Config{}
-	for _, opt := range opts {
-		opt(config)
-	}
+	options := apiinterceptor.GetOptionsFromContext(ctx)
 
 	// Use configured max attempts or fallback to default
-	maxAttempts := config.MaxRetryAttempts
+	maxAttempts := options.Retry.MaxAttempts
 
 	// If max attempts is 0, skip retry
 	if maxAttempts == 0 {

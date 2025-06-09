@@ -267,24 +267,22 @@ func (r *Registry) GetChain() apiinterceptor.Chain {
 // Chain represents a sequence of interceptors that can be executed in order
 type Chain struct {
 	interceptors []apiinterceptor.Interceptor
-	// currentIndex int
 }
 
 // NewChain creates a new Chain with the given interceptors
 func NewChain(interceptors ...apiinterceptor.Interceptor) Chain {
 	return Chain{
 		interceptors: interceptors,
-		// currentIndex: 0,
 	}
 }
 
 // Execute executes the chain of interceptors
-func (c Chain) Execute(ctx context.Context, f function.Func, task runtime.Task, opts ...apiinterceptor.Option) (chan *runtime.Result, error) {
+func (c Chain) Execute(ctx context.Context, f function.Func, task runtime.Task) (chan *runtime.Result, error) {
 	// Create a result channel
 	resultChan := make(chan *runtime.Result, 1)
 
 	// Create a next function that will be passed to each interceptor
-	next := c.getNext(ctx, resultChan, 0, f, task, opts...)
+	next := c.getNext(ctx, resultChan, 0, f, task)
 	result := next()
 	if result != nil && result.Error != nil {
 		close(resultChan)
@@ -296,7 +294,7 @@ func (c Chain) Execute(ctx context.Context, f function.Func, task runtime.Task, 
 	return resultChan, nil
 }
 
-func (c Chain) getNext(ctx context.Context, resultChan chan *runtime.Result, index int, f function.Func, task runtime.Task, opts ...apiinterceptor.Option) func() *runtime.Result {
+func (c Chain) getNext(ctx context.Context, resultChan chan *runtime.Result, index int, f function.Func, task runtime.Task) func() *runtime.Result {
 	if index >= len(c.interceptors) {
 		return func() *runtime.Result {
 			// All interceptors have been executed, now run the actual function
@@ -305,6 +303,7 @@ func (c Chain) getNext(ctx context.Context, resultChan chan *runtime.Result, ind
 				fmt.Printf("function returned error: %+v\n", err)
 				return &runtime.Result{Error: err}
 			}
+
 			// Forward the result from the function's channel to our result channel
 			result := <-ch
 			if result != nil && result.Error != nil {
@@ -322,8 +321,7 @@ func (c Chain) getNext(ctx context.Context, resultChan chan *runtime.Result, ind
 	return func() *runtime.Result {
 		return interceptor.Handle(
 			ctx,
-			c.getNext(ctx, resultChan, index+1, f, task, opts...),
-			opts...,
+			c.getNext(ctx, resultChan, index+1, f, task),
 		)
 	}
 }

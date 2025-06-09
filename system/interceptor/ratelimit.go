@@ -26,17 +26,13 @@ func NewRateLimitInterceptor(cache *expirable.LRU[string, *rate.Limiter]) *RateL
 }
 
 // Handle implements the interceptor interface
-func (i *RateLimitInterceptor) Handle(ctx context.Context, next func() *runtime.Result, opts ...apiinterceptor.Option) *runtime.Result {
+func (i *RateLimitInterceptor) Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result {
 	fmt.Println("RateLimitInterceptor")
 
-	// Create config and apply options
-	config := &apiinterceptor.Config{}
-	for _, opt := range opts {
-		opt(config)
-	}
+	options := apiinterceptor.GetOptionsFromContext(ctx)
 
 	// If requests per second is 0, skip rate limiting
-	if config.RequestsPerSecond == 0 {
+	if options.RateLimit.RequestsPerSecond == 0 {
 		fmt.Println("RateLimitInterceptor skipped")
 		return next()
 	}
@@ -53,9 +49,9 @@ func (i *RateLimitInterceptor) Handle(ctx context.Context, next func() *runtime.
 	limiter, ok := i.cache.Get(pidStr)
 	if !ok {
 		// Use configured values or fallback to defaults
-		rps := config.RequestsPerSecond
+		rps := options.RateLimit.RequestsPerSecond
 		if rps != 0 {
-			burst := config.Burst
+			burst := options.RateLimit.Burst
 			limiter = rate.NewLimiter(rate.Limit(rps), burst)
 			i.cache.Add(pidStr, limiter)
 		}

@@ -3,7 +3,6 @@ package interceptor
 import (
 	"context"
 
-	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
 )
@@ -17,7 +16,7 @@ func NewNopInterceptor() *NopInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *NopInterceptor) Handle(_ context.Context, next func() *runtime.Result, _ ...apiinterceptor.Option) *runtime.Result {
+func (i *NopInterceptor) Handle(_ context.Context, next func() *runtime.Result) *runtime.Result {
 	return next()
 }
 

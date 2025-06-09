@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
@@ -29,7 +30,6 @@ type Module struct{}
 type Functions struct {
 	funcs  function.Registry
 	dtt    payload.Transcoder
-	ir     interceptor.Registry
 	values *contextapi.Contexter[any]
 
 	// Dedicated fields for security context to prevent overwriting/conflicting with user values
@@ -37,6 +37,7 @@ type Functions struct {
 	hasActor bool
 	scope    secapi.Scope
 	hasScope bool
+	options  interceptor.Options
 }
 
 // NewFunctionModule creates a new function module
@@ -53,12 +54,12 @@ func (m *Module) Name() string {
 func (m *Module) Loader(l *lua.LState) int {
 	// Register the function executor methods
 	value.RegisterTypeMethods(l, "function.Executor", nil, map[string]lua.LGFunction{
-		"with_context":     m.withContext,
-		"with_actor":       m.withActor,
-		"with_scope":       m.withScope,
-		"with_interceptor": m.withInterceptor,
-		"call":             m.call,
-		"async":            m.async,
+		"with_context": m.withContext,
+		"with_actor":   m.withActor,
+		"with_scope":   m.withScope,
+		"with_options": m.withOptions,
+		"call":         m.call,
+		"async":        m.async,
 	})
 
 	// Create module table
@@ -72,33 +73,28 @@ func (m *Module) Loader(l *lua.LState) int {
 }
 
 // extractDependencies gets the required dependencies from context
-func (m *Module) extractDependencies(l *lua.LState) (function.Registry, payload.Transcoder, interceptor.Registry, error) {
+func (m *Module) extractDependencies(l *lua.LState) (function.Registry, payload.Transcoder, error) {
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
-		return nil, nil, nil, errors.New("no unit of work context found")
+		return nil, nil, errors.New("no unit of work context found")
 	}
 
 	funcs := function.GetRegistry(uw.Context())
 	if funcs == nil {
-		return nil, nil, nil, errors.New("function registry not found in context")
+		return nil, nil, errors.New("function registry not found in context")
 	}
 
 	dtt := payload.GetTranscoder(uw.Context())
 	if dtt == nil {
-		return nil, nil, nil, errors.New("transcoder not found in context")
+		return nil, nil, errors.New("transcoder not found in context")
 	}
 
-	ir := interceptor.GetInterceptor(uw.Context())
-	if ir == nil {
-		return nil, nil, nil, errors.New("interceptor registry not found in context")
-	}
-
-	return funcs, dtt, ir, nil
+	return funcs, dtt, nil
 }
 
 // new creates a new function executor
 func (m *Module) new(l *lua.LState) int {
-	funcs, dtt, ir, err := m.extractDependencies(l)
+	funcs, dtt, err := m.extractDependencies(l)
 	if err != nil {
 		l.RaiseError("failed to create executor: %v", err)
 		return 0
@@ -113,7 +109,6 @@ func (m *Module) new(l *lua.LState) int {
 		funcs:    funcs,
 		dtt:      dtt,
 		values:   values,
-		ir:       ir,
 		hasActor: false,
 		hasScope: false,
 	}
@@ -278,8 +273,8 @@ func (m *Module) withScope(l *lua.LState) int {
 	return 1
 }
 
-// withInterceptor creates a new executor with a specific interceptor
-func (m *Module) withInterceptor(l *lua.LState) int {
+// withOptions creates a new executor with specific options
+func (m *Module) withOptions(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	functions, ok := ud.Value.(*Functions)
 	if !ok {
@@ -287,25 +282,61 @@ func (m *Module) withInterceptor(l *lua.LState) int {
 		return 0
 	}
 
-	// Add security check for custom interceptor
-	if !security.IsAllowed(l.Context(), "funcs.interceptor", "interceptor", nil) {
-		l.RaiseError("not allowed to call functions with custom interceptor")
-		return 0
+	// Helper function to recursively convert Lua table to Go map
+	var convertTable func(t *lua.LTable) map[string]any
+	convertTable = func(t *lua.LTable) map[string]any {
+		result := make(map[string]any)
+		t.ForEach(func(k, v lua.LValue) {
+			key, ok := k.(lua.LString)
+			if !ok {
+				l.ArgError(2, "options keys must be strings")
+				return
+			}
+
+			// If value is a table, recursively convert it
+			if tbl, ok := v.(*lua.LTable); ok {
+				result[string(key)] = convertTable(tbl)
+			} else {
+				result[string(key)] = luaconv.ToGoAny(v)
+			}
+		})
+		return result
 	}
 
-	// Check if we're setting interceptor
-	if l.Get(2).Type() == lua.LTNil {
-		l.ArgError(2, "interceptor cannot be nil")
-		return 0
+	optionsTable := l.CheckTable(2)
+
+	// Convert the options table
+	optionsMap := convertTable(optionsTable)
+
+	options := interceptor.Options{}
+
+	// Convert retry options
+	if retry, ok := optionsMap["retry"].(map[string]any); ok {
+		if maxAttempts, ok := retry["max_attempts"].(int); ok {
+			options.Retry.MaxAttempts = maxAttempts
+		}
 	}
 
-	ir := interceptor.GetInterceptor(l.Context())
-	if ir == nil {
-		l.RaiseError("interceptor registry not found in context")
-		return 0
+	// Convert rate limit options
+	if rateLimit, ok := optionsMap["ratelimit"].(map[string]any); ok {
+		if rps, ok := rateLimit["requests_per_second"].(int); ok {
+			options.RateLimit.RequestsPerSecond = rps
+		}
+		if burst, ok := rateLimit["burst"].(int); ok {
+			options.RateLimit.Burst = burst
+		}
 	}
 
-	// Create new Functions instance with copied values and new interceptor registry
+	// Convert timeout options
+	if timeout, ok := optionsMap["timeout"].(map[string]any); ok {
+		if timeoutStr, ok := timeout["timeout"].(string); ok {
+			if duration, err := time.ParseDuration(timeoutStr); err == nil {
+				options.Timeout.Timeout = interceptor.Duration(duration)
+			}
+		}
+	}
+
+	// Create new Functions instance with copied values and new options
 	newFunctions := &Functions{
 		funcs:    functions.funcs,
 		dtt:      functions.dtt,
@@ -314,7 +345,7 @@ func (m *Module) withInterceptor(l *lua.LState) int {
 		hasActor: functions.hasActor,
 		scope:    functions.scope,
 		hasScope: functions.hasScope,
-		ir:       ir,
+		options:  options,
 	}
 
 	// Create new userdata with the new Functions instance
@@ -395,6 +426,7 @@ func (m *Module) call(l *lua.LState) int {
 		execCtx := engine.DetachUnitOfWork(uw.Context())
 		execCtx = functions.applySecurityContext(execCtx)
 		execCtx = context.WithValue(execCtx, contextapi.ValuesCtx, functions.values)
+		execCtx = context.WithValue(execCtx, interceptor.OptionsContextKey{}, functions.options)
 
 		resultChan, err := functions.funcs.Call(execCtx, t)
 		if err != nil {

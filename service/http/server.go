@@ -212,7 +212,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	ctx = pubsub.WithHost(ctx, s)
 
 	// Get the interceptor registry from the parent context and add it to the server context
-	if ir := interceptor.GetInterceptor(ctx); ir != nil {
+	if ir := interceptor.GetInterceptors(ctx); ir != nil {
 		ctx = interceptor.WithInterceptor(ctx, ir)
 	}
 

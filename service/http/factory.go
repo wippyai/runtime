@@ -44,7 +44,7 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 		execCtx := context.WithValue(r.Context(), config.RequestCtx, rCtx)
 
 		// Get the interceptor registry from the parent context
-		if ir := interceptor.GetInterceptor(r.Context()); ir != nil {
+		if ir := interceptor.GetInterceptors(r.Context()); ir != nil {
 			execCtx = interceptor.WithInterceptor(execCtx, ir)
 		}
 

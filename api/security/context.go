@@ -3,7 +3,6 @@ package security
 import (
 	"context"
 	"errors"
-
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/registry"
 )

@@ -29,13 +29,15 @@ entries:
     kind: function.lua
     meta:
       comment: "interceptor demo retry"
+      options:
+        retry:
+          attempts: 10
     source: file://retry.lua
     method: handler
     modules: [ http ]
     pool:
       size: 2
       workers: 4
-      retry_attempts: 10
   - name: interceptor_demo_retry.endpoint
     kind: http.endpoint
     meta:
@@ -49,14 +51,16 @@ entries:
     kind: function.lua
     meta:
       comment: "interceptor demo ratelimit"
+      options:
+        ratelimit:
+          rps: 1
+          burst: 1
     source: file://ratelimit.lua
     method: handler
     modules: [ http ]
     pool:
       size: 2
       workers: 4
-      requests_per_second: 1
-      burst: 1
   - name: interceptor_demo_ratelimit.endpoint
     kind: http.endpoint
     meta:
@@ -70,13 +74,15 @@ entries:
     kind: function.lua
     meta:
       comment: "interceptor demo timeout"
+      options:
+        timeout:
+          timeout: 200ms
     source: file://timeout.lua
     method: handler
     modules: [ http, time ]
     pool:
       size: 2
       workers: 4
-      timeout: 200ms
   - name: interceptor_demo_timeout.endpoint
     kind: http.endpoint
     meta:

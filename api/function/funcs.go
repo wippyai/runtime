@@ -3,7 +3,6 @@ package function
 
 import (
 	"context"
-
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -25,6 +24,11 @@ const (
 	Accept event.Kind = "function.accept"
 	// Reject is sent FROM function nodes when a handler registration is rejected
 	Reject event.Kind = "function.reject"
+
+	OptionsRegister event.Kind = "function.optionsregister"
+	OptionsDelete   event.Kind = "function.optionsdelete"
+	OptionsAccept   event.Kind = "function.optionsaccept"
+	OptionsReject   event.Kind = "function.optionsreject"
 )
 
 type (
