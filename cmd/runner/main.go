@@ -5,7 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/api/contract"
 	"github.com/ponyruntime/pony/runtime/lua/modules/text"
+	"github.com/ponyruntime/pony/service/di"
 	"net/http/pprof"
 
 	"github.com/wippyai/module-registry-proto/gen/registry/identity/v1/identityv1connect"
@@ -69,6 +71,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/cloudstorage"
+	contractmod "github.com/ponyruntime/pony/runtime/lua/modules/contract"
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
 	"github.com/ponyruntime/pony/runtime/lua/modules/excel"
@@ -103,6 +106,7 @@ import (
 	"github.com/ponyruntime/pony/service/sql"
 	service "github.com/ponyruntime/pony/service/supervisor"
 	"github.com/ponyruntime/pony/service/terminal"
+	contractsys "github.com/ponyruntime/pony/system/contract"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/fs"
 	"github.com/ponyruntime/pony/system/function"
@@ -155,6 +159,10 @@ type App struct {
 	fsRegistry  *fs.Registry
 	resources   *resource.Registry
 
+	// contract system
+	contractRegistry     *contractsys.ContractRegistry
+	contractInstantiator *contractsys.Instantiator
+
 	// mesh
 	node   *pubsub.NodeManager
 	topo   *topology.Topology
@@ -165,7 +173,7 @@ type App struct {
 }
 
 func NewApp(verbose, veryVerbose bool) (*App, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+	appCtx, cancel := context.WithCancel(context.Background())
 
 	// Initialize event bus
 	bus := eventbus.NewBus()
@@ -212,7 +220,7 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 	})
 
 	app := &App{
-		ctx:           ctx,
+		ctx:           appCtx,
 		cancel:        cancel,
 		logger:        appLogger,
 		logCore:       core,
@@ -294,24 +302,31 @@ func (a *App) Initialize() error {
 		a.logger.Named("processes"),
 	)
 
+	// Initialize contract system
+	a.contractRegistry = contractsys.NewContractRegistry(a.eventBus, a.logger.Named("contracts"))
+	a.contractInstantiator = contractsys.NewContractInstantiator(a.contractRegistry, a.funcs)
+
 	return nil
 }
 
 func (a *App) Start(folderPath string, useEmbed bool) error {
 	// Spawn context with values
-	ctx := a.ctx
-	ctx = event.WithBus(ctx, a.eventBus)
-	ctx = secapi.WithRegistry(ctx, a.security)
-	ctx = fsapi.WithFSRegistry(ctx, a.fsRegistry)
-	ctx = regapi.WithRegistry(ctx, a.reg)
-	ctx = payload.WithTranscoder(ctx, a.dtt)
-	ctx = funcapi.WithFunctions(ctx, a.funcs)
-	ctx = procapi.WithProcesses(ctx, a.processes)
-	ctx = resourceapi.WithResources(ctx, a.resources)
-	ctx = pubsubapi.WithNode(ctx, a.node.Node())
-	ctx = topapi.WithTopology(ctx, a.topo)
-	ctx = topapi.WithPIDRegistry(ctx, a.pidReg)
-	ctx = logapi.WithLogger(ctx, a.logger)
+	appCtx := a.ctx
+
+	// todo: i assume we need to find another way to pass this
+	appCtx = event.WithBus(appCtx, a.eventBus)
+	appCtx = secapi.WithRegistry(appCtx, a.security)
+	appCtx = fsapi.WithFSRegistry(appCtx, a.fsRegistry)
+	appCtx = regapi.WithRegistry(appCtx, a.reg)
+	appCtx = payload.WithTranscoder(appCtx, a.dtt)
+	appCtx = funcapi.WithFunctions(appCtx, a.funcs)
+	appCtx = procapi.WithProcesses(appCtx, a.processes)
+	appCtx = resourceapi.WithResources(appCtx, a.resources)
+	appCtx = pubsubapi.WithNode(appCtx, a.node.Node())
+	appCtx = topapi.WithTopology(appCtx, a.topo)
+	appCtx = topapi.WithPIDRegistry(appCtx, a.pidReg)
+	appCtx = logapi.WithLogger(appCtx, a.logger)
+	appCtx = contract.WithServices(appCtx, a.contractRegistry, a.contractInstantiator)
 
 	// Spawn environment context
 	envCtx := ctxapi.NewContexter[string]()
@@ -321,47 +336,52 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 			envCtx.SetValue(pair[0], pair[1])
 		}
 	}
-	ctx = context.WithValue(ctx, ctxapi.EnvCtx, envCtx)
+	appCtx = context.WithValue(appCtx, ctxapi.EnvCtx, envCtx)
 
-	if err := a.fsRegistry.Start(ctx); err != nil {
+	if err := a.fsRegistry.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start filesystem service: %w", err)
 	}
 
-	if err := a.resources.Start(ctx); err != nil {
+	if err := a.resources.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start resource service: %w", err)
 	}
 
 	// LaunchProcess core function registry
-	if err := a.funcs.Start(ctx); err != nil {
+	if err := a.funcs.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start function executor: %w", err)
 	}
 
-	if err := a.prototypes.Start(ctx); err != nil {
+	if err := a.prototypes.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start prototype registry: %w", err)
 	}
 
-	if err := a.hosts.Start(ctx); err != nil {
+	if err := a.hosts.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start host registry: %w", err)
 	}
 
-	if err := a.node.Start(ctx); err != nil {
+	if err := a.contractRegistry.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start contract registry: %w", err)
+	}
+
+	if err := a.node.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start node mesh: %w", err)
 	}
 
 	// LaunchProcess supervisor
-	if err := a.supervisor.Start(ctx); err != nil {
+	if err := a.supervisor.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start supervisor: %w", err)
 	}
 
 	// LaunchProcess secondary services
-	router, err := eventbus.StartRouter(ctx, a.eventBus, a.services)
+	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to create event router: %w", err)
@@ -384,7 +404,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		fSys = osRoot.FS()
 	}
 
-	bootCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	bootCtx, cancel := context.WithTimeout(appCtx, 300*time.Second)
 	defer cancel()
 
 	// Load and apply initial state
@@ -405,7 +425,7 @@ func (a *App) Stop() error {
 	a.shuttingDown = true
 
 	// Spawn shutdown context with timeout
-	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	cancelCtx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 
 	// LaunchProcess a goroutine to handle force shutdown
@@ -414,7 +434,7 @@ func (a *App) Stop() error {
 		case <-a.forceShutdown:
 			a.logger.Warn("force shutdown triggered, canceling context")
 			a.cancel()
-		case <-ctx.Done():
+		case <-cancelCtx.Done():
 		}
 	}()
 
@@ -435,6 +455,11 @@ func (a *App) Stop() error {
 
 	if err := a.prototypes.Stop(); err != nil {
 		a.logger.Error("failed to stop prototype registry", zap.Error(err))
+	}
+
+	// Stop contract system
+	if err := a.contractRegistry.Stop(); err != nil {
+		a.logger.Error("failed to stop contract registry", zap.Error(err))
 	}
 
 	if err := a.node.Stop(); err != nil {
@@ -469,7 +494,7 @@ func (a *App) Stop() error {
 	return nil
 }
 
-// AddCleanup this method to your App struct
+// StartProfiler enables the pprof profiler server
 func (a *App) StartProfiler() {
 
 	// HTTP server for live profiling
@@ -574,6 +599,7 @@ func main() {
 		WithMemStore(app),
 		WithNativeExecutor(app),
 		WithJetTemplates(app),
+		WithContractSystem(app),
 	)...)
 	// --------------------------------------------------
 
@@ -621,22 +647,22 @@ func main() {
 }
 
 func initLogger(verbose, veryVerbose bool, bus event.Bus) (*zap.Logger, logapi.Core) {
-	config := zap.NewDevelopmentConfig()
+	cfg := zap.NewDevelopmentConfig()
 
 	switch {
 	case veryVerbose:
-		config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+		cfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
 	case verbose:
-		config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
-		config.DisableStacktrace = true
+		cfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+		cfg.DisableStacktrace = true
 	default:
-		config.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
-		config.DisableStacktrace = true
+		cfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+		cfg.DisableStacktrace = true
 	}
 
-	config.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
+	cfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
 
-	log, err := config.Build()
+	log, err := cfg.Build()
 	if err != nil {
 		fmt.Printf("Failed to build logger: %v\n", err)
 		return nil, nil
@@ -697,6 +723,8 @@ func loadApplicationState(
 	if err != nil {
 		return nil, fmt.Errorf("build state delta: %w", err)
 	}
+
+	// todo: no more env replace
 
 	return boot, nil
 }
@@ -913,6 +941,18 @@ func WithJetTemplates(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("template.(jet|set)", manager)
 }
 
+func WithContractSystem(a *App) eventbus.EventHandler {
+	// Create manager for handling contract definitions and bindings
+	manager := di.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("contract"),
+	)
+
+	// Register handler for contract definitions and bindings
+	return reghandler.NewRegistryHandler("contract.(definition|binding)", manager)
+}
+
 func WithLuaRuntime(a *App) []eventbus.EventHandler {
 	codeManager, err := code.NewCodeManager(
 		a.logger.Named("lua"),
@@ -958,6 +998,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				excel.NewModule(a.logger.Named("excel")),
 				cloudstorage.NewModule(),
 				system.NewSystemModule(),
+				contractmod.NewContractModule(a.logger.Named("contract")),
 			},
 			ProtoCacheSize: 60000,
 			MainCacheSize:  10000,
