@@ -177,19 +177,19 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 			name:          "missing one required key",
 			scopeRequired: []string{"key1", "key2"},
 			instanceScope: registry.Metadata{"key1": "value1"},
-			expectedError: "missing required scope keys: [key2]",
+			expectedError: "missing required context keys: [key2]",
 		},
 		{
 			name:          "missing all required keys",
 			scopeRequired: []string{"key1", "key2"},
 			instanceScope: registry.Metadata{},
-			expectedError: "missing required scope keys: [key1 key2]",
+			expectedError: "missing required context keys: [key1 key2]",
 		},
 		{
 			name:          "nil scope with required keys",
 			scopeRequired: []string{"key1"},
 			instanceScope: nil,
-			expectedError: "missing required scope keys: [key1]",
+			expectedError: "missing required context keys: [key1]",
 		},
 	}
 

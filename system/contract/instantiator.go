@@ -137,7 +137,7 @@ func (i *instanceImpl) validateScope(requiredKeys []string) error {
 	}
 
 	if len(missing) > 0 {
-		return fmt.Errorf("missing required scope keys: %v", missing)
+		return fmt.Errorf("missing required context keys: %v", missing)
 	}
 
 	return nil
