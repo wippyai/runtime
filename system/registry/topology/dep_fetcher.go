@@ -40,6 +40,9 @@ var DependencyPaths = []PathConfig{
 	{Path: "data.security.policies", Description: "Direct security policies", AllowWildcard: true},
 	{Path: "data.security.groups", Description: "Direct security groups", AllowWildcard: true},
 	{Path: "data.security.token_store", Description: "Token store reference"},
+	// Contract binding dependencies - automatically detect contract and method references
+	{Path: "data.contracts.*.contract", Description: "Contract definition references in bindings", AllowWildcard: true},
+	{Path: "data.contracts.*.methods.*", Description: "Method implementation function references in bindings", AllowWildcard: true},
 }
 
 func extractDependenciesInternal(data any) []string {
