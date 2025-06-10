@@ -5,8 +5,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/modules/text"
 	"net/http/pprof"
+
+	"github.com/ponyruntime/pony/cloudhistory/client"
+	"github.com/ponyruntime/pony/runtime/lua/modules/text"
 
 	"github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
 	"github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
@@ -240,9 +242,17 @@ func (a *App) Initialize() error {
 		return fmt.Errorf("failed to start security manager: %w", err)
 	}
 
+	historyClient := client.NewHTTPCloudHistoryClient("http://localhost:9333")
+	remoteHistory := history.NewRemoteStorage(
+		history.NewMemory(),
+		historyClient,
+		"wippy-default",
+		a.logger.Named("history"),
+	)
+
 	// Initialize core components
 	a.reg = registry.NewRegistry(
-		history.NewMemory(),
+		remoteHistory,
 		runner.NewBusRunner(a.eventBus, a.logger.Named("runner")),
 		regtop.NewStateBuilder(a.logger),
 		a.logger.Named("registry"),
@@ -471,7 +481,6 @@ func (a *App) Stop() error {
 
 // AddCleanup this method to your App struct
 func (a *App) StartProfiler() {
-
 	// HTTP server for live profiling
 	go func() {
 		profilerAddr := "localhost:6060"
