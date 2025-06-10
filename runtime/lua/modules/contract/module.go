@@ -352,7 +352,8 @@ func (m *Module) withContext(l *lua.LState) int {
 	// Add new values from Lua table to existing context
 	ctxTable.ForEach(func(k, v lua.LValue) {
 		if key, ok := k.(lua.LString); ok {
-			newCallCtx.values.SetValue(string(key), luaconv.ToGoAny(v))
+			v := luaconv.ToGoAny(v)
+			newCallCtx.values.SetValue(string(key), v)
 		} else {
 			l.ArgError(2, "context keys must be strings")
 		}
@@ -496,7 +497,28 @@ func contractOpen(l *lua.LState) int {
 	// Apply merged call context (security + app context) and instantiate binding
 	ctx := mergedCallCtx.applyToContext(l.Context())
 	regID := registry.ParseID(baseID)
-	instance, err := wrapper.inst.Instantiate(ctx, regID, nil) // No separate business scope
+
+	// Get the binding to check what context keys are required
+	binding, err := wrapper.registry.GetBinding(l.Context(), regID)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Extract only required context keys from the merged context
+	scope := make(registry.Metadata)
+	if ctxr, ok := ctx.Value(contextapi.ValuesCtx).(*contextapi.Contexter[any]); ok {
+		for _, boundContract := range binding.Contracts {
+			for _, requiredKey := range boundContract.ContextRequired {
+				if v, exists := ctxr.Value(requiredKey); exists {
+					scope[requiredKey] = v
+				}
+			}
+		}
+	}
+
+	instance, err := wrapper.inst.Instantiate(ctx, regID, scope)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -639,8 +661,11 @@ func instanceIndex(l *lua.LState) int {
 
 	// Return closure that will call the method with inherited call context
 	l.Push(l.NewClosure(func(l *lua.LState) int {
-		l.Insert(l.CheckUserData(1), 1) // Insert instance at position 1
-		l.Insert(lua.LString(key), 2)   // Insert method name at position 2
+		// Stack is already: instance, params
+		// We need: instance, method_name, params
+		// So just insert method name at position 2
+		l.Insert(lua.LString(key), 2)
+
 		return callInstanceMethod(l, isAsync)
 	}))
 	return 1
