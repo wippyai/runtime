@@ -5,8 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/modules/text"
 	"net/http/pprof"
+
+	"github.com/ponyruntime/pony/runtime/lua/modules/text"
 
 	"github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
 	"github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
@@ -471,7 +472,6 @@ func (a *App) Stop() error {
 
 // AddCleanup this method to your App struct
 func (a *App) StartProfiler() {
-
 	// HTTP server for live profiling
 	go func() {
 		profilerAddr := "localhost:6060"
