@@ -19,17 +19,17 @@ const (
 // DefinitionConfig represents the configuration for a contract definition entry
 // This is what gets unmarshaled from the YAML data field
 type DefinitionConfig struct {
-	Meta        registry.Metadata `json:"meta"`
-	Description string            `json:"description,omitempty"`
-	Methods     []MethodConfig    `json:"methods"`
+	ID      string            `json:"id,omitempty"` // ID for the definition, if specified within the data block
+	Meta    registry.Metadata `json:"meta,omitempty"`
+	Methods []MethodConfig    `json:"methods"`
 }
 
 // MethodConfig defines a single method in a contract
 type MethodConfig struct {
-	Name         string       `json:"name"`
-	Description  string       `json:"description,omitempty"`
-	InputSchema  SchemaConfig `json:"input_schema"`
-	OutputSchema SchemaConfig `json:"output_schema,omitempty"`
+	Name          string         `json:"name"`
+	Description   string         `json:"description,omitempty"` // Method-level description is kept
+	InputSchemas  []SchemaConfig `json:"input_schemas,omitempty"`
+	OutputSchemas []SchemaConfig `json:"output_schemas,omitempty"`
 }
 
 // SchemaConfig describes the format and schema of method arguments/returns
@@ -47,30 +47,40 @@ type BindingConfig struct {
 
 // BoundContractConfig maps a contract to its implementation
 type BoundContractConfig struct {
-	Contract      string            `json:"contract"`       // Contract ID as string (will be parsed)
-	Methods       map[string]string `json:"methods"`        // method_name -> function ID string
-	ScopeRequired []string          `json:"scope_required"` // Required scope keys
+	Contract        string            `json:"contract"`         // Contract ID as string (will be parsed)
+	Methods         map[string]string `json:"methods"`          // method_name -> function ID string
+	ContextRequired []string          `json:"context_required"` // Required scope keys
 }
 
 // ToDefinition converts a DefinitionConfig to a Definition
 func (c *DefinitionConfig) ToDefinition() *contract.Definition {
 	def := &contract.Definition{
-		Description: c.Description,
-		Methods:     make([]contract.MethodDef, len(c.Methods)),
+		// Description is no longer set from DefinitionConfig
+		Methods: make([]contract.MethodDef, len(c.Methods)),
 	}
 
-	for i, method := range c.Methods {
+	for i, methodCfg := range c.Methods {
+		inputSchemas := make([]contract.SchemaDefinition, len(methodCfg.InputSchemas))
+		for j, schemaCfg := range methodCfg.InputSchemas {
+			inputSchemas[j] = contract.SchemaDefinition{
+				Format:     schemaCfg.Format,
+				Definition: schemaCfg.Definition,
+			}
+		}
+
+		outputSchemas := make([]contract.SchemaDefinition, len(methodCfg.OutputSchemas))
+		for j, schemaCfg := range methodCfg.OutputSchemas {
+			outputSchemas[j] = contract.SchemaDefinition{
+				Format:     schemaCfg.Format,
+				Definition: schemaCfg.Definition,
+			}
+		}
+
 		def.Methods[i] = contract.MethodDef{
-			Name:        method.Name,
-			Description: method.Description,
-			InputSchema: contract.SchemaDefinition{
-				Format:     method.InputSchema.Format,
-				Definition: method.InputSchema.Definition,
-			},
-			OutputSchema: contract.SchemaDefinition{
-				Format:     method.OutputSchema.Format,
-				Definition: method.OutputSchema.Definition,
-			},
+			Name:          methodCfg.Name,
+			Description:   methodCfg.Description, // Method-level description is still set
+			InputSchemas:  inputSchemas,
+			OutputSchemas: outputSchemas,
 		}
 	}
 
@@ -83,20 +93,20 @@ func (c *BindingConfig) ToBinding() *contract.Binding {
 		Contracts: make([]contract.BoundContract, len(c.Contracts)),
 	}
 
-	for i, c := range c.Contracts {
+	for i, cfg := range c.Contracts {
 		// Parse contract ID
-		contractID := registry.ParseID(c.Contract)
+		contractID := registry.ParseID(cfg.Contract)
 
 		// Parse method IDs
 		methods := make(map[string]registry.ID)
-		for methodName, funcID := range c.Methods {
+		for methodName, funcID := range cfg.Methods {
 			methods[methodName] = registry.ParseID(funcID)
 		}
 
 		binding.Contracts[i] = contract.BoundContract{
-			Contract:      contractID,
-			Methods:       methods,
-			ScopeRequired: c.ScopeRequired,
+			Contract:        contractID,
+			Methods:         methods,
+			ContextRequired: cfg.ContextRequired,
 		}
 	}
 

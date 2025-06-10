@@ -68,10 +68,6 @@ func (i *instanceImpl) ID() registry.ID {
 	return i.id
 }
 
-func (i *instanceImpl) Scope() registry.Metadata {
-	return i.scope
-}
-
 func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Payloads) (chan *runtime.Result, error) {
 	// Find the bound contract and method
 	var funcID registry.ID
@@ -92,7 +88,7 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 	}
 
 	// Validate required scope keys
-	if err := i.validateScope(boundContract.ScopeRequired); err != nil {
+	if err := i.validateScope(boundContract.ContextRequired); err != nil {
 		return nil, err
 	}
 

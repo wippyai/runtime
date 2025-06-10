@@ -93,39 +93,41 @@ func (m *Manager) validateDefinitionStructure(def *contract.Definition, defID re
 		}
 		methodNames[method.Name] = struct{}{}
 
-		// Validate InputSchema: if definition exists, format must exist.
-		hasInputDef := false
-		if method.InputSchema.Definition != nil {
-			if rawMsg, ok := method.InputSchema.Definition.(json.RawMessage); ok {
-				s := string(rawMsg)
-				// Consider "null", empty string from empty RawMessage, or "{}" as effectively no "actual" definition data.
-				if s != "null" && s != "" && s != "{}" {
+		// Validate InputSchemas: if definition exists, format must exist.
+		for i, inputSchema := range method.InputSchemas {
+			hasInputDef := false
+			if inputSchema.Definition != nil {
+				if rawMsg, ok := inputSchema.Definition.(json.RawMessage); ok {
+					s := string(rawMsg)
+					// Consider "null", empty string from empty RawMessage, or "{}" as effectively no "actual" definition data.
+					if s != "null" && s != "" && s != "{}" {
+						hasInputDef = true
+					}
+				} else { // If it's not json.RawMessage but not nil, it implies some definition content.
 					hasInputDef = true
 				}
-			} else { // If it's not json.RawMessage but not nil, it implies some definition content.
-				hasInputDef = true
 			}
-		}
-		if hasInputDef && method.InputSchema.Format == "" {
-			return fmt.Errorf("input schema for method '%s' in definition '%s' has a definition but no format specified", method.Name, defID)
+			if hasInputDef && inputSchema.Format == "" {
+				return fmt.Errorf("input schema %d for method '%s' in definition '%s' has a definition but no format specified", i, method.Name, defID)
+			}
 		}
 
-		// Validate OutputSchema (optional, but if present and has definition, must have format)
-		hasOutputDef := false
-		// OutputSchema itself is omitempty in MethodDef JSON, so method.OutputSchema could be zero-struct.
-		// We only care if method.OutputSchema.Definition has content.
-		if method.OutputSchema.Definition != nil {
-			if rawMsg, ok := method.OutputSchema.Definition.(json.RawMessage); ok {
-				s := string(rawMsg)
-				if s != "null" && s != "" && s != "{}" {
+		// Validate OutputSchemas: if definition exists, format must exist.
+		for i, outputSchema := range method.OutputSchemas {
+			hasOutputDef := false
+			if outputSchema.Definition != nil {
+				if rawMsg, ok := outputSchema.Definition.(json.RawMessage); ok {
+					s := string(rawMsg)
+					if s != "null" && s != "" && s != "{}" {
+						hasOutputDef = true
+					}
+				} else {
 					hasOutputDef = true
 				}
-			} else {
-				hasOutputDef = true
 			}
-		}
-		if hasOutputDef && method.OutputSchema.Format == "" {
-			return fmt.Errorf("output schema for method '%s' in definition '%s' has a definition but no format specified", method.Name, defID)
+			if hasOutputDef && outputSchema.Format == "" {
+				return fmt.Errorf("output schema %d for method '%s' in definition '%s' has a definition but no format specified", i, method.Name, defID)
+			}
 		}
 	}
 	return nil
@@ -171,6 +173,10 @@ func (m *Manager) handleDefinitionAdd(ctx context.Context, entry registry.Entry)
 	}
 	definition := cfg.ToDefinition()
 
+	// Set ID and Meta from entry
+	definition.ID = entry.ID
+	definition.Meta = entry.Meta
+
 	if err := m.validateDefinitionStructure(definition, entry.ID); err != nil {
 		return err // Error already includes ID
 	}
@@ -203,6 +209,10 @@ func (m *Manager) handleDefinitionUpdate(ctx context.Context, entry registry.Ent
 		return fmt.Errorf("failed to decode definition for update '%s': %w", entry.ID, err)
 	}
 	updatedDefinition := cfg.ToDefinition()
+
+	// Set ID and Meta from entry
+	updatedDefinition.ID = entry.ID
+	updatedDefinition.Meta = entry.Meta
 
 	if err := m.validateDefinitionStructure(updatedDefinition, entry.ID); err != nil {
 		return err // Error already includes ID
@@ -284,7 +294,7 @@ func (m *Manager) handleDefinitionDelete(ctx context.Context, entry registry.Ent
 	return nil
 }
 
-// --- Contract ID handlers ---
+// --- Contract Binding handlers ---
 
 func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) error {
 	cfg, err := m.decodeBinding(entry)
@@ -292,6 +302,10 @@ func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) er
 		return fmt.Errorf("failed to decode binding '%s': %w", entry.ID, err)
 	}
 	binding := cfg.ToBinding()
+
+	// Set ID and Meta from entry
+	binding.ID = entry.ID
+	binding.Meta = entry.Meta
 
 	m.mu.Lock() // Lock for m.bindings write and m.definitions read
 	defer m.mu.Unlock()
@@ -302,7 +316,7 @@ func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) er
 
 	// validateBindingAgainstDefinitions needs read access to m.definitions, which is covered by the Lock
 	if err := m.validateBindingAgainstDefinitions(binding, entry.ID); err != nil {
-		return err // Error from validateBindingAlready includes bindingID
+		return err // Error from validateBinding already includes bindingID
 	}
 
 	m.bindings[entry.ID] = binding
@@ -327,6 +341,10 @@ func (m *Manager) handleBindingUpdate(ctx context.Context, entry registry.Entry)
 	}
 	updatedBinding := cfg.ToBinding()
 
+	// Set ID and Meta from entry
+	updatedBinding.ID = entry.ID
+	updatedBinding.Meta = entry.Meta
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -335,7 +353,7 @@ func (m *Manager) handleBindingUpdate(ctx context.Context, entry registry.Entry)
 	}
 
 	if err := m.validateBindingAgainstDefinitions(updatedBinding, entry.ID); err != nil {
-		return err // Error from validateBindingAlready includes bindingID
+		return err // Error from validateBinding already includes bindingID
 	}
 
 	m.bindings[entry.ID] = updatedBinding

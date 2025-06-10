@@ -100,6 +100,13 @@ func (r *ContractRegistry) registerDefinition(e event.Event) {
 		return
 	}
 
+	// Populate runtime ID and metadata if not set
+	defID := registry.ParseID(e.Path)
+	def.ID = defID
+	if def.Meta == nil {
+		def.Meta = make(registry.Metadata)
+	}
+
 	r.mu.Lock()
 	r.definitions[e.Path] = def
 	r.mu.Unlock()
@@ -113,6 +120,13 @@ func (r *ContractRegistry) updateDefinition(e event.Event) {
 	if !ok {
 		r.sendReject(e.Path, "invalid definition payload")
 		return
+	}
+
+	// Populate runtime ID and metadata if not set
+	defID := registry.ParseID(e.Path)
+	def.ID = defID
+	if def.Meta == nil {
+		def.Meta = make(registry.Metadata)
 	}
 
 	r.mu.Lock()
@@ -270,6 +284,10 @@ type contractImpl struct {
 
 func (c *contractImpl) ID() registry.ID {
 	return c.id
+}
+
+func (c *contractImpl) Meta() registry.Metadata {
+	return c.def.Meta
 }
 
 func (c *contractImpl) Methods() []contract.MethodDef {

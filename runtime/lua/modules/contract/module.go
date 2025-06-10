@@ -1,296 +1,539 @@
 package contract
 
 import (
+	"context"
 	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
 
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/contract"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
+	secapi "github.com/ponyruntime/pony/api/security"
+	"github.com/ponyruntime/pony/runtime/lua/command"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	"github.com/ponyruntime/pony/runtime/lua/security"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
-/*
-Contract Module - Two-Level Security Implementation
-
-This module implements a two-level security check system for contract method calls:
-
-1. Contract-level check: "contract.call" action with contract ID and call metadata
-2. Method-level check: "contract.method.call" action with method name and call metadata
-
-The call metadata includes:
-- binding_id: The binding being used
-- method_name: The method being called
-- scope.*: All scope variables prefixed with "scope."
-- contracts: Array of contract IDs this instance implements
-- arg_count: Number of arguments passed
-
-Security policies can use the metadata helpers to make decisions:
-- meta.StringValue("binding_id")
-- meta.TagValue("contracts")
-- meta.IntValue("arg_count")
-- meta.BoolValue("scope.admin")
-
-Example usage in Lua:
-```lua
--- Load contract and open binding with scope
-local kb = contract("contracts:embeddings_service")
-local instance = kb:open("embeddings:partitioned_kb", {
-    partition_id = "user_123",
-    admin = false
-})
-
--- This triggers both security checks:
--- 1. contract.call on "contracts:embeddings_service"
--- 2. contract.method.call on "embed"
-local result = instance:embed({text = "Hello"})
-```
-*/
-
+// Security permission constants for contract operations
 const (
-	moduleName        = "contract"
-	contractMetatable = "contract.Contract"
-	instanceMetatable = "contract.Instance"
+	PermissionContractGet             = "contract.get"
+	PermissionContractImplementations = "contract.implementations.list"
+	PermissionContractBindingOpen     = "contract.binding.open"
+	PermissionContractMethodCall      = "contract.method.call"
+	PermissionContractMethodAccess    = "contract.method.access"
+	PermissionContractSecurityContext = "contract.security"
+	PermissionContractAppContext      = "contract.context"
 )
 
-// Module represents the contract module for Lua
+// Type names for Lua userdata registration
+const (
+	TypeNameContract = "contract.Contract"
+	TypeNameInstance = "contract.Instance"
+)
+
+// callContext holds both security and application context for contract method calls
+// This combines security context (actor, scope) with application context (custom values)
+// following the same pattern as the funcs module
+type callContext struct {
+	values   *contextapi.Contexter[any] // Application context values
+	actor    secapi.Actor               // Security actor
+	hasActor bool                       // Whether actor is set
+	scope    secapi.Scope               // Security scope
+	hasScope bool                       // Whether scope is set
+}
+
+// Module represents the contract module for Lua runtime
 type Module struct {
 	log *zap.Logger
 }
 
-// ContractWrapper wraps a contract definition for Lua
-type ContractWrapper struct {
-	contractDef contract.Contract
-	registry    contract.Registry
-	inst        contract.Instantiator
-	log         *zap.Logger
+// Wrapper holds contract definition with call context (like Functions in funcs module)
+// Supports immutable chaining of security context through with_* methods
+type Wrapper struct {
+	definition  contract.Contract     // Contract definition from registry
+	registry    contract.Registry     // Contract registry for lookups
+	inst        contract.Instantiator // Instantiator for creating instances
+	callContext                       // Embedded call context for security + app context
 }
 
-// InstanceWrapper wraps a contract instance for Lua
+// InstanceWrapper holds contract instance with inherited call context
+// All method calls on this instance will use the inherited security and application context
 type InstanceWrapper struct {
-	instance contract.Instance
-	log      *zap.Logger
+	instance        contract.Instance // Actual contract instance
+	owningContracts map[string]string // method name -> contract ID mapping for fast lookup
+	callContext                       // Inherited call context from Wrapper
 }
 
-// NewContractModule creates a new contract module
+// NewContractModule creates a new contract module for the Lua runtime
 func NewContractModule(log *zap.Logger) *Module {
-	return &Module{
-		log: log.Named("contract"),
-	}
+	return &Module{log: log.Named("contract")}
 }
 
-// Name returns the module name
+// Name returns the module name for registration
 func (m *Module) Name() string {
-	return moduleName
+	return "contract"
 }
 
-// Loader loads the module into the Lua state
+// Loader registers the contract module types and functions with the Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	// Register types
-	m.registerContractType(l)
-	m.registerInstanceType(l)
+	// Register contract type with call context chain methods (like funcs module)
+	value.RegisterTypeMethods(l, TypeNameContract, nil, map[string]lua.LGFunction{
+		// Core contract introspection methods
+		"id":              contractID,
+		"methods":         contractMethods,
+		"method":          contractMethod,
+		"implementations": contractImplementations,
+		"open":            contractOpen,
 
-	// Create module table
-	mod := l.CreateTable(0, 1)
+		// Call context chain methods
+		"with_context": m.withContext,
+		"with_actor":   m.withActor,
+		"with_scope":   m.withScope,
+	})
+
+	// Register instance type with dynamic method calling only
+	value.RegisterTypeMethods(l, TypeNameInstance,
+		map[string]lua.LGFunction{
+			"__index": instanceIndex, // Enables dynamic method access: instance:method_name()
+		},
+		nil,
+	)
+
+	// Create module table with top-level functions
+	mod := l.CreateTable(0, 3)
 	mod.RawSetString("get", l.NewFunction(m.getContract))
-
-	// Set global contract function
-	l.SetGlobal("contract", l.NewFunction(m.contractGlobal))
-
+	mod.RawSetString("find_implementations", l.NewFunction(m.findImplementations))
+	mod.RawSetString("is", l.NewFunction(m.is))
 	l.Push(mod)
 	return 1
 }
 
-// registerContractType registers the Contract type and methods
-func (m *Module) registerContractType(l *lua.LState) {
-	value.RegisterMethods(l, contractMetatable, map[string]lua.LGFunction{
-		"open":    contractOpen,
-		"methods": contractMethods,
-		"method":  contractMethod,
-		"id":      contractID,
-	})
+// ================================
+// BINDING ID PARSING
+// ================================
+
+// parseBindingArgs parses a binding ID with optional query parameters
+// Format: "service:impl?key1=value1&key2=value2" or just "service:impl"
+func parseBindingArgs(bindingID string) (string, map[string]any, error) {
+	parts := strings.SplitN(bindingID, "?", 2)
+	baseID := parts[0]
+
+	if len(parts) == 1 {
+		return baseID, make(map[string]any), nil // No query parameters
+	}
+
+	values, err := url.ParseQuery(parts[1])
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid query parameters in binding ID: %w", err)
+	}
+
+	// Convert url.Values to map[string]any with type conversion
+	args := make(map[string]any)
+	for k, v := range values {
+		if len(v) > 0 {
+			// Convert string values to appropriate types
+			val := v[0] // Take first val if multiple
+
+			// Try to convert to boolean
+			if val == "true" {
+				args[k] = true
+			} else if val == "false" {
+				args[k] = false
+			} else if intVal, err := strconv.Atoi(val); err == nil {
+				// Try to convert to integer
+				args[k] = intVal
+			} else if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
+				// Try to convert to float
+				args[k] = floatVal
+			} else {
+				// Keep as string
+				args[k] = val
+			}
+		} else {
+			// Empty value (like "flag=" or just "flag")
+			args[k] = ""
+		}
+	}
+
+	return baseID, args, nil
 }
 
-// registerInstanceType registers the Instance type and methods
-func (m *Module) registerInstanceType(l *lua.LState) {
-	value.RegisterMethods(l, instanceMetatable, map[string]lua.LGFunction{
-		"id":         instanceID,
-		"scope":      instanceScope,
-		"implements": instanceImplements,
-		"call":       instanceCall,
-	})
+// ================================
+// CALL CONTEXT UTILITIES (COMBINED SECURITY + APP CONTEXT)
+// ================================
 
-	// Register metamethods for dynamic method calling
-	value.RegisterTypeMethods(l, instanceMetatable, map[string]lua.LGFunction{
-		"__index": instanceIndex,
-	}, nil)
+// newCallContext creates a call context from current Lua context
+// Extracts existing application context values if present
+func (m *Module) newCallContext(l *lua.LState) callContext {
+	values := contextapi.NewContexter[any]()
+	if ctxr, ok := l.Context().Value(contextapi.ValuesCtx).(*contextapi.Contexter[any]); ok {
+		values = ctxr.Clone()
+	}
+	return callContext{values: values}
 }
 
-// contractGlobal is the global contract() function
-func (m *Module) contractGlobal(l *lua.LState) int {
-	return m.getContract(l)
+// clone creates a deep copy of call context for immutable chaining pattern
+func (sc callContext) clone() callContext {
+	return callContext{
+		values:   sc.values.Clone(),
+		actor:    sc.actor,
+		hasActor: sc.hasActor,
+		scope:    sc.scope,
+		hasScope: sc.hasScope,
+	}
 }
 
-// getContract loads a contract definition by ID
+// applyToContext applies both security and application context to base context
+// This is the key method that combines all context types into the execution context
+func (sc callContext) applyToContext(baseCtx context.Context) context.Context {
+	ctx := baseCtx
+	// Apply security context
+	if sc.hasActor {
+		ctx = secapi.WithActor(ctx, sc.actor)
+	}
+	if sc.hasScope {
+		ctx = secapi.WithScope(ctx, sc.scope)
+	}
+	// Apply application context values
+	if sc.values != nil {
+		ctx = context.WithValue(ctx, contextapi.ValuesCtx, sc.values)
+	}
+	return ctx
+}
+
+// createUserData creates Lua userdata with proper metatable for type safety
+func createUserData(l *lua.LState, v any, typeName string) *lua.LUserData {
+	ud := l.NewUserData()
+	ud.Value = v
+	ud.Metatable = value.GetTypeMetatable(l, typeName)
+	return ud
+}
+
+// ================================
+// MODULE FUNCTIONS
+// ================================
+
+// getContract retrieves a contract definition and wraps it with empty call context
+// This is the entry point that creates a Wrapper for chaining security context
 func (m *Module) getContract(l *lua.LState) int {
-	// Get contract ID
 	contractID := l.CheckString(1)
-	if contractID == "" {
+
+	// Security check for contract access permission
+	if !security.IsAllowed(l.Context(), PermissionContractGet, contractID, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("contract ID is required"))
+		l.Push(lua.LString("not allowed to access contract"))
 		return 2
 	}
 
-	// Parse registry ID
-	regID := registry.ParseID(contractID)
-
-	// Build metadata for security check
-	contractMeta := make(registry.Metadata)
-	contractMeta["contract_id"] = contractID
-	contractMeta["namespace"] = regID.NS
-	contractMeta["name"] = regID.Name
-
-	// Security check
-	if !security.IsAllowed(l.Context(), "contract.get", contractID, contractMeta) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to access contract: %s", contractID)))
-		return 2
-	}
-
-	// Get contract services from context
+	// Get required dependencies from context
 	reg := contract.GetRegistry(l.Context())
-	if reg == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("contract registry not found in context"))
-		return 2
-	}
-
 	inst := contract.GetInstantiator(l.Context())
-	if inst == nil {
+	if reg == nil || inst == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("contract instantiator not found in context"))
+		l.Push(lua.LString("contract registry or instantiator not found"))
 		return 2
 	}
 
-	// Load contract
-	contractObj, err := reg.GetContract(l.Context(), regID)
+	// Load contract definition from registry
+	regID := registry.ParseID(contractID)
+	contractDef, err := reg.GetContract(l.Context(), regID)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	// Create wrapper
-	wrapper := &ContractWrapper{
-		contractDef: contractObj,
+	// Create wrapper with empty call context (like funcs.new())
+	wrapper := &Wrapper{
+		definition:  contractDef,
 		registry:    reg,
 		inst:        inst,
-		log:         m.log,
+		callContext: m.newCallContext(l),
 	}
 
-	// Create userdata
-	ud := l.NewUserData()
-	ud.Value = wrapper
-	ud.Metatable = value.GetTypeMetatable(l, contractMetatable)
-
-	l.Push(ud)
+	l.Push(createUserData(l, wrapper, TypeNameContract))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// contractOpen opens a contract binding with optional scope
-func contractOpen(l *lua.LState) int {
-	// Get contract wrapper
-	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*ContractWrapper)
-	if !ok {
-		l.ArgError(1, "contract expected")
-		return 0
-	}
+// findImplementations lists all binding IDs that implement the specified contract
+func (m *Module) findImplementations(l *lua.LState) int {
+	contractID := l.CheckString(1)
 
-	// Get binding ID
-	bindingID := l.CheckString(2)
-	if bindingID == "" {
+	// Security check for implementation listing permission
+	if !security.IsAllowed(l.Context(), PermissionContractImplementations, contractID, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("binding ID is required"))
+		l.Push(lua.LString("not allowed to list implementations"))
 		return 2
 	}
 
-	// Parse binding registry ID
-	regID := registry.ParseID(bindingID)
+	reg := contract.GetRegistry(l.Context())
+	if reg == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("contract registry not found"))
+		return 2
+	}
 
-	// Get optional scope metadata
-	var scope registry.Metadata
+	regID := registry.ParseID(contractID)
+	bindingIDs, err := reg.GetBindingsForContract(l.Context(), regID)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Return array of binding ID strings
+	result := l.CreateTable(len(bindingIDs), 0)
+	for i, bindingID := range bindingIDs {
+		result.RawSetInt(i+1, lua.LString(bindingID.String()))
+	}
+
+	l.Push(result)
+	l.Push(lua.LNil)
+	return 2
+}
+
+// is checks if an instance implements a specific contract ID
+// Usage: contract.is(instance, "contract_id") returns true/false
+func (m *Module) is(l *lua.LState) int {
+	instance := l.CheckUserData(1)
+	contractID := l.CheckString(2)
+
+	// Validate instance is of correct type
+	wrapper, ok := instance.Value.(*InstanceWrapper)
+	if !ok {
+		l.Push(lua.LBool(false))
+		return 1
+	}
+
+	// Parse contract ID for comparison
+	regID := registry.ParseID(contractID)
+
+	// Check if instance implements the contract
+	for _, contractDef := range wrapper.instance.Implements() {
+		if contractDef.ID().String() == regID.String() {
+			l.Push(lua.LBool(true))
+			return 1
+		}
+	}
+
+	l.Push(lua.LBool(false))
+	return 1
+}
+
+// ================================
+// CALL CONTEXT CHAIN METHODS (IMMUTABLE PATTERN LIKE FUNCS)
+// ================================
+
+// withContext creates a new wrapper with additional application context values
+// Follows immutable chaining pattern: contract:with_context({key = value})
+func (m *Module) withContext(l *lua.LState) int {
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
+
+	// Security check for custom application context permission
+	if !security.IsAllowed(l.Context(), PermissionContractAppContext, "context", nil) {
+		l.RaiseError("not allowed to use contracts with custom context")
+		return 0
+	}
+
+	ctxTable := l.CheckTable(2)
+	newCallCtx := wrapper.callContext.clone()
+
+	// Add new values from Lua table to existing context
+	ctxTable.ForEach(func(k, v lua.LValue) {
+		if key, ok := k.(lua.LString); ok {
+			newCallCtx.values.SetValue(string(key), luaconv.ToGoAny(v))
+		} else {
+			l.ArgError(2, "context keys must be strings")
+		}
+	})
+
+	// Create new wrapper with updated call context (immutable pattern)
+	newWrapper := &Wrapper{
+		definition:  wrapper.definition,
+		registry:    wrapper.registry,
+		inst:        wrapper.inst,
+		callContext: newCallCtx,
+	}
+
+	l.Push(createUserData(l, newWrapper, TypeNameContract))
+	return 1
+}
+
+// withActor creates a new wrapper with a specific security actor
+// Follows immutable chaining pattern: contract:with_actor(actor)
+func (m *Module) withActor(l *lua.LState) int {
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
+
+	// Security check for custom security context permission
+	if !security.IsAllowed(l.Context(), PermissionContractSecurityContext, "security", nil) {
+		l.RaiseError("not allowed to use contracts with custom security context")
+		return 0
+	}
+
+	// Validate actor parameter (cannot be nil for security)
+	if l.Get(2).Type() == lua.LTNil {
+		l.ArgError(2, "actor cannot be nil - security context cannot be removed")
+		return 0
+	}
+
+	actor, ok := l.CheckUserData(2).Value.(secapi.Actor)
+	if !ok {
+		l.ArgError(2, "Actor expected")
+		return 0
+	}
+
+	// Create new call context with actor
+	newCallCtx := wrapper.callContext.clone()
+	newCallCtx.actor = actor
+	newCallCtx.hasActor = true
+
+	// Create new wrapper with updated call context (immutable pattern)
+	newWrapper := &Wrapper{
+		definition:  wrapper.definition,
+		registry:    wrapper.registry,
+		inst:        wrapper.inst,
+		callContext: newCallCtx,
+	}
+
+	l.Push(createUserData(l, newWrapper, TypeNameContract))
+	return 1
+}
+
+// withScope creates a new wrapper with a specific security scope
+// Follows immutable chaining pattern: contract:with_scope(scope)
+func (m *Module) withScope(l *lua.LState) int {
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
+
+	// Security check for custom security context permission
+	if !security.IsAllowed(l.Context(), PermissionContractSecurityContext, "security", nil) {
+		l.RaiseError("not allowed to use contracts with custom security context")
+		return 0
+	}
+
+	// Validate scope parameter (cannot be nil for security)
+	if l.Get(2).Type() == lua.LTNil {
+		l.ArgError(2, "scope cannot be nil - security context cannot be removed")
+		return 0
+	}
+
+	scope, ok := l.CheckUserData(2).Value.(secapi.Scope)
+	if !ok {
+		l.ArgError(2, "Args expected")
+		return 0
+	}
+
+	// Create new call context with scope
+	newCallCtx := wrapper.callContext.clone()
+	newCallCtx.scope = scope
+	newCallCtx.hasScope = true
+
+	// Create new wrapper with updated call context (immutable pattern)
+	newWrapper := &Wrapper{
+		definition:  wrapper.definition,
+		registry:    wrapper.registry,
+		inst:        wrapper.inst,
+		callContext: newCallCtx,
+	}
+
+	l.Push(createUserData(l, newWrapper, TypeNameContract))
+	return 1
+}
+
+// ================================
+// CONTRACT WRAPPER METHODS
+// ================================
+
+// contractOpen opens a binding with call context applied to create an instance
+// The returned instance inherits the call context from the wrapper
+// Now supports query parameters in binding ID: "service:impl?key=value&key2=value2"
+func contractOpen(l *lua.LState) int {
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
+	bindingID := l.CheckString(2)
+
+	// Parse binding ID to extract base ID and query parameters
+	baseID, queryArgs, err := parseBindingArgs(bindingID)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	if !security.IsAllowed(l.Context(), PermissionContractBindingOpen, baseID, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to open binding"))
+		return 2
+	}
+
+	// Create merged call context: start with wrapper context
+	mergedCallCtx := wrapper.callContext.clone()
+
+	// Merge query parameters from binding ID (second priority)
+	for k, v := range queryArgs {
+		mergedCallCtx.values.SetValue(k, v)
+	}
+
+	// Merge additional context values from optional Lua table (highest priority)
+	// These override/extend both chained context and query parameters
 	if l.GetTop() >= 3 && l.Get(3).Type() == lua.LTTable {
-		scopeTable := l.CheckTable(3)
-		scope = make(registry.Metadata)
-		scopeTable.ForEach(func(k, v lua.LValue) {
+		l.CheckTable(3).ForEach(func(k, v lua.LValue) {
 			if kStr, ok := k.(lua.LString); ok {
-				scope[string(kStr)] = luaconv.ToGoAny(v)
+				mergedCallCtx.values.SetValue(string(kStr), luaconv.ToGoAny(v))
 			}
 		})
 	}
 
-	// Build metadata for security check
-	bindingMeta := make(registry.Metadata)
-	bindingMeta["binding_id"] = bindingID
-	bindingMeta["contract_id"] = wrapper.contractDef.ID().String()
-	bindingMeta["namespace"] = regID.NS
-	bindingMeta["name"] = regID.Name
-
-	// Add scope information to metadata
-	if scope != nil {
-		for k, v := range scope {
-			bindingMeta["scope."+k] = v
-		}
-	}
-
-	// Security check for binding access
-	if !security.IsAllowed(l.Context(), "contract.binding.open", bindingID, bindingMeta) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to open binding: %s", bindingID)))
-		return 2
-	}
-
-	// Instantiate the contract binding
-	instance, err := wrapper.inst.Instantiate(l.Context(), regID, scope)
+	// Apply merged call context (security + app context) and instantiate binding
+	ctx := mergedCallCtx.applyToContext(l.Context())
+	regID := registry.ParseID(baseID)
+	instance, err := wrapper.inst.Instantiate(ctx, regID, nil) // No separate business scope
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	// Create instance wrapper
-	instWrapper := &InstanceWrapper{
-		instance: instance,
-		log:      wrapper.log,
+	// Build method name -> contract ID mapping for fast method resolution
+	owningContracts := make(map[string]string)
+	for _, contractDef := range instance.Implements() {
+		for _, method := range contractDef.Methods() {
+			owningContracts[method.Name] = contractDef.ID().String()
+		}
 	}
 
-	// Create userdata
-	instUD := l.NewUserData()
-	instUD.Value = instWrapper
-	instUD.Metatable = value.GetTypeMetatable(l, instanceMetatable)
+	// Create instance wrapper with merged call context (includes query params + open() parameters)
+	instWrapper := &InstanceWrapper{
+		instance:        instance,
+		owningContracts: owningContracts,
+		callContext:     mergedCallCtx, // Use merged context, not original wrapper context
+	}
 
-	l.Push(instUD)
+	l.Push(createUserData(l, instWrapper, TypeNameInstance))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// contractMethods returns all methods in the contract
-func contractMethods(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*ContractWrapper)
-	if !ok {
-		l.ArgError(1, "contract expected")
-		return 0
-	}
+// contractID returns the contract definition ID as a string
+func contractID(l *lua.LState) int {
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
+	l.Push(lua.LString(wrapper.definition.ID().String()))
+	return 1
+}
 
-	methods := wrapper.contractDef.Methods()
+// contractMethods returns all methods defined in the contract with their schemas
+func contractMethods(l *lua.LState) int {
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
+	methods := wrapper.definition.Methods()
 	methodsTable := l.CreateTable(len(methods), 0)
 
 	for i, method := range methods {
@@ -298,17 +541,13 @@ func contractMethods(l *lua.LState) int {
 		methodTable.RawSetString("name", lua.LString(method.Name))
 		methodTable.RawSetString("description", lua.LString(method.Description))
 
-		// Add schema info if available
-		if method.InputSchema.Format != "" {
-			inputTable := l.CreateTable(0, 2)
-			inputTable.RawSetString("format", lua.LString(method.InputSchema.Format))
-			methodTable.RawSetString("input_schema", inputTable)
+		// Include input schemas array if present
+		if len(method.InputSchemas) > 0 {
+			methodTable.RawSetString("input_schemas", createSchemasTable(l, method.InputSchemas))
 		}
-
-		if method.OutputSchema.Format != "" {
-			outputTable := l.CreateTable(0, 2)
-			outputTable.RawSetString("format", lua.LString(method.OutputSchema.Format))
-			methodTable.RawSetString("output_schema", outputTable)
+		// Include output schemas array if present
+		if len(method.OutputSchemas) > 0 {
+			methodTable.RawSetString("output_schemas", createSchemasTable(l, method.OutputSchemas))
 		}
 
 		methodsTable.RawSetInt(i+1, methodTable)
@@ -318,17 +557,11 @@ func contractMethods(l *lua.LState) int {
 	return 1
 }
 
-// contractMethod returns a specific method definition
+// contractMethod returns a specific method definition with its schemas
 func contractMethod(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*ContractWrapper)
-	if !ok {
-		l.ArgError(1, "contract expected")
-		return 0
-	}
-
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
 	methodName := l.CheckString(2)
-	method, err := wrapper.contractDef.Method(methodName)
+	method, err := wrapper.definition.Method(methodName)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -339,240 +572,247 @@ func contractMethod(l *lua.LState) int {
 	methodTable.RawSetString("name", lua.LString(method.Name))
 	methodTable.RawSetString("description", lua.LString(method.Description))
 
+	// Include input schemas array if present
+	if len(method.InputSchemas) > 0 {
+		methodTable.RawSetString("input_schemas", createSchemasTable(l, method.InputSchemas))
+	}
+	// Include output schemas array if present
+	if len(method.OutputSchemas) > 0 {
+		methodTable.RawSetString("output_schemas", createSchemasTable(l, method.OutputSchemas))
+	}
+
 	l.Push(methodTable)
 	l.Push(lua.LNil)
 	return 2
 }
 
-// contractID returns the contract ID
-func contractID(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*ContractWrapper)
-	if !ok {
-		l.ArgError(1, "contract expected")
-		return 0
+// contractImplementations returns all binding IDs that implement this contract
+func contractImplementations(l *lua.LState) int {
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
+	bindingIDs, err := wrapper.registry.GetBindingsForContract(l.Context(), wrapper.definition.ID())
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
-	l.Push(lua.LString(wrapper.contractDef.ID().String()))
-	return 1
+	result := l.CreateTable(len(bindingIDs), 0)
+	for i, bindingID := range bindingIDs {
+		result.RawSetInt(i+1, lua.LString(bindingID.String()))
+	}
+
+	l.Push(result)
+	l.Push(lua.LNil)
+	return 2
 }
 
-// instanceID returns the instance binding ID
-func instanceID(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*InstanceWrapper)
-	if !ok {
-		l.ArgError(1, "instance expected")
-		return 0
+// ================================
+// INSTANCE WRAPPER METHODS
+// ================================
+
+// instanceIndex provides dynamic method access with async support
+// Enables syntax: instance:method_name() and instance:method_name_async()
+func instanceIndex(l *lua.LState) int {
+	wrapper := l.CheckUserData(1).Value.(*InstanceWrapper)
+	key := l.CheckString(2)
+
+	// Parse method name and async flag from key
+	isAsync := false
+	methodName := key
+	if len(key) > 6 && key[len(key)-6:] == "_async" {
+		isAsync = true
+		methodName = key[:len(key)-6]
 	}
 
-	l.Push(lua.LString(wrapper.instance.ID().String()))
-	return 1
-}
-
-// instanceScope returns the instance scope
-func instanceScope(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*InstanceWrapper)
-	if !ok {
-		l.ArgError(1, "instance expected")
-		return 0
-	}
-
-	scope := wrapper.instance.Scope()
-	if scope == nil {
+	// Check if method exists in any implemented contract
+	contractID, exists := wrapper.owningContracts[methodName]
+	if !exists {
 		l.Push(lua.LNil)
 		return 1
 	}
 
-	scopeTable := l.CreateTable(0, len(scope))
-	for k, v := range scope {
-		val, err := luaconv.GoToLua(v)
-		if err != nil {
-			continue // Skip unconvertible values
-		}
-		scopeTable.RawSetString(k, val)
+	// Security check for method access permission
+	if !security.IsAllowed(l.Context(), PermissionContractMethodAccess, methodName, registry.Metadata{"contract": contractID}) {
+		l.Push(lua.LNil)
+		return 1
 	}
 
-	l.Push(scopeTable)
+	// Return closure that will call the method with inherited call context
+	l.Push(l.NewClosure(func(l *lua.LState) int {
+		l.Insert(l.CheckUserData(1), 1) // Insert instance at position 1
+		l.Insert(lua.LString(key), 2)   // Insert method name at position 2
+		return callInstanceMethod(l, isAsync)
+	}))
 	return 1
 }
 
-// instanceImplements returns the contracts this instance implements
-func instanceImplements(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*InstanceWrapper)
-	if !ok {
-		l.ArgError(1, "instance expected")
-		return 0
-	}
+// ================================
+// METHOD CALLING WITH INHERITED CALL CONTEXT
+// ================================
 
-	implementedContracts := wrapper.instance.Implements()
-	contractsTable := l.CreateTable(len(implementedContracts), 0)
-
-	for i, contractDef := range implementedContracts {
-		contractsTable.RawSetInt(i+1, lua.LString(contractDef.ID().String()))
-	}
-
-	l.Push(contractsTable)
-	return 1
-}
-
-// instanceCall calls a method on the instance
-func instanceCall(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*InstanceWrapper)
-	if !ok {
-		l.ArgError(1, "instance expected")
-		return 0
-	}
-
+// callInstanceMethod handles both sync and async method calls with inherited call context
+// This is where the call context from the wrapper gets applied to method execution
+func callInstanceMethod(l *lua.LState, isAsync bool) int {
+	wrapper := l.CheckUserData(1).Value.(*InstanceWrapper)
 	methodName := l.CheckString(2)
 
-	// Build call context metadata
-	callMeta := make(registry.Metadata)
-	callMeta["binding_id"] = wrapper.instance.ID().String()
-	callMeta["method_name"] = methodName
-
-	// Add instance scope to call metadata
-	if scope := wrapper.instance.Scope(); scope != nil {
-		for k, v := range scope {
-			callMeta["scope."+k] = v
-		}
+	// Remove _async suffix if present for method resolution
+	if isAsync && len(methodName) > 6 && methodName[len(methodName)-6:] == "_async" {
+		methodName = methodName[:len(methodName)-6]
 	}
 
-	// Add contracts this instance implements
-	implementedContracts := wrapper.instance.Implements()
-	contractIDs := make([]string, len(implementedContracts))
-	for i, contractDef := range implementedContracts {
-		contractIDs[i] = contractDef.ID().String()
-	}
-	callMeta["contracts"] = contractIDs
-
-	// First: Contract-level security check
-	for _, contractDef := range implementedContracts {
-		if !security.IsAllowed(l.Context(), "contract.call", contractDef.ID().String(), callMeta) {
-			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("not allowed to call contract: %s", contractDef.ID().String())))
-			return 2
-		}
+	// Validate method exists and security permissions
+	contractID, exists := wrapper.owningContracts[methodName]
+	if !exists {
+		return handleError(l, isAsync, "method '%s' not found", methodName)
 	}
 
-	// Collect arguments
-	var args []payload.Payload
-	for i := 3; i <= l.GetTop(); i++ {
-		args = append(args, luaconv.ExportPayload(l.Get(i)))
+	if !security.IsAllowed(l.Context(), PermissionContractMethodCall, methodName, registry.Metadata{"contract": contractID}) {
+		return handleError(l, isAsync, "not allowed to call method")
 	}
 
-	// Add argument count to metadata for further security checks
-	callMeta["arg_count"] = len(args)
+	// Collect method arguments with payload unwrapping support
+	args := collectPayloadArgs(l, 3)
 
-	// Second: Method-level security check
-	if !security.IsAllowed(l.Context(), "contract.method.call", methodName, callMeta) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to call method: %s", methodName)))
-		return 2
-	}
-
-	// Get unit of work context
+	// Get unit of work for execution context
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no unit of work context found"))
-		return 2
+		return handleError(l, isAsync, "no unit of work found")
 	}
 
-	// Wrap in coroutine for execution
+	// Execute method with appropriate sync/async pattern
+	if isAsync {
+		return executeAsync(l, wrapper, methodName, args, uw)
+	} else {
+		return executeSync(l, wrapper, methodName, args, uw)
+	}
+}
+
+// handleError centralizes error handling for sync vs async method calls
+func handleError(l *lua.LState, isAsync bool, format string, args ...interface{}) int {
+	errMsg := fmt.Sprintf(format, args...)
+	if isAsync {
+		l.RaiseError("%s", errMsg) // Async: raise error immediately
+		return 0
+	}
+	// Sync: return nil, error
+	l.Push(lua.LNil)
+	l.Push(lua.LString(errMsg))
+	return 2
+}
+
+// collectPayloadArgs collects method arguments from Lua stack with payload unwrapping
+// Supports both regular Lua values and payload wrapper userdata
+func collectPayloadArgs(l *lua.LState, startIndex int) []payload.Payload {
+	var args []payload.Payload
+	for i := startIndex; i <= l.GetTop(); i++ {
+		v := l.Get(i)
+		// Check for payload wrapper userdata (avoid double-wrapping)
+		if ud, ok := v.(*lua.LUserData); ok {
+			if pw, ok := ud.Value.(*payloadmod.Wrapper); ok {
+				args = append(args, pw.Payload)
+				continue
+			}
+		}
+		// Regular Lua value - export to payload
+		args = append(args, luaconv.ExportPayload(v))
+	}
+	return args
+}
+
+// executeAsync handles async method execution with inherited call context
+// Returns a command object for async operation management
+func executeAsync(l *lua.LState, wrapper *InstanceWrapper, methodName string, args []payload.Payload, uw engine.UnitOfWork) int {
+	// Detach from unit of work and apply inherited call context
+	baseCtx := engine.DetachUnitOfWork(uw.Context())
+	execCtx := wrapper.callContext.applyToContext(baseCtx)
+	ctx, cancel := context.WithCancel(execCtx)
+	cmd := command.NewCommand(l, methodName, func(_ runtime.Command) { cancel() }, args...)
+
+	// Execute method in background with call context applied
+	uw.Run(func(work engine.UnitOfWork) {
+		resultChan, err := wrapper.instance.Call(ctx, methodName, args)
+		if err != nil {
+			_ = cmd.Complete(&runtime.Result{Error: err})
+			return
+		}
+
+		select {
+		case result := <-resultChan:
+			_ = cmd.Complete(result)
+		case <-work.Context().Done():
+			_ = cmd.Cancel()
+		}
+	})
+
+	l.Push(command.WrapCommand(l, cmd))
+	return 1
+}
+
+// executeSync handles sync method execution with inherited call context
+// Uses coroutine wrapping for non-blocking execution
+func executeSync(l *lua.LState, wrapper *InstanceWrapper, methodName string, args []payload.Payload, uw engine.UnitOfWork) int {
 	coroutine.Wrap(l, func() *engine.Update {
-		// Call the method
-		resultChan, err := wrapper.instance.Call(uw.Context(), methodName, args)
+		// Detach from unit of work and apply inherited call context
+		baseCtx := engine.DetachUnitOfWork(uw.Context())
+		execCtx := wrapper.callContext.applyToContext(baseCtx)
+
+		resultChan, err := wrapper.instance.Call(execCtx, methodName, args)
 		if err != nil {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
-		// Wait for result
 		select {
 		case result := <-resultChan:
 			if result.Error != nil {
 				return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(result.Error.Error())}, nil)
 			}
 
+			// Transcode result to Lua format if present
 			if result.Value != nil {
-				dtt := payload.GetTranscoder(uw.Context())
-				if dtt == nil {
-					return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("transcoder not found")}, nil)
+				if dtt := payload.GetTranscoder(uw.Context()); dtt != nil {
+					if luaResult, err := dtt.Transcode(result.Value, payload.Lua); err == nil {
+						return engine.NewUpdate(nil, []lua.LValue{luaResult.Data().(lua.LValue), lua.LNil}, nil)
+					}
 				}
-
-				luaResult, err := dtt.Transcode(result.Value, payload.Lua)
-				if err != nil {
-					return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-				}
-
-				return engine.NewUpdate(nil, []lua.LValue{luaResult.Data().(lua.LValue), lua.LNil}, nil)
 			}
 
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
 
 		case <-uw.Context().Done():
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("execution canceled")}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("canceled")}, nil)
 		}
 	})
 
 	return -1 // Yield for coroutine
 }
 
-// instanceIndex implements dynamic method calling via __index metamethod
-func instanceIndex(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*InstanceWrapper)
-	if !ok {
-		l.ArgError(1, "instance expected")
-		return 0
-	}
+// ================================
+// SCHEMA UTILITIES
+// ================================
 
-	key := l.CheckString(2)
+// createSchemaTable converts a contract.SchemaDefinition to a Lua table
+// Includes both format and definition for complete schema information
+func createSchemaTable(l *lua.LState, schema contract.SchemaDefinition) *lua.LTable {
+	schemaTable := l.CreateTable(0, 2)
+	schemaTable.RawSetString("format", lua.LString(schema.Format))
 
-	// Build metadata for method access check
-	accessMeta := make(registry.Metadata)
-	accessMeta["binding_id"] = wrapper.instance.ID().String()
-	accessMeta["method_name"] = key
-
-	// Add instance scope to metadata
-	if scope := wrapper.instance.Scope(); scope != nil {
-		for k, v := range scope {
-			accessMeta["scope."+k] = v
+	// Convert schema definition to Lua value if present
+	if schema.Definition != nil {
+		if luaVal, err := luaconv.GoToLua(schema.Definition); err == nil {
+			schemaTable.RawSetString("definition", luaVal)
 		}
 	}
 
-	// Add contracts this instance implements
-	implementedContracts := wrapper.instance.Implements()
-	contractIDs := make([]string, len(implementedContracts))
-	for i, contractDef := range implementedContracts {
-		contractIDs[i] = contractDef.ID().String()
+	return schemaTable
+}
+
+// createSchemasTable converts an array of contract.SchemaDefinition to a Lua table array
+// Used for input_schemas and output_schemas arrays in method definitions
+func createSchemasTable(l *lua.LState, schemas []contract.SchemaDefinition) *lua.LTable {
+	schemasTable := l.CreateTable(len(schemas), 0)
+	for i, schema := range schemas {
+		schemasTable.RawSetInt(i+1, createSchemaTable(l, schema))
 	}
-	accessMeta["contracts"] = contractIDs
-
-	// Check if it's a method call by looking at the contracts
-	for _, contractDef := range implementedContracts {
-		if _, err := contractDef.Method(key); err == nil {
-			// Method exists in contract, check security for method access
-			if !security.IsAllowed(l.Context(), "contract.method.access", key, accessMeta) {
-				l.Push(lua.LNil)
-				return 1
-			}
-
-			// It's a valid method, return a function that calls it
-			l.Push(l.NewClosure(func(l *lua.LState) int {
-				// Reconstruct the call with the instance as first argument
-				l.Insert(ud, 1)               // Insert instance userdata at position 1
-				l.Insert(lua.LString(key), 2) // Insert method name at position 2
-				return instanceCall(l)
-			}))
-			return 1
-		}
-	}
-
-	// Not a method, return nil
-	l.Push(lua.LNil)
-	return 1
+	return schemasTable
 }

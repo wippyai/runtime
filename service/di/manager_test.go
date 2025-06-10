@@ -124,14 +124,21 @@ func TestManager_DefinitionAdd(t *testing.T) {
 			ID:   registry.ID{NS: "test", Name: "def1"},
 			Kind: apidi.KindDefinition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
-				Description: "Test definition",
 				Methods: []apidi.MethodConfig{
 					{
 						Name:        "testMethod",
 						Description: "Test method",
-						InputSchema: apidi.SchemaConfig{
-							Format:     "application/json",
-							Definition: json.RawMessage(`{"type": "object"}`),
+						InputSchemas: []apidi.SchemaConfig{
+							{
+								Format:     "application/json",
+								Definition: json.RawMessage(`{"type": "object"}`),
+							},
+						},
+						OutputSchemas: []apidi.SchemaConfig{
+							{
+								Format:     "application/json",
+								Definition: json.RawMessage(`{"type": "string"}`),
+							},
 						},
 					},
 				},
@@ -222,9 +229,11 @@ func TestManager_DefinitionAdd(t *testing.T) {
 				Methods: []apidi.MethodConfig{
 					{
 						Name: "method1",
-						InputSchema: apidi.SchemaConfig{
-							Definition: json.RawMessage(`{"type": "object"}`),
-							// Missing Format
+						InputSchemas: []apidi.SchemaConfig{
+							{
+								Definition: json.RawMessage(`{"type": "object"}`),
+								// Missing Format
+							},
 						},
 					},
 				},
@@ -233,7 +242,7 @@ func TestManager_DefinitionAdd(t *testing.T) {
 
 		err := manager.Add(ctx, entry)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "input schema for method 'method1' in definition 'test:no_format' has a definition but no format specified")
+		assert.Contains(t, err.Error(), "input schema 0 for method 'method1' in definition 'test:no_format' has a definition but no format specified")
 	})
 
 	t.Run("duplicate definition", func(t *testing.T) {
@@ -288,7 +297,6 @@ func TestManager_DefinitionUpdate(t *testing.T) {
 			ID:   defID,
 			Kind: apidi.KindDefinition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
-				Description: "Updated definition",
 				Methods: []apidi.MethodConfig{
 					{Name: "method1"},
 					{Name: "method2"},

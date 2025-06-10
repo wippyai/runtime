@@ -80,14 +80,21 @@ func TestContractRegistry_DefinitionEvents(t *testing.T) {
 	defer sub.Close()
 
 	testDef := &contract.Definition{
-		Description: "Test contract",
 		Methods: []contract.MethodDef{
 			{
 				Name:        "testMethod",
 				Description: "Test method",
-				InputSchema: contract.SchemaDefinition{
-					Format:     "application/schema+json",
-					Definition: map[string]interface{}{"type": "object"},
+				InputSchemas: []contract.SchemaDefinition{
+					{
+						Format:     "application/schema+json",
+						Definition: map[string]interface{}{"type": "object"},
+					},
+				},
+				OutputSchemas: []contract.SchemaDefinition{
+					{
+						Format:     "application/schema+json",
+						Definition: map[string]interface{}{"type": "string"},
+					},
 				},
 			},
 		},
@@ -205,9 +212,9 @@ func TestContractRegistry_BindingEvents(t *testing.T) {
 	testBinding := &contract.Binding{
 		Contracts: []contract.BoundContract{
 			{
-				Contract:      registry.ID{NS: "test", Name: "contract"},
-				Methods:       map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
-				ScopeRequired: []string{"scope1"},
+				Contract:        registry.ID{NS: "test", Name: "contract"},
+				Methods:         map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+				ContextRequired: []string{"scope1"},
 			},
 		},
 	}
@@ -337,7 +344,6 @@ func TestContractRegistry_GetContract(t *testing.T) {
 
 	// Register a test definition
 	testDef := &contract.Definition{
-		Description: "Test contract",
 		Methods: []contract.MethodDef{
 			{
 				Name:        "testMethod",
@@ -574,7 +580,6 @@ func TestContractRegistry_ConcurrentAccess(t *testing.T) {
 		wg.Add(1) // Add before launching goroutine
 		go func(idx int) {
 			def := &contract.Definition{
-				Description: fmt.Sprintf("Contract %d", idx),
 				Methods: []contract.MethodDef{
 					{
 						Name:        fmt.Sprintf("method%d", idx),

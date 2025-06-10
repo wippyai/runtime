@@ -30,16 +30,17 @@ type (
 	// Definition represents a contract stored in the registry
 	// This is the actual data payload for kind: contract.definition
 	Definition struct {
-		Description string      `json:"description,omitempty"` // Optional description of the contract
-		Methods     []MethodDef `json:"methods"`
+		ID      registry.ID       `json:"id,omitempty"`   // Contract definition registry ID (populated at runtime)
+		Meta    registry.Metadata `json:"meta,omitempty"` // Contract definition metadata (populated at runtime)
+		Methods []MethodDef       `json:"methods"`
 	}
 
 	// MethodDef defines a single method in a contract
 	MethodDef struct {
-		Name         string           `json:"name"`
-		Description  string           `json:"description,omitempty"`
-		InputSchema  SchemaDefinition `json:"input_schema"`
-		OutputSchema SchemaDefinition `json:"output_schema,omitempty"`
+		Name          string             `json:"name"`
+		Description   string             `json:"description,omitempty"` // Method-level description is kept
+		InputSchemas  []SchemaDefinition `json:"input_schemas,omitempty"`
+		OutputSchemas []SchemaDefinition `json:"output_schemas,omitempty"`
 	}
 
 	// SchemaDefinition describes the format and schema of method arguments/returns
@@ -62,9 +63,9 @@ type (
 
 	// BoundContract maps a contract to its implementation
 	BoundContract struct {
-		Contract      registry.ID            `json:"contract"`       // Reference to contract definition
-		Methods       map[string]registry.ID `json:"methods"`        // method_name -> function ID
-		ScopeRequired []string               `json:"scope_required"` // Required scope keys
+		Contract        registry.ID            `json:"contract"`         // Reference to contract definition
+		Methods         map[string]registry.ID `json:"methods"`          // method_name -> function ID
+		ContextRequired []string               `json:"context_required"` // Required scope keys
 	}
 )
 
@@ -87,13 +88,20 @@ type (
 	// Instantiator handles creating contract instances from bindings
 	Instantiator interface {
 		// Instantiate creates a new contract instance with the given binding ID and scope
-		Instantiate(ctx context.Context, bindingID registry.ID, scope registry.Metadata) (Instance, error)
+		Instantiate(
+			ctx context.Context,
+			bindingID registry.ID,
+			bindContext registry.Metadata,
+		) (Instance, error)
 	}
 
 	// Contract represents a loaded contract definition at runtime
 	Contract interface {
 		// ID returns the contract's registry ID
 		ID() registry.ID
+
+		// Meta returns the contract's metadata
+		Meta() registry.Metadata
 
 		// Methods returns all method definitions
 		Methods() []MethodDef
@@ -110,10 +118,7 @@ type (
 		// Implements returns the list of contracts this instance implements
 		Implements() []Contract
 
-		// Scope returns the metadata/scope this instance was opened with
-		Scope() registry.Metadata
-
 		// Call invokes a method on this instance
-		Call(ctx context.Context, method string, args payload.Payloads) (chan *runtime.Result, error)
+		Call(ctx context.Context, method string, input payload.Payloads) (chan *runtime.Result, error)
 	}
 )

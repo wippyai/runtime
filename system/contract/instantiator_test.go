@@ -49,7 +49,10 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	instantiator, bus, contractRegistry, _ := setupInstantiatorTest()
 
 	require.NoError(t, contractRegistry.Start(ctx))
-	defer contractRegistry.Stop()
+	defer func() {
+		err := contractRegistry.Stop()
+		require.NoError(t, err)
+	}()
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
@@ -81,9 +84,9 @@ func TestInstantiator_Instantiate(t *testing.T) {
 		Meta: registry.Metadata{"version": "1.0"},
 		Contracts: []contract.BoundContract{
 			{
-				Contract:      contractID,
-				Methods:       map[string]registry.ID{"testMethod": {NS: "test", Name: "test_func"}},
-				ScopeRequired: []string{"required_key"},
+				Contract:        contractID,
+				Methods:         map[string]registry.ID{"testMethod": {NS: "test", Name: "test_func"}},
+				ContextRequired: []string{"required_key"},
 			},
 		},
 	}
@@ -102,7 +105,6 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	instance, err := instantiator.Instantiate(ctx, bindingID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, bindingID, instance.ID())
-	assert.Equal(t, scope, instance.Scope())
 	assert.Len(t, instance.Implements(), 1)
 
 	// Test with non-existent binding
@@ -110,15 +112,15 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contract binding 'test:missing' not found")
 
-	// Test with nil scope
+	// Test with nil scope - should succeed
 	instanceNil, err := instantiator.Instantiate(ctx, bindingID, nil)
 	require.NoError(t, err)
-	assert.Nil(t, instanceNil.Scope())
+	assert.NotNil(t, instanceNil)
 
-	// Test with empty scope
+	// Test with empty scope - should succeed
 	instanceEmpty, err := instantiator.Instantiate(ctx, bindingID, registry.Metadata{})
 	require.NoError(t, err)
-	assert.Equal(t, registry.Metadata{}, instanceEmpty.Scope())
+	assert.NotNil(t, instanceEmpty)
 }
 
 func TestInstanceImpl_ScopeValidation(t *testing.T) {
@@ -126,7 +128,10 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 	instantiator, bus, contractRegistry, _ := setupInstantiatorTest()
 
 	require.NoError(t, contractRegistry.Start(ctx))
-	defer contractRegistry.Stop()
+	defer func() {
+		err := contractRegistry.Stop()
+		require.NoError(t, err)
+	}()
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
@@ -194,9 +199,9 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 			testBinding := &contract.Binding{
 				Contracts: []contract.BoundContract{
 					{
-						Contract:      contractID,
-						Methods:       map[string]registry.ID{"validateMethod": {NS: "test", Name: "dummy_func"}},
-						ScopeRequired: tt.scopeRequired,
+						Contract:        contractID,
+						Methods:         map[string]registry.ID{"validateMethod": {NS: "test", Name: "dummy_func"}},
+						ContextRequired: tt.scopeRequired,
 					},
 				},
 			}
@@ -236,8 +241,10 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	require.NoError(t, contractRegistry.Start(ctx))
 	require.NoError(t, functionRegistry.Start(ctx))
 	defer func() {
-		contractRegistry.Stop()
-		functionRegistry.Stop()
+		err := contractRegistry.Stop()
+		require.NoError(t, err)
+		err = functionRegistry.Stop()
+		require.NoError(t, err)
 	}()
 
 	var wg sync.WaitGroup
@@ -325,8 +332,10 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	require.NoError(t, contractRegistry.Start(ctx))
 	require.NoError(t, functionRegistry.Start(ctx))
 	defer func() {
-		contractRegistry.Stop()
-		functionRegistry.Stop()
+		err := contractRegistry.Stop()
+		require.NoError(t, err)
+		err = functionRegistry.Stop()
+		require.NoError(t, err)
 	}()
 
 	var wg sync.WaitGroup
@@ -417,7 +426,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	values := result.Value.Data().(map[string]interface{})
 	assert.False(t, values["has_context"].(bool))
 
-	// Test context merging
+	// Test context merging - scope values should be merged with existing context
 	scope := registry.Metadata{
 		"scope":    "from_scope",
 		"override": "from_scope",
@@ -442,5 +451,157 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	assert.True(t, values["scope_ok"].(bool))
 	assert.Equal(t, "from_scope", values["scope_value"])
 	assert.True(t, values["override_ok"].(bool))
-	assert.Equal(t, "from_scope", values["override_value"]) // Scope wins
+	assert.Equal(t, "from_scope", values["override_value"]) // Scope wins over existing context
+}
+
+func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
+	ctx := context.Background()
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+
+	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
+
+	require.NoError(t, contractRegistry.Start(ctx))
+	require.NoError(t, functionRegistry.Start(ctx))
+	defer func() {
+		err := contractRegistry.Stop()
+		require.NoError(t, err)
+		err = functionRegistry.Stop()
+		require.NoError(t, err)
+	}()
+
+	var wg sync.WaitGroup
+	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
+		if evt.Kind == contract.Accept {
+			wg.Done()
+		}
+	})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	// Function that captures and returns all context values it receives
+	funcID := registry.ID{NS: "test", Name: "capture_context_func"}
+	testFunc := function.Func(func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+		resultChan := make(chan *runtime.Result, 1)
+
+		captured := map[string]interface{}{}
+		if values, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any]); ok {
+			// Capture all values from the context
+			values.Iterate(func(key string, value any) {
+				captured[key] = value
+			})
+		}
+
+		resultChan <- &runtime.Result{Value: payload.New(captured)}
+		close(resultChan)
+		return resultChan, nil
+	})
+
+	bus.Send(ctx, event.Event{
+		System: function.System,
+		Kind:   function.Register,
+		Path:   funcID.String(),
+		Data:   testFunc,
+	})
+
+	// Register contract and binding
+	contractID := registry.ID{NS: "test", Name: "capture_contract"}
+	testDef := &contract.Definition{
+		Methods: []contract.MethodDef{{Name: "captureMethod"}},
+	}
+
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.RegisterDefinition,
+		Path:   contractID.String(),
+		Data:   testDef,
+	})
+	wg.Wait()
+
+	bindingID := registry.ID{NS: "test", Name: "capture_binding"}
+	testBinding := &contract.Binding{
+		Contracts: []contract.BoundContract{
+			{
+				Contract: contractID,
+				Methods:  map[string]registry.ID{"captureMethod": funcID},
+			},
+		},
+	}
+
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.RegisterBinding,
+		Path:   bindingID.String(),
+		Data:   testBinding,
+	})
+	wg.Wait()
+
+	t.Run("empty scope produces no context", func(t *testing.T) {
+		instance, err := instantiator.Instantiate(ctx, bindingID, registry.Metadata{})
+		require.NoError(t, err)
+
+		resultChan, err := instance.Call(ctx, "captureMethod", payload.Payloads{})
+		require.NoError(t, err)
+
+		result := <-resultChan
+		captured := result.Value.Data().(map[string]interface{})
+
+		// Should be empty since no scope was provided and no existing context
+		assert.Empty(t, captured)
+	})
+
+	t.Run("scope values are properly passed to function", func(t *testing.T) {
+		scope := registry.Metadata{
+			"app_name":    "test_app",
+			"version":     "1.0.0",
+			"environment": "test",
+			"feature_flags": map[string]bool{
+				"new_feature": true,
+				"old_feature": false,
+			},
+		}
+
+		instance, err := instantiator.Instantiate(ctx, bindingID, scope)
+		require.NoError(t, err)
+
+		resultChan, err := instance.Call(ctx, "captureMethod", payload.Payloads{})
+		require.NoError(t, err)
+
+		result := <-resultChan
+		captured := result.Value.Data().(map[string]interface{})
+
+		// All scope values should be present in the context
+		assert.Equal(t, "test_app", captured["app_name"])
+		assert.Equal(t, "1.0.0", captured["version"])
+		assert.Equal(t, "test", captured["environment"])
+		assert.Contains(t, captured, "feature_flags")
+	})
+
+	t.Run("scope merges with existing context", func(t *testing.T) {
+		scope := registry.Metadata{
+			"from_scope": "scope_value",
+			"override":   "scope_wins",
+		}
+
+		instance, err := instantiator.Instantiate(ctx, bindingID, scope)
+		require.NoError(t, err)
+
+		// Create context with existing values
+		existing := ctxapi.NewContexter[any]()
+		existing.SetValue("from_existing", "existing_value")
+		existing.SetValue("override", "existing_value")
+		callCtx := context.WithValue(ctx, ctxapi.ValuesCtx, existing)
+
+		resultChan, err := instance.Call(callCtx, "captureMethod", payload.Payloads{})
+		require.NoError(t, err)
+
+		result := <-resultChan
+		captured := result.Value.Data().(map[string]interface{})
+
+		// Should have both existing and scope values, with scope winning conflicts
+		assert.Equal(t, "existing_value", captured["from_existing"])
+		assert.Equal(t, "scope_value", captured["from_scope"])
+		assert.Equal(t, "scope_wins", captured["override"])
+	})
 }
