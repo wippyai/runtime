@@ -1,13 +1,14 @@
 package interpolate
 
 import (
-	"fmt"
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"testing/fstest"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadVars(t *testing.T) {
@@ -73,11 +74,20 @@ func TestLoadVars(t *testing.T) {
 }
 
 func TestLoadFile(t *testing.T) {
-	mapFS := fstest.MapFS{
-		"listener/listener.yaml": {Data: []byte("listener content")},
-		"template/template.html": {Data: []byte("template content")},
-		"main.yaml":              {Data: []byte("main content")},
-	}
+	tempDir, err := os.MkdirTemp("", "testloadfile-*")
+	require.NoError(t, err)
+
+	err = errors.Join(
+		os.MkdirAll(filepath.Join(tempDir, "listener"), fs.ModePerm),
+		os.MkdirAll(filepath.Join(tempDir, "template"), fs.ModePerm),
+		os.WriteFile(filepath.Join(tempDir, "listener", "listener.yaml"), []byte("listener content"), 0600),
+		os.WriteFile(filepath.Join(tempDir, "template", "template.html"), []byte("template content"), 0600),
+		os.WriteFile(filepath.Join(tempDir, "main.yaml"), []byte("main content"), 0600),
+	)
+	require.NoError(t, err)
+
+	root, err := os.OpenRoot(tempDir)
+	require.NoError(t, err)
 
 	configFile := filepath.Join("listener", "listener.yaml")
 	mainFile := "main.yaml"
@@ -87,26 +97,26 @@ func TestLoadFile(t *testing.T) {
 		input       string
 		ctx         EntryContext
 		expectedOut string
-		expectErr   bool
+		expectErr   assert.ErrorAssertionFunc
 	}{
 		{
 			name:  "valid relative path",
 			input: "file://listener/listener.yaml",
 			ctx: EntryContext{
 				Filename: mainFile,
-				FS:       mapFS,
+				FS:       root.FS(),
 			},
 			expectedOut: "listener content",
-			expectErr:   false,
+			expectErr:   assert.NoError,
 		},
 		{
 			name:  "valid relative path with directory",
 			input: "file://../template/template.html",
 			ctx: EntryContext{
 				Filename: configFile,
-				FS:       mapFS,
+				FS:       root.FS(),
 			},
-			expectErr:   false,
+			expectErr:   assert.NoError,
 			expectedOut: "template content",
 		},
 		{
@@ -114,62 +124,62 @@ func TestLoadFile(t *testing.T) {
 			input: "file:///listener/listener.yaml",
 			ctx: EntryContext{
 				Filename: configFile,
-				FS:       mapFS,
+				FS:       root.FS(),
 			},
 			expectedOut: "listener content",
-			expectErr:   false,
+			expectErr:   assert.NoError,
 		},
 		{
-			name:  "invalid absolute path outside root",
-			input: fmt.Sprintf("file://%s", filepath.Join(".", "..", "outside.txt")),
+			name:  "absolute path outside root",
+			input: "file:///../outside.txt",
 			ctx: EntryContext{
 				Filename: mainFile,
-				FS:       mapFS,
+				FS:       root.FS(),
 			},
-			expectedOut: fmt.Sprintf("file://%s [file-error: file path '%s' is outside of the root directory]", filepath.Join(".", "..", "outside.txt"), filepath.Join(".", "..", "outside.txt")),
-			expectErr:   true, // Expect file-error
+			expectedOut: "file:///../outside.txt",
+			expectErr: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return assert.ErrorIs(t, err, fs.ErrNotExist, i...)
+			},
 		},
 		{
 			name:  "relative path outside root",
 			input: "file://../outside.txt",
 			ctx: EntryContext{
 				Filename: mainFile,
-				FS:       mapFS,
+				FS:       root.FS(),
 			},
-			expectedOut: "file://../outside.txt [file-error: file path '../outside.txt' is outside of the root directory]",
-			expectErr:   true, // Expect file-error
+			expectedOut: "file://../outside.txt",
+			expectErr: assert.ErrorAssertionFunc(func(t assert.TestingT, err error, i ...interface{}) bool {
+				return assert.ErrorContains(t, err, "path traversal detected", i...)
+			}),
 		},
 		{
 			name:  "file not found",
 			input: "file://notfound.txt",
 			ctx: EntryContext{
 				Filename: mainFile,
-				FS:       mapFS,
+				FS:       root.FS(),
 			},
-			expectedOut: "file://notfound.txt [file-error: failed to read file 'notfound.txt': ",
-			expectErr:   true, // Expect file-error
+			expectedOut: "file://notfound.txt",
+			expectErr:   assert.Error, // Expect file-error
 		},
 		{
 			name:  "no file protocol",
 			input: "no_protocol",
 			ctx: EntryContext{
 				Filename: mainFile,
-				FS:       mapFS,
+				FS:       root.FS(),
 			},
 			expectedOut: "no_protocol",
-			expectErr:   false,
+			expectErr:   assert.NoError,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, _ := LoadFile(tt.input, tt.ctx)
-
-			if tt.expectErr {
-				assert.True(t, strings.Contains(out, "file-error"), "Expected 'file-error' in error message")
-			} else {
-				assert.Equal(t, tt.expectedOut, out, "Expected output does not match")
-			}
+			out, err := LoadFile(tt.input, tt.ctx)
+			assert.Equal(t, tt.expectedOut, out)
+			tt.expectErr(t, err)
 		})
 	}
 }

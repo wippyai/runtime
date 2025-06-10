@@ -322,7 +322,7 @@ func TestTaskPool_StressTest(t *testing.T) {
 
 			var wg sync.WaitGroup
 			successCount := atomic.Int32{}
-			baseCtx := setupTestContext(context.Background())
+			baseCtx := setupTestContext(t.Context())
 
 			// Launch many parallel jobs
 			for j := 0; j < 1000; j++ {
@@ -352,8 +352,8 @@ func TestTaskPool_StressTest(t *testing.T) {
 
 			wg.Wait()
 			success := successCount.Load()
-			require.True(t, success > 0, "Some jobs should succeed")
-			require.True(t, success < 1000, "Not all jobs should succeed due to close")
+			assert.True(t, success > 0, "Some jobs should succeed")
+			assert.True(t, success < 1000, "Not all jobs should succeed due to close")
 		}
 	})
 }
