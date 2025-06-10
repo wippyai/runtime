@@ -3,19 +3,21 @@ package interceptor
 import (
 	"context"
 	"fmt"
-	"time"
+	"sync"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/api/security"
 	"golang.org/x/time/rate"
 )
 
 // RateLimitInterceptor implements rate limiting functionality
 type RateLimitInterceptor struct {
 	cache *expirable.LRU[string, *rate.Limiter]
+	mu    sync.Mutex // Protects concurrent creation of limiters
 }
 
 // NewRateLimitInterceptor creates a new rate limit interceptor with the given limits
@@ -27,13 +29,10 @@ func NewRateLimitInterceptor(cache *expirable.LRU[string, *rate.Limiter]) *RateL
 
 // Handle implements the interceptor interface
 func (i *RateLimitInterceptor) Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result {
-	fmt.Println("RateLimitInterceptor")
-
 	options := apiinterceptor.GetOptionsFromContext(ctx)
 
 	// If requests per second is 0, skip rate limiting
 	if options.RateLimit.RequestsPerSecond == 0 {
-		fmt.Println("RateLimitInterceptor skipped")
 		return next()
 	}
 
@@ -43,30 +42,43 @@ func (i *RateLimitInterceptor) Handle(ctx context.Context, next func() *runtime.
 		return &runtime.Result{Error: fmt.Errorf("PID not found in context")}
 	}
 
-	pidStr := pid.String()
+	// Get actor ID from context, use empty string if not present
+	actor, hasActor := security.GetActor(ctx)
+	actorID := ""
+	if hasActor {
+		actorID = actor.ID
+	}
+
+	// Create cache key using actor ID and function name
+	cacheKey := fmt.Sprintf("%s:%s", actorID, pid.ID)
 
 	// Get or create rate limiter for this PID
-	limiter, ok := i.cache.Get(pidStr)
+	limiter, ok := i.cache.Get(cacheKey)
 	if !ok {
 		// Use configured values or fallback to defaults
 		rps := options.RateLimit.RequestsPerSecond
 		if rps != 0 {
 			burst := options.RateLimit.Burst
-			limiter = rate.NewLimiter(rate.Limit(rps), burst)
-			i.cache.Add(pidStr, limiter)
+
+			// Synchronize limiter creation to prevent race conditions
+			i.mu.Lock()
+			// Double-check after acquiring lock
+			limiter, ok = i.cache.Get(cacheKey)
+			if !ok {
+				limiter = rate.NewLimiter(rate.Limit(rps), burst)
+				i.cache.Add(cacheKey, limiter)
+			}
+			i.mu.Unlock()
 		}
 	}
 
-	// Wait for rate limit
-	if err := limiter.Wait(ctx); err != nil {
+	// Wait for rate limit with context cancellation
+	err := limiter.Wait(ctx)
+	if err != nil {
 		return &runtime.Result{Error: err}
 	}
 
-	result := next()
-
-	fmt.Println("RateLimitInterceptor completed", time.Now().Format(time.RFC3339))
-
-	return result
+	return next()
 }
 
 // Format implements the payload.Payload interface

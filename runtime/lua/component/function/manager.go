@@ -3,8 +3,9 @@ package function
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/interceptor"
 	"sync"
+
+	"github.com/ponyruntime/pony/api/interceptor"
 
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/registry"
