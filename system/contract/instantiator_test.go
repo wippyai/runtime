@@ -112,12 +112,12 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contract binding 'test:missing' not found")
 
-	// Test with nil scope - should succeed
+	// Test with nil context - should succeed
 	instanceNil, err := instantiator.Instantiate(ctx, bindingID, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, instanceNil)
 
-	// Test with empty scope - should succeed
+	// Test with empty context - should succeed
 	instanceEmpty, err := instantiator.Instantiate(ctx, bindingID, registry.Metadata{})
 	require.NoError(t, err)
 	assert.NotNil(t, instanceEmpty)
@@ -164,12 +164,12 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 		expectedError string
 	}{
 		{
-			name:          "no scope required",
+			name:          "no context required",
 			scopeRequired: []string{},
 			instanceScope: registry.Metadata{},
 		},
 		{
-			name:          "required scope present",
+			name:          "required context present",
 			scopeRequired: []string{"key1", "key2"},
 			instanceScope: registry.Metadata{"key1": "value1", "key2": "value2"},
 		},
@@ -186,7 +186,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 			expectedError: "missing required context keys: [key1 key2]",
 		},
 		{
-			name:          "nil scope with required keys",
+			name:          "nil context with required keys",
 			scopeRequired: []string{"key1"},
 			instanceScope: nil,
 			expectedError: "missing required context keys: [key1]",
@@ -355,7 +355,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 		result := map[string]interface{}{"has_context": false}
 		if values, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any]); ok {
 			existing, existingOk := values.Value("existing")
-			scope, scopeOk := values.Value("scope")
+			scope, scopeOk := values.Value("context")
 			override, overrideOk := values.Value("override")
 
 			result = map[string]interface{}{
@@ -415,7 +415,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	})
 	wg.Wait()
 
-	// Test with nil scope
+	// Test with nil context
 	instanceNil, err := instantiator.Instantiate(ctx, bindingID, nil)
 	require.NoError(t, err)
 
@@ -426,9 +426,9 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	values := result.Value.Data().(map[string]interface{})
 	assert.False(t, values["has_context"].(bool))
 
-	// Test context merging - scope values should be merged with existing context
+	// Test context merging - context values should be merged with existing context
 	scope := registry.Metadata{
-		"scope":    "from_scope",
+		"context":  "from_scope",
 		"override": "from_scope",
 	}
 	instance, err := instantiator.Instantiate(ctx, bindingID, scope)
@@ -537,7 +537,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	})
 	wg.Wait()
 
-	t.Run("empty scope produces no context", func(t *testing.T) {
+	t.Run("empty context produces no context", func(t *testing.T) {
 		instance, err := instantiator.Instantiate(ctx, bindingID, registry.Metadata{})
 		require.NoError(t, err)
 
@@ -547,11 +547,11 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		result := <-resultChan
 		captured := result.Value.Data().(map[string]interface{})
 
-		// Should be empty since no scope was provided and no existing context
+		// Should be empty since no context was provided and no existing context
 		assert.Empty(t, captured)
 	})
 
-	t.Run("scope values are properly passed to function", func(t *testing.T) {
+	t.Run("context values are properly passed to function", func(t *testing.T) {
 		scope := registry.Metadata{
 			"app_name":    "test_app",
 			"version":     "1.0.0",
@@ -571,14 +571,14 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		result := <-resultChan
 		captured := result.Value.Data().(map[string]interface{})
 
-		// All scope values should be present in the context
+		// All context values should be present in the context
 		assert.Equal(t, "test_app", captured["app_name"])
 		assert.Equal(t, "1.0.0", captured["version"])
 		assert.Equal(t, "test", captured["environment"])
 		assert.Contains(t, captured, "feature_flags")
 	})
 
-	t.Run("scope merges with existing context", func(t *testing.T) {
+	t.Run("context merges with existing context", func(t *testing.T) {
 		scope := registry.Metadata{
 			"from_scope": "scope_value",
 			"override":   "scope_wins",
@@ -599,9 +599,160 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		result := <-resultChan
 		captured := result.Value.Data().(map[string]interface{})
 
-		// Should have both existing and scope values, with scope winning conflicts
+		// Should have both existing and context values, with context winning conflicts
 		assert.Equal(t, "existing_value", captured["from_existing"])
 		assert.Equal(t, "scope_value", captured["from_scope"])
 		assert.Equal(t, "scope_wins", captured["override"])
+	})
+}
+
+// TestInstanceImpl_ContextValidationIssue demonstrates that the context validation fix works
+// The fix allows required context keys to be found in EITHER scope OR Go context
+func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
+	ctx := context.Background()
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+
+	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
+
+	require.NoError(t, contractRegistry.Start(ctx))
+	require.NoError(t, functionRegistry.Start(ctx))
+	defer func() {
+		err := contractRegistry.Stop()
+		require.NoError(t, err)
+		err = functionRegistry.Stop()
+		require.NoError(t, err)
+	}()
+
+	var wg sync.WaitGroup
+	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
+		if evt.Kind == contract.Accept {
+			wg.Done()
+		}
+	})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	// Register function that returns a test result
+	funcID := registry.ID{NS: "test", Name: "context_test_func"}
+	testFunc := function.Func(func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+		resultChan := make(chan *runtime.Result, 1)
+		resultChan <- &runtime.Result{Value: payload.New("validation_and_execution_success")}
+		close(resultChan)
+		return resultChan, nil
+	})
+
+	bus.Send(ctx, event.Event{
+		System: function.System,
+		Kind:   function.Register,
+		Path:   funcID.String(),
+		Data:   testFunc,
+	})
+
+	// Register contract that requires origin_id
+	contractID := registry.ID{NS: "test", Name: "context_validation_contract"}
+	testDef := &contract.Definition{
+		Methods: []contract.MethodDef{{Name: "requiresOriginId"}},
+	}
+
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.RegisterDefinition,
+		Path:   contractID.String(),
+		Data:   testDef,
+	})
+	wg.Wait()
+
+	// Register binding that requires origin_id in context
+	bindingID := registry.ID{NS: "test", Name: "context_validation_binding"}
+	testBinding := &contract.Binding{
+		Contracts: []contract.BoundContract{
+			{
+				Contract:        contractID,
+				Methods:         map[string]registry.ID{"requiresOriginId": funcID},
+				ContextRequired: []string{"origin_id"}, // THIS IS THE KEY - requires origin_id
+			},
+		},
+	}
+
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.RegisterBinding,
+		Path:   bindingID.String(),
+		Data:   testBinding,
+	})
+	wg.Wait()
+
+	t.Run("FIXED: validation now passes when origin_id is in Go context but not scope", func(t *testing.T) {
+		// Create Go context with origin_id present
+		ctxr := ctxapi.NewContexter[any]()
+		ctxr.SetValue("origin_id", "test-uuid-123")
+		ctxr.SetValue("other_key", "other_value")
+		callCtx := context.WithValue(ctx, ctxapi.ValuesCtx, ctxr)
+
+		// Create instance with EMPTY scope (no origin_id in scope parameter)
+		instance, err := instantiator.Instantiate(callCtx, bindingID, registry.Metadata{})
+		require.NoError(t, err, "Instantiation should succeed")
+
+		// Try to call method - this should NOW SUCCEED validation with the fix
+		resultChan, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
+		require.NoError(t, err, "Call should succeed - validation finds origin_id in Go context")
+
+		// Function should execute and return result
+		result := <-resultChan
+		assert.Equal(t, "validation_and_execution_success", result.Value.Data().(string))
+	})
+
+	t.Run("validation passes when origin_id is in scope parameter", func(t *testing.T) {
+		// Create Go context (may or may not have origin_id)
+		callCtx := ctx
+
+		// Create instance with origin_id in scope parameter
+		scope := registry.Metadata{"origin_id": "test-uuid-456"}
+		instance, err := instantiator.Instantiate(callCtx, bindingID, scope)
+		require.NoError(t, err, "Instantiation should succeed")
+
+		// Try to call method - should succeed
+		resultChan, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
+		require.NoError(t, err, "Call should succeed - validation finds origin_id in scope")
+
+		// Function should execute and return result
+		result := <-resultChan
+		assert.Equal(t, "validation_and_execution_success", result.Value.Data().(string))
+	})
+
+	t.Run("validation passes when origin_id is in both Go context AND scope", func(t *testing.T) {
+		// Create Go context with origin_id
+		ctxr := ctxapi.NewContexter[any]()
+		ctxr.SetValue("origin_id", "from-go-context")
+		callCtx := context.WithValue(ctx, ctxapi.ValuesCtx, ctxr)
+
+		// Create instance with origin_id in scope (should override Go context value)
+		scope := registry.Metadata{"origin_id": "from-scope"}
+		instance, err := instantiator.Instantiate(callCtx, bindingID, scope)
+		require.NoError(t, err, "Instantiation should succeed")
+
+		// Try to call method - should succeed
+		resultChan, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
+		require.NoError(t, err, "Call should succeed - validation finds origin_id in both places")
+
+		// Function should execute and return result
+		result := <-resultChan
+		assert.Equal(t, "validation_and_execution_success", result.Value.Data().(string))
+	})
+
+	t.Run("validation still fails when origin_id is missing from both scope and Go context", func(t *testing.T) {
+		// Create Go context without origin_id
+		callCtx := ctx
+
+		// Create instance with empty scope
+		instance, err := instantiator.Instantiate(callCtx, bindingID, registry.Metadata{})
+		require.NoError(t, err, "Instantiation should succeed")
+
+		// Try to call method - should fail validation
+		_, err = instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
+		require.Error(t, err, "Call should fail when origin_id is missing from both places")
+		assert.Contains(t, err.Error(), "missing required context keys: [origin_id]")
 	})
 }

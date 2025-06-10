@@ -46,7 +46,7 @@ func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, s
 		id:        bindingID,
 		binding:   binding,
 		contracts: contracts,
-		scope:     scope,
+		context:   scope,
 		funcReg:   i.funcReg,
 	}, nil
 }
@@ -56,7 +56,7 @@ type instanceImpl struct {
 	id        registry.ID
 	binding   *contract.Binding
 	contracts []contract.Contract
-	scope     registry.Metadata
+	context   registry.Metadata
 	funcReg   function.Registry
 }
 
@@ -87,12 +87,12 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 		return nil, fmt.Errorf("method '%s' not bound", method)
 	}
 
-	// Validate required scope keys
-	if err := i.validateScope(boundContract.ContextRequired); err != nil {
+	// Validate required context keys - now checks BOTH scope and Go context
+	if err := i.validateContext(ctx, boundContract.ContextRequired); err != nil {
 		return nil, err
 	}
 
-	if len(i.scope) > 0 {
+	if len(i.context) > 0 {
 		// Get existing values from context or create new contexter
 		var values *ctxapi.Contexter[any]
 		if existing, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any]); ok {
@@ -102,8 +102,8 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 			values = ctxapi.NewContexter[any]()
 		}
 
-		// Merge scope values into the contexter
-		for k, v := range i.scope {
+		// Merge context values into the contexter
+		for k, v := range i.context {
 			values.SetValue(k, v)
 		}
 		ctx = context.WithValue(ctx, ctxapi.ValuesCtx, values)
@@ -119,19 +119,34 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 	return i.funcReg.Call(ctx, task)
 }
 
-// validateScope checks that all required scope keys are present
-func (i *instanceImpl) validateScope(requiredKeys []string) error {
+// validateContext checks that all required context keys are present in EITHER scope OR Go context
+// This fixes the bug where validation only checked scope but execution had access to both
+func (i *instanceImpl) validateContext(ctx context.Context, requiredKeys []string) error {
 	if len(requiredKeys) == 0 {
 		return nil
 	}
 
 	var missing []string
 	for _, key := range requiredKeys {
-		if i.scope == nil {
-			missing = append(missing, key)
-			continue
+		found := false
+
+		// First check scope (i.context)
+		if i.context != nil {
+			if _, exists := i.context[key]; exists {
+				found = true
+			}
 		}
-		if _, exists := i.scope[key]; !exists {
+
+		// If not found in scope, check Go context
+		if !found {
+			if ctxr, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any]); ok {
+				if _, exists := ctxr.Value(key); exists {
+					found = true
+				}
+			}
+		}
+
+		if !found {
 			missing = append(missing, key)
 		}
 	}
