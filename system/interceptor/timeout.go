@@ -22,16 +22,12 @@ func NewTimeoutInterceptor() *TimeoutInterceptor {
 func (i *TimeoutInterceptor) Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result {
 	// Create config and apply options
 
-	// FIXME remove, added for debugging
-	fmt.Println("TimeoutInterceptor")
-
 	options := apiinterceptor.GetOptionsFromContext(ctx)
 
 	// Use configured timeout or fallback to default
 	timeout := options.Timeout.Timeout
 	// If timeout is 0, skip timeout
 	if timeout == 0 {
-		fmt.Println("TimeoutInterceptor skipped")
 		return next()
 	}
 

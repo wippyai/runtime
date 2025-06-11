@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
 	ctxapi "github.com/ponyruntime/pony/api/context"
@@ -122,14 +123,18 @@ import (
 	"github.com/ponyruntime/pony/system/security"
 	"github.com/ponyruntime/pony/system/supervisor"
 	"github.com/ponyruntime/pony/system/topology"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	otelresource "go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
 	// supported dbs
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
-
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -162,6 +167,7 @@ type App struct {
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
+	otelCleanup   func()
 }
 
 func NewApp(verbose, veryVerbose bool) (*App, error) {
@@ -224,6 +230,7 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 		topo:          topo,
 		pidReg:        pidReg,
 		forceShutdown: make(chan struct{}),
+		otelCleanup:   nil, // will be set in Start
 	}
 
 	return app, nil
@@ -408,11 +415,14 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	}
 
 	// Load and apply initial state
-	appState, err := loadApplicationState(fSys, a.dtt, a.logger)
+	appState, cleanup, err := loadApplicationState(fSys, a.dtt, a.logger)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("load application state: %w", err)
 	}
+
+	// Store cleanup function
+	a.otelCleanup = cleanup
 
 	bootCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
@@ -440,6 +450,11 @@ func (a *App) Stop() error {
 		case <-ctx.Done():
 		}
 	}()
+
+	// Cleanup OpenTelemetry
+	if a.otelCleanup != nil {
+		a.otelCleanup()
+	}
 
 	// close services in reverse order
 	if err := a.eventRouter.Stop(); err != nil {
@@ -721,7 +736,7 @@ func loadApplicationState(
 	fs iofs.FS,
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
-) (regapi.ChangeSet, error) {
+) (regapi.ChangeSet, func(), error) {
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
@@ -733,9 +748,19 @@ func loadApplicationState(
 		vars[pair[0]] = pair[1]
 	}
 
+	// Initialize OpenTelemetry
+	cleanup, err := initOpenTelemetry(
+		context.Background(),
+		os.Getenv("OTEL_ENDPOINT"),
+		os.Getenv("OTEL_SERVICE_NAME"),
+		os.Getenv("OTEL_SERVICE_VERSION"))
+	if err != nil {
+		mainLogger.Error("failed to initialize OpenTelemetry", zap.Error(err))
+	}
+
 	entries, err := folderLoader.LoadFS(fs, vars)
 	if err != nil {
-		return nil, fmt.Errorf("load entries: %w", err)
+		return nil, nil, fmt.Errorf("load entries: %w", err)
 	}
 
 	// TODO: move it somewhere else
@@ -750,22 +775,22 @@ func loadApplicationState(
 	} else {
 		vendorDir, err := os.OpenRoot(moduleloader.VendorFolder)
 		if err != nil {
-			return nil, fmt.Errorf("open vendor folder: %w", err)
+			return nil, nil, fmt.Errorf("open vendor folder: %w", err)
 		}
 
 		dependencyEntries, err := folderLoader.LoadFS(vendorDir.FS(), vars)
 		if err != nil {
-			return nil, fmt.Errorf("load dependencies: %w", err)
+			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}
 		entries = append(entries, dependencyEntries...)
 	}
 
 	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
 	if err != nil {
-		return nil, fmt.Errorf("build state delta: %w", err)
+		return nil, nil, fmt.Errorf("build state delta: %w", err)
 	}
 
-	return boot, nil
+	return boot, cleanup, nil
 }
 
 // ---- Services ----
@@ -1053,4 +1078,77 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		component.NewHandler("process.lua", processes),
 		component.NewHandler("btea.app.lua", terminalApps),
 	}
+}
+
+// initOpenTelemetry initializes the OpenTelemetry tracer
+func initOpenTelemetry(ctx context.Context, endpoint, serviceName, serviceVersion string) (func(), error) {
+	if endpoint == "" {
+		endpoint = "localhost:4317"
+	}
+	if serviceName == "" {
+		serviceName = "wippy-runtime"
+	}
+	if serviceVersion == "" {
+		serviceVersion = "1.0.0"
+	}
+
+	// Create OTLP exporter
+	exporter, err := otlptracegrpc.New(ctx,
+		otlptracegrpc.WithInsecure(),
+		otlptracegrpc.WithEndpoint(endpoint),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
+	}
+
+	// Create resource with service information
+	res, err := otelresource.New(ctx,
+		otelresource.WithAttributes(
+			semconv.ServiceNameKey.String(serviceName),
+			semconv.ServiceVersionKey.String(serviceVersion),
+			semconv.HostNameKey.String(getHostname()),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create resource: %w", err)
+	}
+
+	// Create trace provider with sampling
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	)
+	otel.SetTracerProvider(tp)
+
+	// Store cleanup function
+	cleanup := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := tp.Shutdown(ctx); err != nil {
+			fmt.Printf("Error shutting down tracer provider: %v\n", err)
+		}
+	}
+
+	// Create and end a test span to verify tracing works
+	tracer := otel.Tracer("init")
+	_, span := tracer.Start(ctx, "service_initialization")
+	span.SetAttributes(
+		attribute.String("init.timestamp", time.Now().Format(time.RFC3339)),
+		attribute.String("init.hostname", getHostname()),
+	)
+	span.End()
+
+	fmt.Printf("OpenTelemetry initialized successfully with endpoint: %s\n", endpoint)
+	return cleanup, nil
+}
+
+// getHostname returns the hostname of the current machine
+func getHostname() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return hostname
 }

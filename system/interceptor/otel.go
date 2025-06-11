@@ -2,11 +2,11 @@ package interceptor
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -19,7 +19,7 @@ type OTelInterceptor struct {
 // NewOTelInterceptor creates a new OpenTelemetry interceptor
 func NewOTelInterceptor() *OTelInterceptor {
 	return &OTelInterceptor{
-		tracer: otel.Tracer("pony"),
+		tracer: otel.Tracer("wippy"),
 	}
 }
 
@@ -28,27 +28,20 @@ func (i *OTelInterceptor) Handle(ctx context.Context, next func() *runtime.Resul
 	_, span := i.tracer.Start(ctx, "function_execution")
 	defer span.End()
 
-	fmt.Println("OTelInterceptor")
+	// Get PID from context
+	pid, ok := pubsub.GetPID(ctx)
+	if ok {
+		span.SetAttributes(
+			attribute.String("pid", pid.ID.String()),
+		)
+	}
 
-	// FIXME pass updated ctx to next
-
+	// Pass updated context to next
 	result := next()
 	if result != nil && result.Error != nil {
 		span.RecordError(result.Error)
 		span.SetStatus(codes.Error, result.Error.Error())
 	}
-
-	// span.SetAttributes(
-	// 	attribute.String("function_id", task.ID.String()),
-	// 	attribute.String("function_name", task.Name),
-	// 	attribute.String("function_version", task.Version),
-	// 	attribute.String("function_author", task.Author),
-	// 	attribute.String("function_url", task.URL),
-	// )
-
-	span.End()
-
-	fmt.Println("OTelInterceptor completed")
 
 	return result
 }

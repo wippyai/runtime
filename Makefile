@@ -95,3 +95,9 @@ lint-init:
 lint:
 	bin/golangci-lint run
 
+# OpenTelemetry commands
+otel-up:
+	cd tests && docker-compose up -d --remove-orphans
+
+otel-down:
+	cd tests && docker-compose down

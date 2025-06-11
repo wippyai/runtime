@@ -233,10 +233,7 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 	ctx = interceptor.WithCancel(ctx, cancel)
 
 	interceptorsRegistry := interceptor.GetInterceptors(ctx)
-	f.logger.Info("interceptor registry", zap.Any("ir", interceptorsRegistry))
-
 	if interceptorsRegistry != nil {
-		f.logger.Info("calling interceptors")
 		ch, err := interceptorsRegistry.GetChain().Execute(
 			ctx,
 			execHandler,

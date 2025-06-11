@@ -2,10 +2,6 @@ package interceptor
 
 import (
 	"context"
-	"fmt"
-
-	"github.com/davecgh/go-spew/spew"
-
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -24,8 +20,6 @@ func NewRetryInterceptor() *RetryInterceptor {
 func (i *RetryInterceptor) Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result {
 	attempt := 0
 
-	fmt.Println("RetryInterceptor")
-
 	options := apiinterceptor.GetOptionsFromContext(ctx)
 
 	// Use configured max attempts or fallback to default
@@ -33,7 +27,6 @@ func (i *RetryInterceptor) Handle(ctx context.Context, next func() *runtime.Resu
 
 	// If max attempts is 0, skip retry
 	if maxAttempts == 0 {
-		fmt.Println("Retry Interceptor skipped")
 		return next()
 	}
 
@@ -46,15 +39,11 @@ func (i *RetryInterceptor) Handle(ctx context.Context, next func() *runtime.Resu
 
 			// If no error and no retryable status, return success
 			if result == nil || result.Error == nil {
-				fmt.Println("Retry Interceptor completed")
 				return result
 			}
 
-			spew.Dump("retrying")
-
 			attempt++
 			if attempt >= maxAttempts {
-				fmt.Println("Retry Interceptor completed")
 				return result
 			}
 
