@@ -165,6 +165,8 @@ func (m *Manager) validateBindingAgainstDefinitions(binding *contract.Binding, b
 }
 
 // validateUniqueDefaults checks that no contract has multiple default bindings
+// This ensures that each contract can have at most one default binding, preventing conflicts
+// when using default binding resolution (contract:open() without binding ID)
 // Assumes m.mu is RLock'd or Lock'd by the caller appropriately for m.bindings access.
 func (m *Manager) validateUniqueDefaults(binding *contract.Binding, bindingID registry.ID) error {
 	for _, bc := range binding.Contracts {
@@ -342,6 +344,7 @@ func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) er
 	}
 
 	// Validate unique defaults - needs read access to m.bindings, which is covered by the Lock
+	// This prevents multiple bindings from being marked as default for the same contract
 	if err := m.validateUniqueDefaults(binding, entry.ID); err != nil {
 		return err
 	}
@@ -384,6 +387,7 @@ func (m *Manager) handleBindingUpdate(ctx context.Context, entry registry.Entry)
 	}
 
 	// Validate unique defaults for the updated binding
+	// This ensures that updating a binding to set default=true doesn't conflict with existing defaults
 	if err := m.validateUniqueDefaults(updatedBinding, entry.ID); err != nil {
 		return err
 	}
