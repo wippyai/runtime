@@ -47,9 +47,10 @@ type BindingConfig struct {
 
 // BoundContractConfig maps a contract to its implementation
 type BoundContractConfig struct {
-	Contract        string            `json:"contract"`         // Contract ID as string (will be parsed)
-	Methods         map[string]string `json:"methods"`          // method_name -> function ID string
-	ContextRequired []string          `json:"context_required"` // Required scope keys
+	Contract        string            `json:"contract"`          // Contract ID as string (will be parsed)
+	Methods         map[string]string `json:"methods"`           // method_name -> function ID string
+	ContextRequired []string          `json:"context_required"`  // Required scope keys
+	Default         bool              `json:"default,omitempty"` // Whether this is the default binding for the contract
 }
 
 // ToDefinition converts a DefinitionConfig to a Definition
@@ -87,7 +88,7 @@ func (c *DefinitionConfig) ToDefinition() *contract.Definition {
 	return def
 }
 
-// ToBinding converts a BindingConfig to a ID
+// ToBinding converts a BindingConfig to a Binding
 func (c *BindingConfig) ToBinding() *contract.Binding {
 	binding := &contract.Binding{
 		Contracts: make([]contract.BoundContract, len(c.Contracts)),
@@ -107,6 +108,7 @@ func (c *BindingConfig) ToBinding() *contract.Binding {
 			Contract:        contractID,
 			Methods:         methods,
 			ContextRequired: cfg.ContextRequired,
+			Default:         cfg.Default,
 		}
 	}
 

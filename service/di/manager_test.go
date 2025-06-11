@@ -541,6 +541,198 @@ func TestManager_BindingOperations(t *testing.T) {
 	})
 }
 
+func TestManager_DefaultBindingValidation(t *testing.T) {
+	ctx := context.Background()
+	manager, bus := setupDIManagerTest()
+
+	var wg sync.WaitGroup
+	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterDefinition, func(evt event.Event) {
+		wg.Done()
+	})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	bindingSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterBinding, func(evt event.Event) {
+		wg.Done()
+	})
+	require.NoError(t, err)
+	defer bindingSub.Close()
+
+	// Add contract definitions
+	defID1 := registry.ID{NS: "test", Name: "contract1"}
+	defID2 := registry.ID{NS: "test", Name: "contract2"}
+
+	defEntry1 := registry.Entry{
+		ID:   defID1,
+		Kind: apidi.KindDefinition,
+		Data: NewMockPayload(&apidi.DefinitionConfig{
+			Methods: []apidi.MethodConfig{{Name: "method1"}},
+		}),
+	}
+
+	defEntry2 := registry.Entry{
+		ID:   defID2,
+		Kind: apidi.KindDefinition,
+		Data: NewMockPayload(&apidi.DefinitionConfig{
+			Methods: []apidi.MethodConfig{{Name: "method2"}},
+		}),
+	}
+
+	wg.Add(2)
+	err = manager.Add(ctx, defEntry1)
+	require.NoError(t, err)
+	err = manager.Add(ctx, defEntry2)
+	require.NoError(t, err)
+	wg.Wait()
+
+	t.Run("successful default binding add", func(t *testing.T) {
+		entry := registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "default_binding1"},
+			Kind: apidi.KindBinding,
+			Data: NewMockPayload(&apidi.BindingConfig{
+				Contracts: []apidi.BoundContractConfig{
+					{
+						Contract: defID1.String(),
+						Methods:  map[string]string{"method1": "test:func1"},
+						Default:  true,
+					},
+				},
+			}),
+		}
+
+		wg.Add(1)
+		err := manager.Add(ctx, entry)
+		require.NoError(t, err)
+		wg.Wait()
+
+		// Verify binding was stored
+		manager.mu.RLock()
+		binding, exists := manager.bindings[entry.ID]
+		manager.mu.RUnlock()
+		assert.True(t, exists)
+		assert.True(t, binding.Contracts[0].Default)
+	})
+
+	t.Run("duplicate default binding for same contract", func(t *testing.T) {
+		entry := registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "duplicate_default"},
+			Kind: apidi.KindBinding,
+			Data: NewMockPayload(&apidi.BindingConfig{
+				Contracts: []apidi.BoundContractConfig{
+					{
+						Contract: defID1.String(), // Same contract as above
+						Methods:  map[string]string{"method1": "test:func2"},
+						Default:  true, // Trying to set another default
+					},
+				},
+			}),
+		}
+
+		err := manager.Add(ctx, entry)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "already has default binding")
+		assert.Contains(t, err.Error(), "cannot set binding")
+		assert.Contains(t, err.Error(), "as default")
+	})
+
+	t.Run("different contracts can have defaults", func(t *testing.T) {
+		entry := registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "default_binding2"},
+			Kind: apidi.KindBinding,
+			Data: NewMockPayload(&apidi.BindingConfig{
+				Contracts: []apidi.BoundContractConfig{
+					{
+						Contract: defID2.String(), // Different contract
+						Methods:  map[string]string{"method2": "test:func3"},
+						Default:  true,
+					},
+				},
+			}),
+		}
+
+		wg.Add(1)
+		err := manager.Add(ctx, entry)
+		require.NoError(t, err)
+		wg.Wait()
+
+		// Verify binding was stored
+		manager.mu.RLock()
+		binding, exists := manager.bindings[entry.ID]
+		manager.mu.RUnlock()
+		assert.True(t, exists)
+		assert.True(t, binding.Contracts[0].Default)
+	})
+
+	t.Run("non-default bindings are allowed", func(t *testing.T) {
+		entry := registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "non_default_binding"},
+			Kind: apidi.KindBinding,
+			Data: NewMockPayload(&apidi.BindingConfig{
+				Contracts: []apidi.BoundContractConfig{
+					{
+						Contract: defID1.String(),
+						Methods:  map[string]string{"method1": "test:func4"},
+						Default:  false, // Explicitly non-default
+					},
+				},
+			}),
+		}
+
+		wg.Add(1)
+		err := manager.Add(ctx, entry)
+		require.NoError(t, err)
+		wg.Wait()
+
+		// Verify binding was stored
+		manager.mu.RLock()
+		binding, exists := manager.bindings[entry.ID]
+		manager.mu.RUnlock()
+		assert.True(t, exists)
+		assert.False(t, binding.Contracts[0].Default)
+	})
+
+	t.Run("update existing binding to set default on occupied contract", func(t *testing.T) {
+		// First create a non-default binding
+		entry := registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "update_to_default"},
+			Kind: apidi.KindBinding,
+			Data: NewMockPayload(&apidi.BindingConfig{
+				Contracts: []apidi.BoundContractConfig{
+					{
+						Contract: defID1.String(),
+						Methods:  map[string]string{"method1": "test:func5"},
+						Default:  false,
+					},
+				},
+			}),
+		}
+
+		wg.Add(1)
+		err := manager.Add(ctx, entry)
+		require.NoError(t, err)
+		wg.Wait()
+
+		// Now try to update it to be default (should fail because defID1 already has a default)
+		updateEntry := registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "update_to_default"},
+			Kind: apidi.KindBinding,
+			Data: NewMockPayload(&apidi.BindingConfig{
+				Contracts: []apidi.BoundContractConfig{
+					{
+						Contract: defID1.String(),
+						Methods:  map[string]string{"method1": "test:func5"},
+						Default:  true, // Trying to set as default
+					},
+				},
+			}),
+		}
+
+		err = manager.Update(ctx, updateEntry)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "already has default binding")
+	})
+}
+
 func TestManager_ValidationEdgeCases(t *testing.T) {
 	ctx := context.Background()
 	manager, bus := setupDIManagerTest()

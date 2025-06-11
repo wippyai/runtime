@@ -101,12 +101,15 @@ Returns:
 
 ### Contract Methods
 
-#### open(binding_id, context_table?)
+#### open(binding_id?, context_table?)
 
-Opens a contract binding to create an instance. Context values from the parameter merge with/override chained context.
+Opens a contract binding to create an instance. If no binding_id is provided, uses the default binding for the contract (if one exists). Context values from the parameter merge with/override chained context.
 
 ```lua
--- Open with no additional context
+-- Open with default binding (no arguments)
+local instance, err = contract_def:open()
+
+-- Open with specific binding
 local instance, err = contract_def:open("user:database_impl")
 
 -- Open with additional context (merges with chained context)
@@ -115,17 +118,24 @@ local instance, err = contract_def:open("user:database_impl", {
     timeout = 30
 })
 
+-- Open default binding with context
+local instance, err = contract_def:open(nil, {
+    database = "users_prod"
+})
+
 -- Open with binding parameters via query string format
 local instance, err = contract_def:open("user:database_impl?timeout=30&retries=3")
 ```
 
 Parameters:
-- `binding_id`: String binding identifier in "namespace:name" format, optionally with query parameters "namespace:name?key1=value1&key2=value2"
+- `binding_id`: Optional string binding identifier in "namespace:name" format, optionally with query parameters "namespace:name?key1=value1&key2=value2". If nil or not provided, uses the default binding for this contract.
 - `context_table`: Optional table with additional context values (highest priority)
 
 Returns:
 - Contract instance or nil on error
 - Error message or nil on success
+
+**Note**: When using the default binding (no binding_id provided), the binding must require no context dependencies, or all required context must be available through chained context. If the default binding requires context that is not available, the open() call will fail.
 
 #### id()
 
@@ -293,6 +303,55 @@ Returns: channel userdata
 
 ## Usage Examples
 
+### Default Binding Usage
+
+```lua
+local contract = require("contract")
+
+-- Get contract definition
+local user_service, err = contract.get("user:service")
+if err then
+    error("Failed to get contract: " .. err)
+end
+
+-- Open using default binding (if available and requires no context)
+local instance, err = user_service:open()
+if err then
+    -- Fallback to specific binding if default doesn't work
+    instance, err = user_service:open("user:database_impl")
+    if err then
+        error("Failed to open any binding: " .. err)
+    end
+end
+
+-- Verify instance implements expected contract
+if not contract.is(instance, "user:service") then
+    error("Instance does not implement user:service")
+end
+
+-- Use the instance
+local user, err = instance:get_user("user123")
+```
+
+### Default Binding with Context
+
+```lua
+-- Try default binding with required context
+local service = contract.get("payment:processor")
+    :with_context({
+        api_key = "secret_key",
+        environment = "production"
+    })
+
+-- Open default binding - will work if these context values satisfy requirements
+local instance, err = service:open()
+if err then
+    print("Default binding failed:", err)
+    -- Could fall back to specific binding
+    instance, err = service:open("payment:stripe_impl")
+end
+```
+
 ### Early Initialization Pattern
 
 ```lua
@@ -325,11 +384,19 @@ app.contracts = {
 
 -- Later, during runtime execution with full context
 function handle_request(request)
-    -- Use pre-loaded contract with runtime context
+    -- Try to use default binding first
     local instance, err = app.contracts.user_service
         :with_actor(request.actor)
         :with_context({ request_id = request.id })
-        :open("user:database_impl")
+        :open() -- Use default binding
+    
+    if err then
+        -- Fallback to specific implementation
+        instance, err = app.contracts.user_service
+            :with_actor(request.actor)
+            :with_context({ request_id = request.id })
+            :open("user:database_impl")
+    end
     
     -- Check what the instance implements
     if contract.is(instance, "user:service") then
@@ -349,10 +416,14 @@ if err then
     error("Failed to get contract: " .. err)
 end
 
--- Open an implementation
-local instance, err = user_service:open("user:database_impl")
+-- Try default binding first
+local instance, err = user_service:open()
 if err then
-    error("Failed to open binding: " .. err)
+    -- Fallback to specific implementation
+    instance, err = user_service:open("user:database_impl")
+    if err then
+        error("Failed to open binding: " .. err)
+    end
 end
 
 -- Verify instance implements expected contract
@@ -403,10 +474,14 @@ local secured_service = contract.get("user:service")
         request_id = "req-123"
     })
 
--- Open with additional context
-local instance, err = secured_service:open("user:admin_impl", {
-    elevated_access = true
-})
+-- Try default binding first
+local instance, err = secured_service:open()
+if err then
+    -- Open with specific binding and additional context
+    instance, err = secured_service:open("user:admin_impl", {
+        elevated_access = true
+    })
+end
 
 -- Verify instance capabilities
 if contract.is(instance, "user:service") and contract.is(instance, "admin:privileged") then
@@ -442,7 +517,7 @@ local contract = require("contract")
 
 -- Get a contract that might be implemented by instances with different capabilities
 local storage_contract, err = contract.get("storage:service")
-local instance, err = storage_contract:open("storage:multi_impl")
+local instance, err = storage_contract:open() -- Try default first
 
 -- Check what contracts this instance actually implements
 local capabilities = {}
@@ -497,7 +572,7 @@ end
 local time = require("time")
 
 -- Start async contract method
-local instance, err = contract.get("data:analyzer"):open("data:ml_impl")
+local instance, err = contract.get("data:analyzer"):open() -- Try default binding
 local command = instance:analyze_dataset_async(large_dataset)
 
 -- Create timeout
@@ -593,20 +668,29 @@ for i, method in ipairs(methods) do
     end
 end
 
--- Test different implementations
-for i, impl_id in ipairs(implementations) do
-    local instance, err = contract_def:open(impl_id)
-    if not err then
-        print("Implementation " .. impl_id .. " supports:")
-        
-        -- Check for optional contract extensions
-        local extensions = {"storage:versioned", "audit:logging", "cache:enabled"}
-        for j, ext in ipairs(extensions) do
-            if contract.is(instance, ext) then
-                print("  - " .. ext)
+-- Test default binding first
+local instance, err = contract_def:open()
+if err then
+    print("No default binding or requires context:", err)
+    
+    -- Test different implementations
+    for i, impl_id in ipairs(implementations) do
+        local instance, err = contract_def:open(impl_id)
+        if not err then
+            print("Implementation " .. impl_id .. " supports:")
+            
+            -- Check for optional contract extensions
+            local extensions = {"storage:versioned", "audit:logging", "cache:enabled"}
+            for j, ext in ipairs(extensions) do
+                if contract.is(instance, ext) then
+                    print("  - " .. ext)
+                end
             end
+            break -- Use first working implementation
         end
     end
+else
+    print("Using default binding successfully")
 end
 ```
 
@@ -622,10 +706,20 @@ function safe_service_call(service_contract_id, binding_id, method_name, ...)
         return nil, "Failed to get contract " .. service_contract_id .. ": " .. err
     end
     
-    -- Open instance safely
-    local instance, err = contract_def:open(binding_id)
+    -- Try to open instance safely
+    local instance, err
+    if binding_id then
+        instance, err = contract_def:open(binding_id)
+    else
+        -- Try default binding first
+        instance, err = contract_def:open()
+        if err then
+            return nil, "Failed to open default binding: " .. err
+        end
+    end
+    
     if err then
-        return nil, "Failed to open binding " .. binding_id .. ": " .. err
+        return nil, "Failed to open binding " .. (binding_id or "default") .. ": " .. err
     end
     
     -- Verify contract implementation
@@ -642,13 +736,16 @@ function safe_service_call(service_contract_id, binding_id, method_name, ...)
     return result, nil
 end
 
--- Usage
-local user, err = safe_service_call("user:service", "user:db_impl", "get_user", "user123")
+-- Usage with default binding
+local user, err = safe_service_call("user:service", nil, "get_user", "user123")
 if err then
     print("Service call failed:", err)
 else
     print("Got user:", user.name)
 end
+
+-- Usage with specific binding
+local user, err = safe_service_call("user:service", "user:db_impl", "get_user", "user123")
 ```
 
 ## Security Model
@@ -659,7 +756,7 @@ The contract module enforces several security permissions:
 
 - `contract.get` - Required to access contract definitions
 - `contract.implementations.list` - Required to list implementations
-- `contract.binding.open` - Required to open specific bindings
+- `contract.binding.open` - Required to open specific bindings (including default bindings)
 - `contract.method.access` - Required to access specific methods
 - `contract.method.call` - Required to call specific methods
 - `contract.security` - Required to use custom security context (`with_actor`, `with_scope`)
@@ -686,6 +783,8 @@ Common error scenarios:
 
 - **Contract not found**: Contract definition doesn't exist or access denied
 - **Implementation not found**: Binding ID doesn't exist or access denied
+- **Default binding not found**: No default binding configured for the contract
+- **Context requirements not met**: Default binding requires context that is not available
 - **Method not found**: Method doesn't exist in any implemented contract
 - **Security denied**: Insufficient permissions for operation
 - **Context validation**: Invalid context values or types

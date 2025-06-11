@@ -164,6 +164,28 @@ func (m *Manager) validateBindingAgainstDefinitions(binding *contract.Binding, b
 	return nil
 }
 
+// validateUniqueDefaults checks that no contract has multiple default bindings
+// Assumes m.mu is RLock'd or Lock'd by the caller appropriately for m.bindings access.
+func (m *Manager) validateUniqueDefaults(binding *contract.Binding, bindingID registry.ID) error {
+	for _, bc := range binding.Contracts {
+		if bc.Default {
+			// Check if another binding already has default for this contract
+			for otherBindingID, otherBinding := range m.bindings {
+				if otherBindingID == bindingID {
+					continue // Skip self
+				}
+				for _, otherBC := range otherBinding.Contracts {
+					if otherBC.Contract == bc.Contract && otherBC.Default {
+						return fmt.Errorf("contract '%s' already has default binding '%s', cannot set binding '%s' as default",
+							bc.Contract, otherBindingID, bindingID)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // --- Contract Definition handlers ---
 
 func (m *Manager) handleDefinitionAdd(ctx context.Context, entry registry.Entry) error {
@@ -319,6 +341,11 @@ func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) er
 		return err // Error from validateBinding already includes bindingID
 	}
 
+	// Validate unique defaults - needs read access to m.bindings, which is covered by the Lock
+	if err := m.validateUniqueDefaults(binding, entry.ID); err != nil {
+		return err
+	}
+
 	m.bindings[entry.ID] = binding
 
 	m.bus.Send(ctx, event.Event{
@@ -354,6 +381,11 @@ func (m *Manager) handleBindingUpdate(ctx context.Context, entry registry.Entry)
 
 	if err := m.validateBindingAgainstDefinitions(updatedBinding, entry.ID); err != nil {
 		return err // Error from validateBinding already includes bindingID
+	}
+
+	// Validate unique defaults for the updated binding
+	if err := m.validateUniqueDefaults(updatedBinding, entry.ID); err != nil {
+		return err
 	}
 
 	m.bindings[entry.ID] = updatedBinding

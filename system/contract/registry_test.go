@@ -34,6 +34,7 @@ func TestNewContractRegistry(t *testing.T) {
 	assert.Equal(t, logger, contractRegistry.logger)
 	assert.NotNil(t, contractRegistry.definitions)
 	assert.NotNil(t, contractRegistry.bindings)
+	assert.NotNil(t, contractRegistry.defaultBindings)
 }
 
 func TestContractRegistry_StartStop(t *testing.T) {
@@ -547,6 +548,341 @@ func TestContractRegistry_GetBindingsForContract(t *testing.T) {
 	bindingIDs, err = contractRegistry.GetBindingsForContract(ctx, registry.ID{NS: "missing", Name: "contract"})
 	require.NoError(t, err)
 	assert.Empty(t, bindingIDs)
+}
+
+func TestContractRegistry_GetDefaultBinding(t *testing.T) {
+	ctx := context.Background()
+	contractRegistry, bus := setupRegistryTest()
+	require.NoError(t, contractRegistry.Start(ctx))
+	defer func() {
+		require.NoError(t, contractRegistry.Stop())
+	}()
+
+	// Setup subscriber to wait for registrations
+	var wg sync.WaitGroup
+	sub, err := eventbus.NewSubscriber(
+		ctx,
+		bus,
+		contract.System,
+		"contract.*",
+		func(evt event.Event) {
+			if evt.Kind == contract.Accept {
+				wg.Done()
+			}
+		},
+	)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	contractID := registry.ID{NS: "test", Name: "contract"}
+	defaultBindingID := registry.ID{NS: "test", Name: "default_binding"}
+	nonDefaultBindingID := registry.ID{NS: "test", Name: "non_default_binding"}
+
+	t.Run("no default binding exists", func(t *testing.T) {
+		// Test getting default for non-existent contract
+		_, err := contractRegistry.GetDefaultBinding(ctx, contractID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no default binding for contract")
+	})
+
+	t.Run("register default binding", func(t *testing.T) {
+		defaultBinding := &contract.Binding{
+			Contracts: []contract.BoundContract{
+				{
+					Contract: contractID,
+					Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+					Default:  true, // Mark as default
+				},
+			},
+		}
+
+		wg.Add(1)
+		bus.Send(ctx, event.Event{
+			System: contract.System,
+			Kind:   contract.RegisterBinding,
+			Path:   defaultBindingID.String(),
+			Data:   defaultBinding,
+		})
+		wg.Wait()
+
+		// Should now return the default binding
+		result, err := contractRegistry.GetDefaultBinding(ctx, contractID)
+		require.NoError(t, err)
+		assert.Equal(t, defaultBindingID, result)
+	})
+
+	t.Run("register non-default binding", func(t *testing.T) {
+		nonDefaultBinding := &contract.Binding{
+			Contracts: []contract.BoundContract{
+				{
+					Contract: contractID,
+					Methods:  map[string]registry.ID{"method2": {NS: "test", Name: "func2"}},
+					Default:  false, // Explicitly non-default
+				},
+			},
+		}
+
+		wg.Add(1)
+		bus.Send(ctx, event.Event{
+			System: contract.System,
+			Kind:   contract.RegisterBinding,
+			Path:   nonDefaultBindingID.String(),
+			Data:   nonDefaultBinding,
+		})
+		wg.Wait()
+
+		// Should still return the original default binding
+		result, err := contractRegistry.GetDefaultBinding(ctx, contractID)
+		require.NoError(t, err)
+		assert.Equal(t, defaultBindingID, result)
+	})
+
+	t.Run("update binding to remove default", func(t *testing.T) {
+		nonDefaultBinding := &contract.Binding{
+			Contracts: []contract.BoundContract{
+				{
+					Contract: contractID,
+					Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+					Default:  false, // Remove default
+				},
+			},
+		}
+
+		wg.Add(1)
+		bus.Send(ctx, event.Event{
+			System: contract.System,
+			Kind:   contract.UpdateBinding,
+			Path:   defaultBindingID.String(),
+			Data:   nonDefaultBinding,
+		})
+		wg.Wait()
+
+		// Should now have no default binding
+		_, err := contractRegistry.GetDefaultBinding(ctx, contractID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no default binding for contract")
+	})
+
+	t.Run("update non-default binding to be default", func(t *testing.T) {
+		newDefaultBinding := &contract.Binding{
+			Contracts: []contract.BoundContract{
+				{
+					Contract: contractID,
+					Methods:  map[string]registry.ID{"method2": {NS: "test", Name: "func2"}},
+					Default:  true, // Make this the default
+				},
+			},
+		}
+
+		wg.Add(1)
+		bus.Send(ctx, event.Event{
+			System: contract.System,
+			Kind:   contract.UpdateBinding,
+			Path:   nonDefaultBindingID.String(),
+			Data:   newDefaultBinding,
+		})
+		wg.Wait()
+
+		// Should now return the updated default binding
+		result, err := contractRegistry.GetDefaultBinding(ctx, contractID)
+		require.NoError(t, err)
+		assert.Equal(t, nonDefaultBindingID, result)
+	})
+
+	t.Run("delete default binding", func(t *testing.T) {
+		wg.Add(1)
+		bus.Send(ctx, event.Event{
+			System: contract.System,
+			Kind:   contract.DeleteBinding,
+			Path:   nonDefaultBindingID.String(),
+		})
+		wg.Wait()
+
+		// Should now have no default binding
+		_, err := contractRegistry.GetDefaultBinding(ctx, contractID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no default binding for contract")
+	})
+}
+
+func TestContractRegistry_DefaultBindingCleanupOnContractDelete(t *testing.T) {
+	ctx := context.Background()
+	contractRegistry, bus := setupRegistryTest()
+	require.NoError(t, contractRegistry.Start(ctx))
+	defer func() {
+		require.NoError(t, contractRegistry.Stop())
+	}()
+
+	// Setup subscriber to wait for registrations
+	var wg sync.WaitGroup
+	sub, err := eventbus.NewSubscriber(
+		ctx,
+		bus,
+		contract.System,
+		"contract.*",
+		func(evt event.Event) {
+			if evt.Kind == contract.Accept {
+				wg.Done()
+			}
+		},
+	)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	contractID := registry.ID{NS: "test", Name: "contract"}
+	bindingID := registry.ID{NS: "test", Name: "binding"}
+
+	// Register a definition
+	testDef := &contract.Definition{
+		Methods: []contract.MethodDef{{Name: "method1"}},
+	}
+
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.RegisterDefinition,
+		Path:   contractID.String(),
+		Data:   testDef,
+	})
+	wg.Wait()
+
+	// Register a default binding
+	defaultBinding := &contract.Binding{
+		Contracts: []contract.BoundContract{
+			{
+				Contract: contractID,
+				Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+				Default:  true,
+			},
+		},
+	}
+
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.RegisterBinding,
+		Path:   bindingID.String(),
+		Data:   defaultBinding,
+	})
+	wg.Wait()
+
+	// Verify default binding exists
+	result, err := contractRegistry.GetDefaultBinding(ctx, contractID)
+	require.NoError(t, err)
+	assert.Equal(t, bindingID, result)
+
+	// Delete the contract definition
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.DeleteDefinition,
+		Path:   contractID.String(),
+	})
+	wg.Wait()
+
+	// Verify default binding is cleaned up
+	_, err = contractRegistry.GetDefaultBinding(ctx, contractID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no default binding for contract")
+}
+
+func TestContractRegistry_MultipleContractsInBinding(t *testing.T) {
+	ctx := context.Background()
+	contractRegistry, bus := setupRegistryTest()
+	require.NoError(t, contractRegistry.Start(ctx))
+	defer func() {
+		require.NoError(t, contractRegistry.Stop())
+	}()
+
+	// Setup subscriber to wait for registrations
+	var wg sync.WaitGroup
+	sub, err := eventbus.NewSubscriber(
+		ctx,
+		bus,
+		contract.System,
+		"contract.*",
+		func(evt event.Event) {
+			if evt.Kind == contract.Accept {
+				wg.Done()
+			}
+		},
+	)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	contract1ID := registry.ID{NS: "test", Name: "contract1"}
+	contract2ID := registry.ID{NS: "test", Name: "contract2"}
+	bindingID := registry.ID{NS: "test", Name: "multi_binding"}
+
+	// Register a binding that implements multiple contracts with one as default
+	multiBinding := &contract.Binding{
+		Contracts: []contract.BoundContract{
+			{
+				Contract: contract1ID,
+				Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+				Default:  true, // This contract is default
+			},
+			{
+				Contract: contract2ID,
+				Methods:  map[string]registry.ID{"method2": {NS: "test", Name: "func2"}},
+				Default:  false, // This contract is not default
+			},
+		},
+	}
+
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.RegisterBinding,
+		Path:   bindingID.String(),
+		Data:   multiBinding,
+	})
+	wg.Wait()
+
+	// Test that contract1 has a default binding
+	result1, err := contractRegistry.GetDefaultBinding(ctx, contract1ID)
+	require.NoError(t, err)
+	assert.Equal(t, bindingID, result1)
+
+	// Test that contract2 has no default binding
+	_, err = contractRegistry.GetDefaultBinding(ctx, contract2ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no default binding for contract")
+
+	// Update binding to make contract2 default and contract1 non-default
+	updatedBinding := &contract.Binding{
+		Contracts: []contract.BoundContract{
+			{
+				Contract: contract1ID,
+				Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+				Default:  false, // No longer default
+			},
+			{
+				Contract: contract2ID,
+				Methods:  map[string]registry.ID{"method2": {NS: "test", Name: "func2"}},
+				Default:  true, // Now default
+			},
+		},
+	}
+
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.UpdateBinding,
+		Path:   bindingID.String(),
+		Data:   updatedBinding,
+	})
+	wg.Wait()
+
+	// Test that contract1 no longer has a default binding
+	_, err = contractRegistry.GetDefaultBinding(ctx, contract1ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no default binding for contract")
+
+	// Test that contract2 now has a default binding
+	result2, err := contractRegistry.GetDefaultBinding(ctx, contract2ID)
+	require.NoError(t, err)
+	assert.Equal(t, bindingID, result2)
 }
 
 func TestContractRegistry_ConcurrentAccess(t *testing.T) {

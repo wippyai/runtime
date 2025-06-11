@@ -63,9 +63,10 @@ type (
 
 	// BoundContract maps a contract to its implementation
 	BoundContract struct {
-		Contract        registry.ID            `json:"contract"`         // Reference to contract definition
-		Methods         map[string]registry.ID `json:"methods"`          // method_name -> function ID
-		ContextRequired []string               `json:"context_required"` // Required scope keys
+		Contract        registry.ID            `json:"contract"`          // Reference to contract definition
+		Methods         map[string]registry.ID `json:"methods"`           // method_name -> function ID
+		ContextRequired []string               `json:"context_required"`  // Required scope keys
+		Default         bool                   `json:"default,omitempty"` // Whether this is the default binding for the contract
 	}
 )
 
@@ -83,6 +84,9 @@ type (
 
 		// GetBindingsForContract returns all binding IDs that implement the specified contract
 		GetBindingsForContract(ctx context.Context, contractID registry.ID) ([]registry.ID, error)
+
+		// GetDefaultBinding returns the default binding ID for the specified contract
+		GetDefaultBinding(ctx context.Context, contractID registry.ID) (registry.ID, error)
 	}
 
 	// Instantiator handles creating contract instances from bindings

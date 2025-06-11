@@ -458,19 +458,39 @@ func (m *Module) withScope(l *lua.LState) int {
 // contractOpen opens a binding with call context applied to create an instance
 // The returned instance inherits the call context from the wrapper
 // Now supports query parameters in binding ID: "service:impl?key=value&key2=value2"
+// Also supports opening without binding ID to use default binding: contract:open()
 func contractOpen(l *lua.LState) int {
 	wrapper := l.CheckUserData(1).Value.(*Wrapper)
-	bindingID := l.CheckString(2)
 
-	// Parse binding ID to extract base ID and query parameters
-	baseID, queryArgs, err := parseBindingArgs(bindingID)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+	var bindingID string
+	var queryArgs map[string]any
+	var err error
+
+	// Check if binding ID is provided
+	if l.GetTop() >= 2 && l.Get(2).Type() != lua.LTNil {
+		// Binding ID provided - parse it
+		bindingIDArg := l.CheckString(2)
+		baseID, parsedQueryArgs, parseErr := parseBindingArgs(bindingIDArg)
+		if parseErr != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(parseErr.Error()))
+			return 2
+		}
+		bindingID = baseID
+		queryArgs = parsedQueryArgs
+	} else {
+		// No binding ID provided - use default binding
+		defaultBindingID, err := wrapper.registry.GetDefaultBinding(l.Context(), wrapper.definition.ID())
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(fmt.Sprintf("no default binding available: %s", err.Error())))
+			return 2
+		}
+		bindingID = defaultBindingID.String()
+		queryArgs = make(map[string]any)
 	}
 
-	if !security.IsAllowed(l.Context(), PermissionContractBindingOpen, baseID, nil) {
+	if !security.IsAllowed(l.Context(), PermissionContractBindingOpen, bindingID, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("not allowed to open binding"))
 		return 2
@@ -486,8 +506,15 @@ func contractOpen(l *lua.LState) int {
 
 	// Merge additional context values from optional Lua table (highest priority)
 	// These override/extend both chained context and query parameters
-	if l.GetTop() >= 3 && l.Get(3).Type() == lua.LTTable {
-		l.CheckTable(3).ForEach(func(k, v lua.LValue) {
+	// Check if context table is provided (can be argument 2 or 3 depending on whether binding ID was provided)
+	contextArgIndex := 3
+	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTNil {
+		// No binding ID provided, context table would be at index 2
+		contextArgIndex = 2
+	}
+
+	if l.GetTop() >= contextArgIndex && l.Get(contextArgIndex).Type() == lua.LTTable {
+		l.CheckTable(contextArgIndex).ForEach(func(k, v lua.LValue) {
 			if kStr, ok := k.(lua.LString); ok {
 				mergedCallCtx.values.SetValue(string(kStr), luaconv.ToGoAny(v))
 			}
@@ -496,7 +523,7 @@ func contractOpen(l *lua.LState) int {
 
 	// Apply merged call context (security + app context) and instantiate binding
 	ctx := mergedCallCtx.applyToContext(l.Context())
-	regID := registry.ParseID(baseID)
+	regID := registry.ParseID(bindingID)
 
 	// Get the binding to check what context keys are required
 	binding, err := wrapper.registry.GetBinding(l.Context(), regID)

@@ -114,6 +114,7 @@ type mockRegistry struct {
 	contracts           map[registry.ID]contract.Contract
 	bindings            map[registry.ID]*contract.Binding
 	bindingsForContract map[registry.ID][]registry.ID
+	defaultBindings     map[registry.ID]registry.ID
 }
 
 func (m *mockRegistry) GetContract(ctx context.Context, id registry.ID) (contract.Contract, error) {
@@ -135,6 +136,13 @@ func (m *mockRegistry) GetBindingsForContract(ctx context.Context, contractID re
 		return bindings, nil
 	}
 	return []registry.ID{}, nil
+}
+
+func (m *mockRegistry) GetDefaultBinding(ctx context.Context, contractID registry.ID) (registry.ID, error) {
+	if binding, ok := m.defaultBindings[contractID]; ok {
+		return binding, nil
+	}
+	return registry.ID{}, ErrNotFound
 }
 
 // mockInstantiator implements contract.Instantiator interface
@@ -282,6 +290,7 @@ func setupContractTest(t *testing.T) (*engine.CoroutineVM, engine.UnitOfWork, co
 		bindingsForContract: map[registry.ID][]registry.ID{
 			registry.ParseID("test:contract"): {registry.ParseID("test:binding")},
 		},
+		defaultBindings: map[registry.ID]registry.ID{},
 	}
 
 	// Create mock instantiator
@@ -514,6 +523,189 @@ func TestContractOpening(t *testing.T) {
 
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 	result, err := runner.Execute(ctx, "test_contract_opening")
+	require.NoError(t, err, "Lua execution failed")
+	assert.Equal(t, "success", result.String())
+}
+
+// TestContractOpenWithDefaultBinding tests opening contracts using default bindings
+func TestContractOpenWithDefaultBinding(t *testing.T) {
+	vm, uw, ctx, mockReg, mockInst := setupContractTest(t)
+	defer vm.Close()
+	defer func() {
+		err := uw.Close()
+		assert.NoError(t, err, "Unit of work cleanup failed")
+	}()
+
+	// Add a default binding to the mock registry
+	defaultBindingID := registry.ParseID("test:default_binding")
+	defaultBinding := &contract.Binding{
+		ID:   defaultBindingID,
+		Meta: registry.Metadata{"version": "1.0", "default": "true"},
+		Contracts: []contract.BoundContract{
+			{
+				Contract: registry.ParseID("test:contract"),
+				Methods: map[string]registry.ID{
+					"test_method": registry.ParseID("test:implementation"),
+				},
+				ContextRequired: []string{}, // No context required
+				Default:         true,       // Mark as default
+			},
+		},
+	}
+
+	// Add to mocks
+	mockReg.bindings[defaultBindingID] = defaultBinding
+	mockReg.defaultBindings[registry.ParseID("test:contract")] = defaultBindingID
+
+	// Create instance for default binding
+	defaultInstance := &mockInstance{
+		id:         defaultBindingID,
+		implements: []contract.Contract{mockReg.contracts[registry.ParseID("test:contract")]},
+		scope:      registry.Metadata{"from_default": "true"},
+	}
+	mockInst.instances[defaultBindingID] = defaultInstance
+
+	err := vm.Import(`
+		function test_default_binding()
+			local contract = require("contract")
+			
+			-- Get a contract
+			local c, err = contract.get("test:contract")
+			if err then error("Error getting contract: " .. err) end
+			
+			-- Open using default binding (no arguments)
+			local instance, err = c:open()
+			if err then error("Error opening default binding: " .. err) end
+			
+			-- Verify instance exists
+			assert(instance ~= nil, "instance should not be nil")
+			
+			-- Check if instance implements our contract
+			local implements_contract = contract.is(instance, "test:contract")
+			assert(implements_contract == true, "instance should implement test:contract")
+			
+			return "success"
+		end
+	`, "test", "test_default_binding")
+	require.NoError(t, err, "Failed to import test function")
+
+	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+	result, err := runner.Execute(ctx, "test_default_binding")
+	require.NoError(t, err, "Lua execution failed")
+	assert.Equal(t, "success", result.String())
+}
+
+// TestContractOpenWithDefaultBindingAndContext tests default binding with context
+func TestContractOpenWithDefaultBindingAndContext(t *testing.T) {
+	vm, uw, ctx, mockReg, mockInst := setupContractTest(t)
+	defer vm.Close()
+	defer func() {
+		err := uw.Close()
+		assert.NoError(t, err, "Unit of work cleanup failed")
+	}()
+
+	// Add a default binding that requires context
+	defaultBindingID := registry.ParseID("test:context_default")
+	defaultBinding := &contract.Binding{
+		ID:   defaultBindingID,
+		Meta: registry.Metadata{"version": "1.0"},
+		Contracts: []contract.BoundContract{
+			{
+				Contract: registry.ParseID("test:contract"),
+				Methods: map[string]registry.ID{
+					"test_method": registry.ParseID("test:implementation"),
+				},
+				ContextRequired: []string{"database", "timeout"}, // Requires context
+				Default:         true,
+			},
+		},
+	}
+
+	// Add to mocks
+	mockReg.bindings[defaultBindingID] = defaultBinding
+	mockReg.defaultBindings[registry.ParseID("test:contract")] = defaultBindingID
+
+	// Create instance for default binding
+	defaultInstance := &mockInstance{
+		id:         defaultBindingID,
+		implements: []contract.Contract{mockReg.contracts[registry.ParseID("test:contract")]},
+		scope:      registry.Metadata{"database": "prod", "timeout": "30"},
+	}
+	mockInst.instances[defaultBindingID] = defaultInstance
+
+	err := vm.Import(`
+		function test_default_binding_with_context()
+			local contract = require("contract")
+			local security = require("security")
+			
+			-- Get a contract
+			local c, err = contract.get("test:contract")
+			if err then error("Error getting contract: " .. err) end
+			
+			-- Chain context that provides required values
+			local c_with_ctx = c:with_context({
+				database = "prod",
+				timeout = 30
+			})
+			
+			-- Open using default binding with context
+			local instance, err = c_with_ctx:open()
+			if err then error("Error opening default binding with context: " .. err) end
+			
+			-- Verify instance exists
+			assert(instance ~= nil, "instance should not be nil")
+			
+			-- Check if instance implements our contract
+			local implements_contract = contract.is(instance, "test:contract")
+			assert(implements_contract == true, "instance should implement test:contract")
+			
+			-- Test opening with additional context via open() parameter
+			local instance2, err = c_with_ctx:open(nil, {priority = "high"})
+			if err then error("Error opening default binding with additional context: " .. err) end
+			
+			assert(instance2 ~= nil, "instance2 should not be nil")
+			
+			return "success"
+		end
+	`, "test", "test_default_binding_with_context")
+	require.NoError(t, err, "Failed to import test function")
+
+	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+	result, err := runner.Execute(ctx, "test_default_binding_with_context")
+	require.NoError(t, err, "Lua execution failed")
+	assert.Equal(t, "success", result.String())
+}
+
+// TestContractOpenDefaultBindingNotFound tests failure when no default binding exists
+func TestContractOpenDefaultBindingNotFound(t *testing.T) {
+	vm, uw, ctx, _, _ := setupContractTest(t)
+	defer vm.Close()
+	defer func() {
+		err := uw.Close()
+		assert.NoError(t, err, "Unit of work cleanup failed")
+	}()
+
+	err := vm.Import(`
+		function test_default_binding_not_found()
+			local contract = require("contract")
+			
+			-- Get a contract (no default binding configured)
+			local c, err = contract.get("test:contract")
+			if err then error("Error getting contract: " .. err) end
+			
+			-- Try to open using default binding (should fail)
+			local instance, err = c:open()
+			assert(instance == nil, "instance should be nil when no default binding")
+			assert(err ~= nil, "should return error when no default binding")
+			assert(string.match(err, "no default binding"), "error should mention no default binding")
+			
+			return "success"
+		end
+	`, "test", "test_default_binding_not_found")
+	require.NoError(t, err, "Failed to import test function")
+
+	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+	result, err := runner.Execute(ctx, "test_default_binding_not_found")
 	require.NoError(t, err, "Lua execution failed")
 	assert.Equal(t, "success", result.String())
 }

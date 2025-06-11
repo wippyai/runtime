@@ -25,9 +25,10 @@ type ContractRegistry struct {
 	bus    event.Bus
 	logger *zap.Logger
 
-	definitions map[string]*contract.Definition
-	bindings    map[string]*bindingWithMeta
-	mu          sync.RWMutex
+	definitions     map[string]*contract.Definition
+	bindings        map[string]*bindingWithMeta
+	defaultBindings map[string]registry.ID // contractID -> bindingID
+	mu              sync.RWMutex
 
 	subscriber *eventbus.Subscriber
 }
@@ -35,10 +36,11 @@ type ContractRegistry struct {
 // NewContractRegistry creates a new contract registry
 func NewContractRegistry(bus event.Bus, logger *zap.Logger) *ContractRegistry {
 	return &ContractRegistry{
-		bus:         bus,
-		logger:      logger,
-		definitions: make(map[string]*contract.Definition),
-		bindings:    make(map[string]*bindingWithMeta),
+		bus:             bus,
+		logger:          logger,
+		definitions:     make(map[string]*contract.Definition),
+		bindings:        make(map[string]*bindingWithMeta),
+		defaultBindings: make(map[string]registry.ID),
 	}
 }
 
@@ -140,6 +142,8 @@ func (r *ContractRegistry) updateDefinition(e event.Event) {
 func (r *ContractRegistry) deleteDefinition(e event.Event) {
 	r.mu.Lock()
 	delete(r.definitions, e.Path)
+	// Clean up any default bindings for this contract
+	delete(r.defaultBindings, e.Path)
 	r.mu.Unlock()
 
 	r.logger.Debug("contract definition deleted", zap.String("id", e.Path))
@@ -170,6 +174,9 @@ func (r *ContractRegistry) registerBinding(e event.Event) {
 		Meta:    binding.Meta,
 		Binding: binding,
 	}
+
+	// Update default bindings map
+	r.updateDefaultBindings(binding, bindingID)
 	r.mu.Unlock()
 
 	r.logger.Debug("contract binding registered", zap.String("id", e.Path))
@@ -192,11 +199,17 @@ func (r *ContractRegistry) updateBinding(e event.Event) {
 	}
 
 	r.mu.Lock()
+	// Remove old default bindings for this binding ID
+	r.removeDefaultBindings(bindingID)
+
 	r.bindings[e.Path] = &bindingWithMeta{
 		ID:      bindingID,
 		Meta:    binding.Meta,
 		Binding: binding,
 	}
+
+	// Update default bindings map with new defaults
+	r.updateDefaultBindings(binding, bindingID)
 	r.mu.Unlock()
 
 	r.logger.Debug("contract binding updated", zap.String("id", e.Path))
@@ -204,12 +217,36 @@ func (r *ContractRegistry) updateBinding(e event.Event) {
 }
 
 func (r *ContractRegistry) deleteBinding(e event.Event) {
+	bindingID := registry.ParseID(e.Path)
+
 	r.mu.Lock()
+	// Remove default bindings for this binding ID
+	r.removeDefaultBindings(bindingID)
 	delete(r.bindings, e.Path)
 	r.mu.Unlock()
 
 	r.logger.Debug("contract binding deleted", zap.String("id", e.Path))
 	r.sendAccept(e.Path)
+}
+
+// updateDefaultBindings updates the default bindings map for contracts that are marked as default
+// Assumes r.mu is already locked
+func (r *ContractRegistry) updateDefaultBindings(binding *contract.Binding, bindingID registry.ID) {
+	for _, bc := range binding.Contracts {
+		if bc.Default {
+			r.defaultBindings[bc.Contract.String()] = bindingID
+		}
+	}
+}
+
+// removeDefaultBindings removes any default bindings for the given binding ID
+// Assumes r.mu is already locked
+func (r *ContractRegistry) removeDefaultBindings(bindingID registry.ID) {
+	for contractID, defaultBindingID := range r.defaultBindings {
+		if defaultBindingID == bindingID {
+			delete(r.defaultBindings, contractID)
+		}
+	}
 }
 
 func (r *ContractRegistry) sendAccept(path event.Path) {
@@ -274,6 +311,19 @@ func (r *ContractRegistry) GetBindingsForContract(ctx context.Context, contractI
 	}
 
 	return bindingIDs, nil
+}
+
+// GetDefaultBinding implements contract.Registry interface
+func (r *ContractRegistry) GetDefaultBinding(ctx context.Context, contractID registry.ID) (registry.ID, error) {
+	r.mu.RLock()
+	bindingID, exists := r.defaultBindings[contractID.String()]
+	r.mu.RUnlock()
+
+	if !exists {
+		return registry.ID{}, fmt.Errorf("no default binding for contract '%s'", contractID)
+	}
+
+	return bindingID, nil
 }
 
 // contractImpl implements contract.Contract interface
