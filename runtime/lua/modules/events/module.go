@@ -46,6 +46,11 @@ func (m *Module) Loader(l *lua.LState) int {
 		return m.subscribe(l)
 	}))
 
+	// Register top-level send function
+	mod.RawSetString("send", l.NewFunction(func(l *lua.LState) int {
+		return m.send(l)
+	}))
+
 	// Register subscription metatable
 	mt := l.NewTypeMetatable(subscriptionMetatable)
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
@@ -191,6 +196,68 @@ func (m *Module) subscribe(l *lua.LState) int {
 
 	// Return subscription object
 	l.Push(ud)
+	return 1
+}
+
+// send publishes an event to the event bus
+func (m *Module) send(l *lua.LState) int {
+	// Get required parameters
+	system := l.CheckString(1)
+	if system == "" {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString("system is required"))
+		return 2
+	}
+
+	kind := l.CheckString(2)
+	if kind == "" {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString("kind is required"))
+		return 2
+	}
+
+	path := l.CheckString(3)
+	if path == "" {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString("path is required"))
+		return 2
+	}
+
+	// Check security permissions
+	if !security.IsAllowed(l.Context(), "events.send", system, nil) {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString(fmt.Sprintf("not allowed to send events to system: %s", system)))
+		return 2
+	}
+
+	// Get context
+	ctx := l.Context()
+
+	// Get event bus from context
+	bus := event.GetBus(ctx)
+	if bus == nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString("event bus not found in context"))
+		return 2
+	}
+
+	// Optional data parameter
+	var data any
+	if l.GetTop() >= 4 && l.Get(4) != lua.LNil {
+		data = luaconv.ToGoAny(l.Get(4))
+	}
+
+	// Create and send event
+	evt := event.Event{
+		System: system,
+		Kind:   kind,
+		Path:   path,
+		Data:   data,
+	}
+
+	bus.Send(ctx, evt)
+
+	l.Push(lua.LTrue)
 	return 1
 }
 
