@@ -29,41 +29,47 @@ func NewManager(eventBus event.Bus, logger *zap.Logger) *Manager {
 		eventBus: eventBus,
 	}
 }
+
 func (m *Manager) InitInterceptors(ctx context.Context) error {
-	// Register default interceptors
-	interceptors := []struct {
-		name string
-		ic   interceptor.Interceptor
-	}{
-		{
-			name: "timeout",
-			ic:   NewTimeoutInterceptor(),
+	if err := m.Add(ctx, registry.Entry{
+		ID: registry.ID{
+			NS:   "interceptor",
+			Name: "timeout",
 		},
-		{
-			name: "otel",
-			ic:   NewOTelInterceptor(),
-		},
-		{
-			name: "ratelimit",
-			// Consider moving cache to functions.Registry and configuring via options
-			ic: NewRateLimitInterceptor(expirable.NewLRU[string, *rate.Limiter](10000, nil, time.Second)),
-		},
-		{
-			name: "retry",
-			ic:   NewRetryInterceptor(),
-		},
+		Data: payload.New(NewTimeoutInterceptor()),
+	}); err != nil {
+		return fmt.Errorf("error adding timeout interceptor: %w", err)
 	}
 
-	for _, i := range interceptors {
-		if err := m.Add(ctx, registry.Entry{
-			ID: registry.ID{
-				NS:   "interceptor",
-				Name: i.name,
-			},
-			Data: payload.New(i.ic),
-		}); err != nil {
-			return fmt.Errorf("error adding %s interceptor: %w", i.name, err)
-		}
+	// FIXME: we need to enable it only for paid customers or for testing purposes
+	if err := m.Add(ctx, registry.Entry{
+		ID: registry.ID{
+			NS:   "interceptor",
+			Name: "otel",
+		},
+		Data: payload.New(NewOTelInterceptor()),
+	}); err != nil {
+		return fmt.Errorf("error adding otel interceptor: %w", err)
+	}
+
+	if err := m.Add(ctx, registry.Entry{
+		ID: registry.ID{
+			NS:   "interceptor",
+			Name: "ratelimit",
+		},
+		Data: payload.New(NewRateLimitInterceptor(expirable.NewLRU[string, *rate.Limiter](10000, nil, time.Second))),
+	}); err != nil {
+		return fmt.Errorf("error adding ratelimit interceptor: %w", err)
+	}
+
+	if err := m.Add(ctx, registry.Entry{
+		ID: registry.ID{
+			NS:   "interceptor",
+			Name: "retry",
+		},
+		Data: payload.New(NewRetryInterceptor()),
+	}); err != nil {
+		return fmt.Errorf("error adding retry interceptor: %w", err)
 	}
 
 	return nil

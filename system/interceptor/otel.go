@@ -2,6 +2,7 @@ package interceptor
 
 import (
 	"context"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -25,11 +26,31 @@ func NewOTelInterceptor() *OTelInterceptor {
 
 // Handle implements the interceptor interface
 func (i *OTelInterceptor) Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result {
-	_, span := i.tracer.Start(ctx, "function_execution")
+	if i.tracer == nil {
+		// If tracer is not initialized, just return the result
+		return next()
+	}
+
+	// Get PID from context first
+	pid, ok := pubsub.GetPID(ctx)
+	spanName := "function_execution"
+	if ok {
+		spanName = pid.ID.String()
+	}
+
+	// Check if there's an existing span in the context
+	spanCtx := trace.SpanContextFromContext(ctx)
+	var span trace.Span
+	if spanCtx.IsValid() {
+		// Create a sub-span if there's an existing span
+		ctx, span = i.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+	} else {
+		// Create a new span if there's no existing span
+		ctx, span = i.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindServer))
+	}
 	defer span.End()
 
-	// Get PID from context
-	pid, ok := pubsub.GetPID(ctx)
+	// Set PID as attribute if available
 	if ok {
 		span.SetAttributes(
 			attribute.String("pid", pid.ID.String()),
