@@ -8,6 +8,7 @@ import (
 	"net/http/pprof"
 
 	"github.com/ponyruntime/pony/cloudhistory/client"
+
 	"github.com/ponyruntime/pony/runtime/lua/modules/text"
 
 	"github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
@@ -249,6 +250,9 @@ func (a *App) Initialize() error {
 		"wippy-default",
 		a.logger.Named("history"),
 	)
+	if err := remoteHistory.InitializeFromCloud(context.Background()); err != nil {
+		return fmt.Errorf("init history from cloud: %w", err)
+	}
 
 	// Initialize core components
 	a.reg = registry.NewRegistry(
@@ -268,7 +272,6 @@ func (a *App) Initialize() error {
 		WorkerCount: 16,
 		Logger:      a.logger.Named("control"),
 	}))
-
 	if err != nil {
 		return fmt.Errorf("failed to register control host: %w", err)
 	}
@@ -396,6 +399,16 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 
 	bootCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
+
+	if head, err := a.reg.History().Head(); err == nil {
+		a.logger.Info("head version available in history, apply found version", zap.String("version", head.String()))
+		if err := a.reg.ApplyVersion(bootCtx, head); err != nil {
+			return fmt.Errorf("apply current version: %w", err)
+		}
+		return nil
+	}
+
+	a.logger.Warn("no head version available in history, load application state from the filesystem")
 
 	// Load and apply initial state
 	appState, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger)

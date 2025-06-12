@@ -102,6 +102,10 @@ type dependencyInformation struct {
 
 // processRemoteDependencies handles fetching and storing remote dependencies
 func (m *Manager) processRemoteDependencies(ctx context.Context, manifestDependencies []ManifestDependency) error {
+	if len(manifestDependencies) == 0 {
+		return nil
+	}
+
 	deps, err := m.fetchRemoteDependencyInformation(ctx, manifestDependencies)
 	if err != nil {
 		return fmt.Errorf("fetch remote dependencies: %w", err)
@@ -310,6 +314,10 @@ func (m *Manager) storeModuleFiles(moduleDir string, files []*modulev1.File) err
 
 // processLocalModules processes local modules
 func (m *Manager) processLocalModules(localModules map[Name]string) error {
+	if len(localModules) == 0 {
+		return nil
+	}
+
 	for name, path := range localModules {
 		localOS, err := os.OpenRoot(path)
 		if err != nil {

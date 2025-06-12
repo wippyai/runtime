@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 
 	registryhistory "github.com/ponyruntime/pony/system/registry/history"
 )
@@ -17,6 +23,43 @@ type CloudHistoryServer struct {
 func NewCloudHistoryServer() *CloudHistoryServer {
 	return &CloudHistoryServer{
 		history: make(map[string]registryhistory.CloudHistory),
+	}
+}
+
+func (s *CloudHistoryServer) read() {
+	data, err := os.ReadFile("history.json")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Fatal(err)
+	}
+
+	if len(data) == 0 {
+		return
+	}
+
+	if err := json.Unmarshal(data, &s.history); err != nil {
+		log.Fatal(err)
+	}
+
+	for id, history := range s.history {
+		fmt.Println(id, "history:", len(history))
+	}
+}
+
+func (s *CloudHistoryServer) flush() {
+	log.Println("Flushing history")
+	data, err := json.Marshal(s.history)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(data) == 0 {
+		fmt.Println("Empty history")
+		return
+	}
+
+	fmt.Println("Writing history", len(data))
+
+	if err := os.WriteFile("history.json", data, 0600); err != nil {
+		log.Fatal(err)
 	}
 }
 
@@ -33,6 +76,8 @@ func (s *CloudHistoryServer) createHistoryVersionHandler(w http.ResponseWriter, 
 		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 		return
 	}
+
+	fmt.Printf("Create History Version: %d operations - %s \n", len(version.Operations), id)
 
 	s.mu.Lock()
 	// Add the new version to history
@@ -54,6 +99,8 @@ func (s *CloudHistoryServer) getHistoryHandler(w http.ResponseWriter, r *http.Re
 	// Get ID from query parameter
 	id := r.PathValue("id")
 
+	fmt.Println("Get History Version:", id)
+
 	s.mu.RLock()
 	history, exists := s.history[id]
 	s.mu.RUnlock()
@@ -70,17 +117,40 @@ func (s *CloudHistoryServer) getHistoryHandler(w http.ResponseWriter, r *http.Re
 }
 
 func (s *CloudHistoryServer) Start(addr string) error {
-	http.HandleFunc("POST runtime/{id}/history", s.createHistoryVersionHandler)
-	http.HandleFunc("GET runtime/{id}/history", s.getHistoryHandler)
+	s.read()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /runtime/{id}/history", s.createHistoryVersionHandler)
+	mux.HandleFunc("GET /runtime/{id}/history", s.getHistoryHandler)
 
 	log.Printf("Starting server on %s", addr)
-	return http.ListenAndServe(addr, nil) //nolint:gosec // it's ok
+	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	go func() {
+		if err := http.ListenAndServe(addr, loghandler{inner: mux}); err != nil { //nolint:gosec // it's ok
+			fmt.Println(err)
+		}
+	}()
+	<-ctx.Done()
+
+	s.flush()
+	return nil
 }
 
 func main() {
 	// Start server in a goroutine
 	server := NewCloudHistoryServer()
-	if err := server.Start(":9333"); err != nil {
+	if err := server.Start("localhost:9333"); err != nil {
 		log.Fatal("Server failed:", err)
 	}
+}
+
+type loghandler struct {
+	inner http.Handler
+}
+
+func (l loghandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	fmt.Println(request.Method, request.URL.String())
+	l.inner.ServeHTTP(writer, request)
 }

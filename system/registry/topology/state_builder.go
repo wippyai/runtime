@@ -139,7 +139,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 	vm := version.NewVersionMap()
 	versions, err := history.Versions()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get versions from history: %w", err)
+		return nil, fmt.Errorf("get versions from history: %w", err)
 	}
 
 	var first registry.Version
@@ -151,7 +151,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 
 		err := vm.Add(v)
 		if err != nil {
-			b.log.Error("failed to add version to version map",
+			b.log.Error("add version to version map",
 				zap.String("version", v.String()),
 				zap.Error(err),
 			)
@@ -164,7 +164,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 
 	path, err := vm.Path(first, targetVersion)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get path from root to version %v: %w", targetVersion, err)
+		return nil, fmt.Errorf("get path from root to version %v: %w", targetVersion, err)
 	}
 
 	state := make(StateMap)
@@ -174,13 +174,13 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 
 		changeSet, err := history.Get(ver)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get changeset for version %v: %w", ver, err)
+			return nil, fmt.Errorf("get changeset for version %v: %w", ver, err)
 		}
 
 		for _, operation := range changeSet {
 			newState, err := b.ApplyOperation(state, operation)
 			if err != nil {
-				b.log.Error("failed to apply operation",
+				b.log.Error("apply operation",
 					zap.String("version", ver.String()),
 					zap.Error(err))
 				continue

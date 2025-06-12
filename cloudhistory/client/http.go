@@ -54,7 +54,7 @@ func (c *HTTPCloudHistoryClient) CreateHistoryVersion(ctx context.Context, id st
 }
 
 func (c *HTTPCloudHistoryClient) GetHistory(ctx context.Context, id string) (history.CloudHistory, error) {
-	url := fmt.Sprintf("%s/runtime/%shistory", c.baseURL, id)
+	url := fmt.Sprintf("%s/runtime/%s/history", c.baseURL, id)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

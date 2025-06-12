@@ -8,17 +8,21 @@ import (
 
 	"go.uber.org/zap"
 
+	payloadapi "github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/version"
+	"github.com/ponyruntime/pony/system/payload"
 )
 
 // VersionOperation represents a single operation within a version
 type VersionOperation struct {
-	Kind      string         `json:"kind"`
-	Name      string         `json:"name"`
-	Namespace string         `json:"namespace"`
-	Metadata  map[string]any `json:"metadata"`
-	Payload   []byte         `json:"payload"`
+	Kind          string            `json:"kind"`
+	EntryKind     string            `json:"entry_kind"`
+	Name          string            `json:"name"`
+	Namespace     string            `json:"namespace"`
+	Metadata      map[string]any    `json:"metadata"`
+	Payload       []byte            `json:"payload"`
+	PayloadFormat payloadapi.Format `json:"payload_format"`
 }
 
 // CloudVersion represents a version to be sent to the cloud
@@ -89,7 +93,7 @@ func (rs *RemoteStorage) InitializeFromCloud(ctx context.Context) error {
 	// Get full history from cloud
 	cloudHistory, err := rs.client.GetHistory(ctx, rs.appID)
 	if err != nil {
-		return fmt.Errorf("failed to get history from cloud: %w", err)
+		return fmt.Errorf("get history from cloud: %w", err)
 	}
 
 	if len(cloudHistory) == 0 {
@@ -222,20 +226,28 @@ func (rs *RemoteStorage) sendHistoryVersion(item toSave) error {
 }
 
 // convertToCloudVersion converts internal types to cloud API format
-func (rs *RemoteStorage) convertToCloudVersion(item toSave) (*CloudVersion, error) { //nolint:unparam // for unmarshal error
+func (rs *RemoteStorage) convertToCloudVersion(item toSave) (*CloudVersion, error) {
 	operations := make([]VersionOperation, len(item.changeSet))
 
 	for i, op := range item.changeSet {
-		// Convert Entry to JSON payload
-		// todo: understand how to marshal payload
-		payload := []byte(op.Entry.Data.Format())
+		targetFormat := payloadapi.JSON
+		transcoded, err := payload.GlobalTranscoder().Transcode(op.Entry.Data, targetFormat)
+		if err != nil {
+			return nil, fmt.Errorf("transcode operation %s into %s: %w", op.Entry.ID, targetFormat, err)
+		}
+		data, ok := transcoded.Data().([]byte)
+		if !ok {
+			return nil, fmt.Errorf("transcoded data is not of type []byte")
+		}
 
 		operations[i] = VersionOperation{
-			Kind:      op.Kind,
-			Name:      op.Entry.ID.Name,
-			Namespace: op.Entry.ID.NS,
-			Metadata:  op.Entry.Meta,
-			Payload:   payload,
+			Kind:          op.Kind,
+			EntryKind:     op.Entry.Kind,
+			Name:          op.Entry.ID.Name,
+			Namespace:     op.Entry.ID.NS,
+			Metadata:      op.Entry.Meta,
+			Payload:       data,
+			PayloadFormat: op.Entry.Data.Format(),
 		}
 	}
 
@@ -247,10 +259,19 @@ func (rs *RemoteStorage) convertToCloudVersion(item toSave) (*CloudVersion, erro
 }
 
 // convertCloudOperationsToChangeSet converts cloud operations back to ChangeSet
-func (rs *RemoteStorage) convertCloudOperationsToChangeSet(ops []VersionOperation) (registry.ChangeSet, error) { //nolint:unparam // for unmarshal error
+func (rs *RemoteStorage) convertCloudOperationsToChangeSet(ops []VersionOperation) (registry.ChangeSet, error) {
 	changeSet := make(registry.ChangeSet, len(ops))
 
 	for i, op := range ops {
+		pld := payloadapi.NewPayload(op.Payload, payloadapi.JSON)
+		if op.PayloadFormat != payloadapi.JSON {
+			transcoded, err := payload.GlobalTranscoder().Transcode(pld, op.PayloadFormat)
+			if err != nil {
+				return nil, fmt.Errorf("transcode cloud payload operation %d: %w", i, err)
+			}
+			pld = transcoded
+		}
+
 		changeSet[i] = registry.Operation{
 			Kind: op.Kind,
 			Entry: registry.Entry{
@@ -258,9 +279,9 @@ func (rs *RemoteStorage) convertCloudOperationsToChangeSet(ops []VersionOperatio
 					NS:   op.Namespace,
 					Name: op.Name,
 				},
-				Kind: "",
+				Kind: op.EntryKind,
 				Meta: op.Metadata,
-				//Data: op.Payload,
+				Data: pld,
 			},
 		}
 	}
