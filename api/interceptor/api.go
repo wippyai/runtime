@@ -50,7 +50,7 @@ type Options struct {
 // Interceptor defines the interface for function execution interceptors
 type Interceptor interface {
 	// Handle processes the execution and calls next() to continue the chain
-	Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result
+	Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context)
 }
 
 // Registry interface provides access to the interceptor chain

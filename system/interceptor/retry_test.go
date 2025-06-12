@@ -15,7 +15,7 @@ func TestRetryInterceptor(t *testing.T) {
 	tests := []struct {
 		name           string
 		maxAttempts    int
-		nextFunc       func() *runtime.Result
+		nextFunc       func(context.Context) (*runtime.Result, context.Context)
 		expectedError  error
 		expectedCalls  int
 		contextTimeout time.Duration
@@ -23,8 +23,8 @@ func TestRetryInterceptor(t *testing.T) {
 		{
 			name:        "success on first attempt",
 			maxAttempts: 3,
-			nextFunc: func() *runtime.Result {
-				return &runtime.Result{}
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return &runtime.Result{}, ctx
 			},
 			expectedError: nil,
 			expectedCalls: 1,
@@ -32,14 +32,14 @@ func TestRetryInterceptor(t *testing.T) {
 		{
 			name:        "success after retries",
 			maxAttempts: 3,
-			nextFunc: func() func() *runtime.Result {
+			nextFunc: func() func(context.Context) (*runtime.Result, context.Context) {
 				calls := 0
-				return func() *runtime.Result {
+				return func(ctx context.Context) (*runtime.Result, context.Context) {
 					calls++
 					if calls < 2 {
-						return &runtime.Result{Error: errors.New("temporary error")}
+						return &runtime.Result{Error: errors.New("temporary error")}, ctx
 					}
-					return &runtime.Result{}
+					return &runtime.Result{}, ctx
 				}
 			}(),
 			expectedError: nil,
@@ -48,8 +48,8 @@ func TestRetryInterceptor(t *testing.T) {
 		{
 			name:        "max attempts reached",
 			maxAttempts: 2,
-			nextFunc: func() *runtime.Result {
-				return &runtime.Result{Error: errors.New("persistent error")}
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return &runtime.Result{Error: errors.New("persistent error")}, ctx
 			},
 			expectedError: errors.New("persistent error"),
 			expectedCalls: 2,
@@ -57,8 +57,8 @@ func TestRetryInterceptor(t *testing.T) {
 		{
 			name:        "skip retry when max attempts is 0",
 			maxAttempts: 0,
-			nextFunc: func() *runtime.Result {
-				return &runtime.Result{Error: errors.New("error")}
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return &runtime.Result{Error: errors.New("error")}, ctx
 			},
 			expectedError: errors.New("error"),
 			expectedCalls: 1,
@@ -67,9 +67,9 @@ func TestRetryInterceptor(t *testing.T) {
 			name:           "context cancellation",
 			maxAttempts:    3,
 			contextTimeout: 100 * time.Millisecond,
-			nextFunc: func() *runtime.Result {
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
 				time.Sleep(200 * time.Millisecond)
-				return &runtime.Result{Error: errors.New("error")}
+				return &runtime.Result{Error: errors.New("error")}, ctx
 			},
 			expectedError: context.DeadlineExceeded,
 			expectedCalls: 1,
@@ -97,12 +97,12 @@ func TestRetryInterceptor(t *testing.T) {
 
 			// Track number of calls
 			calls := 0
-			next := func() *runtime.Result {
+			next := func(ctx context.Context) (*runtime.Result, context.Context) {
 				calls++
-				return tt.nextFunc()
+				return tt.nextFunc(ctx)
 			}
 
-			result := interceptor.Handle(ctx, next)
+			result, _ := interceptor.Handle(ctx, next)
 
 			// Verify results
 			if tt.expectedError != nil {

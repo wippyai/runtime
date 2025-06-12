@@ -25,10 +25,10 @@ func NewOTelInterceptor() *OTelInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *OTelInterceptor) Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result {
+func (i *OTelInterceptor) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
 	if i.tracer == nil {
 		// If tracer is not initialized, just return the result
-		return next()
+		return next(ctx)
 	}
 
 	// Get PID from context first
@@ -58,13 +58,13 @@ func (i *OTelInterceptor) Handle(ctx context.Context, next func() *runtime.Resul
 	}
 
 	// Pass updated context to next
-	result := next()
+	result, newCtx := next(ctx)
 	if result != nil && result.Error != nil {
 		span.RecordError(result.Error)
 		span.SetStatus(codes.Error, result.Error.Error())
 	}
 
-	return result
+	return result, newCtx
 }
 
 // Format implements the payload.Payload interface

@@ -10,10 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -31,7 +34,11 @@ const (
 // ensureOTelServicesRunning checks if OpenTelemetry services are running
 func ensureOTelServicesRunning(t *testing.T) {
 	// Check if Tempo is running
-	resp, err := http.Get(fmt.Sprintf("http://%s/ready", tempoEndpoint))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("http://%s/ready", tempoEndpoint), nil)
+	if err != nil {
+		t.Skip("Failed to create request for Tempo check, skipping integration test")
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Skip("Tempo is not running, skipping integration test")
 	}
@@ -64,7 +71,11 @@ func ensureOTelServicesRunning(t *testing.T) {
 		sdktrace.WithResource(res),
 	)
 	otel.SetTracerProvider(tp)
-	defer tp.Shutdown(ctx)
+	defer func() {
+		if err := tp.Shutdown(ctx); err != nil {
+			t.Logf("Error shutting down tracer provider: %v", err)
+		}
+	}()
 
 	// Create and end a test span to verify tracing works
 	_, span := otel.Tracer("test").Start(ctx, "otel_service_test")
@@ -74,7 +85,7 @@ func ensureOTelServicesRunning(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Verify the test span was exported
-	traceResp, err := queryTraces(t, serviceName, time.Now().Add(-5*time.Second))
+	traceResp, err := queryTraces(context.Background(), serviceName, time.Now().Add(-5*time.Second))
 	if err != nil || len(traceResp.Data.Spans) == 0 {
 		t.Skip("OpenTelemetry service is not properly exporting traces, skipping integration test")
 	}
@@ -112,15 +123,21 @@ type TraceResponse struct {
 }
 
 // queryTraces queries Tempo API for traces
-func queryTraces(t *testing.T, serviceName string, startTime time.Time) (*TraceResponse, error) {
+func queryTraces(ctx context.Context, serviceName string, startTime time.Time) (*TraceResponse, error) {
 	// Convert startTime to Unix timestamp in microseconds
 	startTimeUnix := startTime.UnixNano() / 1000
 
 	// Build the query URL
 	url := fmt.Sprintf("http://%s/api/search?service=%s&start=%d", tempoEndpoint, serviceName, startTimeUnix)
 
+	// Create request with context
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
 	// Make the request
-	resp, err := http.Get(url)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query traces: %w", err)
 	}
@@ -185,73 +202,17 @@ func TestOTelInterceptorWithRealExporter(t *testing.T) {
 
 	// Setup real OTLP exporter
 	cleanup := setupOTelExporter(t)
-	defer cleanup()
+	defer func() {
+		if cleanup != nil {
+			cleanup()
+		}
+	}()
 
 	// Create interceptor
 	interceptor := NewOTelInterceptor()
 
-	// Record start time for querying traces
-	startTime := time.Now()
-
-	// Create a test context with a parent span
-	ctx, parentSpan := otel.Tracer("test").Start(context.Background(), "parent_span")
-	defer parentSpan.End()
-
-	// Add some attributes to make it easier to find in UI
-	parentSpan.SetAttributes(semconv.ServiceNameKey.String("test-service"))
-
-	// Execute test function
-	result := interceptor.Handle(ctx, func() *runtime.Result {
-		return &runtime.Result{
-			Error: errors.New("test error"),
-		}
-	})
-
-	// Verify result
-	assert.NotNil(t, result)
-	assert.Error(t, result.Error)
-
-	// Give some time for the trace to be exported
-	time.Sleep(2 * time.Second)
-
-	// Query traces via API
-	traceResp, err := queryTraces(t, serviceName, startTime)
-	require.NoError(t, err)
-	require.NotEmpty(t, traceResp.Data.Spans, "should find at least one span")
-
-	// Verify spans
-	var foundParentSpan, foundChildSpan bool
-	for _, span := range traceResp.Data.Spans {
-		switch span.OperationName {
-		case "parent_span":
-			foundParentSpan = true
-			assert.Equal(t, "test-service", span.Tags["service.name"])
-		case "function_execution":
-			foundChildSpan = true
-			assert.Equal(t, serviceName, span.Tags["service.name"])
-			assert.Equal(t, "2", span.Status.Code) // Error status code
-			assert.Contains(t, span.Status.Message, "test error")
-		}
-	}
-
-	assert.True(t, foundParentSpan, "should find parent span")
-	assert.True(t, foundChildSpan, "should find child span")
-}
-
-func TestOTelInterceptor(t *testing.T) {
-	t.SkipNow()
-
-	// Create a test exporter to capture spans
-	exporter := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-	)
-	otel.SetTracerProvider(tp)
-	defer tp.Shutdown(context.Background())
-
-	interceptor := NewOTelInterceptor()
-
-	tests := []struct {
+	// Test cases for different scenarios
+	testCases := []struct {
 		name          string
 		nextFunc      func() *runtime.Result
 		expectedError error
@@ -283,17 +244,116 @@ func TestOTelInterceptor(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Clear spans from previous test
-			exporter.Reset()
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Record start time for querying traces
+			startTime := time.Now()
 
-			// Create a new context with a parent span
-			ctx, parentSpan := tp.Tracer("test").Start(context.Background(), "parent_span")
+			// Create a test context with a parent span
+			ctx, parentSpan := otel.Tracer("test").Start(context.Background(), "parent_span")
 			defer parentSpan.End()
 
+			// Add some attributes to make it easier to find in UI
+			parentSpan.SetAttributes(semconv.ServiceNameKey.String("test-service"))
+
+			// Execute test function
+			result, _ := interceptor.Handle(ctx, func(ctx context.Context) (*runtime.Result, context.Context) {
+				return tc.nextFunc(), ctx
+			})
+
+			// Verify result
+			assert.NotNil(t, result)
+			if tc.expectedError != nil {
+				assert.Error(t, result.Error)
+				assert.Equal(t, tc.expectedError.Error(), result.Error.Error())
+			} else {
+				assert.NoError(t, result.Error)
+			}
+
+			// Give some time for the trace to be exported
+			time.Sleep(2 * time.Second)
+
+			// Query traces via API
+			traceResp, err := queryTraces(context.Background(), serviceName, startTime)
+			require.NoError(t, err)
+			require.NotEmpty(t, traceResp.Data.Spans, "should find at least one span")
+
+			// Verify spans
+			var foundParentSpan, foundChildSpan bool
+			for _, span := range traceResp.Data.Spans {
+				switch span.OperationName {
+				case "parent_span":
+					foundParentSpan = true
+					assert.Equal(t, "test-service", span.Tags["service.name"])
+				case "function_execution":
+					foundChildSpan = true
+					assert.Equal(t, serviceName, span.Tags["service.name"])
+					if tc.expectedError != nil {
+						assert.Equal(t, "2", span.Status.Code) // Error status code
+						assert.Contains(t, span.Status.Message, tc.expectedError.Error())
+					} else {
+						assert.Equal(t, "1", span.Status.Code) // Success status code
+					}
+				}
+			}
+
+			assert.True(t, foundParentSpan, "should find parent span")
+			assert.True(t, foundChildSpan, "should find child span")
+		})
+	}
+}
+
+func TestOTelInterceptor(t *testing.T) {
+	// Create a test exporter to capture spans
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+	)
+	otel.SetTracerProvider(tp)
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			t.Logf("Error shutting down tracer provider: %v", err)
+		}
+	}()
+
+	interceptor := NewOTelInterceptor()
+
+	tests := []struct {
+		name          string
+		nextFunc      func(context.Context) (*runtime.Result, context.Context)
+		expectedError error
+		description   string
+	}{
+		{
+			name: "successful execution",
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return &runtime.Result{}, ctx
+			},
+			expectedError: nil,
+			description:   "should create a span for successful execution",
+		},
+		{
+			name: "error execution",
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return &runtime.Result{Error: errors.New("test error")}, ctx
+			},
+			expectedError: errors.New("test error"),
+			description:   "should record error in span",
+		},
+		{
+			name: "nil result",
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return nil, ctx
+			},
+			expectedError: nil,
+			description:   "should handle nil result",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			// Execute the interceptor
-			result := interceptor.Handle(ctx, tt.nextFunc)
+			result, _ := interceptor.Handle(context.Background(), tt.nextFunc)
 
 			// Verify the result
 			if tt.expectedError != nil {
@@ -302,37 +362,22 @@ func TestOTelInterceptor(t *testing.T) {
 			} else {
 				assert.NoError(t, result.Error)
 			}
-
-			// Get the spans
-			spans := exporter.GetSpans()
-			require.Len(t, spans, 1, "should have one span")
-
-			span := spans[0]
-			assert.Equal(t, "function_execution", span.Name, "span name should be 'function_execution'")
-
-			// Verify span status
-			if tt.expectedError != nil {
-				assert.Equal(t, codes.Error, span.Status.Code, "span status should be Error")
-				assert.Equal(t, tt.expectedError.Error(), span.Status.Description, "span status description should match error")
-			} else {
-				assert.Equal(t, codes.Ok, span.Status.Code, "span status should be Ok")
-			}
-
-			// Verify parent-child relationship
-			assert.Equal(t, parentSpan.SpanContext().SpanID(), span.Parent.SpanID, "span should have correct parent")
 		})
 	}
 }
 
 func TestOTelInterceptorContextPropagation(t *testing.T) {
-	t.SkipNow()
 	// Create a test exporter to capture spans
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 	)
 	otel.SetTracerProvider(tp)
-	defer tp.Shutdown(context.Background())
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			t.Logf("Error shutting down tracer provider: %v", err)
+		}
+	}()
 
 	interceptor := NewOTelInterceptor()
 
@@ -341,8 +386,8 @@ func TestOTelInterceptorContextPropagation(t *testing.T) {
 	defer parentSpan.End()
 
 	// Execute the interceptor
-	result := interceptor.Handle(ctx, func() *runtime.Result {
-		return &runtime.Result{}
+	result, _ := interceptor.Handle(ctx, func(ctx context.Context) (*runtime.Result, context.Context) {
+		return &runtime.Result{}, ctx
 	})
 	assert.NoError(t, result.Error)
 
@@ -357,14 +402,17 @@ func TestOTelInterceptorContextPropagation(t *testing.T) {
 }
 
 func TestOTelInterceptorMultipleSpans(t *testing.T) {
-	t.SkipNow()
 	// Create a test exporter to capture spans
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 	)
 	otel.SetTracerProvider(tp)
-	defer tp.Shutdown(context.Background())
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			t.Logf("Error shutting down tracer provider: %v", err)
+		}
+	}()
 
 	interceptor := NewOTelInterceptor()
 
@@ -372,27 +420,91 @@ func TestOTelInterceptorMultipleSpans(t *testing.T) {
 	ctx, parentSpan := tp.Tracer("test").Start(context.Background(), "parent_span")
 	defer parentSpan.End()
 
-	// Execute multiple operations
-	for i := 0; i < 3; i++ {
-		result := interceptor.Handle(ctx, func() *runtime.Result {
-			return &runtime.Result{}
-		})
-		assert.NoError(t, result.Error)
+	// Add some attributes to the parent span
+	parentSpan.SetAttributes(attribute.String("test.attribute", "test-value"))
+
+	// Test cases for multiple operations
+	testCases := []struct {
+		name          string
+		nextFunc      func(context.Context) (*runtime.Result, context.Context)
+		expectedError error
+	}{
+		{
+			name: "successful operation",
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return &runtime.Result{}, ctx
+			},
+			expectedError: nil,
+		},
+		{
+			name: "error operation",
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return &runtime.Result{Error: errors.New("test error")}, ctx
+			},
+			expectedError: errors.New("test error"),
+		},
+		{
+			name: "nil result",
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return nil, ctx
+			},
+			expectedError: nil,
+		},
 	}
 
-	// Get the spans
-	spans := exporter.GetSpans()
-	require.Len(t, spans, 3, "should have three spans")
+	// Execute multiple operations
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Clear spans from previous test
+			exporter.Reset()
 
-	// Verify each span
-	for i, span := range spans {
-		assert.Equal(t, "function_execution", span.Name, "span %d name should be 'function_execution'", i)
-		assert.Equal(t, parentSpan.SpanContext().SpanID(), span.Parent.SpanID, "span %d should have correct parent", i)
-		assert.Equal(t, codes.Ok, span.Status.Code, "span %d status should be Ok", i)
+			// Execute the interceptor
+			result, _ := interceptor.Handle(ctx, tc.nextFunc)
+
+			// Verify the result
+			if tc.expectedError != nil {
+				assert.Error(t, result.Error)
+				assert.Equal(t, tc.expectedError.Error(), result.Error.Error())
+			} else {
+				assert.NoError(t, result.Error)
+			}
+
+			// Get the spans
+			spans := exporter.GetSpans()
+			require.Len(t, spans, 1, "should have one span")
+
+			// Verify the span
+			span := spans[0]
+			assert.Equal(t, "function_execution", span.Name, "span name should be 'function_execution'")
+			assert.Equal(t, parentSpan.SpanContext().SpanID(), span.Parent.SpanID, "span should have correct parent")
+
+			// Verify span status
+			if tc.expectedError != nil {
+				assert.Equal(t, codes.Error, span.Status.Code, "span status should be Error")
+				assert.Equal(t, tc.expectedError.Error(), span.Status.Description, "span status description should match error")
+			} else {
+				assert.Equal(t, codes.Ok, span.Status.Code, "span status should be Ok")
+			}
+
+			// Verify span attributes
+			assert.Contains(t, span.Attributes, attribute.String("test.attribute", "test-value"))
+		})
 	}
 }
 
 func TestOTelInterceptorBasic(t *testing.T) {
+	// Create a test exporter to capture spans
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+	)
+	otel.SetTracerProvider(tp)
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			t.Logf("Error shutting down tracer provider: %v", err)
+		}
+	}()
+
 	// Create a new OTel interceptor
 	interceptor := NewOTelInterceptor()
 
@@ -407,9 +519,18 @@ func TestOTelInterceptorBasic(t *testing.T) {
 			}
 		}
 
-		result := interceptor.Handle(ctx, successFunc)
+		result, _ := interceptor.Handle(ctx, func(ctx context.Context) (*runtime.Result, context.Context) {
+			return successFunc(), ctx
+		})
 		assert.NotNil(t, result)
 		assert.Nil(t, result.Error)
+
+		// Verify span was created
+		spans := exporter.GetSpans()
+		require.Len(t, spans, 1, "should have one span")
+		span := spans[0]
+		assert.Equal(t, "function_execution", span.Name, "span name should be 'function_execution'")
+		assert.Equal(t, codes.Ok, span.Status.Code, "span status should be Ok")
 	})
 
 	// Test error execution
@@ -420,9 +541,146 @@ func TestOTelInterceptorBasic(t *testing.T) {
 			}
 		}
 
-		result := interceptor.Handle(ctx, errorFunc)
+		result, _ := interceptor.Handle(ctx, func(ctx context.Context) (*runtime.Result, context.Context) {
+			return errorFunc(), ctx
+		})
 		assert.NotNil(t, result)
 		assert.NotNil(t, result.Error)
 		assert.Equal(t, assert.AnError, result.Error)
+
+		// Verify span was created with error
+		spans := exporter.GetSpans()
+		require.Len(t, spans, 1, "should have one span")
+		span := spans[0]
+		assert.Equal(t, "function_execution", span.Name, "span name should be 'function_execution'")
+		assert.Equal(t, codes.Error, span.Status.Code, "span status should be Error")
+		assert.Equal(t, assert.AnError.Error(), span.Status.Description, "span status description should match error")
 	})
+}
+
+func TestOTelInterceptorWithExistingSpan(t *testing.T) {
+	// Create a test exporter to capture spans
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+	)
+	otel.SetTracerProvider(tp)
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			t.Logf("Error shutting down tracer provider: %v", err)
+		}
+	}()
+
+	interceptor := NewOTelInterceptor()
+
+	// Create a parent span
+	ctx, parentSpan := tp.Tracer("test").Start(context.Background(), "parent")
+	defer parentSpan.End()
+
+	// Execute the interceptor
+	result, _ := interceptor.Handle(ctx, func(ctx context.Context) (*runtime.Result, context.Context) {
+		return &runtime.Result{}, ctx
+	})
+	assert.NoError(t, result.Error)
+
+	// Verify that a child span was created
+	spans := exporter.GetSpans()
+	assert.Len(t, spans, 2)
+	assert.Equal(t, "parent", spans[0].Name)
+	assert.Equal(t, "function_execution", spans[1].Name)
+}
+
+func TestOTelInterceptorWithPID(t *testing.T) {
+	// Create a test exporter to capture spans
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+	)
+	otel.SetTracerProvider(tp)
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			t.Logf("Error shutting down tracer provider: %v", err)
+		}
+	}()
+
+	interceptor := NewOTelInterceptor()
+
+	// Create a context with PID
+	pid := pubsub.PID{
+		Node:   "test-node",
+		Host:   "test-host",
+		ID:     registry.ID{NS: "test", Name: "test-id"},
+		UniqID: "test-uniq",
+	}
+	ctx := pubsub.WithPID(context.Background(), pid)
+
+	testCases := []struct {
+		name          string
+		nextFunc      func(context.Context) (*runtime.Result, context.Context)
+		expectedError error
+	}{
+		{
+			name: "successful operation",
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return &runtime.Result{}, ctx
+			},
+			expectedError: nil,
+		},
+		{
+			name: "error operation",
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return &runtime.Result{Error: errors.New("test error")}, ctx
+			},
+			expectedError: errors.New("test error"),
+		},
+		{
+			name: "nil result",
+			nextFunc: func(ctx context.Context) (*runtime.Result, context.Context) {
+				return nil, ctx
+			},
+			expectedError: nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Execute the interceptor
+			result, _ := interceptor.Handle(ctx, tc.nextFunc)
+
+			// Verify the result
+			if tc.expectedError != nil {
+				assert.Error(t, result.Error)
+				assert.Equal(t, tc.expectedError.Error(), result.Error.Error())
+			} else {
+				assert.NoError(t, result.Error)
+			}
+
+			// Verify that the span was created with PID attributes
+			spans := exporter.GetSpans()
+			assert.Len(t, spans, 1)
+			assert.Equal(t, "test-id", spans[0].Name)
+			assert.Equal(t, "test-id", spans[0].Attributes[0].Value.AsString())
+		})
+	}
+}
+
+func TestOTelInterceptorWithNilTracer(t *testing.T) {
+	interceptor := &OTelInterceptor{
+		tracer: nil,
+	}
+
+	// Test successful operation
+	successFunc := func(ctx context.Context) (*runtime.Result, context.Context) {
+		return &runtime.Result{}, ctx
+	}
+	result, _ := interceptor.Handle(context.Background(), successFunc)
+	assert.NoError(t, result.Error)
+
+	// Test error operation
+	errorFunc := func(ctx context.Context) (*runtime.Result, context.Context) {
+		return &runtime.Result{Error: errors.New("test error")}, ctx
+	}
+	result, _ = interceptor.Handle(context.Background(), errorFunc)
+	assert.Error(t, result.Error)
+	assert.Equal(t, "test error", result.Error.Error())
 }

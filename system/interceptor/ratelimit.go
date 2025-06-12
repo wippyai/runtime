@@ -28,18 +28,18 @@ func NewRateLimitInterceptor(cache *expirable.LRU[string, *rate.Limiter]) *RateL
 }
 
 // Handle implements the interceptor interface
-func (i *RateLimitInterceptor) Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result {
+func (i *RateLimitInterceptor) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
 	options := apiinterceptor.GetOptionsFromContext(ctx)
 
 	// If requests per second is 0, skip rate limiting
 	if options.RateLimit.RequestsPerSecond == 0 {
-		return next()
+		return next(ctx)
 	}
 
 	pid, ok := pubsub.GetPID(ctx)
 	if !ok {
 		// Handle case where PID is not found in context
-		return &runtime.Result{Error: fmt.Errorf("PID not found in context")}
+		return &runtime.Result{Error: fmt.Errorf("PID not found in context")}, ctx
 	}
 
 	// Get actor ID from context, use empty string if not present
@@ -75,10 +75,10 @@ func (i *RateLimitInterceptor) Handle(ctx context.Context, next func() *runtime.
 	// Wait for rate limit with context cancellation
 	err := limiter.Wait(ctx)
 	if err != nil {
-		return &runtime.Result{Error: err}
+		return &runtime.Result{Error: err}, ctx
 	}
 
-	return next()
+	return next(ctx)
 }
 
 // Format implements the payload.Payload interface

@@ -1,56 +1,50 @@
 local http = require("http")
+local otel = require("otel")
+local child_spans = require("child_spans")
 
--- Main handler function
-local function handler()
-    -- Get response object
-    local res = http.response()
-    if not res then
-        return nil, "Failed to create HTTP response"
-    end
-
-    -- Create a simple HTML response
+local function handler(ctx, req, res)
+    -- Create response
     local html = [[
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Interceptor Demo</title>
+            <title>OpenTelemetry Demo</title>
             <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    margin: 40px;
-                    line-height: 1.6;
-                }
-                .container {
-                    max-width: 800px;
-                    margin: 0 auto;
-                    padding: 20px;
-                    border: 1px solid #ddd;
-                    border-radius: 5px;
-                }
-                h1 {
-                    color: #333;
-                }
+                body { font-family: Arial, sans-serif; margin: 40px; }
+                h1 { color: #333; }
+                .info { background: #f5f5f5; padding: 20px; border-radius: 5px; }
             </style>
         </head>
         <body>
-            <div class="container">
-                <h1>Interceptor Demo Page</h1>
-                <p>This is a demo page showing the OpenTelemetry interceptor in action.</p>
-                <p>The page is being served with tracing enabled.</p>
+            <h1>OpenTelemetry Demo</h1>
+            <div class="info">
+                <p>This page demonstrates OpenTelemetry instrumentation.</p>
+                <p>Check your tracing backend to see the span attributes and events.</p>
             </div>
         </body>
         </html>
     ]]
 
-    -- Set the HTML content
-    res:set_content_type("text/html")
-    res:write(html)
+    -- Process the HTML content with child spans
+    local processed_html = child_spans.process(ctx, html)
 
-    -- Set up response status
-    res:set_status(http.STATUS.OK)
+    -- Send response
+    if res then
+        res:set_header("Content-Type", "text/html")
+        res:write(processed_html)
+        res:flush()
+    end
 
-    -- Ensure the response is sent
-    res:flush()
+    -- Add response attributes and events
+    otel.attribute("http.status_code", 200)
+    otel.attribute("http.content_length", #processed_html)
+    otel.event("response_sent", {
+        content_type = "text/html",
+        content_length = #processed_html
+    })
+
+    -- Mark span as successful
+    otel.status(1, "Request processed successfully")
 end
 
 return {

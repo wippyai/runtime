@@ -88,7 +88,10 @@ func TestRateLimitInterceptor(t *testing.T) {
 			}
 			ctx = apiinterceptor.WithOptions(ctx, options)
 
-			result := interceptor.Handle(ctx, tt.nextFunc)
+			// Execute the interceptor
+			result, _ := interceptor.Handle(ctx, func(ctx context.Context) (*runtime.Result, context.Context) {
+				return tt.nextFunc(), ctx
+			})
 
 			if tt.expectedError != nil {
 				assert.Error(t, result.Error)
@@ -131,7 +134,9 @@ func TestRateLimitInterceptorConcurrent(t *testing.T) {
 			<-start // Wait for start signal
 			ctx := pubsub.WithPID(context.Background(), pid)
 			ctx = apiinterceptor.WithOptions(ctx, options)
-			results[idx] = interceptor.Handle(ctx, func() *runtime.Result { return &runtime.Result{} })
+			results[idx], _ = interceptor.Handle(ctx, func(ctx context.Context) (*runtime.Result, context.Context) {
+				return &runtime.Result{}, ctx
+			})
 			done <- struct{}{}
 		}(i)
 	}
@@ -177,7 +182,9 @@ func TestRateLimitInterceptorTiming(t *testing.T) {
 			<-start // Wait for start signal
 			ctx := pubsub.WithPID(context.Background(), pid)
 			ctx = apiinterceptor.WithOptions(ctx, options)
-			results[idx] = interceptor.Handle(ctx, func() *runtime.Result { return &runtime.Result{} })
+			results[idx], _ = interceptor.Handle(ctx, func(ctx context.Context) (*runtime.Result, context.Context) {
+				return &runtime.Result{}, ctx
+			})
 			done <- struct{}{}
 		}(i)
 	}

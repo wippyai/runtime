@@ -282,7 +282,7 @@ func (c Chain) Execute(ctx context.Context, f function.Func, task runtime.Task) 
 
 	// Create a next function that will be passed to each interceptor
 	next := c.getNext(ctx, resultChan, 0, f, task)
-	result := next()
+	result, _ := next(ctx)
 	if result != nil && result.Error != nil {
 		close(resultChan)
 		return nil, result.Error
@@ -293,34 +293,34 @@ func (c Chain) Execute(ctx context.Context, f function.Func, task runtime.Task) 
 	return resultChan, nil
 }
 
-func (c Chain) getNext(ctx context.Context, resultChan chan *runtime.Result, index int, f function.Func, task runtime.Task) func() *runtime.Result {
+func (c Chain) getNext(_ context.Context, resultChan chan *runtime.Result, index int, f function.Func, task runtime.Task) func(context.Context) (*runtime.Result, context.Context) {
 	if index >= len(c.interceptors) {
-		return func() *runtime.Result {
+		return func(ctx context.Context) (*runtime.Result, context.Context) {
 			// All interceptors have been executed, now run the actual function
 			ch, err := f(ctx, task)
 			if err != nil {
-				fmt.Printf("function returned error: %+v\n", err)
-				return &runtime.Result{Error: err}
+				return &runtime.Result{Error: err}, ctx
 			}
 
 			// Forward the result from the function's channel to our result channel
 			result := <-ch
 			if result != nil && result.Error != nil {
-				return result
+				return result, ctx
 			}
 
-			fmt.Printf("forwarding function result through interceptor chain: %+v\n", result)
-
-			return result
+			return result, ctx
 		}
 	}
 
 	interceptor := c.interceptors[index]
 
-	return func() *runtime.Result {
-		return interceptor.Handle(
-			ctx,
-			c.getNext(ctx, resultChan, index+1, f, task),
-		)
+	return func(ctx context.Context) (*runtime.Result, context.Context) {
+		// Get the next function in the chain, always passing the latest context
+		nextFn := c.getNext(ctx, resultChan, index+1, f, task)
+
+		// Execute the current interceptor with the next function
+		result, newCtx := interceptor.Handle(ctx, nextFn)
+
+		return result, newCtx
 	}
 }

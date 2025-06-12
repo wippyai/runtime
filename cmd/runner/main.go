@@ -65,6 +65,7 @@ import (
 	jsonmod "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ostime"
+	otelmod "github.com/ponyruntime/pony/runtime/lua/modules/otel"
 	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
 	processmodapi "github.com/ponyruntime/pony/runtime/lua/modules/processmod"
@@ -1057,6 +1058,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				excel.NewModule(a.logger.Named("excel")),
 				cloudstorage.NewModule(),
 				system.NewSystemModule(),
+				otelmod.NewOTelModule(),
 			},
 			ProtoCacheSize: 600,
 			MainCacheSize:  100,

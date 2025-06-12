@@ -16,8 +16,8 @@ func NewNopInterceptor() *NopInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *NopInterceptor) Handle(_ context.Context, next func() *runtime.Result) *runtime.Result {
-	return next()
+func (i *NopInterceptor) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
+	return next(ctx)
 }
 
 // Format implements the payload.Payload interface

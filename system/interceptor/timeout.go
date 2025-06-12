@@ -19,16 +19,15 @@ func NewTimeoutInterceptor() *TimeoutInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *TimeoutInterceptor) Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result {
+func (i *TimeoutInterceptor) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
 	// Create config and apply options
-
 	options := apiinterceptor.GetOptionsFromContext(ctx)
 
 	// Use configured timeout or fallback to default
 	timeout := options.Timeout.Timeout
 	// If timeout is 0, skip timeout
 	if timeout == 0 {
-		return next()
+		return next(ctx)
 	}
 
 	// Create a timeout context
@@ -37,10 +36,13 @@ func (i *TimeoutInterceptor) Handle(ctx context.Context, next func() *runtime.Re
 
 	// Create a channel to receive the result
 	resultChan := make(chan *runtime.Result, 1)
+	contextChan := make(chan context.Context, 1)
 
 	// Execute the next interceptor in a goroutine
 	go func() {
-		resultChan <- next()
+		result, newCtx := next(timeoutCtx)
+		resultChan <- result
+		contextChan <- newCtx
 	}()
 
 	// Wait for either the timeout or the result
@@ -50,18 +52,19 @@ func (i *TimeoutInterceptor) Handle(ctx context.Context, next func() *runtime.Re
 			// Check if the original context is also done
 			select {
 			case <-ctx.Done():
-				return &runtime.Result{Error: ctx.Err()}
+				return &runtime.Result{Error: ctx.Err()}, ctx
 			default:
 				cancelFunc := apiinterceptor.GetCancelFromContext(ctx)
 				cancelFunc()
 
-				return &runtime.Result{Error: fmt.Errorf("operation timed out after %dms", time.Duration(timeout)/time.Millisecond)}
+				return &runtime.Result{Error: fmt.Errorf("operation timed out after %dms", time.Duration(timeout)/time.Millisecond)}, ctx
 			}
 		}
 
-		return &runtime.Result{Error: timeoutCtx.Err()}
+		return &runtime.Result{Error: timeoutCtx.Err()}, ctx
 	case result := <-resultChan:
-		return result
+		newCtx := <-contextChan
+		return result, newCtx
 	}
 }
 

@@ -2,6 +2,7 @@ package interceptor
 
 import (
 	"context"
+
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -17,7 +18,7 @@ func NewRetryInterceptor() *RetryInterceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *RetryInterceptor) Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result {
+func (i *RetryInterceptor) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
 	attempt := 0
 
 	options := apiinterceptor.GetOptionsFromContext(ctx)
@@ -27,24 +28,24 @@ func (i *RetryInterceptor) Handle(ctx context.Context, next func() *runtime.Resu
 
 	// If max attempts is 0, skip retry
 	if maxAttempts == 0 {
-		return next()
+		return next(ctx)
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			return &runtime.Result{Error: ctx.Err()}
+			return &runtime.Result{Error: ctx.Err()}, ctx
 		default:
-			result := next()
+			result, newCtx := next(ctx)
 
 			// If no error and no retryable status, return success
 			if result == nil || result.Error == nil {
-				return result
+				return result, newCtx
 			}
 
 			attempt++
 			if attempt >= maxAttempts {
-				return result
+				return result, newCtx
 			}
 
 			// Continue immediately to next attempt

@@ -98,7 +98,9 @@ func TestTimeoutInterceptor(t *testing.T) {
 			ctx = apiinterceptor.WithOptions(ctx, options)
 
 			// Execute the interceptor
-			result := interceptor.Handle(ctx, tt.nextFunc)
+			result, _ := interceptor.Handle(ctx, func(ctx context.Context) (*runtime.Result, context.Context) {
+				return tt.nextFunc(), ctx
+			})
 
 			// Verify the result
 			if tt.expectedError != nil {
@@ -132,9 +134,9 @@ func TestTimeoutInterceptorCancelPropagation(t *testing.T) {
 	ctx = apiinterceptor.WithOptions(ctx, options)
 
 	// Execute with delay exceeding timeout
-	result := interceptor.Handle(ctx, func() *runtime.Result {
+	result, _ := interceptor.Handle(ctx, func(ctx context.Context) (*runtime.Result, context.Context) {
 		time.Sleep(200 * time.Millisecond)
-		return &runtime.Result{}
+		return &runtime.Result{}, ctx
 	})
 
 	// Verify timeout occurred and cancel was called
