@@ -38,32 +38,18 @@ const (
 
 	// RaftLeaderLostEventKind is emitted by the node that just stepped down.
 	RaftLeaderLostEventKind event.Kind = "raft.leader.lost"
-
-	// NodeJoined marks the arrival of a previously unseen node.
-	NodeJoined NodeEventType = iota
-
-	// NodeLeft marks that a node has permanently left the cluster.
-	NodeLeft
-
-	// NodeUpdated marks a change in a node’s advertised metadata.
-	NodeUpdated
 )
 
 /*
 Types
 --------------------------------------------------------------------------
-NodeEventType – enumeration of membership transitions.
 NodeEvent     – payload for membership events.
 Change        – payload for KV put / delete events.
 */
 type (
-	// NodeEventType categorises the kind of membership transition.
-	NodeEventType int
-
 	// NodeEvent carries information about a node join/leave/update.
 	NodeEvent struct {
-		Type NodeEventType // one of NodeJoined, NodeLeft, NodeUpdated
-		Node NodeInfo      // snapshot of the node at event time
+		Node NodeInfo // snapshot of the node at event time
 	}
 
 	// Change describes a single KV mutation.

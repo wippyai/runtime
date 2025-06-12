@@ -59,7 +59,7 @@ build-runner-check:
 # Individual platform targets
 build-runner-linux-amd64:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-amd64 ./cmd/runner/main.go
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-amd64 ./cmd/runner/
 
 build-runner-linux-arm64:
 	mkdir -p ./dist
