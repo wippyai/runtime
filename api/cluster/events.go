@@ -1,48 +1,79 @@
-// Package cluster defines interfaces and types for cluster membership,
-// node discovery, health checking, and associated eventing.
+// Package cluster centralises event-bus metadata that higher-level components
+// use to observe membership changes, leader transitions, and KV mutations.
 package cluster
 
-// NodeEventType indicates the type of change in cluster membership.
-type NodeEventType int
+import "github.com/ponyruntime/pony/api/event"
+
+/*
+   Constants
+   --------------------------------------------------------------------------
+   • System               – topic prefix for every event defined here.
+   • Node*EventKind       – membership lifecycle events.
+   • KV*EventKind         – Raft-backed key/value mutations.
+   • RaftLeader*EventKind – leadership state of the local Raft node.
+   • Node*                – concrete values for NodeEvent.Type.
+*/
 
 const (
-	// NodeJoined indicates a new node's NodeInfo is now available and
-	// the node is considered part of the cluster.
+	// System is the event.System identifier shared by all cluster events.
+	System event.System = "cluster"
+
+	// NodeJoinedEventKind is published when a new node becomes visible.
+	NodeJoinedEventKind event.Kind = "node.joined"
+
+	// NodeLeftEventKind is published when a node departs or becomes unreachable.
+	NodeLeftEventKind event.Kind = "node.left"
+
+	// NodeUpdatedEventKind indicates that a node’s metadata has changed.
+	NodeUpdatedEventKind event.Kind = "node.updated"
+
+	// KVPutEventKind accompanies a successful key creation or update.
+	KVPutEventKind event.Kind = "kv.put"
+
+	// KVDeleteEventKind accompanies a key deletion.
+	KVDeleteEventKind event.Kind = "kv.delete"
+
+	// RaftLeaderElectedEventKind is emitted by the node that just became leader.
+	RaftLeaderElectedEventKind event.Kind = "raft.leader.elected"
+
+	// RaftLeaderLostEventKind is emitted by the node that just stepped down.
+	RaftLeaderLostEventKind event.Kind = "raft.leader.lost"
+
+	// NodeJoined marks the arrival of a previously unseen node.
 	NodeJoined NodeEventType = iota
 
-	// NodeLeft indicates a node is no longer considered part of the cluster,
-	// either due to a graceful leave or being detected as unresponsive.
+	// NodeLeft marks that a node has permanently left the cluster.
 	NodeLeft
 
-	// NodeUpdated indicates that an existing node's NodeInfo, typically
-	// its application-specific Meta field, has changed.
+	// NodeUpdated marks a change in a node’s advertised metadata.
 	NodeUpdated
 )
 
-// NodeEvent represents an event detailing a change in the cluster's membership.
-// Subscribers to Membership.SubscribeToNodeEvents will receive these events.
-type NodeEvent struct {
-	// Type specifies the kind of membership change that occurred.
-	Type NodeEventType
+/*
+Types
+--------------------------------------------------------------------------
+NodeEventType – enumeration of membership transitions.
+NodeEvent     – payload for membership events.
+Change        – payload for KV put / delete events.
+*/
+type (
+	// NodeEventType categorises the kind of membership transition.
+	NodeEventType int
 
-	// Node contains the full NodeInfo of the node affected by this event,
-	// including its current Meta data.
-	Node NodeInfo
-}
+	// NodeEvent carries information about a node join/leave/update.
+	NodeEvent struct {
+		Type NodeEventType // one of NodeJoined, NodeLeft, NodeUpdated
+		Node NodeInfo      // snapshot of the node at event time
+	}
 
-// --- Constants for Event Bus Integration ---
-// These constants are provided for convenience if these cluster events
-// are to be bridged or represented on a more generic, application-wide event bus
-// (e.g., one that uses string identifiers for event systems and kinds).
-
-// System can be used as the system identifier
-// (e.g., event.System) when publishing NodeEvents to a broader event bus.
-const System = "cluster"
-
-// ClusterEventKind defines string constants for specific kinds of cluster events,
-// suitable for use as event.Kind on a broader event bus.
-const (
-	NodeJoinedEventKind  = "node.joined"
-	NodeLeftEventKind    = "node.left"
-	NodeUpdatedEventKind = "node.updated"
+	// Change describes a single KV mutation.
+	//
+	// • Key is always the full absolute key.
+	// • Val is nil for deletions.
+	// • Rev is 0 on delete and the new revision on put.
+	Change struct {
+		Key string
+		Rev uint64
+		Val []byte
+	}
 )
