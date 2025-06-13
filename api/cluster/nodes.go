@@ -2,10 +2,6 @@
 // stream that notifies callers about node joins, leaves, and meta updates.
 package cluster
 
-import (
-	"context"
-)
-
 // NodeID is the stable identifier each node advertises to its peers.
 type NodeID string
 
@@ -29,9 +25,4 @@ type Membership interface {
 	// currently knows about.  The snapshot is consistent with the most recent
 	// membership event the caller has consumed.
 	Nodes() []NodeInfo
-
-	// Subscribe returns a channel that delivers NodeEvent values.  The caller
-	// chooses the channel buffer size.  The channel is closed automatically
-	// when ctx is cancelled, allowing the caller to exit cleanly.
-	Subscribe(ctx context.Context, buffer int) <-chan NodeEvent
 }

@@ -33,11 +33,14 @@ type Config struct {
 	EnableProfiling bool
 
 	// Cluster membership
-	ClusterEnabled bool
-	ClusterName    string
-	ClusterBind    string
-	ClusterPort    int
-	ClusterJoin    string
+	ClusterEnabled    bool
+	ClusterName       string
+	ClusterBind       string
+	ClusterPort       int
+	ClusterJoin       string
+	ClusterSecret     string // Secret as string
+	ClusterSecretFile string // Secret from file
+	ClusterAdvertise  string // Advertise IP
 }
 
 // loadDotEnv loads environment variables from .env files
@@ -83,6 +86,9 @@ func parseFlags() *Config {
 	flag.StringVar(&config.ClusterBind, "cluster-bind", "0.0.0.0", "cluster bind address")
 	flag.IntVar(&config.ClusterPort, "cluster-port", DefaultClusterPort, "cluster bind port")
 	flag.StringVar(&config.ClusterJoin, "cluster-join", "", "comma-separated addresses to join")
+	flag.StringVar(&config.ClusterSecret, "cluster-secret", "", "cluster secret key (base64 encoded string)")
+	flag.StringVar(&config.ClusterSecretFile, "cluster-secret-file", "", "path to file containing cluster secret key")
+	flag.StringVar(&config.ClusterAdvertise, "cluster-advertise", "", "cluster advertise IP address")
 
 	flag.Parse()
 
@@ -101,6 +107,14 @@ func parseFlags() *Config {
 			config.ClusterName = hostname
 		} else {
 			fmt.Printf("Failed to get hostname and no cluster name provided: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// Validate cluster secret configuration
+	if config.ClusterEnabled {
+		if config.ClusterSecret != "" && config.ClusterSecretFile != "" {
+			fmt.Printf("Error: Cannot specify both -cluster-secret and -cluster-secret-file\n")
 			os.Exit(1)
 		}
 	}

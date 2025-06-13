@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	membership "github.com/ponyruntime/pony/cluster/membership"
 	iofs "io/fs"
 	httpbase "net/http"
 	"net/http/pprof"
@@ -82,9 +83,10 @@ type App struct {
 	contractInstantiator *contractsys.Instantiator
 
 	// mesh layer
-	node   *pubsub.NodeManager
-	topo   *topology.Topology
-	pidReg *topology.PIDRegistry
+	node       *pubsub.NodeManager
+	topo       *topology.Topology
+	pidReg     *topology.PIDRegistry
+	membership *membership.Service // cluster membership service
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
@@ -172,10 +174,70 @@ func (a *App) initSingleNodeMesh() error {
 
 // initClusterMesh initializes mesh layer for cluster mode
 func (a *App) initClusterMesh() error {
-	// TODO: Implement cluster mesh initialization
-	// For now, fallback to single node mesh
-	a.logger.Info("cluster mode requested but not implemented yet, using single node mesh")
-	return a.initSingleNodeMesh()
+	// Parse join addresses
+	var joinAddrs []string
+	if a.config.ClusterJoin != "" {
+		for _, addr := range strings.Split(a.config.ClusterJoin, ",") {
+			joinAddrs = append(joinAddrs, strings.TrimSpace(addr))
+		}
+	}
+
+	// Determine secret source
+	var secretFile string
+	if a.config.ClusterSecretFile != "" {
+		secretFile = a.config.ClusterSecretFile
+	}
+
+	// Build node metadata - this is where you can customize what gets shared
+	nodeMeta := a.buildNodeMeta()
+
+	// Create membership service config
+	memberConfig := membership.Config{
+		NodeName:     a.config.ClusterName,
+		BindAddr:     a.config.ClusterBind,
+		BindPort:     a.config.ClusterPort,
+		JoinAddrs:    joinAddrs,
+		SecretFile:   secretFile,
+		SecretString: a.config.ClusterSecret,
+		AdvertiseIP:  a.config.ClusterAdvertise,
+		VeryVerbose:  a.config.VeryVerbose,
+		Meta:         nodeMeta,
+	}
+
+	// Create membership service
+	a.membership = membership.NewService(memberConfig, a.eventBus, a.logger.Named("membership"))
+
+	// Create cluster-aware mesh components
+	nodeName := a.config.ClusterName
+	a.node = pubsub.NewNodeManager(
+		pubsub.NewNode(nodeName, nil), // TODO: could add upstream for multi-cluster
+		a.eventBus,
+		a.logger.Named("pubsub"),
+	)
+
+	a.topo = topology.NewTopology(a.node.Node())
+	a.pidReg = topology.NewPIDRegistry(topology.PIDRegistryConfig{
+		Parent: nil,
+		Logger: a.logger.Named("pid"),
+	})
+
+	a.logger.Info("cluster mesh initialized",
+		zap.String("node_name", nodeName),
+		zap.Strings("join_addresses", joinAddrs),
+		zap.Bool("encryption_enabled", secretFile != "" || a.config.ClusterSecret != ""))
+
+	return nil
+}
+
+// buildNodeMeta creates metadata that gets shared with other cluster nodes
+// This is where you can customize what information gets advertised to the cluster
+func (a *App) buildNodeMeta() membership.NodeMeta {
+	meta := membership.NodeMeta{
+		"version": "1.0.0",
+		"role":    "wippy",
+	}
+
+	return meta
 }
 
 func (a *App) Initialize() error {
@@ -302,6 +364,14 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to start contract registry: %w", err)
 	}
 
+	// Start membership service if cluster enabled
+	if a.config.ClusterEnabled && a.membership != nil {
+		if err := a.membership.Start(appCtx); err != nil {
+			a.cancel()
+			return fmt.Errorf("failed to start membership service: %w", err)
+		}
+	}
+
 	if err := a.node.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start node mesh: %w", err)
@@ -394,6 +464,13 @@ func (a *App) Stop() error {
 
 	if err := a.node.Stop(); err != nil {
 		a.logger.Error("failed to stop node", zap.Error(err))
+	}
+
+	// Stop membership service if cluster enabled
+	if a.config.ClusterEnabled && a.membership != nil {
+		if err := a.membership.Stop(); err != nil {
+			a.logger.Error("failed to stop membership service", zap.Error(err))
+		}
 	}
 
 	if err := a.hosts.Stop(); err != nil {
