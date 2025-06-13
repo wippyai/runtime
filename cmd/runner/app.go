@@ -181,7 +181,6 @@ func (a *App) initSingleNodeMesh() error {
 }
 
 // initClusterMesh initializes mesh layer for cluster mode with internode integration
-// NEW APPROACH: Pre-allocate port before creating membership service
 func (a *App) initClusterMesh() error {
 	// Parse join addresses
 	var joinAddrs []string
@@ -252,7 +251,7 @@ func (a *App) initClusterMesh() error {
 
 	// Create delivery callback
 	deliveryCallback := func(pkg *pubsubapi.Package) error {
-		return localNode.Send(pkg)
+		return localNode.Send(pkg) // todo: decouple it via router
 	}
 
 	// Create internode service
