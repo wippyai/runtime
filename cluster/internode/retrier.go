@@ -155,7 +155,7 @@ func (rs *RetryScheduler) calculateBackoff(attempt int) time.Duration {
 }
 
 // GetRetryStats returns statistics about retry attempts across all nodes.
-func (rs *RetryScheduler) GetRetryStats() map[string]interface{} {
+func (rs *RetryScheduler) GetRetryStats() map[string]any {
 	rs.retryMu.RLock()
 	defer rs.retryMu.RUnlock()
 
@@ -171,7 +171,7 @@ func (rs *RetryScheduler) GetRetryStats() map[string]interface{} {
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"total_nodes":    totalNodes,
 		"active_retries": activeRetries,
 		"total_attempts": totalAttempts,
