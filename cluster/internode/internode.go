@@ -1,4 +1,3 @@
-// file: cluster/internode/service.go
 package internode
 
 import (
@@ -16,18 +15,22 @@ import (
 // DefaultPort is the port this service will advertise for other nodes to connect to.
 const DefaultPort = 7950
 
+// MessageDeliveryCallback is called when a message arrives from a remote node
+// and needs to be delivered to the local pubsub system.
+type MessageDeliveryCallback func(*pubsub.Package) error
+
 // Service orchestrates inter-node communication. It listens for cluster membership
 // events to manage connections and routes pubsub packages to the correct nodes.
 // It implements the pubsub.Receiver interface, acting as an upstream for a local pubsub.Node.
 type Service struct {
-	ctx        context.Context
-	logger     *zap.Logger
-	connMan    ConnectionManager
-	codec      *MessageCodec
-	localNode  pubsub.Node
-	bus        event.Bus
-	membership cluster.Membership
-	subscriber *eventbus.Subscriber
+	ctx              context.Context
+	logger           *zap.Logger
+	connMan          ConnectionManager
+	codec            *MessageCodec
+	deliveryCallback MessageDeliveryCallback // Callback to deliver messages to local node
+	bus              event.Bus
+	membership       cluster.Membership
+	subscriber       *eventbus.Subscriber
 }
 
 // NewService creates a new inter-node service.
@@ -35,17 +38,17 @@ func NewService(
 	logger *zap.Logger,
 	connMan ConnectionManager,
 	codec *MessageCodec,
-	localNode pubsub.Node,
+	deliveryCallback MessageDeliveryCallback,
 	bus event.Bus,
 	membership cluster.Membership,
 ) *Service {
 	return &Service{
-		logger:     logger.Named("internode"),
-		connMan:    connMan,
-		codec:      codec,
-		localNode:  localNode,
-		bus:        bus,
-		membership: membership,
+		logger:           logger.Named("internode"),
+		connMan:          connMan,
+		codec:            codec,
+		deliveryCallback: deliveryCallback,
+		bus:              bus,
+		membership:       membership,
 	}
 }
 
@@ -56,15 +59,16 @@ func (s *Service) Start(ctx context.Context) error {
 	s.logger.Info("Starting inter-node service...")
 
 	// The `onMessage` callback is where data from remote nodes enters our system.
-	onMessage := func(nodeID string, data []byte) {
+	onMessage := func(nodeID cluster.NodeID, data []byte) {
 		pkg, err := s.codec.Decode(data)
 		if err != nil {
-			s.logger.Error("Failed to decode incoming message", zap.String("from_node", nodeID), zap.Error(err))
+			s.logger.Error("Failed to decode incoming message", zap.String("from_node", string(nodeID)), zap.Error(err))
 			return
 		}
-		// Deliver the decoded package to the local node for processing.
-		if err := s.localNode.Send(pkg); err != nil {
-			s.logger.Error("Failed to deliver message from remote node", zap.String("from_node", nodeID), zap.Error(err))
+
+		// Deliver the decoded package to the local node via callback
+		if err := s.deliveryCallback(pkg); err != nil {
+			s.logger.Error("Failed to deliver message from remote node", zap.String("from_node", string(nodeID)), zap.Error(err))
 		}
 	}
 
@@ -103,12 +107,6 @@ func (s *Service) Stop() error {
 // Send implements the pubsub.Receiver interface. This is the entry point
 // for messages from the local node that are destined for other nodes.
 func (s *Service) Send(pkg *pubsub.Package) error {
-	// If the target is the local node, this is a programming error.
-	// The pubsub.Node should handle this case and not forward it upstream.
-	if pkg.Target.Node == s.localNode.ID() {
-		return fmt.Errorf("internode service received package for local node %s", s.localNode.ID())
-	}
-
 	// Encode the package for network transmission.
 	data, err := s.codec.Encode(pkg)
 	if err != nil {
@@ -134,10 +132,10 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 
 	switch e.Kind {
 	case cluster.NodeJoinedEventKind:
-		s.logger.Info("Node joined cluster, ensuring connection", zap.String("node_id", nodeInfo.ID))
+		s.logger.Info("Node joined cluster, ensuring connection", zap.String("node_id", string(nodeInfo.ID)))
 		s.connectToNode(nodeInfo)
 	case cluster.NodeLeftEventKind:
-		s.logger.Info("Node left cluster, disconnecting", zap.String("node_id", nodeInfo.ID))
+		s.logger.Info("Node left cluster, disconnecting", zap.String("node_id", string(nodeInfo.ID)))
 		s.connMan.DisconnectFromNode(nodeInfo.ID)
 	}
 }
@@ -147,12 +145,12 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
 	portStr, ok := nodeInfo.Meta["internode_port"]
 	if !ok {
-		s.logger.Warn("Node joined without 'internode_port' metadata, cannot connect", zap.String("node_id", nodeInfo.ID))
+		s.logger.Warn("Node joined without 'internode_port' metadata, cannot connect", zap.String("node_id", string(nodeInfo.ID)))
 		return
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		s.logger.Error("Invalid 'internode_port' metadata for node", zap.String("node_id", nodeInfo.ID), zap.String("port", portStr))
+		s.logger.Error("Invalid 'internode_port' metadata for node", zap.String("node_id", string(nodeInfo.ID)), zap.String("port", portStr))
 		return
 	}
 

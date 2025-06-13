@@ -1,4 +1,3 @@
-// file: internode/codec.go
 package internode
 
 import (

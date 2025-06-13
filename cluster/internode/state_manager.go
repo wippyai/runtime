@@ -2,38 +2,43 @@ package internode
 
 import (
 	"container/list"
-	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ponyruntime/pony/api/cluster"
 	"go.uber.org/zap"
 )
 
+// nodeAddress holds addressing info atomically
+type nodeAddress struct {
+	addr string
+	port int
+}
+
 // NodeState tracks the state and message queue for a single remote node
 type NodeState struct {
-	// Persistent message queue (survives connection failures)
+	// Persistent message queue (survives connection failures) - KEEP UNBOUNDED!
 	messageQueue *list.List // [][]byte messages in send order
 	queueMu      sync.Mutex
 
-	// Connection management
-	connection *NodeConnection
-	state      ConnectionState
-	stateMu    sync.RWMutex
+	// Message notification for efficient draining (non-blocking)
+	messageNotify chan struct{}
 
-	// Node addressing
-	addr string
-	port int
+	// Connection management - use atomics for lock-free reads
+	connection atomic.Pointer[NodeConnection]
+	state      atomic.Int32 // ConnectionState as int32
 
-	// Coordination
-	isConnecting sync.Mutex // Prevents multiple concurrent connection attempts
+	// Node addressing - atomic for lock-free reads
+	address atomic.Value // stores nodeAddress
+
+	// Coordination - keep mutex as it's not hot path
+	isConnecting sync.Mutex
 }
 
 // NodeStateManager manages the state and message queues for all remote nodes.
-// It provides thread-safe operations for node state management and message queuing.
 type NodeStateManager struct {
-	// Node state tracking - contains both connected and disconnected nodes
-	nodeStates map[cluster.NodeID]*NodeState
-	nodesMu    sync.RWMutex
+	// Node state tracking - use sync.Map for better concurrent access
+	nodeStates sync.Map // cluster.NodeID -> *NodeState
 
 	logger *zap.Logger
 	config ManagerConfig
@@ -42,137 +47,109 @@ type NodeStateManager struct {
 // NewNodeStateManager creates a new NodeStateManager.
 func NewNodeStateManager(config ManagerConfig, logger *zap.Logger) *NodeStateManager {
 	return &NodeStateManager{
-		nodeStates: make(map[cluster.NodeID]*NodeState),
-		logger:     logger.Named("node-state"),
-		config:     config,
+		logger: logger.Named("node"),
+		config: config,
 	}
 }
 
 // GetOrCreateNodeState returns the NodeState for a given node, creating it if necessary.
 func (nsm *NodeStateManager) GetOrCreateNodeState(nodeID cluster.NodeID) *NodeState {
-	nsm.nodesMu.RLock()
-	state, exists := nsm.nodeStates[nodeID]
-	nsm.nodesMu.RUnlock()
-
-	if exists {
-		return state
+	if state, ok := nsm.nodeStates.Load(nodeID); ok {
+		return state.(*NodeState)
 	}
 
 	// Create new state
-	nsm.nodesMu.Lock()
-	defer nsm.nodesMu.Unlock()
+	newState := &NodeState{
+		messageQueue:  list.New(),
+		messageNotify: make(chan struct{}, 1), // Buffered to prevent blocking
+	}
+	newState.state.Store(int32(StateNone))
 
-	// Double-check after acquiring write lock
-	if state, exists := nsm.nodeStates[nodeID]; exists {
-		return state
+	// Try to store, return existing if another goroutine created it first
+	if actual, loaded := nsm.nodeStates.LoadOrStore(nodeID, newState); loaded {
+		return actual.(*NodeState)
 	}
 
-	state = &NodeState{
-		messageQueue: list.New(),
-		state:        StateNone,
-	}
-	nsm.nodeStates[nodeID] = state
-
-	nsm.logger.Debug("Created new node state", zap.String("node", string(nodeID)))
-	return state
+	return newState
 }
 
 // GetNodeState returns the NodeState for a given node, or nil if it doesn't exist.
 func (nsm *NodeStateManager) GetNodeState(nodeID cluster.NodeID) *NodeState {
-	nsm.nodesMu.RLock()
-	defer nsm.nodesMu.RUnlock()
-	return nsm.nodeStates[nodeID]
+	if state, ok := nsm.nodeStates.Load(nodeID); ok {
+		return state.(*NodeState)
+	}
+	return nil
 }
 
 // QueueMessage adds a message to the specified node's queue.
-// This operation never fails (Erlang semantics).
+// This operation never fails (Erlang semantics) - UNBOUNDED queue.
 func (nsm *NodeStateManager) QueueMessage(nodeID cluster.NodeID, data []byte) {
 	state := nsm.GetOrCreateNodeState(nodeID)
 
 	state.queueMu.Lock()
 	state.messageQueue.PushBack(data)
-	queueLen := state.messageQueue.Len()
 	state.queueMu.Unlock()
 
-	// Log large queue growth as it may indicate issues
-	if queueLen%1000 == 1 && queueLen > 1000 {
-		nsm.logger.Warn("Large message queue for node",
-			zap.String("node", string(nodeID)),
-			zap.Int("queue_length", queueLen))
+	// Notify drainer that messages are available (non-blocking)
+	select {
+	case state.messageNotify <- struct{}{}:
+	default:
+		// Channel already has notification, no need to send another
 	}
 }
 
-// SetNodeConnection updates the connection for a node.
+// SetNodeConnection updates the connection for a node using atomics.
 func (nsm *NodeStateManager) SetNodeConnection(nodeID cluster.NodeID, conn *NodeConnection, newState ConnectionState) {
 	state := nsm.GetOrCreateNodeState(nodeID)
 
-	state.stateMu.Lock()
-	defer state.stateMu.Unlock()
-
-	state.connection = conn
-	state.state = newState
-
-	nsm.logger.Debug("Updated node connection state",
-		zap.String("node", string(nodeID)),
-		zap.String("state", newState.String()))
+	state.connection.Store(conn)
+	state.state.Store(int32(newState))
 }
 
-// GetNodeConnection returns the current connection and state for a node.
+// GetNodeConnection returns the current connection and state for a node using atomics.
 func (nsm *NodeStateManager) GetNodeConnection(nodeID cluster.NodeID) (*NodeConnection, ConnectionState) {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
 		return nil, StateNone
 	}
 
-	state.stateMu.RLock()
-	defer state.stateMu.RUnlock()
+	conn := state.connection.Load()
+	stateVal := ConnectionState(state.state.Load())
 
-	return state.connection, state.state
+	return conn, stateVal
 }
 
-// SetNodeState updates the connection state for a node.
+// SetNodeState updates the connection state for a node using atomics.
 func (nsm *NodeStateManager) SetNodeState(nodeID cluster.NodeID, newState ConnectionState) {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
 		return
 	}
 
-	state.stateMu.Lock()
-	defer state.stateMu.Unlock()
-
-	oldState := state.state
-	state.state = newState
-
-	nsm.logger.Debug("Node state transition",
-		zap.String("node", string(nodeID)),
-		zap.String("from", oldState.String()),
-		zap.String("to", newState.String()))
+	state.state.Store(int32(newState))
 }
 
-// UpdateNodeAddress updates the addressing information for a node.
+// UpdateNodeAddress updates the addressing information for a node using atomics.
 func (nsm *NodeStateManager) UpdateNodeAddress(nodeID cluster.NodeID, addr string, port int) {
 	state := nsm.GetOrCreateNodeState(nodeID)
-
-	state.addr = addr
-	state.port = port
-
-	nsm.logger.Debug("Updated node address",
-		zap.String("node", string(nodeID)),
-		zap.String("addr", fmt.Sprintf("%s:%d", addr, port)))
+	state.address.Store(nodeAddress{addr: addr, port: port})
 }
 
-// GetNodeAddress returns the addressing information for a node.
+// GetNodeAddress returns the addressing information for a node using atomics.
 func (nsm *NodeStateManager) GetNodeAddress(nodeID cluster.NodeID) (string, int, bool) {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
 		return "", 0, false
 	}
 
-	return state.addr, state.port, state.addr != "" && state.port != 0
+	if addr, ok := state.address.Load().(nodeAddress); ok {
+		return addr.addr, addr.port, addr.addr != "" && addr.port != 0
+	}
+
+	return "", 0, false
 }
 
 // TryLockConnection attempts to acquire the connection lock for a node.
-// Returns true if successful, false if another goroutine is already connecting.
 func (nsm *NodeStateManager) TryLockConnection(nodeID cluster.NodeID) bool {
 	state := nsm.GetOrCreateNodeState(nodeID)
 	return state.isConnecting.TryLock()
@@ -204,14 +181,49 @@ func (nsm *NodeStateManager) GetNextMessage(nodeID cluster.NodeID) []byte {
 
 	data, ok := elem.Value.([]byte)
 	if !ok {
-		// Invalid message, remove and return nil
 		state.messageQueue.Remove(elem)
-		nsm.logger.Error("Invalid message type in queue", zap.String("node", string(nodeID)))
 		return nil
 	}
 
 	state.messageQueue.Remove(elem)
 	return data
+}
+
+// DrainMessages retrieves multiple messages at once to reduce mutex contention.
+func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) [][]byte {
+	state := nsm.GetNodeState(nodeID)
+	if state == nil {
+		return nil
+	}
+
+	state.queueMu.Lock()
+	defer state.queueMu.Unlock()
+
+	var messages [][]byte
+	for i := 0; i < maxCount && state.messageQueue.Len() > 0; i++ {
+		elem := state.messageQueue.Front()
+		if elem == nil {
+			break
+		}
+
+		if data, ok := elem.Value.([]byte); ok {
+			messages = append(messages, data)
+			state.messageQueue.Remove(elem)
+		} else {
+			state.messageQueue.Remove(elem)
+		}
+	}
+
+	return messages
+}
+
+// GetMessageNotifier returns the notification channel for a node.
+func (nsm *NodeStateManager) GetMessageNotifier(nodeID cluster.NodeID) <-chan struct{} {
+	state := nsm.GetNodeState(nodeID)
+	if state == nil {
+		return nil
+	}
+	return state.messageNotify
 }
 
 // GetQueueLength returns the current queue length for a node.
@@ -247,9 +259,11 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages [][
 		state.messageQueue.PushFront(messages[i])
 	}
 
-	nsm.logger.Debug("Requeued messages",
-		zap.String("node", string(nodeID)),
-		zap.Int("count", len(messages)))
+	// Notify drainer that messages are available (non-blocking)
+	select {
+	case state.messageNotify <- struct{}{}:
+	default:
+	}
 }
 
 // ClearNodeQueue clears all messages for a node (used when node leaves cluster).
@@ -278,50 +292,45 @@ func (nsm *NodeStateManager) CloseNodeConnection(nodeID cluster.NodeID) {
 		return
 	}
 
-	state.stateMu.Lock()
-	defer state.stateMu.Unlock()
-
-	if state.connection != nil {
-		state.connection.Close()
-		state.connection = nil
+	if conn := state.connection.Load(); conn != nil {
+		conn.Close()
+		state.connection.Store(nil)
 	}
 
-	if state.state != StateDead {
-		state.state = StateNone
+	currentState := ConnectionState(state.state.Load())
+	if currentState != StateDead {
+		state.state.Store(int32(StateNone))
 	}
-
-	nsm.logger.Debug("Closed node connection", zap.String("node", string(nodeID)))
 }
 
 // GetConnectedNodes returns a list of currently connected node IDs.
 func (nsm *NodeStateManager) GetConnectedNodes() []cluster.NodeID {
-	nsm.nodesMu.RLock()
-	defer nsm.nodesMu.RUnlock()
-
 	var connected []cluster.NodeID
-	for nodeID, state := range nsm.nodeStates {
-		state.stateMu.RLock()
-		isConnected := state.state == StateConnected
-		state.stateMu.RUnlock()
 
-		if isConnected {
+	nsm.nodeStates.Range(func(key, value interface{}) bool {
+		nodeID := key.(cluster.NodeID)
+		state := value.(*NodeState)
+
+		if ConnectionState(state.state.Load()) == StateConnected {
 			connected = append(connected, nodeID)
 		}
-	}
+		return true
+	})
+
 	return connected
 }
 
 // GetAllNodeStates returns a snapshot of all node states for retry processing.
 func (nsm *NodeStateManager) GetAllNodeStates() map[cluster.NodeID]ConnectionState {
-	nsm.nodesMu.RLock()
-	defer nsm.nodesMu.RUnlock()
-
 	states := make(map[cluster.NodeID]ConnectionState)
-	for nodeID, state := range nsm.nodeStates {
-		state.stateMu.RLock()
-		states[nodeID] = state.state
-		state.stateMu.RUnlock()
-	}
+
+	nsm.nodeStates.Range(func(key, value interface{}) bool {
+		nodeID := key.(cluster.NodeID)
+		state := value.(*NodeState)
+		states[nodeID] = ConnectionState(state.state.Load())
+		return true
+	})
+
 	return states
 }
 

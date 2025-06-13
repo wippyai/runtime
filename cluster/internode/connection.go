@@ -17,6 +17,13 @@ import (
 	"go.uber.org/zap"
 )
 
+var (
+	// ErrConnectionClosed is returned when an operation is attempted on a closed connection.
+	ErrConnectionClosed = errors.New("internode: connection is closed")
+	// ErrMessageTooLarge is returned when a send is attempted on a message that exceeds the configured max size.
+	ErrMessageTooLarge = errors.New("internode: message exceeds max size")
+)
+
 // Constants for the framing protocol and I/O optimization.
 const (
 	// protocolVersion is a single byte prefixed to each frame to ensure
@@ -114,8 +121,6 @@ func (nc *NodeConnection) Run(ctx context.Context, onMessage func(nodeID cluster
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	nc.logger.Debug("Starting connection run loops")
-
 	go func() {
 		defer wg.Done()
 		nc.writeLoop(ctx)
@@ -126,7 +131,6 @@ func (nc *NodeConnection) Run(ctx context.Context, onMessage func(nodeID cluster
 	}()
 
 	wg.Wait()
-	nc.logger.Debug("Connection run loops terminated")
 }
 
 // Send queues a data frame to be sent to the remote node. It follows Erlang semantics:
@@ -135,25 +139,19 @@ func (nc *NodeConnection) Run(ctx context.Context, onMessage func(nodeID cluster
 // - Fails only if connection is already closed
 func (nc *NodeConnection) Send(data []byte) error {
 	if nc.isClosed.Load() {
-		return fmt.Errorf("connection to %s is closed", nc.remoteNodeID)
+		return ErrConnectionClosed
 	}
 
 	select {
 	case nc.outbound <- data:
 		return nil
 	case <-nc.shutdown:
-		return fmt.Errorf("connection to %s is closed", nc.remoteNodeID)
+		return ErrConnectionClosed
 	default:
 		// Main buffer is full - use overflow (Erlang-style unbounded growth)
 		nc.overflowMu.Lock()
 		nc.overflow.PushBack(data)
-		overflowLen := nc.overflow.Len()
 		nc.overflowMu.Unlock()
-
-		// Log overflow usage as it indicates potential performance issues
-		if overflowLen%100 == 1 { // Log every 100 messages to avoid spam
-			nc.logger.Warn("Using overflow buffer", zap.Int("overflow_queue_len", overflowLen))
-		}
 		return nil
 	}
 }
@@ -190,10 +188,6 @@ drainOverflow:
 	}
 	nc.overflowMu.Unlock()
 
-	if len(messages) > 0 {
-		nc.logger.Debug("Extracted pending messages", zap.Int("count", len(messages)))
-	}
-
 	return messages
 }
 
@@ -202,15 +196,10 @@ drainOverflow:
 func (nc *NodeConnection) Close() {
 	nc.closeOnce.Do(func() {
 		if nc.isClosed.CompareAndSwap(false, true) {
-			nc.logger.Debug("Closing connection")
 			close(nc.shutdown)
-
-			if err := nc.conn.Close(); err != nil {
-				if !isErrClosing(err) {
-					nc.logger.Warn("Error while closing connection socket", zap.Error(err))
-				}
+			if err := nc.conn.Close(); err != nil && !isErrClosing(err) {
+				nc.logger.Warn("Error closing connection", zap.Error(err))
 			}
-			nc.logger.Debug("Connection closed successfully")
 		}
 	})
 }
@@ -226,22 +215,16 @@ func (nc *NodeConnection) readLoop(ctx context.Context, onMessage func(nodeID cl
 	defer nc.Close()
 	reader := bufio.NewReader(nc.conn)
 
-	nc.logger.Debug("Read loop started")
-
 	for {
 		select {
 		case <-ctx.Done():
-			nc.logger.Debug("Read loop exiting due to context cancellation")
 			return
 		case <-nc.shutdown:
-			nc.logger.Debug("Read loop exiting due to shutdown signal")
 			return
 		default:
 			data, err := nc.readFrame(reader)
 			if err != nil {
-				if err == io.EOF {
-					nc.logger.Debug("Connection closed by remote peer")
-				} else if !isErrClosing(err) {
+				if err != io.EOF && !isErrClosing(err) {
 					nc.logger.Error("Failed to read frame", zap.Error(err))
 				}
 				return
@@ -263,8 +246,6 @@ func (nc *NodeConnection) writeLoop(ctx context.Context) {
 
 	batch := make([][]byte, 0, writeBatchSize)
 
-	nc.logger.Debug("Write loop started")
-
 	for {
 		select {
 		case data := <-nc.outbound:
@@ -273,7 +254,6 @@ func (nc *NodeConnection) writeLoop(ctx context.Context) {
 
 			if len(batch) >= writeBatchSize {
 				if err := nc.flushBatch(writer, &batch); err != nil {
-					nc.logger.Error("Failed to flush batch, terminating write loop", zap.Error(err))
 					return
 				}
 			}
@@ -281,24 +261,17 @@ func (nc *NodeConnection) writeLoop(ctx context.Context) {
 			nc.drainOverflowToBatch(&batch)
 			if len(batch) > 0 {
 				if err := nc.flushBatch(writer, &batch); err != nil {
-					nc.logger.Error("Failed to flush batch on timer, terminating write loop", zap.Error(err))
 					return
 				}
 			}
 		case <-ctx.Done():
-			nc.logger.Debug("Write loop exiting due to context cancellation")
 			if len(batch) > 0 {
-				if err := nc.flushBatch(writer, &batch); err != nil {
-					nc.logger.Warn("Failed final flush on context cancellation", zap.Error(err))
-				}
+				_ = nc.flushBatch(writer, &batch)
 			}
 			return
 		case <-nc.shutdown:
-			nc.logger.Debug("Write loop exiting due to shutdown signal")
 			if len(batch) > 0 {
-				if err := nc.flushBatch(writer, &batch); err != nil {
-					nc.logger.Warn("Failed final flush on shutdown", zap.Error(err))
-				}
+				_ = nc.flushBatch(writer, &batch)
 			}
 			return
 		}
@@ -324,7 +297,6 @@ func (nc *NodeConnection) drainOverflowToBatch(batch *[][]byte) {
 
 		data, ok := elem.Value.([]byte)
 		if !ok {
-			nc.logger.Error("Invalid data type in overflow queue")
 			nc.overflow.Remove(elem)
 			continue
 		}
@@ -344,7 +316,7 @@ func (nc *NodeConnection) flushBatch(writer *bufio.Writer, batch *[][]byte) erro
 	for _, data := range *batch {
 		if err := nc.writeFrame(writer, data); err != nil {
 			if !isErrClosing(err) {
-				nc.logger.Error("Failed to write frame to buffer", zap.Error(err))
+				nc.logger.Error("Failed to write frame", zap.Error(err))
 			}
 			return err
 		}
@@ -363,31 +335,37 @@ func (nc *NodeConnection) flushBatch(writer *bufio.Writer, batch *[][]byte) erro
 
 // writeFrame prepends the protocol header to the data and writes the full frame to the writer.
 func (nc *NodeConnection) writeFrame(writer io.Writer, data []byte) error {
-	header := make([]byte, frameHeaderSize)
-	header[0] = protocolVersion
-	binary.LittleEndian.PutUint32(header[1:], uint32(len(data)))
-
-	if _, err := writer.Write(header); err != nil {
-		return fmt.Errorf("failed to write frame header: %w", err)
+	dataLen := uint32(len(data))
+	if dataLen > nc.config.MaxMessageSize {
+		return ErrMessageTooLarge
 	}
-	if _, err := writer.Write(data); err != nil {
-		return fmt.Errorf("failed to write frame data: %w", err)
+
+	header := [frameHeaderSize]byte{protocolVersion}
+	binary.LittleEndian.PutUint32(header[1:], dataLen)
+
+	if _, err := writer.Write(header[:]); err != nil {
+		return err
+	}
+	if dataLen > 0 {
+		if _, err := writer.Write(data); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // readFrame reads a single, complete data frame from the buffered reader.
 func (nc *NodeConnection) readFrame(reader *bufio.Reader) ([]byte, error) {
-	header := make([]byte, frameHeaderSize)
-	if _, err := io.ReadFull(reader, header); err != nil {
-		return nil, fmt.Errorf("failed to read frame header: %w", err)
+	header := [frameHeaderSize]byte{}
+	if _, err := io.ReadFull(reader, header[:]); err != nil {
+		return nil, err
 	}
 
 	if header[0] != protocolVersion {
 		return nil, fmt.Errorf("unsupported protocol version: %d", header[0])
 	}
 
-	length := binary.LittleEndian.Uint32(header[1:5])
+	length := binary.LittleEndian.Uint32(header[1:])
 	if length > nc.config.MaxMessageSize {
 		return nil, fmt.Errorf("frame size %d exceeds max allowed size %d", length, nc.config.MaxMessageSize)
 	}
@@ -399,13 +377,14 @@ func (nc *NodeConnection) readFrame(reader *bufio.Reader) ([]byte, error) {
 	data := *bufPtr
 	if uint32(len(data)) < length {
 		data = make([]byte, length)
+		bufPtr = &data
 	} else {
 		data = data[:length]
 	}
 
 	if _, err := io.ReadFull(reader, data); err != nil {
 		bufferPool.Put(bufPtr)
-		return nil, fmt.Errorf("failed to read frame data: %w", err)
+		return nil, err
 	}
 	return data, nil
 }
@@ -413,8 +392,6 @@ func (nc *NodeConnection) readFrame(reader *bufio.Reader) ([]byte, error) {
 // performHandshake handles the initial protocol exchange to verify node identities.
 // It operates with its own deadline, independent of the connection's main context.
 func (nc *NodeConnection) performHandshake(ctx context.Context, localNodeID cluster.NodeID, isInitiator bool) error {
-	nc.logger.Debug("Starting handshake", zap.Bool("is_initiator", isInitiator))
-
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		var cancel context.CancelFunc
@@ -428,8 +405,8 @@ func (nc *NodeConnection) performHandshake(ctx context.Context, localNodeID clus
 	}
 
 	defer func() {
-		if clearErr := nc.conn.SetDeadline(time.Time{}); clearErr != nil {
-			nc.logger.Warn("Failed to clear connection deadline after handshake", zap.Error(clearErr))
+		if err := nc.conn.SetDeadline(time.Time{}); err != nil {
+			nc.logger.Warn("Failed to clear connection deadline", zap.Error(err))
 		}
 	}()
 
@@ -451,7 +428,7 @@ func (nc *NodeConnection) performHandshake(ctx context.Context, localNodeID clus
 
 		receivedNodeID := cluster.NodeID(data)
 		if receivedNodeID != nc.remoteNodeID {
-			return fmt.Errorf("handshake node ID mismatch: expected %s, got %s", nc.remoteNodeID, string(receivedNodeID))
+			return fmt.Errorf("handshake node ID mismatch: expected %s, got %s", nc.remoteNodeID, receivedNodeID)
 		}
 	} else {
 		data, err := nc.readFrame(reader)
@@ -471,7 +448,6 @@ func (nc *NodeConnection) performHandshake(ctx context.Context, localNodeID clus
 		}
 	}
 
-	nc.logger.Debug("Handshake completed successfully")
 	return nil
 }
 

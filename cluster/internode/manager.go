@@ -235,10 +235,6 @@ func (m *manager) ensureConnection(nodeID cluster.NodeID) {
 func (m *manager) attemptConnection(nodeID cluster.NodeID, addr string, port int) {
 	fullAddr := fmt.Sprintf("%s:%d", addr, port)
 	retryCount, _, _ := m.retryScheduler.GetRetryInfo(nodeID)
-	m.logger.Debug("Attempting connection",
-		zap.String("node", string(nodeID)),
-		zap.String("addr", fullAddr),
-		zap.Int("attempt", retryCount+1))
 
 	var conn net.Conn
 	var err error
@@ -251,14 +247,18 @@ func (m *manager) attemptConnection(nodeID cluster.NodeID, addr string, port int
 	}
 
 	if err != nil {
-		m.logger.Debug("Failed to connect", zap.String("node", string(nodeID)), zap.Error(err))
+		if retryCount < 3 { // Only log first few attempts to reduce noise
+			m.logger.Debug("Failed to connect", zap.String("node", string(nodeID)), zap.Error(err))
+		}
 		m.handleConnectionFailure(nodeID, err)
 		return
 	}
 
 	nodeConn := newNodeConnection(conn, nodeID, m.config.NodeConnectionConfig(), m.logger)
 	if err := nodeConn.performHandshake(m.ctx, m.config.LocalNodeID, true); err != nil {
-		m.logger.Debug("Outbound handshake failed", zap.String("node", string(nodeID)), zap.Error(err))
+		if retryCount < 3 { // Only log first few attempts to reduce noise
+			m.logger.Debug("Outbound handshake failed", zap.String("node", string(nodeID)), zap.Error(err))
+		}
 		nodeConn.Close()
 		m.handleConnectionFailure(nodeID, err)
 		return
@@ -283,7 +283,6 @@ func (m *manager) handleConnectionSuccess(nodeID cluster.NodeID, conn *NodeConne
 }
 
 func (m *manager) handleConnectionFailure(nodeID cluster.NodeID, err error) {
-	m.logger.Debug("Connection failed", zap.String("node", string(nodeID)), zap.Error(err))
 	conn, currentState := m.nodeStates.GetNodeConnection(nodeID)
 	if conn != nil {
 		undelivered := conn.ExtractPendingMessages()
@@ -299,25 +298,37 @@ func (m *manager) handleConnectionFailure(nodeID cluster.NodeID, err error) {
 	m.retryScheduler.ScheduleRetry(nodeID)
 }
 
+// drainQueueToConnection efficiently drains messages using notification channel.
+// NO MORE 1ms SLEEP LOOP!
 func (m *manager) drainQueueToConnection(nodeID cluster.NodeID, conn *NodeConnection) {
-	m.logger.Debug("Started queue draining", zap.String("node", string(nodeID)))
+	notifyChan := m.nodeStates.GetMessageNotifier(nodeID)
+	if notifyChan == nil {
+		return
+	}
+
 	for {
 		select {
 		case <-m.ctx.Done():
 			return
-		default:
-			currentConn, state := m.nodeStates.GetNodeConnection(nodeID)
-			if state != StateConnected || currentConn != conn {
-				return
-			}
-			data := m.nodeStates.GetNextMessage(nodeID)
-			if data == nil {
-				time.Sleep(time.Millisecond)
+		case <-notifyChan:
+			// Batch drain messages to reduce mutex contention
+			messages := m.nodeStates.DrainMessages(nodeID, 32) // Batch size 32
+			if len(messages) == 0 {
 				continue
 			}
-			if err := conn.Send(data); err != nil {
-				m.logger.Debug("Failed to send queued message", zap.String("node", string(nodeID)), zap.Error(err))
+
+			currentConn, state := m.nodeStates.GetNodeConnection(nodeID)
+			if state != StateConnected || currentConn != conn {
+				// Requeue the messages we just drained
+				m.nodeStates.RequeueMessages(nodeID, messages)
 				return
+			}
+
+			// Send all messages in the batch
+			for _, data := range messages {
+				if err := conn.Send(data); err != nil {
+					return
+				}
 			}
 		}
 	}
@@ -348,7 +359,6 @@ func (m *manager) acceptLoop() {
 		conn, err := m.listener.Accept()
 		if err != nil {
 			if m.ctx.Err() != nil {
-				m.logger.Info("Listener accept loop shutting down.")
 				return
 			}
 			m.logger.Error("Failed to accept connection", zap.Error(err))
@@ -358,6 +368,7 @@ func (m *manager) acceptLoop() {
 		go func() { defer m.wg.Done(); m.handleInboundConnection(conn) }()
 	}
 }
+
 func (m *manager) handleInboundConnection(conn net.Conn) {
 	nodeConn := newNodeConnection(conn, "unknown", m.config.NodeConnectionConfig(), m.logger)
 	if err := nodeConn.performHandshake(m.ctx, m.config.LocalNodeID, false); err != nil {
@@ -367,13 +378,11 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 	}
 	remoteNodeID := nodeConn.RemoteNodeID()
 	if m.shouldDropInbound(remoteNodeID) {
-		m.logger.Debug("Dropping inbound connection due to race resolution", zap.String("remote_node", string(remoteNodeID)))
 		nodeConn.Close()
 		return
 	}
 	existingConn, _ := m.nodeStates.GetNodeConnection(remoteNodeID)
 	if existingConn != nil {
-		m.logger.Debug("Inbound connection rejected - already connected", zap.String("remote_node", string(remoteNodeID)))
 		nodeConn.Close()
 		return
 	}
