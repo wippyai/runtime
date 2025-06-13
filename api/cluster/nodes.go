@@ -3,7 +3,7 @@
 package cluster
 
 // NodeID is the stable identifier each node advertises to its peers.
-type NodeID string
+type NodeID = string
 
 // NodeMeta carries arbitrary key-value metadata (build hash, region, etc.)
 type NodeMeta map[string]string
@@ -25,4 +25,6 @@ type Membership interface {
 	// currently knows about.  The snapshot is consistent with the most recent
 	// membership event the caller has consumed.
 	Nodes() []NodeInfo
+
+	LocalNode() NodeInfo
 }

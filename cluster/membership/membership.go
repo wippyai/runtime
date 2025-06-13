@@ -169,6 +169,26 @@ func (s *Service) Nodes() []cluster.NodeInfo {
 	return nodes
 }
 
+// LocalNode returns information about the local node.
+func (s *Service) LocalNode() cluster.NodeInfo {
+	if s.memberlist == nil {
+		// Return info from config if memberlist isn't up yet
+		return cluster.NodeInfo{
+			ID:   s.config.NodeName,
+			Addr: fmt.Sprintf("%s:%d", s.config.BindAddr, s.config.BindPort),
+			Meta: s.config.Meta,
+		}
+	}
+
+	local := s.memberlist.LocalNode()
+	addr := local.Address()
+	return cluster.NodeInfo{
+		ID:   local.Name,
+		Addr: addr,
+		Meta: s.config.Meta, // The delegate provides the meta, but we have it here directly.
+	}
+}
+
 // loadSecretKey loads encryption key from file or string
 func (s *Service) loadSecretKey() ([]byte, error) {
 	var keyStr string
@@ -196,7 +216,7 @@ func (s *Service) publishEvent(kind event.Kind, node cluster.NodeInfo) {
 	s.bus.Send(s.ctx, event.Event{
 		System: cluster.System,
 		Kind:   kind,
-		Path:   string(node.ID),
+		Path:   node.ID,
 		Data:   cluster.NodeEvent{Node: node},
 	})
 }
@@ -214,7 +234,7 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 
 	nodeInfo := cluster.NodeInfo{
 		ID:   cluster.NodeID(node.Name),
-		Addr: fmt.Sprintf("%s:%d", node.Addr, node.Port),
+		Addr: fmt.Sprintf("%s:%d", node.Addr.String(), node.Port),
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
@@ -237,8 +257,8 @@ func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
 	}
 
 	nodeInfo := cluster.NodeInfo{
-		ID:   cluster.NodeID(node.Name),
-		Addr: fmt.Sprintf("%s:%d", node.Addr, node.Port),
+		ID:   node.Name,
+		Addr: fmt.Sprintf("%s:%d", node.Addr.String(), node.Port),
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
@@ -260,8 +280,8 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 	}
 
 	nodeInfo := cluster.NodeInfo{
-		ID:   cluster.NodeID(node.Name),
-		Addr: fmt.Sprintf("%s:%d", node.Addr, node.Port),
+		ID:   node.Name,
+		Addr: fmt.Sprintf("%s:%d", node.Addr.String(), node.Port),
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
