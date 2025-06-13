@@ -27,7 +27,7 @@ type Service struct {
 
 	// Node state
 	mu    sync.RWMutex
-	nodes map[string]NodeInfo // NodeID -> NodeInfo
+	nodes map[string]cluster.NodeInfo // NodeID -> cluster.NodeInfo
 }
 
 // Config holds membership service configuration
@@ -42,22 +42,7 @@ type Config struct {
 	VeryVerbose  bool // Enable memberlist debug logs only in very verbose mode
 
 	// Node metadata for service discovery
-	Meta NodeMeta
-}
-
-// NodeMeta carries node metadata for service discovery
-type NodeMeta map[string]string
-
-// NodeInfo represents a cluster node
-type NodeInfo struct {
-	ID   string   `json:"id"`
-	Addr string   `json:"addr"`
-	Meta NodeMeta `json:"meta"`
-}
-
-// NodeEvent represents a membership event
-type NodeEvent struct {
-	Node NodeInfo `json:"node"`
+	Meta cluster.NodeMeta
 }
 
 // NewService creates a new membership service
@@ -66,14 +51,14 @@ func NewService(config Config, bus event.Bus, logger *zap.Logger) *Service {
 		logger: logger,
 		bus:    bus,
 		config: config,
-		nodes:  make(map[string]NodeInfo),
+		nodes:  make(map[string]cluster.NodeInfo),
 	}
 }
 
 // Start initializes and starts the membership service
 func (s *Service) Start(ctx context.Context) error {
 	s.ctx = ctx
-	s.logger.Info("starting cluster membership service",
+	s.logger.Info("starting service",
 		zap.String("node_name", s.config.NodeName),
 		zap.String("bind_address", fmt.Sprintf("%s:%d", s.config.BindAddr, s.config.BindPort)))
 
@@ -109,9 +94,9 @@ func (s *Service) Start(ctx context.Context) error {
 			return fmt.Errorf("failed to load cluster secret key: %w", err)
 		}
 		mlConfig.SecretKey = secretKey
-		s.logger.Info("cluster encryption enabled", zap.Int("key_size", len(secretKey)))
+		s.logger.Info("encryption enabled", zap.Int("key_size", len(secretKey)))
 	} else {
-		s.logger.Warn("cluster encryption disabled - no secret key provided")
+		s.logger.Warn("encryption disabled - no secret key provided")
 	}
 
 	// Create memberlist
@@ -142,7 +127,7 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Log initial cluster state
 	members := ml.Members()
-	s.logger.Info("cluster membership active",
+	s.logger.Info("membership active",
 		zap.String("local_node", s.config.NodeName),
 		zap.Int("total_members", len(members)))
 
@@ -168,16 +153,16 @@ func (s *Service) Stop() error {
 		}
 	}
 
-	s.logger.Info("cluster membership service stopped")
+	s.logger.Info("membership service stopped")
 	return nil
 }
 
-// Nodes returns current cluster members (implements Membership interface)
-func (s *Service) Nodes() []NodeInfo {
+// Nodes returns current cluster members (implements cluster.Membership interface)
+func (s *Service) Nodes() []cluster.NodeInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	nodes := make([]NodeInfo, 0, len(s.nodes))
+	nodes := make([]cluster.NodeInfo, 0, len(s.nodes))
 	for _, node := range s.nodes {
 		nodes = append(nodes, node)
 	}
@@ -206,17 +191,13 @@ func (s *Service) loadSecretKey() ([]byte, error) {
 	return base64.StdEncoding.DecodeString(keyStr)
 }
 
-// publishEvent publishes a cluster event to the event bus using proper constants
-func (s *Service) publishEvent(kind event.Kind, node NodeInfo) {
+// publishEvent publishes a cluster event to the event bus
+func (s *Service) publishEvent(kind event.Kind, node cluster.NodeInfo) {
 	s.bus.Send(s.ctx, event.Event{
 		System: cluster.System,
 		Kind:   kind,
-		Path:   node.ID,
-		Data: cluster.NodeEvent{Node: cluster.NodeInfo{
-			ID:   cluster.NodeID(node.ID),
-			Addr: node.Addr,
-			Meta: cluster.NodeMeta(node.Meta),
-		}},
+		Path:   string(node.ID),
+		Data:   cluster.NodeEvent{Node: node},
 	})
 }
 
@@ -231,8 +212,8 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 		return
 	}
 
-	nodeInfo := NodeInfo{
-		ID:   node.Name,
+	nodeInfo := cluster.NodeInfo{
+		ID:   cluster.NodeID(node.Name),
 		Addr: fmt.Sprintf("%s:%d", node.Addr, node.Port),
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
@@ -241,7 +222,7 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 	ed.service.nodes[node.Name] = nodeInfo
 	ed.service.mu.Unlock()
 
-	ed.service.logger.Info("cluster node joined",
+	ed.service.logger.Info("node joined",
 		zap.String("node_id", node.Name),
 		zap.String("address", nodeInfo.Addr),
 		zap.Any("metadata", nodeInfo.Meta))
@@ -255,8 +236,8 @@ func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
 		return
 	}
 
-	nodeInfo := NodeInfo{
-		ID:   node.Name,
+	nodeInfo := cluster.NodeInfo{
+		ID:   cluster.NodeID(node.Name),
 		Addr: fmt.Sprintf("%s:%d", node.Addr, node.Port),
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
@@ -265,7 +246,7 @@ func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
 	delete(ed.service.nodes, node.Name)
 	ed.service.mu.Unlock()
 
-	ed.service.logger.Info("cluster node left",
+	ed.service.logger.Info("node left",
 		zap.String("node_id", node.Name),
 		zap.String("address", nodeInfo.Addr))
 
@@ -278,8 +259,8 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 		return
 	}
 
-	nodeInfo := NodeInfo{
-		ID:   node.Name,
+	nodeInfo := cluster.NodeInfo{
+		ID:   cluster.NodeID(node.Name),
 		Addr: fmt.Sprintf("%s:%d", node.Addr, node.Port),
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
@@ -288,7 +269,7 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 	ed.service.nodes[node.Name] = nodeInfo
 	ed.service.mu.Unlock()
 
-	ed.service.logger.Info("cluster node updated",
+	ed.service.logger.Info("node updated",
 		zap.String("node_id", node.Name),
 		zap.String("address", nodeInfo.Addr),
 		zap.Any("metadata", nodeInfo.Meta))
@@ -296,15 +277,15 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 	ed.service.publishEvent(cluster.NodeUpdatedEventKind, nodeInfo)
 }
 
-func (ed *eventDelegate) parseNodeMeta(meta []byte) NodeMeta {
+func (ed *eventDelegate) parseNodeMeta(meta []byte) cluster.NodeMeta {
 	if len(meta) == 0 {
-		return make(NodeMeta)
+		return make(cluster.NodeMeta)
 	}
 
-	var nodeMeta NodeMeta
+	var nodeMeta cluster.NodeMeta
 	if err := json.Unmarshal(meta, &nodeMeta); err != nil {
 		// Fallback to string representation
-		return NodeMeta{"raw": string(meta)}
+		return cluster.NodeMeta{"raw": string(meta)}
 	}
 
 	return nodeMeta

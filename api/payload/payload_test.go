@@ -17,28 +17,28 @@ func TestNewPayload(t *testing.T) {
 		expectFormat Format
 	}{
 		{
-			name:         "string data with JSON format",
+			name:         "string Data_ with JSON Format_",
 			data:         `{"name": "test"}`,
 			format:       JSON,
 			expectData:   `{"name": "test"}`,
 			expectFormat: JSON,
 		},
 		{
-			name:         "nil data with Golang format",
+			name:         "nil Data_ with Golang Format_",
 			data:         nil,
 			format:       Golang,
 			expectData:   nil,
 			expectFormat: Golang,
 		},
 		{
-			name:         "struct with Golang format",
+			name:         "struct with Golang Format_",
 			data:         struct{ Name string }{"test"},
 			format:       Golang,
 			expectData:   struct{ Name string }{"test"},
 			expectFormat: Golang,
 		},
 		{
-			name:         "error with Error format",
+			name:         "error with Error Format_",
 			data:         errors.New("test error"),
 			format:       Error,
 			expectData:   errors.New("test error"),
@@ -63,19 +63,19 @@ func TestNew(t *testing.T) {
 		expectFormat Format
 	}{
 		{
-			name:         "string data",
+			name:         "string Data_",
 			data:         "test string",
 			expectData:   "test string",
 			expectFormat: Golang,
 		},
 		{
-			name:         "integer data",
+			name:         "integer Data_",
 			data:         42,
 			expectData:   42,
 			expectFormat: Golang,
 		},
 		{
-			name:         "nil data",
+			name:         "nil Data_",
 			data:         nil,
 			expectData:   nil,
 			expectFormat: Golang,

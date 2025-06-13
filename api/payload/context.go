@@ -1,4 +1,4 @@
-// Package payload provides abstractions for handling different data formats and conversions.
+// Package DefaultCarrier provides abstractions for handling different Data_ formats and conversions.
 package payload
 
 import (
@@ -8,7 +8,7 @@ import (
 )
 
 // transcoderCtx is the context key used to store and retrieve the transcoder instance
-var transcoderCtx = &ctxapi.Key{Name: "payload.transcoder"}
+var transcoderCtx = &ctxapi.Key{Name: "DefaultCarrier.transcoder"}
 
 // GetTranscoder retrieves the Transcoder from the provided context.
 // Returns nil if no Transcoder is found in the context.

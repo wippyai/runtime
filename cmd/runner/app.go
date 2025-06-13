@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	membership "github.com/ponyruntime/pony/cluster/membership"
 	iofs "io/fs"
 	httpbase "net/http"
 	"net/http/pprof"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ponyruntime/pony/api/cluster"
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/contract"
 	"github.com/ponyruntime/pony/api/event"
@@ -26,6 +26,7 @@ import (
 	resourceapi "github.com/ponyruntime/pony/api/resource"
 	secapi "github.com/ponyruntime/pony/api/security"
 	topapi "github.com/ponyruntime/pony/api/topology"
+	"github.com/ponyruntime/pony/cluster/membership"
 	"github.com/ponyruntime/pony/embed"
 	contractsys "github.com/ponyruntime/pony/system/contract"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -200,12 +201,12 @@ func (a *App) initClusterMesh() error {
 		SecretFile:   secretFile,
 		SecretString: a.config.ClusterSecret,
 		AdvertiseIP:  a.config.ClusterAdvertise,
-		VeryVerbose:  a.config.VeryVerbose,
+		VeryVerbose:  a.config.VeryVerbose, // Pass verbose flag to enable memberlist debug logs
 		Meta:         nodeMeta,
 	}
 
 	// Create membership service
-	a.membership = membership.NewService(memberConfig, a.eventBus, a.logger.Named("membership"))
+	a.membership = membership.NewService(memberConfig, a.eventBus, a.logger.Named("cluster"))
 
 	// Create cluster-aware mesh components
 	nodeName := a.config.ClusterName
@@ -231,8 +232,8 @@ func (a *App) initClusterMesh() error {
 
 // buildNodeMeta creates metadata that gets shared with other cluster nodes
 // This is where you can customize what information gets advertised to the cluster
-func (a *App) buildNodeMeta() membership.NodeMeta {
-	meta := membership.NodeMeta{
+func (a *App) buildNodeMeta() cluster.NodeMeta {
+	meta := cluster.NodeMeta{
 		"version": "1.0.0",
 		"role":    "wippy",
 	}
