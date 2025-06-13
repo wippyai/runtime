@@ -111,3 +111,22 @@ entries:
     path: /interceptor/demo/timeout
     func: interceptor_demo_timeout
 
+  - name: interceptor_demo_with_options
+    kind: function.lua
+    meta:
+      comment: "interceptor demo with options"
+    source: file://with_options.lua
+    method: handler
+    modules: [ http, otel, funcs ]
+    pool:
+      size: 2
+      workers: 4
+  - name: interceptor_demo_with_options.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "interceptor demo with options endpoint"
+      router: system:api
+    method: GET
+    path: /interceptor/demo/with_options
+    func: interceptor_demo_with_options
+
