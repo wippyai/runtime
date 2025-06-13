@@ -326,7 +326,7 @@ func (e protocolError) Error() string { return "protocol error: " + string(e) }
 func writeFrame(w io.Writer, data []byte) error {
 	var header [frameHeaderSize]byte
 	header[0] = protocolVersion
-	binary.BigEndian.PutUint32(header[1:], uint32(len(data)))
+	binary.LittleEndian.PutUint32(header[1:], uint32(len(data)))
 	if _, err := w.Write(header[:]); err != nil {
 		return err
 	}
@@ -346,7 +346,7 @@ func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
 	if header[0] != protocolVersion {
 		return nil, protocolError(fmt.Sprintf("unexpected protocol version %d", header[0]))
 	}
-	size := binary.BigEndian.Uint32(header[1:])
+	size := binary.LittleEndian.Uint32(header[1:])
 	if size > maxMessageSize {
 		return nil, fmt.Errorf("%w: message size %d exceeds max %d", ErrMessageTooLarge, size, maxMessageSize)
 	}

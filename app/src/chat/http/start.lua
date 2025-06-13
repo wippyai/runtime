@@ -3,7 +3,7 @@ local time = require("time")
 local encryption = require("encryption")
 
 -- Hardcoded manager PID for demo
-local MANAGER_NAME = "{node2@system:processes|app.service.chat:session_manager|0x00003}"
+local MANAGER_NAME = "chat_session_manager"
 
 local function handler()
     local res = http.response()

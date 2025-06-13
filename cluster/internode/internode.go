@@ -55,7 +55,6 @@ func (s *Service) Start(ctx context.Context) error {
 				zap.Error(err))
 			return
 		}
-
 		if err := s.deliveryCallback(pkg); err != nil {
 			s.logger.Error("Failed to deliver message from remote node",
 				zap.String("from_node", string(nodeID)),
@@ -69,14 +68,16 @@ func (s *Service) Start(ctx context.Context) error {
 
 	sub, err := eventbus.NewSubscriber(ctx, s.bus, cluster.System, "node.(joined|left)", s.handleMembershipEvent)
 	if err != nil {
-		_ = s.connMan.Stop() // todo: unsupress
+		_ = s.connMan.Stop()
 		return fmt.Errorf("failed to subscribe to membership events: %w", err)
 	}
 	s.subscriber = sub
 
-	// Connect to existing nodes
+	// Process nodes that are already in the cluster at startup.
 	for _, nodeInfo := range s.membership.Nodes() {
 		if nodeInfo.ID != s.membership.LocalNode().ID {
+			s.logger.Info("Processing pre-existing cluster member", zap.String("node_id", string(nodeInfo.ID)))
+			s.connMan.AddManagedNode(nodeInfo.ID)
 			s.connectToNode(nodeInfo)
 		}
 	}
@@ -97,11 +98,9 @@ func (s *Service) Send(pkg *pubsub.Package) error {
 	data, err := s.codec.Encode(pkg)
 	targetNode := pkg.Target
 	pubsub.ReleasePackage(pkg)
-
 	if err != nil {
 		return fmt.Errorf("failed to encode package for node %s: %w", targetNode, err)
 	}
-
 	return s.connMan.SendToNode(targetNode.Node, data)
 }
 
@@ -111,7 +110,6 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 		s.logger.Error("Received invalid node event data", zap.Any("data", e.Data))
 		return
 	}
-
 	nodeInfo := nodeEvent.Node
 	if nodeInfo.ID == s.membership.LocalNode().ID {
 		return
@@ -119,32 +117,29 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 
 	switch e.Kind {
 	case cluster.NodeJoinedEventKind:
-		s.logger.Info("Node joined cluster, ensuring connection",
+		s.logger.Info("Node joined cluster, preparing state and connection",
 			zap.String("node_id", string(nodeInfo.ID)))
+		s.connMan.AddManagedNode(nodeInfo.ID)
 		s.connectToNode(nodeInfo)
 	case cluster.NodeLeftEventKind:
-		s.logger.Info("Node left cluster, disconnecting",
+		s.logger.Info("Node left cluster, cleaning up state and connection",
 			zap.String("node_id", string(nodeInfo.ID)))
-		s.connMan.HandleNodeLeft(nodeInfo.ID)
+		s.connMan.RemoveManagedNode(nodeInfo.ID)
 	}
 }
 
 func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
 	portStr, ok := nodeInfo.Meta["internode_port"]
 	if !ok {
-		s.logger.Warn("Node joined without 'internode_port' metadata, cannot connect",
+		s.logger.Warn("Node metadata missing 'internode_port', cannot connect",
 			zap.String("node_id", string(nodeInfo.ID)))
 		return
 	}
-
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
 		s.logger.Error("Invalid 'internode_port' metadata for node",
-			zap.String("node_id", string(nodeInfo.ID)),
-			zap.String("port", portStr),
-			zap.Error(err))
+			zap.String("node_id", string(nodeInfo.ID)), zap.String("port", portStr), zap.Error(err))
 		return
 	}
-
 	s.connMan.EnsureConnection(nodeInfo.ID, nodeInfo.Addr, port)
 }

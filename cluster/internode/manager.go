@@ -136,8 +136,6 @@ type nodeControlLoop struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	logger     *zap.Logger
-
-	// Track if we initiated the connection
 	isOutbound bool
 }
 
@@ -148,8 +146,11 @@ type ConnectionManager interface {
 	EnsureConnection(nodeID cluster.NodeID, addr string, port int)
 	DisconnectFromNode(nodeID cluster.NodeID)
 	ConnectedNodes() []cluster.NodeID
-	HandleNodeLeft(nodeID cluster.NodeID)
 	GetListenPort() int
+
+	// Lifecycle methods driven by cluster events
+	AddManagedNode(nodeID cluster.NodeID)
+	RemoveManagedNode(nodeID cluster.NodeID)
 }
 
 type manager struct {
@@ -187,7 +188,6 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 			return fmt.Errorf("failed to load TLS configuration: %w", err)
 		}
 		m.tlsConfig = tlsConfig
-		m.logger.Info("TLS encryption enabled for inter-node communication")
 	}
 
 	listener, actualPort, err := m.startListener()
@@ -197,11 +197,7 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 
 	m.listener = listener
 	m.actualPort = actualPort
-
-	m.logger.Info("TCP listener started",
-		zap.String("address", fmt.Sprintf("%s:%d", m.config.BindAddr, actualPort)),
-		zap.Bool("auto_port", m.config.AutoPort),
-		zap.Int("configured_port", m.config.BindPort))
+	m.logger.Info("TCP listener started", zap.String("address", m.config.BindAddr), zap.Int("port", actualPort))
 
 	m.wg.Add(1)
 	go func() {
@@ -214,62 +210,52 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 
 func (m *manager) Stop() error {
 	m.logger.Info("Stopping connection manager...")
-
 	m.cancel()
-
 	if m.listener != nil {
-		if err := m.listener.Close(); err != nil {
-			m.logger.Error("Error closing listener", zap.Error(err))
-		}
+		_ = m.listener.Close()
 	}
 
 	m.controlLoopsMu.Lock()
-	for nodeID, loop := range m.controlLoops {
-		m.logger.Debug("Stopping control loop", zap.String("node", string(nodeID)))
-		select {
-		case loop.commands <- nodeCommand{Type: cmdKill}:
-		default:
-			loop.cancel()
-		}
+	for _, loop := range m.controlLoops {
+		loop.cancel()
 	}
+	m.controlLoops = make(map[cluster.NodeID]*nodeControlLoop)
 	m.controlLoopsMu.Unlock()
 
-	done := make(chan struct{})
-	go func() {
-		m.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		m.logger.Info("All goroutines stopped gracefully")
-	case <-time.After(10 * time.Second):
-		m.logger.Warn("Shutdown timeout reached, some goroutines may not have stopped")
-	}
-
+	m.wg.Wait()
 	m.logger.Info("Connection manager stopped")
 	return nil
 }
 
 func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte) error {
-	m.nodeStates.QueueMessage(nodeID, data)
+	err := m.nodeStates.QueueMessage(nodeID, data)
+	if err != nil {
+		if errors.Is(err, ErrNodeNotManaged) {
+			m.logger.Warn("Dropping message for non-existent or unmanaged node", zap.String("target_node", string(nodeID)))
+			// Return nil to not propagate "node not found" errors for fire-and-forget sends.
+			// The caller can check the cluster membership itself if a response is required.
+			return nil
+		}
+		return err
+	}
 	return nil
 }
 
 func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int) {
-	// Check if we already have a connection
+	if m.nodeStates.GetNodeState(nodeID) == nil {
+		m.logger.Error("EnsureConnection called for an unmanaged node. This is a logic error.", zap.String("node", string(nodeID)))
+		return
+	}
+
 	_, currentState := m.nodeStates.GetNodeConnection(nodeID)
 	if currentState == StateConnected {
 		return
 	}
 
-	// Only initiate outbound if we should (based on tie-breaking)
 	if !m.shouldInitiateConnection(nodeID) {
-		m.logger.Debug("Tie-break: not initiating connection", zap.String("node", string(nodeID)))
 		return
 	}
 
-	m.logger.Debug("Ensuring connection", zap.String("node", string(nodeID)), zap.String("addr", fmt.Sprintf("%s:%d", addr, port)))
 	m.nodeStates.UpdateNodeAddress(nodeID, addr, port)
 	m.sendCommand(nodeID, nodeCommand{
 		Type: cmdConnect,
@@ -278,7 +264,6 @@ func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int)
 }
 
 func (m *manager) DisconnectFromNode(nodeID cluster.NodeID) {
-	m.logger.Debug("Disconnecting from node", zap.String("node", string(nodeID)))
 	m.sendCommand(nodeID, nodeCommand{Type: cmdKill})
 }
 
@@ -286,10 +271,15 @@ func (m *manager) ConnectedNodes() []cluster.NodeID {
 	return m.nodeStates.GetConnectedNodes()
 }
 
-func (m *manager) HandleNodeLeft(nodeID cluster.NodeID) {
-	m.logger.Info("Node left cluster", zap.String("node", string(nodeID)))
+func (m *manager) AddManagedNode(nodeID cluster.NodeID) {
+	m.logger.Info("Adding new managed node", zap.String("node", string(nodeID)))
+	m.nodeStates.CreateNodeState(nodeID)
+}
+
+func (m *manager) RemoveManagedNode(nodeID cluster.NodeID) {
+	m.logger.Info("Removing managed node", zap.String("node", string(nodeID)))
 	m.sendCommand(nodeID, nodeCommand{Type: cmdKill})
-	m.nodeStates.RemoveNode(nodeID)
+	m.nodeStates.RemoveNodeState(nodeID)
 }
 
 func (m *manager) GetListenPort() int {
@@ -299,8 +289,14 @@ func (m *manager) GetListenPort() int {
 func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 	m.controlLoopsMu.Lock()
 	loop, exists := m.controlLoops[nodeID]
-
 	if !exists {
+		// Before creating a loop, verify the underlying state exists.
+		if m.nodeStates.GetNodeState(nodeID) == nil {
+			m.controlLoopsMu.Unlock()
+			m.logger.Error("Attempted to create control loop for unmanaged node", zap.String("node", string(nodeID)))
+			return
+		}
+
 		ctx, cancel := context.WithCancel(m.ctx)
 		loop = &nodeControlLoop{
 			nodeID:     nodeID,
@@ -312,9 +308,7 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 			logger:     m.logger.With(zap.String("node", string(nodeID))),
 			retryDelay: m.config.InitialRetryDelay,
 		}
-
 		m.controlLoops[nodeID] = loop
-		m.logger.Debug("Created control loop", zap.String("node", string(nodeID)))
 
 		m.wg.Add(1)
 		go func() {
@@ -327,8 +321,7 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 
 	select {
 	case loop.commands <- cmd:
-	case <-m.ctx.Done():
-		m.logger.Debug("Command dropped due to system shutdown", zap.String("node", string(nodeID)))
+	case <-loop.ctx.Done():
 	}
 }
 
@@ -336,7 +329,6 @@ func (m *manager) cleanupControlLoop(nodeID cluster.NodeID) {
 	m.controlLoopsMu.Lock()
 	delete(m.controlLoops, nodeID)
 	m.controlLoopsMu.Unlock()
-
 	m.logger.Debug("Control loop cleaned up", zap.String("node", string(nodeID)))
 }
 
@@ -344,9 +336,13 @@ func (loop *nodeControlLoop) run() {
 	loop.logger.Debug("Control loop started")
 	defer loop.logger.Debug("Control loop stopped")
 
+	// The NodeState is guaranteed to exist by the new design, so GetMessageNotifier will return a valid channel.
 	messageNotifier := loop.manager.nodeStates.GetMessageNotifier(loop.nodeID)
 	if messageNotifier == nil {
-		messageNotifier = make(<-chan struct{})
+		// This path indicates a severe logic error in the new design.
+		loop.logger.Error("Failed to get message notifier for a managed node; loop will be ineffective.",
+			zap.String("node", string(loop.nodeID)))
+		messageNotifier = make(<-chan struct{}) // Prevent nil-channel-select panic.
 	}
 
 	for {
@@ -356,8 +352,7 @@ func (loop *nodeControlLoop) run() {
 			return
 
 		case cmd := <-loop.commands:
-			shouldExit := loop.handleCommand(cmd)
-			if shouldExit {
+			if loop.handleCommand(cmd) {
 				loop.cleanup()
 				return
 			}
@@ -371,57 +366,29 @@ func (loop *nodeControlLoop) run() {
 }
 
 func (loop *nodeControlLoop) handleCommand(cmd nodeCommand) bool {
-	loop.logger.Debug("Processing command",
-		zap.String("command", fmt.Sprintf("%d", cmd.Type)),
-		zap.String("current_state", loop.state.String()))
-
 	switch cmd.Type {
 	case cmdConnect:
-		data, ok := cmd.Data.(connectData)
-		if !ok {
-			loop.logger.Error("Invalid connect command data type")
-			return false
-		}
+		data, _ := cmd.Data.(connectData)
 		loop.handleConnect(data)
-
 	case cmdConnected:
-		data, ok := cmd.Data.(connectedData)
-		if !ok {
-			loop.logger.Error("Invalid connected command data type")
-			return false
-		}
+		data, _ := cmd.Data.(connectedData)
 		loop.handleConnected(data)
-
 	case cmdDisconnected:
-		data, ok := cmd.Data.(disconnectedData)
-		if !ok {
-			loop.logger.Error("Invalid disconnected command data type")
-			return false
-		}
+		data, _ := cmd.Data.(disconnectedData)
 		loop.handleDisconnected(data)
-
 	case cmdKill:
 		loop.handleKill()
 		return true
 	}
-
 	return false
 }
 
 func (loop *nodeControlLoop) handleConnect(data connectData) {
 	loop.addr = data.Addr
 	loop.port = data.Port
-
-	// Don't connect if already connected or connecting
-	if loop.state == StateConnecting || loop.state == StateConnected {
+	if loop.state == StateConnecting || loop.state == StateConnected || loop.state == StateDead {
 		return
 	}
-
-	if loop.state == StateDead {
-		return
-	}
-
-	loop.logger.Debug("Initiating connection", zap.String("addr", fmt.Sprintf("%s:%d", data.Addr, data.Port)))
 	loop.state = StateConnecting
 	loop.isOutbound = true
 	loop.manager.nodeStates.SetNodeState(loop.nodeID, loop.state)
@@ -434,18 +401,14 @@ func (loop *nodeControlLoop) handleConnect(data connectData) {
 }
 
 func (loop *nodeControlLoop) handleConnected(data connectedData) {
-	// If we're already connected, reject the new connection
 	if loop.state == StateConnected {
-		loop.logger.Debug("Already connected, rejecting new connection")
 		if data.Connection != nil {
 			data.Connection.Close()
 		}
 		return
 	}
 
-	// Only accept connections in appropriate states
 	if loop.state != StateConnecting && loop.state != StateNone && loop.state != StateRetrying {
-		loop.logger.Debug("Unexpected state for new connection, closing", zap.String("state", loop.state.String()))
 		if data.Connection != nil {
 			data.Connection.Close()
 		}
@@ -456,10 +419,8 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 	loop.state = StateConnected
 	loop.retryCount = 0
 	loop.retryDelay = loop.manager.config.InitialRetryDelay
-
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, loop.connection, loop.state)
-
-	loop.logger.Info("Connection established")
+	loop.logger.Info("Connection established successfully", zap.Bool("is_outbound", loop.isOutbound))
 
 	loop.manager.wg.Add(1)
 	go func() {
@@ -474,74 +435,45 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 	if loop.state == StateDead {
 		return
 	}
-
 	if loop.connection != nil {
-		pendingMessages := loop.connection.ExtractPendingMessages()
+		pending := loop.connection.ExtractPendingMessages()
 		loop.connection.Close()
 		loop.connection = nil
-
-		if len(pendingMessages) > 0 {
-			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pendingMessages)
+		if len(pending) > 0 {
+			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pending)
 		}
 	}
-
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
 
-	// Only retry if we initiated the connection and should retry
 	if data.ShouldRetry && loop.isOutbound && loop.retryCount < loop.manager.config.MaxRetryAttempts {
 		loop.state = StateRetrying
 		loop.retryCount++
-
 		if loop.retryDelay < loop.manager.config.MaxRetryDelay {
 			loop.retryDelay *= 2
 		}
-
-		loop.logger.Debug("Scheduling retry",
-			zap.Duration("delay", loop.retryDelay),
-			zap.Int("attempt", loop.retryCount))
-
-		loop.manager.wg.Add(1)
-		go func() {
-			defer loop.manager.wg.Done()
-
-			timer := time.NewTimer(loop.retryDelay)
-			defer timer.Stop()
-
-			select {
-			case <-timer.C:
-				addr, port, hasAddr := loop.manager.nodeStates.GetNodeAddress(loop.nodeID)
-				if !hasAddr {
-					addr, port = loop.addr, loop.port
-				}
-
-				loop.sendCommandToSelf(nodeCommand{
-					Type: cmdConnect,
-					Data: connectData{Addr: addr, Port: port},
-				})
-			case <-loop.ctx.Done():
+		time.AfterFunc(loop.retryDelay, func() {
+			addr, port, hasAddr := loop.manager.nodeStates.GetNodeAddress(loop.nodeID)
+			if !hasAddr {
+				addr, port = loop.addr, loop.port
 			}
-		}()
+			loop.sendCommandToSelf(nodeCommand{Type: cmdConnect, Data: connectData{Addr: addr, Port: port}})
+		})
 	} else {
 		loop.state = StateNone
-		if data.Error != nil {
-			loop.logger.Debug("Connection failed", zap.Error(data.Error))
-		}
 	}
 }
 
 func (loop *nodeControlLoop) handleKill() {
-	loop.logger.Debug("Control loop received kill command")
 	loop.state = StateDead
 }
 
 func (loop *nodeControlLoop) cleanup() {
 	if loop.connection != nil {
-		pendingMessages := loop.connection.ExtractPendingMessages()
+		pending := loop.connection.ExtractPendingMessages()
 		loop.connection.Close()
 		loop.connection = nil
-
-		if len(pendingMessages) > 0 {
-			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pendingMessages)
+		if len(pending) > 0 {
+			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pending)
 		}
 	}
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
@@ -551,7 +483,6 @@ func (loop *nodeControlLoop) sendCommandToSelf(cmd nodeCommand) {
 	select {
 	case loop.commands <- cmd:
 	case <-loop.ctx.Done():
-		loop.logger.Debug("Command to self dropped due to context cancellation")
 	}
 }
 
@@ -559,49 +490,34 @@ func (loop *nodeControlLoop) attemptConnection() {
 	if loop.ctx.Err() != nil {
 		return
 	}
-
 	addr := fmt.Sprintf("%s:%d", loop.addr, loop.port)
-
-	loop.logger.Debug("Attempting outbound connection", zap.String("address", addr))
-
 	var conn net.Conn
 	var err error
-
 	if loop.manager.tlsConfig != nil {
 		dialer := &net.Dialer{Timeout: loop.manager.config.HandshakeTimeout}
 		conn, err = tls.DialWithDialer(dialer, "tcp", addr, loop.manager.tlsConfig)
 	} else {
 		conn, err = net.DialTimeout("tcp", addr, loop.manager.config.HandshakeTimeout)
 	}
-
 	if err != nil {
 		loop.sendDisconnected(err, true)
 		return
 	}
-
 	nodeConn, err := PerformClientHandshake(conn, loop.manager.config.NodeConnectionConfig(), loop.logger, loop.manager.config.LocalNodeID, loop.nodeID)
 	if err != nil {
 		loop.sendDisconnected(err, true)
 		return
 	}
-
-	loop.sendCommandToSelf(nodeCommand{
-		Type: cmdConnected,
-		Data: connectedData{Connection: nodeConn},
-	})
+	loop.sendCommandToSelf(nodeCommand{Type: cmdConnected, Data: connectedData{Connection: nodeConn}})
 }
 
 func (loop *nodeControlLoop) monitorConnection() {
 	if loop.connection == nil {
 		return
 	}
-
-	handler := func(msg []byte) {
+	err := loop.connection.Run(func(msg []byte) {
 		loop.manager.onMessage(loop.nodeID, msg)
-	}
-
-	err := loop.connection.Run(handler)
-
+	})
 	shouldRetry := false
 	if err != nil {
 		var connErr *ConnectionError
@@ -609,7 +525,6 @@ func (loop *nodeControlLoop) monitorConnection() {
 			shouldRetry = connErr.ShouldRetry()
 		}
 	}
-
 	loop.sendDisconnected(err, shouldRetry)
 }
 
@@ -617,44 +532,30 @@ func (loop *nodeControlLoop) drainMessages() {
 	if loop.connection == nil {
 		return
 	}
-
 	messages := loop.manager.nodeStates.DrainMessages(loop.nodeID, loop.manager.config.DrainBatchSize)
 	if len(messages) == 0 {
 		return
 	}
-
-	var unsentMessages [][]byte
 	for i, data := range messages {
 		if err := loop.connection.Send(data); err != nil {
-			unsentMessages = messages[i:]
+			loop.logger.Error("Failed to send message, will be requeued", zap.Error(err))
+			loop.manager.nodeStates.RequeueMessages(loop.nodeID, messages[i:])
 			break
 		}
-	}
-
-	if len(unsentMessages) > 0 {
-		loop.manager.nodeStates.RequeueMessages(loop.nodeID, unsentMessages)
 	}
 }
 
 func (loop *nodeControlLoop) sendDisconnected(err error, shouldRetry bool) {
-	loop.sendCommandToSelf(nodeCommand{
-		Type: cmdDisconnected,
-		Data: disconnectedData{Error: err, ShouldRetry: shouldRetry},
-	})
+	loop.sendCommandToSelf(nodeCommand{Type: cmdDisconnected, Data: disconnectedData{Error: err, ShouldRetry: shouldRetry}})
 }
 
 func (m *manager) startListener() (net.Listener, int, error) {
 	if m.config.AutoPort {
 		return m.tryPortRange()
 	}
-
 	addr := fmt.Sprintf("%s:%d", m.config.BindAddr, m.config.BindPort)
 	listener, err := m.listen(addr)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return listener, m.config.BindPort, nil
+	return listener, m.config.BindPort, err
 }
 
 func (m *manager) tryPortRange() (net.Listener, int, error) {
@@ -662,45 +563,18 @@ func (m *manager) tryPortRange() (net.Listener, int, error) {
 	if startPort == 0 {
 		startPort = DefaultPortRangeStart
 	}
-
-	if startPort >= DefaultPortRangeStart && startPort <= DefaultPortRangeEnd {
-		addr := fmt.Sprintf("%s:%d", m.config.BindAddr, startPort)
-		if listener, err := m.listen(addr); err == nil {
-			m.logger.Debug("Using configured port", zap.Int("port", startPort))
-			return listener, startPort, nil
-		}
-	}
-
-	for port := DefaultPortRangeStart; port <= DefaultPortRangeEnd; port++ {
-		if port == startPort {
-			continue
-		}
-
+	for port := startPort; port <= DefaultPortRangeEnd; port++ {
 		addr := fmt.Sprintf("%s:%d", m.config.BindAddr, port)
-		listener, err := m.listen(addr)
-		if err == nil {
-			m.logger.Info("Auto-selected port from range",
-				zap.Int("port", port),
-				zap.Int("range_start", DefaultPortRangeStart),
-				zap.Int("range_end", DefaultPortRangeEnd))
+		if listener, err := m.listen(addr); err == nil {
 			return listener, port, nil
 		}
 	}
-
-	m.logger.Info("All ports in range busy, using system auto-selection",
-		zap.Int("range_start", DefaultPortRangeStart),
-		zap.Int("range_end", DefaultPortRangeEnd))
-
-	autoAddr := fmt.Sprintf("%s:0", m.config.BindAddr)
-	listener, err := m.listen(autoAddr)
+	addr := fmt.Sprintf("%s:0", m.config.BindAddr)
+	listener, err := m.listen(addr)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to auto-select port: %w", err)
+		return nil, 0, err
 	}
-
-	actualPort := listener.Addr().(*net.TCPAddr).Port
-	m.logger.Info("System auto-selected port", zap.Int("port", actualPort))
-
-	return listener, actualPort, nil
+	return listener, listener.Addr().(*net.TCPAddr).Port, nil
 }
 
 func (m *manager) listen(addr string) (net.Listener, error) {
@@ -720,9 +594,6 @@ func (m *manager) acceptLoop() {
 			m.logger.Error("Failed to accept connection", zap.Error(err))
 			continue
 		}
-
-		m.logger.Debug("Accepted inbound connection", zap.String("remote_addr", conn.RemoteAddr().String()))
-
 		m.wg.Add(1)
 		go func() {
 			defer m.wg.Done()
@@ -737,10 +608,14 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 		m.logger.Warn("Inbound handshake failed", zap.Error(err), zap.String("remote_addr", conn.RemoteAddr().String()))
 		return
 	}
-
 	remoteNodeID := nodeConn.RemoteNodeID()
 
-	// Check if we already have a connection
+	if m.nodeStates.GetNodeState(remoteNodeID) == nil {
+		m.logger.Warn("Received connection from an unmanaged/unknown node", zap.String("node", string(remoteNodeID)))
+		nodeConn.Close()
+		return
+	}
+
 	_, currentState := m.nodeStates.GetNodeConnection(remoteNodeID)
 	if currentState == StateConnected {
 		m.logger.Debug("Already connected, dropping new inbound connection", zap.String("node", string(remoteNodeID)))
@@ -748,28 +623,23 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 		return
 	}
 
-	shouldDrop := m.shouldDropInbound(remoteNodeID)
-	if shouldDrop {
+	if m.shouldDropInbound(remoteNodeID) {
 		m.logger.Debug("Dropping inbound connection due to tie-breaking", zap.String("node", string(remoteNodeID)))
 		nodeConn.Close()
 		return
 	}
 
-	m.logger.Debug("Accepting inbound connection", zap.String("node", string(remoteNodeID)))
 	m.sendCommand(remoteNodeID, nodeCommand{
 		Type: cmdConnected,
 		Data: connectedData{Connection: nodeConn},
 	})
 }
 
-// shouldInitiateConnection determines if we should initiate outbound connection
 func (m *manager) shouldInitiateConnection(remoteNodeID cluster.NodeID) bool {
-	// Lower node ID initiates the connection
 	return strings.Compare(string(m.config.LocalNodeID), string(remoteNodeID)) < 0
 }
 
 func (m *manager) shouldDropInbound(remoteNodeID cluster.NodeID) bool {
-	// Accept inbound only if we're not supposed to initiate
 	return m.shouldInitiateConnection(remoteNodeID)
 }
 

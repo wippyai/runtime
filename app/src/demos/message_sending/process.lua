@@ -20,7 +20,7 @@ local function run()
         pid = process.pid(),
         count = 0
     }
-    print("Message listener process started with PID:", state.pid)
+    print("Message listener process started with PID>>>>>>>>>>>>>>>>>>>>>>>:", state.pid)
     process.registry.register("message_receiver")
 
     local fn = funcs.new()

@@ -2,10 +2,17 @@ package internode
 
 import (
 	"container/list"
+	"errors"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/cluster"
 	"go.uber.org/zap"
+)
+
+var (
+	// ErrNodeNotManaged is returned when an operation is attempted on a node
+	// that has not been explicitly registered as a cluster member.
+	ErrNodeNotManaged = errors.New("node is not a managed member of the cluster")
 )
 
 type NodeState struct {
@@ -36,37 +43,42 @@ func NewNodeStateManager(config ManagerConfig, logger *zap.Logger) *NodeStateMan
 	}
 }
 
-func (nsm *NodeStateManager) GetOrCreateNodeState(nodeID cluster.NodeID) *NodeState {
-	if state, ok := nsm.nodeStates.Load(nodeID); ok {
-		return state.(*NodeState)
+// CreateNodeState initializes the in-memory state for a new node.
+// This should only be called by the manager when a node joins the cluster.
+func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
+	if _, ok := nsm.nodeStates.Load(nodeID); ok {
+		nsm.logger.Debug("State for node already exists, skipping creation", zap.String("node_id", string(nodeID)))
+		return
 	}
 
+	nsm.logger.Debug("Creating new managed state for node", zap.String("node_id", string(nodeID)))
 	newState := &NodeState{
 		messageQueue:  list.New(),
 		messageNotify: make(chan struct{}, 1),
 		state:         StateNone,
 	}
-
-	if actual, loaded := nsm.nodeStates.LoadOrStore(nodeID, newState); loaded {
-		return actual.(*NodeState)
-	}
-
-	return newState
+	nsm.nodeStates.Store(nodeID, newState)
 }
 
 func (nsm *NodeStateManager) GetNodeState(nodeID cluster.NodeID) *NodeState {
-	if state, ok := nsm.nodeStates.Load(nodeID); ok {
-		return state.(*NodeState)
+	state, ok := nsm.nodeStates.Load(nodeID)
+	if !ok {
+		return nil
 	}
-	return nil
+	return state.(*NodeState)
 }
 
-func (nsm *NodeStateManager) QueueMessage(nodeID cluster.NodeID, data []byte) {
-	if data == nil {
-		return
+// QueueMessage adds a message to a managed node's queue.
+// It returns ErrNodeNotManaged if the node state does not exist.
+func (nsm *NodeStateManager) QueueMessage(nodeID cluster.NodeID, data []byte) error {
+	state := nsm.GetNodeState(nodeID)
+	if state == nil {
+		return ErrNodeNotManaged
 	}
 
-	state := nsm.GetOrCreateNodeState(nodeID)
+	if data == nil {
+		return nil // Do not queue nil data
+	}
 
 	state.queueMu.Lock()
 	state.messageQueue.PushBack(data)
@@ -76,10 +88,15 @@ func (nsm *NodeStateManager) QueueMessage(nodeID cluster.NodeID, data []byte) {
 	case state.messageNotify <- struct{}{}:
 	default:
 	}
+	return nil
 }
 
 func (nsm *NodeStateManager) SetNodeConnection(nodeID cluster.NodeID, conn *NodeConnection, newState ConnectionState) {
-	state := nsm.GetOrCreateNodeState(nodeID)
+	state := nsm.GetNodeState(nodeID)
+	if state == nil {
+		nsm.logger.Warn("Attempted to set connection for an unmanaged node", zap.String("node_id", string(nodeID)))
+		return
+	}
 
 	state.stateMu.Lock()
 	state.connection = conn
@@ -104,6 +121,7 @@ func (nsm *NodeStateManager) GetNodeConnection(nodeID cluster.NodeID) (*NodeConn
 func (nsm *NodeStateManager) SetNodeState(nodeID cluster.NodeID, newState ConnectionState) {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
+		nsm.logger.Warn("Attempted to set state for an unmanaged node", zap.String("node_id", string(nodeID)))
 		return
 	}
 
@@ -113,7 +131,11 @@ func (nsm *NodeStateManager) SetNodeState(nodeID cluster.NodeID, newState Connec
 }
 
 func (nsm *NodeStateManager) UpdateNodeAddress(nodeID cluster.NodeID, addr string, port int) {
-	state := nsm.GetOrCreateNodeState(nodeID)
+	state := nsm.GetNodeState(nodeID)
+	if state == nil {
+		nsm.logger.Warn("Attempted to update address for an unmanaged node", zap.String("node_id", string(nodeID)))
+		return
+	}
 
 	state.stateMu.Lock()
 	state.address = nodeAddress{addr: addr, port: port}
@@ -131,30 +153,6 @@ func (nsm *NodeStateManager) GetNodeAddress(nodeID cluster.NodeID) (string, int,
 	state.stateMu.RUnlock()
 
 	return addr.addr, addr.port, addr.addr != "" && addr.port != 0
-}
-
-func (nsm *NodeStateManager) GetNextMessage(nodeID cluster.NodeID) []byte {
-	state := nsm.GetNodeState(nodeID)
-	if state == nil {
-		return nil
-	}
-
-	state.queueMu.Lock()
-	defer state.queueMu.Unlock()
-
-	elem := state.messageQueue.Front()
-	if elem == nil {
-		return nil
-	}
-
-	data, ok := elem.Value.([]byte)
-	state.messageQueue.Remove(elem)
-
-	if !ok || data == nil {
-		return nil
-	}
-
-	return data
 }
 
 func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) [][]byte {
@@ -175,12 +173,10 @@ func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) 
 		return nil
 	}
 
-	// Pre-allocate with exact size needed
 	drainCount := maxCount
 	if queueLen < drainCount {
 		drainCount = queueLen
 	}
-
 	messages := make([][]byte, 0, drainCount)
 
 	for i := 0; i < drainCount; i++ {
@@ -188,7 +184,6 @@ func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) 
 		if elem == nil {
 			break
 		}
-
 		if data, ok := elem.Value.([]byte); ok && data != nil {
 			messages = append(messages, data)
 		}
@@ -201,22 +196,12 @@ func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) 
 func (nsm *NodeStateManager) GetMessageNotifier(nodeID cluster.NodeID) <-chan struct{} {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
+		// This should not happen in the new design, as control loops are only
+		// created for managed nodes. Returning nil is the safe fallback.
+		nsm.logger.Error("GetMessageNotifier called for unmanaged node", zap.String("node_id", string(nodeID)))
 		return nil
 	}
 	return state.messageNotify
-}
-
-func (nsm *NodeStateManager) GetQueueLength(nodeID cluster.NodeID) int {
-	state := nsm.GetNodeState(nodeID)
-	if state == nil {
-		return 0
-	}
-
-	state.queueMu.Lock()
-	length := state.messageQueue.Len()
-	state.queueMu.Unlock()
-
-	return length
 }
 
 func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages [][]byte) {
@@ -224,16 +209,21 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages [][
 		return
 	}
 
-	state := nsm.GetOrCreateNodeState(nodeID)
+	state := nsm.GetNodeState(nodeID)
+	if state == nil {
+		nsm.logger.Warn("Dropping messages to requeue for unmanaged node",
+			zap.String("node_id", string(nodeID)),
+			zap.Int("message_count", len(messages)))
+		return
+	}
 
 	state.queueMu.Lock()
-	defer state.queueMu.Unlock()
-
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i] != nil {
 			state.messageQueue.PushFront(messages[i])
 		}
 	}
+	state.queueMu.Unlock()
 
 	select {
 	case state.messageNotify <- struct{}{}:
@@ -241,130 +231,48 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages [][
 	}
 }
 
-func (nsm *NodeStateManager) ClearNodeQueue(nodeID cluster.NodeID) {
-	state := nsm.GetNodeState(nodeID)
-	if state == nil {
+// RemoveNodeState completely removes a node's state from memory.
+// This should only be called by the manager when a node leaves the cluster.
+func (nsm *NodeStateManager) RemoveNodeState(nodeID cluster.NodeID) {
+	state, ok := nsm.nodeStates.LoadAndDelete(nodeID)
+	if !ok {
 		return
 	}
 
-	state.queueMu.Lock()
-	queueLen := state.messageQueue.Len()
-	state.messageQueue = list.New()
-	state.queueMu.Unlock()
+	nsm.logger.Info("Removing managed state for node", zap.String("node", string(nodeID)))
+	nodeState := state.(*NodeState)
+
+	nodeState.stateMu.Lock()
+	if nodeState.connection != nil {
+		nodeState.connection.Close()
+		nodeState.connection = nil
+	}
+	nodeState.stateMu.Unlock()
+
+	nodeState.queueMu.Lock()
+	queueLen := nodeState.messageQueue.Len()
+	nodeState.messageQueue.Init()
+	nodeState.queueMu.Unlock()
 
 	if queueLen > 0 {
-		nsm.logger.Info("Cleared node message queue",
+		nsm.logger.Warn("Discarded pending messages for removed node",
 			zap.String("node", string(nodeID)),
 			zap.Int("discarded_messages", queueLen))
 	}
 }
 
-func (nsm *NodeStateManager) CloseNodeConnection(nodeID cluster.NodeID) {
-	state := nsm.GetNodeState(nodeID)
-	if state == nil {
-		return
-	}
-
-	state.stateMu.Lock()
-	defer state.stateMu.Unlock()
-
-	if state.connection != nil {
-		state.connection.Close()
-		state.connection = nil
-	}
-	state.state = StateNone
-}
-
 func (nsm *NodeStateManager) GetConnectedNodes() []cluster.NodeID {
 	var connected []cluster.NodeID
-
 	nsm.nodeStates.Range(func(key, value interface{}) bool {
 		nodeID := key.(cluster.NodeID)
 		state := value.(*NodeState)
-
 		state.stateMu.RLock()
 		isConnected := state.state == StateConnected
 		state.stateMu.RUnlock()
-
 		if isConnected {
 			connected = append(connected, nodeID)
 		}
 		return true
 	})
-
 	return connected
-}
-
-func (nsm *NodeStateManager) GetAllNodeStates() map[cluster.NodeID]ConnectionState {
-	states := make(map[cluster.NodeID]ConnectionState)
-
-	nsm.nodeStates.Range(func(key, value interface{}) bool {
-		nodeID := key.(cluster.NodeID)
-		state := value.(*NodeState)
-
-		state.stateMu.RLock()
-		currentState := state.state
-		state.stateMu.RUnlock()
-
-		states[nodeID] = currentState
-		return true
-	})
-
-	return states
-}
-
-func (nsm *NodeStateManager) RemoveNode(nodeID cluster.NodeID) {
-	state := nsm.GetNodeState(nodeID)
-	if state == nil {
-		return
-	}
-
-	nsm.logger.Info("Removing node from memory", zap.String("node", string(nodeID)))
-
-	state.stateMu.Lock()
-	if state.connection != nil {
-		state.connection.Close()
-		state.connection = nil
-	}
-	state.state = StateNone
-	state.stateMu.Unlock()
-
-	state.queueMu.Lock()
-	queueLen := state.messageQueue.Len()
-	state.messageQueue.Init()
-	state.queueMu.Unlock()
-
-	nsm.nodeStates.Delete(nodeID)
-
-	if queueLen > 0 {
-		nsm.logger.Info("Removed node with pending messages",
-			zap.String("node", string(nodeID)),
-			zap.Int("discarded_messages", queueLen))
-	}
-}
-
-func (nsm *NodeStateManager) GetNodeStateSummary(nodeID cluster.NodeID) map[string]any {
-	state := nsm.GetNodeState(nodeID)
-	if state == nil {
-		return map[string]any{"exists": false}
-	}
-
-	state.stateMu.RLock()
-	currentState := state.state
-	hasConnection := state.connection != nil
-	addr := state.address
-	state.stateMu.RUnlock()
-
-	state.queueMu.Lock()
-	queueLen := state.messageQueue.Len()
-	state.queueMu.Unlock()
-
-	return map[string]any{
-		"exists":         true,
-		"state":          currentState.String(),
-		"has_connection": hasConnection,
-		"queue_length":   queueLen,
-		"address":        addr.addr,
-		"port":           addr.port,
-	}
 }
