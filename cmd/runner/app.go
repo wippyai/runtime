@@ -9,6 +9,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	resourceapi "github.com/ponyruntime/pony/api/resource"
 	secapi "github.com/ponyruntime/pony/api/security"
 	topapi "github.com/ponyruntime/pony/api/topology"
+	"github.com/ponyruntime/pony/cluster/internode"
 	"github.com/ponyruntime/pony/cluster/membership"
 	"github.com/ponyruntime/pony/embed"
 	contractsys "github.com/ponyruntime/pony/system/contract"
@@ -88,6 +90,11 @@ type App struct {
 	topo       *topology.Topology
 	pidReg     *topology.PIDRegistry
 	membership *membership.Service // cluster membership service
+
+	// internode communication (cluster only)
+	internodeService *internode.Service
+	connManager      internode.ConnectionManager
+	messageCodec     *internode.MessageCodec
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
@@ -173,7 +180,7 @@ func (a *App) initSingleNodeMesh() error {
 	return nil
 }
 
-// initClusterMesh initializes mesh layer for cluster mode
+// initClusterMesh initializes mesh layer for cluster mode with internode integration
 func (a *App) initClusterMesh() error {
 	// Parse join addresses
 	var joinAddrs []string
@@ -183,13 +190,7 @@ func (a *App) initClusterMesh() error {
 		}
 	}
 
-	// Determine secret source
-	var secretFile string
-	if a.config.ClusterSecretFile != "" {
-		secretFile = a.config.ClusterSecretFile
-	}
-
-	// Build node metadata - this is where you can customize what gets shared
+	// Build node metadata with internode port
 	nodeMeta := a.buildNodeMeta()
 
 	// Create membership service config
@@ -198,46 +199,82 @@ func (a *App) initClusterMesh() error {
 		BindAddr:     a.config.ClusterBind,
 		BindPort:     a.config.ClusterPort,
 		JoinAddrs:    joinAddrs,
-		SecretFile:   secretFile,
+		SecretFile:   a.config.ClusterSecretFile,
 		SecretString: a.config.ClusterSecret,
 		AdvertiseIP:  a.config.ClusterAdvertise,
-		VeryVerbose:  a.config.VeryVerbose, // Pass verbose flag to enable memberlist debug logs
+		VeryVerbose:  a.config.VeryVerbose,
 		Meta:         nodeMeta,
 	}
 
 	// Create membership service
 	a.membership = membership.NewService(memberConfig, a.eventBus, a.logger.Named("cluster"))
 
-	// Create cluster-aware mesh components
-	nodeName := a.config.ClusterName
+	// Create internode components
+	a.messageCodec = internode.NewMessageCodec(a.dtt) // Use app's transcoder
+
+	// Create connection manager config
+	connManagerConfig := internode.DefaultManagerConfig()
+	connManagerConfig.LocalNodeID = cluster.NodeID(a.config.ClusterName)
+	connManagerConfig.BindAddr = "0.0.0.0" // Listen on all interfaces
+	connManagerConfig.BindPort = internode.DefaultPort
+	connManagerConfig.Logger = a.logger
+
+	// Create connection manager
+	a.connManager = internode.NewConnectionManager(connManagerConfig)
+
+	// Create local pubsub node (without upstream initially)
+	localNode := pubsub.NewNode(a.config.ClusterName, nil)
+
+	// Create delivery callback that delivers messages to local node
+	// This breaks the circular dependency!
+	deliveryCallback := func(pkg *pubsubapi.Package) error {
+		return localNode.Send(pkg)
+	}
+
+	// Create internode service with callback
+	a.internodeService = internode.NewService(
+		a.logger,
+		a.connManager,
+		a.messageCodec,
+		deliveryCallback,
+		a.eventBus,
+		a.membership,
+	)
+
+	// NOW set the internode service as upstream for the local node
+	upstream := pubsubapi.Receiver(a.internodeService)
+	localNode = pubsub.NewNode(a.config.ClusterName, &upstream)
+
+	// Create node manager
 	a.node = pubsub.NewNodeManager(
-		pubsub.NewNode(nodeName, nil), // TODO: could add upstream for multi-cluster
+		localNode,
 		a.eventBus,
 		a.logger.Named("pubsub"),
 	)
 
+	// Create topology components
 	a.topo = topology.NewTopology(a.node.Node())
 	a.pidReg = topology.NewPIDRegistry(topology.PIDRegistryConfig{
 		Parent: nil,
 		Logger: a.logger.Named("pid"),
 	})
 
-	a.logger.Info("cluster mesh initialized",
-		zap.String("node_name", nodeName),
+	a.logger.Info("cluster mesh with internode initialized",
+		zap.String("node_name", a.config.ClusterName),
+		zap.Int("internode_port", internode.DefaultPort),
 		zap.Strings("join_addresses", joinAddrs),
-		zap.Bool("encryption_enabled", secretFile != "" || a.config.ClusterSecret != ""))
+		zap.Bool("encryption_enabled", a.config.ClusterSecretFile != "" || a.config.ClusterSecret != ""))
 
 	return nil
 }
 
 // buildNodeMeta creates metadata that gets shared with other cluster nodes
-// This is where you can customize what information gets advertised to the cluster
 func (a *App) buildNodeMeta() cluster.NodeMeta {
 	meta := cluster.NodeMeta{
-		"version": "1.0.0",
-		"role":    "wippy",
+		"version":        "1.0.0",
+		"role":           "wippy",
+		"internode_port": strconv.Itoa(internode.DefaultPort), // Advertise internode port
 	}
-
 	return meta
 }
 
@@ -334,7 +371,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	}
 	appCtx = context.WithValue(appCtx, ctxapi.EnvCtx, envCtx)
 
-	// Start core services
+	// Start core services IN ORDER
 	if err := a.fsRegistry.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start filesystem service: %w", err)
@@ -365,14 +402,26 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to start contract registry: %w", err)
 	}
 
-	// Start membership service if cluster enabled
-	if a.config.ClusterEnabled && a.membership != nil {
-		if err := a.membership.Start(appCtx); err != nil {
-			a.cancel()
-			return fmt.Errorf("failed to start membership service: %w", err)
+	// Start cluster services if enabled
+	if a.config.ClusterEnabled {
+		// Start membership service first
+		if a.membership != nil {
+			if err := a.membership.Start(appCtx); err != nil {
+				a.cancel()
+				return fmt.Errorf("failed to start membership service: %w", err)
+			}
+		}
+
+		// Start internode service after membership
+		if a.internodeService != nil {
+			if err := a.internodeService.Start(appCtx); err != nil {
+				a.cancel()
+				return fmt.Errorf("failed to start internode service: %w", err)
+			}
 		}
 	}
 
+	// Start node mesh after cluster services
 	if err := a.node.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start node mesh: %w", err)
@@ -442,7 +491,7 @@ func (a *App) Stop() error {
 		}
 	}()
 
-	// Stop services in reverse order
+	// Stop services in REVERSE order of startup
 	if err := a.eventRouter.Stop(); err != nil {
 		a.logger.Error("failed to stop router", zap.Error(err))
 	}
@@ -451,31 +500,41 @@ func (a *App) Stop() error {
 		a.logger.Error("failed to stop supervisor", zap.Error(err))
 	}
 
-	if err := a.funcs.Stop(); err != nil {
-		a.logger.Error("failed to stop function executor", zap.Error(err))
+	if err := a.node.Stop(); err != nil {
+		a.logger.Error("failed to stop node", zap.Error(err))
 	}
 
-	if err := a.prototypes.Stop(); err != nil {
-		a.logger.Error("failed to stop prototype registry", zap.Error(err))
+	// Stop cluster services in reverse order
+	if a.config.ClusterEnabled {
+		// Stop internode service before membership
+		if a.internodeService != nil {
+			if err := a.internodeService.Stop(); err != nil {
+				a.logger.Error("failed to stop internode service", zap.Error(err))
+			}
+		}
+
+		// Stop membership service last
+		if a.membership != nil {
+			if err := a.membership.Stop(); err != nil {
+				a.logger.Error("failed to stop membership service", zap.Error(err))
+			}
+		}
 	}
 
 	if err := a.contractRegistry.Stop(); err != nil {
 		a.logger.Error("failed to stop contract registry", zap.Error(err))
 	}
 
-	if err := a.node.Stop(); err != nil {
-		a.logger.Error("failed to stop node", zap.Error(err))
-	}
-
-	// Stop membership service if cluster enabled
-	if a.config.ClusterEnabled && a.membership != nil {
-		if err := a.membership.Stop(); err != nil {
-			a.logger.Error("failed to stop membership service", zap.Error(err))
-		}
-	}
-
 	if err := a.hosts.Stop(); err != nil {
 		a.logger.Error("failed to stop hosts registry", zap.Error(err))
+	}
+
+	if err := a.prototypes.Stop(); err != nil {
+		a.logger.Error("failed to stop prototype registry", zap.Error(err))
+	}
+
+	if err := a.funcs.Stop(); err != nil {
+		a.logger.Error("failed to stop function executor", zap.Error(err))
 	}
 
 	if err := a.resources.Stop(); err != nil {

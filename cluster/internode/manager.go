@@ -15,6 +15,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// Port range for auto-selection
+const (
+	// todo: we can isolate it into internal helper
+	DefaultPortRangeStart = 7950
+	DefaultPortRangeEnd   = 7959 // Try 10 ports in range
+)
+
 // ConnectionState represents the state of a connection to a remote node
 type ConnectionState int
 
@@ -55,7 +62,8 @@ type ManagerTLSConfig struct {
 type ManagerConfig struct {
 	LocalNodeID       cluster.NodeID
 	BindAddr          string
-	BindPort          int
+	BindPort          int  // Use 0 for auto-port selection
+	AutoPort          bool // Enable automatic port selection
 	HandshakeTimeout  time.Duration
 	OutboundQueueSize int
 	MaxMessageSize    uint32
@@ -80,6 +88,8 @@ func DefaultManagerConfig() ManagerConfig {
 		InitialRetryDelay:  10 * time.Millisecond,
 		MaxRetryDelay:      250 * time.Millisecond,
 		RetryCheckInterval: 5 * time.Millisecond,
+		AutoPort:           true, // Enable auto-port by default
+		BindPort:           DefaultPortRangeStart,
 	}
 }
 
@@ -101,6 +111,7 @@ type ConnectionManager interface {
 	DisconnectFromNode(nodeID cluster.NodeID)
 	ConnectedNodes() []cluster.NodeID
 	HandleNodeLeft(nodeID cluster.NodeID)
+	GetListenPort() int // Get the actual listening port
 }
 
 // manager is the concrete implementation of ConnectionManager.
@@ -116,6 +127,9 @@ type manager struct {
 
 	nodeStates     *NodeStateManager
 	retryScheduler *RetryScheduler
+
+	// Actual listening port (may differ from config if auto-port is used)
+	actualPort int
 }
 
 // NewConnectionManager creates a new connection manager.
@@ -144,13 +158,19 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 		m.logger.Info("TLS encryption enabled for inter-node communication")
 	}
 
-	addr := fmt.Sprintf("%s:%d", m.config.BindAddr, m.config.BindPort)
-	listener, err := m.listen(addr)
+	// Try to start listener with auto-port detection
+	listener, actualPort, err := m.startListener()
 	if err != nil {
-		return fmt.Errorf("failed to start listener on %s: %w", addr, err)
+		return fmt.Errorf("failed to start listener: %w", err)
 	}
+
 	m.listener = listener
-	m.logger.Info("TCP listener started", zap.String("address", addr))
+	m.actualPort = actualPort
+
+	m.logger.Info("TCP listener started",
+		zap.String("address", fmt.Sprintf("%s:%d", m.config.BindAddr, actualPort)),
+		zap.Bool("auto_port", m.config.AutoPort),
+		zap.Int("configured_port", m.config.BindPort))
 
 	m.wg.Add(2)
 	go func() { defer m.wg.Done(); m.acceptLoop() }()
@@ -159,12 +179,85 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 	return nil
 }
 
+// startListener tries to start a listener with automatic port selection if needed
+func (m *manager) startListener() (net.Listener, int, error) {
+	if m.config.AutoPort {
+		// Try port range first, then system auto-select
+		return m.tryPortRange()
+	}
+
+	// Use specific port
+	addr := fmt.Sprintf("%s:%d", m.config.BindAddr, m.config.BindPort)
+	listener, err := m.listen(addr)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return listener, m.config.BindPort, nil
+}
+
+// tryPortRange tries ports in the default range, then falls back to system auto-selection
+func (m *manager) tryPortRange() (net.Listener, int, error) {
+	startPort := m.config.BindPort
+	if startPort == 0 {
+		startPort = DefaultPortRangeStart
+	}
+
+	// Try the configured port first if it's in our range
+	if startPort >= DefaultPortRangeStart && startPort <= DefaultPortRangeEnd {
+		addr := fmt.Sprintf("%s:%d", m.config.BindAddr, startPort)
+		if listener, err := m.listen(addr); err == nil {
+			m.logger.Info("Using configured port", zap.Int("port", startPort))
+			return listener, startPort, nil
+		}
+	}
+
+	// Try ports in the default range
+	for port := DefaultPortRangeStart; port <= DefaultPortRangeEnd; port++ {
+		if port == startPort {
+			continue // Already tried above
+		}
+
+		addr := fmt.Sprintf("%s:%d", m.config.BindAddr, port)
+		listener, err := m.listen(addr)
+		if err == nil {
+			m.logger.Info("Auto-selected port from range",
+				zap.Int("port", port),
+				zap.Int("range_start", DefaultPortRangeStart),
+				zap.Int("range_end", DefaultPortRangeEnd))
+			return listener, port, nil
+		}
+	}
+
+	// All ports in range are busy, fall back to system auto-selection
+	m.logger.Info("All ports in range busy, using system auto-selection",
+		zap.Int("range_start", DefaultPortRangeStart),
+		zap.Int("range_end", DefaultPortRangeEnd))
+
+	autoAddr := fmt.Sprintf("%s:0", m.config.BindAddr)
+	listener, err := m.listen(autoAddr)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to auto-select port: %w", err)
+	}
+
+	// Get the actual port that was assigned
+	actualPort := listener.Addr().(*net.TCPAddr).Port
+	m.logger.Info("System auto-selected port", zap.Int("port", actualPort))
+
+	return listener, actualPort, nil
+}
+
 // listen creates a listener, either plain TCP or TLS based on configuration.
 func (m *manager) listen(addr string) (net.Listener, error) {
 	if m.tlsConfig != nil {
 		return tls.Listen("tcp", addr, m.tlsConfig)
 	}
 	return net.Listen("tcp", addr)
+}
+
+// GetListenPort returns the actual port the manager is listening on
+func (m *manager) GetListenPort() int {
+	return m.actualPort
 }
 
 // Stop gracefully shuts down the manager.
