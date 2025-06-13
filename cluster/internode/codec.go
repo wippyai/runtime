@@ -4,28 +4,44 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+	"io"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 )
 
-// MessageCodec handles Package <-> bytes conversion. It uses a Transcoder
-// to normalize complex data formats into a serializable format before encoding.
-type MessageCodec struct {
-	transcoder payload.Transcoder
+// encodedPayload is a simple, gob-friendly struct used to serialize a payload.
+// We convert the payload.Payload interface into this DTO (Data Transfer Object) before encoding.
+type encodedPayload struct {
+	Format payload.Format
+	Data   any
 }
 
-// NewMessageCodec creates a new codec that will use the provided transcoder for
-// payload normalization. It also registers all necessary types with the gob package.
-func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
-	// Register the concrete carrier type for the payload.Payload interface.
-	// This is ALWAYS required when using interfaces with gob.
-	gob.Register(payload.DefaultCarrier{})
+// encodedMessage is a gob-friendly representation of a pubsub.Message.
+type encodedMessage struct {
+	Topic    string
+	Payloads []encodedPayload
+}
 
-	// Register other types that are part of the pubsub.Package structure or can be sent.
-	gob.Register(&pubsub.Package{})
-	gob.Register(&pubsub.Message{})
+// encodedPackage is a gob-friendly representation of a pubsub.Package.
+type encodedPackage struct {
+	Messages []*encodedMessage
+}
+
+// MessageCodec handles Package <-> bytes conversion.
+type MessageCodec struct {
+	transcoder payload.Transcoder
+	bufferPool sync.Pool // Pool for reusing bytes.Buffer to reduce allocations.
+	encPkgPool sync.Pool // Pool for reusing the encodedPackage DTO.
+}
+
+// NewMessageCodec creates a new codec for message serialization.
+func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
+	// We MUST register any concrete types that might be stored in an `any`
+	// field (like the payload.Data). This is a requirement of encoding/gob.
 	gob.Register(pubsub.PID{})
 	gob.Register(registry.ID{})
 	gob.Register(event.Event{})
@@ -34,64 +50,125 @@ func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 
 	return &MessageCodec{
 		transcoder: transcoder,
+		bufferPool: sync.Pool{
+			New: func() any {
+				return new(bytes.Buffer)
+			},
+		},
+		encPkgPool: sync.Pool{
+			New: func() any {
+				// Pre-allocating a small slice can be a micro-optimization.
+				return &encodedPackage{Messages: make([]*encodedMessage, 0, 8)}
+			},
+		},
 	}
 }
 
-// Encode converts a pubsub.Package to bytes. It iterates through all payloads
-// and uses the transcoder to convert any non-native formats (like Lua, YAML, etc.)
-// into JSON strings before passing the package to the gob encoder.
+// resetEncodedPackage clears an encodedPackage so it can be safely returned to a pool.
+func (c *MessageCodec) resetEncodedPackage(p *encodedPackage) {
+	// Nil out pointers to allow GC and prevent data leakage between usages.
+	for i := range p.Messages {
+		p.Messages[i] = nil
+	}
+	p.Messages = p.Messages[:0]
+}
+
+// Encode converts a pubsub.Package to bytes by first transforming it into a
+// gob-friendly intermediate representation. It uses pooling to minimize allocations.
 func (c *MessageCodec) Encode(pkg *pubsub.Package) ([]byte, error) {
-	// Create a deep copy of the package to avoid modifying the original data,
-	// which would be an unexpected side effect for the caller.
-	pkgForEncoding := *pkg
-	pkgForEncoding.Messages = make([]*pubsub.Message, len(pkg.Messages))
+	encPkg := c.encPkgPool.Get().(*encodedPackage)
+	defer func() {
+		c.resetEncodedPackage(encPkg)
+		c.encPkgPool.Put(encPkg)
+	}()
 
-	for i, msg := range pkg.Messages {
-		newMsg := *msg
-		newMsg.Payloads = make([]payload.Payload, len(msg.Payloads))
-
-		for j, p := range msg.Payloads {
-			var normalizedPayload payload.Payload
-			var err error
-
-			// This is the normalization logic. We only let specific, gob-safe
-			// formats pass through. Everything else is delegated to the transcoder.
-			switch p.Format() {
-			case payload.Golang, payload.String, payload.Bytes, payload.Error:
-				// These types are native or simple and safe for gob.
-				normalizedPayload = p
-			default:
-				// For anything else (Lua, YAML, etc.), ask the transcoder to
-				// convert it to our universal format, JSON.
-				normalizedPayload, err = c.transcoder.Transcode(p, payload.JSON)
-				if err != nil {
-					return nil, fmt.Errorf("failed to transcode payload at message %d, payload %d: %w", i, j, err)
-				}
-			}
-			newMsg.Payloads[j] = normalizedPayload
-		}
-		pkgForEncoding.Messages[i] = &newMsg
+	// Reuse the underlying slice if it has enough capacity.
+	if cap(encPkg.Messages) < len(pkg.Messages) {
+		encPkg.Messages = make([]*encodedMessage, len(pkg.Messages))
+	} else {
+		encPkg.Messages = encPkg.Messages[:len(pkg.Messages)]
 	}
 
-	// Now, encode the fully normalized package.
-	var buf bytes.Buffer
-	encoder := gob.NewEncoder(&buf)
-	if err := encoder.Encode(&pkgForEncoding); err != nil {
+	for i, msg := range pkg.Messages {
+		encMsg := &encodedMessage{
+			Topic:    msg.Topic,
+			Payloads: make([]encodedPayload, len(msg.Payloads)),
+		}
+
+		for j, p := range msg.Payloads {
+			normalizedPayload, err := c.normalizePayload(p)
+			if err != nil {
+				return nil, fmt.Errorf("failed to transcode payload at message %d, payload %d: %w", i, j, err)
+			}
+			encMsg.Payloads[j] = encodedPayload{
+				Format: normalizedPayload.Format(),
+				Data:   normalizedPayload.Data(),
+			}
+		}
+		encPkg.Messages[i] = encMsg
+	}
+
+	buf := c.bufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer c.bufferPool.Put(buf)
+
+	encoder := gob.NewEncoder(buf)
+	if err := encoder.Encode(encPkg); err != nil {
 		return nil, fmt.Errorf("failed to gob encode package: %w", err)
 	}
 
-	return buf.Bytes(), nil
+	// We must return a copy of the buffer's bytes because the buffer is pooled
+	// and its underlying array will be overwritten on next use.
+	result := make([]byte, buf.Len())
+	copy(result, buf.Bytes())
+
+	return result, nil
 }
 
-// Decode converts bytes back to a pubsub.Package using gob.
-// The consumer of the decoded package is responsible for interpreting
-// any normalized payloads (e.g., by unmarshaling the JSON strings).
+// Decode converts bytes back to a pubsub.Package. It reuses the intermediate DTO.
 func (c *MessageCodec) Decode(data []byte) (*pubsub.Package, error) {
-	var pkg pubsub.Package
-	decoder := gob.NewDecoder(bytes.NewReader(data))
+	encPkg := c.encPkgPool.Get().(*encodedPackage)
+	defer func() {
+		c.resetEncodedPackage(encPkg)
+		c.encPkgPool.Put(encPkg)
+	}()
 
-	if err := decoder.Decode(&pkg); err != nil {
+	decoder := gob.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(encPkg); err != nil {
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return nil, fmt.Errorf("failed to gob decode package: buffer is empty or incomplete")
+		}
 		return nil, fmt.Errorf("failed to gob decode package: %w", err)
 	}
-	return &pkg, nil
+
+	finalPkg := &pubsub.Package{
+		Messages: make([]*pubsub.Message, len(encPkg.Messages)),
+	}
+
+	for i, encMsg := range encPkg.Messages {
+		finalMsg := &pubsub.Message{
+			Topic:    encMsg.Topic,
+			Payloads: make(payload.Payloads, len(encMsg.Payloads)),
+		}
+
+		for j, encP := range encMsg.Payloads {
+			finalMsg.Payloads[j] = payload.NewPayload(encP.Data, encP.Format)
+		}
+		finalPkg.Messages[i] = finalMsg
+	}
+
+	return finalPkg, nil
+}
+
+// normalizePayload ensures a payload's data is in a gob-safe format.
+func (c *MessageCodec) normalizePayload(p payload.Payload) (payload.Payload, error) {
+	switch p.Format() {
+	case payload.Golang, payload.String, payload.Bytes, payload.Error:
+		// These types are native or simple enough for gob to handle.
+		return p, nil
+	default:
+		// For anything else (Lua, YAML, etc.), convert it to our universal,
+		// simple format (a JSON string).
+		return c.transcoder.Transcode(p, payload.JSON)
+	}
 }

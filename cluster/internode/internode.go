@@ -95,11 +95,14 @@ func (s *Service) Stop() error {
 
 func (s *Service) Send(pkg *pubsub.Package) error {
 	data, err := s.codec.Encode(pkg)
+	pubsub.ReleasePackage(pkg)
+
+	targetNode := pkg.Target
 	if err != nil {
-		return fmt.Errorf("failed to encode package for node %s: %w", pkg.Target.Node, err)
+		return fmt.Errorf("failed to encode package for node %s: %w", targetNode.Node, err)
 	}
 
-	return s.connMan.SendToNode(pkg.Target.Node, data)
+	return s.connMan.SendToNode(targetNode.Node, data)
 }
 
 func (s *Service) handleMembershipEvent(e event.Event) {
