@@ -71,8 +71,8 @@ type (
 
 // DefaultCarrier is a concrete implementation of the Payload interface.
 type DefaultCarrier struct {
-	Data_   any
-	Format_ Format
+	Data_   any    `json:"data,omitempty"`
+	Format_ Format `json:"format,omitempty"`
 }
 
 // Data returns the raw Data_ of the DefaultCarrier.
