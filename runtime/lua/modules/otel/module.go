@@ -52,8 +52,7 @@ func getCurrentSpan(ctx context.Context) trace.Span {
 func (m *Module) attribute(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		return 0 // Silently ignore if no context
 	}
 
 	// Add security check for accessing OpenTelemetry
@@ -76,8 +75,7 @@ func (m *Module) attribute(l *lua.LState) int {
 
 	span := getCurrentSpan(ctx)
 	if span == nil {
-		l.RaiseError("no active span found")
-		return 0
+		return 0 // Silently ignore if no active span
 	}
 
 	// Convert Lua value to OpenTelemetry attribute
@@ -101,8 +99,7 @@ func (m *Module) attribute(l *lua.LState) int {
 func (m *Module) event(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		return 0 // Silently ignore if no context
 	}
 
 	// Add security check for accessing OpenTelemetry
@@ -119,8 +116,7 @@ func (m *Module) event(l *lua.LState) int {
 
 	span := getCurrentSpan(ctx)
 	if span == nil {
-		l.RaiseError("no active span found")
-		return 0
+		return 0 // Silently ignore if no active span
 	}
 
 	// Get attributes table if provided
@@ -150,10 +146,8 @@ func (m *Module) event(l *lua.LState) int {
 
 func (m *Module) status(l *lua.LState) int {
 	ctx := l.Context()
-
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		return 0 // Silently ignore if no context
 	}
 
 	// Add security check for accessing OpenTelemetry
@@ -167,8 +161,7 @@ func (m *Module) status(l *lua.LState) int {
 
 	span := getCurrentSpan(ctx)
 	if span == nil {
-		l.RaiseError("no active span found")
-		return 0
+		return 0 // Silently ignore if no active span
 	}
 
 	// Set span status based on code

@@ -129,6 +129,7 @@ import (
 	otelresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+	oteltrace "go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -1092,8 +1093,11 @@ func initOpenTelemetry(
 	mainLogger *zap.Logger,
 ) (func(), error) {
 	if endpoint == "" {
-		endpoint = "localhost:4317"
+		mainLogger.Info("No OpenTelemetry endpoint specified, using no-op tracer")
+		otel.SetTracerProvider(oteltrace.NewTracerProvider())
+		return func() {}, nil
 	}
+
 	if serviceName == "" {
 		serviceName = "wippy-runtime"
 	}

@@ -169,6 +169,23 @@ Features:
 - Context propagation
 - Span kind specification (Server/Internal)
 
+#### Environment Variables
+
+The OpenTelemetry interceptor can be configured using the following environment variables:
+
+- `OTEL_ENDPOINT`: The endpoint for the OpenTelemetry collector (e.g., "localhost:4317")
+- `OTEL_SERVICE_NAME`: The name of the service for tracing (default: "wippy-runtime")
+- `OTEL_SERVICE_VERSION`: The version of the service (default: "1.0.0")
+
+Example:
+```bash
+export OTEL_ENDPOINT="localhost:4317"
+export OTEL_SERVICE_NAME="wippy"
+export OTEL_SERVICE_VERSION="1.0.0"
+```
+
+If `OTEL_ENDPOINT` is not set, the interceptor will use a no-op tracer and tracing will be disabled.
+
 ### Retry
 
 Handles automatic retries for failed function executions.

@@ -14,6 +14,7 @@ import (
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
 )
 
@@ -42,15 +43,20 @@ func (m *Manager) InitInterceptors(ctx context.Context) error {
 		return fmt.Errorf("error adding timeout interceptor: %w", err)
 	}
 
-	// FIXME: we need to enable it only for paid customers or for testing purposes
-	if err := m.Add(ctx, registry.Entry{
-		ID: registry.ID{
-			NS:   "interceptor",
-			Name: "otel",
-		},
-		Data: payload.New(NewOTelInterceptor(otel.GetTracerProvider().Tracer("pony-runtime"))),
-	}); err != nil {
-		return fmt.Errorf("error adding otel interceptor: %w", err)
+	// Only enable OpenTelemetry interceptor if we're not using a no-op tracer
+	tracerProvider := otel.GetTracerProvider()
+	if tracerProvider != nil && tracerProvider != noop.NewTracerProvider() {
+		if err := m.Add(ctx, registry.Entry{
+			ID: registry.ID{
+				NS:   "interceptor",
+				Name: "otel",
+			},
+			Data: payload.New(NewOTelInterceptor(tracerProvider.Tracer("pony-runtime"))),
+		}); err != nil {
+			return fmt.Errorf("error adding otel interceptor: %w", err)
+		}
+	} else {
+		m.logger.Info("OpenTelemetry interceptor disabled - using no-op tracer")
 	}
 
 	if err := m.Add(ctx, registry.Entry{
