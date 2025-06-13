@@ -13,6 +13,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
 
@@ -47,7 +48,7 @@ func (m *Manager) InitInterceptors(ctx context.Context) error {
 			NS:   "interceptor",
 			Name: "otel",
 		},
-		Data: payload.New(NewOTelInterceptor()),
+		Data: payload.New(NewOTelInterceptor(otel.GetTracerProvider().Tracer("pony-runtime"))),
 	}); err != nil {
 		return fmt.Errorf("error adding otel interceptor: %w", err)
 	}
@@ -96,14 +97,14 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 }
 
 // Update implements registry.EntryListener
-func (m *Manager) Update(_ context.Context, entry registry.Entry) error {
+func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	ic, ok := entry.Data.(interceptor.Interceptor)
 	if !ok {
 		return fmt.Errorf("invalid interceptor data type")
 	}
 
 	// Send register event to the registry (same as Add since we don't distinguish)
-	m.eventBus.Send(context.Background(), event.Event{
+	m.eventBus.Send(ctx, event.Event{
 		System: interceptor.System,
 		Kind:   interceptor.Update,
 		Path:   fmt.Sprintf("%s/%s", entry.ID.NS, entry.ID.Name),
@@ -116,9 +117,9 @@ func (m *Manager) Update(_ context.Context, entry registry.Entry) error {
 }
 
 // Delete implements registry.EntryListener
-func (m *Manager) Delete(_ context.Context, entry registry.Entry) error {
+func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	// Send delete event to the registry
-	m.eventBus.Send(context.Background(), event.Event{
+	m.eventBus.Send(ctx, event.Event{
 		System: interceptor.System,
 		Kind:   interceptor.Delete,
 		Path:   fmt.Sprintf("%s/%s", entry.ID.NS, entry.ID.Name),

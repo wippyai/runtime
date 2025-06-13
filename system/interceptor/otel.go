@@ -6,7 +6,6 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -18,9 +17,9 @@ type OTelInterceptor struct {
 }
 
 // NewOTelInterceptor creates a new OpenTelemetry interceptor
-func NewOTelInterceptor() *OTelInterceptor {
+func NewOTelInterceptor(tracer trace.Tracer) *OTelInterceptor {
 	return &OTelInterceptor{
-		tracer: otel.Tracer("wippy"),
+		tracer: tracer,
 	}
 }
 

@@ -125,7 +125,6 @@ import (
 	"github.com/ponyruntime/pony/system/supervisor"
 	"github.com/ponyruntime/pony/system/topology"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	otelresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -754,7 +753,9 @@ func loadApplicationState(
 		context.Background(),
 		os.Getenv("OTEL_ENDPOINT"),
 		os.Getenv("OTEL_SERVICE_NAME"),
-		os.Getenv("OTEL_SERVICE_VERSION"))
+		os.Getenv("OTEL_SERVICE_VERSION"),
+		mainLogger,
+	)
 	if err != nil {
 		mainLogger.Error("failed to initialize OpenTelemetry", zap.Error(err))
 	}
@@ -1083,7 +1084,13 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 }
 
 // initOpenTelemetry initializes the OpenTelemetry tracer
-func initOpenTelemetry(ctx context.Context, endpoint, serviceName, serviceVersion string) (func(), error) {
+func initOpenTelemetry(
+	ctx context.Context,
+	endpoint string,
+	serviceName string,
+	serviceVersion string,
+	mainLogger *zap.Logger,
+) (func(), error) {
 	if endpoint == "" {
 		endpoint = "localhost:4317"
 	}
@@ -1125,24 +1132,14 @@ func initOpenTelemetry(ctx context.Context, endpoint, serviceName, serviceVersio
 
 	// Store cleanup function
 	cleanup := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if err := tp.Shutdown(ctx); err != nil {
-			fmt.Printf("Error shutting down tracer provider: %v\n", err)
+		if err = tp.Shutdown(cleanupCtx); err != nil {
+			mainLogger.Warn("Error shutting down tracer provider", zap.Error(err))
 		}
 	}
 
-	// Create and end a test span to verify tracing works
-	tracer := otel.Tracer("init")
-	_, span := tracer.Start(ctx, "service_initialization")
-	span.SetAttributes(
-		attribute.String("init.timestamp", time.Now().Format(time.RFC3339)),
-		attribute.String("init.hostname", getHostname()),
-	)
-	span.End()
-
-	fmt.Printf("OpenTelemetry initialized successfully with endpoint: %s\n", endpoint)
 	return cleanup, nil
 }
 

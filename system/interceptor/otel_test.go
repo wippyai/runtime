@@ -213,8 +213,8 @@ func TestOTelInterceptorWithRealExporter(t *testing.T) {
 		}
 	}()
 
-	// Create interceptor
-	interceptor := NewOTelInterceptor()
+	// Create interceptor with tracer
+	interceptor := NewOTelInterceptor(otel.Tracer("test"))
 
 	// Test cases for different scenarios
 	testCases := []struct {
@@ -323,7 +323,7 @@ func TestOTelInterceptor(t *testing.T) {
 		}
 	}()
 
-	interceptor := NewOTelInterceptor()
+	interceptor := NewOTelInterceptor(tp.Tracer("test"))
 
 	tests := []struct {
 		name          string
@@ -380,7 +380,7 @@ func TestOTelInterceptorContextPropagation(t *testing.T) {
 		}
 	}()
 
-	interceptor := NewOTelInterceptor()
+	interceptor := NewOTelInterceptor(tp.Tracer("test"))
 
 	// Create a context with a parent span
 	ctx, parentSpan := tp.Tracer("test").Start(ctx, "parent_span")
@@ -420,7 +420,7 @@ func TestOTelInterceptorMultipleSpans(t *testing.T) {
 		}
 	}()
 
-	interceptor := NewOTelInterceptor()
+	interceptor := NewOTelInterceptor(tp.Tracer("test"))
 
 	// Create a context with a parent span
 	ctx, parentSpan := tp.Tracer("test").Start(ctx, "parent_span")
@@ -544,7 +544,7 @@ func TestOTelInterceptorBasic(t *testing.T) {
 	}()
 
 	// Create a new OTel interceptor
-	interceptor := NewOTelInterceptor()
+	interceptor := NewOTelInterceptor(tp.Tracer("test"))
 
 	// Test successful execution
 	t.Run("successful execution", func(t *testing.T) {
@@ -620,7 +620,7 @@ func TestOTelInterceptorWithExistingSpan(t *testing.T) {
 		}
 	}()
 
-	interceptor := NewOTelInterceptor()
+	interceptor := NewOTelInterceptor(tp.Tracer("test"))
 
 	// Create a parent span
 	ctx, parentSpan := tp.Tracer("test").Start(ctx, "parent")
@@ -682,7 +682,7 @@ func TestOTelInterceptorWithPID(t *testing.T) {
 		}
 	}()
 
-	interceptor := NewOTelInterceptor()
+	interceptor := NewOTelInterceptor(tp.Tracer("test"))
 
 	// Create a context with PID
 	pid := pubsub.PID{

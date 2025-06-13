@@ -34,6 +34,7 @@ entries:
       comment: "interceptor demo child spans processing"
     source: file://child_spans.lua
     modules: [ otel ]
+
   - name: interceptor_demo.endpoint
     kind: http.endpoint
     meta:

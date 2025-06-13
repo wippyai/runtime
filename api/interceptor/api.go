@@ -24,10 +24,6 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (d Duration) MarshalJSON() ([]byte, error) {
-	return json.Marshal(time.Duration(d).String())
-}
-
 type RetryOptions struct {
 	MaxAttempts int `json:"attempts"`
 }
