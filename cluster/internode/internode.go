@@ -1,3 +1,4 @@
+// file: cluster/internode/service.go
 package internode
 
 import (
@@ -136,7 +137,7 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 		s.connectToNode(nodeInfo)
 	case cluster.NodeLeftEventKind:
 		s.logger.Info("Node left cluster, disconnecting", zap.String("node_id", string(nodeInfo.ID)))
-		s.connMan.DisconnectFromNode(nodeInfo.ID)
+		s.connMan.HandleNodeLeft(nodeInfo.ID)
 	}
 }
 

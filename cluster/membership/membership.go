@@ -175,7 +175,7 @@ func (s *Service) LocalNode() cluster.NodeInfo {
 		// Return info from config if memberlist isn't up yet
 		return cluster.NodeInfo{
 			ID:   s.config.NodeName,
-			Addr: fmt.Sprintf("%s:%d", s.config.BindAddr, s.config.BindPort),
+			Addr: s.config.BindAddr,
 			Meta: s.config.Meta,
 		}
 	}
@@ -234,7 +234,7 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 
 	nodeInfo := cluster.NodeInfo{
 		ID:   cluster.NodeID(node.Name),
-		Addr: fmt.Sprintf("%s:%d", node.Addr.String(), node.Port),
+		Addr: node.Addr.String(), // Just the IP address
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
@@ -257,8 +257,8 @@ func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
 	}
 
 	nodeInfo := cluster.NodeInfo{
-		ID:   node.Name,
-		Addr: fmt.Sprintf("%s:%d", node.Addr.String(), node.Port),
+		ID:   cluster.NodeID(node.Name),
+		Addr: node.Addr.String(), // Just the IP address
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
@@ -280,8 +280,8 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 	}
 
 	nodeInfo := cluster.NodeInfo{
-		ID:   node.Name,
-		Addr: fmt.Sprintf("%s:%d", node.Addr.String(), node.Port),
+		ID:   cluster.NodeID(node.Name),
+		Addr: node.Addr.String(), // Just the IP address
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 

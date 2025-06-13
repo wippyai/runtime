@@ -181,6 +181,7 @@ func (a *App) initSingleNodeMesh() error {
 }
 
 // initClusterMesh initializes mesh layer for cluster mode with internode integration
+// NEW APPROACH: Pre-allocate port before creating membership service
 func (a *App) initClusterMesh() error {
 	// Parse join addresses
 	var joinAddrs []string
@@ -190,10 +191,48 @@ func (a *App) initClusterMesh() error {
 		}
 	}
 
-	// Build node metadata with internode port
-	nodeMeta := a.buildNodeMeta()
+	// STEP 1: Create and PRE-START connection manager to allocate port
+	a.messageCodec = internode.NewMessageCodec(a.dtt)
 
-	// Create membership service config
+	connManagerConfig := internode.DefaultManagerConfig()
+	connManagerConfig.LocalNodeID = cluster.NodeID(a.config.ClusterName)
+	connManagerConfig.BindAddr = "0.0.0.0"
+	connManagerConfig.AutoPort = true
+	connManagerConfig.Logger = a.logger
+
+	a.connManager = internode.NewConnectionManager(connManagerConfig)
+
+	// Pre-start the connection manager to allocate the port
+	// We'll use a dummy callback for now since we don't have the delivery callback yet
+	tempCtx, tempCancel := context.WithCancel(context.Background())
+	dummyCallback := func(nodeID cluster.NodeID, data []byte) {
+		// This won't be called during port allocation
+	}
+
+	if err := a.connManager.Start(tempCtx, dummyCallback); err != nil {
+		tempCancel()
+		return fmt.Errorf("failed to pre-start connection manager for port allocation: %w", err)
+	}
+
+	// STEP 2: Get the actual allocated port
+	actualPort := a.connManager.GetListenPort()
+	a.logger.Info("Pre-allocated internode port", zap.Int("port", actualPort))
+
+	// STEP 3: Stop the connection manager (we'll restart it later with proper callback)
+	if err := a.connManager.Stop(); err != nil {
+		tempCancel()
+		return fmt.Errorf("failed to stop connection manager after port allocation: %w", err)
+	}
+	tempCancel()
+
+	// STEP 4: Build node metadata with the correct port
+	nodeMeta := cluster.NodeMeta{
+		"version":        "1.0.0",
+		"role":           "wippy",
+		"internode_port": strconv.Itoa(actualPort), // Use the actual port!
+	}
+
+	// STEP 5: Create membership service with correct metadata
 	memberConfig := membership.Config{
 		NodeName:     a.config.ClusterName,
 		BindAddr:     a.config.ClusterBind,
@@ -203,35 +242,20 @@ func (a *App) initClusterMesh() error {
 		SecretString: a.config.ClusterSecret,
 		AdvertiseIP:  a.config.ClusterAdvertise,
 		VeryVerbose:  a.config.VeryVerbose,
-		Meta:         nodeMeta,
+		Meta:         nodeMeta, // Metadata has correct port!
 	}
 
-	// Create membership service
 	a.membership = membership.NewService(memberConfig, a.eventBus, a.logger.Named("cluster"))
 
-	// Create internode components
-	a.messageCodec = internode.NewMessageCodec(a.dtt) // Use app's transcoder
-
-	// Create connection manager config
-	connManagerConfig := internode.DefaultManagerConfig()
-	connManagerConfig.LocalNodeID = cluster.NodeID(a.config.ClusterName)
-	connManagerConfig.BindAddr = "0.0.0.0" // Listen on all interfaces
-	connManagerConfig.BindPort = internode.DefaultPort
-	connManagerConfig.Logger = a.logger
-
-	// Create connection manager
-	a.connManager = internode.NewConnectionManager(connManagerConfig)
-
-	// Create local pubsub node (without upstream initially)
+	// STEP 6: Create pubsub components with proper circular dependency resolution
 	localNode := pubsub.NewNode(a.config.ClusterName, nil)
 
-	// Create delivery callback that delivers messages to local node
-	// This breaks the circular dependency!
+	// Create delivery callback
 	deliveryCallback := func(pkg *pubsubapi.Package) error {
 		return localNode.Send(pkg)
 	}
 
-	// Create internode service with callback
+	// Create internode service
 	a.internodeService = internode.NewService(
 		a.logger,
 		a.connManager,
@@ -241,7 +265,7 @@ func (a *App) initClusterMesh() error {
 		a.membership,
 	)
 
-	// NOW set the internode service as upstream for the local node
+	// Set internode service as upstream
 	upstream := pubsubapi.Receiver(a.internodeService)
 	localNode = pubsub.NewNode(a.config.ClusterName, &upstream)
 
@@ -261,21 +285,11 @@ func (a *App) initClusterMesh() error {
 
 	a.logger.Info("cluster mesh with internode initialized",
 		zap.String("node_name", a.config.ClusterName),
-		zap.Int("internode_port", internode.DefaultPort),
+		zap.Int("internode_port", actualPort),
 		zap.Strings("join_addresses", joinAddrs),
 		zap.Bool("encryption_enabled", a.config.ClusterSecretFile != "" || a.config.ClusterSecret != ""))
 
 	return nil
-}
-
-// buildNodeMeta creates metadata that gets shared with other cluster nodes
-func (a *App) buildNodeMeta() cluster.NodeMeta {
-	meta := cluster.NodeMeta{
-		"version":        "1.0.0",
-		"role":           "wippy",
-		"internode_port": strconv.Itoa(internode.DefaultPort), // Advertise internode port
-	}
-	return meta
 }
 
 func (a *App) Initialize() error {
@@ -402,9 +416,9 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to start contract registry: %w", err)
 	}
 
-	// Start cluster services if enabled
+	// Start cluster services if enabled - PROPER ORDER
 	if a.config.ClusterEnabled {
-		// Start membership service first
+		// Start membership service first (with correct port metadata)
 		if a.membership != nil {
 			if err := a.membership.Start(appCtx); err != nil {
 				a.cancel()
@@ -412,7 +426,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 			}
 		}
 
-		// Start internode service after membership
+		// Start internode service after membership (will restart connection manager properly)
 		if a.internodeService != nil {
 			if err := a.internodeService.Start(appCtx); err != nil {
 				a.cancel()

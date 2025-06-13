@@ -326,6 +326,8 @@ func (m *manager) ensureConnection(nodeID cluster.NodeID) {
 
 // attemptConnection tries to establish a connection to a node.
 func (m *manager) attemptConnection(nodeID cluster.NodeID, addr string, port int) {
+	m.logger.Info("Attempting connection", zap.String("node", string(nodeID)), zap.String("address", fmt.Sprintf("%s:%d", addr, port)))
+
 	fullAddr := fmt.Sprintf("%s:%d", addr, port)
 	retryCount, _, _ := m.retryScheduler.GetRetryInfo(nodeID)
 
@@ -340,6 +342,7 @@ func (m *manager) attemptConnection(nodeID cluster.NodeID, addr string, port int
 	}
 
 	if err != nil {
+		m.logger.Warn("Failed to connect to node", zap.String("node", string(nodeID)), zap.Error(err))
 		if retryCount < 3 { // Only log first few attempts to reduce noise
 			m.logger.Debug("Failed to connect", zap.String("node", string(nodeID)), zap.Error(err))
 		}
@@ -349,6 +352,7 @@ func (m *manager) attemptConnection(nodeID cluster.NodeID, addr string, port int
 
 	nodeConn := newNodeConnection(conn, nodeID, m.config.NodeConnectionConfig(), m.logger)
 	if err := nodeConn.performHandshake(m.ctx, m.config.LocalNodeID, true); err != nil {
+		m.logger.Warn("Failed to connect to node", zap.String("node", string(nodeID)), zap.Error(err))
 		if retryCount < 3 { // Only log first few attempts to reduce noise
 			m.logger.Debug("Outbound handshake failed", zap.String("node", string(nodeID)), zap.Error(err))
 		}
@@ -356,11 +360,12 @@ func (m *manager) attemptConnection(nodeID cluster.NodeID, addr string, port int
 		m.handleConnectionFailure(nodeID, err)
 		return
 	}
+
+	m.logger.Info("Connection established", zap.String("node", string(nodeID)))
 	m.handleConnectionSuccess(nodeID, nodeConn)
 }
 
 func (m *manager) handleConnectionSuccess(nodeID cluster.NodeID, conn *NodeConnection) {
-	m.logger.Info("Connection established", zap.String("node", string(nodeID)))
 	m.nodeStates.SetNodeConnection(nodeID, conn, StateConnected)
 	m.retryScheduler.ResetRetry(nodeID)
 
