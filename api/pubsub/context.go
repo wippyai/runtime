@@ -16,6 +16,8 @@ var (
 	nodeCtx = &ctxapi.Key{Name: "pubsub.node"}
 	// hostCtx is used to store the Host instance in context
 	hostCtx = &ctxapi.Key{Name: "pubsub.host"}
+	// routerCtx is used to store the Upstream instance in context
+	routerCtx = &ctxapi.Key{Name: "pubsub.router"}
 )
 
 // WithPID attaches a process identifier (PID) to the provided context.

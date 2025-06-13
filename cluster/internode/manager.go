@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -15,14 +16,11 @@ import (
 	"go.uber.org/zap"
 )
 
-// Port range for auto-selection
 const (
-	// todo: we can isolate it into internal helper
 	DefaultPortRangeStart = 7950
-	DefaultPortRangeEnd   = 7959 // Try 10 ports in range
+	DefaultPortRangeEnd   = 7959
 )
 
-// ConnectionState represents the state of a connection to a remote node
 type ConnectionState int
 
 const (
@@ -50,59 +48,99 @@ func (s ConnectionState) String() string {
 	}
 }
 
-// ManagerTLSConfig holds configuration for optional transport encryption.
 type ManagerTLSConfig struct {
 	Enabled  bool   `json:"enabled"`
 	CertFile string `json:"cert_file"`
 	KeyFile  string `json:"key_file"`
-	CAFile   string `json:"ca_file"` // Certificate Authority for verifying peers
+	CAFile   string `json:"ca_file"`
 }
 
-// ManagerConfig holds the configuration for the ConnectionManager.
 type ManagerConfig struct {
 	LocalNodeID       cluster.NodeID
 	BindAddr          string
-	BindPort          int  // Use 0 for auto-port selection
-	AutoPort          bool // Enable automatic port selection
+	BindPort          int
+	AutoPort          bool
 	HandshakeTimeout  time.Duration
 	OutboundQueueSize int
 	MaxMessageSize    uint32
 	Logger            *zap.Logger
-
-	// Optional TLS configuration for transport security
-	TLS ManagerTLSConfig
-
-	// Retry configuration - exponential backoff bounds
-	InitialRetryDelay  time.Duration
-	MaxRetryDelay      time.Duration
-	RetryCheckInterval time.Duration
+	TLS               ManagerTLSConfig
+	InitialRetryDelay time.Duration
+	MaxRetryDelay     time.Duration
+	DrainBatchSize    int
+	CommandQueueSize  int
+	MaxRetryAttempts  int
 }
 
-// DefaultManagerConfig returns a default configuration for the manager.
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
-		HandshakeTimeout:   5 * time.Second,
-		OutboundQueueSize:  256,
-		MaxMessageSize:     512 * 1024 * 1024, // 512MB
-		TLS:                ManagerTLSConfig{Enabled: false},
-		InitialRetryDelay:  10 * time.Millisecond,
-		MaxRetryDelay:      250 * time.Millisecond,
-		RetryCheckInterval: 5 * time.Millisecond,
-		AutoPort:           true, // Enable auto-port by default
-		BindPort:           DefaultPortRangeStart,
+		HandshakeTimeout:  5 * time.Second,
+		OutboundQueueSize: 256,
+		MaxMessageSize:    512 * 1024 * 1024,
+		TLS:               ManagerTLSConfig{Enabled: false},
+		InitialRetryDelay: 10 * time.Millisecond,
+		MaxRetryDelay:     5 * time.Second,
+		AutoPort:          true,
+		BindPort:          DefaultPortRangeStart,
+		DrainBatchSize:    32,
+		CommandQueueSize:  256,
+		MaxRetryAttempts:  10,
 	}
 }
 
-// NodeConnectionConfig extracts NodeConnection-specific config from ManagerConfig
 func (mc ManagerConfig) NodeConnectionConfig() NodeConnectionConfig {
 	return NodeConnectionConfig{
-		HandshakeTimeout:  mc.HandshakeTimeout,
-		OutboundQueueSize: mc.OutboundQueueSize,
-		MaxMessageSize:    mc.MaxMessageSize,
+		HandshakeTimeout: mc.HandshakeTimeout,
+		MaxMessageSize:   mc.MaxMessageSize,
 	}
 }
 
-// ConnectionManager defines the interface for managing inter-node TCP connections.
+type nodeCommand struct {
+	Type commandType
+	Data interface{}
+}
+
+type commandType int
+
+const (
+	cmdConnect commandType = iota
+	cmdConnected
+	cmdDisconnected
+	cmdKill
+)
+
+type connectData struct {
+	Addr string
+	Port int
+}
+
+type connectedData struct {
+	Connection *NodeConnection
+}
+
+type disconnectedData struct {
+	Error       error
+	ShouldRetry bool
+}
+
+type nodeControlLoop struct {
+	nodeID     cluster.NodeID
+	manager    *manager
+	commands   chan nodeCommand
+	state      ConnectionState
+	connection *NodeConnection
+	addr       string
+	port       int
+	retryCount int
+	retryDelay time.Duration
+	ctx        context.Context
+	cancel     context.CancelFunc
+	logger     *zap.Logger
+
+	// Track if we initiated the connection
+	isOutbound bool
+}
+
 type ConnectionManager interface {
 	Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error
 	Stop() error
@@ -111,44 +149,38 @@ type ConnectionManager interface {
 	DisconnectFromNode(nodeID cluster.NodeID)
 	ConnectedNodes() []cluster.NodeID
 	HandleNodeLeft(nodeID cluster.NodeID)
-	GetListenPort() int // Get the actual listening port
+	GetListenPort() int
 }
 
-// manager is the concrete implementation of ConnectionManager.
 type manager struct {
-	config    ManagerConfig
-	ctx       context.Context
-	cancel    context.CancelFunc
-	logger    *zap.Logger
-	wg        sync.WaitGroup
-	listener  net.Listener
-	onMessage func(cluster.NodeID, []byte)
-	tlsConfig *tls.Config
-
+	config         ManagerConfig
+	ctx            context.Context
+	cancel         context.CancelFunc
+	logger         *zap.Logger
+	wg             sync.WaitGroup
+	listener       net.Listener
+	onMessage      func(cluster.NodeID, []byte)
+	tlsConfig      *tls.Config
 	nodeStates     *NodeStateManager
-	retryScheduler *RetryScheduler
-
-	// Actual listening port (may differ from config if auto-port is used)
-	actualPort int
+	controlLoops   map[cluster.NodeID]*nodeControlLoop
+	controlLoopsMu sync.Mutex
+	actualPort     int
 }
 
-// NewConnectionManager creates a new connection manager.
 func NewConnectionManager(config ManagerConfig) ConnectionManager {
-	logger := config.Logger.Named("connection-manager")
+	logger := config.Logger.Named("conn")
 	return &manager{
-		config:         config,
-		logger:         logger,
-		nodeStates:     NewNodeStateManager(config, logger),
-		retryScheduler: NewRetryScheduler(config, logger),
+		config:       config,
+		logger:       logger,
+		nodeStates:   NewNodeStateManager(config, logger),
+		controlLoops: make(map[cluster.NodeID]*nodeControlLoop),
 	}
 }
 
-// Start is non-blocking and initializes the manager's listener.
 func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.onMessage = onMessage
 
-	// Load TLS config if enabled
 	if m.config.TLS.Enabled {
 		tlsConfig, err := loadTLSConfig(m.config.TLS)
 		if err != nil {
@@ -158,7 +190,6 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 		m.logger.Info("TLS encryption enabled for inter-node communication")
 	}
 
-	// Try to start listener with auto-port detection
 	listener, actualPort, err := m.startListener()
 	if err != nil {
 		return fmt.Errorf("failed to start listener: %w", err)
@@ -172,21 +203,451 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 		zap.Bool("auto_port", m.config.AutoPort),
 		zap.Int("configured_port", m.config.BindPort))
 
-	m.wg.Add(2)
-	go func() { defer m.wg.Done(); m.acceptLoop() }()
-	go func() { defer m.wg.Done(); m.retryLoop() }()
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		m.acceptLoop()
+	}()
 
 	return nil
 }
 
-// startListener tries to start a listener with automatic port selection if needed
+func (m *manager) Stop() error {
+	m.logger.Info("Stopping connection manager...")
+
+	m.cancel()
+
+	if m.listener != nil {
+		if err := m.listener.Close(); err != nil {
+			m.logger.Error("Error closing listener", zap.Error(err))
+		}
+	}
+
+	m.controlLoopsMu.Lock()
+	for nodeID, loop := range m.controlLoops {
+		m.logger.Debug("Stopping control loop", zap.String("node", string(nodeID)))
+		select {
+		case loop.commands <- nodeCommand{Type: cmdKill}:
+		default:
+			loop.cancel()
+		}
+	}
+	m.controlLoopsMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		m.logger.Info("All goroutines stopped gracefully")
+	case <-time.After(10 * time.Second):
+		m.logger.Warn("Shutdown timeout reached, some goroutines may not have stopped")
+	}
+
+	m.logger.Info("Connection manager stopped")
+	return nil
+}
+
+func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte) error {
+	m.nodeStates.QueueMessage(nodeID, data)
+	return nil
+}
+
+func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int) {
+	// Check if we already have a connection
+	_, currentState := m.nodeStates.GetNodeConnection(nodeID)
+	if currentState == StateConnected {
+		return
+	}
+
+	// Only initiate outbound if we should (based on tie-breaking)
+	if !m.shouldInitiateConnection(nodeID) {
+		m.logger.Debug("Tie-break: not initiating connection", zap.String("node", string(nodeID)))
+		return
+	}
+
+	m.logger.Debug("Ensuring connection", zap.String("node", string(nodeID)), zap.String("addr", fmt.Sprintf("%s:%d", addr, port)))
+	m.nodeStates.UpdateNodeAddress(nodeID, addr, port)
+	m.sendCommand(nodeID, nodeCommand{
+		Type: cmdConnect,
+		Data: connectData{Addr: addr, Port: port},
+	})
+}
+
+func (m *manager) DisconnectFromNode(nodeID cluster.NodeID) {
+	m.logger.Debug("Disconnecting from node", zap.String("node", string(nodeID)))
+	m.sendCommand(nodeID, nodeCommand{Type: cmdKill})
+}
+
+func (m *manager) ConnectedNodes() []cluster.NodeID {
+	return m.nodeStates.GetConnectedNodes()
+}
+
+func (m *manager) HandleNodeLeft(nodeID cluster.NodeID) {
+	m.logger.Info("Node left cluster", zap.String("node", string(nodeID)))
+	m.sendCommand(nodeID, nodeCommand{Type: cmdKill})
+	m.nodeStates.RemoveNode(nodeID)
+}
+
+func (m *manager) GetListenPort() int {
+	return m.actualPort
+}
+
+func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
+	m.controlLoopsMu.Lock()
+	loop, exists := m.controlLoops[nodeID]
+
+	if !exists {
+		ctx, cancel := context.WithCancel(m.ctx)
+		loop = &nodeControlLoop{
+			nodeID:     nodeID,
+			manager:    m,
+			commands:   make(chan nodeCommand, m.config.CommandQueueSize),
+			state:      StateNone,
+			ctx:        ctx,
+			cancel:     cancel,
+			logger:     m.logger.With(zap.String("node", string(nodeID))),
+			retryDelay: m.config.InitialRetryDelay,
+		}
+
+		m.controlLoops[nodeID] = loop
+		m.logger.Debug("Created control loop", zap.String("node", string(nodeID)))
+
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			defer m.cleanupControlLoop(nodeID)
+			loop.run()
+		}()
+	}
+	m.controlLoopsMu.Unlock()
+
+	select {
+	case loop.commands <- cmd:
+	case <-m.ctx.Done():
+		m.logger.Debug("Command dropped due to system shutdown", zap.String("node", string(nodeID)))
+	}
+}
+
+func (m *manager) cleanupControlLoop(nodeID cluster.NodeID) {
+	m.controlLoopsMu.Lock()
+	delete(m.controlLoops, nodeID)
+	m.controlLoopsMu.Unlock()
+
+	m.logger.Debug("Control loop cleaned up", zap.String("node", string(nodeID)))
+}
+
+func (loop *nodeControlLoop) run() {
+	loop.logger.Debug("Control loop started")
+	defer loop.logger.Debug("Control loop stopped")
+
+	messageNotifier := loop.manager.nodeStates.GetMessageNotifier(loop.nodeID)
+	if messageNotifier == nil {
+		messageNotifier = make(<-chan struct{})
+	}
+
+	for {
+		select {
+		case <-loop.ctx.Done():
+			loop.cleanup()
+			return
+
+		case cmd := <-loop.commands:
+			shouldExit := loop.handleCommand(cmd)
+			if shouldExit {
+				loop.cleanup()
+				return
+			}
+
+		case <-messageNotifier:
+			if loop.state == StateConnected && loop.connection != nil {
+				loop.drainMessages()
+			}
+		}
+	}
+}
+
+func (loop *nodeControlLoop) handleCommand(cmd nodeCommand) bool {
+	loop.logger.Debug("Processing command",
+		zap.String("command", fmt.Sprintf("%d", cmd.Type)),
+		zap.String("current_state", loop.state.String()))
+
+	switch cmd.Type {
+	case cmdConnect:
+		data, ok := cmd.Data.(connectData)
+		if !ok {
+			loop.logger.Error("Invalid connect command data type")
+			return false
+		}
+		loop.handleConnect(data)
+
+	case cmdConnected:
+		data, ok := cmd.Data.(connectedData)
+		if !ok {
+			loop.logger.Error("Invalid connected command data type")
+			return false
+		}
+		loop.handleConnected(data)
+
+	case cmdDisconnected:
+		data, ok := cmd.Data.(disconnectedData)
+		if !ok {
+			loop.logger.Error("Invalid disconnected command data type")
+			return false
+		}
+		loop.handleDisconnected(data)
+
+	case cmdKill:
+		loop.handleKill()
+		return true
+	}
+
+	return false
+}
+
+func (loop *nodeControlLoop) handleConnect(data connectData) {
+	loop.addr = data.Addr
+	loop.port = data.Port
+
+	// Don't connect if already connected or connecting
+	if loop.state == StateConnecting || loop.state == StateConnected {
+		return
+	}
+
+	if loop.state == StateDead {
+		return
+	}
+
+	loop.logger.Debug("Initiating connection", zap.String("addr", fmt.Sprintf("%s:%d", data.Addr, data.Port)))
+	loop.state = StateConnecting
+	loop.isOutbound = true
+	loop.manager.nodeStates.SetNodeState(loop.nodeID, loop.state)
+
+	loop.manager.wg.Add(1)
+	go func() {
+		defer loop.manager.wg.Done()
+		loop.attemptConnection()
+	}()
+}
+
+func (loop *nodeControlLoop) handleConnected(data connectedData) {
+	// If we're already connected, reject the new connection
+	if loop.state == StateConnected {
+		loop.logger.Debug("Already connected, rejecting new connection")
+		if data.Connection != nil {
+			data.Connection.Close()
+		}
+		return
+	}
+
+	// Only accept connections in appropriate states
+	if loop.state != StateConnecting && loop.state != StateNone && loop.state != StateRetrying {
+		loop.logger.Debug("Unexpected state for new connection, closing", zap.String("state", loop.state.String()))
+		if data.Connection != nil {
+			data.Connection.Close()
+		}
+		return
+	}
+
+	loop.connection = data.Connection
+	loop.state = StateConnected
+	loop.retryCount = 0
+	loop.retryDelay = loop.manager.config.InitialRetryDelay
+
+	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, loop.connection, loop.state)
+
+	loop.logger.Info("Connection established")
+
+	loop.manager.wg.Add(1)
+	go func() {
+		defer loop.manager.wg.Done()
+		loop.monitorConnection()
+	}()
+
+	loop.drainMessages()
+}
+
+func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
+	if loop.state == StateDead {
+		return
+	}
+
+	if loop.connection != nil {
+		pendingMessages := loop.connection.ExtractPendingMessages()
+		loop.connection.Close()
+		loop.connection = nil
+
+		if len(pendingMessages) > 0 {
+			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pendingMessages)
+		}
+	}
+
+	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
+
+	// Only retry if we initiated the connection and should retry
+	if data.ShouldRetry && loop.isOutbound && loop.retryCount < loop.manager.config.MaxRetryAttempts {
+		loop.state = StateRetrying
+		loop.retryCount++
+
+		if loop.retryDelay < loop.manager.config.MaxRetryDelay {
+			loop.retryDelay *= 2
+		}
+
+		loop.logger.Debug("Scheduling retry",
+			zap.Duration("delay", loop.retryDelay),
+			zap.Int("attempt", loop.retryCount))
+
+		loop.manager.wg.Add(1)
+		go func() {
+			defer loop.manager.wg.Done()
+
+			timer := time.NewTimer(loop.retryDelay)
+			defer timer.Stop()
+
+			select {
+			case <-timer.C:
+				addr, port, hasAddr := loop.manager.nodeStates.GetNodeAddress(loop.nodeID)
+				if !hasAddr {
+					addr, port = loop.addr, loop.port
+				}
+
+				loop.sendCommandToSelf(nodeCommand{
+					Type: cmdConnect,
+					Data: connectData{Addr: addr, Port: port},
+				})
+			case <-loop.ctx.Done():
+			}
+		}()
+	} else {
+		loop.state = StateNone
+		if data.Error != nil {
+			loop.logger.Debug("Connection failed", zap.Error(data.Error))
+		}
+	}
+}
+
+func (loop *nodeControlLoop) handleKill() {
+	loop.logger.Debug("Control loop received kill command")
+	loop.state = StateDead
+}
+
+func (loop *nodeControlLoop) cleanup() {
+	if loop.connection != nil {
+		pendingMessages := loop.connection.ExtractPendingMessages()
+		loop.connection.Close()
+		loop.connection = nil
+
+		if len(pendingMessages) > 0 {
+			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pendingMessages)
+		}
+	}
+	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
+}
+
+func (loop *nodeControlLoop) sendCommandToSelf(cmd nodeCommand) {
+	select {
+	case loop.commands <- cmd:
+	case <-loop.ctx.Done():
+		loop.logger.Debug("Command to self dropped due to context cancellation")
+	}
+}
+
+func (loop *nodeControlLoop) attemptConnection() {
+	if loop.ctx.Err() != nil {
+		return
+	}
+
+	addr := fmt.Sprintf("%s:%d", loop.addr, loop.port)
+
+	loop.logger.Debug("Attempting outbound connection", zap.String("address", addr))
+
+	var conn net.Conn
+	var err error
+
+	if loop.manager.tlsConfig != nil {
+		dialer := &net.Dialer{Timeout: loop.manager.config.HandshakeTimeout}
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, loop.manager.tlsConfig)
+	} else {
+		conn, err = net.DialTimeout("tcp", addr, loop.manager.config.HandshakeTimeout)
+	}
+
+	if err != nil {
+		loop.sendDisconnected(err, true)
+		return
+	}
+
+	nodeConn, err := PerformClientHandshake(conn, loop.manager.config.NodeConnectionConfig(), loop.logger, loop.manager.config.LocalNodeID, loop.nodeID)
+	if err != nil {
+		loop.sendDisconnected(err, true)
+		return
+	}
+
+	loop.sendCommandToSelf(nodeCommand{
+		Type: cmdConnected,
+		Data: connectedData{Connection: nodeConn},
+	})
+}
+
+func (loop *nodeControlLoop) monitorConnection() {
+	if loop.connection == nil {
+		return
+	}
+
+	handler := func(msg []byte) {
+		loop.manager.onMessage(loop.nodeID, msg)
+	}
+
+	err := loop.connection.Run(handler)
+
+	shouldRetry := false
+	if err != nil {
+		var connErr *ConnectionError
+		if errors.As(err, &connErr) {
+			shouldRetry = connErr.ShouldRetry()
+		}
+	}
+
+	loop.sendDisconnected(err, shouldRetry)
+}
+
+func (loop *nodeControlLoop) drainMessages() {
+	if loop.connection == nil {
+		return
+	}
+
+	messages := loop.manager.nodeStates.DrainMessages(loop.nodeID, loop.manager.config.DrainBatchSize)
+	if len(messages) == 0 {
+		return
+	}
+
+	var unsentMessages [][]byte
+	for i, data := range messages {
+		if err := loop.connection.Send(data); err != nil {
+			unsentMessages = messages[i:]
+			break
+		}
+	}
+
+	if len(unsentMessages) > 0 {
+		loop.manager.nodeStates.RequeueMessages(loop.nodeID, unsentMessages)
+	}
+}
+
+func (loop *nodeControlLoop) sendDisconnected(err error, shouldRetry bool) {
+	loop.sendCommandToSelf(nodeCommand{
+		Type: cmdDisconnected,
+		Data: disconnectedData{Error: err, ShouldRetry: shouldRetry},
+	})
+}
+
 func (m *manager) startListener() (net.Listener, int, error) {
 	if m.config.AutoPort {
-		// Try port range first, then system auto-select
 		return m.tryPortRange()
 	}
 
-	// Use specific port
 	addr := fmt.Sprintf("%s:%d", m.config.BindAddr, m.config.BindPort)
 	listener, err := m.listen(addr)
 	if err != nil {
@@ -196,26 +657,23 @@ func (m *manager) startListener() (net.Listener, int, error) {
 	return listener, m.config.BindPort, nil
 }
 
-// tryPortRange tries ports in the default range, then falls back to system auto-selection
 func (m *manager) tryPortRange() (net.Listener, int, error) {
 	startPort := m.config.BindPort
 	if startPort == 0 {
 		startPort = DefaultPortRangeStart
 	}
 
-	// Try the configured port first if it's in our range
 	if startPort >= DefaultPortRangeStart && startPort <= DefaultPortRangeEnd {
 		addr := fmt.Sprintf("%s:%d", m.config.BindAddr, startPort)
 		if listener, err := m.listen(addr); err == nil {
-			m.logger.Info("Using configured port", zap.Int("port", startPort))
+			m.logger.Debug("Using configured port", zap.Int("port", startPort))
 			return listener, startPort, nil
 		}
 	}
 
-	// Try ports in the default range
 	for port := DefaultPortRangeStart; port <= DefaultPortRangeEnd; port++ {
 		if port == startPort {
-			continue // Already tried above
+			continue
 		}
 
 		addr := fmt.Sprintf("%s:%d", m.config.BindAddr, port)
@@ -229,7 +687,6 @@ func (m *manager) tryPortRange() (net.Listener, int, error) {
 		}
 	}
 
-	// All ports in range are busy, fall back to system auto-selection
 	m.logger.Info("All ports in range busy, using system auto-selection",
 		zap.Int("range_start", DefaultPortRangeStart),
 		zap.Int("range_end", DefaultPortRangeEnd))
@@ -240,216 +697,17 @@ func (m *manager) tryPortRange() (net.Listener, int, error) {
 		return nil, 0, fmt.Errorf("failed to auto-select port: %w", err)
 	}
 
-	// Get the actual port that was assigned
 	actualPort := listener.Addr().(*net.TCPAddr).Port
 	m.logger.Info("System auto-selected port", zap.Int("port", actualPort))
 
 	return listener, actualPort, nil
 }
 
-// listen creates a listener, either plain TCP or TLS based on configuration.
 func (m *manager) listen(addr string) (net.Listener, error) {
 	if m.tlsConfig != nil {
 		return tls.Listen("tcp", addr, m.tlsConfig)
 	}
 	return net.Listen("tcp", addr)
-}
-
-// GetListenPort returns the actual port the manager is listening on
-func (m *manager) GetListenPort() int {
-	return m.actualPort
-}
-
-// Stop gracefully shuts down the manager.
-func (m *manager) Stop() error {
-	m.logger.Info("Stopping connection manager...")
-	m.cancel() // Signal all goroutines to stop.
-	if m.listener != nil {
-		if err := m.listener.Close(); err != nil {
-			m.logger.Error("Error closing listener", zap.Error(err))
-		}
-	}
-	m.DisconnectFromNode("*") // Disconnect from all nodes.
-	m.wg.Wait()
-	m.logger.Info("Connection manager stopped.")
-	return nil
-}
-
-// SendToNode queues data to be sent to a specific node. Never fails (Erlang semantics).
-func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte) error {
-	m.nodeStates.QueueMessage(nodeID, data)
-	go m.ensureConnection(nodeID)
-	return nil
-}
-
-// EnsureConnection initiates a connection to a remote node if one doesn't exist.
-func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int) {
-	m.nodeStates.UpdateNodeAddress(nodeID, addr, port)
-	go m.ensureConnection(nodeID)
-}
-
-func (m *manager) DisconnectFromNode(nodeID cluster.NodeID) {
-	if nodeID == "*" {
-		for _, id := range m.nodeStates.GetConnectedNodes() {
-			m.nodeStates.CloseNodeConnection(id)
-		}
-		return
-	}
-	m.nodeStates.CloseNodeConnection(nodeID)
-}
-
-func (m *manager) ConnectedNodes() []cluster.NodeID { return m.nodeStates.GetConnectedNodes() }
-
-func (m *manager) HandleNodeLeft(nodeID cluster.NodeID) {
-	m.logger.Info("Node left cluster", zap.String("node", string(nodeID)))
-	m.nodeStates.MarkNodeDead(nodeID)
-	m.retryScheduler.ClearRetryState(nodeID)
-}
-
-func (m *manager) ensureConnection(nodeID cluster.NodeID) {
-	_, currentState := m.nodeStates.GetNodeConnection(nodeID)
-	if currentState == StateConnected || currentState == StateConnecting || currentState == StateDead {
-		return
-	}
-	if !m.nodeStates.TryLockConnection(nodeID) {
-		return
-	}
-	defer m.nodeStates.UnlockConnection(nodeID)
-	addr, port, hasAddr := m.nodeStates.GetNodeAddress(nodeID)
-	if !hasAddr {
-		return
-	}
-	m.nodeStates.SetNodeState(nodeID, StateConnecting)
-	m.wg.Add(1)
-	go func() { defer m.wg.Done(); m.attemptConnection(nodeID, addr, port) }()
-}
-
-// attemptConnection tries to establish a connection to a node.
-func (m *manager) attemptConnection(nodeID cluster.NodeID, addr string, port int) {
-	m.logger.Info("Attempting connection", zap.String("node", string(nodeID)), zap.String("address", fmt.Sprintf("%s:%d", addr, port)))
-
-	fullAddr := fmt.Sprintf("%s:%d", addr, port)
-	retryCount, _, _ := m.retryScheduler.GetRetryInfo(nodeID)
-
-	var conn net.Conn
-	var err error
-
-	if m.tlsConfig != nil {
-		dialer := &net.Dialer{Timeout: m.config.HandshakeTimeout}
-		conn, err = tls.DialWithDialer(dialer, "tcp", fullAddr, m.tlsConfig)
-	} else {
-		conn, err = net.DialTimeout("tcp", fullAddr, m.config.HandshakeTimeout)
-	}
-
-	if err != nil {
-		m.logger.Warn("Failed to connect to node", zap.String("node", string(nodeID)), zap.Error(err))
-		if retryCount < 3 { // Only log first few attempts to reduce noise
-			m.logger.Debug("Failed to connect", zap.String("node", string(nodeID)), zap.Error(err))
-		}
-		m.handleConnectionFailure(nodeID, err)
-		return
-	}
-
-	nodeConn := newNodeConnection(conn, nodeID, m.config.NodeConnectionConfig(), m.logger)
-	if err := nodeConn.performHandshake(m.ctx, m.config.LocalNodeID, true); err != nil {
-		m.logger.Warn("Failed to connect to node", zap.String("node", string(nodeID)), zap.Error(err))
-		if retryCount < 3 { // Only log first few attempts to reduce noise
-			m.logger.Debug("Outbound handshake failed", zap.String("node", string(nodeID)), zap.Error(err))
-		}
-		nodeConn.Close()
-		m.handleConnectionFailure(nodeID, err)
-		return
-	}
-
-	m.logger.Info("Connection established", zap.String("node", string(nodeID)))
-	m.handleConnectionSuccess(nodeID, nodeConn)
-}
-
-func (m *manager) handleConnectionSuccess(nodeID cluster.NodeID, conn *NodeConnection) {
-	m.nodeStates.SetNodeConnection(nodeID, conn, StateConnected)
-	m.retryScheduler.ResetRetry(nodeID)
-
-	m.wg.Add(1)
-	go func() { defer m.wg.Done(); m.drainQueueToConnection(nodeID, conn) }()
-
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-		conn.Run(m.ctx, m.onMessage)
-		m.handleConnectionFailure(nodeID, fmt.Errorf("connection terminated"))
-	}()
-}
-
-func (m *manager) handleConnectionFailure(nodeID cluster.NodeID, err error) {
-	conn, currentState := m.nodeStates.GetNodeConnection(nodeID)
-	if conn != nil {
-		undelivered := conn.ExtractPendingMessages()
-		conn.Close()
-		if len(undelivered) > 0 {
-			m.nodeStates.RequeueMessages(nodeID, undelivered)
-		}
-	}
-	if currentState == StateDead {
-		return
-	}
-	m.nodeStates.SetNodeConnection(nodeID, nil, StateRetrying)
-	m.retryScheduler.ScheduleRetry(nodeID)
-}
-
-// drainQueueToConnection efficiently drains messages using notification channel.
-// NO MORE 1ms SLEEP LOOP!
-func (m *manager) drainQueueToConnection(nodeID cluster.NodeID, conn *NodeConnection) {
-	notifyChan := m.nodeStates.GetMessageNotifier(nodeID)
-	if notifyChan == nil {
-		return
-	}
-
-	for {
-		select {
-		case <-m.ctx.Done():
-			return
-		case <-notifyChan:
-			// Batch drain messages to reduce mutex contention
-			messages := m.nodeStates.DrainMessages(nodeID, 32) // Batch size 32
-			if len(messages) == 0 {
-				continue
-			}
-
-			currentConn, state := m.nodeStates.GetNodeConnection(nodeID)
-			if state != StateConnected || currentConn != conn {
-				// Requeue the messages we just drained
-				m.nodeStates.RequeueMessages(nodeID, messages)
-				return
-			}
-
-			// Send all messages in the batch
-			for _, data := range messages {
-				if err := conn.Send(data); err != nil {
-					return
-				}
-			}
-		}
-	}
-}
-
-func (m *manager) retryLoop() {
-	ticker := time.NewTicker(m.retryScheduler.GetCheckInterval())
-	defer ticker.Stop()
-	for {
-		select {
-		case <-m.ctx.Done():
-			return
-		case <-ticker.C:
-			m.checkRetries()
-		}
-	}
-}
-
-func (m *manager) checkRetries() {
-	for _, nodeID := range m.retryScheduler.GetNodesReadyForRetry() {
-		m.retryScheduler.MarkRetryInProgress(nodeID)
-		go m.ensureConnection(nodeID)
-	}
 }
 
 func (m *manager) acceptLoop() {
@@ -462,36 +720,59 @@ func (m *manager) acceptLoop() {
 			m.logger.Error("Failed to accept connection", zap.Error(err))
 			continue
 		}
+
+		m.logger.Debug("Accepted inbound connection", zap.String("remote_addr", conn.RemoteAddr().String()))
+
 		m.wg.Add(1)
-		go func() { defer m.wg.Done(); m.handleInboundConnection(conn) }()
+		go func() {
+			defer m.wg.Done()
+			m.handleInboundConnection(conn)
+		}()
 	}
 }
 
 func (m *manager) handleInboundConnection(conn net.Conn) {
-	nodeConn := newNodeConnection(conn, "unknown", m.config.NodeConnectionConfig(), m.logger)
-	if err := nodeConn.performHandshake(m.ctx, m.config.LocalNodeID, false); err != nil {
+	nodeConn, err := PerformServerHandshake(conn, m.config.NodeConnectionConfig(), m.logger, m.config.LocalNodeID)
+	if err != nil {
 		m.logger.Warn("Inbound handshake failed", zap.Error(err), zap.String("remote_addr", conn.RemoteAddr().String()))
-		nodeConn.Close()
 		return
 	}
+
 	remoteNodeID := nodeConn.RemoteNodeID()
-	if m.shouldDropInbound(remoteNodeID) {
+
+	// Check if we already have a connection
+	_, currentState := m.nodeStates.GetNodeConnection(remoteNodeID)
+	if currentState == StateConnected {
+		m.logger.Debug("Already connected, dropping new inbound connection", zap.String("node", string(remoteNodeID)))
 		nodeConn.Close()
 		return
 	}
-	existingConn, _ := m.nodeStates.GetNodeConnection(remoteNodeID)
-	if existingConn != nil {
+
+	shouldDrop := m.shouldDropInbound(remoteNodeID)
+	if shouldDrop {
+		m.logger.Debug("Dropping inbound connection due to tie-breaking", zap.String("node", string(remoteNodeID)))
 		nodeConn.Close()
 		return
 	}
-	m.handleConnectionSuccess(remoteNodeID, nodeConn)
+
+	m.logger.Debug("Accepting inbound connection", zap.String("node", string(remoteNodeID)))
+	m.sendCommand(remoteNodeID, nodeCommand{
+		Type: cmdConnected,
+		Data: connectedData{Connection: nodeConn},
+	})
+}
+
+// shouldInitiateConnection determines if we should initiate outbound connection
+func (m *manager) shouldInitiateConnection(remoteNodeID cluster.NodeID) bool {
+	// Lower node ID initiates the connection
+	return strings.Compare(string(m.config.LocalNodeID), string(remoteNodeID)) < 0
 }
 
 func (m *manager) shouldDropInbound(remoteNodeID cluster.NodeID) bool {
-	return strings.Compare(string(m.config.LocalNodeID), string(remoteNodeID)) > 0
+	// Accept inbound only if we're not supposed to initiate
+	return m.shouldInitiateConnection(remoteNodeID)
 }
 
-// loadTLSConfig creates a client and server TLS config for mutual TLS (mTLS).
 func loadTLSConfig(cfg ManagerTLSConfig) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 	if err != nil {
@@ -508,10 +789,10 @@ func loadTLSConfig(cfg ManagerTLSConfig) (*tls.Config, error) {
 	}
 
 	return &tls.Config{
-		Certificates: []tls.Certificate{cert},        // For server side and client auth
-		RootCAs:      caCertPool,                     // For client to verify server
-		ClientCAs:    caCertPool,                     // For server to verify client
-		ClientAuth:   tls.RequireAndVerifyClientCert, // Enforce mTLS
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      caCertPool,
+		ClientCAs:    caCertPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
 		MinVersion:   tls.VersionTLS12,
 	}, nil
 }

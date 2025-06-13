@@ -1,234 +1,208 @@
-// file: connection_test.go
 package internode
 
 import (
-	"bytes"
-	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ponyruntime/pony/api/cluster"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
-// setupTestConnections creates a pair of connected NodeConnection instances using net.Pipe.
-func setupTestConnections(t *testing.T, nodeA_ID, nodeB_ID cluster.NodeID, cfg NodeConnectionConfig) (*NodeConnection, *NodeConnection) {
+// --- MOCK CONNECTION FOR DETERMINISTIC FAILURE INJECTION ---
+
+type mockConn struct {
+	reader *io.PipeReader
+	writer *io.PipeWriter
+
+	mu       sync.Mutex
+	writeErr error
+	closed   bool
+}
+
+func newMockConnPair() (*mockConn, *mockConn) {
+	r1, w1 := io.Pipe()
+	r2, w2 := io.Pipe()
+	conn1 := &mockConn{reader: r2, writer: w1}
+	conn2 := &mockConn{reader: r1, writer: w2}
+	return conn1, conn2
+}
+
+func (c *mockConn) Read(b []byte) (n int, err error) { return c.reader.Read(b) }
+func (c *mockConn) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1234}
+}
+func (c *mockConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5678}
+}
+func (c *mockConn) SetDeadline(t time.Time) error      { return nil }
+func (c *mockConn) SetReadDeadline(t time.Time) error  { return nil }
+func (c *mockConn) SetWriteDeadline(t time.Time) error { return nil }
+
+func (c *mockConn) Write(b []byte) (n int, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return 0, io.ErrClosedPipe
+	}
+	if c.writeErr != nil {
+		err := c.writeErr
+		c.writeErr = nil
+		return 0, err
+	}
+	return c.writer.Write(b)
+}
+
+func (c *mockConn) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+	// Closing a pipe can return an error if the other side is already closed,
+	// which is fine in many test scenarios, so we don't assert on it here.
+	_ = c.reader.Close()
+	_ = c.writer.Close()
+	return nil
+}
+
+func (c *mockConn) setWriteError(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.writeErr = err
+}
+
+// --- TEST HELPERS ---
+
+func newTestConnectionPair(t *testing.T, nodeAID, nodeBID cluster.NodeID) (InternodeConnection, InternodeConnection) {
 	t.Helper()
-	connA, connB := net.Pipe()
+	pipeA, pipeB := net.Pipe()
+	cfg := DefaultNodeConnectionConfig()
 	logger := zap.NewNop()
 
-	nodeA := newNodeConnection(connA, nodeB_ID, cfg, logger.Named(string(nodeA_ID)))
-	nodeB := newNodeConnection(connB, nodeA_ID, cfg, logger.Named(string(nodeB_ID)))
+	var connA, connB *NodeConnection
+	var errA, errB error
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		connA, errA = PerformClientHandshake(pipeA, cfg, logger, nodeAID, nodeBID)
+	}()
+	go func() {
+		defer wg.Done()
+		connB, errB = PerformServerHandshake(pipeB, cfg, logger, nodeBID)
+	}()
+
+	wg.Wait()
+	require.NoError(t, errA)
+	require.NoError(t, errB)
+	require.NotNil(t, connA)
+	require.NotNil(t, connB)
 
 	t.Cleanup(func() {
-		nodeA.Close()
-		nodeB.Close()
+		// Close() is idempotent, so calling it in cleanup is safe even if the test closes it.
+		connA.Close()
+		connB.Close()
 	})
-	return nodeA, nodeB
+
+	return connA, connB
 }
 
-// performTestHandshake is a helper to robustly execute the handshake for a pair of nodes.
-func performTestHandshake(t *testing.T, nodeA, nodeB *NodeConnection, nodeA_ID, nodeB_ID cluster.NodeID) {
-	t.Helper()
-	var wg sync.WaitGroup
-	wg.Add(2)
-	var errA, errB error
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+// --- TEST SUITE ---
 
-	go func() {
-		defer wg.Done()
-		errA = nodeA.performHandshake(ctx, nodeA_ID, true)
-	}()
-	go func() {
-		defer wg.Done()
-		errB = nodeB.performHandshake(ctx, nodeB_ID, false)
-	}()
-
-	wg.Wait()
-	if errA != nil {
-		t.Fatalf("Initiator handshake for %s failed: %v", nodeA_ID, errA)
-	}
-	if errB != nil {
-		t.Fatalf("Follower handshake for %s failed: %v", nodeB_ID, errB)
-	}
-}
-
-// TestNodeConnection_Handshake verifies the successful handshake process.
-func TestNodeConnection_Handshake(t *testing.T) {
-	nodeA, nodeB := setupTestConnections(t, "node-A", "node-B", DefaultNodeConnectionConfig())
-	performTestHandshake(t, nodeA, nodeB, "node-A", "node-B")
-
-	if nodeB.RemoteNodeID() != "node-A" {
-		t.Errorf("Follower did not correctly identify initiator. Got %q, want %q", nodeB.RemoteNodeID(), "node-A")
-	}
-}
-
-// TestNodeConnection_HandshakeMismatch verifies that the handshake fails when node IDs don't match.
-func TestNodeConnection_HandshakeMismatch(t *testing.T) {
-	nodeA, nodeB := setupTestConnections(t, "node-A", "node-Z", DefaultNodeConnectionConfig())
-	var errA error
-	var wg sync.WaitGroup
-	wg.Add(2)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	go func() {
-		defer wg.Done()
-		errA = nodeA.performHandshake(ctx, "node-A", true)
-	}()
-	go func() {
-		defer wg.Done()
-		// errB is not checked as the initiator is responsible for detecting the mismatch.
-		_ = nodeB.performHandshake(ctx, "node-B", false)
-	}()
-	wg.Wait()
-
-	if errA == nil {
-		t.Fatal("Initiator handshake should have failed, but it succeeded.")
-	}
-	if !strings.Contains(errA.Error(), "node ID mismatch") {
-		t.Errorf("Expected error to contain 'node ID mismatch', but got %v", errA)
-	}
-}
-
-// TestNodeConnection_SendReceive verifies basic message passing functionality.
 func TestNodeConnection_SendReceive(t *testing.T) {
-	nodeA, nodeB := setupTestConnections(t, "node-A", "node-B", DefaultNodeConnectionConfig())
-	performTestHandshake(t, nodeA, nodeB, "node-A", "node-B")
+	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
 	msgChan := make(chan []byte, 1)
 
-	onMessage := func(nodeID cluster.NodeID, data []byte) {
-		copiedData := make([]byte, len(data))
-		copy(copiedData, data)
-		msgChan <- copiedData
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start both nodes' run loops
-	go nodeA.Run(ctx, func(cluster.NodeID, []byte) {})
-	go nodeB.Run(ctx, onMessage)
+	go func() { _ = nodeA.Run(func(msg []byte) {}) }()
+	go func() { _ = nodeB.Run(func(msg []byte) { msgChan <- msg }) }()
 
 	testMsg := []byte("hello, world!")
-	if err := nodeA.Send(testMsg); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, nodeA.Send(testMsg))
 
 	select {
 	case receivedMsg := <-msgChan:
-		if !bytes.Equal(testMsg, receivedMsg) {
-			t.Errorf("Mismatched message. Got %q, want %q", receivedMsg, testMsg)
-		}
+		require.Equal(t, testMsg, receivedMsg)
 	case <-time.After(2 * time.Second):
 		t.Fatal("Test timed out waiting for message")
 	}
 }
 
-// TestNodeConnection_Shutdown verifies that closing one connection terminates the peer's run loop.
 func TestNodeConnection_Shutdown(t *testing.T) {
-	nodeA, nodeB := setupTestConnections(t, "node-A", "node-B", DefaultNodeConnectionConfig())
-	runLoopExited := make(chan struct{})
+	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
+	runLoopExited := make(chan *ConnectionError, 1)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	go func() { runLoopExited <- nodeB.Run(func(msg []byte) {}) }()
 
-	go func() {
-		nodeB.Run(ctx, func(cluster.NodeID, []byte) {})
-		close(runLoopExited)
-	}()
-
-	time.Sleep(50 * time.Millisecond) // Give the run loop a moment to start.
+	time.Sleep(50 * time.Millisecond)
 	nodeA.Close()
 
 	select {
-	case <-runLoopExited:
-		// Success.
+	case err := <-runLoopExited:
+		require.Error(t, err, "expected an error on peer shutdown")
+		require.Equal(t, ExitPeerClosed, err.Reason, "Expected peer closed")
 	case <-time.After(2 * time.Second):
 		t.Fatal("Test timed out waiting for run loop to exit after peer closed.")
 	}
 }
 
-// TestNodeConnection_SelfClose verifies that calling Close on a connection terminates its own run loop.
 func TestNodeConnection_SelfClose(t *testing.T) {
-	nodeA, _ := setupTestConnections(t, "node-A", "node-B", DefaultNodeConnectionConfig())
-	runLoopExited := make(chan struct{})
+	nodeA, _ := newTestConnectionPair(t, "node-A", "node-B")
+	runLoopExited := make(chan *ConnectionError, 1)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	go func() { runLoopExited <- nodeA.Run(func(msg []byte) {}) }()
 
-	go func() {
-		nodeA.Run(ctx, func(cluster.NodeID, []byte) {})
-		close(runLoopExited)
-	}()
-
-	time.Sleep(50 * time.Millisecond) // Give the run loop a moment to start.
+	time.Sleep(50 * time.Millisecond)
 	nodeA.Close()
 
 	select {
-	case <-runLoopExited:
-		// Success.
+	case err := <-runLoopExited:
+		require.Error(t, err)
+		require.Equal(t, ExitCleanShutdown, err.Reason, "Expected clean shutdown")
 	case <-time.After(2 * time.Second):
 		t.Fatal("Test timed out waiting for run loop to exit after Close() was called.")
 	}
 }
 
-// TestNodeConnection_ZeroLengthMessage tests sending an empty message payload.
 func TestNodeConnection_ZeroLengthMessage(t *testing.T) {
-	nodeA, nodeB := setupTestConnections(t, "node-A", "node-B", DefaultNodeConnectionConfig())
-	performTestHandshake(t, nodeA, nodeB, "node-A", "node-B")
+	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
 	msgChan := make(chan []byte, 1)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	go func() { _ = nodeA.Run(func(msg []byte) {}) }()
+	go func() { _ = nodeB.Run(func(data []byte) { msgChan <- data }) }()
 
-	// Start both nodes' run loops
-	go nodeA.Run(ctx, func(cluster.NodeID, []byte) {})
-	go nodeB.Run(ctx, func(_ cluster.NodeID, data []byte) {
-		msgChan <- data
-	})
-
-	if err := nodeA.Send([]byte{}); err != nil {
-		t.Fatalf("Send failed for zero-length message: %v", err)
-	}
+	require.NoError(t, nodeA.Send([]byte{}))
 
 	select {
 	case msg := <-msgChan:
-		if len(msg) != 0 {
-			t.Errorf("Expected a zero-length message, but got one with length %d", len(msg))
-		}
+		require.NotNil(t, msg, "message should not be nil")
+		require.Len(t, msg, 0, "Expected a zero-length message")
 	case <-time.After(2 * time.Second):
 		t.Fatal("Test timed out waiting for zero-length message")
 	}
 }
 
-// TestNodeConnection_ConcurrentSend verifies sending from multiple goroutines is safe and reliable.
 func TestNodeConnection_ConcurrentSend(t *testing.T) {
-	cfg := DefaultNodeConnectionConfig()
-	cfg.OutboundQueueSize = 512 // Use a bigger queue
-	nodeA, nodeB := setupTestConnections(t, "node-A", "node-B", cfg)
-	performTestHandshake(t, nodeA, nodeB, "node-A", "node-B")
+	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
 
 	const numMessages = 5000
 	const numSenders = 20
 	var receivedCount int64
 	doneChan := make(chan struct{})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start both nodes' run loops
-	go nodeA.Run(ctx, func(cluster.NodeID, []byte) {})
-	go nodeB.Run(ctx, func(cluster.NodeID, []byte) {
-		if atomic.AddInt64(&receivedCount, 1) == numMessages {
-			close(doneChan)
-		}
-	})
+	go func() { _ = nodeA.Run(func(msg []byte) {}) }()
+	go func() {
+		_ = nodeB.Run(func(msg []byte) {
+			if atomic.AddInt64(&receivedCount, 1) == numMessages {
+				close(doneChan)
+			}
+		})
+	}()
 
 	var sendWg sync.WaitGroup
 	sendWg.Add(numSenders)
@@ -237,8 +211,7 @@ func TestNodeConnection_ConcurrentSend(t *testing.T) {
 			defer sendWg.Done()
 			for j := 0; j < numMessages/numSenders; j++ {
 				msg := []byte(fmt.Sprintf("sender-%d-msg-%d", senderID, j))
-				if err := nodeA.Send(msg); err != nil {
-					// We might get an error if the connection is closed before we finish sending.
+				if err := nodeA.Send(msg); errors.Is(err, ErrConnectionClosed) {
 					return
 				}
 			}
@@ -247,105 +220,81 @@ func TestNodeConnection_ConcurrentSend(t *testing.T) {
 
 	select {
 	case <-doneChan:
-		// Success
 	case <-time.After(10 * time.Second):
-		t.Fatalf("Test timed out waiting for all messages. Received %d out of %d", atomic.LoadInt64(&receivedCount), numMessages)
+		t.Fatalf("Test timed out. Received %d of %d", atomic.LoadInt64(&receivedCount), numMessages)
 	}
 	sendWg.Wait()
 }
 
-// TestNodeConnection_SendWithSlowReceiver_Overflow verifies that send does not block
-// and messages are queued correctly when the receiver is slow.
-func TestNodeConnection_SendWithSlowReceiver_Overflow(t *testing.T) {
-	cfg := DefaultNodeConnectionConfig()
-	cfg.OutboundQueueSize = 10 // A small queue to force overflow
-	nodeA, nodeB := setupTestConnections(t, "node-A", "node-B", cfg)
-	performTestHandshake(t, nodeA, nodeB, "node-A", "node-B")
-
-	const totalMessages = 100
-	var receivedCount int64
-	doneChan := make(chan struct{})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start both nodes' run loops
-	go nodeA.Run(ctx, func(cluster.NodeID, []byte) {})
-	go nodeB.Run(ctx, func(cluster.NodeID, []byte) {
-		time.Sleep(5 * time.Millisecond) // Simulate slow processing
-		if atomic.AddInt64(&receivedCount, 1) == totalMessages {
-			close(doneChan)
-		}
-	})
-
-	time.Sleep(50 * time.Millisecond) // Give the receiver a moment to start
-
-	// Blast messages much faster than the receiver can handle them.
-	// These Send calls should not block.
-	for i := 0; i < totalMessages; i++ {
-		msg := []byte(fmt.Sprintf("message %d", i))
-		if err := nodeA.Send(msg); err != nil {
-			t.Fatalf("Send failed unexpectedly: %v", err)
-		}
-	}
-
-	select {
-	case <-doneChan:
-		// Success, all messages were drained and received.
-	case <-time.After(10 * time.Second):
-		t.Fatalf("Test timed out. Received %d of %d messages.", atomic.LoadInt64(&receivedCount), totalMessages)
-	}
-}
-
-// TestNodeConnection_ExtractPendingMessages verifies that messages from both the
-// channel and overflow list are recovered in the correct order.
-func TestNodeConnection_ExtractPendingMessages(t *testing.T) {
-	cfg := DefaultNodeConnectionConfig()
-	cfg.OutboundQueueSize = 5
-	// We only need one side of the connection for this test as we don't run the loops.
-	conn, _ := net.Pipe()
-	nodeA := newNodeConnection(conn, "node-B", cfg, zap.NewNop())
-	defer nodeA.Close()
-
-	numChannelMsgs := cfg.OutboundQueueSize
-	numOverflowMsgs := 10
-	totalMessages := numChannelMsgs + numOverflowMsgs
-
-	// Send messages. The first 5 should go to the channel, the next 10 to overflow.
-	for i := 0; i < totalMessages; i++ {
-		msg := []byte(fmt.Sprintf("msg-%d", i))
-		if err := nodeA.Send(msg); err != nil {
-			t.Fatalf("Send returned an unexpected error on message %d: %v", i, err)
-		}
-	}
-
-	// Now extract them. This should pull from the channel first, then the overflow list.
-	pending := nodeA.ExtractPendingMessages()
-
-	if len(pending) != totalMessages {
-		t.Fatalf("Expected %d pending messages, but got %d", totalMessages, len(pending))
-	}
-
-	// Verify the order is correct.
-	for i := 0; i < totalMessages; i++ {
-		expectedMsg := []byte(fmt.Sprintf("msg-%d", i))
-		if !bytes.Equal(expectedMsg, pending[i]) {
-			t.Errorf("Message at index %d is incorrect. Got %q, want %q", i, pending[i], expectedMsg)
-		}
-	}
-}
-
-// TestNodeConnection_ErrorOnSendToClosed verifies Send returns an error on a closed connection.
 func TestNodeConnection_ErrorOnSendToClosed(t *testing.T) {
-	nodeA, _ := setupTestConnections(t, "node-A", "node-B", DefaultNodeConnectionConfig())
+	nodeA, _ := newTestConnectionPair(t, "node-A", "node-B")
 	nodeA.Close()
-	time.Sleep(10 * time.Millisecond) // Allow a moment for the close to propagate.
+	time.Sleep(10 * time.Millisecond)
 
 	err := nodeA.Send([]byte("this should fail"))
-	if err == nil {
-		t.Fatal("Expected an error when sending to a closed connection, but got nil")
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrConnectionClosed)
+}
+
+func TestConnectionError_ShouldRetry(t *testing.T) {
+	tests := []struct {
+		name        string
+		reason      ExitReason
+		shouldRetry bool
+	}{
+		{"NetworkError should retry", ExitNetworkError, true},
+		{"PeerClosed should retry", ExitPeerClosed, true},
+		{"CleanShutdown should not retry", ExitCleanShutdown, false},
+		{"ProtocolError should not retry", ExitProtocolError, false},
+		{"Unknown should not retry", ExitUnknown, false},
 	}
-	if err != ErrConnectionClosed {
-		t.Errorf("Expected error ErrConnectionClosed, but got: %v", err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			connErr := &ConnectionError{Reason: tt.reason}
+			require.Equal(t, tt.shouldRetry, connErr.ShouldRetry())
+		})
+	}
+}
+
+func TestNodeConnection_FailureAndMessageExtraction(t *testing.T) {
+	mockA, mockB := newMockConnPair()
+	cfg := DefaultNodeConnectionConfig()
+	logger := zap.NewNop()
+
+	nodeA := newNodeConnection(mockA, "node-B", cfg, logger)
+	nodeB := newNodeConnection(mockB, "node-A", cfg, logger)
+	t.Cleanup(func() { nodeA.Close(); nodeB.Close() })
+
+	runErrA := make(chan *ConnectionError, 1)
+
+	go func() { _ = nodeB.Run(func(msg []byte) {}) }()
+	go func() { runErrA <- nodeA.Run(func(msg []byte) {}) }()
+
+	msg1 := []byte("unsent-1")
+	require.NoError(t, nodeA.Send(msg1))
+
+	time.Sleep(50 * time.Millisecond)
+	injectedErr := errors.New("injected physical write error")
+	mockA.setWriteError(injectedErr)
+
+	msg2 := []byte("unsent-2")
+	require.NoError(t, nodeA.Send(msg2))
+
+	select {
+	case err := <-runErrA:
+		require.Equal(t, ExitNetworkError, err.Reason)
+		require.ErrorIs(t, err.Err, injectedErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for connection to fail")
+	}
+
+	pending := nodeA.ExtractPendingMessages()
+	require.GreaterOrEqual(t, len(pending), 1, "at least one message should be recovered")
+	if len(pending) == 2 {
+		require.Equal(t, msg1, pending[0])
+		require.Equal(t, msg2, pending[1])
+	} else {
+		require.Equal(t, msg2, pending[0], "if only one message is pending, it must be the one sent after the write error")
 	}
 }

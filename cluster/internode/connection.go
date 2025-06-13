@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,441 +19,362 @@ import (
 )
 
 var (
-	// ErrConnectionClosed is returned when an operation is attempted on a closed connection.
 	ErrConnectionClosed = errors.New("internode: connection is closed")
-	// ErrMessageTooLarge is returned when a send is attempted on a message that exceeds the configured max size.
-	ErrMessageTooLarge = errors.New("internode: message exceeds max size")
+	ErrMessageTooLarge  = errors.New("internode: message exceeds max size")
+	ErrCleanShutdown    = errors.New("internode: clean shutdown")
 )
 
-// Constants for the framing protocol and I/O optimization.
+// ExitReason defines the category of error that caused a connection to terminate.
+type ExitReason int
+
 const (
-	// protocolVersion is a single byte prefixed to each frame to ensure
-	// compatibility between different versions of the service.
-	protocolVersion = 0x01
-
-	// frameHeaderSize defines the total size of the frame header.
-	// It consists of 1 byte for the version and 4 bytes for the message length.
-	frameHeaderSize = 5
-
-	// writeBatchSize is the number of messages to accumulate in the local
-	// outbound channel before forcing a flush to the network socket. This
-	// reduces the number of syscalls for high-frequency small messages.
-	writeBatchSize = 128
-
-	// writeFlushInterval is a timeout that ensures that even if the batch
-	// is not full, messages are sent promptly. It prevents high latency for
-	// lone messages in an otherwise idle connection.
-	writeFlushInterval = 10 * time.Millisecond
+	ExitUnknown ExitReason = iota
+	ExitCleanShutdown
+	ExitNetworkError
+	ExitProtocolError
+	ExitPeerClosed
 )
 
-// bufferPool is a pool of byte buffers used for reading data from the network.
+func (er ExitReason) String() string {
+	switch er {
+	case ExitCleanShutdown:
+		return "CLEAN_SHUTDOWN"
+	case ExitNetworkError:
+		return "NETWORK_ERROR"
+	case ExitProtocolError:
+		return "PROTOCOL_ERROR"
+	case ExitPeerClosed:
+		return "PEER_CLOSED"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// ConnectionError is a structured error returned by a connection's Run loop.
+type ConnectionError struct {
+	Reason ExitReason
+	Err    error
+}
+
+func (ce *ConnectionError) Error() string {
+	if ce.Err != nil {
+		return fmt.Sprintf("%s: %v", ce.Reason, ce.Err)
+	}
+	return ce.Reason.String()
+}
+func (ce *ConnectionError) Unwrap() error { return ce.Err }
+func (ce *ConnectionError) ShouldRetry() bool {
+	switch ce.Reason {
+	case ExitNetworkError, ExitPeerClosed:
+		return true
+	case ExitCleanShutdown, ExitProtocolError:
+		return false
+	default:
+		return false
+	}
+}
+
+const (
+	protocolVersion        = 0x01
+	frameHeaderSize        = 5 // 1 byte for version, 4 bytes for length
+	writeBatchSize         = 128
+	writeFlushInterval     = 10 * time.Millisecond
+	defaultWriteBufferSize = 64 * 1024
+	readPoolBufferSize     = 32 * 1024
+)
+
 var bufferPool = sync.Pool{
 	New: func() any {
-		// Buffers are sized to handle a reasonably large message without
-		// requiring a new allocation. 32KB is a common default.
-		b := make([]byte, 32*1024)
+		b := make([]byte, readPoolBufferSize)
 		return &b
 	},
 }
 
-// NodeConnectionConfig contains configuration specific to a single NodeConnection.
-// This avoids coupling NodeConnection to the broader ManagerConfig.
-type NodeConnectionConfig struct {
-	HandshakeTimeout  time.Duration
-	OutboundQueueSize int
-	MaxMessageSize    uint32
+// InternodeConnection defines the public interface for a connection to another node.
+type InternodeConnection interface {
+	Run(handler func(msg []byte)) *ConnectionError
+	Send(data []byte) error
+	Close()
+	ExtractPendingMessages() [][]byte
+	RemoteNodeID() cluster.NodeID
 }
 
-// DefaultNodeConnectionConfig returns sensible defaults for NodeConnection.
+// NodeConnectionConfig holds configuration parameters for a NodeConnection.
+type NodeConnectionConfig struct {
+	HandshakeTimeout time.Duration
+	MaxMessageSize   uint32
+}
+
+// DefaultNodeConnectionConfig returns a default set of configuration.
 func DefaultNodeConnectionConfig() NodeConnectionConfig {
 	return NodeConnectionConfig{
-		HandshakeTimeout:  5 * time.Second,
-		OutboundQueueSize: 256,
-		MaxMessageSize:    512 * 1024 * 1024, // 512MB
+		HandshakeTimeout: 5 * time.Second,
+		MaxMessageSize:   512 * 1024 * 1024,
 	}
 }
 
 // NodeConnection represents a single, framed, and optimized TCP connection to another node.
-// It follows Erlang-like semantics with unbounded message queuing to prevent blocking.
 type NodeConnection struct {
-	conn         net.Conn
-	logger       *zap.Logger
-	config       NodeConnectionConfig
-	remoteNodeID cluster.NodeID
+	conn       net.Conn
+	logger     *zap.Logger
+	config     NodeConnectionConfig
+	remoteNode cluster.NodeID
 
-	// outbound is the primary buffered channel for messages
-	outbound chan []byte
+	lifecycleMu sync.Mutex // Protects access to the cancel function.
+	cancel      context.CancelFunc
 
-	// overflow handles messages when the main channel is full (Erlang-style unbounded queue)
-	overflow   *list.List
-	overflowMu sync.Mutex
+	closed atomic.Bool
 
-	// shutdown is used for an immediate, ungraceful signal to loops.
-	shutdown chan struct{}
-
-	// closeOnce ensures that the cleanup logic in Close() is executed exactly once.
-	closeOnce sync.Once
-
-	// isClosed provides thread-safe, lock-free access to the connection's state.
-	isClosed atomic.Bool
+	queueMu         sync.Mutex
+	activeQueue     *list.List
+	processingQueue *list.List
+	sendNotify      chan struct{}
 }
 
-// newNodeConnection creates a new, unstarted NodeConnection.
-// The connection's lifecycle is managed by the context passed to Run().
-func newNodeConnection(conn net.Conn, remoteNodeID cluster.NodeID, config NodeConnectionConfig, logger *zap.Logger) *NodeConnection {
-	// Create a properly named logger for this connection
-	connLogger := logger.Named("connection").With(zap.String("remote_node", string(remoteNodeID)))
-
+// newNodeConnection creates a new, un-started NodeConnection.
+func newNodeConnection(conn net.Conn, remoteNode cluster.NodeID, config NodeConnectionConfig, logger *zap.Logger) *NodeConnection {
 	return &NodeConnection{
-		conn:         conn,
-		remoteNodeID: remoteNodeID,
-		config:       config,
-		logger:       connLogger,
-		outbound:     make(chan []byte, config.OutboundQueueSize),
-		overflow:     list.New(),
-		shutdown:     make(chan struct{}),
+		conn:            conn,
+		logger:          logger.With(zap.String("remote_node", string(remoteNode))),
+		config:          config,
+		remoteNode:      remoteNode,
+		activeQueue:     list.New(),
+		processingQueue: list.New(),
+		sendNotify:      make(chan struct{}, 1),
 	}
 }
 
-// Run starts the read and write loops for the connection. This method is
-// BLOCKING and will not return until the connection is fully terminated.
-// The provided context controls the connection's lifecycle.
-func (nc *NodeConnection) Run(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) {
+// Run starts the connection's read/write loops and blocks until termination.
+func (c *NodeConnection) Run(handler func(msg []byte)) *ConnectionError {
+	c.lifecycleMu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	c.cancel = cancel
+	c.lifecycleMu.Unlock()
+
+	defer c.Close()
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 
+	errChan := make(chan *ConnectionError, 2)
+
 	go func() {
 		defer wg.Done()
-		nc.writeLoop(ctx)
+		err := c.readLoop(ctx, handler)
+		// Only send non-nil errors that aren't clean shutdowns
+		if err != nil && (err.Reason != ExitCleanShutdown) {
+			errChan <- err
+		}
 	}()
+
 	go func() {
 		defer wg.Done()
-		nc.readLoop(ctx, onMessage)
+		err := c.writeLoop(ctx)
+		// Only send non-nil errors that aren't clean shutdowns
+		if err != nil && (err.Reason != ExitCleanShutdown) {
+			errChan <- err
+		}
 	}()
+
+	var firstErr *ConnectionError
+	select {
+	case firstErr = <-errChan:
+		// First error received, initiate shutdown of the other loop.
+		c.Close()
+	case <-ctx.Done():
+		// Shutdown initiated externally via Close().
+		firstErr = &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+	}
 
 	wg.Wait()
+	return firstErr
 }
 
-// Send queues a data frame to be sent to the remote node. It follows Erlang semantics:
-// - Never blocks (uses overflow queue when main buffer is full)
-// - Never drops messages (unbounded queue like Erlang mailbox)
-// - Fails only if connection is already closed
-func (nc *NodeConnection) Send(data []byte) error {
-	if nc.isClosed.Load() {
+// Send enqueues a message for delivery. It is non-blocking and safe for concurrent use.
+func (c *NodeConnection) Send(data []byte) error {
+	if c.closed.Load() {
 		return ErrConnectionClosed
 	}
+
+	c.queueMu.Lock()
+	c.activeQueue.PushBack(data)
+	c.queueMu.Unlock()
 
 	select {
-	case nc.outbound <- data:
-		return nil
-	case <-nc.shutdown:
-		return ErrConnectionClosed
+	case c.sendNotify <- struct{}{}:
 	default:
-		// Main buffer is full - use overflow (Erlang-style unbounded growth)
-		nc.overflowMu.Lock()
-		nc.overflow.PushBack(data)
-		nc.overflowMu.Unlock()
-		return nil
+	}
+
+	return nil
+}
+
+// Close terminates the connection.
+func (c *NodeConnection) Close() {
+	if c.closed.CompareAndSwap(false, true) {
+		c.lifecycleMu.Lock()
+		if c.cancel != nil {
+			c.cancel()
+		}
+		c.lifecycleMu.Unlock()
+		_ = c.conn.Close()
 	}
 }
 
-// ExtractPendingMessages atomically extracts all undelivered messages from the connection.
-// This is used when a connection fails to recover messages for requeuing.
-// Returns messages in the order they were queued (oldest first).
-func (nc *NodeConnection) ExtractPendingMessages() [][]byte {
-	var messages [][]byte
+// RemoteNodeID returns the identifier of the connected peer.
+func (c *NodeConnection) RemoteNodeID() cluster.NodeID {
+	return c.remoteNode
+}
 
-	// First, drain the main channel (non-blocking)
-	for {
-		select {
-		case msg := <-nc.outbound:
-			messages = append(messages, msg)
-		default:
-			goto drainOverflow
-		}
+// ExtractPendingMessages returns all messages that were queued but not yet sent.
+func (c *NodeConnection) ExtractPendingMessages() [][]byte {
+	c.queueMu.Lock()
+	defer c.queueMu.Unlock()
+
+	c.processingQueue.PushBackList(c.activeQueue)
+	pending := make([][]byte, 0, c.processingQueue.Len())
+	for e := c.processingQueue.Front(); e != nil; e = e.Next() {
+		pending = append(pending, e.Value.([]byte))
 	}
-
-drainOverflow:
-	// Then drain the overflow queue
-	nc.overflowMu.Lock()
-	for nc.overflow.Len() > 0 {
-		elem := nc.overflow.Front()
-		if elem == nil {
-			break
-		}
-
-		if data, ok := elem.Value.([]byte); ok {
-			messages = append(messages, data)
-		}
-		nc.overflow.Remove(elem)
-	}
-	nc.overflowMu.Unlock()
-
-	return messages
+	return pending
 }
 
-// Close gracefully shuts down the connection and its associated goroutines.
-// This method is thread-safe and idempotent.
-func (nc *NodeConnection) Close() {
-	nc.closeOnce.Do(func() {
-		if nc.isClosed.CompareAndSwap(false, true) {
-			close(nc.shutdown)
-			if err := nc.conn.Close(); err != nil && !isErrClosing(err) {
-				nc.logger.Warn("Error closing connection", zap.Error(err))
-			}
-		}
-	})
-}
-
-// RemoteNodeID returns the identifier of the node on the other end of the connection.
-func (nc *NodeConnection) RemoteNodeID() cluster.NodeID {
-	return nc.remoteNodeID
-}
-
-// readLoop continuously reads data from the socket. It uses a buffered reader to minimize
-// syscalls and a buffer pool to minimize memory allocations.
-func (nc *NodeConnection) readLoop(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) {
-	defer nc.Close()
-	reader := bufio.NewReader(nc.conn)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-nc.shutdown:
-			return
-		default:
-			data, err := nc.readFrame(reader)
-			if err != nil {
-				if err != io.EOF && !isErrClosing(err) {
-					nc.logger.Error("Failed to read frame", zap.Error(err))
-				}
-				return
-			}
-
-			onMessage(nc.remoteNodeID, data)
-			bufferPool.Put(&data)
-		}
-	}
-}
-
-// writeLoop continuously drains the outbound channel and overflow queue, writing data to the socket.
-// It batches writes together to improve performance and reduce syscalls.
-func (nc *NodeConnection) writeLoop(ctx context.Context) {
-	defer nc.Close()
-	writer := bufio.NewWriter(nc.conn)
+func (c *NodeConnection) writeLoop(ctx context.Context) *ConnectionError {
+	writer := bufio.NewWriterSize(c.conn, defaultWriteBufferSize)
 	ticker := time.NewTicker(writeFlushInterval)
 	defer ticker.Stop()
 
-	batch := make([][]byte, 0, writeBatchSize)
-
 	for {
 		select {
-		case data := <-nc.outbound:
-			batch = append(batch, data)
-			nc.drainOverflowToBatch(&batch)
-
-			if len(batch) >= writeBatchSize {
-				if err := nc.flushBatch(writer, &batch); err != nil {
-					return
-				}
-			}
+		case <-c.sendNotify:
 		case <-ticker.C:
-			nc.drainOverflowToBatch(&batch)
-			if len(batch) > 0 {
-				if err := nc.flushBatch(writer, &batch); err != nil {
-					return
-				}
-			}
 		case <-ctx.Done():
-			if len(batch) > 0 {
-				_ = nc.flushBatch(writer, &batch)
-			}
-			return
-		case <-nc.shutdown:
-			if len(batch) > 0 {
-				_ = nc.flushBatch(writer, &batch)
-			}
-			return
-		}
-	}
-}
-
-// drainOverflowToBatch moves messages from overflow queue to the current batch
-func (nc *NodeConnection) drainOverflowToBatch(batch *[][]byte) {
-	nc.overflowMu.Lock()
-	defer nc.overflowMu.Unlock()
-
-	remainingCapacity := writeBatchSize - len(*batch)
-	if remainingCapacity <= 0 || nc.overflow.Len() == 0 {
-		return
-	}
-
-	drained := 0
-	for drained < remainingCapacity && nc.overflow.Len() > 0 {
-		elem := nc.overflow.Front()
-		if elem == nil {
-			break
+			return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
 		}
 
-		data, ok := elem.Value.([]byte)
-		if !ok {
-			nc.overflow.Remove(elem)
+		c.queueMu.Lock()
+		if c.activeQueue.Len() == 0 {
+			c.queueMu.Unlock()
 			continue
 		}
 
-		*batch = append(*batch, data)
-		nc.overflow.Remove(elem)
-		drained++
+		c.processingQueue = c.activeQueue
+		c.activeQueue = list.New()
+		c.queueMu.Unlock()
+
+		if err := c.flushBatch(writer, c.processingQueue); err != nil {
+			return &ConnectionError{Reason: ExitNetworkError, Err: err}
+		}
 	}
 }
 
-// flushBatch writes all data in the batch slice to the buffered writer and flushes it to the network.
-func (nc *NodeConnection) flushBatch(writer *bufio.Writer, batch *[][]byte) error {
-	if len(*batch) == 0 {
-		return nil
-	}
-
-	for _, data := range *batch {
-		if err := nc.writeFrame(writer, data); err != nil {
-			if !isErrClosing(err) {
-				nc.logger.Error("Failed to write frame", zap.Error(err))
-			}
+func (c *NodeConnection) flushBatch(writer *bufio.Writer, batch *list.List) error {
+	for e := batch.Front(); e != nil; e = e.Next() {
+		if err := writeFrame(writer, e.Value.([]byte)); err != nil {
 			return err
 		}
 	}
-
 	if err := writer.Flush(); err != nil {
-		if !isErrClosing(err) {
-			nc.logger.Error("Failed to flush writer", zap.Error(err))
-		}
 		return err
 	}
-
-	*batch = (*batch)[:0]
+	batch.Init()
 	return nil
 }
 
-// writeFrame prepends the protocol header to the data and writes the full frame to the writer.
-func (nc *NodeConnection) writeFrame(writer io.Writer, data []byte) error {
-	dataLen := uint32(len(data))
-	if dataLen > nc.config.MaxMessageSize {
-		return ErrMessageTooLarge
+func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte)) *ConnectionError {
+	reader := bufio.NewReader(c.conn)
+	for {
+		// Check for context cancellation before blocking on read.
+		select {
+		case <-ctx.Done():
+			return &ConnectionError{Reason: ExitCleanShutdown, Err: ctx.Err()}
+		default:
+		}
+
+		msg, err := readFrame(reader, c.config.MaxMessageSize)
+		if err != nil {
+			if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "use of closed network connection") {
+				// The connection was closed. Check if it was because of our own context.
+				select {
+				case <-ctx.Done():
+					return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+				default:
+					return &ConnectionError{Reason: ExitPeerClosed, Err: err}
+				}
+			}
+
+			if errors.Is(err, ErrMessageTooLarge) {
+				return &ConnectionError{Reason: ExitProtocolError, Err: err}
+			}
+
+			var perr protocolError
+			if errors.As(err, &perr) {
+				return &ConnectionError{Reason: ExitProtocolError, Err: perr}
+			}
+			return &ConnectionError{Reason: ExitNetworkError, Err: err}
+		}
+
+		// Call handler without logging - this is hot path
+		handler(msg)
 	}
+}
 
-	header := [frameHeaderSize]byte{protocolVersion}
-	binary.LittleEndian.PutUint32(header[1:], dataLen)
+type protocolError string
 
-	if _, err := writer.Write(header[:]); err != nil {
+func (e protocolError) Error() string { return "protocol error: " + string(e) }
+
+func writeFrame(w io.Writer, data []byte) error {
+	var header [frameHeaderSize]byte
+	header[0] = protocolVersion
+	binary.BigEndian.PutUint32(header[1:], uint32(len(data)))
+	if _, err := w.Write(header[:]); err != nil {
 		return err
 	}
-	if dataLen > 0 {
-		if _, err := writer.Write(data); err != nil {
+	if len(data) > 0 {
+		if _, err := w.Write(data); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// readFrame reads a single, complete data frame from the buffered reader.
-func (nc *NodeConnection) readFrame(reader *bufio.Reader) ([]byte, error) {
-	header := [frameHeaderSize]byte{}
-	if _, err := io.ReadFull(reader, header[:]); err != nil {
+func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
+	var header [frameHeaderSize]byte
+	if _, err := io.ReadFull(r, header[:]); err != nil {
 		return nil, err
 	}
-
 	if header[0] != protocolVersion {
-		return nil, fmt.Errorf("unsupported protocol version: %d", header[0])
+		return nil, protocolError(fmt.Sprintf("unexpected protocol version %d", header[0]))
+	}
+	size := binary.BigEndian.Uint32(header[1:])
+	if size > maxMessageSize {
+		return nil, fmt.Errorf("%w: message size %d exceeds max %d", ErrMessageTooLarge, size, maxMessageSize)
 	}
 
-	length := binary.LittleEndian.Uint32(header[1:])
-	if length > nc.config.MaxMessageSize {
-		return nil, fmt.Errorf("frame size %d exceeds max allowed size %d", length, nc.config.MaxMessageSize)
-	}
-	if length == 0 {
+	if size == 0 {
 		return []byte{}, nil
 	}
 
-	bufPtr := bufferPool.Get().(*[]byte)
-	data := *bufPtr
-	if uint32(len(data)) < length {
-		data = make([]byte, length)
-		bufPtr = &data
+	var msg []byte
+	bp := bufferPool.Get().(*[]byte)
+	if size > uint32(cap(*bp)) {
+		msg = make([]byte, size)
 	} else {
-		data = data[:length]
+		msg = (*bp)[:size]
 	}
 
-	if _, err := io.ReadFull(reader, data); err != nil {
-		bufferPool.Put(bufPtr)
+	if _, err := io.ReadFull(r, msg); err != nil {
+		bufferPool.Put(bp)
 		return nil, err
 	}
-	return data, nil
-}
 
-// performHandshake handles the initial protocol exchange to verify node identities.
-// It operates with its own deadline, independent of the connection's main context.
-func (nc *NodeConnection) performHandshake(ctx context.Context, localNodeID cluster.NodeID, isInitiator bool) error {
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, nc.config.HandshakeTimeout)
-		defer cancel()
-		deadline = time.Now().Add(nc.config.HandshakeTimeout)
+	// If it's from the pool, we must copy it.
+	if &msg[0] == &(*bp)[0] {
+		data := make([]byte, size)
+		copy(data, msg)
+		bufferPool.Put(bp)
+		return data, nil
 	}
 
-	if err := nc.conn.SetDeadline(deadline); err != nil {
-		return fmt.Errorf("failed to set connection deadline: %w", err)
-	}
-
-	defer func() {
-		if err := nc.conn.SetDeadline(time.Time{}); err != nil {
-			nc.logger.Warn("Failed to clear connection deadline", zap.Error(err))
-		}
-	}()
-
-	reader := bufio.NewReader(nc.conn)
-	writer := bufio.NewWriter(nc.conn)
-
-	if isInitiator {
-		if err := nc.writeFrame(writer, []byte(localNodeID)); err != nil {
-			return fmt.Errorf("failed to send local node ID: %w", err)
-		}
-		if err := writer.Flush(); err != nil {
-			return fmt.Errorf("failed to flush local node ID: %w", err)
-		}
-
-		data, err := nc.readFrame(reader)
-		if err != nil {
-			return fmt.Errorf("failed to receive remote node ID: %w", err)
-		}
-
-		receivedNodeID := cluster.NodeID(data)
-		if receivedNodeID != nc.remoteNodeID {
-			return fmt.Errorf("handshake node ID mismatch: expected %s, got %s", nc.remoteNodeID, receivedNodeID)
-		}
-	} else {
-		data, err := nc.readFrame(reader)
-		if err != nil {
-			return fmt.Errorf("failed to receive remote node ID: %w", err)
-		}
-
-		nc.remoteNodeID = cluster.NodeID(data)
-		// Update logger with the now-known remote node ID
-		nc.logger = nc.logger.With(zap.String("remote_node", string(nc.remoteNodeID)))
-
-		if err := nc.writeFrame(writer, []byte(localNodeID)); err != nil {
-			return fmt.Errorf("failed to send local node ID: %w", err)
-		}
-		if err := writer.Flush(); err != nil {
-			return fmt.Errorf("failed to flush local node ID: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// isErrClosing checks if a network error is a "connection closed" error.
-// This is used to suppress warnings for expected errors during shutdown.
-func isErrClosing(err error) bool {
-	return errors.Is(err, net.ErrClosed)
+	// It was a large message allocated on its own.
+	return msg, nil
 }
