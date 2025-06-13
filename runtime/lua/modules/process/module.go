@@ -260,8 +260,8 @@ func (m *Module) id(l *lua.LState) int {
 
 // send sends a message to another process (accepts pid or registered name)
 func (m *Module) send(l *lua.LState) int {
-	node, ok := m.getNode(l)
-	if !ok {
+	router := pubsub.GetRouter(l.Context())
+	if router == nil {
 		return 2
 	}
 
@@ -303,7 +303,7 @@ func (m *Module) send(l *lua.LState) int {
 
 	pkg := pubsub.NewMessagePackage(self, pid, messages...)
 
-	if err := node.Send(pkg); err != nil {
+	if err := router.Send(pkg); err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2

@@ -28,6 +28,8 @@ type encodedMessage struct {
 
 // encodedPackage is a gob-friendly representation of a pubsub.Package.
 type encodedPackage struct {
+	Source   pubsub.PID // FIXED: Added missing Source field
+	Target   pubsub.PID // FIXED: Added missing Target field
 	Messages []*encodedMessage
 }
 
@@ -66,6 +68,10 @@ func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 
 // resetEncodedPackage clears an encodedPackage so it can be safely returned to a pool.
 func (c *MessageCodec) resetEncodedPackage(p *encodedPackage) {
+	// Clear Source and Target PIDs
+	p.Source = pubsub.PID{}
+	p.Target = pubsub.PID{}
+
 	// Nil out pointers to allow GC and prevent data leakage between usages.
 	for i := range p.Messages {
 		p.Messages[i] = nil
@@ -81,6 +87,10 @@ func (c *MessageCodec) Encode(pkg *pubsub.Package) ([]byte, error) {
 		c.resetEncodedPackage(encPkg)
 		c.encPkgPool.Put(encPkg)
 	}()
+
+	// FIXED: Copy Source and Target PIDs
+	encPkg.Source = pkg.Source
+	encPkg.Target = pkg.Target
 
 	// Reuse the underlying slice if it has enough capacity.
 	if cap(encPkg.Messages) < len(pkg.Messages) {
@@ -142,6 +152,8 @@ func (c *MessageCodec) Decode(data []byte) (*pubsub.Package, error) {
 	}
 
 	finalPkg := &pubsub.Package{
+		Source:   encPkg.Source, // FIXED: Restore Source PID
+		Target:   encPkg.Target, // FIXED: Restore Target PID
 		Messages: make([]*pubsub.Message, len(encPkg.Messages)),
 	}
 

@@ -69,7 +69,7 @@ func (s *Service) Start(ctx context.Context) error {
 
 	sub, err := eventbus.NewSubscriber(ctx, s.bus, cluster.System, "node.(joined|left)", s.handleMembershipEvent)
 	if err != nil {
-		s.connMan.Stop()
+		_ = s.connMan.Stop() // todo: unsupress
 		return fmt.Errorf("failed to subscribe to membership events: %w", err)
 	}
 	s.subscriber = sub
@@ -95,11 +95,11 @@ func (s *Service) Stop() error {
 
 func (s *Service) Send(pkg *pubsub.Package) error {
 	data, err := s.codec.Encode(pkg)
+	targetNode := pkg.Target
 	pubsub.ReleasePackage(pkg)
 
-	targetNode := pkg.Target
 	if err != nil {
-		return fmt.Errorf("failed to encode package for node %s: %w", targetNode.Node, err)
+		return fmt.Errorf("failed to encode package for node %s: %w", targetNode, err)
 	}
 
 	return s.connMan.SendToNode(targetNode.Node, data)

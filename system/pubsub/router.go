@@ -2,7 +2,6 @@ package pubsub
 
 import (
 	"fmt"
-
 	api "github.com/ponyruntime/pony/api/pubsub"
 )
 

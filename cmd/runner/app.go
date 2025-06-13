@@ -246,7 +246,7 @@ func (a *App) initClusterMesh() error {
 		SecretString: a.config.ClusterSecret,
 		AdvertiseIP:  a.config.ClusterAdvertise,
 		VeryVerbose:  a.config.VeryVerbose,
-		Meta:         nodeMeta, // Metadata has correct port!
+		Meta:         nodeMeta,
 	}
 
 	a.membership = membership.NewService(memberConfig, a.eventBus, a.logger.Named("cluster"))

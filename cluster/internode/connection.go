@@ -291,6 +291,7 @@ func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte))
 		}
 
 		msg, err := readFrame(reader, c.config.MaxMessageSize)
+
 		if err != nil {
 			if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "use of closed network connection") {
 				// The connection was closed. Check if it was because of our own context.

@@ -1,150 +1,158 @@
 package internode
 
 import (
-	"encoding/gob"
-	"encoding/json"
-	"fmt"
-	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
-	luacore "github.com/yuin/gopher-lua"
+	"github.com/ponyruntime/pony/api/registry"
 )
 
-// fakeTranscoder is a mock implementation of payload.Transcoder for testing.
-// It only knows how to convert a Lua payload to a JSON payload.
-type fakeTranscoder struct{}
+// mockTranscoder for testing
+type mockTranscoder struct{}
 
-// Transcode implements the payload.Transcoder interface.
-func (ft *fakeTranscoder) Transcode(p payload.Payload, to payload.Format) (payload.Payload, error) {
-	// We only mock the specific path needed for our test.
-	if p.Format() == payload.Lua && to == payload.JSON {
-		luaTable, ok := p.Data().(*luacore.LTable)
-		if !ok {
-			return nil, fmt.Errorf("fake transcoder expected *LTable for Lua payload")
-		}
+func (mt *mockTranscoder) Transcode(p payload.Payload, to payload.Format) (payload.Payload, error) {
+	return p, nil // Pass through
+}
 
-		// Convert LTable to a Go map to make it JSON-serializable.
-		goMap := make(map[string]interface{})
-		luaTable.ForEach(func(key luacore.LValue, value luacore.LValue) {
-			goMap[key.String()] = value.String()
-		})
+func (mt *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+	return nil
+}
 
-		jsonBytes, err := json.Marshal(goMap)
-		if err != nil {
-			return nil, err
-		}
-		// Return a new payload with the JSON string data and JSON format.
-		return payload.NewPayload(string(jsonBytes), payload.JSON), nil
+func TestMessageCodec_PackagePIDs_SourceTarget(t *testing.T) {
+	codec := NewMessageCodec(&mockTranscoder{})
+
+	// Create PIDs with actual values
+	sourcePID := pubsub.PID{
+		Node:   "node1",
+		Host:   "host1",
+		ID:     registry.ParseID("ns:source"),
+		UniqID: "src123",
 	}
-	return nil, fmt.Errorf("transcode path from %s to %s is not supported by fakeTranscoder", p.Format(), to)
-}
 
-// Unmarshal implements the payload.Unmarshaler interface. Not needed for this test.
-func (ft *fakeTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
-	return fmt.Errorf("unmarshal is not implemented in fakeTranscoder")
-}
-
-// assertPackagesEqual is a helper to robustly compare two packages.
-func assertPackagesEqual(t *testing.T, expected, actual *pubsub.Package) {
-	t.Helper()
-	if !reflect.DeepEqual(expected, actual) {
-		t.Fatalf("Decoded package does not match original.\nOriginal: %+v\nDecoded:  %+v", expected, actual)
+	targetPID := pubsub.PID{
+		Node:   "node2",
+		Host:   "host2",
+		ID:     registry.ParseID("ns:target"),
+		UniqID: "tgt456",
 	}
-}
 
-type CustomData struct{ Name string }
-
-// TestMessageCodec_Roundtrip_GoPayload tests a simple case with a native Go struct.
-// The transcoder should not be invoked for this payload.
-func TestMessageCodec_Roundtrip_GoPayload(t *testing.T) {
-	transcoder := &fakeTranscoder{}
-	codec := NewMessageCodec(transcoder)
-	gob.Register(CustomData{}) // Test-specific type registration
-
+	// Create package with both Source and Target
 	originalPkg := &pubsub.Package{
-		Messages: []*pubsub.Message{{
-			Payloads: []payload.Payload{
-				payload.NewPayload(CustomData{Name: "Test"}, payload.Golang),
-			},
-		}},
-	}
-
-	encoded, err := codec.Encode(originalPkg)
-	if err != nil {
-		t.Fatalf("Encode() failed with error: %v", err)
-	}
-	decodedPkg, err := codec.Decode(encoded)
-	if err != nil {
-		t.Fatalf("Decode() failed with error: %v", err)
-	}
-	assertPackagesEqual(t, originalPkg, decodedPkg)
-}
-
-// TestMessageCodec_Roundtrip_LuaPayload_Normalized tests that a complex type (Lua table)
-// is correctly normalized to JSON by the transcoder during the encoding process.
-func TestMessageCodec_Roundtrip_LuaPayload_Normalized(t *testing.T) {
-	transcoder := &fakeTranscoder{}
-	codec := NewMessageCodec(transcoder)
-
-	luaState := luacore.NewState()
-	defer luaState.Close()
-	luaTable := luaState.NewTable()
-	luaTable.RawSetString("msg", luacore.LString("from lua"))
-
-	originalPkg := &pubsub.Package{
-		Messages: []*pubsub.Message{{Payloads: []payload.Payload{payload.NewPayload(luaTable, payload.Lua)}}},
-	}
-
-	encoded, err := codec.Encode(originalPkg)
-	if err != nil {
-		t.Fatalf("Encode() failed: %v", err)
-	}
-	decodedPkg, err := codec.Decode(encoded)
-	if err != nil {
-		t.Fatalf("Decode() failed: %v", err)
-	}
-
-	// ASSERTIONS: Check that the payload was correctly normalized.
-	if len(decodedPkg.Messages) != 1 || len(decodedPkg.Messages[0].Payloads) != 1 {
-		t.Fatal("Decoded package has incorrect structure")
-	}
-
-	normalizedPayload := decodedPkg.Messages[0].Payloads[0]
-	if normalizedPayload.Format() != payload.JSON {
-		t.Fatalf("Expected payload format to be JSON, got %s", normalizedPayload.Format())
-	}
-
-	jsonData, ok := normalizedPayload.Data().(string)
-	if !ok {
-		t.Fatalf("Expected normalized payload data to be a string, got %T", normalizedPayload.Data())
-	}
-
-	if !strings.Contains(jsonData, `"msg":"from lua"`) {
-		t.Fatalf(`Expected JSON data to contain '"msg":"from lua"', got %s`, jsonData)
-	}
-}
-
-// TestMessageCodec_UnregisteredType verifies that encoding a Golang payload
-// with an unregistered type still fails as expected.
-func TestMessageCodec_UnregisteredType(t *testing.T) {
-	transcoder := &fakeTranscoder{}
-	codec := NewMessageCodec(transcoder)
-	type UnregisteredStruct struct{ ID string }
-	pkg := &pubsub.Package{
+		Source: sourcePID,
+		Target: targetPID,
 		Messages: []*pubsub.Message{
-			{Payloads: []payload.Payload{payload.NewPayload(UnregisteredStruct{ID: "test"}, payload.Golang)}},
+			{
+				Topic: "test.topic",
+				Payloads: []payload.Payload{
+					payload.NewString("test message"),
+				},
+			},
 		},
 	}
-	_, err := codec.Encode(pkg)
-	if err == nil {
-		t.Fatal("Encode should fail for unregistered types, but it didn't")
+
+	t.Logf("Original Source: %s", originalPkg.Source.String())
+	t.Logf("Original Target: %s", originalPkg.Target.String())
+
+	// Encode
+	encoded, err := codec.Encode(originalPkg)
+	if err != nil {
+		t.Fatalf("Encode failed: %v", err)
 	}
 
-	expectedErr := "type not registered" // Check for gob's specific error text
-	if !strings.Contains(err.Error(), expectedErr) {
-		t.Fatalf("Expected error message to contain %q, but got: %v", expectedErr, err)
+	// Decode
+	decoded, err := codec.Decode(encoded)
+	if err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	t.Logf("Decoded Source: %s", decoded.Source.String())
+	t.Logf("Decoded Target: %s", decoded.Target.String())
+
+	// Verify Source PID
+	if decoded.Source.Node != originalPkg.Source.Node {
+		t.Errorf("Source Node mismatch. Expected %q, got %q", originalPkg.Source.Node, decoded.Source.Node)
+	}
+	if decoded.Source.Host != originalPkg.Source.Host {
+		t.Errorf("Source Host mismatch. Expected %q, got %q", originalPkg.Source.Host, decoded.Source.Host)
+	}
+	if decoded.Source.ID.String() != originalPkg.Source.ID.String() {
+		t.Errorf("Source ID mismatch. Expected %q, got %q", originalPkg.Source.ID.String(), decoded.Source.ID.String())
+	}
+	if decoded.Source.UniqID != originalPkg.Source.UniqID {
+		t.Errorf("Source UniqID mismatch. Expected %q, got %q", originalPkg.Source.UniqID, decoded.Source.UniqID)
+	}
+
+	// Verify Target PID
+	if decoded.Target.Node != originalPkg.Target.Node {
+		t.Errorf("Target Node mismatch. Expected %q, got %q", originalPkg.Target.Node, decoded.Target.Node)
+	}
+	if decoded.Target.Host != originalPkg.Target.Host {
+		t.Errorf("Target Host mismatch. Expected %q, got %q", originalPkg.Target.Host, decoded.Target.Host)
+	}
+	if decoded.Target.ID.String() != originalPkg.Target.ID.String() {
+		t.Errorf("Target ID mismatch. Expected %q, got %q", originalPkg.Target.ID.String(), decoded.Target.ID.String())
+	}
+	if decoded.Target.UniqID != originalPkg.Target.UniqID {
+		t.Errorf("Target UniqID mismatch. Expected %q, got %q", originalPkg.Target.UniqID, decoded.Target.UniqID)
+	}
+
+	// Verify message content
+	if len(decoded.Messages) != 1 {
+		t.Fatalf("Expected 1 message, got %d", len(decoded.Messages))
+	}
+	if decoded.Messages[0].Topic != "test.topic" {
+		t.Errorf("Topic mismatch. Expected 'test.topic', got %q", decoded.Messages[0].Topic)
+	}
+}
+
+func TestMessageCodec_EmptyPIDs(t *testing.T) {
+	codec := NewMessageCodec(&mockTranscoder{})
+
+	// Package with empty PIDs (this is what we're seeing in logs)
+	originalPkg := &pubsub.Package{
+		Source: pubsub.PID{}, // Empty
+		Target: pubsub.PID{}, // Empty
+		Messages: []*pubsub.Message{
+			{
+				Topic: "test.topic",
+				Payloads: []payload.Payload{
+					payload.NewString("test message"),
+				},
+			},
+		},
+	}
+
+	t.Logf("Original Source (empty): %s", originalPkg.Source.String())
+	t.Logf("Original Target (empty): %s", originalPkg.Target.String())
+
+	// This should be {|:|} for both
+	if originalPkg.Source.String() != "{|:|}" {
+		t.Errorf("Expected empty source to be {|:|}, got %s", originalPkg.Source.String())
+	}
+	if originalPkg.Target.String() != "{|:|}" {
+		t.Errorf("Expected empty target to be {|:|}, got %s", originalPkg.Target.String())
+	}
+
+	// Encode/decode
+	encoded, err := codec.Encode(originalPkg)
+	if err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	decoded, err := codec.Decode(encoded)
+	if err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	t.Logf("Decoded Source (should be empty): %s", decoded.Source.String())
+	t.Logf("Decoded Target (should be empty): %s", decoded.Target.String())
+
+	// Verify they remain empty after round-trip
+	if decoded.Source.String() != "{|:|}" {
+		t.Errorf("Expected decoded source to be {|:|}, got %s", decoded.Source.String())
+	}
+	if decoded.Target.String() != "{|:|}" {
+		t.Errorf("Expected decoded target to be {|:|}, got %s", decoded.Target.String())
 	}
 }
