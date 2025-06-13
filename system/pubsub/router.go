@@ -2,61 +2,46 @@ package pubsub
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"sync"
+
+	api "github.com/ponyruntime/pony/api/pubsub"
 )
 
-// Router is a minimal implementation of the Receiver interface.
-// It routes a Package to one of the configured upstream Receivers based on
-// `pkg.Target.Node`. When no matching upstream exists the optional
-// `internode` fallback is tried instead. If that is nil an error is
-// returned.
-//
-// The implementation is *deliberately* simple: we do not attempt retries,
-// round‑robin, health‑checks, or dynamic updates – callers are expected to
-// rebuild the Router when their topology changes.
-//
-// Example:
-//
-//  up := map[NodeID]Receiver{"node‑a": aConn, "node‑b": bConn}
-//  r := NewRouter(up, internodeSvc)
-//  _ = r.Send(pkg)
-//
-// Note: Once the Router is created its upstream set is immutable.
-//
-// The zero value is not usable – always create via NewRouter.
-
+// Router orchestrates message delivery between a local node and external upstreams.
+// It acts as the primary Receiver for the system.
 type Router struct {
-	upstreams sync.Map        // NodeID -> Receiver (immutable after New)
-	internode pubsub.Receiver // optional fallback
+	localNode api.Node
+	internode api.Receiver
 }
 
-// NewRouter initialises a Router with the provided upstream mapping and
-// optional internode fallback. The upstream map *will be copied* – the caller
-// is free to mutate their original map afterwards.
-func NewRouter(upstreams map[pubsub.NodeID]pubsub.Receiver, upstream pubsub.Receiver) *Router {
-	r := &Router{internode: upstream}
-	for id, rc := range upstreams {
-		r.upstreams.Store(id, rc)
+// NewRouter creates a new router.
+// localNode is the node for handling messages targeted to the local node ID.
+// internode is the fallback receiver for all messages targeted to other nodes. Can be nil.
+func NewRouter(localNode api.Node, internode api.Receiver) *Router {
+	return &Router{
+		localNode: localNode,
+		internode: internode,
 	}
-	return r
 }
 
-// Send implements the pubsub.Receiver interface.
-// If a Receiver for pkg.Target.Node exists, it is used. Otherwise we fallback
-// to the internode Receiver when present.
-func (r *Router) Send(pkg *pubsub.Package) error {
+// Send routes the package to the appropriate destination.
+// If the package is for the local node, it's sent to the localNode.
+// Otherwise, it's forwarded to the internode receiver.
+func (r *Router) Send(pkg *api.Package) error {
 	if pkg == nil {
-		return fmt.Errorf("nil package")
+		return fmt.Errorf("cannot send nil package")
 	}
 
-	if rc, ok := r.upstreams.Load(pkg.Target.Node); ok {
-		return rc.(pubsub.Receiver).Send(pkg)
+	// Route to local node if target node is empty or matches the local node's ID.
+	if pkg.Target.Node == "" || pkg.Target.Node == r.localNode.ID() {
+		return r.localNode.Send(pkg)
 	}
 
+	// If it's for an external node, and we have an internode handler, use it.
 	if r.internode != nil {
 		return r.internode.Send(pkg)
 	}
 
-	return fmt.Errorf("router: no upstream for node %s", pkg.Target.Node)
+	// Otherwise, we can't route it. This case happens in a single-node setup
+	// where an external destination is specified by mistake.
+	return fmt.Errorf("cannot route to external node %s: no upstream available", pkg.Target.Node)
 }

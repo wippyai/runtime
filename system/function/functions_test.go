@@ -46,7 +46,7 @@ func TestFunctions_StartStop(t *testing.T) {
 // Keep working test unchanged
 func TestFunctions_InvalidEvents(t *testing.T) {
 	ctx := context.Background()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -97,7 +97,7 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 
 func TestFunctions_EventResponses(t *testing.T) {
 	ctx := context.Background()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -216,7 +216,7 @@ func TestFunctions_EventResponses(t *testing.T) {
 
 func TestFunctions_Execute(t *testing.T) {
 	ctx := context.Background()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -333,7 +333,7 @@ func TestFunctions_Execute(t *testing.T) {
 
 func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 	ctx := context.Background()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))

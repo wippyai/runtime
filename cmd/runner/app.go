@@ -87,6 +87,7 @@ type App struct {
 
 	// mesh layer
 	node       *pubsub.NodeManager
+	router     pubsubapi.Receiver // The main message router for the application
 	topo       *topology.Topology
 	pidReg     *topology.PIDRegistry
 	membership *membership.Service // cluster membership service
@@ -165,11 +166,15 @@ func NewApp(config *Config) (*App, error) {
 // initSingleNodeMesh initializes mesh layer for single node mode
 func (a *App) initSingleNodeMesh() error {
 	nodeName := a.config.ClusterName
+	localNode := pubsub.NewNode(nodeName)
+
 	a.node = pubsub.NewNodeManager(
-		pubsub.NewNode(nodeName, nil), // no upstream
+		localNode,
 		a.eventBus,
 		a.logger.Named("pubsub"),
 	)
+	// Create a router that only knows about the local node
+	a.router = pubsub.NewRouter(localNode, nil)
 
 	a.topo = topology.NewTopology(a.node.Node())
 	a.pidReg = topology.NewPIDRegistry(topology.PIDRegistryConfig{
@@ -246,15 +251,19 @@ func (a *App) initClusterMesh() error {
 
 	a.membership = membership.NewService(memberConfig, a.eventBus, a.logger.Named("cluster"))
 
-	// STEP 6: Create pubsub components with proper circular dependency resolution
-	localNode := pubsub.NewNode(a.config.ClusterName, nil)
+	// STEP 6: Create pubsub components using the Router architecture
+	a.logger.Info("Initializing pubsub router architecture")
 
-	// Create delivery callback
+	// Create the local-only node. It does not know about any upstreams.
+	localNode := pubsub.NewNode(a.config.ClusterName)
+
+	// The delivery callback for the internode service passes incoming packages
+	// to the local node for final delivery.
 	deliveryCallback := func(pkg *pubsubapi.Package) error {
-		return localNode.Send(pkg) // todo: decouple it via router
+		return localNode.Send(pkg)
 	}
 
-	// Create internode service
+	// Create the internode service which handles communication with other nodes.
 	a.internodeService = internode.NewService(
 		a.logger,
 		a.connManager,
@@ -264,11 +273,11 @@ func (a *App) initClusterMesh() error {
 		a.membership,
 	)
 
-	// Set internode service as upstream
-	upstream := pubsubapi.Receiver(a.internodeService)
-	localNode = pubsub.NewNode(a.config.ClusterName, &upstream)
+	// Create the router. It's the central point for sending messages.
+	// It knows about the local node and the internode service for remote messages.
+	a.router = pubsub.NewRouter(localNode, a.internodeService)
 
-	// Create node manager
+	// The NodeManager still manages the lifecycle of the local node.
 	a.node = pubsub.NewNodeManager(
 		localNode,
 		a.eventBus,
@@ -368,7 +377,13 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	appCtx = funcapi.WithFunctions(appCtx, a.funcs)
 	appCtx = procapi.WithProcesses(appCtx, a.processes)
 	appCtx = resourceapi.WithResources(appCtx, a.resources)
+
+	// Put both the Router and the local Node into the context.
+	// The Router is the general-purpose sender.
+	// The Node is for local management (e.g., registering hosts).
+	appCtx = pubsubapi.WithRouter(appCtx, a.router)
 	appCtx = pubsubapi.WithNode(appCtx, a.node.Node())
+
 	appCtx = topapi.WithTopology(appCtx, a.topo)
 	appCtx = topapi.WithPIDRegistry(appCtx, a.pidReg)
 	appCtx = logapi.WithLogger(appCtx, a.logger)

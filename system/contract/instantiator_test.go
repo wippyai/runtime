@@ -234,7 +234,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 
 func TestInstanceImpl_Call_Integration(t *testing.T) {
 	ctx := context.Background()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 
@@ -325,7 +325,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 
 func TestInstanceImpl_ContextMerging(t *testing.T) {
 	ctx := context.Background()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 
@@ -456,7 +456,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 
 func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	ctx := context.Background()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 
@@ -610,7 +610,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 // The fix allows required context keys to be found in EITHER scope OR Go context
 func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	ctx := context.Background()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 

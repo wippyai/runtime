@@ -46,7 +46,7 @@ func TestNodeSendLocal(t *testing.T) {
 	// Create a dummy host and register it with the node.
 	dhost := &dummyHost{}
 	nodeID := "node1"
-	node := NewNode(nodeID, nil)
+	node := NewNode(nodeID)
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Case 1: Local message with empty pid.Node.
@@ -80,7 +80,7 @@ func TestNodeSendLocal(t *testing.T) {
 }
 
 func TestNodeSendHostNotFound(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	pid := api.PID{
 		Node:   "",
 		Host:   "nonexistent",
@@ -99,7 +99,7 @@ func TestNodeSendHostNotFound(t *testing.T) {
 }
 
 func TestNodeSendInvalidHostType(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	// Store an invalid type under a host id.
 	node.hosts.Store("host1", "not a host")
 	pid := api.PID{
@@ -120,7 +120,7 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 }
 
 func TestNodeSendNonLocalNoUpstream(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	pid := api.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
@@ -135,35 +135,13 @@ func TestNodeSendNonLocalNoUpstream(t *testing.T) {
 	}
 	err := node.Send(pkg)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no upstream available")
-}
-
-func TestNodeSendNonLocalWithUpstream(t *testing.T) {
-	dUp := &dummyUpstream{}
-	// Receiver is provided via a pointer to a Receiver interface.
-	var up api.Receiver = dUp
-	node := NewNode("node1", &up)
-	pid := api.PID{
-		Node:   "remoteNode",
-		Host:   "host1",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
-		UniqID: "uniq",
-	}
-	pkg := &api.Package{
-		Target: pid,
-		Messages: []*api.Message{
-			{Topic: "nonlocal"},
-		},
-	}
-	err := node.Send(pkg)
-	assert.NoError(t, err)
-	assert.Equal(t, int32(1), dUp.sendCalled)
+	assert.Contains(t, err.Error(), "cannot route to external node remoteNode")
 }
 
 func TestNodeAttachLocal(t *testing.T) {
 	dhost := &dummyHost{}
 	nodeID := "node1"
-	node := NewNode(nodeID, nil)
+	node := NewNode(nodeID)
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Use a local pid.
@@ -181,7 +159,7 @@ func TestNodeAttachLocal(t *testing.T) {
 }
 
 func TestNodeAttachNonLocal(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	pid := api.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
@@ -192,11 +170,11 @@ func TestNodeAttachNonLocal(t *testing.T) {
 	cancel, err := node.Attach(pid, ch)
 	assert.Error(t, err)
 	assert.Nil(t, cancel)
-	assert.Contains(t, err.Error(), "no upstream available")
+	assert.Contains(t, err.Error(), "cannot attach to external node remoteNode")
 }
 
 func TestNodeAttachInvalidHostType(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	// Store an invalid type under a host id.
 	node.hosts.Store("host1", "not a host")
 	pid := api.PID{
@@ -215,7 +193,7 @@ func TestNodeAttachInvalidHostType(t *testing.T) {
 func TestNodeDetach(t *testing.T) {
 	dhost := &dummyHost{}
 	nodeID := "node1"
-	node := NewNode(nodeID, nil)
+	node := NewNode(nodeID)
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Test detach with local pid
