@@ -38,9 +38,16 @@ Function Execution System
 ```go
 type Interceptor interface {
     // Handle processes the execution and calls next() to continue the chain
-    Handle(ctx context.Context, next func() *runtime.Result) *runtime.Result
+    Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context)
 }
 ```
+
+The interceptor interface is designed to:
+- Process function execution in a chain
+- Maintain context throughout the execution
+- Return both the result and updated context
+- Support cancellation and timeout propagation
+- Enable cross-cutting concerns like tracing, retries, and rate limiting
 
 ### Options Interface
 
@@ -156,10 +163,11 @@ type OTelInterceptor struct {
 
 Features:
 - Automatic span creation for function execution
-- Custom attributes support
-- Execution timing and duration tracking
-- Error and result recording
+- Support for both new spans and sub-spans
+- PID-based span naming and attributes
+- Error recording and status tracking
 - Context propagation
+- Span kind specification (Server/Internal)
 
 ### Retry
 
@@ -172,10 +180,12 @@ type RetryInterceptor struct {
 ```
 
 Features:
-- Configurable retry attempts
+- Configurable retry attempts via options
 - Immediate retry on failure
 - Context-aware cancellation
 - Error propagation
+- Skip retry when max attempts is 0
+- Support for timeout and cancellation
 
 ### Rate Limit
 
@@ -184,14 +194,18 @@ Controls the rate of function executions.
 ```go
 type RateLimitInterceptor struct {
     cache *expirable.LRU[string, *rate.Limiter]
+    mu    sync.Mutex
 }
 ```
 
 Features:
 - Per-second rate limiting
 - Burst allowance
-- PID-based rate limiting
+- PID and actor-based rate limiting
 - LRU cache for limiters
+- Thread-safe limiter creation
+- Skip rate limiting when RPS is 0
+- Context-aware cancellation
 
 ### Timeout
 
@@ -208,24 +222,58 @@ Features:
 - Context-based cancellation
 - Graceful timeout handling
 - Error propagation
+- Skip timeout when duration is 0
+- Support for both timeout and context cancellation
+- Goroutine-based execution with result channels
+
+### NOP (No Operation)
+
+A no-operation interceptor that does nothing but pass through the execution.
+
+```go
+type NopInterceptor struct{}
+```
+
+Features:
+- Zero-overhead pass-through
+- Context preservation
+- Result propagation
+- Useful for testing and development
 
 ## Execution Flow
 
 1. Function Call Initiated
+   - Task creation with function ID
+   - Context preparation
+   - PID generation and context enrichment
+
 2. Load Configurations
    - System defaults
    - Global config
-   - Module config
+   - Module config (_index.yaml)
    - Function config
+   - Runtime options
+
 3. Build Execution Context
-   - Merge options
-   - Setup interceptors
-   - Prepare context
+   - Merge options from all levels
+   - Setup interceptors from registry
+   - Prepare context with options
+   - Setup cancellation context
+   - Add interceptor registry to context
+
 4. Execute Interceptor Chain
-   - Before hooks
-   - Function execution
-   - After hooks
+   - Create result channel
+   - Build interceptor chain
+   - Execute each interceptor in sequence
+   - Handle context propagation
+   - Process results and errors
+   - Support cancellation at any point
+
 5. Return Result
+   - Send result through channel
+   - Handle errors and timeouts
+   - Clean up resources
+   - Propagate context changes
 
 ## Interceptor Chain
 
@@ -242,7 +290,7 @@ func (c Chain) Execute(ctx context.Context, f function.Func, task runtime.Task) 
 
     // Create a next function that will be passed to each interceptor
     next := c.getNext(ctx, resultChan, 0, f, task)
-    result := next()
+    result, newCtx := next(ctx)
     if result != nil && result.Error != nil {
         close(resultChan)
         return nil, result.Error
@@ -251,7 +299,48 @@ func (c Chain) Execute(ctx context.Context, f function.Func, task runtime.Task) 
     resultChan <- result
     return resultChan, nil
 }
+
+func (c Chain) getNext(ctx context.Context, resultChan chan *runtime.Result, index int, f function.Func, task runtime.Task) func(context.Context) (*runtime.Result, context.Context) {
+    if index >= len(c.interceptors) {
+        return func(ctx context.Context) (*runtime.Result, context.Context) {
+            // All interceptors have been executed, now run the actual function
+            ch, err := f(ctx, task)
+            if err != nil {
+                return &runtime.Result{Error: err}, ctx
+            }
+
+            // Forward the result from the function's channel to our result channel
+            result := <-ch
+            if result != nil && result.Error != nil {
+                return result, ctx
+            }
+
+            return result, ctx
+        }
+    }
+
+    interceptor := c.interceptors[index]
+    return func(ctx context.Context) (*runtime.Result, context.Context) {
+        // Get the next function in the chain, always passing the latest context
+        nextFn := c.getNext(ctx, resultChan, index+1, f, task)
+
+        // Execute the current interceptor with the next function
+        result, newCtx := interceptor.Handle(ctx, nextFn)
+
+        return result, newCtx
+    }
+}
 ```
+
+The chain execution:
+- Creates a buffered result channel
+- Builds a chain of next functions
+- Executes interceptors in sequence
+- Propagates context through the chain
+- Handles errors at each step
+- Supports cancellation
+- Manages function execution
+- Returns results through channels
 
 ## Registry
 
@@ -273,6 +362,68 @@ Features:
 - Event-based interceptor management
 - Dynamic interceptor updates
 - List available interceptors
+- Context-aware operation
+- Logging support
+- Event subscription handling
+
+### Event System
+
+The registry uses an event-based system for interceptor management:
+
+```go
+const (
+    // System identifies the interceptor system in the event bus
+    System event.System = "interceptor"
+
+    // Event kinds
+    Register event.Kind = "interceptor.register"
+    Update   event.Kind = "interceptor.update"
+    Delete   event.Kind = "interceptor.delete"
+    Accept   event.Kind = "interceptor.accept"
+    Reject   event.Kind = "interceptor.reject"
+)
+```
+
+Event-based features:
+- Registration events for new interceptors
+- Update events for existing interceptors
+- Delete events for removing interceptors
+- Accept/Reject events for operation results
+- Event subscription management
+- Event handling with context
+- Error reporting through events
+
+### Registry Operations
+
+The registry provides several operations:
+
+```go
+// Core operations
+func (r *Registry) Start(ctx context.Context) error
+func (r *Registry) Stop() error
+func (r *Registry) Register(name string, interceptor Interceptor) error
+func (r *Registry) Unregister(name string) error
+func (r *Registry) Get(name string) (Interceptor, error)
+func (r *Registry) List() []string
+func (r *Registry) GetChain() Chain
+
+// Event handling
+func (r *Registry) handleEvent(e event.Event)
+func (r *Registry) registerInterceptor(e event.Event)
+func (r *Registry) updateInterceptor(e event.Event)
+func (r *Registry) deleteInterceptor(e event.Event)
+func (r *Registry) sendAccept(path event.Path)
+func (r *Registry) sendReject(path event.Path, reason string)
+```
+
+Operation features:
+- Lifecycle management (Start/Stop)
+- Thread-safe registration
+- Event-based updates
+- Chain retrieval
+- Error handling
+- Event processing
+- Status reporting
 
 ## Usage Example
 
@@ -385,4 +536,29 @@ In progress:
 - Performance optimizations
 - Additional security features
 - Improved error handling
-- Better context management 
+- Better context management
+
+### Context Management
+
+The interceptor system provides several context utilities:
+
+```go
+// Context keys for interceptor system
+type RegistryContextKey struct{}
+type OptionsContextKey struct{}
+type CancelContextKey struct{}
+
+// Context utilities
+func WithInterceptor(ctx context.Context, registry Registry) context.Context
+func GetInterceptors(ctx context.Context) Registry
+func GetOptionsFromContext(ctx context.Context) Options
+func WithOptions(ctx context.Context, options Options) context.Context
+func WithCancel(ctx context.Context, cancel context.CancelFunc) context.Context
+func GetCancelFromContext(ctx context.Context) context.CancelFunc
+```
+
+These utilities enable:
+- Interceptor registry access
+- Options configuration
+- Cancellation control
+- Context propagation through the chain 
