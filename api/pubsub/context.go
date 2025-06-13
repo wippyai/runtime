@@ -1,4 +1,3 @@
-// Package pubsub provides a publish-subscribe messaging system for inter-component communication.
 package pubsub
 
 import (
@@ -13,10 +12,8 @@ var (
 	pidCtx = &ctxapi.Key{Name: "pubsub.pid"}
 
 	// nodeCtx is used to store the Node instance in context
-	nodeCtx = &ctxapi.Key{Name: "pubsub.node"}
-	// hostCtx is used to store the Host instance in context
-	hostCtx = &ctxapi.Key{Name: "pubsub.host"}
-	// routerCtx is used to store the Upstream instance in context
+	nodeCtx   = &ctxapi.Key{Name: "pubsub.node"}
+	hostCtx   = &ctxapi.Key{Name: "pubsub.host"}
 	routerCtx = &ctxapi.Key{Name: "pubsub.router"}
 )
 
@@ -62,6 +59,21 @@ func WithHost(ctx context.Context, host Host) context.Context {
 func GetHost(ctx context.Context) Host {
 	if h, ok := ctx.Value(hostCtx).(Host); ok {
 		return h
+	}
+	return nil
+}
+
+// WithRouter attaches a Receiver instance to the provided context.
+// This allows the Router to be retrieved later using the GetRouter function.
+func WithRouter(ctx context.Context, r Receiver) context.Context {
+	return context.WithValue(ctx, routerCtx, r)
+}
+
+// GetRouter retrieves the Receiver (router) from the provided context.
+// Returns nil if no Router is found in the context.
+func GetRouter(ctx context.Context) Receiver {
+	if r, ok := ctx.Value(routerCtx).(Receiver); ok {
+		return r
 	}
 	return nil
 }
