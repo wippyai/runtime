@@ -54,4 +54,6 @@ type Store interface {
 	// index.  After Sync returns, subsequent Get or Keys calls reflect all
 	// writes that committed before Sync was invoked.
 	Sync(ctx context.Context) error
+
+	// todo: locks and etc, merge with normal store
 }

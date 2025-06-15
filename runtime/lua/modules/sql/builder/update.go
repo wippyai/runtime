@@ -123,26 +123,55 @@ func updateTable(l *lua.LState) int {
 }
 
 // updateSet sets a column to a value
-// Usage: builder = builder:set("name", "John")
+// Usage: builder = builder:set("name", "John") or builder:set("count", sql.builder.expr("count + 1"))
 func updateSet(l *lua.LState) int {
 	wrapper := checkUpdateBuilder(l)
 	if wrapper == nil {
 		return 0
 	}
 
-	// Get column and value
+	// Get column
 	column := l.CheckString(2)
 
-	p, err := sqlutil.CheckParam(l, 3)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+	// Get value - check if it's a Sqlizer expression first
+	var v interface{}
+	valueParam := l.Get(3)
+
+	switch valueParam.Type() {
+	case lua.LTUserData:
+		// Check if it's a Sqlizer expression
+		if ud, ok := valueParam.(*lua.LUserData); ok {
+			if sqlizer, ok := ud.Value.(squirrel.Sqlizer); ok {
+				// Use the Sqlizer directly for expressions
+				v = sqlizer
+			} else {
+				// Use CheckParam for other userdata types (SQL_NULL, TypedValue)
+				var err error
+				v, err = sqlutil.CheckParam(l, 3)
+				if err != nil {
+					l.Push(lua.LNil)
+					l.Push(lua.LString(err.Error()))
+					return 2
+				}
+			}
+		} else {
+			l.ArgError(3, "invalid userdata")
+			return 0
+		}
+	default:
+		// Use CheckParam for all other types
+		var err error
+		v, err = sqlutil.CheckParam(l, 3)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(err.Error()))
+			return 2
+		}
 	}
 
 	// Create new wrapper
 	newWrapper := &updateBuilderWrapper{
-		builder: wrapper.builder.Set(column, p),
+		builder: wrapper.builder.Set(column, v),
 	}
 
 	// Return new wrapped builder

@@ -31,7 +31,7 @@ local function run()
             state.count = state.count + 1
 
             -- Call the child module to get local time
-            local child_result, child_err = fn:call("app.demos.message_sending:child.get_local_time")
+            --local child_result, child_err = fn:call("app.demos.message_sending:child.get_local_time")
             local response_message = ""
 
             if child_err then
