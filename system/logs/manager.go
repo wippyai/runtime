@@ -95,6 +95,13 @@ func (m *Manager) handleConfigEvent(ctx context.Context, e event.Event) {
 
 	// Check for actual changes
 	if m.config == cfg {
+		// Even if config hasn't changed, send confirmation to prevent timeouts
+		m.bus.Send(ctx, event.Event{
+			System: api.System,
+			Kind:   api.ConfigState,
+			Path:   e.Path,
+			Data:   cfg,
+		})
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -404,4 +405,222 @@ func TestTopology_UpstreamError(t *testing.T) {
 
 	// This should not panic even with upstream error
 	topo.Notify(pid1, result)
+}
+
+func TestTopology_EdgeCases(t *testing.T) {
+	upstream := newMockUpstream()
+	topo := NewTopology(upstream)
+
+	pid1 := pubsub.PID{
+		Host:   "host1",
+		ID:     registry.ID{Name: "test1"},
+		UniqID: "1",
+	}
+
+	pid2 := pubsub.PID{
+		Host:   "host2",
+		ID:     registry.ID{Name: "test2"},
+		UniqID: "2",
+	}
+
+	t.Run("register empty PID", func(t *testing.T) {
+		emptyPID := pubsub.PID{}
+		err := topo.Register(emptyPID)
+		assert.NoError(t, err, "registering empty PID should not error")
+	})
+
+	t.Run("wait with empty caller PID", func(t *testing.T) {
+		assert.NoError(t, topo.Register(pid1))
+		emptyPID := pubsub.PID{}
+		err := topo.Wait(emptyPID, pid1)
+		assert.NoError(t, err, "waiting with empty caller PID should not error")
+	})
+
+	t.Run("release non-existent monitor", func(t *testing.T) {
+		err := topo.Release(pid2, pid1)
+		assert.NoError(t, err, "releasing non-existent monitor should not error")
+	})
+
+	t.Run("unlink non-existent processes", func(t *testing.T) {
+		err := topo.Unlink(pid1, pid2)
+		assert.NoError(t, err, "unlinking non-existent processes should not error")
+	})
+
+	t.Run("get links for non-existent process", func(t *testing.T) {
+		links := topo.GetLinks(pid1)
+		assert.Empty(t, links, "non-existent process should have no links")
+	})
+
+	t.Run("notify for non-existent process", func(t *testing.T) {
+		result := &runtime.Result{
+			Value: payload.New("test result"),
+		}
+		// Should not panic
+		topo.Notify(pid1, result)
+	})
+
+	t.Run("remove non-existent process", func(t *testing.T) {
+		// Should not panic
+		topo.Remove(pid1)
+	})
+}
+
+func TestTopology_ConcurrentOperations(t *testing.T) {
+	upstream := newMockUpstream()
+	topo := NewTopology(upstream)
+
+	pid1 := pubsub.PID{
+		Host:   "host1",
+		ID:     registry.ID{Name: "test1"},
+		UniqID: "1",
+	}
+
+	pid2 := pubsub.PID{
+		Host:   "host2",
+		ID:     registry.ID{Name: "test2"},
+		UniqID: "2",
+	}
+
+	// Register both processes
+	assert.NoError(t, topo.Register(pid1))
+	assert.NoError(t, topo.Register(pid2))
+
+	t.Run("concurrent link and unlink", func(t *testing.T) {
+		var wg sync.WaitGroup
+		iterations := 100
+
+		for i := 0; i < iterations; i++ {
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				_ = topo.Link(pid1, pid2)
+			}()
+			go func() {
+				defer wg.Done()
+				_ = topo.Unlink(pid1, pid2)
+			}()
+		}
+
+		wg.Wait()
+		// Verify final state is consistent
+		links1 := topo.GetLinks(pid1)
+		links2 := topo.GetLinks(pid2)
+		assert.Equal(t, len(links1), len(links2), "links should be bidirectional")
+	})
+
+	t.Run("concurrent wait and release", func(t *testing.T) {
+		// First ensure pid2 is not monitoring pid1
+		_ = topo.Release(pid2, pid1)
+
+		var wg sync.WaitGroup
+		iterations := 100
+		start := make(chan struct{})
+		done := make(chan struct{})
+
+		// Start all goroutines but make them wait for the start signal
+		for i := 0; i < iterations; i++ {
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				<-start
+				_ = topo.Wait(pid2, pid1)
+			}()
+			go func() {
+				defer wg.Done()
+				<-start
+				_ = topo.Release(pid2, pid1)
+			}()
+		}
+
+		// Signal all goroutines to start
+		close(start)
+
+		// Wait for all goroutines to complete in a separate goroutine
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+
+		// Wait for completion with timeout
+		select {
+		case <-done:
+			// All goroutines completed
+		case <-time.After(5 * time.Second):
+			t.Fatal("test timed out waiting for goroutines to complete")
+		}
+
+		// Add a small delay to ensure all operations are processed
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify final state by checking if pid2 is still monitoring pid1
+		value, ok := topo.monitors.Load(pid1.String())
+		if !ok {
+			return // No monitors, which is a valid final state
+		}
+		watchers := value.(*sync.Map)
+		_, stillMonitoring := watchers.Load(pid2.String())
+		assert.False(t, stillMonitoring, "pid2 should not be monitoring pid1 after concurrent operations")
+	})
+}
+
+func TestTopology_NotificationScenarios(t *testing.T) {
+	upstream := newMockUpstream()
+	topo := NewTopology(upstream)
+
+	pid1 := pubsub.PID{
+		Host:   "host1",
+		ID:     registry.ID{Name: "test1"},
+		UniqID: "1",
+	}
+
+	pid2 := pubsub.PID{
+		Host:   "host2",
+		ID:     registry.ID{Name: "test2"},
+		UniqID: "2",
+	}
+
+	pid3 := pubsub.PID{
+		Host:   "host3",
+		ID:     registry.ID{Name: "test3"},
+		UniqID: "3",
+	}
+
+	// Register all processes
+	assert.NoError(t, topo.Register(pid1))
+	assert.NoError(t, topo.Register(pid2))
+	assert.NoError(t, topo.Register(pid3))
+
+	// Set up monitoring and linking
+	assert.NoError(t, topo.Wait(pid2, pid1))
+	assert.NoError(t, topo.Link(pid1, pid3))
+
+	t.Run("notify with empty result", func(t *testing.T) {
+		upstream.reset()
+		emptyResult := &runtime.Result{}
+		topo.Notify(pid1, emptyResult)
+
+		// Check notifications
+		sends2 := upstream.getSends(pid2)
+		assert.Equal(t, 1, len(sends2), "monitor should receive notification")
+
+		sends3 := upstream.getSends(pid3)
+		assert.Equal(t, 0, len(sends3), "linked process should not receive notification for normal exit")
+	})
+
+	t.Run("notify after process removal", func(t *testing.T) {
+		upstream.reset()
+		topo.Remove(pid1)
+
+		result := &runtime.Result{
+			Value: payload.New("test result"),
+		}
+		topo.Notify(pid1, result)
+
+		// Verify no notifications are sent
+		sends2 := upstream.getSends(pid2)
+		assert.Equal(t, 0, len(sends2), "no notifications should be sent for removed process")
+
+		sends3 := upstream.getSends(pid3)
+		assert.Equal(t, 0, len(sends3), "no notifications should be sent for removed process")
+	})
 }

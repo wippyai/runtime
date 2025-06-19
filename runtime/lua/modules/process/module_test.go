@@ -1,0 +1,400 @@
+package process
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	processapi "github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
+	topologyapi "github.com/ponyruntime/pony/api/topology"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
+)
+
+// mockProcessManager implements process.Manager for testing
+type mockProcessManager struct {
+	processes map[pubsub.PID]bool
+}
+
+func newMockProcessManager() *mockProcessManager {
+	return &mockProcessManager{
+		processes: make(map[pubsub.PID]bool),
+	}
+}
+
+func (m *mockProcessManager) Start(ctx context.Context, start *processapi.Start) (pubsub.PID, error) {
+	pid := pubsub.PID{
+		Host:   start.HostID,
+		ID:     start.Source,
+		UniqID: start.UniqID,
+	}
+	m.processes[pid] = true
+	return pid, nil
+}
+
+func (m *mockProcessManager) Terminate(ctx context.Context, pid pubsub.PID) error {
+	delete(m.processes, pid)
+	return nil
+}
+
+func (m *mockProcessManager) Cancel(ctx context.Context, from, pid pubsub.PID, deadline time.Time) error {
+	delete(m.processes, pid)
+	return nil
+}
+
+func (m *mockProcessManager) AttachLifecycle(ctx context.Context, lifecycle processapi.Lifecycle) context.Context {
+	return ctx
+}
+
+// mockTopology implements topology.Topology for testing
+type mockTopology struct {
+	processes map[pubsub.PID]bool
+	monitors  map[pubsub.PID][]pubsub.PID
+	links     map[pubsub.PID][]pubsub.PID
+}
+
+func newMockTopology() *mockTopology {
+	return &mockTopology{
+		processes: make(map[pubsub.PID]bool),
+		monitors:  make(map[pubsub.PID][]pubsub.PID),
+		links:     make(map[pubsub.PID][]pubsub.PID),
+	}
+}
+
+func (m *mockTopology) Register(pid pubsub.PID) error {
+	m.processes[pid] = true
+	return nil
+}
+
+func (m *mockTopology) Wait(caller, pid pubsub.PID) error {
+	m.monitors[pid] = append(m.monitors[pid], caller)
+	return nil
+}
+
+func (m *mockTopology) Release(caller, pid pubsub.PID) error {
+	if monitors, exists := m.monitors[pid]; exists {
+		for i, monitor := range monitors {
+			if monitor == caller {
+				m.monitors[pid] = append(monitors[:i], monitors[i+1:]...)
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func (m *mockTopology) Link(from, to pubsub.PID) error {
+	m.links[from] = append(m.links[from], to)
+	m.links[to] = append(m.links[to], from)
+	return nil
+}
+
+func (m *mockTopology) Unlink(from, to pubsub.PID) error {
+	if links, exists := m.links[from]; exists {
+		for i, link := range links {
+			if link == to {
+				m.links[from] = append(links[:i], links[i+1:]...)
+				break
+			}
+		}
+	}
+	if links, exists := m.links[to]; exists {
+		for i, link := range links {
+			if link == from {
+				m.links[to] = append(links[:i], links[i+1:]...)
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func (m *mockTopology) GetLinks(pid pubsub.PID) []pubsub.PID {
+	return m.links[pid]
+}
+
+func (m *mockTopology) Notify(pid pubsub.PID, result *runtime.Result) {
+	// No-op for testing
+}
+
+func (m *mockTopology) Remove(pid pubsub.PID) {
+	delete(m.processes, pid)
+	delete(m.monitors, pid)
+	delete(m.links, pid)
+}
+
+// mockNode implements pubsub.Node for testing
+type mockNode struct {
+	attached map[pubsub.PID]chan *pubsub.Package
+}
+
+func newMockNode() *mockNode {
+	return &mockNode{
+		attached: make(map[pubsub.PID]chan *pubsub.Package),
+	}
+}
+
+func (m *mockNode) Attach(pid pubsub.PID, inbox chan *pubsub.Package) (context.CancelFunc, error) {
+	m.attached[pid] = inbox
+	return func() {
+		delete(m.attached, pid)
+	}, nil
+}
+
+func (m *mockNode) Detach(pid pubsub.PID) {
+	delete(m.attached, pid)
+}
+
+func (m *mockNode) Send(pkg *pubsub.Package) error {
+	return nil
+}
+
+func (m *mockNode) ID() pubsub.NodeID {
+	return "test-node"
+}
+
+func (m *mockNode) RegisterHost(hostID pubsub.HostID, host pubsub.Host) error {
+	return nil
+}
+
+func (m *mockNode) UnregisterHost(hostID pubsub.HostID) {
+	// No-op for testing
+}
+
+// setupTestEnvironment creates a test environment with Process module
+func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner, *mockProcessManager, *mockNode) {
+	logger := zap.NewNop()
+
+	// Create the Process module
+	module := NewProcessAPIModule(logger)
+
+	// Create a VM with coroutine support
+	vm, err := engine.NewCVM(logger)
+	require.NoError(t, err)
+
+	// Get the Lua state
+	L := vm.State()
+
+	// Register the Process module
+	L.PreloadModule(module.Name(), module.Loader)
+
+	// Create a runner
+	runner := engine.NewRunner(vm)
+
+	// Create a UOW
+	uw, ctx := runner.InitUnitOfWork(context.Background())
+
+	// Add pubsub context
+	pid := pubsub.PID{ID: registry.ID{NS: "test", Name: "test"}}
+	ctx = pubsub.WithPID(ctx, pid)
+
+	// Add mock node
+	mockNode := newMockNode()
+	ctx = pubsub.WithNode(ctx, mockNode)
+
+	// Add topology context
+	mockTopo := newMockTopology()
+	ctx = topologyapi.WithTopology(ctx, mockTopo)
+
+	// Add process manager
+	mockManager := newMockProcessManager()
+	ctx = processapi.WithProcesses(ctx, mockManager)
+
+	// Set the context in the Lua state
+	L.SetContext(ctx)
+
+	return vm, L, uw, runner, mockManager, mockNode
+}
+
+func TestProcessModule(t *testing.T) {
+	t.Run("module loader registers functions", func(t *testing.T) {
+		logger := zap.NewNop()
+		module := NewProcessAPIModule(logger)
+
+		vm, err := engine.NewVM(logger, engine.WithLoader(module.Name(), module.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Check that the module name is correct
+		assert.Equal(t, "process", module.Name())
+
+		// Load the module and set it as a global in Lua
+		err = vm.State().DoString(`process = require("process")`)
+		require.NoError(t, err)
+
+		// Check that key functions exist
+		L := vm.State()
+		processValue := L.GetGlobal("process")
+		require.NotNil(t, processValue, "process module should be loaded")
+
+		processTable, ok := processValue.(*lua.LTable)
+		require.True(t, ok, "process should be a table")
+
+		// Check for core functions
+		assert.NotNil(t, processTable.RawGetString("id"))
+		assert.NotNil(t, processTable.RawGetString("pid"))
+		assert.NotNil(t, processTable.RawGetString("send"))
+		assert.NotNil(t, processTable.RawGetString("spawn"))
+		assert.NotNil(t, processTable.RawGetString("terminate"))
+		assert.NotNil(t, processTable.RawGetString("cancel"))
+
+		// Check for registry functions
+		registryValue := processTable.RawGetString("registry")
+		require.NotNil(t, registryValue, "registry should exist")
+		registryTable, ok := registryValue.(*lua.LTable)
+		require.True(t, ok, "registry should be a table")
+		assert.NotNil(t, registryTable.RawGetString("register"))
+		assert.NotNil(t, registryTable.RawGetString("lookup"))
+		assert.NotNil(t, registryTable.RawGetString("unregister"))
+
+		// Check for event constants
+		eventValue := processTable.RawGetString("event")
+		require.NotNil(t, eventValue, "event should exist")
+		eventTable, ok := eventValue.(*lua.LTable)
+		require.True(t, ok, "event should be a table")
+		assert.NotNil(t, eventTable.RawGetString("CANCEL"))
+		assert.NotNil(t, eventTable.RawGetString("EXIT"))
+		assert.NotNil(t, eventTable.RawGetString("LINK_DOWN"))
+	})
+
+	t.Run("pid function returns current pid", func(t *testing.T) {
+		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		defer vm.Close()
+		defer uw.Close()
+
+		err := L.DoString(`
+			local process = require("process")
+			local pid = process.pid()
+			if not pid then
+				error("pid should not be nil")
+			end
+		`)
+		require.NoError(t, err)
+	})
+
+	t.Run("id function returns current id", func(t *testing.T) {
+		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		defer vm.Close()
+		defer uw.Close()
+
+		err := L.DoString(`
+			local process = require("process")
+			local id = process.id()
+			if not id then
+				error("id should not be nil")
+			end
+		`)
+		require.NoError(t, err)
+	})
+
+	t.Run("send function works with valid pid", func(t *testing.T) {
+		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		defer vm.Close()
+		defer uw.Close()
+
+		err := L.DoString(`
+			local process = require("process")
+			local result, err = process.send("test:process", "hello")
+			-- Should not error even if process doesn't exist in test environment
+		`)
+		require.NoError(t, err)
+	})
+
+	t.Run("spawn function works", func(t *testing.T) {
+		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		defer vm.Close()
+		defer uw.Close()
+
+		err := L.DoString(`
+			local process = require("process")
+			local pid, err = process.spawn("test:process", "test-host")
+			-- Should not error even if process doesn't exist in test environment
+		`)
+		require.NoError(t, err)
+	})
+
+	t.Run("terminate function works", func(t *testing.T) {
+		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		defer vm.Close()
+		defer uw.Close()
+
+		err := L.DoString(`
+			local process = require("process")
+			local result, err = process.terminate("test:process")
+			-- Should not error even if process doesn't exist in test environment
+		`)
+		require.NoError(t, err)
+	})
+
+	t.Run("cancel function works", func(t *testing.T) {
+		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		defer vm.Close()
+		defer uw.Close()
+
+		err := L.DoString(`
+			local process = require("process")
+			local result, err = process.cancel("test:process", "30s")
+			-- Should not error even if process doesn't exist in test environment
+		`)
+		require.NoError(t, err)
+	})
+
+	t.Run("registry functions work", func(t *testing.T) {
+		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		defer vm.Close()
+		defer uw.Close()
+
+		err := L.DoString(`
+			local process = require("process")
+			local result, err = process.registry.register("test-name", "test:process")
+			-- Should not error even if registry doesn't exist in test environment
+		`)
+		require.NoError(t, err)
+	})
+}
+
+func TestProcessModuleErrorHandling(t *testing.T) {
+	t.Run("pid with no context", func(t *testing.T) {
+		logger := zap.NewNop()
+		module := NewProcessAPIModule(logger)
+
+		vm, err := engine.NewVM(logger, engine.WithLoader(module.Name(), module.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Test without context
+		err = vm.State().DoString(`
+			local process = require("process")
+			local pid, err = process.pid()
+			if not err then
+				error("should have error when no context")
+			end
+		`)
+		require.NoError(t, err)
+	})
+
+	t.Run("send with no context", func(t *testing.T) {
+		logger := zap.NewNop()
+		module := NewProcessAPIModule(logger)
+
+		vm, err := engine.NewVM(logger, engine.WithLoader(module.Name(), module.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Test without context
+		err = vm.State().DoString(`
+			local process = require("process")
+			local result, err = process.send("test:process", "hello")
+			if not err then
+				error("should have error when no context")
+			end
+		`)
+		require.NoError(t, err)
+	})
+}

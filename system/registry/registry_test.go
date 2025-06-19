@@ -771,3 +771,137 @@ data:
 		}
 	}
 }
+
+func TestInMemoryRegistry_Current(t *testing.T) {
+	hist := history.NewMemory()
+	runner := NewMockRunner()
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
+
+	// Test when no current version is set
+	_, err := reg.Current()
+	if err == nil {
+		t.Error("Expected error when no current version is set")
+	}
+	if !strings.Contains(err.Error(), "no current version") {
+		t.Errorf("Expected error message to contain 'no current version', got: %v", err)
+	}
+
+	// Test when current version is set
+	v0 := version.New(registry.RootVersion)
+	reg.currentVersion = v0
+
+	version, err := reg.Current()
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if version != v0 {
+		t.Errorf("Expected version %v, got %v", v0, version)
+	}
+}
+
+func TestInMemoryRegistry_History(t *testing.T) {
+	hist := history.NewMemory()
+	runner := NewMockRunner()
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+
+	// Test that History() returns the correct history instance
+	if reg.History() != hist {
+		t.Errorf("Expected history to be %v, got %v", hist, reg.History())
+	}
+}
+
+func TestInMemoryRegistry_Rollback(t *testing.T) {
+	hist := history.NewMemory()
+	runner := NewMockRunner()
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
+
+	// Test successful rollback
+	fromState := registry.State{
+		{ID: registry.ID{Name: "/foo"}, Kind: "test", Data: payload.NewString("data1")},
+	}
+	toState := registry.State{
+		{ID: registry.ID{Name: "/bar"}, Kind: "test", Data: payload.NewString("data2")},
+	}
+
+	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+		return toState, nil
+	}
+
+	err := reg.rollback(context.Background(), fromState, toState)
+	if err != nil {
+		t.Errorf("Unexpected error during rollback: %v", err)
+	}
+
+	// Test rollback failure
+	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+		return nil, errors.New("rollback failed")
+	}
+
+	err = reg.rollback(context.Background(), fromState, toState)
+	if err == nil {
+		t.Error("Expected error during failed rollback")
+	}
+	if !strings.Contains(err.Error(), "rollback failed") {
+		t.Errorf("Expected error message to contain 'rollback failed', got: %v", err)
+	}
+}
+
+func TestInMemoryRegistry_TransitionState(t *testing.T) {
+	hist := history.NewMemory()
+	runner := NewMockRunner()
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
+
+	// Test successful transition
+	fromState := registry.State{
+		{ID: registry.ID{Name: "/foo"}, Kind: "test", Data: payload.NewString("data1")},
+	}
+	toState := registry.State{
+		{ID: registry.ID{Name: "/bar"}, Kind: "test", Data: payload.NewString("data2")},
+	}
+
+	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+		return toState, nil
+	}
+
+	newState, err := reg.transitionState(context.Background(), fromState, toState)
+	if err != nil {
+		t.Errorf("Unexpected error during transition: %v", err)
+	}
+	if !reflect.DeepEqual(newState, toState) {
+		t.Errorf("Expected state %v, got %v", toState, newState)
+	}
+
+	// Test transition with no changes
+	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+		return fromState, nil
+	}
+
+	newState, err = reg.transitionState(context.Background(), fromState, fromState)
+	if err != nil {
+		t.Errorf("Unexpected error during transition with no changes: %v", err)
+	}
+	if !reflect.DeepEqual(newState, fromState) {
+		t.Errorf("Expected state %v, got %v", fromState, newState)
+	}
+
+	// Test transition failure
+	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+		return nil, errors.New("transition failed")
+	}
+
+	_, err = reg.transitionState(context.Background(), fromState, toState)
+	if err == nil {
+		t.Error("Expected error during failed transition")
+	}
+	if !strings.Contains(err.Error(), "transition failed") {
+		t.Errorf("Expected error message to contain 'transition failed', got: %v", err)
+	}
+}

@@ -241,3 +241,129 @@ func TestLuaUnmarshalerRecursive(t *testing.T) {
 		}
 	}
 }
+
+func TestLuaTranscoderErrorCases(t *testing.T) {
+	mockTranscoder := NewMockTranscoder()
+	Register(mockTranscoder)
+
+	// Test invalid format for ToGolang
+	invalidPayload := payload.NewPayload("test", payload.JSON)
+	_, err := mockTranscoder.Transcode(invalidPayload, payload.Golang)
+	if err == nil {
+		t.Error("Expected error when transcoding from non-Lua format to Golang")
+	}
+
+	// Test invalid format for FromGolang
+	_, err = mockTranscoder.Transcode(invalidPayload, payload.Lua)
+	if err == nil {
+		t.Error("Expected error when transcoding from non-Golang format to Lua")
+	}
+
+	// Test invalid data type for ToGolang
+	l := lua.NewState()
+	defer l.Close()
+	invalidLuaPayload := payload.NewPayload("not a lua value", payload.Lua)
+	_, err = mockTranscoder.Transcode(invalidLuaPayload, payload.Golang)
+	if err == nil {
+		t.Error("Expected error when transcoding invalid Lua value to Golang")
+	}
+}
+
+func TestLuaTranscoderNilAndEmptyValues(t *testing.T) {
+	mockTranscoder := NewMockTranscoder()
+	Register(mockTranscoder)
+
+	l := lua.NewState()
+	defer l.Close()
+
+	// Test nil value
+	nilPayload := payload.NewPayload(lua.LNil, payload.Lua)
+	golangPayload, err := mockTranscoder.Transcode(nilPayload, payload.Golang)
+	if err != nil {
+		t.Fatalf("Error transcoding nil value: %v", err)
+	}
+	if golangPayload.Data() != nil {
+		t.Errorf("Expected nil value, got %v", golangPayload.Data())
+	}
+
+	// Test empty table
+	emptyTable := l.NewTable()
+	emptyTablePayload := payload.NewPayload(emptyTable, payload.Lua)
+	golangPayload, err = mockTranscoder.Transcode(emptyTablePayload, payload.Golang)
+	if err != nil {
+		t.Fatalf("Error transcoding empty table: %v", err)
+	}
+	data, ok := golangPayload.Data().(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected map[string]interface{}, got %T", golangPayload.Data())
+	}
+	if len(data) != 0 {
+		t.Errorf("Expected empty map, got %v", data)
+	}
+
+	// Test nil pointer in struct
+	type TestStruct struct {
+		Ptr *int `lua:"ptr"`
+	}
+
+	// Create a Lua table with the expected structure
+	nilPtrTable := l.NewTable()
+	l.SetTable(nilPtrTable, lua.LString("ptr"), lua.LNil)
+	l.SetTable(nilPtrTable, lua.LString("_type"), lua.LString("object")) // Add a type marker to ensure it's treated as an object
+
+	// Debug: Print the table contents
+	t.Logf("Lua table contents: %v", nilPtrTable)
+
+	nilPtrPayload := payload.NewPayload(nilPtrTable, payload.Lua)
+
+	// First test transcoding to Golang
+	golangPayload, err = mockTranscoder.Transcode(nilPtrPayload, payload.Golang)
+	if err != nil {
+		t.Fatalf("Error transcoding to Golang: %v", err)
+	}
+
+	// Debug: Print the Golang payload
+	t.Logf("Golang payload: %v", golangPayload.Data())
+
+	// First try to unmarshal to a map to verify the structure
+	var mapData map[string]interface{}
+	err = mockTranscoder.Unmarshal(nilPtrPayload, &mapData)
+	if err != nil {
+		t.Fatalf("Error unmarshalling to map: %v", err)
+	}
+
+	// Now try to unmarshal to the struct
+	var ts TestStruct
+	err = mockTranscoder.Unmarshal(nilPtrPayload, &ts)
+	if err != nil {
+		t.Fatalf("Error unmarshalling to struct with nil pointer: %v", err)
+	}
+	if ts.Ptr != nil {
+		t.Errorf("Expected nil pointer, got %v", ts.Ptr)
+	}
+}
+
+func TestLuaTranscoderRegistration(t *testing.T) {
+	mockTranscoder := NewMockTranscoder()
+	Register(mockTranscoder)
+
+	// Verify all transcoders are registered
+	if len(mockTranscoder.registeredTranscoders) == 0 {
+		t.Error("No transcoders registered")
+	}
+
+	// Verify Lua to Golang transcoder
+	if _, ok := mockTranscoder.registeredTranscoders[payload.Lua][payload.Golang]; !ok {
+		t.Error("Lua to Golang transcoder not registered")
+	}
+
+	// Verify Golang to Lua transcoder
+	if _, ok := mockTranscoder.registeredTranscoders[payload.Golang][payload.Lua]; !ok {
+		t.Error("Golang to Lua transcoder not registered")
+	}
+
+	// Verify unmarshaler
+	if _, ok := mockTranscoder.registeredUnmarshalers[payload.Lua]; !ok {
+		t.Error("Lua unmarshaler not registered")
+	}
+}
