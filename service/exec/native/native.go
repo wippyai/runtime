@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -113,8 +114,22 @@ func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
 
 	e.log.Debug("initializing command", zap.String("command", e.command))
 
-	//nolint:gosec // G204: Subprocess launched with a potential tainted input or cmd arguments
-	command := exec.Command("sh", "-c", e.command)
+	// Split command into executable and arguments
+	cmdParts := parseCommand(e.command)
+	if len(cmdParts) == 0 {
+		cmdParts = []string{""}
+	}
+
+	// Create command with first part as executable and rest as arguments
+	var command *exec.Cmd
+	if len(cmdParts) > 1 {
+		//nolint:gosec //G204: Subprocess launched with a potential tainted input or cmd arguments
+		command = exec.Command(cmdParts[0], cmdParts[1:]...)
+	} else {
+		//nolint:gosec //G204: Subprocess launched with a potential tainted input or cmd arguments
+		command = exec.Command(cmdParts[0])
+	}
+
 	if e.envs != nil {
 		command.Env = os.Environ()
 		for k, v := range e.envs {
@@ -295,4 +310,75 @@ func (e *ProcessExecutor) Wait() error {
 
 func p[T any](val T) *T {
 	return &val
+}
+
+// parseCommand splits a command string into executable and arguments,
+// handling quoted arguments properly
+//
+//nolint:gocritic //ifElseChain: rewrite if-else to switch statement
+func parseCommand(cmd string) []string {
+	if cmd == "" {
+		return []string{""}
+	}
+
+	// Trim leading/trailing whitespace
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return []string{}
+	}
+
+	// Handle the case of just quotes
+	if cmd == "\"\"" || cmd == "''" {
+		return []string{""}
+	}
+
+	var parts []string
+	var current string
+	inQuote := false
+	quoteChar := rune(0)
+
+	for _, c := range cmd {
+		switch {
+		case c == '"' || c == '\'':
+			if inQuote && c == quoteChar {
+				inQuote = false
+				quoteChar = rune(0)
+				// Handle empty quoted strings
+				if current == "" {
+					parts = append(parts, "")
+					current = ""
+				}
+			} else if !inQuote {
+				inQuote = true
+				quoteChar = c
+			} else {
+				// Different quote type inside current quote
+				current += string(c)
+			}
+		case c == ' ' && !inQuote:
+			if current != "" {
+				parts = append(parts, current)
+				current = ""
+			}
+		default:
+			current += string(c)
+		}
+	}
+
+	// Handle unbalanced quotes - preserve the quote character at the start
+	if inQuote {
+		if current == "" {
+			parts = append(parts, string(quoteChar))
+		} else if quoteChar == '"' {
+			current = "\"" + current
+		} else if quoteChar == '\'' {
+			current = "'" + current
+		}
+	}
+
+	if current != "" {
+		parts = append(parts, current)
+	}
+
+	return parts
 }

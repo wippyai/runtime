@@ -1,4 +1,17 @@
-# Wippy Runtime: Adaptive Application Runtime
+<p align="center">
+    <a href="https://wippy.ai" target="_blank">
+        <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="https://github.com/wippyai/.github/blob/main/logo/wippy-text-dark.svg?raw=true">
+            <img width="30%" align="center" src="https://github.com/wippyai/.github/blob/main/logo/wippy-text-light.svg?raw=true" alt="Wippy logo">
+        </picture>
+    </a>
+</p>
+<h1 align="center">Runtime</h1>
+<div align="center">
+
+[![Documentation](https://img.shields.io/badge/documentation-0F6640.svg?style=for-the-badge&logo=gitbook)][documentation]
+
+</div>
 
 Wippy Runtime provides a dedicated environment for deploying, managing, and dynamically updating software components, particularly AI agents and system extensions, without disrupting your core infrastructure. It's designed for agility, isolation, control, and continuous evolution.
 
@@ -65,3 +78,5 @@ Wippy addresses common challenges in modern software development, especially whe
 ## License
 
 *(Placeholder: Specify the project's license, e.g., Apache 2.0, MIT)*
+
+[documentation]: https://docs.wippy.ai

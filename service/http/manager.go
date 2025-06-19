@@ -73,10 +73,12 @@ type Manager struct {
 	endpointFactory EndpointFactoryAPI
 	staticFactory   StaticFactoryAPI
 
-	mu            sync.Mutex
-	servers       map[registry.ID]Server
-	routerServers map[registry.ID]registry.ID // router Source -> server Source mapping
-	pending       map[registry.ID]bool        // tracks servers that need rebuilding
+	mu              sync.Mutex
+	servers         map[registry.ID]Server
+	routerServers   map[registry.ID]registry.ID // router Source -> server Source mapping
+	endpointRouters map[registry.ID]registry.ID // endpoint Source -> router Source mapping
+	staticServers   map[registry.ID]registry.ID // static Source -> server Source mapping
+	pending         map[registry.ID]bool        // tracks servers that need rebuilding
 }
 
 // NewManager creates a new HTTP service manager
@@ -113,6 +115,8 @@ func NewManager(
 		staticFactory:   staticFactory,
 		servers:         make(map[registry.ID]Server),
 		routerServers:   make(map[registry.ID]registry.ID),
+		endpointRouters: make(map[registry.ID]registry.ID),
+		staticServers:   make(map[registry.ID]registry.ID),
 		pending:         make(map[registry.ID]bool),
 	}, nil
 }
@@ -303,10 +307,22 @@ func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) 
 		Path:   entry.ID.String(),
 	})
 
-	// Clean up router mappings
+	// Clean up all mappings
 	for routerID, serverID := range m.routerServers {
 		if serverID == entry.ID {
 			delete(m.routerServers, routerID)
+		}
+	}
+
+	for endpointID, routerID := range m.endpointRouters {
+		if serverID, exists := m.routerServers[routerID]; exists && serverID == entry.ID {
+			delete(m.endpointRouters, endpointID)
+		}
+	}
+
+	for staticID, serverID := range m.staticServers {
+		if serverID == entry.ID {
+			delete(m.staticServers, staticID)
 		}
 	}
 
@@ -430,6 +446,13 @@ func (m *Manager) handleRouterDelete(_ context.Context, entry registry.Entry) er
 		zap.String("router", entry.ID.String()),
 		zap.String("server", serverID.String()))
 
+	// Clean up endpoint mappings for this router
+	for endpointID, routerID := range m.endpointRouters {
+		if routerID == entry.ID {
+			delete(m.endpointRouters, endpointID)
+		}
+	}
+
 	delete(m.routerServers, entry.ID)
 	m.pending[serverID] = true
 	return nil
@@ -476,18 +499,20 @@ func (m *Manager) handleEndpointUpsert(ctx context.Context, entry registry.Entry
 		zap.String("path", cfg.Path),
 		zap.String("method", cfg.Method))
 
+	// Track endpoint to router mapping
+	m.endpointRouters[entry.ID] = routerID
 	m.pending[serverID] = true
 	return nil
 }
 
 // handleEndpointDelete removes an endpoint from a router
+// Now works without requiring data by using the tracked endpoint-router mapping
 func (m *Manager) handleEndpointDelete(_ context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.EndpointConfig](entry, m.dtt)
-	if err != nil {
-		return err
+	routerID, exists := m.endpointRouters[entry.ID]
+	if !exists {
+		return fmt.Errorf("endpoint %s not found", entry.ID)
 	}
 
-	routerID := registry.ParseID(cfg.Meta.StringValue(config.RouterID)).WithDefaultNS(entry.ID.NS)
 	serverID, exists := m.routerServers[routerID]
 	if !exists {
 		return fmt.Errorf("router %s not found", routerID)
@@ -507,6 +532,8 @@ func (m *Manager) handleEndpointDelete(_ context.Context, entry registry.Entry) 
 		zap.String("router", routerID.String()),
 		zap.String("server", serverID.String()))
 
+	// Clean up the mapping
+	delete(m.endpointRouters, entry.ID)
 	m.pending[serverID] = true
 	return nil
 }
@@ -545,18 +572,20 @@ func (m *Manager) handleStaticUpsert(ctx context.Context, entry registry.Entry) 
 		zap.String("server", serverID.String()),
 		zap.String("path", cfg.Path))
 
+	// Track static to server mapping
+	m.staticServers[entry.ID] = serverID
 	m.pending[serverID] = true
 	return nil
 }
 
 // handleStaticDelete removes a static file handler
+// Now works without requiring data by using the tracked static-server mapping
 func (m *Manager) handleStaticDelete(_ context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.StaticConfig](entry, m.dtt)
-	if err != nil {
-		return err
+	serverID, exists := m.staticServers[entry.ID]
+	if !exists {
+		return fmt.Errorf("static handler %s not found", entry.ID)
 	}
 
-	serverID := registry.ParseID(cfg.Meta.StringValue(config.ServerID)).WithDefaultNS(entry.ID.NS)
 	server, exists := m.servers[serverID]
 	if !exists {
 		return fmt.Errorf("server %s not found", serverID)
@@ -570,6 +599,8 @@ func (m *Manager) handleStaticDelete(_ context.Context, entry registry.Entry) er
 		zap.String("static", entry.ID.String()),
 		zap.String("server", serverID.String()))
 
+	// Clean up the mapping
+	delete(m.staticServers, entry.ID)
 	m.pending[serverID] = true
 	return nil
 }
