@@ -1,0 +1,50 @@
+version: "1.0"
+namespace: app.demos.dependencies
+
+meta:
+  depends_on: [ "ns:system" ]
+  comment: "Dependencies Demo Application"
+
+# Define reusable template for environment variables using YAML anchors
+env_template: &env_template
+  kind: env.variable
+  meta:
+    type: secret_key
+    depends_on:
+      - system:envmemory
+  storage: system:envmemory
+  default:
+    readonly: false
+
+entries:
+  - name: dependencies_demo
+    kind: function.lua
+    meta:
+      comment: "Dependencies demo handler"
+    source: file://handler.lua
+    method: handler
+    modules: [ http, env ]
+    pool:
+      size: 2
+      workers: 4
+
+  - name: dependencies_demo.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Dependencies demo endpoint"
+      router: system:api
+    method: GET
+    path: /dependencies/demo
+    func: dependencies_demo
+
+  # Use the template for database_host
+  - name: database_host
+    <<: *env_template
+    variable: DATABASE_HOST
+    default: "localhost"
+
+  # Use the template for database_port
+  - name: database_port
+    <<: *env_template
+    variable: DATABASE_PORT
+    default: "5432" 

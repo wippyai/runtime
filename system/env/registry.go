@@ -3,6 +3,7 @@ package env
 import (
 	"context"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/env"
@@ -59,6 +60,8 @@ func (s *Registry) Stop() error {
 }
 
 func (s *Registry) handleEvent(e event.Event) {
+	spew.Dump("received event ", e.Kind, e.Path)
+
 	switch e.Kind {
 	case env.StorageRegister:
 		s.registerStorage(e)
