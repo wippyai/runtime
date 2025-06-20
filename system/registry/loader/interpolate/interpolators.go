@@ -7,11 +7,6 @@ import (
 	"strings"
 )
 
-// FileProtocol is the prefix used to identify file-based configuration values.
-// Values starting with this prefix will be interpreted as file paths and their
-// contents will be loaded.
-const FileProtocol = "file://"
-
 // LoadVars replaces placeholders of the form "${variable}" in the input string with
 // their corresponding values from the provided context. If no such placeholders are found,
 // the string is returned unchanged.
@@ -46,43 +41,75 @@ func LoadFile(s string, ctx interface{}) (string, error) {
 		return s, nil // Invalid context, skip
 	}
 
-	if !strings.HasPrefix(s, FileProtocol) {
-		return s, nil // Not a file path, skip it
+	// Check if the string starts with file protocol
+	var filePath string
+	var isRelative bool
+
+	// fileProtocol is the prefix used to identify file-based configuration values.
+	// Values starting with this prefix will be interpreted as file paths and their
+	// contents will be loaded.
+	const fileProtocol = "file://"
+
+	switch {
+	case strings.HasPrefix(s, fileProtocol+"/"):
+		// Absolute path: file:///path/to/file
+		filePath = strings.TrimPrefix(s, fileProtocol)
+	case strings.HasPrefix(s, fileProtocol):
+		// Relative path: file://path/to/file
+		filePath = strings.TrimPrefix(s, fileProtocol)
+		isRelative = true
+	default:
+		// Not a file URL, return unchanged
+		return s, nil
 	}
 
-	filePath := strings.TrimPrefix(s, FileProtocol)
+	if filePath == "" {
+		return s, fmt.Errorf("empty file path in file:// URL")
+	}
 
-	// Convert to system-specific path format for processing
-	systemPath := filepath.FromSlash(filePath)
-	var fullPath string
+	var cleanPath string
 
-	if filepath.IsAbs(systemPath) {
-		// Handle absolute paths
-		rel, err := filepath.Rel("/", filepath.Clean(filePath))
-		if err != nil {
-			return "", fmt.Errorf("resolve relative path: %w", err)
+	if isRelative {
+		// For relative paths, resolve relative to the current config file's directory
+		if rCtx.Filename == "" {
+			return s, fmt.Errorf("cannot resolve relative file path without context filename")
 		}
-		fullPath = rel
+
+		// Get directory of current config file
+		configDir := filepath.Dir(rCtx.Filename)
+
+		// Join with the relative file path
+		fullPath := filepath.Join(configDir, filePath)
+
+		// Clean the path to resolve any .. or . components
+		cleanPath = filepath.Clean(fullPath)
 	} else {
-		// Relative path, make it relative to the context directory
-		var fileDir string
-		if rCtx.Filename != "" {
-			fileDir = filepath.Dir(rCtx.Filename)
-		}
-		fullPath = filepath.Join(fileDir, systemPath)
+		// For absolute paths, clean the path directly
+		cleanPath = filepath.Clean(filePath)
 	}
 
-	// Clean the path to resolve any ".." segments
-	fullPath = filepath.Clean(fullPath)
+	// Convert to forward slashes for fs.FS compatibility (works on both Windows and Linux)
+	cleanPath = filepath.ToSlash(cleanPath)
 
-	// Convert back to forward slashes for io/fs package
-	// fs.ReadFile always expects forward slashes, even on Windows
-	fsPath := filepath.ToSlash(fullPath)
+	// For fs.FS, paths must be relative (no leading slash)
+	cleanPath = strings.TrimPrefix(cleanPath, "/")
 
-	data, err := fs.ReadFile(rCtx.FS, fsPath)
+	// Security check: ensure the cleaned path doesn't try to escape the FS root
+	// This is particularly important for relative paths
+	if strings.HasPrefix(cleanPath, "../") || cleanPath == ".." || strings.Contains(cleanPath, "/../") {
+		return s, fmt.Errorf("path traversal detected in file path: %s", filePath)
+	}
+
+	// Validate that the path is not empty after cleaning
+	if cleanPath == "" || cleanPath == "." {
+		return s, fmt.Errorf("invalid file path: %s", filePath)
+	}
+
+	// Read the file using the provided filesystem
+	content, err := fs.ReadFile(rCtx.FS, cleanPath)
 	if err != nil {
-		return s + fmt.Sprintf(" [file-error: failed to read file '%s': %v]", filePath, err), err
+		return s, fmt.Errorf("failed to read file %s: %w", cleanPath, err)
 	}
 
-	return string(data), nil
+	return string(content), nil
 }

@@ -2,16 +2,17 @@ package sqlstore
 
 import (
 	"context"
-	sql2 "database/sql"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
 	sqlconfig "github.com/ponyruntime/pony/api/service/sql"
 	"github.com/ponyruntime/pony/api/service/sqlstore"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/service/sql"
+	servicesql "github.com/ponyruntime/pony/service/sql"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -20,7 +21,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// that also functions as a resource.Provider
+// SQLStore that also functions as a resource.Provider
 type SQLStore struct {
 	id     registry.ID
 	config *sqlstore.SQLConfig
@@ -69,24 +70,32 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 		return nil, err
 	}
 
-	db := conn.(sql.DBResource).DB
+	db := conn.(servicesql.DBResource).DB
+	dbType := conn.(servicesql.DBResource).Type
+	qb := statementBuilder(dbType)
 
 	// Build query to retrieve value and check expiration
-	//nolint:gosec // verified at the config.Validate() step
-	query := fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s = $1 AND (%s IS NULL OR %s > %s)",
-		s.config.PayloadColumnName,
-		s.config.TableName,
-		s.config.IDColumnName,
-		s.config.ExpireColumnName,
-		s.config.ExpireColumnName,
-		s.now(conn.(sql.DBResource).Type),
-	)
+	query := qb.
+		Select(s.config.PayloadColumnName).
+		From(s.config.TableName).
+		Where(sq.Eq{s.config.IDColumnName: key.String()}).
+		Where(sq.Or{
+			sq.Eq{s.config.ExpireColumnName: nil},
+			sq.Gt{s.config.ExpireColumnName: time.Now().UTC()},
+		})
+
+	querySQL, args, err := query.ToSql()
+	if err != nil {
+		s.log.Error("failed to build get query",
+			zap.String("error", err.Error()),
+			zap.String("key", key.String()))
+		return nil, err
+	}
 
 	var data []byte
-	err = db.QueryRowContext(ctx, query, key.String()).Scan(&data)
+	err = db.QueryRowContext(ctx, querySQL, args...).Scan(&data)
 	if err != nil {
-		if errors.Is(err, sql2.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, store.ErrKeyNotFound
 		}
 		s.log.Error("failed to execute get query",
@@ -120,66 +129,81 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 		return err
 	}
 
-	db := conn.(sql.DBResource).DB
+	db := conn.(servicesql.DBResource).DB
+	dbType := conn.(servicesql.DBResource).Type
+	qb := statementBuilder(dbType)
 
 	// Check if entry already exists
-	//nolint:gosec // FIXME variables should be verified at the config.Validate() step
-	existsQuery := fmt.Sprintf(
-		"SELECT 1 FROM %s WHERE %s = $1",
-		s.config.TableName,
-		s.config.IDColumnName,
-	)
+	existsQuery := qb.
+		Select("1").
+		From(s.config.TableName).
+		Where(sq.Eq{s.config.IDColumnName: entry.Key.String()})
+
+	existsSQL, existsArgs, err := existsQuery.ToSql()
+	if err != nil {
+		s.log.Error("failed to build exists query",
+			zap.String("error", err.Error()),
+			zap.String("key", entry.Key.String()))
+		return err
+	}
 
 	t := payload.GetTranscoder(ctx)
 	value, err := t.Transcode(entry.Value, payload.JSON)
-	valueBytes := value.Data()
 	if err != nil {
 		s.log.Error("failed to Transcode payload",
 			zap.String("error", err.Error()),
 			zap.String("resource", s.config.Database.Name))
 		return err
 	}
-
-	var query string
-	var args []interface{}
+	valueBytes := value.Data()
 
 	// Determine expiration time if TTL is set
 	var expiryDate *time.Time
 	if entry.TTL > 0 {
 		t := time.Now().Add(entry.TTL).UTC()
 		expiryDate = &t
-	} else {
-		expiryDate = nil
 	}
 
 	var exists bool
-	err = db.QueryRowContext(ctx, existsQuery, entry.Key.String()).Scan(&exists)
+	err = db.QueryRowContext(ctx, existsSQL, existsArgs...).Scan(&exists)
+
+	var querySQL string
+	var args []interface{}
 
 	// Insert or update based on existence
-	if errors.Is(err, sql2.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		// Insert a new entry
-		query = fmt.Sprintf(
-			"INSERT INTO %s (%s, %s, %s) VALUES ($1, $2, $3)",
-			s.config.TableName,
-			s.config.IDColumnName,
-			s.config.PayloadColumnName,
-			s.config.ExpireColumnName,
-		)
-		args = []interface{}{entry.Key.String(), valueBytes, expiryDate}
+		insertQuery := qb.
+			Insert(s.config.TableName).
+			Columns(s.config.IDColumnName, s.config.PayloadColumnName, s.config.ExpireColumnName).
+			Values(entry.Key.String(), valueBytes, expiryDate)
+
+		querySQL, args, err = insertQuery.ToSql()
+		if err != nil {
+			s.log.Error("failed to build insert query",
+				zap.String("error", err.Error()),
+				zap.String("key", entry.Key.String()))
+			return err
+		}
 	} else {
 		// Update existing entry
-		query = fmt.Sprintf(
-			"UPDATE %s SET %s = $1, %s = $2 WHERE %s = $3",
-			s.config.TableName,
-			s.config.PayloadColumnName,
-			s.config.ExpireColumnName,
-			s.config.IDColumnName,
-		)
-		args = []interface{}{valueBytes, expiryDate, entry.Key.String()}
+		updateQuery := qb.
+			Update(s.config.TableName).
+			Set(s.config.PayloadColumnName, valueBytes).
+			Set(s.config.ExpireColumnName, expiryDate).
+			Where(sq.Eq{s.config.IDColumnName: entry.Key.String()})
+
+		querySQL, args, err = updateQuery.ToSql()
+		if err != nil {
+			s.log.Error("failed to build update query",
+				zap.String("error", err.Error()),
+				zap.String("key", entry.Key.String()))
+			return err
+		}
 	}
 
 	// Execute the query
-	_, err = db.ExecContext(ctx, query, args...)
+	_, err = db.ExecContext(ctx, querySQL, args...)
 	if err != nil {
 		s.log.Error("failed to execute set query",
 			zap.String("error", err.Error()),
@@ -221,17 +245,24 @@ func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
 		return err
 	}
 
-	db := conn.(sql.DBResource).DB
+	db := conn.(servicesql.DBResource).DB
+	dbType := conn.(servicesql.DBResource).Type
+	qb := statementBuilder(dbType)
 
 	// Delete the key
-	//nolint:gosec // verified at the config.Validate() step
-	deleteQuery := fmt.Sprintf(
-		"DELETE FROM %s WHERE %s = ?",
-		s.config.TableName,
-		s.config.IDColumnName,
-	)
+	deleteQuery := qb.
+		Delete(s.config.TableName).
+		Where(sq.Eq{s.config.IDColumnName: key.String()})
 
-	_, err = db.ExecContext(ctx, deleteQuery, key.String())
+	querySQL, args, err := deleteQuery.ToSql()
+	if err != nil {
+		s.log.Error("failed to build delete query",
+			zap.String("error", err.Error()),
+			zap.String("key", key.String()))
+		return err
+	}
+
+	_, err = db.ExecContext(ctx, querySQL, args...)
 	if err != nil {
 		s.log.Error("failed to execute delete query",
 			zap.String("error", err.Error()),
@@ -263,23 +294,32 @@ func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
 		return false, err
 	}
 
-	db := conn.(sql.DBResource).DB
+	db := conn.(servicesql.DBResource).DB
+	dbType := conn.(servicesql.DBResource).Type
+	qb := statementBuilder(dbType)
 
 	// Build query to check if key exists and is not expired
-	//nolint:gosec // verified at the config.Validate() step
-	query := fmt.Sprintf(
-		"SELECT 1 FROM %s WHERE %s = ? AND (%s IS NULL OR %s > %s)",
-		s.config.TableName,
-		s.config.IDColumnName,
-		s.config.ExpireColumnName,
-		s.config.ExpireColumnName,
-		s.now(conn.(sql.DBResource).Type),
-	)
+	query := qb.
+		Select("1").
+		From(s.config.TableName).
+		Where(sq.Eq{s.config.IDColumnName: key.String()}).
+		Where(sq.Or{
+			sq.Eq{s.config.ExpireColumnName: nil},
+			sq.Gt{s.config.ExpireColumnName: time.Now().UTC()},
+		})
+
+	querySQL, args, err := query.ToSql()
+	if err != nil {
+		s.log.Error("failed to build has query",
+			zap.String("error", err.Error()),
+			zap.String("key", key.String()))
+		return false, err
+	}
 
 	var exists bool
-	err = db.QueryRowContext(ctx, query, key.String()).Scan(&exists)
+	err = db.QueryRowContext(ctx, querySQL, args...).Scan(&exists)
 	if err != nil {
-		if errors.Is(err, sql2.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
 		s.log.Error("failed to execute has query",
@@ -289,15 +329,6 @@ func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
 	}
 
 	return true, nil
-}
-
-func (s *SQLStore) now(dbType registry.Kind) string {
-	switch dbType {
-	case sqlconfig.KindSQLite:
-		return "datetime('now')"
-	default:
-		return "now()"
-	}
 }
 
 // Acquire implements resource.Provider interface
@@ -385,22 +416,30 @@ func (s *SQLStore) cleanup(ctx context.Context) {
 		return
 	}
 
-	db := conn.(sql.DBResource).DB
+	db := conn.(servicesql.DBResource).DB
+	dbType := conn.(servicesql.DBResource).Type
 
 	if s.closed {
 		return
 	}
 
-	//nolint:gosec //verified at the config.Validate() step
-	query := fmt.Sprintf(
-		"DELETE FROM %s WHERE %s IS NOT NULL AND %s < %s",
-		s.config.TableName,
-		s.config.ExpireColumnName,
-		s.config.ExpireColumnName,
-		s.now(conn.(sql.DBResource).Type),
-	)
+	qb := statementBuilder(dbType)
 
-	ret, err := db.ExecContext(ctx, query)
+	// Build cleanup query using Squirrel
+	cleanupQuery := qb.
+		Delete(s.config.TableName).
+		Where(sq.NotEq{s.config.ExpireColumnName: nil}).
+		Where(sq.Lt{s.config.ExpireColumnName: time.Now().UTC()})
+
+	querySQL, args, err := cleanupQuery.ToSql()
+	if err != nil {
+		s.log.Error("failed to build cleanup query",
+			zap.String("error", err.Error()),
+			zap.String("resource", s.config.Database.Name))
+		return
+	}
+
+	ret, err := db.ExecContext(ctx, querySQL, args...)
 	if err != nil {
 		s.log.Error("failed to execute cleanup query",
 			zap.String("error", err.Error()),
@@ -421,6 +460,8 @@ func (s *SQLStore) Start(ctx context.Context) (<-chan any, error) {
 	if s.closed {
 		return nil, store.ErrStoreClosed
 	}
+
+	s.statusChan = make(chan any, 1)
 
 	if s.config.CleanupInterval > 0 {
 		s.wg.Add(1)
@@ -461,6 +502,21 @@ func (s *SQLStore) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		s.log.Warn("sqlstore store stop timed out")
 		return ctx.Err()
+	}
+}
+
+// statementBuilder returns a squirrel query builder with appropriate placeholder format
+func statementBuilder(dbType registry.Kind) sq.StatementBuilderType {
+	switch dbType {
+	case sqlconfig.KindPostgres:
+		return sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+	case sqlconfig.KindMySQL, sqlconfig.KindSQLite, sqlconfig.KindMSSQL:
+		return sq.StatementBuilder.PlaceholderFormat(sq.Question)
+	case sqlconfig.KindOracle:
+		return sq.StatementBuilder.PlaceholderFormat(sq.Colon)
+	default:
+		// Default to PostgreSQL-style for unknown types
+		return sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/security"
@@ -136,6 +137,22 @@ func (m *Module) request(l *lua.LState) int {
 	return m.executeRequest(l, req, opts)
 }
 
+// getClientForTimeout returns appropriate client based on timeout
+func (m *Module) getClientForTimeout(timeout time.Duration) Client {
+	// Use custom client if timeout exceeds default idle timeout (90s)
+	if timeout > 90*time.Second {
+		transport := &http.Transport{
+			IdleConnTimeout:       timeout + 30*time.Second, // timeout + buffer
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   2,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
+		return &http.Client{Transport: transport}
+	}
+	return m.client
+}
+
 // executeRequest performs the actual HTTP request
 func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestOptions) int {
 	uw := engine.GetUnitOfWork(l.Context())
@@ -154,7 +171,10 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 
 	req = req.WithContext(ctx)
 
-	resp, err := m.client.Do(req)
+	// Get appropriate client based on timeout
+	client := m.getClientForTimeout(opts.timeout)
+
+	resp, err := client.Do(req)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -212,7 +232,12 @@ func (m *Module) handleRegularResponse(l *lua.LState, resp *http.Response) int {
 	return 1
 }
 
-// requestBatch handles concurrent batch requests
+// requestInfo holds request and its options for batch processing
+type requestInfo struct {
+	request *http.Request
+	options *requestOptions
+}
+
 // requestBatch handles concurrent batch requests with proper closer cleanup
 func (m *Module) requestBatch(l *lua.LState) int {
 	requestsTable := l.CheckTable(1)
@@ -237,9 +262,9 @@ func (m *Module) requestBatch(l *lua.LState) int {
 	}
 
 	// Validate, parse options, and build requests
-	requests := make([]*http.Request, 0, count)
+	requestInfos := make([]requestInfo, 0, count)
 
-	// Track cleanup functions to ensure they're properly evicted
+	// Track cleanup functions to ensure they're properly evoked
 	cancelers := make([]context.CancelFunc, count)
 
 	requestsTable.ForEach(func(_ lua.LValue, value lua.LValue) {
@@ -285,7 +310,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 			return
 		}
 
-		idx := len(requests)
+		idx := len(requestInfos)
 		// Set context with timeout from options
 		reqCtx := uw.Context()
 		if opts.timeout > 0 {
@@ -295,7 +320,10 @@ func (m *Module) requestBatch(l *lua.LState) int {
 			cancelers[idx] = cancel
 		}
 
-		requests = append(requests, req.WithContext(reqCtx))
+		requestInfos = append(requestInfos, requestInfo{
+			request: req.WithContext(reqCtx),
+			options: opts,
+		})
 	})
 
 	// If any error occurred during validation, return immediately
@@ -310,8 +338,8 @@ func (m *Module) requestBatch(l *lua.LState) int {
 	}
 
 	// Process requests concurrently
-	for i, req := range requests {
-		go func(i int, req *http.Request) {
+	for i, reqInfo := range requestInfos {
+		go func(i int, reqInfo requestInfo) {
 			defer func() {
 				// Ensure the cancel function is called after request completes
 				if cancelers[i] != nil {
@@ -319,7 +347,10 @@ func (m *Module) requestBatch(l *lua.LState) int {
 				}
 			}()
 
-			resp, err := m.client.Do(req)
+			// Get appropriate client based on timeout
+			client := m.getClientForTimeout(reqInfo.options.timeout)
+
+			resp, err := client.Do(reqInfo.request)
 			if err != nil {
 				results <- result{i, nil, err}
 				return
@@ -333,7 +364,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 			_ = resp.Body.Close()
 
 			results <- result{i, newResponse(resp, &body, len(body), l), nil}
-		}(i, req)
+		}(i, reqInfo)
 	}
 
 	// Collect results

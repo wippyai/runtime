@@ -6,8 +6,9 @@ package sql
 import (
 	"database/sql"
 	"fmt"
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"testing"
+
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 
 	sqlapi "github.com/ponyruntime/pony/api/service/sql"
 	sqlres "github.com/ponyruntime/pony/service/sql"
