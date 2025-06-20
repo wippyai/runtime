@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/goccy/go-yaml"
 )
 
 // FilesystemLoader finds manifest with the given suffix in the directory.

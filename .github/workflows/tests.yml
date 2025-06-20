@@ -16,12 +16,21 @@ jobs:
     strategy:
       matrix:
         go: [stable]
-        os: ["ubuntu-latest"]
+        os: ["ubuntu-latest", "windows-latest"]
     steps:
       - name: Check out code
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT_TOKEN }}  # Use Personal Access Token
+
+      - name: Setup msys
+        if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-sqlite3
+          path-type: inherit
 
       - name: Set up Go ${{ matrix.go }}
         uses: actions/setup-go@v5
@@ -43,7 +52,16 @@ jobs:
           go mod download
 
       - name: Run golang tests
+        if: matrix.os != 'windows-latest'
         env:
           CGO_ENABLED: 1
         run: |
           go test --tags "fts5 sqlite_vec" -race ./...
+
+      - name: Run golang tests
+        if: matrix.os == 'windows-latest'
+        env:
+          CGO_ENABLED: 1
+        run: |
+          go test --tags "fts5 sqlite_vec" -race ./...
+        shell: msys2 {0}
