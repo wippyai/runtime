@@ -75,6 +75,9 @@ entries:
         initial_delay: 5s
         max_attempts: 3
         backoff_factor: 1.5
+      security:
+        groups:
+          - global:admin
 
   - name: public.static
     kind: http.static
