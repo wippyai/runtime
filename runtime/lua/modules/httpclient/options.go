@@ -28,14 +28,15 @@ type fileOption struct {
 
 // requestOptions holds parsed request options
 type requestOptions struct {
-	headers map[string]string
-	cookies map[string]string
-	body    string
-	query   string
-	timeout time.Duration
-	auth    *struct{ user, pass string }
-	stream  bool          // Flag to indicate streaming should be used
-	files   []*fileOption // Files to upload
+	headers    map[string]string
+	cookies    map[string]string
+	body       string
+	query      string
+	timeout    time.Duration
+	auth       *struct{ user, pass string }
+	stream     bool          // Flag to indicate streaming should be used
+	files      []*fileOption // Files to upload
+	unixSocket string        // Unix socket path for requests
 }
 
 // parseOptions parses Lua value into requestOptions
@@ -107,6 +108,13 @@ func parseOptions(value lua.LValue) (*requestOptions, error) {
 	if streamOpts := table.RawGetString("stream"); streamOpts != lua.LNil {
 		// If stream is present, enable streaming
 		opts.stream = true
+	}
+
+	// Parse unix_socket option
+	if unixSocket := table.RawGetString("unix_socket"); unixSocket != lua.LNil {
+		if unixSocket.Type() == lua.LTString {
+			opts.unixSocket = unixSocket.String()
+		}
 	}
 
 	// Parse files for upload
@@ -244,9 +252,9 @@ func makeMultipartRequest(
 		defer func() {
 			// Close the multipart writer
 			if mpw != nil {
-				merr := mpw.Close()
+				mErr := mpw.Close()
 				if err == nil {
-					err = merr
+					err = mErr
 				}
 			}
 			// Always close the pipe writer with any error that occurred

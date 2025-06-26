@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"time"
 
@@ -79,14 +80,22 @@ func (m *Module) makeMethod(method string) lua.LGFunction {
 			return 0
 		}
 
-		if !security.IsAllowed(l.Context(), "http_client.request", url, nil) {
-			l.RaiseError("not allowed to make request to: %s", url)
-			return 0
-		}
-
 		opts, err := getOptionsFromArgs(l, 2)
 		if err != nil {
 			l.ArgError(2, err.Error())
+			return 0
+		}
+
+		// Check Unix socket security permission
+		if opts.unixSocket != "" {
+			if !security.IsAllowed(l.Context(), "http_client.unix_socket", opts.unixSocket, nil) {
+				l.RaiseError("not allowed to connect to Unix socket: %s", opts.unixSocket)
+				return 0
+			}
+		}
+
+		if !security.IsAllowed(l.Context(), "http_client.request", url, nil) {
+			l.RaiseError("not allowed to make request to: %s", url)
 			return 0
 		}
 
@@ -124,6 +133,19 @@ func (m *Module) request(l *lua.LState) int {
 		return 0
 	}
 
+	// Check Unix socket security permission
+	if opts.unixSocket != "" {
+		if !security.IsAllowed(l.Context(), "http_client.unix_socket", opts.unixSocket, nil) {
+			l.RaiseError("not allowed to connect to Unix socket: %s", opts.unixSocket)
+			return 0
+		}
+	}
+
+	if !security.IsAllowed(l.Context(), "http_client.request", url, nil) {
+		l.RaiseError("not allowed to make request to: %s", url)
+		return 0
+	}
+
 	req, err := makeRequest(method, url, opts)
 	if err != nil {
 		// Consider using a more generic error message here
@@ -137,8 +159,27 @@ func (m *Module) request(l *lua.LState) int {
 	return m.executeRequest(l, req, opts)
 }
 
-// getClientForTimeout returns appropriate client based on timeout
-func (m *Module) getClientForTimeout(timeout time.Duration) Client {
+// getClientForTimeout returns appropriate client based on timeout and unix socket
+func (m *Module) getClientForTimeout(timeout time.Duration, unixSocket string) Client {
+	// Create custom transport for Unix socket
+	if unixSocket != "" {
+		transport := &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				dialer := &net.Dialer{}
+				return dialer.DialContext(ctx, "unix", unixSocket)
+			},
+			IdleConnTimeout:       timeout + 30*time.Second,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   2,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
+		return &http.Client{
+			Transport: transport,
+			Timeout:   timeout,
+		}
+	}
+
 	// Use custom client if timeout exceeds default idle timeout (90s)
 	if timeout > 90*time.Second {
 		transport := &http.Transport{
@@ -171,8 +212,8 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 
 	req = req.WithContext(ctx)
 
-	// Get appropriate client based on timeout
-	client := m.getClientForTimeout(opts.timeout)
+	// Get appropriate client based on timeout and unix socket
+	client := m.getClientForTimeout(opts.timeout, opts.unixSocket)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -286,15 +327,23 @@ func (m *Module) requestBatch(l *lua.LState) int {
 			return
 		}
 
-		if !security.IsAllowed(l.Context(), "http_client.request", url.String(), nil) {
-			l.ArgError(1, "not allowed to make request to: "+url.String())
-			return
-		}
-
 		optionsValue := reqTable.RawGet(lua.LNumber(3))
 		opts, err := parseOptions(optionsValue)
 		if err != nil {
 			l.ArgError(1, err.Error())
+			return
+		}
+
+		// Check Unix socket security permission
+		if opts.unixSocket != "" {
+			if !security.IsAllowed(l.Context(), "http_client.unix_socket", opts.unixSocket, nil) {
+				l.ArgError(1, "not allowed to connect to Unix socket: "+opts.unixSocket)
+				return
+			}
+		}
+
+		if !security.IsAllowed(l.Context(), "http_client.request", url.String(), nil) {
+			l.ArgError(1, "not allowed to make request to: "+url.String())
 			return
 		}
 
@@ -347,8 +396,8 @@ func (m *Module) requestBatch(l *lua.LState) int {
 				}
 			}()
 
-			// Get appropriate client based on timeout
-			client := m.getClientForTimeout(reqInfo.options.timeout)
+			// Get appropriate client based on timeout and unix socket
+			client := m.getClientForTimeout(reqInfo.options.timeout, reqInfo.options.unixSocket)
 
 			resp, err := client.Do(reqInfo.request)
 			if err != nil {
