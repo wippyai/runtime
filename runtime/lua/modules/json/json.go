@@ -208,7 +208,7 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 
 		// First, determine if this table is empty
 		if key, _ := converted.Next(lua.LNil); key == lua.LNil {
-			return []byte("[]"), nil
+			return []byte("[]"), nil // todo: patch Table
 		}
 
 		// Now, analyze the table to determine how to encode it
