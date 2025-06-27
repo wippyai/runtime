@@ -3,6 +3,7 @@ package ostime
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -17,7 +18,9 @@ func NewOSTimeModule() *Module {
 
 // Module represents the ostime module
 type Module struct {
-	startTime time.Time
+	startTime   time.Time
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // Name returns the module's name
@@ -26,25 +29,27 @@ func (m *Module) Name() string {
 }
 
 // Loader registers the module's functions into Lua state
-// It extends the os table if it exists, or creates a new one
 func (m *Module) Loader(l *lua.LState) int {
-	l.GetGlobal("os")
-	osTable := l.Get(-1)
+	m.once.Do(func() {
+		m.initModuleTable(l)
+	})
 
-	var osTab *lua.LTable
-	if osTable.Type() == lua.LTNil {
-		osTab = l.CreateTable(0, 3) // Exactly 3 functions
-		l.SetGlobal("os", osTab)
-	} else {
-		osTab = osTable.(*lua.LTable)
-	}
+	l.Push(m.moduleTable)
+	return 1
+}
 
-	osTab.RawSetString("time", l.NewFunction(osTime))
-	osTab.RawSetString("date", l.NewFunction(osDate))
-	osTab.RawSetString("clock", l.NewFunction(m.osClock))
+// initModuleTable creates and initializes the module table once
+func (m *Module) initModuleTable(l *lua.LState) {
+	t := l.CreateTable(0, 3) // Exactly 3 functions
 
-	// We don't push anything on the stack as we're extending the os global
-	return 0
+	t.RawSetString("time", l.NewFunction(osTime))
+	t.RawSetString("date", l.NewFunction(osDate))
+	t.RawSetString("clock", l.NewFunction(m.osClock))
+
+	// Make the table immutable so it can be safely reused
+	t.Immutable = true
+
+	m.moduleTable = t
 }
 
 // osClock implements os.clock() function

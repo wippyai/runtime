@@ -168,6 +168,7 @@ func (m *Module) request(l *lua.LState) int {
 	if engine.IsCoroutineVM(l) {
 		return m.executeRequestYield(l, req, opts)
 	}
+
 	return m.executeRequest(l, req, opts)
 }
 

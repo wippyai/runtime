@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
@@ -22,7 +23,10 @@ import (
 )
 
 // Module represents the function module
-type Module struct{}
+type Module struct {
+	moduleTable *lua.LTable
+	once        sync.Once
+}
 
 // Functions represents a function executor with context values
 type Functions struct {
@@ -49,7 +53,17 @@ func (m *Module) Name() string {
 
 // Loader registers the module functions
 func (m *Module) Loader(l *lua.LState) int {
-	// Register the function executor methods
+	m.once.Do(func() {
+		m.initModuleTable(l)
+	})
+
+	l.Push(m.moduleTable)
+	return 1
+}
+
+// initModuleTable creates and initializes the module table once
+func (m *Module) initModuleTable(l *lua.LState) {
+	// Register the function executor methods once
 	value.RegisterTypeMethods(l, "function.Executor", nil, map[string]lua.LGFunction{
 		"with_context": m.withContext,
 		"with_actor":   m.withActor,
@@ -58,14 +72,17 @@ func (m *Module) Loader(l *lua.LState) int {
 		"async":        m.async,
 	})
 
-	// Create module table
-	mod := l.CreateTable(0, 1)
-	mod.RawSetString("new", l.NewFunction(m.new))
-
+	// Register command once
 	command.RegisterCommand(l)
 
-	l.Push(mod)
-	return 1
+	// Create module table
+	t := l.CreateTable(0, 1)
+	t.RawSetString("new", l.NewFunction(m.new))
+
+	// Make the table immutable so it can be safely reused
+	t.Immutable = true
+
+	m.moduleTable = t
 }
 
 // extractDependencies gets the required dependencies from context

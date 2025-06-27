@@ -511,8 +511,8 @@ func newRequest(l *lua.LState) int {
 		request: reqCtx.Request(),
 		config:  cfg,
 	}
+	ud.Metatable = value.GetTypeMetatable(l, "Request")
 
-	l.SetMetatable(ud, l.GetTypeMetatable("Request"))
 	l.Push(ud)
 	l.Push(lua.LNil)
 	return 2
@@ -649,33 +649,4 @@ func requestParams(l *lua.LState) int {
 
 	l.Push(params)
 	return 1
-}
-
-// registerRequest registers the Request type and its methods
-func registerRequest(l *lua.LState, mod *lua.LTable) {
-	mt := l.NewTypeMetatable("Request")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"method":          requestMethod,
-		"path":            requestPath,
-		"query":           requestQuery,
-		"query_params":    requestQueryAll,
-		"header":          requestHeader,
-		"content_type":    requestContentType,
-		"content_length":  requestContentLength,
-		"host":            requestHost,
-		"remote_addr":     requestRemoteAddr,
-		"body":            requestBody,
-		"body_json":       requestBodyJSON,
-		"has_body":        requestHasBody,
-		"accepts":         requestAccepts,
-		"is_content_type": requestIsContentType,
-		"stream":          requestStream,
-		"parse_multipart": requestParseMultipart,
-		"param":           requestParam,
-		"params":          requestParams,
-	}))
-	l.SetField(mt, "__tostring", l.NewFunction(requestToString))
-
-	// Register constructor
-	l.SetField(mod, "request", l.NewFunction(newRequest))
 }

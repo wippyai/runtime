@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/contract"
@@ -54,7 +55,9 @@ type callContext struct {
 
 // Module represents the contract module for Lua runtime
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // Wrapper holds contract definition with call context (like Functions in funcs module)
@@ -86,6 +89,16 @@ func (m *Module) Name() string {
 
 // Loader registers the contract module types and functions with the Lua state
 func (m *Module) Loader(l *lua.LState) int {
+	m.once.Do(func() {
+		m.initModuleTable(l)
+	})
+
+	l.Push(m.moduleTable)
+	return 1
+}
+
+// initModuleTable creates and initializes the module table once
+func (m *Module) initModuleTable(l *lua.LState) {
 	// Register contract type with call context chain methods (like funcs module)
 	value.RegisterTypeMethods(l, TypeNameContract, nil, map[string]lua.LGFunction{
 		// Core contract introspection methods
@@ -110,12 +123,15 @@ func (m *Module) Loader(l *lua.LState) int {
 	)
 
 	// Create module table with top-level functions
-	mod := l.CreateTable(0, 3)
-	mod.RawSetString("get", l.NewFunction(m.getContract))
-	mod.RawSetString("find_implementations", l.NewFunction(m.findImplementations))
-	mod.RawSetString("is", l.NewFunction(m.is))
-	l.Push(mod)
-	return 1
+	t := l.CreateTable(0, 3)
+	t.RawSetString("get", l.NewFunction(m.getContract))
+	t.RawSetString("find_implementations", l.NewFunction(m.findImplementations))
+	t.RawSetString("is", l.NewFunction(m.is))
+
+	// Make the table immutable so it can be safely reused
+	t.Immutable = true
+
+	m.moduleTable = t
 }
 
 // ================================

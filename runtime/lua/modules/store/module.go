@@ -36,6 +36,7 @@ func (m *Module) Name() string {
 
 // Loader loads the module into the given Lua state
 func (m *Module) Loader(l *lua.LState) int {
+
 	// Create a simple module table with only the get function
 	mod := l.CreateTable(0, 1)
 

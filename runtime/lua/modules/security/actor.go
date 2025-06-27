@@ -28,14 +28,6 @@ func checkActor(l *lua.LState) secapi.Actor {
 	return secapi.Actor{}
 }
 
-// registerActorType registers the Actor type and methods
-func registerActorType(l *lua.LState) {
-	value.RegisterMethods(l, ActorMetatable, map[string]lua.LGFunction{
-		"id":   actorID,
-		"meta": actorMeta,
-	})
-}
-
 // actorID returns the actor's ID
 func actorID(l *lua.LState) int {
 	actor := checkActor(l)

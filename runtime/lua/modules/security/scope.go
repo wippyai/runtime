@@ -28,17 +28,6 @@ func checkScope(l *lua.LState) secapi.Scope {
 	return nil
 }
 
-// registerScopeType registers the Scope type and methods
-func registerScopeType(l *lua.LState) {
-	value.RegisterMethods(l, ScopeMetatable, map[string]lua.LGFunction{
-		"with":     scopeWith,
-		"without":  scopeWithout,
-		"evaluate": scopeEvaluate,
-		"contains": scopeContains,
-		"policies": scopePolicies,
-	})
-}
-
 // scopeWith adds a policy to the scope
 func scopeWith(l *lua.LState) int {
 	scope := checkScope(l)
