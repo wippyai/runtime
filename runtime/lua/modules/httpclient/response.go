@@ -8,23 +8,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// luaHTTPResponseTypeName is the type name for HTTP response userdata in Lua
-const luaHTTPResponseTypeName = "http.response"
-
 // luaHTTPResponse represents an HTTP response in Lua
 type luaHTTPResponse struct {
 	res      *http.Response
 	body     lua.LString
 	bodySize int
 	stream   *lua.LUserData
-}
-
-// registerHTTPResponseType registers the HTTP response type and its metatable
-// in the Lua state.
-func registerHTTPResponseType(module *lua.LTable, l *lua.LState) {
-	mt := l.NewTypeMetatable(luaHTTPResponseTypeName)
-	l.SetField(mt, "__index", l.NewFunction(httpResponseIndex))
-	l.SetField(module, "http.Response", mt)
 }
 
 // newResponse creates a new HTTP response userdata with the given response,
@@ -36,7 +25,7 @@ func newResponse(res *http.Response, body *[]byte, bodySize int, l *lua.LState) 
 		body:     lua.LString(*body),
 		bodySize: bodySize,
 	}
-	ud.Metatable = value.GetTypeMetatable(l, luaHTTPResponseTypeName)
+	ud.Metatable = value.GetTypeMetatable(l, "http.response")
 	return ud
 }
 
@@ -47,7 +36,7 @@ func newResponseWithStream(res *http.Response, stream *lua.LUserData, l *lua.LSt
 		res:    res,
 		stream: stream,
 	}
-	ud.Metatable = value.GetTypeMetatable(l, luaHTTPResponseTypeName)
+	ud.Metatable = value.GetTypeMetatable(l, "http.response")
 	return ud
 }
 

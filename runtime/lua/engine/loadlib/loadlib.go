@@ -62,7 +62,7 @@ func preloadLoader(l *lua.LState) int {
 	return 1
 }
 
-// seeall implements package.seeall
+// see all implements package.see all
 func seeAll(l *lua.LState) int {
 	mod := l.CheckTable(1)
 	mt := l.GetMetatable(mod)

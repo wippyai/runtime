@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -32,8 +33,10 @@ type Client interface {
 
 // Module implements HTTP client functionality for Lua runtime
 type Module struct {
-	log    *zap.Logger
-	client Client
+	log         *zap.Logger
+	client      Client
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // NewHTTPClientModule creates a new HTTP module instance with the given client and logger
@@ -48,26 +51,35 @@ func (m *Module) Name() string {
 
 // Loader implements the module loader
 func (m *Module) Loader(l *lua.LState) int {
-	// Pre-allocate table with exact capacity needed
-	mod := l.CreateTable(0, 10) // 10 functions will be added
+	// Create module table once and cache it
+	m.once.Do(func() {
+		// Pre-allocate table with exact capacity needed
+		mod := l.CreateTable(0, 10) // 10 functions will be added
 
-	// Directly register functions instead of using SetFuncs
-	mod.RawSetString("get", l.NewFunction(m.makeMethod("GET")))
-	mod.RawSetString("post", l.NewFunction(m.makeMethod("POST")))
-	mod.RawSetString("put", l.NewFunction(m.makeMethod("PUT")))
-	mod.RawSetString("delete", l.NewFunction(m.makeMethod("DELETE")))
-	mod.RawSetString("head", l.NewFunction(m.makeMethod("HEAD")))
-	mod.RawSetString("patch", l.NewFunction(m.makeMethod("PATCH")))
-	mod.RawSetString("request", l.NewFunction(m.request))
-	mod.RawSetString("request_batch", l.NewFunction(m.requestBatch))
-	mod.RawSetString("encode_uri", l.NewFunction(encodeURI))
-	mod.RawSetString("decode_uri", l.NewFunction(decodeURI))
+		// Directly register functions instead of using SetFuncs
+		mod.RawSetString("get", l.NewFunction(m.makeMethod("GET")))
+		mod.RawSetString("post", l.NewFunction(m.makeMethod("POST")))
+		mod.RawSetString("put", l.NewFunction(m.makeMethod("PUT")))
+		mod.RawSetString("delete", l.NewFunction(m.makeMethod("DELETE")))
+		mod.RawSetString("head", l.NewFunction(m.makeMethod("HEAD")))
+		mod.RawSetString("patch", l.NewFunction(m.makeMethod("PATCH")))
+		mod.RawSetString("request", l.NewFunction(m.request))
+		mod.RawSetString("request_batch", l.NewFunction(m.requestBatch))
+		mod.RawSetString("encode_uri", l.NewFunction(encodeURI))
+		mod.RawSetString("decode_uri", l.NewFunction(decodeURI))
 
-	// Register response type
-	registerHTTPResponseType(mod, l)
+		// Make the table immutable so it can be safely reused
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+
+	// Register response type using value helper
+	value.RegisterMetamethods(l, "http.response", map[string]lua.LGFunction{
+		"__index": httpResponseIndex,
+	})
 	stream.RegisterStream(l)
 
-	l.Push(mod)
+	l.Push(m.moduleTable)
 	return 1
 }
 
