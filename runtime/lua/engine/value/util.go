@@ -10,6 +10,18 @@ import (
 // All stored metatables are made immutable for safe reuse across goroutines
 var metatableRegistry sync.Map
 
+// Single LState used for creating shared function objects
+var sharedState *lua.LState
+var initOnce sync.Once
+
+// getSharedState returns a singleton LState used for creating shared functions
+func getSharedState() *lua.LState {
+	initOnce.Do(func() {
+		sharedState = lua.NewState()
+	})
+	return sharedState
+}
+
 // IsTypeRegistered checks if a type metatable is already registered and immutable
 func IsTypeRegistered(typeName string) bool {
 	if mt, ok := metatableRegistry.Load(typeName); ok {
@@ -21,7 +33,7 @@ func IsTypeRegistered(typeName string) bool {
 }
 
 // GetTypeMetatable retrieves a type's metatable from internal storage
-// without touching the Lua state registry
+// without touching the Lua state registry. Returns the shared immutable metatable.
 func GetTypeMetatable(l *lua.LState, typeName string) *lua.LTable {
 	if mt, ok := metatableRegistry.Load(typeName); ok {
 		if table, ok := mt.(*lua.LTable); ok {
@@ -35,15 +47,19 @@ func GetTypeMetatable(l *lua.LState, typeName string) *lua.LTable {
 // It stores metatables in internal sync.Map instead of polluting Lua state.
 // Takes separate maps for metamethods and regular methods, either can be nil.
 //
-// Metatables are made immutable after creation for safe concurrent reuse.
+// Functions are created once using a shared LState and the immutable metatables
+// are safely reused across all LStates since the Go functions don't depend on environment.
 // If a metatable already exists and is immutable, attempting to add new methods
 // will create a new metatable (this allows for incremental registration).
 func RegisterTypeMethods(
-	l *lua.LState,
+	l *lua.LState, // Not used for function creation, only for validation
 	typeName string,
 	metamethods map[string]lua.LGFunction,
 	methods map[string]lua.LGFunction,
 ) *lua.LTable {
+	// Use shared state for function creation
+	sharedL := getSharedState()
+
 	// Check if metatable already exists in our registry
 	var mt *lua.LTable
 	var shouldCreateNew bool = false
@@ -69,13 +85,13 @@ func RegisterTypeMethods(
 		if len(methods) > 0 {
 			totalSize++ // for __index
 		}
-		mt = l.CreateTable(0, totalSize)
+		mt = sharedL.CreateTable(0, totalSize)
 	}
 
 	// Add metamethods directly to metatable (only if not immutable)
 	if !mt.Immutable {
 		for name, fn := range metamethods {
-			mt.RawSetString(name, l.NewFunction(fn))
+			mt.RawSetString(name, sharedL.NewFunction(fn))
 		}
 	} else if len(metamethods) > 0 {
 		// This should not happen due to shouldCreateNew logic above,
@@ -94,14 +110,14 @@ func RegisterTypeMethods(
 			indexTable = existing
 		} else {
 			// Create new methods table with exact size
-			indexTable = l.CreateTable(0, len(methods))
+			indexTable = sharedL.CreateTable(0, len(methods))
 			// Set __index to the methods table
 			mt.RawSetString("__index", indexTable)
 		}
 
-		// Add all methods to indexTable
+		// Add all methods to indexTable using shared state
 		for name, fn := range methods {
-			indexTable.RawSetString(name, l.NewFunction(fn))
+			indexTable.RawSetString(name, sharedL.NewFunction(fn))
 		}
 
 		// Make the index table immutable for safe reuse
@@ -123,23 +139,6 @@ func RegisterTypeMethods(
 	return mt
 }
 
-// RegisterTypeMethodsOnce registers methods for a type only if not already registered.
-// Returns the metatable and true if it was newly created, false if it already existed.
-// This is useful for ensuring types are only registered once during initialization.
-func RegisterTypeMethodsOnce(
-	l *lua.LState,
-	typeName string,
-	metamethods map[string]lua.LGFunction,
-	methods map[string]lua.LGFunction,
-) (*lua.LTable, bool) {
-	if IsTypeRegistered(typeName) {
-		return GetTypeMetatable(l, typeName), false
-	}
-
-	mt := RegisterTypeMethods(l, typeName, metamethods, methods)
-	return mt, true
-}
-
 // RegisterMetamethods registers only metamethods for a type
 func RegisterMetamethods(l *lua.LState, typeName string, metamethods map[string]lua.LGFunction) *lua.LTable {
 	return RegisterTypeMethods(l, typeName, metamethods, nil)
@@ -148,31 +147,6 @@ func RegisterMetamethods(l *lua.LState, typeName string, metamethods map[string]
 // RegisterMethods registers only regular methods for a type
 func RegisterMethods(l *lua.LState, typeName string, methods map[string]lua.LGFunction) *lua.LTable {
 	return RegisterTypeMethods(l, typeName, nil, methods)
-}
-
-// RegisterMetamethodsOnce registers only metamethods if not already registered
-func RegisterMetamethodsOnce(l *lua.LState, typeName string, metamethods map[string]lua.LGFunction) (*lua.LTable, bool) {
-	return RegisterTypeMethodsOnce(l, typeName, metamethods, nil)
-}
-
-// RegisterMethodsOnce registers only regular methods if not already registered
-func RegisterMethodsOnce(l *lua.LState, typeName string, methods map[string]lua.LGFunction) (*lua.LTable, bool) {
-	return RegisterTypeMethodsOnce(l, typeName, nil, methods)
-}
-
-// SetMetatable efficiently sets a metatable for a value using internal registry
-func SetMetatable(l *lua.LState, value lua.LValue, typeName string) {
-	if mt := GetTypeMetatable(l, typeName); mt != nil {
-		l.SetMetatable(value, mt)
-	}
-}
-
-// CreateUserDataWithMetatable creates userdata and sets metatable in one call
-func CreateUserDataWithMetatable(l *lua.LState, data interface{}, typeName string) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = data
-	SetMetatable(l, ud, typeName)
-	return ud
 }
 
 // GetField retrieves a field value from a Lua value following Lua's field access rules.
@@ -245,54 +219,4 @@ func GetFunc(l *lua.LState, value lua.LValue, field string) (*lua.LFunction, boo
 		}
 	}
 	return nil, false
-}
-
-// GetFieldString is a specialized version of GetField for string results
-func GetFieldString(l *lua.LState, value lua.LValue, field string) (string, bool) {
-	if v, ok := GetField(l, value, field); ok {
-		if str, ok := v.(lua.LString); ok {
-			return string(str), true
-		}
-	}
-	return "", false
-}
-
-// GetFieldNumber is a specialized version of GetField for numeric results
-func GetFieldNumber(l *lua.LState, value lua.LValue, field string) (float64, bool) {
-	if v, ok := GetField(l, value, field); ok {
-		if num, ok := v.(lua.LNumber); ok {
-			return float64(num), true
-		}
-	}
-	return 0, false
-}
-
-// GetFieldBool is a specialized version of GetField for boolean results
-func GetFieldBool(l *lua.LState, value lua.LValue, field string) (bool, bool) {
-	if v, ok := GetField(l, value, field); ok {
-		if b, ok := v.(lua.LBool); ok {
-			return bool(b), true
-		}
-	}
-	return false, false
-}
-
-// ClearMetatableRegistry clears all stored metatables (useful for testing)
-func ClearMetatableRegistry() {
-	metatableRegistry.Range(func(key, value interface{}) bool {
-		metatableRegistry.Delete(key)
-		return true
-	})
-}
-
-// GetRegisteredTypes returns a slice of all registered type names
-func GetRegisteredTypes() []string {
-	var types []string
-	metatableRegistry.Range(func(key, value interface{}) bool {
-		if typeName, ok := key.(string); ok {
-			types = append(types, typeName)
-		}
-		return true
-	})
-	return types
 }
