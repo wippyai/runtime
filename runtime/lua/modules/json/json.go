@@ -103,23 +103,12 @@ func (m *Module) decode(l *lua.LState) int {
 		return 2
 	}
 
-	// DEBUG: Log input
-	fmt.Printf("DEBUG DECODE INPUT: %s\n", string(str))
-
 	value, err := Decode(l, []byte(str))
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
-
-	// DEBUG: Re-encode and log output to see what decode produced
-	if reencoded, err := EncodeWithOptions(value, &m.Options); err == nil {
-		fmt.Printf("DEBUG DECODE OUTPUT (re-encoded): %s\n", string(reencoded))
-	} else {
-		fmt.Printf("DEBUG DECODE OUTPUT (re-encode failed): %v\n", err)
-	}
-
 	l.Push(value)
 	return 1
 }
@@ -351,8 +340,7 @@ func Decode(l *lua.LState, data []byte) (lua.LValue, error) {
 	return DecodeValue(l, value), nil
 }
 
-// DecodeValue is now optimized to directly build the internal table structures,
-// avoiding all redundant allocations and method call overhead.
+// DecodeValue converts Go value to Lua value with proper indexing.
 func DecodeValue(l *lua.LState, value any) lua.LValue {
 	switch converted := value.(type) {
 	case bool:
@@ -365,19 +353,19 @@ func DecodeValue(l *lua.LState, value any) lua.LValue {
 	case string:
 		return lua.LString(converted)
 	case []any:
-		// Directly create and populate the Array part. No intermediate slice.
-		arr := make([]lua.LValue, len(converted))
+		// Use proper Lua table creation with 1-indexed arrays
+		arr := l.CreateTable(len(converted), 0)
 		for i, item := range converted {
-			arr[i] = DecodeValue(l, item)
+			arr.RawSetInt(i+1, DecodeValue(l, item)) // 1-indexed for Lua
 		}
-		return &lua.LTable{Array: arr}
+		return arr
 	case map[string]any:
-		// Directly create and populate the Strdict part. No RawSetString calls.
-		strdict := make(map[string]lua.LValue, len(converted))
+		// Use proper Lua table creation for objects
+		tbl := l.CreateTable(0, len(converted))
 		for key, item := range converted {
-			strdict[key] = DecodeValue(l, item)
+			tbl.RawSetH(lua.LString(key), DecodeValue(l, item))
 		}
-		return &lua.LTable{Strdict: strdict}
+		return tbl
 	case nil:
 		return lua.LNil
 	}

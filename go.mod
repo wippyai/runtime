@@ -15,7 +15,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.2.4
 	github.com/charmbracelet/lipgloss v1.0.0
 	github.com/coder/websocket v1.8.12
-	github.com/go-chi/chi/v5 v5.2.0
+	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-sql-driver/mysql v1.9.0
 	github.com/goccy/go-yaml v1.17.1
 	github.com/golang-jwt/jwt/v5 v5.2.2
