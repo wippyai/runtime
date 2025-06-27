@@ -54,8 +54,9 @@ func (m *Module) get(l *lua.LState) int {
 
 	ctxter, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any])
 	if !ok {
-		l.ArgError(1, "invalid context")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context is set"))
+		return 2
 	}
 
 	vv, ok := ctxter.Value(k)

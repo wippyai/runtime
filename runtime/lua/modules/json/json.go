@@ -211,10 +211,11 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 
 		// Check for empty table - distinguish between [] and {}
 		if !hasArray && !hasStrdict && !hasDict {
-			// If Array field exists but is empty, it's an empty array
-			if converted.Array != nil {
+			// If Array field exists but is empty, it's an empty array, default fallback to object
+			if converted.Array != nil || converted.Dict == nil {
 				return []byte("[]"), nil
 			}
+
 			// Otherwise it's an empty object
 			return []byte("{}"), nil
 		}
