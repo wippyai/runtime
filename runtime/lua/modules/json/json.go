@@ -89,7 +89,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
-func (*Module) decode(l *lua.LState) int {
+func (m *Module) decode(l *lua.LState) int {
 	str, ok := l.Get(1).(lua.LString)
 	if !ok {
 		l.Push(lua.LNil)
@@ -103,12 +103,23 @@ func (*Module) decode(l *lua.LState) int {
 		return 2
 	}
 
+	// DEBUG: Log input
+	fmt.Printf("DEBUG DECODE INPUT: %s\n", string(str))
+
 	value, err := Decode(l, []byte(str))
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
+
+	// DEBUG: Re-encode and log output to see what decode produced
+	if reencoded, err := EncodeWithOptions(value, &m.Options); err == nil {
+		fmt.Printf("DEBUG DECODE OUTPUT (re-encoded): %s\n", string(reencoded))
+	} else {
+		fmt.Printf("DEBUG DECODE OUTPUT (re-encode failed): %v\n", err)
+	}
+
 	l.Push(value)
 	return 1
 }

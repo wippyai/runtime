@@ -10,11 +10,35 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-var SharedState *lua.LState
+var (
+	SharedState     *lua.LState
+	sharedPrintFunc *lua.LFunction
+)
 
 func init() {
+	// Used to get env for global shared functions, todo: ensure it's mounted in every context
 	SharedState, _ = newLuaState()
-	errors.RegisterErrorsModule(SharedState)
+
+	// Create the print function once using SharedState - this function is stateless
+	// and safe to reuse across all LStates since it only uses the LState passed to it
+	sharedPrintFunc = SharedState.NewFunction(func(L *lua.LState) int {
+		log := logs.GetLogger(L.Context())
+
+		// Build message by concatenating all arguments with spaces
+		parts := make([]string, L.GetTop())
+		for i := 1; i <= L.GetTop(); i++ {
+			parts[i-1] = L.ToString(i)
+		}
+		msg := strings.Join(parts, " ")
+
+		if log == nil {
+			fmt.Print(msg)
+			return 0
+		}
+
+		log.Info(msg)
+		return 0
+	})
 }
 
 // CoreLib represents a core Lua library
@@ -71,25 +95,9 @@ func newLuaState() (*lua.LState, error) {
 		return nil, err
 	}
 
-	// always redirect print to log, todo: move it somewhere or make core module?
-	state.SetGlobal("print", state.NewFunction(func(L *lua.LState) int {
-		log := logs.GetLogger(L.Context())
-
-		// Build message by concatenating all arguments with spaces
-		parts := make([]string, L.GetTop())
-		for i := 1; i <= L.GetTop(); i++ {
-			parts[i-1] = L.ToString(i)
-		}
-		msg := strings.Join(parts, " ")
-
-		if log == nil {
-			fmt.Print(msg)
-			return 0
-		}
-
-		log.Info(msg)
-		return 0
-	}))
+	// Use the shared print function created once during init
+	// This is safe because the function only uses the LState parameter passed to it
+	state.SetGlobal("print", sharedPrintFunc)
 
 	return state, nil
 }

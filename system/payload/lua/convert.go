@@ -8,7 +8,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
@@ -119,9 +118,10 @@ func GoToLua(v any) (lua.LValue, error) {
 	case []byte:
 		return lua.LString(val), nil
 	case error:
-		ud := engine.SharedState.NewUserData()
-		ud.Value = errors.New(val)
-		ud.Metatable = value.GetTypeMetatable(engine.SharedState, "error")
+		ud := &lua.LUserData{
+			Value:     errors.New(val),
+			Metatable: value.GetTypeMetatable(nil, "error"),
+		}
 		return ud, nil
 	}
 
@@ -139,7 +139,7 @@ func GoToLua(v any) (lua.LValue, error) {
 			// Return nil for nil slices
 			return lua.LNil, nil
 		}
-		table := engine.SharedState.CreateTable(rv.Len(), 0)
+		table := lua.CreateTable(rv.Len(), 0)
 		for i := 0; i < rv.Len(); i++ {
 			lval, err := GoToLua(rv.Index(i).Interface())
 			if err != nil {
@@ -152,10 +152,10 @@ func GoToLua(v any) (lua.LValue, error) {
 	case reflect.Map:
 		if rv.IsNil() {
 			// Return empty table for nil maps
-			return engine.SharedState.NewTable(), nil
+			return lua.CreateTable(0, 0), nil
 		}
 
-		table := engine.SharedState.CreateTable(0, rv.Len())
+		table := lua.CreateTable(0, rv.Len())
 		iter := rv.MapRange()
 		for iter.Next() {
 			key := iter.Key()
@@ -173,7 +173,7 @@ func GoToLua(v any) (lua.LValue, error) {
 		typ := rv.Type()
 
 		fields := getStructFields(typ)
-		table := engine.SharedState.CreateTable(0, len(fields))
+		table := lua.CreateTable(0, len(fields))
 		for _, field := range fields {
 			fieldValue := rv.Field(field.index)
 			var lval lua.LValue
@@ -182,7 +182,7 @@ func GoToLua(v any) (lua.LValue, error) {
 			switch fieldValue.Kind() {
 			case reflect.Map:
 				if fieldValue.IsNil() {
-					lval = engine.SharedState.NewTable() // Empty table for nil maps
+					lval = lua.CreateTable(0, 0) // Empty table for nil maps
 					err = nil
 				} else {
 					lval, err = GoToLua(fieldValue.Interface())
