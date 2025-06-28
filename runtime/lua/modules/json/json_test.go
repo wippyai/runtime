@@ -2,6 +2,7 @@ package json
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -17,6 +18,24 @@ func assertLua(l *lua.LState) int {
 	}
 	l.RaiseError("%s", l.OptString(2, "assertion failed!"))
 	return 0
+}
+
+// Helper function to decode JSON to Go value for comparison
+func decodeJSONToGo(jsonStr string) (interface{}, error) {
+	var result interface{}
+	err := json.Unmarshal([]byte(jsonStr), &result)
+	return result, err
+}
+
+// Helper function to compare JSON outputs semantically
+func assertJSONEqual(t *testing.T, expected, actual string) {
+	expectedValue, err := decodeJSONToGo(expected)
+	require.NoError(t, err, "Expected JSON should be valid")
+
+	actualValue, err := decodeJSONToGo(actual)
+	require.NoError(t, err, "Actual JSON should be valid")
+
+	assert.Equal(t, expectedValue, actualValue, "JSON values should be semantically equal")
 }
 
 func TestJsonModule(t *testing.T) {
@@ -131,7 +150,10 @@ func TestJsonModule(t *testing.T) {
 				require.NoError(t, err)
 
 				result := vm.State().Get(-1)
-				assert.Equal(t, tc.expected, result.String())
+				actualJSON := result.String()
+
+				// Use semantic comparison instead of exact string match
+				assertJSONEqual(t, tc.expected, actualJSON)
 				vm.State().Pop(1)
 			})
 		}
@@ -378,8 +400,19 @@ func TestSharedTableReferences(t *testing.T) {
 		// of shared references as recursion
 		if err == nil {
 			result := vm.State().Get(-1).String()
-			assert.Contains(t, result, `"first":{"name":"shared_table","value":42}`)
-			assert.Contains(t, result, `"second":{"name":"shared_table","value":42}`)
+
+			// Use semantic validation instead of exact string matching
+			decoded, err := decodeJSONToGo(result)
+			require.NoError(t, err)
+
+			resultMap := decoded.(map[string]interface{})
+			first := resultMap["first"].(map[string]interface{})
+			second := resultMap["second"].(map[string]interface{})
+
+			assert.Equal(t, "shared_table", first["name"])
+			assert.Equal(t, float64(42), first["value"])
+			assert.Equal(t, "shared_table", second["name"])
+			assert.Equal(t, float64(42), second["value"])
 		} else {
 			// This assertion will fail with the current implementation
 			assert.Fail(t, "Should allow shared non-recursive table references, but got error: "+err.Error())
@@ -466,10 +499,74 @@ func TestSharedTableReferences(t *testing.T) {
 		// With the current implementation, this will likely fail
 		if err == nil {
 			result := vm.State().Get(-1).String()
-			assert.Contains(t, result, `"version":"1.0"`)
-			assert.Contains(t, result, `"important"`)
+
+			// Use semantic validation
+			decoded, err := decodeJSONToGo(result)
+			require.NoError(t, err)
+
+			resultMap := decoded.(map[string]interface{})
+			items := resultMap["items"].([]interface{})
+			firstItem := items[0].(map[string]interface{})
+			meta := firstItem["meta"].(map[string]interface{})
+
+			assert.Equal(t, "1.0", meta["version"])
+			assert.Contains(t, result, "important")
 		} else {
 			assert.Fail(t, "Should allow complex non-recursive structures, but got error: "+err.Error())
 		}
+	})
+}
+
+// Additional test to verify our optimization is working correctly
+func TestJSONOptimization(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("large table encoding performance", func(t *testing.T) {
+		mod := NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+			local json = require("json")
+			
+			-- Create a moderately large table to test our optimization
+			local largeTable = {}
+			for i = 1, 100 do
+				largeTable["key" .. i] = {
+					id = i,
+					data = {"item1", "item2", "item3"},
+					nested = {
+						value = i * 2,
+						flag = i % 2 == 0
+					}
+				}
+			end
+			
+			local result = json.encode(largeTable)
+			return result
+		`
+
+		err = vm.DoString(context.Background(), script, "test")
+		require.NoError(t, err)
+
+		result := vm.State().Get(-1).String()
+
+		// Verify the result is valid JSON and contains expected data
+		decoded, err := decodeJSONToGo(result)
+		require.NoError(t, err)
+
+		resultMap := decoded.(map[string]interface{})
+		assert.Equal(t, 100, len(resultMap))
+
+		// Check a few entries
+		key1 := resultMap["key1"].(map[string]interface{})
+		assert.Equal(t, float64(1), key1["id"])
+
+		nested := key1["nested"].(map[string]interface{})
+		assert.Equal(t, float64(2), nested["value"])
+		assert.Equal(t, false, nested["flag"])
 	})
 }

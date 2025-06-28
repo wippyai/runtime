@@ -40,6 +40,10 @@ var (
 	visitedPool = sync.Pool{
 		New: func() any { return make(map[*lua.LTable]bool, 16) },
 	}
+	// Pool for JSON writing buffers
+	bufferPool = sync.Pool{
+		New: func() any { return &bytes.Buffer{} },
+	}
 )
 
 func getJSONValue(lv lua.LValue, visited map[*lua.LTable]bool, depth int, options *EncodeOptions) *jsonValue {
@@ -62,6 +66,18 @@ func putVisitedMap(visited map[*lua.LTable]bool) {
 		delete(visited, k)
 	}
 	visitedPool.Put(visited)
+}
+
+func getBuffer() *bytes.Buffer {
+	return bufferPool.Get().(*bytes.Buffer)
+}
+
+func putBuffer(buf *bytes.Buffer) {
+	if buf.Cap() > 64*1024 { // Don't pool huge buffers
+		return
+	}
+	buf.Reset()
+	bufferPool.Put(buf)
 }
 
 type Module struct {
@@ -180,7 +196,7 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 	case lua.LString:
 		return json.Marshal(string(converted))
 	case *lua.LTable:
-		return j.marshalTable(converted)
+		return j.marshalTableDirect(converted)
 	case *lua.LUserData:
 		if str, ok := converted.Value.(string); ok {
 			return json.Marshal(str)
@@ -198,27 +214,29 @@ func isInteger(n lua.LNumber) bool {
 	return float64(n) == math.Floor(float64(n))
 }
 
-func (j *jsonValue) marshalTable(table *lua.LTable) ([]byte, error) {
+// marshalTableDirect writes JSON directly without intermediate Go structures
+func (j *jsonValue) marshalTableDirect(table *lua.LTable) ([]byte, error) {
 	if j.visited[table] {
 		return nil, errNested
 	}
 	j.visited[table] = true
 	defer delete(j.visited, table)
 
-	var arrayPart map[int]lua.LValue
-	var objectPart map[string]*jsonValue
+	buf := getBuffer()
+	defer putBuffer(buf)
+
+	// Scan to determine structure
 	maxNumericKey := 0
-	isObject := false
+	hasStringKeys := false
+	hasNumericKeys := false
 	elementCount := 0
 
+	// Check Array part
 	if table.Array != nil {
 		for i, value := range table.Array {
 			if value != lua.LNil {
-				if arrayPart == nil {
-					arrayPart = make(map[int]lua.LValue)
-				}
+				hasNumericKeys = true
 				idx := i + 1
-				arrayPart[idx] = value
 				if idx > maxNumericKey {
 					maxNumericKey = idx
 				}
@@ -227,19 +245,191 @@ func (j *jsonValue) marshalTable(table *lua.LTable) ([]byte, error) {
 		}
 	}
 
+	// Check Strdict part
 	if table.Strdict != nil {
-		for key, value := range table.Strdict {
+		for _, value := range table.Strdict {
 			if value != lua.LNil {
-				if !isObject {
-					isObject = true
-					objectPart = make(map[string]*jsonValue)
-				}
-				objectPart[key] = getJSONValue(value, j.visited, j.depth+1, j.options)
+				hasStringKeys = true
 				elementCount++
 			}
 		}
 	}
 
+	// Check Dict part
+	if table.Dict != nil {
+		for key, value := range table.Dict {
+			if value != lua.LNil {
+				if num, ok := key.(lua.LNumber); ok && isInteger(num) && num > 0 {
+					hasNumericKeys = true
+					idx := int(num)
+					if idx > maxNumericKey {
+						maxNumericKey = idx
+					}
+				} else {
+					hasStringKeys = true
+				}
+				elementCount++
+			}
+		}
+	}
+
+	// Handle empty table
+	if elementCount == 0 {
+		if hasStringKeys || table.Strdict != nil || table.Dict != nil {
+			return []byte("{}"), nil
+		}
+		return []byte("[]"), nil
+	}
+
+	// Determine if we should encode as object or array
+	isObject := hasStringKeys
+	if hasNumericKeys && hasStringKeys && !j.options.TreatMixedKeysAsObjects {
+		return nil, errInvalidKeys
+	}
+
+	if isObject {
+		return j.writeObjectDirect(buf, table, maxNumericKey)
+	}
+
+	// Check for sparse array
+	if maxNumericKey > 0 && !j.options.AllowSparseArrays {
+		actualCount := 0
+		if table.Array != nil {
+			for _, value := range table.Array {
+				if value != lua.LNil {
+					actualCount++
+				}
+			}
+		}
+		if table.Dict != nil {
+			for key, value := range table.Dict {
+				if value != lua.LNil {
+					if num, ok := key.(lua.LNumber); ok && isInteger(num) && num > 0 {
+						actualCount++
+					}
+				}
+			}
+		}
+		if actualCount != maxNumericKey {
+			return nil, fmt.Errorf("%w: max key is %d but only %d elements found", errSparseArray, maxNumericKey, actualCount)
+		}
+	}
+
+	return j.writeArrayDirect(buf, table, maxNumericKey)
+}
+
+func (j *jsonValue) writeArrayDirect(buf *bytes.Buffer, table *lua.LTable, maxNumericKey int) ([]byte, error) {
+	if maxNumericKey == 0 {
+		return []byte("[]"), nil
+	}
+
+	buf.WriteByte('[')
+	first := true
+
+	for i := 1; i <= maxNumericKey; i++ {
+		var value lua.LValue = lua.LNil
+
+		// Check Array part
+		if table.Array != nil && i-1 < len(table.Array) {
+			if v := table.Array[i-1]; v != lua.LNil {
+				value = v
+			}
+		}
+
+		// Check Dict part for numeric keys
+		if value == lua.LNil && table.Dict != nil {
+			if v, ok := table.Dict[lua.LNumber(i)]; ok {
+				value = v
+			}
+		}
+
+		if !first {
+			buf.WriteByte(',')
+		}
+		first = false
+
+		// Encode value directly
+		childJSON := getJSONValue(value, j.visited, j.depth+1, j.options)
+		childBytes, err := childJSON.MarshalJSON()
+		putJSONValue(childJSON)
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(childBytes)
+	}
+
+	buf.WriteByte(']')
+	return bytes.Clone(buf.Bytes()), nil
+}
+
+func (j *jsonValue) writeObjectDirect(buf *bytes.Buffer, table *lua.LTable, maxNumericKey int) ([]byte, error) {
+	buf.WriteByte('{')
+	first := true
+
+	writeKeyValue := func(key string, value lua.LValue) error {
+		if !first {
+			buf.WriteByte(',')
+		}
+		first = false
+
+		// Write key
+		keyBytes, err := json.Marshal(key)
+		if err != nil {
+			return err
+		}
+		buf.Write(keyBytes)
+		buf.WriteByte(':')
+
+		// Write value
+		childJSON := getJSONValue(value, j.visited, j.depth+1, j.options)
+		childBytes, err := childJSON.MarshalJSON()
+		putJSONValue(childJSON)
+		if err != nil {
+			return err
+		}
+		buf.Write(childBytes)
+		return nil
+	}
+
+	// Write numeric keys first (if treating mixed as objects)
+	if maxNumericKey > 0 {
+		for i := 1; i <= maxNumericKey; i++ {
+			var value lua.LValue = lua.LNil
+
+			// Check Array part
+			if table.Array != nil && i-1 < len(table.Array) {
+				if v := table.Array[i-1]; v != lua.LNil {
+					value = v
+				}
+			}
+
+			// Check Dict part
+			if value == lua.LNil && table.Dict != nil {
+				if v, ok := table.Dict[lua.LNumber(i)]; ok {
+					value = v
+				}
+			}
+
+			if value != lua.LNil {
+				if err := writeKeyValue(strconv.Itoa(i), value); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
+	// Write string keys
+	if table.Strdict != nil {
+		for key, value := range table.Strdict {
+			if value != lua.LNil {
+				if err := writeKeyValue(key, value); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
+	// Write non-numeric Dict keys
 	if table.Dict != nil {
 		for key, value := range table.Dict {
 			if value != lua.LNil {
@@ -248,15 +438,7 @@ func (j *jsonValue) marshalTable(table *lua.LTable) ([]byte, error) {
 
 				if num, ok := key.(lua.LNumber); ok {
 					if isInteger(num) && num > 0 {
-						idx := int(num)
-						if arrayPart == nil {
-							arrayPart = make(map[int]lua.LValue)
-						}
-						arrayPart[idx] = value
-						if idx > maxNumericKey {
-							maxNumericKey = idx
-						}
-						isNumericKey = true
+						isNumericKey = true // Skip, already handled above
 					} else {
 						keyStr = strconv.FormatFloat(float64(num), 'f', -1, 64)
 					}
@@ -269,64 +451,16 @@ func (j *jsonValue) marshalTable(table *lua.LTable) ([]byte, error) {
 				}
 
 				if !isNumericKey {
-					if !isObject {
-						isObject = true
-						objectPart = make(map[string]*jsonValue)
+					if err := writeKeyValue(keyStr, value); err != nil {
+						return nil, err
 					}
-					objectPart[keyStr] = getJSONValue(value, j.visited, j.depth+1, j.options)
 				}
-				elementCount++
 			}
 		}
 	}
 
-	if elementCount == 0 {
-		if table.Strdict != nil || table.Dict != nil {
-			return []byte("{}"), nil
-		}
-		return []byte("[]"), nil
-	}
-
-	if isObject {
-		if len(arrayPart) > 0 && !j.options.TreatMixedKeysAsObjects {
-			for _, child := range objectPart {
-				putJSONValue(child)
-			}
-			return nil, errInvalidKeys
-		}
-		for idx, value := range arrayPart {
-			objectPart[strconv.Itoa(idx)] = getJSONValue(value, j.visited, j.depth+1, j.options)
-		}
-	} else {
-		if len(arrayPart) != maxNumericKey && !j.options.AllowSparseArrays {
-			return nil, fmt.Errorf("%w: max key is %d but only %d elements found", errSparseArray, maxNumericKey, len(arrayPart))
-		}
-	}
-
-	if isObject {
-		b, err := json.Marshal(objectPart)
-		for _, child := range objectPart {
-			putJSONValue(child)
-		}
-		return b, err
-	}
-
-	if maxNumericKey == 0 {
-		return []byte("[]"), nil
-	}
-	arr := make([]*jsonValue, maxNumericKey)
-	for i := 1; i <= maxNumericKey; i++ {
-		value, ok := arrayPart[i]
-		if !ok {
-			value = lua.LNil
-		}
-		arr[i-1] = getJSONValue(value, j.visited, j.depth+1, j.options)
-	}
-	b, err := json.Marshal(arr)
-	for _, child := range arr {
-		putJSONValue(child)
-	}
-	return b, err
+	buf.WriteByte('}')
+	return bytes.Clone(buf.Bytes()), nil
 }
 
 func Decode(l *lua.LState, data []byte) (lua.LValue, error) {
