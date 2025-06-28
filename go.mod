@@ -54,9 +54,9 @@ require (
 
 // replace github.com/ponyruntime/tree-sitter-sql => ../tree-sitter-sql
 
-//replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v0.0.0-20250409012022-15ae569d11fd
+replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v1.2.3
 
-replace github.com/yuin/gopher-lua => ../go-lua
+//replace github.com/yuin/gopher-lua => ../go-lua
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250425153114-8976f5be98c1.1 // indirect
