@@ -3,6 +3,7 @@ package errors
 import (
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"reflect"
 	"strings"
 	"testing"
@@ -266,7 +267,7 @@ func TestWrappedErrorReturnAndLuaError(t *testing.T) {
 		// Spawn userdata and return it (don't raise)
 		ud := L.NewUserData()
 		ud.Value = wrapped
-		L.SetMetatable(ud, L.GetTypeMetatable("error"))
+		L.SetMetatable(ud, value.GetTypeMetatable(nil, "error"))
 		L.Push(ud)
 		return 1
 	}
@@ -307,7 +308,7 @@ func TestErrorToString(t *testing.T) {
 
 		ud := L.NewUserData()
 		ud.Value = wrapped
-		L.SetMetatable(ud, L.GetTypeMetatable("error"))
+		L.SetMetatable(ud, value.GetTypeMetatable(nil, "error"))
 		L.Push(ud)
 		return 1
 	}
