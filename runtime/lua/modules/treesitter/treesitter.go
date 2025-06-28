@@ -84,7 +84,7 @@ func (m *Module) language(l *lua.LState) int {
 	// Spawn and return Language userdata
 	ud := l.NewUserData()
 	ud.Value = &LanguageWrapper{lang: lang}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Language"))
+	l.SetMetatable(ud, value.GetTypeMetatable(nil, "treesitter.Language"))
 	l.Push(ud)
 	return 1
 }

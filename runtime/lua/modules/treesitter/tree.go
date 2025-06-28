@@ -84,7 +84,7 @@ func treeRootNode(l *lua.LState) int {
 	// Spawn and push new Node userdata
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: root, source: &tree.source}
-	ud.Metatable = l.NewTypeMetatable("treesitter.Node")
+	ud.Metatable = value.GetTypeMetatable(nil, "treesitter.Node")
 
 	l.Push(ud)
 	return 1
@@ -115,7 +115,7 @@ func treeRootNodeWithOffset(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: root, source: &tree.source}
-	ud.Metatable = l.NewTypeMetatable("treesitter.Node")
+	ud.Metatable = value.GetTypeMetatable(nil, "treesitter.Node")
 
 	l.Push(ud)
 	return 1
@@ -138,7 +138,7 @@ func treeLanguage(l *lua.LState) int {
 	// Spawn and return Language userdata
 	ud := l.NewUserData()
 	ud.Value = &LanguageWrapper{lang: lang}
-	ud.Metatable = l.NewTypeMetatable("treesitter.Language")
+	ud.Metatable = value.GetTypeMetatable(nil, "treesitter.Language")
 
 	l.Push(ud)
 	return 1
