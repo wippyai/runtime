@@ -174,8 +174,8 @@ func (e *Module) processPackage(uw engine.UnitOfWork, pkg *pubsub.Package) {
 		// has internal queue, but must be drained
 		if err := subscribe.Publish(uw.Context(), topology.TopicInbox, inboxValues...); err != nil {
 			e.log.Error("failed to publish to inbox",
+				zap.String("pid", pkg.Target.String()),
 				zap.String("topic", topology.TopicInbox),
-				zap.Any("v", inboxValues),
 				zap.Error(err))
 		}
 	}

@@ -50,6 +50,7 @@ func restrictedLoadLib(l *lua.LState) int {
 func preloadLoader(l *lua.LState) int {
 	name := l.CheckString(1)
 	preload := l.GetField(l.GetField(l.Get(lua.EnvironIndex), "package"), "preload")
+
 	if _, ok := preload.(*lua.LTable); !ok {
 		l.RaiseError("package.preload must be a table")
 	}
