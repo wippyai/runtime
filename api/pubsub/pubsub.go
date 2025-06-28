@@ -7,7 +7,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
 )
 
 // System constants for node management
@@ -42,19 +41,6 @@ type (
 
 	// HostID uniquely identifies a host within a node
 	HostID = string
-
-	// PID represents a Process Identifier that uniquely identifies a process in the system.
-	// It contains node, host, process ID, and a unique identifier components.
-	PID struct {
-		// Node identifies which node the process belongs to
-		Node NodeID `json:"node"`
-		// Host identifies which host the process belongs to
-		Host HostID `json:"host"`
-		// ID contains the process's registry identifier
-		ID registry.ID `json:"id"`
-		// UniqID contains a unique instance identifier
-		UniqID string `json:"uniq_id"`
-	}
 
 	// Topic represents a string identifier for a message channel or category
 	Topic = string

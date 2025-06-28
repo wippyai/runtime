@@ -243,8 +243,8 @@ func (t *taskCoordinator) reset() {
 	t.undelivered.Store(false)
 
 	// Recreate channels
-	t.updates = make(chan *Update, cap(t.updates))
-	t.wakeup = make(chan struct{}, cap(t.wakeup))
+	//t.updates = make(chan *Update, cap(t.updates))
+	//t.wakeup = make(chan struct{}, cap(t.wakeup))
 
 	// Reset scheduled functions and wake up list
 	t.smu.Lock()

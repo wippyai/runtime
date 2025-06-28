@@ -1,80 +1,170 @@
 package pubsub
 
 import (
-	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/ponyruntime/pony/api/registry"
 )
+
+type pidError struct {
+	s string
+}
+
+func (e *pidError) Error() string {
+	return e.s
+}
+
+func newError(msg string) error {
+	return &pidError{s: msg}
+}
+
+var builderPool = sync.Pool{
+	New: func() interface{} {
+		return &strings.Builder{}
+	},
+}
+
+// PID represents a Process Identifier that uniquely identifies a process in the system.
+// It contains node, host, process ID, and a unique identifier components.
+type PID struct {
+	// Node identifies which node the process belongs to
+	Node NodeID `json:"node"`
+	// Host identifies which host the process belongs to
+	Host HostID `json:"host"`
+	// ID contains the process's registry identifier
+	ID registry.ID `json:"id"`
+	// UniqID contains a unique instance identifier
+	UniqID string `json:"uniq_id"`
+}
 
 // String formats the PID as a pipe-delimited string wrapped in curly braces.
 // Without a node it looks like: "{host|ns:name|procname}"
 // With a node it looks like: "{node@host|ns:name|procname}"
 func (p PID) String() string {
-	var formatted string
-	if p.Node == "" {
-		formatted = fmt.Sprintf("%s|%s|%s", p.Host, p.ID.String(), p.UniqID)
-	} else {
-		formatted = fmt.Sprintf("%s@%s|%s|%s", p.Node, p.Host, p.ID.String(), p.UniqID)
+	b := builderPool.Get().(*strings.Builder)
+	b.Reset()
+	defer builderPool.Put(b)
+
+	// Pre-allocate rough capacity to avoid reallocations
+	b.Grow(len(p.Host) + len(p.UniqID) + len(p.Node) + len(string(p.ID.NS)) + len(string(p.ID.Name)) + 32)
+
+	b.WriteByte('{')
+
+	if p.Node != "" {
+		b.WriteString(p.Node)
+		b.WriteByte('@')
 	}
-	return fmt.Sprintf("{%s}", formatted)
+
+	b.WriteString(p.Host)
+	b.WriteByte('|')
+
+	b.WriteString(string(p.ID.NS))
+	b.WriteByte(':')
+	b.WriteString(string(p.ID.Name))
+
+	b.WriteByte('|')
+	b.WriteString(string(p.UniqID))
+	b.WriteByte('}')
+
+	return b.String()
 }
 
 // ParsePID parses a pipe-delimited string wrapped in curly braces into a PID.
-// It accepts the following formats:
-//   - "{host|ns:name|procname}"
-//   - "{node@host|ns:name|procname}"
-//
-// Returns the parsed PID and any error that occurred during parsing.
+// Optimized version using manual parsing instead of strings.Split
 func ParsePID(s string) (PID, error) {
 	var pid PID
 
-	// Done wrapping curly braces, if present.
-	s = strings.TrimPrefix(s, "{")
-	s = strings.TrimSuffix(s, "}")
+	// Fast path: remove braces without allocation
+	if len(s) < 3 || s[0] != '{' || s[len(s)-1] != '}' {
+		return pid, newError("invalid pid format: missing braces")
+	}
+	s = s[1 : len(s)-1] // Remove braces
 
-	parts := strings.Split(s, "|")
-	if len(parts) != 3 {
-		return pid, fmt.Errorf("invalid pid format: expected 3 parts separated by '|', got %d", len(parts))
+	// Find first pipe
+	pipe1 := strings.IndexByte(s, '|')
+	if pipe1 == -1 {
+		return pid, newError("invalid pid format: missing first pipe")
 	}
 
-	// Parse the host part which may include a node using the "node@host" format.
-	hostPart := parts[0]
-	if idx := strings.Index(hostPart, "@"); idx >= 0 {
-		pid.Node = hostPart[:idx]
-		pid.Host = hostPart[idx+1:]
+	// Find second pipe
+	pipe2 := strings.IndexByte(s[pipe1+1:], '|')
+	if pipe2 == -1 {
+		return pid, newError("invalid pid format: missing second pipe")
+	}
+	pipe2 += pipe1 + 1
+
+	// Parse host part (may contain node@host)
+	hostPart := s[:pipe1]
+	if at := strings.IndexByte(hostPart, '@'); at != -1 {
+		pid.Node = hostPart[:at]
+		pid.Host = hostPart[at+1:]
 	} else {
 		pid.Host = hostPart
 	}
 
-	// Parse the registry ID and process name.
-	pid.ID = registry.ParseID(parts[1])
-	pid.UniqID = parts[2]
+	// Parse registry ID and unique ID
+	pid.ID = registry.ParseID(s[pipe1+1 : pipe2])
+	pid.UniqID = s[pipe2+1:]
 
 	return pid, nil
 }
 
 // MarshalJSON implements the json.Marshaler interface
 func (p PID) MarshalJSON() ([]byte, error) {
-	return []byte(`"` + p.String() + `"`), nil
+	b := builderPool.Get().(*strings.Builder)
+	b.Reset()
+	defer builderPool.Put(b)
+
+	// Pre-allocate capacity
+	b.Grow(len(p.Host) + len(p.UniqID) + len(p.Node) + len(string(p.ID.NS)) + len(string(p.ID.Name)) + 34)
+
+	b.WriteByte('"')
+	b.WriteByte('{')
+
+	if p.Node != "" {
+		b.WriteString(p.Node)
+		b.WriteByte('@')
+	}
+
+	b.WriteString(p.Host)
+	b.WriteByte('|')
+	b.WriteString(string(p.ID.NS))
+	b.WriteByte(':')
+	b.WriteString(string(p.ID.Name))
+
+	b.WriteByte('|')
+	b.WriteString(p.UniqID)
+	b.WriteByte('}')
+	b.WriteByte('"')
+
+	// Safe conversion to []byte
+	str := b.String()
+	result := make([]byte, len(str))
+	copy(result, str)
+	return result, nil
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface
 func (p *PID) UnmarshalJSON(data []byte) error {
-	// Remove quotes from the string
-	s := string(data)
-	if len(s) < 2 {
-		return fmt.Errorf("invalid Target JSON string: %s", s)
+	// Fast path: check minimum length
+	if len(data) < 4 { // minimum: "{}" wrapped in quotes
+		return newError("invalid PID JSON: too short")
 	}
-	s = s[1 : len(s)-1] // Remove quotes
 
-	// Parse the Target from the string
+	// Remove quotes
+	if data[0] != '"' || data[len(data)-1] != '"' {
+		return newError("invalid PID JSON: missing quotes")
+	}
+
+	// Convert to string (this does allocate, but safer than unsafe)
+	s := string(data[1 : len(data)-1])
+
 	parsed, err := ParsePID(s)
 	if err != nil {
 		return err
 	}
 
-	// Update the receiver with parsed values
 	*p = parsed
 	return nil
 }
