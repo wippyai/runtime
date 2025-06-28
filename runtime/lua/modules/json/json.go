@@ -80,6 +80,31 @@ func putBuffer(buf *bytes.Buffer) {
 	bufferPool.Put(buf)
 }
 
+func isSimpleASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 || s[i] < 0x20 {
+			return false
+		}
+	}
+	return true
+}
+
+func needsEscaping(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '"' || c == '\\' || c < 0x20 {
+			return true
+		}
+	}
+	return false
+}
+
+func writeSimpleASCIIString(buf *bytes.Buffer, s string) {
+	buf.WriteByte('"')
+	buf.WriteString(s)
+	buf.WriteByte('"')
+}
+
 type Module struct {
 	Options     EncodeOptions
 	moduleTable *lua.LTable
@@ -348,18 +373,15 @@ func (j *jsonValue) writeArrayDirect(buf *bytes.Buffer, table *lua.LTable, maxNu
 		}
 		first = false
 
-		// Encode value directly
-		childJSON := getJSONValue(value, j.visited, j.depth+1, j.options)
-		childBytes, err := childJSON.MarshalJSON()
-		putJSONValue(childJSON)
-		if err != nil {
+		if err := j.writeValueOptimized(buf, value); err != nil {
 			return nil, err
 		}
-		buf.Write(childBytes)
 	}
 
 	buf.WriteByte(']')
-	return bytes.Clone(buf.Bytes()), nil
+	result := make([]byte, buf.Len())
+	copy(result, buf.Bytes())
+	return result, nil
 }
 
 func (j *jsonValue) writeObjectDirect(buf *bytes.Buffer, table *lua.LTable, maxNumericKey int) ([]byte, error) {
@@ -372,23 +394,21 @@ func (j *jsonValue) writeObjectDirect(buf *bytes.Buffer, table *lua.LTable, maxN
 		}
 		first = false
 
-		// Write key
-		keyBytes, err := json.Marshal(key)
-		if err != nil {
-			return err
+		//  Fast path for simple ASCII keys
+		if isSimpleASCII(key) && !needsEscaping(key) {
+			writeSimpleASCIIString(buf, key)
+		} else {
+			// Fallback to safe marshaling for complex keys
+			keyBytes, err := json.Marshal(key)
+			if err != nil {
+				return err
+			}
+			buf.Write(keyBytes)
 		}
-		buf.Write(keyBytes)
+
 		buf.WriteByte(':')
 
-		// Write value
-		childJSON := getJSONValue(value, j.visited, j.depth+1, j.options)
-		childBytes, err := childJSON.MarshalJSON()
-		putJSONValue(childJSON)
-		if err != nil {
-			return err
-		}
-		buf.Write(childBytes)
-		return nil
+		return j.writeValueOptimized(buf, value)
 	}
 
 	// Write numeric keys first (if treating mixed as objects)
@@ -460,7 +480,56 @@ func (j *jsonValue) writeObjectDirect(buf *bytes.Buffer, table *lua.LTable, maxN
 	}
 
 	buf.WriteByte('}')
-	return bytes.Clone(buf.Bytes()), nil
+	result := make([]byte, buf.Len())
+	copy(result, buf.Bytes())
+	return result, nil
+}
+
+func (j *jsonValue) writeValueOptimized(buf *bytes.Buffer, value lua.LValue) error {
+	switch v := value.(type) {
+	case lua.LString:
+		str := string(v)
+		if isSimpleASCII(str) && !needsEscaping(str) {
+			writeSimpleASCIIString(buf, str)
+			return nil
+		} else {
+			// Fallback to safe marshaling for complex strings
+			valBytes, err := json.Marshal(str)
+			if err != nil {
+				return err
+			}
+			buf.Write(valBytes)
+			return nil
+		}
+	case lua.LNumber:
+		f := float64(v)
+		if math.IsInf(f, 0) || math.IsNaN(f) {
+			buf.WriteString("null")
+		} else {
+			buf.WriteString(strconv.FormatFloat(f, 'g', -1, 64))
+		}
+		return nil
+	case lua.LBool:
+		if v {
+			buf.WriteString("true")
+		} else {
+			buf.WriteString("false")
+		}
+		return nil
+	case *lua.LNilType:
+		buf.WriteString("null")
+		return nil
+	default:
+		// Complex types: use existing safe recursive approach
+		childJSON := getJSONValue(value, j.visited, j.depth+1, j.options)
+		childBytes, err := childJSON.MarshalJSON()
+		putJSONValue(childJSON)
+		if err != nil {
+			return err
+		}
+		buf.Write(childBytes)
+		return nil
+	}
 }
 
 func Decode(l *lua.LState, data []byte) (lua.LValue, error) {
