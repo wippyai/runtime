@@ -25,7 +25,7 @@ type Module struct {
 
 // Name returns the module's name
 func (m *Module) Name() string {
-	return "ostime"
+	return "os"
 }
 
 // Loader registers the module's functions into Lua state
