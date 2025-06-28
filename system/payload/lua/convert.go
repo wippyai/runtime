@@ -61,7 +61,7 @@ func ToGoAny(v lua.LValue) any {
 	case lua.LTTable:
 		tbl := v.(*lua.LTable)
 		maxn := tbl.MaxN()
-		if maxn == 0 {
+		if maxn == 0 { // todo: optimize?
 			return tableToMap(tbl)
 		}
 		return tableToSlice(tbl, maxn)
