@@ -76,8 +76,8 @@ import (
 	"github.com/ponyruntime/pony/service/tokenstore"
 	"github.com/ponyruntime/pony/system/eventbus"
 	reghandler "github.com/ponyruntime/pony/system/registry/events"
-	"github.com/wippyai/module-registry-proto/gen/registry/identity/v1/identityv1connect"
-	"github.com/wippyai/module-registry-proto/gen/registry/module/v1/modulev1connect"
+	"github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
+	"github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
 	"go.uber.org/zap"
 )
 
