@@ -1,6 +1,7 @@
 package time
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -41,7 +42,7 @@ func loadLocation(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Location{location: loc}
-	l.SetMetatable(ud, l.GetTypeMetatable("time.Location"))
+	ud.Metatable = value.GetTypeMetatable(nil, "time.Location")
 	l.Push(ud)
 	return 1
 }
@@ -55,7 +56,8 @@ func fixedZone(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Location{location: loc}
-	l.SetMetatable(ud, l.GetTypeMetatable("time.Location"))
+	ud.Metatable = value.GetTypeMetatable(nil, "time.Location")
+
 	l.Push(ud)
 	return 1
 }

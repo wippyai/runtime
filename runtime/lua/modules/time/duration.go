@@ -2,6 +2,7 @@ package time
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -95,7 +96,8 @@ func parseDuration(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Duration{duration: duration}
-	l.SetMetatable(ud, l.GetTypeMetatable("time.Duration"))
+	ud.Metatable = value.GetTypeMetatable(nil, "time.Duration")
+
 	l.Push(ud)
 	return 1
 }
