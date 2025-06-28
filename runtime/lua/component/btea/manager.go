@@ -35,7 +35,7 @@ func init() {
 		WithPreloaded(code.Preload{Name: "btea", ModuleID: registry.ID{Name: "btea"}}).
 		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.ID{Name: "process"}}).
 		WithPreloaded(code.Preload{Name: "process_api", ModuleID: registry.ID{Name: "process_api"}}).
-		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.ID{Name: "ostime"}}).
+		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.ID{Name: "os"}}).
 		WithPreloaded(code.Preload{Name: "payload", ModuleID: registry.ID{Name: "payload"}})
 
 	layers = component.WithRunnerOption(
