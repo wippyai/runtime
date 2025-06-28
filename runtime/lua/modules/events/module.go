@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -21,7 +22,9 @@ const (
 
 // Module represents the events module for Lua
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // NewEventsModule creates a new events module
@@ -38,8 +41,18 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	// Create module table
-	mod := l.NewTable()
+	m.once.Do(func() {
+		m.initModuleTable(l)
+	})
+
+	l.Push(m.moduleTable)
+	return 1
+}
+
+// initModuleTable creates and initializes the module table once
+func (m *Module) initModuleTable(l *lua.LState) {
+	// Create module table with pre-allocated size
+	mod := l.CreateTable(0, 2) // 2 functions: subscribe and send
 
 	// Register top-level subscribe function (without needing to get the bus first)
 	mod.RawSetString("subscribe", l.NewFunction(func(l *lua.LState) int {
@@ -51,16 +64,16 @@ func (m *Module) Loader(l *lua.LState) int {
 		return m.send(l)
 	}))
 
+	// Make the table immutable so it can be safely reused
+	mod.Immutable = true
+
 	// Register subscription metatable
-	mt := l.NewTypeMetatable(subscriptionMetatable)
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	value.RegisterMethods(l, subscriptionMetatable, map[string]lua.LGFunction{
 		"channel": m.subChannel,
 		"close":   m.subClose,
-	}))
+	})
 
-	// Set module as return value
-	l.Push(mod)
-	return 1
+	m.moduleTable = mod
 }
 
 // LuaSubscription wraps an eventbus Subscriber for Lua
