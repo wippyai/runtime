@@ -175,11 +175,25 @@ func removeDuplicates(slice []string) []string {
 	return unique
 }
 
+func filterEmptyStrings(slice []string) []string {
+	if len(slice) == 0 {
+		return slice
+	}
+
+	var result []string
+	for _, s := range slice {
+		if s != "" {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
 func fetchDependencies(entry registry.Entry) []string {
 	combinedData := make(map[string]any)
 
 	if len(entry.Meta) > 0 {
-		combinedData["meta"] = entry.Meta
+		combinedData["meta"] = map[string]any(entry.Meta)
 	}
 
 	if entry.Data != nil {
@@ -201,7 +215,8 @@ func fetchDependencies(entry registry.Entry) []string {
 	if entry.Meta != nil {
 		metaTagDeps := entry.Meta.TagValue(registry.TagDependsOn)
 		if len(metaTagDeps) > 0 {
-			rawDeps = append(rawDeps, metaTagDeps...)
+			filteredTagDeps := filterEmptyStrings(metaTagDeps)
+			rawDeps = append(rawDeps, filteredTagDeps...)
 		}
 	}
 
