@@ -27,7 +27,7 @@ func getStructFields(rt reflect.Type) []fieldInfo {
 	if cached, ok := structFieldCache.Load(rt); ok {
 		return cached.([]fieldInfo)
 	}
-	fields := make([]fieldInfo, 0, rt.NumField())
+	fields := make([]fieldInfo, 0)
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
 		if !field.IsExported() {
@@ -60,21 +60,11 @@ func ToGoAny(v lua.LValue) any {
 		return string(v.(lua.LString))
 	case lua.LTTable:
 		tbl := v.(*lua.LTable)
-
-		// Check array part directly instead of using MaxN()
-		if tbl.Array != nil && len(tbl.Array) > 0 {
-			maxIdx := 0
-			for i := len(tbl.Array) - 1; i >= 0; i-- {
-				if tbl.Array[i] != lua.LNil {
-					maxIdx = i + 1
-					break
-				}
-			}
-			if maxIdx > 0 {
-				return tableToSlice(tbl, maxIdx)
-			}
+		maxn := tbl.MaxN()
+		if maxn == 0 { // todo: optimize?
+			return tableToMap(tbl)
 		}
-		return tableToMap(tbl)
+		return tableToSlice(tbl, maxn)
 	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
 		// FIXME rework on demand
 		fallthrough
@@ -84,58 +74,17 @@ func ToGoAny(v lua.LValue) any {
 }
 
 func tableToMap(tbl *lua.LTable) map[string]any {
-	// Calculate capacity from all table parts
-	capacity := 0
-	if tbl.Array != nil {
-		for _, v := range tbl.Array {
-			if v != lua.LNil {
-				capacity++
-			}
-		}
-	}
-	if tbl.Strdict != nil {
-		capacity += len(tbl.Strdict)
-	}
-	if tbl.Dict != nil {
-		capacity += len(tbl.Dict)
-	}
-
-	result := make(map[string]any, capacity)
-
-	// Process array indices
-	if tbl.Array != nil {
-		for i, v := range tbl.Array {
-			if v != lua.LNil {
-				result[fmt.Sprintf("%d", i+1)] = ToGoAny(v)
-			}
-		}
-	}
-
-	// Process string keys directly
-	if tbl.Strdict != nil {
-		for k, v := range tbl.Strdict {
-			if v != lua.LNil {
-				result[k] = ToGoAny(v)
-			}
-		}
-	}
-
-	// Process non-string keys
-	if tbl.Dict != nil {
-		for k, v := range tbl.Dict {
-			if v != lua.LNil {
-				result[k.String()] = ToGoAny(v)
-			}
-		}
-	}
-
+	result := make(map[string]any)
+	tbl.ForEach(func(key, value lua.LValue) {
+		result[key.String()] = ToGoAny(value)
+	})
 	return result
 }
 
 func tableToSlice(tbl *lua.LTable, maxn int) []any {
-	result := make([]any, maxn)
-	for i := 0; i < maxn && i < len(tbl.Array); i++ {
-		result[i] = ToGoAny(tbl.Array[i])
+	result := make([]any, 0, maxn)
+	for i := 1; i <= maxn; i++ {
+		result = append(result, ToGoAny(tbl.RawGetInt(i)))
 	}
 	return result
 }
@@ -187,18 +136,101 @@ func GoToLua(v any) (lua.LValue, error) {
 
 	case reflect.Slice, reflect.Array:
 		if rv.IsNil() {
+			// Return nil for nil slices
 			return lua.LNil, nil
 		}
-		return sliceToTable(rv)
+		table := lua.CreateTable(rv.Len(), 0)
+		for i := 0; i < rv.Len(); i++ {
+			lval, err := GoToLua(rv.Index(i).Interface())
+			if err != nil {
+				return nil, fmt.Errorf("error converting slice/array element %d: %w", i, err)
+			}
+			table.RawSetInt(i+1, lval)
+		}
+		return table, nil
 
 	case reflect.Map:
 		if rv.IsNil() {
-			return newTable(0, 0), nil
+			// Return empty table for nil maps
+			return lua.CreateTable(0, 0), nil
 		}
-		return mapToTable(rv)
+
+		table := lua.CreateTable(0, rv.Len())
+		iter := rv.MapRange()
+		for iter.Next() {
+			key := iter.Key()
+			keyStr := fmt.Sprint(key.Interface())
+
+			lval, err := GoToLua(iter.Value().Interface())
+			if err != nil {
+				return nil, fmt.Errorf("error converting map value for key %s: %w", keyStr, err)
+			}
+			table.RawSetString(keyStr, lval)
+		}
+		return table, nil
 
 	case reflect.Struct:
-		return structToTable(rv)
+		typ := rv.Type()
+
+		fields := getStructFields(typ)
+		table := lua.CreateTable(0, len(fields))
+		for _, field := range fields {
+			fieldValue := rv.Field(field.index)
+			var lval lua.LValue
+			var err error
+
+			switch fieldValue.Kind() {
+			case reflect.Map:
+				if fieldValue.IsNil() {
+					lval = lua.CreateTable(0, 0) // Empty table for nil maps
+					err = nil
+				} else {
+					lval, err = GoToLua(fieldValue.Interface())
+				}
+			case reflect.Ptr, reflect.Slice, reflect.Interface:
+				if fieldValue.IsNil() {
+					lval = lua.LNil // Explicit nil for other nil fields
+					err = nil
+				} else {
+					lval, err = GoToLua(fieldValue.Interface())
+				}
+			case reflect.Invalid,
+				reflect.Bool,
+				reflect.Int,
+				reflect.Int8,
+				reflect.Int16,
+				reflect.Int32,
+				reflect.Int64,
+				reflect.Uint,
+				reflect.Uint8,
+				reflect.Uint16,
+				reflect.Uint32,
+				reflect.Uint64,
+				reflect.Uintptr,
+				reflect.Float32,
+				reflect.Float64,
+				reflect.Complex64,
+				reflect.Complex128,
+				reflect.Array,
+				reflect.Chan,
+				reflect.Func,
+				reflect.String,
+				reflect.Struct,
+				reflect.UnsafePointer:
+				// FIXME rework on demand
+				fallthrough
+
+			default:
+				lval, err = GoToLua(fieldValue.Interface())
+			}
+
+			if err != nil {
+				return nil, fmt.Errorf("error converting struct field %s: %w", field.name, err)
+			}
+
+			table.RawSetString(field.name, lval)
+		}
+		return table, nil
 
 	case reflect.Invalid,
 		reflect.Bool,
@@ -227,99 +259,4 @@ func GoToLua(v any) (lua.LValue, error) {
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}
-}
-
-func newTable(acap, hcap int) *lua.LTable {
-	tb := &lua.LTable{
-		Metatable: lua.LNil,
-		Immutable: false,
-	}
-	if acap > 0 {
-		tb.Array = make([]lua.LValue, 0, acap)
-	}
-	if hcap > 0 {
-		tb.Strdict = make(map[string]lua.LValue, hcap)
-	}
-	return tb
-}
-
-func sliceToTable(rv reflect.Value) (lua.LValue, error) {
-	length := rv.Len()
-	table := newTable(length, 0)
-
-	if length > 0 {
-		table.Array = make([]lua.LValue, length)
-		for i := 0; i < length; i++ {
-			lval, err := GoToLua(rv.Index(i).Interface())
-			if err != nil {
-				return nil, fmt.Errorf("error converting slice element %d: %w", i, err)
-			}
-			table.Array[i] = lval
-		}
-	}
-
-	return table, nil
-}
-
-func mapToTable(rv reflect.Value) (lua.LValue, error) {
-	length := rv.Len()
-	table := newTable(0, length)
-
-	if length > 0 {
-		table.Strdict = make(map[string]lua.LValue, length)
-		iter := rv.MapRange()
-		for iter.Next() {
-			key := iter.Key()
-			keyStr := fmt.Sprint(key.Interface())
-
-			lval, err := GoToLua(iter.Value().Interface())
-			if err != nil {
-				return nil, fmt.Errorf("error converting map value for key %s: %w", keyStr, err)
-			}
-			table.Strdict[keyStr] = lval
-		}
-	}
-
-	return table, nil
-}
-
-func structToTable(rv reflect.Value) (lua.LValue, error) {
-	typ := rv.Type()
-	fields := getStructFields(typ)
-
-	table := newTable(0, len(fields))
-	if len(fields) > 0 {
-		table.Strdict = make(map[string]lua.LValue, len(fields))
-
-		for _, field := range fields {
-			fieldValue := rv.Field(field.index)
-			var lval lua.LValue
-			var err error
-
-			switch fieldValue.Kind() {
-			case reflect.Map:
-				if fieldValue.IsNil() {
-					lval = newTable(0, 0)
-				} else {
-					lval, err = GoToLua(fieldValue.Interface())
-				}
-			case reflect.Ptr, reflect.Slice, reflect.Interface:
-				if fieldValue.IsNil() {
-					lval = lua.LNil
-				} else {
-					lval, err = GoToLua(fieldValue.Interface())
-				}
-			default:
-				lval, err = GoToLua(fieldValue.Interface())
-			}
-
-			if err != nil {
-				return nil, fmt.Errorf("error converting struct field %s: %w", field.name, err)
-			}
-
-			table.Strdict[field.name] = lval
-		}
-	}
-
-	return table, nil
 }
