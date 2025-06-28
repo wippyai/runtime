@@ -264,7 +264,7 @@ func TestJsonModule(t *testing.T) {
 					local value, err = json.encode(t)
 					return value, err
 				`,
-				expectedError: "cannot encode mixed or invalid key types",
+				expectedError: "table has both numeric and non-numeric keys",
 			},
 		}
 
