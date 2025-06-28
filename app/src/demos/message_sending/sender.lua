@@ -17,14 +17,14 @@ function handler()
     -- Set up inbox to receive response
     local inbox = process.inbox()
 
-    ---- Send message to target process
+    -- Send message to target process
     local ok = process.send("message_receiver", topic, {
         from = process.pid(),
         payload = message
     })
 
     if not ok then
-        res:set_status(http.STATUS.OK)
+        res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({
             success = false,
             error = "Failed to send message"
