@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"io"
 	"sync"
 	"testing"
@@ -188,7 +189,7 @@ func TestStreamLua(t *testing.T) {
 		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
 		ud.Value = luaStream
-		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+		l.SetMetatable(ud, value.GetTypeMetatable(nil, "Stream"))
 		l.SetGlobal("test_stream", ud)
 
 		script := `
@@ -230,7 +231,7 @@ func TestStreamLua(t *testing.T) {
 		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
 		ud.Value = luaStream
-		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+		l.SetMetatable(ud, value.GetTypeMetatable(nil, "Stream"))
 		l.SetGlobal("test_stream", ud)
 
 		script := `
@@ -275,7 +276,7 @@ func TestStreamLua(t *testing.T) {
 		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
 		ud.Value = luaStream
-		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+		l.SetMetatable(ud, value.GetTypeMetatable(nil, "Stream"))
 		l.SetGlobal("test_stream", ud)
 
 		script := `
@@ -304,7 +305,7 @@ func TestStreamLua(t *testing.T) {
 		luaStream2 := &LuaStream{Stream: stream2}
 		ud2 := l.NewUserData()
 		ud2.Value = luaStream2
-		l.SetMetatable(ud2, l.GetTypeMetatable("Stream"))
+		l.SetMetatable(ud2, value.GetTypeMetatable(nil, "Stream"))
 		l.SetGlobal("test_stream2", ud2)
 
 		script2 := `

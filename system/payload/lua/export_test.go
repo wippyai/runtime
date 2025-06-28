@@ -76,9 +76,14 @@ func TestExportLuaValue(t *testing.T) {
 		resultTable, ok := result.Data().(*lua.LTable)
 		assert.True(t, ok, "Result data is not a *lua.LTable")
 
-		// Verify that the table is now immutable (same object, but immutable)
-		assert.True(t, resultTable.Immutable, "Table should be immutable after export")
-		assert.Same(t, tbl, resultTable, "Table should be the same object, made immutable in-place")
+		// Verify that the table is mutable (deep copy creates new mutable table)
+		assert.False(t, resultTable.Immutable, "Deep copied table should be mutable")
+
+		// Original table should remain unchanged and mutable
+		assert.False(t, tbl.Immutable, "Original table should remain mutable")
+
+		// Result should be a different object (deep copy)
+		assert.NotSame(t, tbl, resultTable, "Result should be a deep copy, not the same object")
 
 		// Verify array part
 		assert.Equal(t, lua.LString("one"), resultTable.RawGetInt(1))
@@ -88,10 +93,10 @@ func TestExportLuaValue(t *testing.T) {
 		// Verify hash part
 		assert.Equal(t, lua.LString("test"), resultTable.RawGetString("name"))
 
-		// Verify nested table is also immutable
+		// Verify nested table is also mutable
 		nestedResult, ok := resultTable.RawGetString("nested").(*lua.LTable)
 		assert.True(t, ok, "Nested table should exist")
-		assert.True(t, nestedResult.Immutable, "Nested table should be immutable")
+		assert.False(t, nestedResult.Immutable, "Nested table should be mutable")
 		assert.Equal(t, lua.LString("value"), nestedResult.RawGetString("key"))
 	})
 
@@ -114,8 +119,11 @@ func TestExportLuaValue(t *testing.T) {
 		assert.Equal(t, lua.LString("ten"), resultTable.RawGetInt(10))
 		assert.Equal(t, lua.LString("value"), resultTable.RawGetString("key"))
 
-		// Verify immutability
-		assert.True(t, resultTable.Immutable, "Table should be immutable after export")
+		// Verify mutability of the copy
+		assert.False(t, resultTable.Immutable, "Deep copied table should be mutable")
+
+		// Original should remain mutable
+		assert.False(t, tbl.Immutable, "Original table should remain mutable")
 	})
 
 	t.Run("Deeply nested tables", func(t *testing.T) {
@@ -123,10 +131,10 @@ func TestExportLuaValue(t *testing.T) {
 		result := ExportPayload(original)
 		resultTable, _ := result.Data().(*lua.LTable)
 
-		// Check the deep nesting and immutability
+		// Check the deep nesting and mutability
 		current := resultTable
 		for depth := 5; depth > 0; depth-- {
-			assert.True(t, current.Immutable, "Table at depth %d should be immutable", depth)
+			assert.False(t, current.Immutable, "Deep copied table at depth %d should be mutable", depth)
 			assert.Equal(t, lua.LNumber(depth), current.RawGetString("value"))
 
 			if depth > 1 {
@@ -135,6 +143,9 @@ func TestExportLuaValue(t *testing.T) {
 				current = next
 			}
 		}
+
+		// Original should remain mutable
+		assert.False(t, original.Immutable, "Original table should remain mutable")
 	})
 
 	t.Run("Userdata handling", func(t *testing.T) {
@@ -164,8 +175,8 @@ func TestExportLuaValue(t *testing.T) {
 		// Userdata should be replaced with nil
 		assert.Equal(t, lua.LNil, resultTable.RawGetString("userdata"))
 
-		// Table should be immutable
-		assert.True(t, resultTable.Immutable, "Table should be immutable after export")
+		// Deep copied table should be mutable
+		assert.False(t, resultTable.Immutable, "Deep copied table should be mutable")
 	})
 
 	t.Run("Large table performance", func(t *testing.T) {
@@ -191,8 +202,8 @@ func TestExportLuaValue(t *testing.T) {
 		assert.Equal(t, lua.LNumber(1000), resultTable.RawGetInt(1000))
 		assert.Equal(t, lua.LNumber(750), resultTable.RawGetString("key_750"))
 
-		// Verify immutability
-		assert.True(t, resultTable.Immutable, "Large table should be immutable after export")
+		// Verify mutability
+		assert.False(t, resultTable.Immutable, "Deep copied large table should be mutable")
 	})
 
 	t.Run("Immutability enforcement", func(t *testing.T) {
@@ -203,12 +214,15 @@ func TestExportLuaValue(t *testing.T) {
 		result := ExportPayload(tbl)
 		resultTable, _ := result.Data().(*lua.LTable)
 
-		// Verify the table is immutable
-		assert.True(t, resultTable.Immutable, "Table should be immutable")
+		// Verify the table is mutable (deep copy)
+		assert.False(t, resultTable.Immutable, "Deep copied table should be mutable")
 
-		// Verify that attempting to modify fails (using direct field access to avoid panic)
+		// Verify that we can modify the deep copied table
 		success := resultTable.RawSetString("new_key", lua.LString("new_value"))
-		assert.False(t, success, "Setting new value on immutable table should fail")
+		assert.True(t, success, "Setting new value on mutable table should succeed")
+
+		// New value should be accessible
+		assert.Equal(t, lua.LString("new_value"), resultTable.RawGetString("new_key"))
 
 		// Original value should be unchanged
 		assert.Equal(t, lua.LString("value"), resultTable.RawGetString("key"))
@@ -236,8 +250,8 @@ func TestExportLuaValue(t *testing.T) {
 		assert.Equal(t, lua.LNumber(42), nestedResult.RawGetString("nested_normal"))
 		assert.Equal(t, lua.LNil, nestedResult.RawGetString("nested_userdata"))
 
-		// All tables should be immutable
-		assert.True(t, resultTable.Immutable)
-		assert.True(t, nestedResult.Immutable)
+		// All deep copied tables should be mutable
+		assert.False(t, resultTable.Immutable)
+		assert.False(t, nestedResult.Immutable)
 	})
 }

@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"net/http"
 	"sync"
 	"time"
@@ -238,7 +239,7 @@ func wsConnect(l *lua.LState) int {
 	// Spawn userdata and set metatable.
 	ud := l.NewUserData()
 	ud.Value = &LuaWSClient{client: client}
-	l.SetMetatable(ud, l.GetTypeMetatable("websocket.Client"))
+	ud.Metatable = value.GetTypeMetatable(nil, "websocket.Client")
 	l.Push(ud)
 	return 1
 }
