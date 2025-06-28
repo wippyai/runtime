@@ -14,30 +14,32 @@ import (
 
 // taskCoordinator implements the Tasks interface for coroutine coordination
 type taskCoordinator struct {
-	updates   chan *Update  // Channel for task updates
-	wakeup    chan struct{} // Signal channel for wake-up notifications
-	taskCount atomic.Int32  // Counter for external activities, usually counting blocked channels
-	wakeCount atomic.Int32  // Counter for wake-up signals
-	updCount  atomic.Int32  // Counter for sent updates and internal updates
-	awaken    atomic.Bool   // Flag indicating if wake-up has been signaled
+	updates   chan *Update // Channel for task updates
+	cond      *sync.Cond   // Condition variable for wake-up notifications
+	taskCount atomic.Int32 // Counter for external activities, usually counting blocked channels
+	updCount  atomic.Int32 // Counter for sent updates and internal updates
+	awaken    atomic.Bool  // Flag indicating if wake-up has been signaled
 
 	wmu        sync.Mutex // Mutex for scheduled functions
 	wakeupFunc func()     // Function to call on wake-up
 
 	// For scheduling arbitrary functions to execute during Wait
-	smu         sync.Mutex // Mutex for scheduled functions
-	scheduled   *list.List // List of scheduled functions
-	undelivered atomic.Bool
+	smu             sync.Mutex // Mutex for scheduled functions
+	scheduled       *list.List // Active list where Schedule() adds functions
+	scheduledBackup *list.List // Backup list for swapping (always empty when swapped to)
+	undelivered     atomic.Bool
 }
 
 // newTaskCoordinator creates a new task coordinator with specified buffer size
 // and optional wakeup function
 func newTaskCoordinator(bufferSize int, wakeupFunc func()) *taskCoordinator {
+	condMu := &sync.Mutex{}
 	return &taskCoordinator{
-		updates:    make(chan *Update, bufferSize),
-		wakeup:     make(chan struct{}, bufferSize),
-		wakeupFunc: wakeupFunc,
-		scheduled:  list.New(),
+		updates:         make(chan *Update, bufferSize),
+		cond:            sync.NewCond(condMu),
+		wakeupFunc:      wakeupFunc,
+		scheduled:       list.New(),
+		scheduledBackup: list.New(),
 	}
 }
 
@@ -87,9 +89,10 @@ func (t *taskCoordinator) executeScheduled() {
 			return
 		}
 
-		// Take the current list and replace with a new one
+		// Swap lists instead of creating new one - avoid 1.85GB allocation
 		funcs := t.scheduled
-		t.scheduled = list.New()
+		t.scheduled = t.scheduledBackup // scheduledBackup is always empty when we swap to it
+		t.scheduledBackup = funcs       // Will be cleared after execution
 		t.smu.Unlock()
 
 		// Execute all scheduled functions
@@ -98,6 +101,9 @@ func (t *taskCoordinator) executeScheduled() {
 				fn()
 			}
 		}
+
+		// Clear the backup list for next iteration (maintains invariant: scheduledBackup is always empty)
+		t.scheduledBackup.Init()
 	}
 }
 
@@ -105,12 +111,7 @@ func (t *taskCoordinator) executeScheduled() {
 // This is thread-safe and can be called from any goroutine
 func (t *taskCoordinator) WakeUp() {
 	if t.awaken.CompareAndSwap(false, true) {
-		t.wakeCount.Add(1)
-		select {
-		case t.wakeup <- struct{}{}:
-		default:
-			t.wakeCount.Add(^int32(0))
-		}
+		t.cond.Signal()
 	}
 
 	t.wmu.Lock()
@@ -141,7 +142,7 @@ func (t *taskCoordinator) Blocked() int {
 
 // Ready returns the number of tasks that are currently ready to be processed
 func (t *taskCoordinator) Ready() int {
-	ready := int(t.updCount.Load() + t.wakeCount.Load())
+	ready := int(t.updCount.Load())
 	if t.undelivered.Load() {
 		// this flag is true until executeScheduled is called with empty list
 		ready++
@@ -170,28 +171,38 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 				block = false
 				continue
 
-			case <-t.wakeup:
-				t.wakeCount.Add(^int32(0))
-				t.awaken.Store(false)
-				block = false
-				continue
-
 			case <-ctx.Done():
 				return nil, ctx.Err()
+
+			default:
+				// No updates available, wait for signal
+				t.cond.L.Lock()
+				// Check context again before waiting
+				select {
+				case <-ctx.Done():
+					t.cond.L.Unlock()
+					return nil, ctx.Err()
+				default:
+				}
+
+				// Wait for signal, but only if we're still supposed to be awake
+				if !t.awaken.Load() {
+					t.cond.Wait()
+				}
+				t.awaken.Store(false)
+				t.cond.L.Unlock()
+				block = false
+				continue
 			}
 		}
 
-		// Non-blocking check for more updates or threads
+		// Non-blocking check for more updates
 		select {
 		case upd := <-t.updates:
 			t.updCount.Add(^int32(0))
 			if upd != nil {
 				updates = append(updates, upd)
 			}
-
-		case <-t.wakeup:
-			t.wakeCount.Add(^int32(0))
-			t.awaken.Store(false)
 		default:
 			return updates, nil
 		}
@@ -207,11 +218,11 @@ func (t *taskCoordinator) clean() {
 	}
 
 	t.taskCount.Store(0)
-	t.wakeCount.Store(0)
 
 	// Clean up scheduled functions
 	t.smu.Lock()
-	t.scheduled.Init() // Reinitialize the list
+	t.scheduled.Init()       // Reinitialize the active list
+	t.scheduledBackup.Init() // Reinitialize the backup list
 	t.smu.Unlock()
 
 	// Drain channels
@@ -219,10 +230,8 @@ func (t *taskCoordinator) clean() {
 		select {
 		case <-t.updates:
 			// Drain updates channel
-		case <-t.wakeup:
-			// Drain wakeup channel
 		default:
-			// Both channels empty, exit loop
+			// Channel empty, exit loop
 			return
 		}
 	}
@@ -237,18 +246,14 @@ func (t *taskCoordinator) reset() {
 
 	// Reset all atomic counters
 	t.taskCount.Store(0)
-	t.wakeCount.Store(0)
 	t.updCount.Store(0)
 	t.awaken.Store(false)
 	t.undelivered.Store(false)
 
-	// Recreate channels
-	//t.updates = make(chan *Update, cap(t.updates))
-	//t.wakeup = make(chan struct{}, cap(t.wakeup))
-
-	// Reset scheduled functions and wake up list
+	// Reset scheduled functions lists
 	t.smu.Lock()
 	t.scheduled.Init()
+	t.scheduledBackup.Init()
 	t.smu.Unlock()
 }
 

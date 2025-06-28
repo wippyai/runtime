@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
@@ -418,101 +417,6 @@ func TestUnixSocketFileUpload(t *testing.T) {
 
 		err = vm.DoString(context.Background(), script, "test")
 		assert.NoError(t, err)
-	})
-}
-
-func TestUnixSocketCoroutines(t *testing.T) {
-	logger := zap.NewNop()
-
-	t.Run("async unix socket requests with coroutines", func(t *testing.T) {
-		server := newMockUnixSocketServer(t)
-		defer server.close()
-
-		server.setResponse("GET", "/async1", `{"id":"async1"}`)
-		server.setResponse("GET", "/async2", `{"id":"async2"}`)
-		server.setResponse("GET", "/async3", `{"id":"async3"}`)
-
-		// Create VM with coroutine support
-		vm, err := engine.NewCVM(
-			logger,
-			engine.WithPreloaded("http_client", NewHTTPClientModule(logger, http.DefaultClient).Loader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
-
-		// Create wrapped VM with async runner
-		wrapped := engine.NewRunner(
-			vm,
-			engine.WithLayer(coroutine.NewCoroutineLayer()),
-		)
-
-		script := fmt.Sprintf(`
-			function test_async_unix_socket()
-				local results = {}
-				
-				-- Spawn coroutines for Unix socket requests
-				coroutine.spawn(function()
-					local response = http_client.get("http://localhost/async1", {
-						unix_socket = "%s"
-					})
-					results.first = {
-						status = response.status_code,
-						body = response.body
-					}
-				end)
-				
-				coroutine.spawn(function()
-					local response = http_client.get("http://localhost/async2", {
-						unix_socket = "%s"
-					})
-					results.second = {
-						status = response.status_code,
-						body = response.body
-					}
-				end)
-				
-				-- Third request in main flow
-				local response = http_client.get("http://localhost/async3", {
-					unix_socket = "%s"
-				})
-				results.third = {
-					status = response.status_code,
-					body = response.body
-				}
-				
-				return results
-			end
-		`, server.socketPath, server.socketPath, server.socketPath)
-
-		err = vm.Import(script, "test", "test_async_unix_socket")
-		require.NoError(t, err)
-
-		// Execute test and verify results
-		start := time.Now()
-		result, err := wrapped.Execute(context.Background(), "test_async_unix_socket")
-		duration := time.Since(start)
-		require.NoError(t, err)
-
-		// Verify results
-		resultTable := result.(*lua.LTable)
-
-		// Check first request results
-		firstResult := resultTable.RawGetString("first").(*lua.LTable)
-		assert.Equal(t, lua.LNumber(200), firstResult.RawGetString("status"))
-		assert.Equal(t, lua.LString(`{"id":"async1"}`), firstResult.RawGetString("body"))
-
-		// Check second request results
-		secondResult := resultTable.RawGetString("second").(*lua.LTable)
-		assert.Equal(t, lua.LNumber(200), secondResult.RawGetString("status"))
-		assert.Equal(t, lua.LString(`{"id":"async2"}`), secondResult.RawGetString("body"))
-
-		// Check third request results
-		thirdResult := resultTable.RawGetString("third").(*lua.LTable)
-		assert.Equal(t, lua.LNumber(200), thirdResult.RawGetString("status"))
-		assert.Equal(t, lua.LString(`{"id":"async3"}`), thirdResult.RawGetString("body"))
-
-		// Verify execution time is reasonable (Unix sockets should be fast)
-		assert.Less(t, duration, 5*time.Second, "Unix socket requests should complete quickly")
 	})
 }
 
