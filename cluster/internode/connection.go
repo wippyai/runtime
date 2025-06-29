@@ -307,14 +307,9 @@ func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte))
 		default:
 		}
 
-		msg, poolBuf, err := readFrame(reader, c.config.MaxMessageSize)
+		msg, err := readFrame(reader, c.config.MaxMessageSize)
 
 		if err != nil {
-			// Return pool buffer on error
-			if poolBuf != nil {
-				bufferPool.Put(poolBuf)
-			}
-
 			if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "use of closed network connection") {
 				// The connection was closed. Check if it was because of our own context.
 				select {
@@ -336,13 +331,8 @@ func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte))
 			return &ConnectionError{Reason: ExitNetworkError, Err: err}
 		}
 
-		// Call handler - must use data immediately as it may be from pool
+		// Call handler without logging - this is hot path
 		handler(msg)
-
-		// Return pool buffer after handler completes
-		if poolBuf != nil {
-			bufferPool.Put(poolBuf)
-		}
 	}
 }
 
@@ -375,52 +365,53 @@ func writeFrame(w io.Writer, data []byte) error {
 	return nil
 }
 
-// readFrame reads a framed message from the reader, returning both the message data
-// and an optional pool buffer that must be returned after use.
-// Returns: (message_data, pool_buffer_reference, error)
-// If pool_buffer_reference is non-nil, caller MUST return it to bufferPool.
-func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, *[]byte, error) {
+// readFrame reads a framed message from the reader, validating protocol version and message size.
+func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
 	var header [frameHeaderSize]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if header[0] != protocolVersion {
-		return nil, nil, protocolError(fmt.Sprintf("unexpected protocol version %d", header[0]))
+		return nil, protocolError(fmt.Sprintf("unexpected protocol version %d", header[0]))
 	}
 	size := binary.LittleEndian.Uint32(header[1:])
 	if size > maxMessageSize {
-		return nil, nil, fmt.Errorf("%w: message size %d exceeds max %d", ErrMessageTooLarge, size, maxMessageSize)
+		return nil, fmt.Errorf("%w: message size %d exceeds max %d", ErrMessageTooLarge, size, maxMessageSize)
 	}
 
 	if size == 0 {
-		return []byte{}, nil, nil
+		return []byte{}, nil
 	}
 
+	var msg []byte
 	bp := bufferPool.Get().(*[]byte)
 
 	// Check for potential integer overflow before casting to uint32
 	bufCap := cap(*bp)
 	if bufCap > math.MaxUint32 {
+		// This shouldn't happen in practice, but handle it safely
 		bufCap = math.MaxUint32
 	}
 
 	if size > uint32(bufCap) {
-		// Message larger than pool buffer, allocate directly and return pool buffer
-		bufferPool.Put(bp)
-		msg := make([]byte, size)
-		if _, err := io.ReadFull(r, msg); err != nil {
-			return nil, nil, err
-		}
-		return msg, nil, nil // No pool buffer to return
+		msg = make([]byte, size)
+	} else {
+		msg = (*bp)[:size]
 	}
 
-	// Use pool buffer directly
-	msg := (*bp)[:size]
 	if _, err := io.ReadFull(r, msg); err != nil {
 		bufferPool.Put(bp)
-		return nil, nil, err
+		return nil, err
 	}
 
-	// Return buffer data and pool reference - caller owns pool lifecycle
-	return msg, bp, nil
+	// If it's from the pool, we must copy it.
+	if &msg[0] == &(*bp)[0] {
+		data := make([]byte, size)
+		copy(data, msg)
+		bufferPool.Put(bp)
+		return data, nil
+	}
+
+	// It was a large message allocated on its own.
+	return msg, nil
 }
