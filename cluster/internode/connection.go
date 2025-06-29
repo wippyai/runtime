@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -35,8 +36,11 @@ const (
 	ExitPeerClosed
 )
 
+// String returns a human-readable representation of the ExitReason.
 func (er ExitReason) String() string {
 	switch er {
+	case ExitUnknown:
+		return "UNKNOWN"
 	case ExitCleanShutdown:
 		return "CLEAN_SHUTDOWN"
 	case ExitNetworkError:
@@ -51,23 +55,31 @@ func (er ExitReason) String() string {
 }
 
 // ConnectionError is a structured error returned by a connection's Run loop.
+// It provides both the reason for termination and the underlying error.
 type ConnectionError struct {
 	Reason ExitReason
 	Err    error
 }
 
+// Error implements the error interface.
 func (ce *ConnectionError) Error() string {
 	if ce.Err != nil {
 		return fmt.Sprintf("%s: %v", ce.Reason, ce.Err)
 	}
 	return ce.Reason.String()
 }
+
+// Unwrap returns the underlying error for error wrapping support.
 func (ce *ConnectionError) Unwrap() error { return ce.Err }
+
+// ShouldRetry determines whether the connection should be retried based on the exit reason.
 func (ce *ConnectionError) ShouldRetry() bool {
 	switch ce.Reason {
 	case ExitNetworkError, ExitPeerClosed:
 		return true
 	case ExitCleanShutdown, ExitProtocolError:
+		return false
+	case ExitUnknown:
 		return false
 	default:
 		return false
@@ -105,7 +117,8 @@ type NodeConnectionConfig struct {
 	MaxMessageSize   uint32
 }
 
-// DefaultNodeConnectionConfig returns a default set of configuration.
+// DefaultNodeConnectionConfig returns a default set of configuration parameters
+// for NodeConnection with reasonable timeout and size limits.
 func DefaultNodeConnectionConfig() NodeConnectionConfig {
 	return NodeConnectionConfig{
 		HandshakeTimeout: 5 * time.Second,
@@ -114,6 +127,7 @@ func DefaultNodeConnectionConfig() NodeConnectionConfig {
 }
 
 // NodeConnection represents a single, framed, and optimized TCP connection to another node.
+// It provides message queuing, batching, and lifecycle management for internode communication.
 type NodeConnection struct {
 	conn       net.Conn
 	logger     *zap.Logger
@@ -145,6 +159,7 @@ func newNodeConnection(conn net.Conn, remoteNode cluster.NodeID, config NodeConn
 }
 
 // Run starts the connection's read/write loops and blocks until termination.
+// It returns a ConnectionError indicating the reason for termination.
 func (c *NodeConnection) Run(handler func(msg []byte)) *ConnectionError {
 	c.lifecycleMu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -191,6 +206,7 @@ func (c *NodeConnection) Run(handler func(msg []byte)) *ConnectionError {
 }
 
 // Send enqueues a message for delivery. It is non-blocking and safe for concurrent use.
+// Returns ErrConnectionClosed if the connection has been closed.
 func (c *NodeConnection) Send(data []byte) error {
 	if c.closed.Load() {
 		return ErrConnectionClosed
@@ -208,7 +224,7 @@ func (c *NodeConnection) Send(data []byte) error {
 	return nil
 }
 
-// Close terminates the connection.
+// Close terminates the connection gracefully and cancels all ongoing operations.
 func (c *NodeConnection) Close() {
 	if c.closed.CompareAndSwap(false, true) {
 		c.lifecycleMu.Lock()
@@ -220,12 +236,13 @@ func (c *NodeConnection) Close() {
 	}
 }
 
-// RemoteNodeID returns the identifier of the connected peer.
+// RemoteNodeID returns the identifier of the connected peer node.
 func (c *NodeConnection) RemoteNodeID() cluster.NodeID {
 	return c.remoteNode
 }
 
 // ExtractPendingMessages returns all messages that were queued but not yet sent.
+// This is useful for message recovery during connection failures.
 func (c *NodeConnection) ExtractPendingMessages() [][]byte {
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
@@ -319,14 +336,24 @@ func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte))
 	}
 }
 
+// protocolError represents an error in the internode communication protocol.
 type protocolError string
 
+// Error implements the error interface for protocolError.
 func (e protocolError) Error() string { return "protocol error: " + string(e) }
 
+// writeFrame writes a framed message to the writer with protocol version and length prefix.
 func writeFrame(w io.Writer, data []byte) error {
 	var header [frameHeaderSize]byte
 	header[0] = protocolVersion
-	binary.LittleEndian.PutUint32(header[1:], uint32(len(data)))
+
+	// Check for potential integer overflow before casting to uint32
+	dataLen := len(data)
+	if dataLen > math.MaxUint32 {
+		return fmt.Errorf("message too large: %d bytes exceeds maximum uint32", dataLen)
+	}
+
+	binary.LittleEndian.PutUint32(header[1:], uint32(dataLen))
 	if _, err := w.Write(header[:]); err != nil {
 		return err
 	}
@@ -338,6 +365,7 @@ func writeFrame(w io.Writer, data []byte) error {
 	return nil
 }
 
+// readFrame reads a framed message from the reader, validating protocol version and message size.
 func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
 	var header [frameHeaderSize]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
@@ -357,7 +385,15 @@ func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
 
 	var msg []byte
 	bp := bufferPool.Get().(*[]byte)
-	if size > uint32(cap(*bp)) {
+
+	// Check for potential integer overflow before casting to uint32
+	bufCap := cap(*bp)
+	if bufCap > math.MaxUint32 {
+		// This shouldn't happen in practice, but handle it safely
+		bufCap = math.MaxUint32
+	}
+
+	if size > uint32(bufCap) {
 		msg = make([]byte, size)
 	} else {
 		msg = (*bp)[:size]

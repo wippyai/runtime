@@ -28,12 +28,13 @@ type encodedMessage struct {
 
 // encodedPackage is a gob-friendly representation of a pubsub.Package.
 type encodedPackage struct {
-	Source   pubsub.PID // FIXED: Added missing Source field
-	Target   pubsub.PID // FIXED: Added missing Target field
+	Source   pubsub.PID
+	Target   pubsub.PID
 	Messages []*encodedMessage
 }
 
-// MessageCodec handles Package <-> bytes conversion.
+// MessageCodec handles Package <-> bytes conversion using gob encoding
+// with optimizations for pool reuse and payload normalization.
 type MessageCodec struct {
 	transcoder payload.Transcoder
 	bufferPool sync.Pool // Pool for reusing bytes.Buffer to reduce allocations.
@@ -88,7 +89,6 @@ func (c *MessageCodec) Encode(pkg *pubsub.Package) ([]byte, error) {
 		c.encPkgPool.Put(encPkg)
 	}()
 
-	// FIXED: Copy Source and Target PIDs
 	encPkg.Source = pkg.Source
 	encPkg.Target = pkg.Target
 
@@ -152,8 +152,8 @@ func (c *MessageCodec) Decode(data []byte) (*pubsub.Package, error) {
 	}
 
 	finalPkg := &pubsub.Package{
-		Source:   encPkg.Source, // FIXED: Restore Source PID
-		Target:   encPkg.Target, // FIXED: Restore Target PID
+		Source:   encPkg.Source,
+		Target:   encPkg.Target,
 		Messages: make([]*pubsub.Message, len(encPkg.Messages)),
 	}
 
@@ -173,14 +173,17 @@ func (c *MessageCodec) Decode(data []byte) (*pubsub.Package, error) {
 }
 
 // normalizePayload ensures a payload's data is in a gob-safe format.
+// It converts complex payload formats to JSON for reliable serialization.
 func (c *MessageCodec) normalizePayload(p payload.Payload) (payload.Payload, error) {
 	switch p.Format() {
 	case payload.Golang, payload.String, payload.Bytes, payload.Error:
 		// These types are native or simple enough for gob to handle.
 		return p, nil
+	case payload.JSON, payload.YAML, payload.Lua:
+		// For these formats, convert to our universal, simple format (a JSON string).
+		return c.transcoder.Transcode(p, payload.JSON)
 	default:
-		// For anything else (Lua, YAML, etc.), convert it to our universal,
-		// simple format (a JSON string).
+		// For any other unknown formats, convert to JSON as well.
 		return c.transcoder.Transcode(p, payload.JSON)
 	}
 }

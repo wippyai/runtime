@@ -12,6 +12,7 @@ test:
 	go test ./api/... -v -race
 	go test ./system/... -v -race
 	go test ./service/... -v -race
+	go test ./cluster/... -v -race
 	go test --tags "fts5 sqlite_vec" ./runtime/... -v -race
 
 test-system:
@@ -28,6 +29,11 @@ test-service:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race
 	go test ./service/... -v -race
+
+test-cluster:
+	go test ./internal/... -v -race
+	go test ./api/... -v -race
+	go test ./cluster/... -v -race
 
 debug_vm:
 	dlv test --build-flags "--tags=fts5,sqlite_vec" -- test.v -test.run="^TestVM\$"

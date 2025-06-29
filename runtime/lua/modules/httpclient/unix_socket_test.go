@@ -21,6 +21,7 @@ import (
 )
 
 // mockUnixSocketServer creates a mock HTTP server listening on a Unix socket
+// for testing HTTP client functionality over Unix domain sockets.
 type mockUnixSocketServer struct {
 	socketPath string
 	listener   net.Listener
@@ -28,6 +29,8 @@ type mockUnixSocketServer struct {
 	responses  map[string]string
 }
 
+// newMockUnixSocketServer creates and starts a new mock Unix socket server
+// for testing purposes. The server listens on a temporary Unix socket.
 func newMockUnixSocketServer(t *testing.T) *mockUnixSocketServer {
 	// Create temporary socket file
 	tmpDir := t.TempDir()
@@ -50,7 +53,10 @@ func newMockUnixSocketServer(t *testing.T) *mockUnixSocketServer {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", mock.handleRequest)
 
-	mock.server = &http.Server{Handler: mux}
+	mock.server = &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 
 	// Start server in background
 	go func() {
@@ -60,6 +66,8 @@ func newMockUnixSocketServer(t *testing.T) *mockUnixSocketServer {
 	return mock
 }
 
+// handleRequest processes HTTP requests and returns configured responses
+// based on the method and path combination.
 func (m *mockUnixSocketServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	key := fmt.Sprintf("%s %s", r.Method, r.URL.Path)
 
@@ -72,13 +80,17 @@ func (m *mockUnixSocketServer) handleRequest(w http.ResponseWriter, r *http.Requ
 				case "404":
 					w.WriteHeader(http.StatusNotFound)
 					if len(parts) == 3 {
-						w.Write([]byte(parts[2]))
+						if _, err := w.Write([]byte(parts[2])); err != nil {
+							return
+						}
 					}
 					return
 				case "500":
 					w.WriteHeader(http.StatusInternalServerError)
 					if len(parts) == 3 {
-						w.Write([]byte(parts[2]))
+						if _, err := w.Write([]byte(parts[2])); err != nil {
+							return
+						}
 					}
 					return
 				}
@@ -87,18 +99,24 @@ func (m *mockUnixSocketServer) handleRequest(w http.ResponseWriter, r *http.Requ
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(response))
+		if _, err := w.Write([]byte(response)); err != nil {
+			return
+		}
 	} else {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(`{"error":"not found"}`))
+		if _, err := w.Write([]byte(`{"error":"not found"}`)); err != nil {
+			return
+		}
 	}
 }
 
+// setResponse configures a mock response for a specific HTTP method and path.
 func (m *mockUnixSocketServer) setResponse(method, path, response string) {
 	key := fmt.Sprintf("%s %s", method, path)
 	m.responses[key] = response
 }
 
+// close shuts down the mock server and cleans up resources including the socket file.
 func (m *mockUnixSocketServer) close() {
 	if m.server != nil {
 		_ = m.server.Close()
