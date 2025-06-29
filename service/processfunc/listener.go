@@ -148,7 +148,7 @@ func (l *Listener) createProcessHandler(processID registry.ID, hostID pubsub.Hos
 			Host:   topology.ControlHost,
 			ID:     registry.ID{Name: "pfunc"},
 			UniqID: l.uniqID.Generate(),
-		}
+		}.WithCachedString()
 
 		// Create monitor channel for process events
 		monitorCh := make(chan *pubsub.Package, 1)

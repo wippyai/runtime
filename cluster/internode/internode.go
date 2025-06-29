@@ -12,14 +12,14 @@ import (
 	"go.uber.org/zap"
 )
 
-type MessageDeliveryCallback func(*pubsub.Package) error
+type PackageCallback func(*pubsub.Package) error
 
 type Service struct {
 	ctx              context.Context
 	logger           *zap.Logger
 	connMan          ConnectionManager
 	codec            *MessageCodec
-	deliveryCallback MessageDeliveryCallback
+	deliveryCallback PackageCallback
 	bus              event.Bus
 	membership       cluster.Membership
 	subscriber       *eventbus.Subscriber
@@ -29,7 +29,7 @@ func NewService(
 	logger *zap.Logger,
 	connMan ConnectionManager,
 	codec *MessageCodec,
-	deliveryCallback MessageDeliveryCallback,
+	pkgCallback PackageCallback,
 	bus event.Bus,
 	membership cluster.Membership,
 ) *Service {
@@ -37,7 +37,7 @@ func NewService(
 		logger:           logger.Named("internode"),
 		connMan:          connMan,
 		codec:            codec,
-		deliveryCallback: deliveryCallback,
+		deliveryCallback: pkgCallback,
 		bus:              bus,
 		membership:       membership,
 	}

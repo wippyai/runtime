@@ -18,7 +18,7 @@ function handler()
     local inbox = process.inbox()
 
     -- Send message to target process
-    local ok = process.send("message_receiver", topic, {
+    local ok = process.send("{node2@system:processes|app.demos.message_sending:message.process|0x00002}", topic, {
         from = process.pid(),
         payload = message
     })
@@ -55,7 +55,7 @@ function handler()
         success = true,
         topic = topic,
         message_sent = message,
-        response = result.value:payload():data() -- cos of inbox semantics
+        response = result.value:payload():data()
     })
 end
 

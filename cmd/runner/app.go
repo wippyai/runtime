@@ -259,7 +259,7 @@ func (a *App) initClusterMesh() error {
 
 	// The delivery callback for the internode service passes incoming packages
 	// to the local node for final delivery.
-	deliveryCallback := func(pkg *pubsubapi.Package) error {
+	pkgCallback := func(pkg *pubsubapi.Package) error {
 		return localNode.Send(pkg)
 	}
 
@@ -268,7 +268,7 @@ func (a *App) initClusterMesh() error {
 		a.logger,
 		a.connManager,
 		a.messageCodec,
-		deliveryCallback,
+		pkgCallback,
 		a.eventBus,
 		a.membership,
 	)

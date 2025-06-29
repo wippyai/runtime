@@ -144,7 +144,7 @@ func (m *Manager) createHandler(processID registry.ID, hostID pubsub.HostID) fun
 			Host:   topology.ControlHost,
 			ID:     registry.ID{Name: "processfunc"},
 			UniqID: callerUniqID,
-		}
+		}.WithCachedString()
 
 		// Create monitor channel for process events
 		monitorCh := make(chan *pubsub.Package, 1)

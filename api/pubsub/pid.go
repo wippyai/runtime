@@ -36,12 +36,19 @@ type PID struct {
 	ID registry.ID `json:"id"`
 	// UniqID contains a unique instance identifier
 	UniqID string `json:"uniq_id"`
+
+	// Internal cached string representation
+	cachedString string
 }
 
 // String formats the PID as a pipe-delimited string wrapped in curly braces.
 // Without a node it looks like: "{host|ns:name|procname}"
 // With a node it looks like: "{node@host|ns:name|procname}"
 func (p PID) String() string {
+	if p.cachedString != "" {
+		return p.cachedString
+	}
+
 	b := builderPool.Get().(*strings.Builder)
 	b.Reset()
 	defer builderPool.Put(b)
@@ -68,6 +75,21 @@ func (p PID) String() string {
 	b.WriteByte('}')
 
 	return b.String()
+}
+
+// WithCachedString returns a new PID with a cached string representation for faster lookups.
+func (p PID) WithCachedString() PID {
+	newPID := PID{
+		Node:   p.Node,
+		Host:   p.Host,
+		ID:     p.ID,
+		UniqID: p.UniqID,
+	}
+
+	// Cache the string representation
+	newPID.cachedString = newPID.String()
+
+	return newPID
 }
 
 // ParsePID parses a pipe-delimited string wrapped in curly braces into a PID.
@@ -107,7 +129,7 @@ func ParsePID(s string) (PID, error) {
 	pid.ID = registry.ParseID(s[pipe1+1 : pipe2])
 	pid.UniqID = s[pipe2+1:]
 
-	return pid, nil
+	return pid.WithCachedString(), nil
 }
 
 // MarshalJSON implements the json.Marshaler interface
@@ -118,30 +140,14 @@ func (p PID) MarshalJSON() ([]byte, error) {
 
 	// Pre-allocate capacity
 	b.Grow(len(p.Host) + len(p.UniqID) + len(p.Node) + len(string(p.ID.NS)) + len(string(p.ID.Name)) + 34)
-
 	b.WriteByte('"')
-	b.WriteByte('{')
-
-	if p.Node != "" {
-		b.WriteString(p.Node)
-		b.WriteByte('@')
-	}
-
-	b.WriteString(p.Host)
-	b.WriteByte('|')
-	b.WriteString(string(p.ID.NS))
-	b.WriteByte(':')
-	b.WriteString(string(p.ID.Name))
-
-	b.WriteByte('|')
-	b.WriteString(p.UniqID)
-	b.WriteByte('}')
+	b.WriteString(p.String())
 	b.WriteByte('"')
 
-	// Safe conversion to []byte
 	str := b.String()
 	result := make([]byte, len(str))
 	copy(result, str)
+
 	return result, nil
 }
 

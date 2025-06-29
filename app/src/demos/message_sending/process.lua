@@ -41,9 +41,9 @@ local function run()
             end
 
             if type(msg) == "table" and msg.from then
-                process.send(msg.from, "response", {
+                process.send(msg.from, "response",
                     response_message .. " (Original message: " .. inspect_table(msg.payload) .. ")"
-                })
+                )
             end
         end,
 
@@ -55,10 +55,10 @@ local function run()
         -- Default handler for any other topics via inbox
         __default = function(state, msg, topic)
             if msg.from then
-                process.send(msg.from, "response", {
+                process.send(msg.from, "response",
                     " (Original inbox message with topic '" ..
                     topic .. "'): " .. inspect_table(msg.payload)
-                })
+                )
             end
         end
     })
