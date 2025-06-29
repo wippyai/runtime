@@ -54,13 +54,13 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 		Host:   "host1",
 		ID:     registry.ID{Name: "test1"},
 		UniqID: "1",
-	}.WithCachedString()
+	}.Precomputed()
 
 	pid2 := pubsub.PID{
 		Host:   "host2",
 		ID:     registry.ID{Name: "test2"},
 		UniqID: "2",
-	}.WithCachedString()
+	}.Precomputed()
 
 	t.Run("cannot monitor unregistered process", func(t *testing.T) {
 		err := topo.Wait(pid2, pid1)
@@ -136,19 +136,19 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 		Host:   "host1",
 		ID:     registry.ID{Name: "test1"},
 		UniqID: "1",
-	}.WithCachedString()
+	}.Precomputed()
 
 	pid2 := pubsub.PID{
 		Host:   "host2",
 		ID:     registry.ID{Name: "test2"},
 		UniqID: "2",
-	}.WithCachedString()
+	}.Precomputed()
 
 	pid3 := pubsub.PID{
 		Host:   "host3",
 		ID:     registry.ID{Name: "test3"},
 		UniqID: "3",
-	}.WithCachedString()
+	}.Precomputed()
 
 	// Register processes
 	assert.NoError(t, topo.Register(pid1))

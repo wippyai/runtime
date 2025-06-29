@@ -94,7 +94,7 @@ func NewConnection(
 		Host:   serverID.String(),
 		ID:     registry.ParseID("ws:conn"),
 		UniqID: idGen.Generate(), // Use the passed idGen
-	}.WithCachedString()
+	}.Precomputed()
 
 	// Parse heartbeat interval
 	heartbeatInterval := DefaultHeartbeatInterval

@@ -49,6 +49,10 @@ func (p PID) String() string {
 		return p.cachedString
 	}
 
+	return p.toString()
+}
+
+func (p PID) toString() string {
 	b := builderPool.Get().(*strings.Builder)
 	b.Reset()
 	defer builderPool.Put(b)
@@ -77,19 +81,15 @@ func (p PID) String() string {
 	return b.String()
 }
 
-// WithCachedString returns a new PID with a cached string representation for faster lookups.
-func (p PID) WithCachedString() PID {
-	newPID := PID{
-		Node:   p.Node,
-		Host:   p.Host,
-		ID:     p.ID,
-		UniqID: p.UniqID,
+// Precomputed returns a new PID with a cached string representation for faster lookups.
+func (p PID) Precomputed() PID {
+	return PID{
+		Node:         p.Node,
+		Host:         p.Host,
+		ID:           p.ID,
+		UniqID:       p.UniqID,
+		cachedString: p.toString(),
 	}
-
-	// Cache the string representation
-	newPID.cachedString = newPID.String()
-
-	return newPID
 }
 
 // ParsePID parses a pipe-delimited string wrapped in curly braces into a PID.
@@ -129,7 +129,7 @@ func ParsePID(s string) (PID, error) {
 	pid.ID = registry.ParseID(s[pipe1+1 : pipe2])
 	pid.UniqID = s[pipe2+1:]
 
-	return pid.WithCachedString(), nil
+	return pid.Precomputed(), nil
 }
 
 // MarshalJSON implements the json.Marshaler interface

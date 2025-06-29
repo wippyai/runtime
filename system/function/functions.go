@@ -155,7 +155,7 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 		Host:   function.HostID,
 		ID:     task.ID,
 		UniqID: f.uniqID.Generate(),
-	}.WithCachedString()
+	}.Precomputed()
 	ctx = pubsub.WithHost(ctx, f.host)
 	ctx = pubsub.WithPID(ctx, pid)
 

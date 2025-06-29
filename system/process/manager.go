@@ -62,7 +62,7 @@ func (m *Manager) preparePID(ps *api.Start, managed bool) pubsub.PID {
 		pid.UniqID = m.generator.Generate()
 	}
 
-	return pid.WithCachedString()
+	return pid.Precomputed()
 }
 
 // launchOnHost handles the actual process launch on either managed or delegated hosts
