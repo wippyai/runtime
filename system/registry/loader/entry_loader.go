@@ -136,15 +136,27 @@ func ExtractDependenciesToEntries(p payload.Payload, dtt payload.Transcoder) ([]
 		// Merge metadata
 		mergedMeta := mergeMeta(content.Meta, nil)
 
-		// Build entry data from all fields
+		// Build entry data preserving the original structure
 		entryMap := map[string]interface{}{
 			"namespace": content.Namespace,
 			"name":      content.Name,
 			"kind":      content.Kind,
-			"meta":      mergedMeta,
 		}
-		for k, v := range content.Data {
-			entryMap[k] = v
+
+		// Since we're using ,inline, the Data field contains all the flattened fields
+		// We need to reconstruct the nested data structure
+		if content.Data != nil {
+			// Create a nested data field with all the custom fields
+			nestedData := make(map[string]interface{})
+			for k, v := range content.Data {
+				// Skip the fields that are part of the struct definition
+				if k != "namespace" && k != "name" && k != "kind" && k != "meta" && k != "version" && k != "requirements" && k != "entries" {
+					nestedData[k] = v
+				}
+			}
+			if len(nestedData) > 0 {
+				entryMap["data"] = nestedData
+			}
 		}
 
 		entry := registry.Entry{
