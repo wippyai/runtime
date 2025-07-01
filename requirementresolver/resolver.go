@@ -3,7 +3,6 @@ package requirementresolver
 import (
 	"fmt"
 	"log"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -105,68 +104,51 @@ func ResolveModuleRequirements(entries []registry.Entry) error {
 }
 
 func applyPathValueToEntries(targetPath string, value string, entries []registry.Entry) error {
-	/*
-			example of: targetPath, value and entry
-			#1 this means we need to find "meta" field next inside of this object find the field "depends_on". [] means we need to push new value to the slice
-			targetPath: meta.depends_on[]
-			value: ns:system
-			entry: multiple entries from namespace
-
-			#2 this means we need to find "meta" field next inside of this object find the field "router" and set it to value
-			targetPath: meta.router
-			value: meta.router
-			entry: locate hello_endpoint entry
-
-			entry example:
-			2025/07/01 21:04:30 hello_endpoint entry: (registry.Entry) {
-		 ID: (registry.ID) localspace:hello_endpoint,
-		 Kind: (string) (len=13) "http.endpoint",
-		 Meta: (registry.Metadata) (len=1) {
-		  (string) (len=7) "comment": (string) (len=42) "HTTP endpoint which executes hello_handler"
-		 },
-		 Data: (payload.payload) {
-		  data: (map[string]interface {}) (len=6) {
-		   (string) (len=6) "method": (string) (len=3) "GET",
-		   (string) (len=4) "name": (string) (len=14) "hello_endpoint",
-		   (string) (len=4) "path": (string) (len=12) "/local/hello",
-		   (string) (len=4) "func": (string) (len=13) "hello_handler",
-		   (string) (len=4) "kind": (string) (len=13) "http.endpoint",
-		   (string) (len=4) "meta": (map[string]interface {}) (len=1) {
-		    (string) (len=7) "comment": (string) (len=42) "HTTP endpoint which executes hello_handler"
-		   }
-		  },
-		  format: (payload.Format) (len=10) "golang/any"
-		 }
-		}
-
-	*/
-
 	for i := range entries {
 		entry := &entries[i]
 
-		if strings.HasSuffix(targetPath, "[]") {
-			basePath := strings.TrimSuffix(targetPath, "[]")
-			err := setValueByPath(entry, basePath, value, true)
-			if err != nil {
-				log.Printf("warning: failed to append value at path %s for entry %s: %v", targetPath, entry.ID.Name, err)
-				continue
+		// Dispatch based on path prefix
+		if strings.HasPrefix(targetPath, "meta.") {
+			if entry.Meta == nil {
+				entry.Meta = make(map[string]interface{})
 			}
-
-			log.Printf("updated entry 1: %s", spew.Sdump(entries[i]))
-		} else {
-			err := setValueByPath(entry, targetPath, value, false)
+			path := strings.TrimPrefix(targetPath, "meta.")
+			err := setValueByPath(entry.Meta, path, value, strings.HasSuffix(targetPath, "[]"))
 			if err != nil {
 				log.Printf("warning: failed to set value at path %s for entry %s: %v", targetPath, entry.ID.Name, err)
 				continue
 			}
-
 			log.Printf("updated entry 2: %s", spew.Sdump(entries[i]))
+			continue
 		}
+		if strings.HasPrefix(targetPath, "data.") {
+			if entry.Data == nil {
+				// Not handling Data field creation here
+				continue
+			}
+			// Not implemented: Data field path support
+			continue
+		}
+		if targetPath == "kind" {
+			entry.Kind = value
+			log.Printf("updated entry 2: %s", spew.Sdump(entries[i]))
+			continue
+		}
+		// Fallback: try to set on Meta
+		if entry.Meta == nil {
+			entry.Meta = make(map[string]interface{})
+		}
+		err := setValueByPath(entry.Meta, targetPath, value, strings.HasSuffix(targetPath, "[]"))
+		if err != nil {
+			log.Printf("warning: failed to set value at path %s for entry %s: %v", targetPath, entry.ID.Name, err)
+			continue
+		}
+		log.Printf("updated entry 2: %s", spew.Sdump(entries[i]))
 	}
 	return nil
 }
 
-// setValueByPath sets or appends a value at the given dynamic path in the entry, using JSON tags for struct field access
+// setValueByPath sets or appends a value at the given dynamic path in the entry, supporting nested maps and array filters
 func setValueByPath(target interface{}, path string, value string, isAppend bool) error {
 	parts := parsePath(path)
 	if parts == nil || len(parts) == 0 {
@@ -175,243 +157,132 @@ func setValueByPath(target interface{}, path string, value string, isAppend bool
 	return setNestedValueByPath(target, parts, value, isAppend)
 }
 
-// setNestedValueByPath traverses and sets a value using JSON tags for struct fields, and keys for maps
+// setNestedValueByPath traverses and sets a value in nested maps/slices, supporting array filters
 func setNestedValueByPath(target interface{}, parts []interface{}, value string, isAppend bool) error {
 	if len(parts) == 0 {
 		return nil
 	}
 
-	// Use a more sophisticated approach that can handle array filters in intermediate paths
-	return setValueWithArrayFilters(target, parts, value, isAppend)
-}
-
-// setValueWithArrayFilters handles complex path traversal including array filters
-func setValueWithArrayFilters(target interface{}, parts []interface{}, value string, isAppend bool) error {
-	if len(parts) == 0 {
-		return nil
-	}
-
-	// Convert target to a map[string]interface{} for easier manipulation
-	var targetMap map[string]interface{}
-
-	v := reflect.ValueOf(target)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-
-	if v.Kind() == reflect.Map {
-		// Convert map to map[string]interface{}
-		targetMap = make(map[string]interface{})
-		for _, key := range v.MapKeys() {
-			targetMap[key.String()] = v.MapIndex(key).Interface()
-		}
-	} else if v.Kind() == reflect.Struct {
-		// Convert struct to map[string]interface{} using JSON tags
-		targetMap = structToMap(v)
-	} else {
-		return fmt.Errorf("unsupported target type: %v", v.Kind())
-	}
-
-	// Traverse the path and modify the target map
-	err := traverseAndModifyMap(targetMap, parts, value, isAppend)
-	if err != nil {
-		return err
-	}
-
-	// Update the original target with the modified map
-	if v.Kind() == reflect.Map {
-		// Clear the original map and set new values
-		for _, key := range v.MapKeys() {
-			v.SetMapIndex(key, reflect.Value{})
-		}
-		for k, val := range targetMap {
-			v.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(val))
-		}
-	} else if v.Kind() == reflect.Struct {
-		// Update struct fields from map
-		mapToStruct(targetMap, v)
-	}
-
-	return nil
-}
-
-// structToMap converts a struct to map[string]interface{} using JSON tags
-func structToMap(v reflect.Value) map[string]interface{} {
-	result := make(map[string]interface{})
-	t := v.Type()
-
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		jsonTag := field.Tag.Get("json")
-		if jsonTag == "" {
-			jsonTag = field.Name
-		}
-		// Remove comma and options from JSON tag
-		if idx := strings.Index(jsonTag, ","); idx != -1 {
-			jsonTag = jsonTag[:idx]
-		}
-
-		fieldValue := v.Field(i)
-		if fieldValue.CanInterface() {
-			result[jsonTag] = fieldValue.Interface()
-		}
-	}
-
-	return result
-}
-
-// mapToStruct updates struct fields from a map
-func mapToStruct(m map[string]interface{}, v reflect.Value) {
-	t := v.Type()
-
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		jsonTag := field.Tag.Get("json")
-		if jsonTag == "" {
-			jsonTag = field.Name
-		}
-		// Remove comma and options from JSON tag
-		if idx := strings.Index(jsonTag, ","); idx != -1 {
-			jsonTag = jsonTag[:idx]
-		}
-
-		if val, exists := m[jsonTag]; exists {
-			fieldValue := v.Field(i)
-			if fieldValue.CanSet() {
-				setValueToField(fieldValue, val)
-			}
-		}
-	}
-}
-
-// setValueToField sets a value to a struct field
-func setValueToField(field reflect.Value, value interface{}) {
-	if field.Kind() == reflect.Ptr {
-		if field.IsNil() {
-			field.Set(reflect.New(field.Type().Elem()))
-		}
-		field = field.Elem()
-	}
-
-	switch v := value.(type) {
-	case string:
-		if field.Kind() == reflect.String {
-			field.SetString(v)
-		}
-	case int, int8, int16, int32, int64:
-		if field.Kind() == reflect.Int || field.Kind() == reflect.Int8 || field.Kind() == reflect.Int16 || field.Kind() == reflect.Int32 || field.Kind() == reflect.Int64 {
-			field.SetInt(reflect.ValueOf(v).Int())
-		}
-	case float32, float64:
-		if field.Kind() == reflect.Float32 || field.Kind() == reflect.Float64 {
-			field.SetFloat(reflect.ValueOf(v).Float())
-		}
-	case bool:
-		if field.Kind() == reflect.Bool {
-			field.SetBool(v)
-		}
-	case []interface{}:
-		if field.Kind() == reflect.Slice {
-			field.Set(reflect.ValueOf(v))
-		}
+	// If target is registry.Metadata, treat as map[string]interface{}
+	switch t := target.(type) {
 	case map[string]interface{}:
-		if field.Kind() == reflect.Map {
-			field.Set(reflect.ValueOf(v))
-		}
+		return setNestedValueByPathMap(t, parts, value, isAppend)
+	case registry.Metadata:
+		return setNestedValueByPathMap(map[string]interface{}(t), parts, value, isAppend)
+	case *registry.Metadata:
+		return setNestedValueByPathMap(map[string]interface{}(*t), parts, value, isAppend)
+	default:
+		return setNestedValueByPathMap(target, parts, value, isAppend)
 	}
 }
 
-// traverseAndModifyMap traverses a map and modifies it according to the path
-func traverseAndModifyMap(target map[string]interface{}, parts []interface{}, value string, isAppend bool) error {
-	if len(parts) == 0 {
-		return nil
-	}
+// setNestedValueByPathMap is the actual implementation for map[string]interface{}
+func setNestedValueByPathMap(target interface{}, parts []interface{}, value string, isAppend bool) error {
+	var curr interface{} = target
+	var parent interface{} = nil
+	var parentKey interface{} = nil
 
-	current := target
-
-	// Traverse all but the last part
-	for i := 0; i < len(parts)-1; i++ {
-		part := parts[i]
+	for i, part := range parts {
+		isLast := i == len(parts)-1
 
 		switch p := part.(type) {
 		case string:
-			// Simple string key
-			if _, exists := current[p]; !exists {
-				current[p] = make(map[string]interface{})
-			}
-
-			if nextMap, ok := current[p].(map[string]interface{}); ok {
-				current = nextMap
-			} else {
-				return fmt.Errorf("cannot navigate to field '%s' - not a map", p)
-			}
-
-		case *arrayFilter:
-			// Array filter - find the matching element
-			if slice, ok := current["services"].([]interface{}); ok {
-				filtered := make([]interface{}, 0)
-				for _, item := range slice {
-					if itemMap, ok := item.(map[string]interface{}); ok {
-						if matchesFilter(itemMap, p) {
-							filtered = append(filtered, item)
-						}
+			if p == "__append__" {
+				// Append to the current slice
+				slice, ok := curr.([]interface{})
+				if !ok {
+					return fmt.Errorf("expected slice for append, got %T", curr)
+				}
+				curr = append(slice, value)
+				// Update parent
+				if parent != nil {
+					switch pk := parentKey.(type) {
+					case string:
+						parent.(map[string]interface{})[pk] = curr
+					case int:
+						parent.([]interface{})[pk] = curr
 					}
 				}
-
-				if len(filtered) == 0 {
+				return nil
+			}
+			m, ok := curr.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("expected map at %v, got %T", p, curr)
+			}
+			if isLast {
+				if isAppend {
+					arr, _ := m[p].([]interface{})
+					m[p] = append(arr, value)
+				} else {
+					m[p] = value
+				}
+				return nil
+			}
+			if _, exists := m[p]; !exists {
+				if i+1 < len(parts) {
+					switch parts[i+1].(type) {
+					case *arrayFilter:
+						m[p] = []interface{}{}
+					case string:
+						if parts[i+1] == "__append__" {
+							m[p] = []interface{}{}
+						} else {
+							m[p] = map[string]interface{}{}
+						}
+					default:
+						m[p] = map[string]interface{}{}
+					}
+				}
+			}
+			parent = curr
+			parentKey = p
+			curr = m[p]
+		case *arrayFilter:
+			slice, ok := curr.([]interface{})
+			if !ok {
+				return fmt.Errorf("expected slice for array filter, got %T", curr)
+			}
+			found := false
+			for _, item := range slice {
+				itemMap, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if matchesFilter(itemMap, p) {
+					if isLast {
+						if isAppend {
+							return fmt.Errorf("cannot append to array filter result directly")
+						}
+						return setNestedValueByPathMap(itemMap, parts[i+1:], value, isAppend)
+					}
+					curr = itemMap
+					found = true
+					break
+				}
+			}
+			if !found {
+				if isLast {
 					return fmt.Errorf("no items match filter '%s'", p.String())
 				}
-				if len(filtered) > 1 {
-					return fmt.Errorf("multiple items match filter '%s', expected exactly one", p.String())
+				newMap := map[string]interface{}{p.field: p.value}
+				slice = append(slice, newMap)
+				if parent != nil {
+					switch pk := parentKey.(type) {
+					case string:
+						parent.(map[string]interface{})[pk] = slice
+					case int:
+						parent.([]interface{})[pk] = slice
+					}
 				}
-
-				if itemMap, ok := filtered[0].(map[string]interface{}); ok {
-					current = itemMap
-				} else {
-					return fmt.Errorf("filtered item is not a map")
-				}
-			} else {
-				return fmt.Errorf("cannot apply array filter - 'services' is not a slice")
+				curr = newMap
 			}
-
+		case int:
+			return fmt.Errorf("integer index not supported in path")
 		default:
 			return fmt.Errorf("invalid path part type: %T", part)
 		}
 	}
-
-	// Set the value at the final part
-	return setValueInMap(current, parts[len(parts)-1], value, isAppend)
-}
-
-// setValueInMap sets a value in a map according to the final path part
-func setValueInMap(target map[string]interface{}, part interface{}, value string, isAppend bool) error {
-	switch p := part.(type) {
-	case string:
-		if isAppend {
-			// Append to array
-			if existing, exists := target[p]; exists {
-				if arr, ok := existing.([]interface{}); ok {
-					target[p] = append(arr, value)
-				} else {
-					target[p] = []interface{}{value}
-				}
-			} else {
-				target[p] = []interface{}{value}
-			}
-		} else {
-			// Set simple value
-			target[p] = value
-		}
-		return nil
-
-	case *arrayFilter:
-		// Array filter in final part - this is more complex
-		// For now, we'll handle the common case where we want to set a field in a filtered item
-		return fmt.Errorf("array filters in final part not yet supported")
-
-	default:
-		return fmt.Errorf("invalid final part type: %T", part)
-	}
+	return nil
 }
 
 func findRequirementDependency(nsRequirement registry.Entry, nsDependencies map[string]registry.Entry) (registry.Entry, string, error) {
@@ -754,8 +625,13 @@ func parsePath(path string) []interface{} {
 		case ']':
 			if inBracket {
 				inBracket = false
-				filter := parseArrayFilter(bracketContent.String())
-				parts = append(parts, filter)
+				if bracketContent.Len() == 0 {
+					// Special case: [] means append
+					parts = append(parts, "__append__")
+				} else {
+					filter := parseArrayFilter(bracketContent.String())
+					parts = append(parts, filter)
+				}
 				bracketContent.Reset()
 			} else {
 				return nil // Invalid path - unmatched closing bracket

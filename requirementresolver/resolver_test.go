@@ -1227,12 +1227,11 @@ func TestMatchesFilter(t *testing.T) {
 
 func TestApplyPathValueToEntries(t *testing.T) {
 	tests := []struct {
-		name        string
-		targetPath  string
-		value       string
-		entries     []registry.Entry
-		expected    []registry.Entry
-		expectError bool
+		name       string
+		targetPath string
+		value      string
+		entries    []registry.Entry
+		expected   []registry.Entry
 	}{
 		{
 			name:       "append to array with simple path",
@@ -1558,6 +1557,82 @@ func TestApplyPathValueToEntries(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:       "deeply nested path creation",
+			targetPath: "level1.level2.level3.level4.value",
+			value:      "deep_value",
+			entries: []registry.Entry{
+				{
+					ID: registry.ID{NS: "test", Name: "entry1"},
+					Meta: registry.Metadata{
+						"existing": "value",
+					},
+				},
+			},
+			expected: []registry.Entry{
+				{
+					ID: registry.ID{NS: "test", Name: "entry1"},
+					Meta: registry.Metadata{
+						"existing": "value",
+						"level1": map[string]interface{}{
+							"level2": map[string]interface{}{
+								"level3": map[string]interface{}{
+									"level4": map[string]interface{}{
+										"value": "deep_value",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:       "multiple array filters",
+			targetPath: "meta.services[name=service1].endpoints[port=8080].config.router",
+			value:      "system:api",
+			entries: []registry.Entry{
+				{
+					ID: registry.ID{NS: "test", Name: "entry1"},
+					Meta: registry.Metadata{
+						"services": []interface{}{
+							map[string]interface{}{
+								"name": "service1",
+								"endpoints": []interface{}{
+									map[string]interface{}{
+										"port": 8080,
+										"config": map[string]interface{}{
+											"existing": "value",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: []registry.Entry{
+				{
+					ID: registry.ID{NS: "test", Name: "entry1"},
+					Meta: registry.Metadata{
+						"services": []interface{}{
+							map[string]interface{}{
+								"name": "service1",
+								"endpoints": []interface{}{
+									map[string]interface{}{
+										"port": 8080,
+										"config": map[string]interface{}{
+											"existing": "value",
+											"router":   "system:api",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1569,11 +1644,6 @@ func TestApplyPathValueToEntries(t *testing.T) {
 			}
 
 			err := applyPathValueToEntries(tt.targetPath, tt.value, entriesCopy)
-
-			if tt.expectError {
-				assert.Error(t, err)
-				return
-			}
 
 			assert.NoError(t, err)
 			assert.Len(t, entriesCopy, len(tt.expected))
