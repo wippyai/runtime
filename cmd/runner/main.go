@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	iofs "io/fs"
+	"log"
 	httpbase "net/http"
 	"net/http/pprof"
 	"os"
@@ -16,6 +17,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/davecgh/go-spew/spew"
+	"github.com/ponyruntime/pony/requirementresolver"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
@@ -705,6 +709,13 @@ func loadApplicationState(
 		}
 		entries = append(entries, dependencyEntries...)
 	}
+
+	err = requirementresolver.ResolveModuleRequirements(entries)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Println("entries>>", spew.Sdump(entries))
 
 	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
 	if err != nil {

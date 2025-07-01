@@ -2,13 +2,12 @@ package loader
 
 import (
 	"fmt"
-	iofs "io/fs"
-	"maps"
-
+	"github.com/davecgh/go-spew/spew"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"go.uber.org/zap"
+	iofs "io/fs"
 )
 
 // Loader manages loading of registry entries
@@ -105,21 +104,29 @@ func (l *Loader) processFile(fSys iofs.FS, p *FilePayload, vars interpolate.Vari
 	}
 
 	// Extract entries
-	entries, exports, err := ExtractEntries(interpolated, l.dtt, l.exports)
+	newEntries, err := ExtractDependenciesToEntries(interpolated, l.dtt)
 	if err != nil {
 		return nil, fmt.Errorf("extract entries: %w", err)
 	}
 
-	maps.Copy(l.exports, exports)
+	spew.Dump("newEntries", newEntries)
+
+	//entries, exports, err := ExtractEntries(interpolated, l.dtt, l.exports)
+	//if err != nil {
+	//	return nil, fmt.Errorf("extract entries: %w", err)
+	//}
+
+	// add(set) items to l.exports
+	//maps.Copy(l.exports, exports)
 
 	// Validate entries
-	for i := range entries {
-		if err := validateEntry(entries[i]); err != nil {
+	for _, entry := range newEntries {
+		if err := validateEntry(entry); err != nil {
 			return nil, fmt.Errorf("invalid entry in %s: %w", p.Source(), err)
 		}
 	}
 
-	return entries, nil
+	return newEntries, nil
 }
 
 func validateEntry(entry registry.Entry) error {
