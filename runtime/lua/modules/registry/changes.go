@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/system/registry/topology"
 
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -186,12 +187,21 @@ func changesApply(l *lua.LState) int {
 		return 0
 	}
 
+	// Sort operations by dependencies before applying
+	stateBuilder := topology.NewStateBuilder(changes.log)
+	sortedOps, err := stateBuilder.SortChangeSet(changes.snapshot.entries, changes.ops)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("failed to sort operations: " + err.Error()))
+		return 2
+	}
+
 	// We are not allowed to use thread context for registry change
 	// since it is not allowed to actually cancel the operation at the moment
 	ctx := context.Background() // todo: the proper fix will require rollback improvement in registry
 
-	// Apply changes directly
-	version, err := changes.snapshot.reg.Apply(ctx, changes.ops)
+	// Apply sorted changes
+	version, err := changes.snapshot.reg.Apply(ctx, sortedOps)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
