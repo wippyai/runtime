@@ -4,7 +4,6 @@ import (
 	"sort"
 
 	"github.com/ponyruntime/pony/api/registry"
-	"go.uber.org/zap"
 )
 
 // SortChangeSet sorts a changeset by dependencies to ensure proper application order
@@ -123,7 +122,6 @@ func (b *StateBuilder) sortEntriesWithFallback(entries []registry.Entry) ([]regi
 	sortedEntries, err := SortEntriesByDependency(entries)
 	if err != nil {
 		// On cycle detection, fall back to lexicographical sort
-		b.log.Warn("Cycle detected in dependencies, falling back to lexicographical sort", zap.Error(err))
 		sortedEntries = make([]registry.Entry, len(entries))
 		copy(sortedEntries, entries)
 		sort.Slice(sortedEntries, func(i, j int) bool {
