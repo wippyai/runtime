@@ -2,12 +2,12 @@ package loader
 
 import (
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
+	iofs "io/fs"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"go.uber.org/zap"
-	iofs "io/fs"
 )
 
 // Loader manages loading of registry entries
@@ -108,16 +108,6 @@ func (l *Loader) processFile(fSys iofs.FS, p *FilePayload, vars interpolate.Vari
 	if err != nil {
 		return nil, fmt.Errorf("extract entries: %w", err)
 	}
-
-	spew.Dump("newEntries", newEntries)
-
-	//entries, exports, err := ExtractEntries(interpolated, l.dtt, l.exports)
-	//if err != nil {
-	//	return nil, fmt.Errorf("extract entries: %w", err)
-	//}
-
-	// add(set) items to l.exports
-	//maps.Copy(l.exports, exports)
 
 	// Validate entries
 	for _, entry := range newEntries {

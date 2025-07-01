@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	iofs "io/fs"
-	"log"
 	httpbase "net/http"
 	"net/http/pprof"
 	"os"
@@ -18,7 +17,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/ponyruntime/pony/requirementresolver"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -710,12 +708,11 @@ func loadApplicationState(
 		entries = append(entries, dependencyEntries...)
 	}
 
-	err = requirementresolver.ResolveModuleRequirements(entries)
+	resolver := requirementresolver.NewResolver(mainLogger.Named("requirement-resolver"))
+	err = resolver.ResolveModuleRequirements(entries)
 	if err != nil {
 		return nil, err
 	}
-
-	log.Println("entries>>", spew.Sdump(entries))
 
 	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
 	if err != nil {

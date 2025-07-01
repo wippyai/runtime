@@ -2,32 +2,28 @@ package requirementresolver
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
-
-	"github.com/ponyruntime/pony/system/registry/loader"
-
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/system/registry/loader"
+	"go.uber.org/zap"
 )
 
-// this function resolves dependencies for modules
-// 	// KindNamespaceDefinition represents namespace definition variable which can be declared by export or any other source.
-//	KindNamespaceDefinition Kind = "ns.definition"
-//
-//	// KindNamespaceDependency represents a module dependency entry
-//	KindNamespaceDependency Kind = "ns.dependency"
-//
-//	// KindNamespaceRequirement represents a module requirement entry
-//	KindNamespaceRequirement Kind = "ns.requirement"
+// Resolver handles module requirement resolution
+type Resolver struct {
+	logger *zap.Logger
+}
 
-func ResolveModuleRequirements(entries []registry.Entry) error {
-	// 1. build map of ns.definition
-	// 2. build map of ns.dependency
-	// 3. build map of ns.requirement
+// NewResolver creates a new Resolver instance with the given logger
+func NewResolver(logger *zap.Logger) *Resolver {
+	return &Resolver{
+		logger: logger,
+	}
+}
 
+// ResolveModuleRequirements resolves module requirements and injects parameters
+func (r *Resolver) ResolveModuleRequirements(entries []registry.Entry) error {
 	nsDefinitions := make(map[string]registry.Entry)
 	nsDependencies := make(map[string]registry.Entry)
 	nsRequirements := make(map[string]registry.Entry)
@@ -43,58 +39,52 @@ func ResolveModuleRequirements(entries []registry.Entry) error {
 		}
 	}
 
-	log.Printf("nsDefinitions: %s", spew.Sdump(nsDefinitions))
-	log.Printf("nsDependencies: %s", spew.Sdump(nsDependencies))
-	log.Printf("nsRequirements: %s", spew.Sdump(nsRequirements))
-
-	// for _, entry := range entries {
-	// 	if strings.Contains(entry.ID.String(), "hello_endpoint") {
-	// 		log.Printf("hello_endpoint entry: %s", spew.Sdump(entry))
-	// 	}
-	// }
-
 	for _, nsRequirement := range nsRequirements {
 		nsDependency, path, err := findRequirementDependency(nsRequirement, nsDependencies)
 		if err != nil {
-			log.Printf("warning: failed to find requirement dependency for %s: %v", nsRequirement.ID.Name, err)
+			r.logger.Warn("failed to find requirement dependency",
+				zap.String("requirement", nsRequirement.ID.Name),
+				zap.Error(err))
 			continue
 		}
 
-		log.Printf("nsDependency: %s", spew.Sdump(nsDependency))
-		log.Printf("path: %s", path)
-
 		value, err := getValueFromEntry(nsDependency, path)
 		if err != nil {
-			log.Printf("warning: failed to get value from entry %s for %s: %v", nsDependency.ID.Name, path, err)
+			r.logger.Warn("failed to get value from entry",
+				zap.String("dependency", nsDependency.ID.Name),
+				zap.String("path", path),
+				zap.Error(err))
 		}
 
 		nsDefinition, err := findRequirementDefinition(nsRequirement, nsDefinitions)
 		if err != nil {
-			log.Printf("warning: failed to find requirement definition for %s: %v", nsRequirement.ID.Name, err)
+			r.logger.Warn("failed to find requirement definition",
+				zap.String("requirement", nsRequirement.ID.Name),
+				zap.Error(err))
 			continue
 		}
 
-		log.Printf("nsDefinition: %s", spew.Sdump(nsDefinition))
-
 		definitionTargets, err := getDefinitionTargets(nsDefinition)
 		if err != nil {
-			log.Printf("warning: failed to get definition targets for %s: %v", nsDefinition.ID.Name, err)
+			r.logger.Warn("failed to get definition targets",
+				zap.String("definition", nsDefinition.ID.Name),
+				zap.Error(err))
 			continue
 		}
 
 		for _, definitionTarget := range definitionTargets {
-			log.Printf("definitionTarget: %s", spew.Sdump(definitionTarget))
-
 			targetEntries, err := findDefinitionTargetEntries(definitionTarget, nsDefinition.ID.NS, entries)
 			if err != nil {
-				log.Printf("warning: failed to find definition target entries for %s: %v", definitionTarget.Name, err)
+				r.logger.Warn("failed to find definition target entries",
+					zap.String("target", definitionTarget.Name),
+					zap.Error(err))
 				continue
 			}
-
-			log.Printf("targetEntries: %s", spew.Sdump(targetEntries))
-			err = applyPathValueToEntries(definitionTarget.Value, value, targetEntries)
+			err = r.applyPathValueToEntries(definitionTarget.Value, value, targetEntries)
 			if err != nil {
-				log.Printf("warning: failed to apply path value to entries for %s: %v", definitionTarget.Name, err)
+				r.logger.Warn("failed to apply path value to entries",
+					zap.String("target", definitionTarget.Name),
+					zap.Error(err))
 				continue
 			}
 		}
@@ -103,7 +93,7 @@ func ResolveModuleRequirements(entries []registry.Entry) error {
 	return nil
 }
 
-func applyPathValueToEntries(targetPath string, value string, entries []registry.Entry) error {
+func (r *Resolver) applyPathValueToEntries(targetPath string, value string, entries []registry.Entry) error {
 	for i := range entries {
 		entry := &entries[i]
 
@@ -115,10 +105,12 @@ func applyPathValueToEntries(targetPath string, value string, entries []registry
 			path := strings.TrimPrefix(targetPath, "meta.")
 			err := setValueByPath(entry.Meta, path, value, strings.HasSuffix(targetPath, "[]"))
 			if err != nil {
-				log.Printf("warning: failed to set value at path %s for entry %s: %v", targetPath, entry.ID.Name, err)
+				r.logger.Warn("failed to set value at path",
+					zap.String("path", targetPath),
+					zap.String("entry", entry.ID.Name),
+					zap.Error(err))
 				continue
 			}
-			log.Printf("updated entry 2: %s", spew.Sdump(entries[i]))
 			continue
 		}
 		if strings.HasPrefix(targetPath, "data.") {
@@ -131,7 +123,6 @@ func applyPathValueToEntries(targetPath string, value string, entries []registry
 		}
 		if targetPath == "kind" {
 			entry.Kind = value
-			log.Printf("updated entry 2: %s", spew.Sdump(entries[i]))
 			continue
 		}
 		// Fallback: try to set on Meta
@@ -140,10 +131,12 @@ func applyPathValueToEntries(targetPath string, value string, entries []registry
 		}
 		err := setValueByPath(entry.Meta, targetPath, value, strings.HasSuffix(targetPath, "[]"))
 		if err != nil {
-			log.Printf("warning: failed to set value at path %s for entry %s: %v", targetPath, entry.ID.Name, err)
+			r.logger.Warn("failed to set value at path",
+				zap.String("path", targetPath),
+				zap.String("entry", entry.ID.Name),
+				zap.Error(err))
 			continue
 		}
-		log.Printf("updated entry 2: %s", spew.Sdump(entries[i]))
 	}
 	return nil
 }
@@ -286,117 +279,6 @@ func setNestedValueByPathMap(target interface{}, parts []interface{}, value stri
 }
 
 func findRequirementDependency(nsRequirement registry.Entry, nsDependencies map[string]registry.Entry) (registry.Entry, string, error) {
-	/*
-		2025/07/01 15:19:37 nsDependency: (registry.Entry) {
-		 ID: (registry.ID) app.requirements.demo:hello_world_dependency,
-		 Kind: (string) (len=13) "ns.dependency",
-		 Meta: (registry.Metadata) (len=3) {
-		  (string) (len=11) "description": (string) (len=44) "Component dependency management demo example",
-		  (string) (len=7) "comment": (string) (len=46) "Requirements and Dependencies Demo Application",
-		  (string) (len=10) "depends_on": ([]interface {}) (len=1 cap=1) {
-		   (string) (len=9) "ns:system"
-		  }
-		 },
-		 Data: (payload.payload) {
-		  data: (map[string]interface {}) (len=7) {
-		   (string) (len=10) "parameters": ([]interface {}) (len=2 cap=2) {
-		    (map[string]interface {}) (len=2) {
-		     (string) (len=4) "name": (string) (len=10) "api_router",
-		     (string) (len=5) "value": (string) (len=10) "system:api"
-		    },
-		    (map[string]interface {}) (len=2) {
-		     (string) (len=4) "name": (string) (len=4) "text",
-		     (string) (len=5) "value": (string) (len=12) "Updated Text"
-		    }
-		   },
-		   (string) (len=7) "version": (string) (len=8) ">=v0.0.1",
-		   (string) (len=9) "component": (string) (len=18) "igor-test-3/test-2",
-		   (string) (len=4) "kind": (string) (len=13) "ns.dependency",
-		   (string) (len=4) "meta": (map[string]interface {}) (len=1) {
-		    (string) (len=11) "description": (string) (len=44) "Component dependency management demo example"
-		   },
-		   (string) (len=4) "name": (string) (len=22) "hello_world_dependency",
-		   (string) (len=9) "namespace": (string) (len=21) "app.requirements.demo"
-		  },
-		  format: (payload.Format) (len=10) "golang/any"
-		 }
-		}
-	*/
-
-	/*
-		2025/07/01 15:19:37 nsRequirements: (map[string]registry.Entry) (len=3) {
-		 (string) (len=9) "NAMESPACE": (registry.Entry) {
-		  ID: (registry.ID) app.requirements.demo:NAMESPACE,
-		  Kind: (string) (len=14) "ns.requirement",
-		  Meta: (registry.Metadata) (len=2) {
-		   (string) (len=7) "comment": (string) (len=46) "Requirements and Dependencies Demo Application",
-		   (string) (len=10) "depends_on": ([]interface {}) (len=1 cap=1) {
-		    (string) (len=9) "ns:system"
-		   }
-		  },
-		  Data: (payload.payload) {
-		   data: (map[string]interface {}) (len=3) {
-		    (string) (len=4) "name": (string) (len=9) "NAMESPACE",
-		    (string) (len=7) "targets": ([]interface {}) (len=1 cap=1) {
-		     (map[string]interface {}) (len=2) {
-		      (string) (len=5) "entry": (string) (len=22) "hello_world_dependency",
-		      (string) (len=4) "path": (string) (len=9) "namespace"
-		     }
-		    },
-		    (string) (len=4) "kind": (string) (len=14) "ns.requirement"
-		   },
-		   format: (payload.Format) (len=10) "golang/any"
-		  }
-		 },
-		 (string) (len=10) "API_ROUTER": (registry.Entry) {
-		  ID: (registry.ID) app.requirements.demo:API_ROUTER,
-		  Kind: (string) (len=14) "ns.requirement",
-		  Meta: (registry.Metadata) (len=2) {
-		   (string) (len=7) "comment": (string) (len=46) "Requirements and Dependencies Demo Application",
-		   (string) (len=10) "depends_on": ([]interface {}) (len=1 cap=1) {
-		    (string) (len=9) "ns:system"
-		   }
-		  },
-		  Data: (payload.payload) {
-		   data: (map[string]interface {}) (len=3) {
-		    (string) (len=4) "kind": (string) (len=14) "ns.requirement",
-		    (string) (len=4) "name": (string) (len=10) "API_ROUTER",
-		    (string) (len=7) "targets": ([]interface {}) (len=1 cap=1) {
-		     (map[string]interface {}) (len=2) {
-		      (string) (len=4) "path": (string) (len=33) "parameters[name=api_router].value",
-		      (string) (len=5) "entry": (string) (len=22) "hello_world_dependency"
-		     }
-		    }
-		   },
-		   format: (payload.Format) (len=10) "golang/any"
-		  }
-		 },
-		 (string) (len=4) "TEXT": (registry.Entry) {
-		  ID: (registry.ID) app.requirements.demo:TEXT,
-		  Kind: (string) (len=14) "ns.requirement",
-		  Meta: (registry.Metadata) (len=2) {
-		   (string) (len=7) "comment": (string) (len=46) "Requirements and Dependencies Demo Application",
-		   (string) (len=10) "depends_on": ([]interface {}) (len=1 cap=1) {
-		    (string) (len=9) "ns:system"
-		   }
-		  },
-		  Data: (payload.payload) {
-		   data: (map[string]interface {}) (len=3) {
-		    (string) (len=4) "kind": (string) (len=14) "ns.requirement",
-		    (string) (len=4) "name": (string) (len=4) "TEXT",
-		    (string) (len=7) "targets": ([]interface {}) (len=1 cap=1) {
-		     (map[string]interface {}) (len=2) {
-		      (string) (len=4) "path": (string) (len=27) "parameters[name=text].value",
-		      (string) (len=5) "entry": (string) (len=22) "hello_world_dependency"
-		     }
-		    }
-		   },
-		   format: (payload.Format) (len=10) "golang/any"
-		  }
-		 }
-		}
-	*/
-
 	reqData := nsRequirement.Data.Data()
 	reqMap, ok := reqData.(map[string]interface{})
 	if !ok {
@@ -430,63 +312,6 @@ func findRequirementDependency(nsRequirement registry.Entry, nsDependencies map[
 }
 
 func getValueFromEntry(entry registry.Entry, path string) (string, error) {
-	/*
-		path is a jq format path to the value in the entry
-
-		path examples:
-		namespace
-		parameters[name=text].value
-		parameters[name=api_router].value
-		parameters[name=text].value
-
-		for fields syntax is: key.key.key
-		for slices of objects like parameters = []struct{Name string, Value string} syntax is: key[name=index].value
-	*/
-
-	/*
-		2025/07/01 15:19:37 nsDependency: (registry.Entry) {
-		 ID: (registry.ID) app.requirements.demo:hello_world_dependency,
-		 Kind: (string) (len=13) "ns.dependency",
-		 Meta: (registry.Metadata) (len=3) {
-		  (string) (len=11) "description": (string) (len=44) "Component dependency management demo example",
-		  (string) (len=7) "comment": (string) (len=46) "Requirements and Dependencies Demo Application",
-		  (string) (len=10) "depends_on": ([]interface {}) (len=1 cap=1) {
-		   (string) (len=9) "ns:system"
-		  }
-		 },
-		 Data: (payload.payload) {
-		  data: (map[string]interface {}) (len=7) {
-		   (string) (len=10) "parameters": ([]interface {}) (len=2 cap=2) {
-		    (map[string]interface {}) (len=2) {
-		     (string) (len=4) "name": (string) (len=10) "api_router",
-		     (string) (len=5) "value": (string) (len=10) "system:api"
-		    },
-		    (map[string]interface {}) (len=2) {
-		     (string) (len=4) "name": (string) (len=4) "text",
-		     (string) (len=5) "value": (string) (len=12) "Updated Text"
-		    }
-		   },
-		   (string) (len=7) "version": (string) (len=8) ">=v0.0.1",
-		   (string) (len=9) "component": (string) (len=18) "igor-test-3/test-2",
-		   (string) (len=4) "kind": (string) (len=13) "ns.dependency",
-		   (string) (len=4) "meta": (map[string]interface {}) (len=1) {
-		    (string) (len=11) "description": (string) (len=44) "Component dependency management demo example"
-		   },
-		   (string) (len=4) "name": (string) (len=22) "hello_world_dependency",
-		   (string) (len=9) "namespace": (string) (len=21) "app.requirements.demo"
-		  },
-		  format: (payload.Format) (len=10) "golang/any"
-		 }
-		}
-	*/
-
-	/*
-		examples of values for path:
-		parameters[name=text].value = "Updated Text"
-		parameters[name=api_router].value = "system:api"
-		namespace = "app.requirements.demo"
-	*/
-
 	if path == "" {
 		return "", fmt.Errorf("path cannot be empty")
 	}
@@ -760,40 +585,16 @@ func parseNumber(s string) (float64, error) {
 }
 
 func findDefinitionTargetEntries(definitionTarget loader.RequirementTarget, ns string, entries []registry.Entry) ([]registry.Entry, error) {
-	/*
-	   	2025/06/30 23:14:25 definitionTarget: (loader.RequirementTarget) {
-	       Name: (string) (len=14) "hello_endpoint",
-	       Value: (string) (len=11) "meta.router"
-	      }
-	*/
-
-	/*
-		2025/06/30 23:14:25 definitionTarget: (loader.RequirementTarget) {
-		 Name: (string) "",
-		 Value: (string) (len=17) "meta.depends_on[]"
-		}
-
-	*/
-
-	/*
-			2025/07/01 20:56:01 found entry 0: (registry.Entry) {
-		 ID: (registry.ID) localspace:hello_endpoint,
-		 Kind: (string) (len=14) "ns.requirement",
-	*/
-
 	results := make([]registry.Entry, 0)
 
 	for _, entry := range entries {
-		if definitionTarget.Name != "" && strings.Contains(entry.ID.String(), definitionTarget.Name) {
-			log.Println("found entry 0:", spew.Sdump(entry), spew.Sdump(definitionTarget), ns)
-		}
+
 		// Check if the entry ID matches the definition target name
 		if entry.ID.NS == ns {
 			if definitionTarget.Name == "" {
 				// When Name is empty, match by Value field which contains path like "meta.depends_on[]"
 				if definitionTarget.Value != "" {
 					// For now, just add all entries in the namespace when Value is specified
-					log.Println("found entry 1:", spew.Sdump(entry))
 					results = append(results, entry)
 				}
 				continue
@@ -801,7 +602,6 @@ func findDefinitionTargetEntries(definitionTarget loader.RequirementTarget, ns s
 
 			// When Name is specified, match by exact name
 			if entry.ID.Name == definitionTarget.Name {
-				log.Println("found entry 2:", spew.Sdump(entry))
 				results = append(results, entry)
 			}
 		}

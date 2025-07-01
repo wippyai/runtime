@@ -161,10 +161,11 @@ The system uses JSONPath-like syntax for precise parameter targeting:
    - Provides the foundation for the new system
 
 2. **Requirement Resolver** (`requirementresolver/resolver.go`):
-   - Implements `ResolveModuleRequirements()` function
+   - Implements `Resolver` struct with `NewResolver()` constructor
+   - Provides `ResolveModuleRequirements()` method for parameter injection
    - Handles parameter injection using JSONPath-like syntax
    - Supports complex parameter targeting with array filters
-   - Provides extensive logging for debugging
+   - Provides extensive structured logging for debugging
 
 3. **Module Loader** (`moduleloader/registry_loader.go`):
    - `EntryLoader` implements `ManifestLoader` using registry entries
@@ -182,7 +183,10 @@ The system uses JSONPath-like syntax for precise parameter targeting:
 
 ### Key Functions
 
-#### `ResolveModuleRequirements(entries []registry.Entry) error`
+#### `NewResolver(logger *zap.Logger) *Resolver`
+Creates a new Resolver instance with the given logger.
+
+#### `(r *Resolver) ResolveModuleRequirements(entries []registry.Entry) error`
 This function orchestrates the parameter injection process:
 
 1. **Builds maps** of `ns.definition`, `ns.dependency`, and `ns.requirement` entries
