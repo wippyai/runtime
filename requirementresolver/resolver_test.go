@@ -123,11 +123,10 @@ func TestFindDependencyRequirements(t *testing.T) {
 	}
 
 	// Call the function with the exact data from comments
-	result, err := findDependencyRequirements(nsDependency, nsRequirements)
+	result := findDependencyRequirements(nsDependency, nsRequirements)
 
 	// The function now handles both loader.Requirement format and raw map data format
 	// So it should find all three requirements that target hello_world_dependency
-	assert.NoError(t, err)
 	assert.Len(t, result, 3, "Function should find all three requirements with raw map data format")
 
 	// Verify all expected requirements are found
@@ -193,9 +192,7 @@ func TestFindDependencyRequirements(t *testing.T) {
 		},
 	}
 
-	resultProper, errProper := findDependencyRequirements(nsDependency, nsRequirementsProper)
-
-	assert.NoError(t, errProper)
+	resultProper := findDependencyRequirements(nsDependency, nsRequirementsProper)
 	assert.Len(t, resultProper, 3, "Should find all three requirements with proper loader.Requirement format")
 
 	// Verify all expected requirements are found with proper format too
@@ -1639,9 +1636,7 @@ func TestApplyPathValueToEntries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a copy of entries to avoid modifying the original
 			entriesCopy := make([]registry.Entry, len(tt.entries))
-			for i, entry := range tt.entries {
-				entriesCopy[i] = entry
-			}
+			copy(entriesCopy, tt.entries)
 
 			err := applyPathValueToEntries(tt.targetPath, tt.value, entriesCopy)
 
@@ -1739,14 +1734,12 @@ func TestApplyPathValueToEntriesErrorCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a copy of entries to avoid modifying the original
 			entriesCopy := make([]registry.Entry, len(tt.entries))
-			for i, entry := range tt.entries {
-				entriesCopy[i] = entry
-			}
+			copy(entriesCopy, tt.entries)
 
 			// The function should handle errors gracefully and continue processing
 			// It logs warnings but doesn't return errors
 			err := applyPathValueToEntries(tt.targetPath, tt.value, entriesCopy)
-			assert.NoError(t, err, "applyPathValueToEntries should not return errors, only log warnings")
+			assert.Error(t, err, "applyPathValueToEntries should return an error for invalid input")
 
 			// Verify that entries are not modified when errors occur
 			for i, originalEntry := range tt.entries {
@@ -1909,9 +1902,7 @@ func TestApplyPathValueToEntriesEdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a copy of entries to avoid modifying the original
 			entriesCopy := make([]registry.Entry, len(tt.entries))
-			for i, entry := range tt.entries {
-				entriesCopy[i] = entry
-			}
+			copy(entriesCopy, tt.entries)
 
 			err := applyPathValueToEntries(tt.targetPath, tt.value, entriesCopy)
 			assert.NoError(t, err)

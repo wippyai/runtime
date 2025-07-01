@@ -1,6 +1,7 @@
 package requirementresolver
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -73,27 +74,17 @@ func (r *Resolver) ResolveModuleRequirements(entries []registry.Entry) error {
 		}
 
 		for _, definitionTarget := range definitionTargets {
-			targetEntries, err := findDefinitionTargetEntries(definitionTarget, nsDefinition.ID.NS, entries)
-			if err != nil {
-				r.logger.Warn("failed to find definition target entries",
-					zap.String("target", definitionTarget.Name),
-					zap.Error(err))
-				continue
-			}
-			err = r.applyPathValueToEntries(definitionTarget.Value, value, targetEntries)
-			if err != nil {
-				r.logger.Warn("failed to apply path value to entries",
-					zap.String("target", definitionTarget.Name),
-					zap.Error(err))
-				continue
-			}
+			targetEntries := findDefinitionTargetEntries(definitionTarget, nsDefinition.ID.NS, entries)
+			r.applyPathValueToEntries(definitionTarget.Value, value, targetEntries)
 		}
 	}
 
 	return nil
 }
 
-func (r *Resolver) applyPathValueToEntries(targetPath string, value string, entries []registry.Entry) error {
+// applyPathValueToEntries applies a value to entries at the specified path
+func applyPathValueToEntries(targetPath string, value string, entries []registry.Entry) error {
+	errs := make([]error, 0)
 	for i := range entries {
 		entry := &entries[i]
 
@@ -105,11 +96,9 @@ func (r *Resolver) applyPathValueToEntries(targetPath string, value string, entr
 			path := strings.TrimPrefix(targetPath, "meta.")
 			err := setValueByPath(entry.Meta, path, value, strings.HasSuffix(targetPath, "[]"))
 			if err != nil {
-				r.logger.Warn("failed to set value at path",
-					zap.String("path", targetPath),
-					zap.String("entry", entry.ID.Name),
-					zap.Error(err))
-				continue
+				// Log and collect error
+				// (logging will be handled by the caller if needed)
+				errs = append(errs, fmt.Errorf("failed to set value at path %s for entry %s: %w", targetPath, entry.ID.Name, err))
 			}
 			continue
 		}
@@ -131,20 +120,38 @@ func (r *Resolver) applyPathValueToEntries(targetPath string, value string, entr
 		}
 		err := setValueByPath(entry.Meta, targetPath, value, strings.HasSuffix(targetPath, "[]"))
 		if err != nil {
-			r.logger.Warn("failed to set value at path",
-				zap.String("path", targetPath),
-				zap.String("entry", entry.ID.Name),
-				zap.Error(err))
-			continue
+			errs = append(errs, fmt.Errorf("failed to set value at path %s for entry %s: %w", targetPath, entry.ID.Name, err))
 		}
 	}
+	if len(errs) > 0 {
+		// Go 1.20+ errors.Join, otherwise join manually
+		return joinErrors(errs)
+	}
 	return nil
+}
+
+// joinErrors joins multiple errors into one. Uses errors.Join if available, otherwise concatenates messages.
+func joinErrors(errs []error) error {
+	if len(errs) == 0 {
+		return nil
+	}
+	// Use errors.Join (Go 1.20+)
+	return errors.Join(errs...)
+}
+
+func (r *Resolver) applyPathValueToEntries(targetPath string, value string, entries []registry.Entry) {
+	err := applyPathValueToEntries(targetPath, value, entries)
+	if err != nil {
+		r.logger.Warn("failed to apply path value to entries",
+			zap.String("path", targetPath),
+			zap.Error(err))
+	}
 }
 
 // setValueByPath sets or appends a value at the given dynamic path in the entry, supporting nested maps and array filters
 func setValueByPath(target interface{}, path string, value string, isAppend bool) error {
 	parts := parsePath(path)
-	if parts == nil || len(parts) == 0 {
+	if len(parts) == 0 {
 		return fmt.Errorf("invalid path syntax")
 	}
 	return setNestedValueByPath(target, parts, value, isAppend)
@@ -171,9 +178,9 @@ func setNestedValueByPath(target interface{}, parts []interface{}, value string,
 
 // setNestedValueByPathMap is the actual implementation for map[string]interface{}
 func setNestedValueByPathMap(target interface{}, parts []interface{}, value string, isAppend bool) error {
-	var curr interface{} = target
-	var parent interface{} = nil
-	var parentKey interface{} = nil
+	var curr = target
+	var parent interface{}
+	var parentKey interface{}
 
 	for i, part := range parts {
 		isLast := i == len(parts)-1
@@ -186,7 +193,8 @@ func setNestedValueByPathMap(target interface{}, parts []interface{}, value stri
 				if !ok {
 					return fmt.Errorf("expected slice for append, got %T", curr)
 				}
-				curr = append(slice, value)
+				slice = append(slice, value)
+				curr = slice
 				// Update parent
 				if parent != nil {
 					switch pk := parentKey.(type) {
@@ -254,20 +262,7 @@ func setNestedValueByPathMap(target interface{}, parts []interface{}, value stri
 				}
 			}
 			if !found {
-				if isLast {
-					return fmt.Errorf("no items match filter '%s'", p.String())
-				}
-				newMap := map[string]interface{}{p.field: p.value}
-				slice = append(slice, newMap)
-				if parent != nil {
-					switch pk := parentKey.(type) {
-					case string:
-						parent.(map[string]interface{})[pk] = slice
-					case int:
-						parent.([]interface{})[pk] = slice
-					}
-				}
-				curr = newMap
+				return fmt.Errorf("no items match filter '%s'", p.String())
 			}
 		case int:
 			return fmt.Errorf("integer index not supported in path")
@@ -387,22 +382,10 @@ func navigatePath(data interface{}, path string) (interface{}, error) {
 					return nil, fmt.Errorf("no items match filter '%s'", p.String())
 				}
 
-				if isLast {
-					// If this is the last part and we have multiple matches, return the first one
-					if len(filtered) > 1 {
-						// For the last part, if we have multiple matches, we might want to return all
-						// But for now, let's return the first match
-						current = filtered[0]
-					} else {
-						current = filtered[0]
-					}
-				} else {
-					// If not the last part, we expect exactly one match
-					if len(filtered) > 1 {
-						return nil, fmt.Errorf("multiple items match filter '%s', expected exactly one", p.String())
-					}
-					current = filtered[0]
+				if !isLast && len(filtered) > 1 {
+					return nil, fmt.Errorf("multiple items match filter '%s', expected exactly one", p.String())
 				}
+				current = filtered[0]
 			} else {
 				return nil, fmt.Errorf("cannot apply filter '%s' on non-slice type %T", p.String(), current)
 			}
@@ -584,11 +567,10 @@ func parseNumber(s string) (float64, error) {
 	return strconv.ParseFloat(strings.TrimSpace(s), 64)
 }
 
-func findDefinitionTargetEntries(definitionTarget loader.RequirementTarget, ns string, entries []registry.Entry) ([]registry.Entry, error) {
+func findDefinitionTargetEntries(definitionTarget loader.RequirementTarget, ns string, entries []registry.Entry) []registry.Entry {
 	results := make([]registry.Entry, 0)
 
 	for _, entry := range entries {
-
 		// Check if the entry ID matches the definition target name
 		if entry.ID.NS == ns {
 			if definitionTarget.Name == "" {
@@ -607,7 +589,7 @@ func findDefinitionTargetEntries(definitionTarget loader.RequirementTarget, ns s
 		}
 	}
 
-	return results, nil
+	return results
 }
 
 func getDefinitionTargets(definition registry.Entry) ([]loader.RequirementTarget, error) {
@@ -629,7 +611,7 @@ func findRequirementDefinition(requirement registry.Entry, nsDefinitions map[str
 	return definition, nil
 }
 
-func findDependencyRequirements(nsDependency registry.Entry, nsRequirements map[string]registry.Entry) ([]registry.Entry, error) {
+func findDependencyRequirements(nsDependency registry.Entry, nsRequirements map[string]registry.Entry) []registry.Entry {
 	matchingRequirements := make([]registry.Entry, 0)
 
 	for _, nsRequirement := range nsRequirements {
@@ -670,7 +652,7 @@ func findDependencyRequirements(nsDependency registry.Entry, nsRequirements map[
 		}
 	}
 
-	return matchingRequirements, nil
+	return matchingRequirements
 }
 
 type Result struct {
