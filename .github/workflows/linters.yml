@@ -10,7 +10,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PAT_TOKEN }}  # Required for private modules
+          token: ${{ secrets.GITHUB_TOKEN }}  # Required for private modules
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -24,7 +24,7 @@ jobs:
 
       - name: Configure Go environment
         run: |
-          git config --global url."https://${{ secrets.PAT_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
           go env -w GOPRIVATE=github.com/ponyruntime/*
           go env -w GONOSUMDB=github.com/ponyruntime/*
           go env -w CGO_ENABLED=1
