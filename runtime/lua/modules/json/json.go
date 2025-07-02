@@ -506,7 +506,14 @@ func (j *jsonValue) writeValueOptimized(buf *bytes.Buffer, value lua.LValue) err
 		if math.IsInf(f, 0) || math.IsNaN(f) {
 			buf.WriteString("null")
 		} else {
-			buf.WriteString(strconv.FormatFloat(f, 'g', -1, 64))
+			// Check if it's an integer to avoid scientific notation
+			if f == math.Floor(f) && f >= math.MinInt64 && f <= math.MaxInt64 {
+				// Format as integer to avoid scientific notation
+				buf.WriteString(strconv.FormatInt(int64(f), 10))
+			} else {
+				// Format as float
+				buf.WriteString(strconv.FormatFloat(f, 'f', -1, 64))
+			}
 		}
 		return nil
 	case lua.LBool:
