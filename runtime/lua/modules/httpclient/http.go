@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -35,13 +34,18 @@ type Client interface {
 type Module struct {
 	log         *zap.Logger
 	client      Client
+	clientPool  *clientPool
 	moduleTable *lua.LTable
 	once        sync.Once
 }
 
 // NewHTTPClientModule creates a new HTTP module instance with the given client and logger
 func NewHTTPClientModule(log *zap.Logger, client Client) *Module {
-	return &Module{log: log, client: client}
+	return &Module{
+		log:        log,
+		client:     client,
+		clientPool: newClientPool(client),
+	}
 }
 
 // Name returns the module name
@@ -172,39 +176,9 @@ func (m *Module) request(l *lua.LState) int {
 	return m.executeRequest(l, req, opts)
 }
 
-// getClientForTimeout returns appropriate client based on timeout and unix socket
+// getClientForTimeout returns appropriate client from the pool
 func (m *Module) getClientForTimeout(timeout time.Duration, unixSocket string) Client {
-	// Create custom transport for Unix socket
-	if unixSocket != "" {
-		transport := &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				dialer := &net.Dialer{}
-				return dialer.DialContext(ctx, "unix", unixSocket)
-			},
-			IdleConnTimeout:       timeout + 30*time.Second,
-			MaxIdleConns:          100,
-			MaxIdleConnsPerHost:   2,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		}
-		return &http.Client{
-			Transport: transport,
-			Timeout:   timeout,
-		}
-	}
-
-	// Use custom client if timeout exceeds default idle timeout (90s)
-	if timeout > 90*time.Second {
-		transport := &http.Transport{
-			IdleConnTimeout:       timeout + 30*time.Second, // timeout + buffer
-			MaxIdleConns:          100,
-			MaxIdleConnsPerHost:   2,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		}
-		return &http.Client{Transport: transport}
-	}
-	return m.client
+	return m.clientPool.GetClient(timeout, unixSocket)
 }
 
 // executeRequest performs the actual HTTP request
@@ -225,7 +199,7 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 
 	req = req.WithContext(ctx)
 
-	// Get appropriate client based on timeout and unix socket
+	// Get appropriate client from the pool
 	client := m.getClientForTimeout(opts.timeout, opts.unixSocket)
 
 	resp, err := client.Do(req)
@@ -409,7 +383,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 				}
 			}()
 
-			// Get appropriate client based on timeout and unix socket
+			// Get appropriate client from the pool
 			client := m.getClientForTimeout(reqInfo.options.timeout, reqInfo.options.unixSocket)
 
 			resp, err := client.Do(reqInfo.request)
@@ -430,8 +404,8 @@ func (m *Module) requestBatch(l *lua.LState) int {
 	}
 
 	// Collect results
-	responsesTable := l.NewTable()
-	errorsTable := l.NewTable()
+	responsesTable := l.CreateTable(count, 0) // Pre-allocate for exact array size
+	errorsTable := l.CreateTable(count, 0)    // Pre-allocate for exact array size
 	hasErrors := false
 
 	for i := 0; i < count; i++ {
