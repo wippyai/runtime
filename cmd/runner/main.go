@@ -7,12 +7,12 @@ import (
 	"fmt"
 	iofs "io/fs"
 	httpbase "net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
-	"runtime/pprof"
 	"strings"
 	"syscall"
 	"time"
@@ -75,6 +75,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/store"
 	"github.com/ponyruntime/pony/runtime/lua/modules/system"
 	luatemplate "github.com/ponyruntime/pony/runtime/lua/modules/template"
+	"github.com/ponyruntime/pony/runtime/lua/modules/text"
 	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
@@ -124,6 +125,8 @@ import (
 	"github.com/ponyruntime/pony/system/security"
 	"github.com/ponyruntime/pony/system/supervisor"
 	"github.com/ponyruntime/pony/system/topology"
+	"github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
+	"github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	otelresource "go.opentelemetry.io/otel/sdk/resource"
@@ -408,6 +411,9 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		fSys = osRoot.FS()
 	}
 
+	bootCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+
 	manager := interceptor.NewManager(a.eventBus, a.logger.Named("interceptor"))
 	err = manager.InitInterceptors(ctx)
 	if err != nil {
@@ -416,7 +422,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	}
 
 	// Load and apply initial state
-	appState, cleanup, err := loadApplicationState(fSys, a.dtt, a.logger)
+	appState, cleanup, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("load application state: %w", err)
@@ -424,9 +430,6 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 
 	// Store cleanup function
 	a.otelCleanup = cleanup
-
-	bootCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
-	defer cancel()
 
 	if _, err := a.reg.Apply(bootCtx, appState); err != nil {
 		return fmt.Errorf("failed to apply initial state: %w", err)
@@ -518,61 +521,21 @@ func (a *App) Stop() error {
 
 // AddCleanup this method to your App struct
 func (a *App) StartProfiler() {
-	// Memory profiling
-	runtime.MemProfileRate = 1 // Profile all allocations
-
-	// Create directory for profiles if it doesn't exist
-	if err := os.MkdirAll("profiles", 0755); err != nil {
-		a.logger.Error("failed to create profiles directory", zap.Error(err))
-		return
-	}
-
-	// CPU profiling
-	cpuFile, err := os.Create("profiles/cpu.prof")
-	if err != nil {
-		a.logger.Error("failed to create CPU profile", zap.Error(err))
-		return
-	}
-	err = pprof.StartCPUProfile(cpuFile)
-	if err != nil {
-		a.logger.Error("failed to start CPU profile", zap.Error(err))
-		return
-	}
-	defer pprof.StopCPUProfile()
-
-	// Periodic heap profiling
-	go func() {
-		tick := time.NewTicker(30 * time.Second)
-		defer tick.Stop()
-
-		for i := 1; ; i++ {
-			select {
-			case <-a.ctx.Done():
-				return
-			case <-tick.C:
-				heapFile, err := os.Create(fmt.Sprintf("profiles/heap_%d.prof", i))
-				if err != nil {
-					a.logger.Error("failed to create heap profile", zap.Error(err))
-					continue
-				}
-				wErr := pprof.WriteHeapProfile(heapFile)
-				if wErr != nil {
-					a.logger.Error("failed to write heap profile", zap.Error(err))
-				}
-				cErr := heapFile.Close()
-				if cErr != nil {
-					a.logger.Error("failed to close heap profile file", zap.Error(err))
-				}
-			}
-		}
-	}()
-
 	// HTTP server for live profiling
 	go func() {
 		profilerAddr := "localhost:6060"
 		a.logger.Info("starting pprof server", zap.String("address", profilerAddr))
+
+		mux := httpbase.NewServeMux()
+
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
 		//nolint:gosec // ok for now
-		if err := httpbase.ListenAndServe(profilerAddr, nil); err != nil {
+		if err := httpbase.ListenAndServe(profilerAddr, mux); err != nil {
 			if !errors.Is(err, httpbase.ErrServerClosed) {
 				a.logger.Error("pprof server failed", zap.Error(err))
 			}
@@ -734,6 +697,7 @@ func initLogger(verbose, veryVerbose bool, bus event.Bus) (*zap.Logger, logapi.C
 }
 
 func loadApplicationState(
+	ctx context.Context,
 	fs iofs.FS,
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
@@ -772,8 +736,11 @@ func loadApplicationState(
 		baseURL = modulesURL
 	}
 
-	m := moduleloader.NewManager(baseURL)
-	if err := m.Load(context.Background()); err != nil {
+	// Create registry-based loader
+	registryLoader := moduleloader.NewEntryLoader(entries, mainLogger.Named("registry-loader"))
+
+	m := newModuleloaderManager(baseURL, registryLoader)
+	if err := m.Load(ctx); err != nil {
 		mainLogger.Error("load modules from registry", zap.Error(err))
 	} else {
 		vendorDir, err := os.OpenRoot(moduleloader.VendorFolder)
@@ -1040,6 +1007,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				hash.NewHashModule(),
 				command.NewCommandModule(),
 				yamlmod.NewYAMLModule(),
+				text.NewTextModule(),
 				registrymod.NewLoaderModule(a.logger.Named("loader")),
 				events.NewEventsModule(a.logger.Named("events")),
 				exec.NewExecModule(a.logger.Named("exec")),
@@ -1062,8 +1030,8 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				system.NewSystemModule(),
 				otelmod.NewOTelModule(),
 			},
-			ProtoCacheSize: 600,
-			MainCacheSize:  100,
+			ProtoCacheSize: 60000,
+			MainCacheSize:  10000,
 		},
 	)
 	if err != nil {
@@ -1082,6 +1050,24 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		component.NewHandler("process.lua", processes),
 		component.NewHandler("btea.app.lua", terminalApps),
 	}
+}
+
+func newModuleloaderManager(baseURL string, loader moduleloader.ManifestLoader) *moduleloader.Manager {
+	client := &httpbase.Client{}
+	organizationClient := identityv1connect.NewOrganizationServiceClient(client, baseURL)
+	moduleClient := modulev1connect.NewModuleServiceClient(client, baseURL)
+	labelClient := modulev1connect.NewLabelServiceClient(client, baseURL)
+	commitClient := modulev1connect.NewCommitServiceClient(client, baseURL)
+	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
+	return moduleloader.NewManager(
+		organizationClient,
+		moduleClient,
+		commitClient,
+		labelClient,
+		downloadClient,
+		loader,
+		moduleloader.VendorFolder,
+	)
 }
 
 // initOpenTelemetry initializes the OpenTelemetry tracer

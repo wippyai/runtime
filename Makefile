@@ -101,3 +101,9 @@ otel-up:
 
 otel-down:
 	cd tests && docker-compose down
+
+mock:
+	go tool mockgen -destination tests/mock/identityv1connect/identityv1connect.go github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect OrganizationServiceClient
+	go tool mockgen -destination tests/mock/modulev1connect/modulev1connect.go github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect ModuleServiceClient,CommitServiceClient,LabelServiceClient,DownloadServiceClient
+	go tool mockgen -destination tests/mock/moduleloader/moduleloader.go github.com/ponyruntime/pony/moduleloader ManifestLoader
+

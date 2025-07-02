@@ -140,7 +140,7 @@ func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig, key st
 		expireVal = nil
 	}
 
-	//nolint:gosec // FIXME variables should be verified at the config.Validate() step
+	//nolint:gosec // it's test
 	query := `INSERT INTO ` + config.TableName + ` (` +
 		config.IDColumnName + `, ` +
 		config.PayloadColumnName + `, ` +
@@ -316,6 +316,7 @@ func TestSQLStore_Get_ExpiredKey(t *testing.T) {
 	// Create store
 	logger := zap.NewNop()
 	ss := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+	ss.cleanup(ctx)
 
 	// Test Get with expired key
 	result, err := ss.Get(ctx, testKey)
