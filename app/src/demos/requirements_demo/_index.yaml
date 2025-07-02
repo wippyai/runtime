@@ -18,24 +18,15 @@ entries:
       - entry: hello_world_dependency
         path: parameters[name=api_router].value
 
-  - name: TEXT
-    kind: ns.requirement
-    targets:
-      - entry: hello_world_dependency
-        path: parameters[name=text].value
-
   - name: hello_world_dependency
     kind: "ns.dependency"
     meta:
       description: "Component dependency management demo example"
     component: "igor-test-3/test-2"
     version: ">=v0.0.1"
-    namespace: "app.requirements.demo"
     parameters:
       - name: api_router
         value: "system:api"
-      - name: text
-        value: "Updated Text"
       - name: namespace
         value: "ns:system"
 
