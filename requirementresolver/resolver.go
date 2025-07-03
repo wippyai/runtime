@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/itchyny/gojq"
 	"github.com/ponyruntime/pony/api/registry"
 	"go.uber.org/zap"
 )
@@ -316,28 +317,49 @@ func getValueFromEntry(entry registry.Entry, path string) (string, error) {
 		return "", fmt.Errorf("entry data is nil")
 	}
 
-	// Parse the path and navigate to the target value
-	value, err := navigatePath(data, path)
+	// Use gojq to extract the value
+	value, err := getValueFromEntryWithGojq(data, path)
 	if err != nil {
-		return "", fmt.Errorf("failed to navigate path '%s': %w", path, err)
+		return "", fmt.Errorf("failed to extract value with gojq from path '%s': %w", path, err)
 	}
 
-	// Convert the value to string
-	if value == nil {
-		return "", nil
+	return value, nil
+}
+
+// getValueFromEntryWithGojq uses gojq to extract values from data using jq-style queries
+func getValueFromEntryWithGojq(data interface{}, path string) (string, error) {
+	// Parse the jq query
+	query, err := gojq.Parse(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse jq query '%s': %w", path, err)
 	}
 
-	switch v := value.(type) {
+	// Run the query
+	iter := query.Run(data)
+
+	// Get the first result
+	v, ok := iter.Next()
+	if !ok || v == nil {
+		return "", fmt.Errorf("no results found for query '%s'", path)
+	}
+
+	// Check for errors
+	if err, ok := v.(error); ok {
+		return "", fmt.Errorf("jq query error: %w", err)
+	}
+
+	// Convert the result to string
+	switch val := v.(type) {
 	case string:
-		return v, nil
+		return val, nil
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return fmt.Sprintf("%d", v), nil
+		return fmt.Sprintf("%d", val), nil
 	case float32, float64:
-		return fmt.Sprintf("%g", v), nil
+		return fmt.Sprintf("%g", val), nil
 	case bool:
-		return fmt.Sprintf("%t", v), nil
+		return fmt.Sprintf("%t", val), nil
 	default:
-		return fmt.Sprintf("%v", v), nil
+		return fmt.Sprintf("%v", val), nil
 	}
 }
 

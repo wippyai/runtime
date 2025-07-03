@@ -90,7 +90,7 @@ lint-init:
 	# binary will be bin/golangci-lint
 	mkdir -p bin
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b bin v2.1.5
-	golangci-lint --version
+	bin/golangci-lint --version
 
 lint:
 	bin/golangci-lint run

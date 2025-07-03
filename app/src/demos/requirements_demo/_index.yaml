@@ -10,13 +10,13 @@ entries:
     kind: ns.requirement
     targets:
       - entry: hello_world_dependency
-        path: parameters[name=namespace].value
+        path: .parameters[] | select(.name == "namespace") | .value
 
   - name: API_ROUTER
     kind: ns.requirement
     targets:
       - entry: hello_world_dependency
-        path: parameters[name=api_router].value
+        path: .parameters[] | select(.name == "api_router") | .value
 
   - name: hello_world_dependency
     kind: "ns.dependency"

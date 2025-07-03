@@ -8,7 +8,7 @@ The demo demonstrates:
 - Declaring requirements using `ns.requirement` entries
 - Defining dependencies using `ns.dependency` entries with parameters
 - Injecting requirement values into dependency parameters via target paths
-- Using JSONPath-like syntax for precise parameter targeting
+- Using jq syntax for precise parameter targeting
 
 ## How It Works
 
@@ -21,13 +21,13 @@ The application declares requirements that provide values for dependency paramet
   kind: ns.requirement
   targets:
     - entry: hello_world_dependency
-      path: "parameters[name=namespace].value"
+      path: ".parameters[] | select(.name == \"namespace\") | .value"
 
 - name: API_ROUTER
   kind: ns.requirement
   targets:
     - entry: hello_world_dependency
-      path: "parameters[name=api_router].value"
+      path: ".parameters[] | select(.name == \"api_router\") | .value"
 ```
 
 ### 2. Dependency Configuration (`ns.dependency`)
@@ -106,13 +106,13 @@ entries:
     kind: ns.requirement
     targets:
       - entry: hello_world_dependency
-        path: parameters[name=namespace].value
+        path: .parameters[] | select(.name == "namespace") | .value
 
   - name: API_ROUTER
     kind: ns.requirement
     targets:
       - entry: hello_world_dependency
-        path: parameters[name=api_router].value
+        path: .parameters[] | select(.name == "api_router") | .value
 
   - name: hello_world_dependency
     kind: "ns.dependency"
@@ -129,22 +129,22 @@ entries:
 
 ## Parameter Injection Flow
 
-1. **Application Requirements**: Application declares `ns.requirement` entries with path where the value is located
+1. **Application Requirements**: Application declares `ns.requirement` entries with jq path where the value is located
 2. **Target Specification**: Requirements specify where to locate value for dependency
 3. **Value Injection**: System injects requirement values into target entries
 
-## JSONPath Targeting Syntax
+## jq Targeting Syntax
 
-The system uses JSONPath-like syntax for parameter targeting. In this demo, we focus on targeting dependency parameters:
+The system uses jq syntax for parameter targeting. In this demo, we focus on targeting dependency parameters:
 
-- `parameters[name=namespace].value` - Locates the `parameters` slice, finds the section with `name=namespace`, then takes the `value` field
-- `parameters[name=api_router].value` - Locates the `parameters` slice, finds the section with `name=api_router`, then takes the `value` field
+- `.parameters[] | select(.name == "namespace") | .value` - Locates the `parameters` array, finds the object with `name == "namespace"`, then takes the `value` field
+- `.parameters[] | select(.name == "api_router") | .value` - Locates the `parameters` array, finds the object with `name == "api_router"`, then takes the `value` field
 
 ## Key Features
 
 - **Module Requirements**: Modules declare what parameters they need
 - **Parameter-Based Requirements**: Requirements target specific dependency parameters
-- **JSONPath-Like Targeting**: Precise parameter targeting using path syntax
+- **jq Targeting**: Precise parameter targeting using jq syntax
 - **Parameter Injection Flow**: Clear demonstration of value flow from requirements to dependencies to modules
 - **HTTP Endpoint Integration**: Endpoints that demonstrate the parameter injection system
 

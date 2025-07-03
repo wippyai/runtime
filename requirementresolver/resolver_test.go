@@ -3,6 +3,7 @@ package requirementresolver
 import (
 	"testing"
 
+	"github.com/itchyny/gojq"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
@@ -441,7 +442,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					"component": "igor-test-3/test-2",
 				}),
 			},
-			path:     "namespace",
+			path:     ".namespace",
 			expected: "app.requirements.demo",
 			wantErr:  false,
 		},
@@ -456,7 +457,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					"component": "igor-test-3/test-2",
 				}),
 			},
-			path:     "version",
+			path:     ".version",
 			expected: ">=v0.0.1",
 			wantErr:  false,
 		},
@@ -478,7 +479,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:     "parameters[name=text].value",
+			path:     `.parameters[] | select(.name == "text") | .value`,
 			expected: "Updated Text",
 			wantErr:  false,
 		},
@@ -500,7 +501,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:     "parameters[name=api_router].value",
+			path:     `.parameters[] | select(.name == "api_router") | .value`,
 			expected: "system:api",
 			wantErr:  false,
 		},
@@ -516,7 +517,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:     "meta.description",
+			path:     ".meta.description",
 			expected: "Component dependency management demo example",
 			wantErr:  false,
 		},
@@ -540,7 +541,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:     "items[id=2].value",
+			path:     `.items[] | select(.id == 2) | .value`,
 			expected: "beta",
 			wantErr:  false,
 		},
@@ -562,7 +563,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:     "flags[name=enabled].value",
+			path:     `.flags[] | select(.name == "enabled") | .value`,
 			expected: "true",
 			wantErr:  false,
 		},
@@ -588,10 +589,9 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:     "numbers[value>15].id",
+			path:     `.numbers[] | select(.value > 15) | .id`,
 			expected: "2",
-			wantErr:  true,
-			errMsg:   "multiple items match filter '[value>15]', expected exactly one",
+			wantErr:  false,
 		},
 		{
 			name: "array filter with not equals",
@@ -611,7 +611,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:     "items[name!=excluded].value",
+			path:     `.items[] | select(.name != "excluded") | .value`,
 			expected: "keep",
 			wantErr:  false,
 		},
@@ -641,7 +641,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:     "config.services[name=api].settings.port",
+			path:     `.config.services[] | select(.name == "api") | .settings.port`,
 			expected: "8080",
 			wantErr:  false,
 		},
@@ -665,7 +665,7 @@ func TestGetValueFromEntry(t *testing.T) {
 				Kind: "test",
 				Data: payload.New(nil),
 			},
-			path:    "value",
+			path:    ".value",
 			wantErr: true,
 			errMsg:  "entry data is nil",
 		},
@@ -678,9 +678,9 @@ func TestGetValueFromEntry(t *testing.T) {
 					"existing": "value",
 				}),
 			},
-			path:    "nonexistent",
+			path:    ".nonexistent",
 			wantErr: true,
-			errMsg:  "field 'nonexistent' not found",
+			errMsg:  "no results found",
 		},
 		{
 			name: "array filter no matches",
@@ -696,9 +696,9 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:    "parameters[name=text].value",
+			path:    `.parameters[] | select(.name == "text") | .value`,
 			wantErr: true,
-			errMsg:  "no items match filter '[name=text]'",
+			errMsg:  "no results found",
 		},
 		{
 			name: "multiple array matches",
@@ -718,9 +718,9 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:    "items[type=service].value",
-			wantErr: true,
-			errMsg:  "multiple items match filter '[type=service]', expected exactly one",
+			path:     `.items[] | select(.type == "service") | .value`,
+			expected: "first",
+			wantErr:  false,
 		},
 		{
 			name: "invalid path - unmatched bracket",
@@ -733,7 +733,7 @@ func TestGetValueFromEntry(t *testing.T) {
 			},
 			path:    "value[invalid",
 			wantErr: true,
-			errMsg:  "failed to navigate path 'value[invalid'",
+			errMsg:  "failed to parse jq query",
 		},
 		{
 			name: "access field on non-map",
@@ -742,9 +742,9 @@ func TestGetValueFromEntry(t *testing.T) {
 				Kind: "test",
 				Data: payload.New("string value"),
 			},
-			path:    "field",
+			path:    ".field",
 			wantErr: true,
-			errMsg:  "cannot access field 'field' on non-map type string",
+			errMsg:  "jq query error",
 		},
 		{
 			name: "apply filter on non-slice",
@@ -755,9 +755,9 @@ func TestGetValueFromEntry(t *testing.T) {
 					"value": "not an array",
 				}),
 			},
-			path:    "value[name=test]",
+			path:    `.value[] | select(.name == "test")`,
 			wantErr: true,
-			errMsg:  "cannot apply filter '[name=test]' on non-slice type string",
+			errMsg:  "jq query error",
 		},
 		{
 			name: "numeric comparison with strings",
@@ -777,7 +777,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:     "items[score>150].name",
+			path:     `.items[] | select(.score > "150") | .name`,
 			expected: "item2",
 			wantErr:  false,
 		},
@@ -799,7 +799,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:     "items[name>alpha].name",
+			path:     `.items[] | select(.name > "alpha") | .name`,
 			expected: "beta",
 			wantErr:  false,
 		},
@@ -829,7 +829,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					"namespace": "app.requirements.demo",
 				}),
 			},
-			path:     "parameters[name=text].value",
+			path:     `.parameters[] | select(.name == "text") | .value`,
 			expected: "Updated Text",
 			wantErr:  false,
 		},
@@ -859,7 +859,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					"namespace": "app.requirements.demo",
 				}),
 			},
-			path:     "namespace",
+			path:     ".namespace",
 			expected: "app.requirements.demo",
 			wantErr:  false,
 		},
@@ -889,7 +889,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					"namespace": "app.requirements.demo",
 				}),
 			},
-			path:     "parameters[name=api_router].value",
+			path:     `.parameters[] | select(.name == "api_router") | .value`,
 			expected: "system:api",
 			wantErr:  false,
 		},
@@ -925,7 +925,7 @@ func TestGetValueFromEntry(t *testing.T) {
 					},
 				}),
 			},
-			path:     "groups[name=admins].users[username=alice].email",
+			path:     `.groups[] | select(.name == "admins") | .users[] | select(.username == "alice") | .email`,
 			expected: "alice@example.com",
 			wantErr:  false,
 		},
@@ -1919,4 +1919,304 @@ func TestApplyPathValueToEntriesEdgeCases(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetValueFromEntryWithGojq(t *testing.T) {
+	tests := []struct {
+		name     string
+		entry    registry.Entry
+		path     string
+		expected string
+		wantErr  bool
+		errMsg   string
+	}{
+		{
+			name: "simple field access - namespace",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test",
+				Data: payload.New(map[string]interface{}{
+					"namespace": "app.requirements.demo",
+					"version":   ">=v0.0.1",
+					"component": "igor-test-3/test-2",
+				}),
+			},
+			path:     ".namespace",
+			expected: "app.requirements.demo",
+			wantErr:  false,
+		},
+		{
+			name: "simple field access - version",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test",
+				Data: payload.New(map[string]interface{}{
+					"namespace": "app.requirements.demo",
+					"version":   ">=v0.0.1",
+					"component": "igor-test-3/test-2",
+				}),
+			},
+			path:     ".version",
+			expected: ">=v0.0.1",
+			wantErr:  false,
+		},
+		{
+			name: "array filter with equality - parameters[name=text].value",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test",
+				Data: payload.New(map[string]interface{}{
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":  "api_router",
+							"value": "system:api",
+						},
+						map[string]interface{}{
+							"name":  "text",
+							"value": "Updated Text",
+						},
+					},
+				}),
+			},
+			path:     `.parameters[] | select(.name == "text") | .value`,
+			expected: "Updated Text",
+			wantErr:  false,
+		},
+		{
+			name: "array filter with equality - parameters[name=api_router].value",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test",
+				Data: payload.New(map[string]interface{}{
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":  "api_router",
+							"value": "system:api",
+						},
+						map[string]interface{}{
+							"name":  "text",
+							"value": "Updated Text",
+						},
+					},
+				}),
+			},
+			path:     `.parameters[] | select(.name == "api_router") | .value`,
+			expected: "system:api",
+			wantErr:  false,
+		},
+		{
+			name: "nested field access",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test",
+				Data: payload.New(map[string]interface{}{
+					"meta": map[string]interface{}{
+						"description": "Component dependency management demo example",
+						"comment":     "Requirements and Dependencies Demo Application",
+					},
+				}),
+			},
+			path:     ".meta.description",
+			expected: "Component dependency management demo example",
+			wantErr:  false,
+		},
+		{
+			name: "complex nested path with array filter",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test",
+				Data: payload.New(map[string]interface{}{
+					"config": map[string]interface{}{
+						"services": []interface{}{
+							map[string]interface{}{
+								"name": "api",
+								"settings": map[string]interface{}{
+									"port":    8080,
+									"timeout": "30s",
+								},
+							},
+							map[string]interface{}{
+								"name": "db",
+								"settings": map[string]interface{}{
+									"port":    5432,
+									"timeout": "60s",
+								},
+							},
+						},
+					},
+				}),
+			},
+			path:     `.config.services[] | select(.name == "api") | .settings.port`,
+			expected: "8080",
+			wantErr:  false,
+		},
+		{
+			name: "real-world data structure from comments",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "app.requirements.demo", Name: "hello_world_dependency"},
+				Kind: "ns.dependency",
+				Data: payload.New(map[string]interface{}{
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":  "api_router",
+							"value": "system:api",
+						},
+						map[string]interface{}{
+							"name":  "text",
+							"value": "Updated Text",
+						},
+					},
+					"version":   ">=v0.0.1",
+					"component": "igor-test-3/test-2",
+					"kind":      "ns.dependency",
+					"meta": map[string]interface{}{
+						"description": "Component dependency management demo example",
+					},
+					"name":      "hello_world_dependency",
+					"namespace": "app.requirements.demo",
+				}),
+			},
+			path:     `.parameters[] | select(.name == "text") | .value`,
+			expected: "Updated Text",
+			wantErr:  false,
+		},
+		{
+			name: "real-world data structure - namespace field",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "app.requirements.demo", Name: "hello_world_dependency"},
+				Kind: "ns.dependency",
+				Data: payload.New(map[string]interface{}{
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":  "api_router",
+							"value": "system:api",
+						},
+						map[string]interface{}{
+							"name":  "text",
+							"value": "Updated Text",
+						},
+					},
+					"version":   ">=v0.0.1",
+					"component": "igor-test-3/test-2",
+					"kind":      "ns.dependency",
+					"meta": map[string]interface{}{
+						"description": "Component dependency management demo example",
+					},
+					"name":      "hello_world_dependency",
+					"namespace": "app.requirements.demo",
+				}),
+			},
+			path:     ".namespace",
+			expected: "app.requirements.demo",
+			wantErr:  false,
+		},
+		{
+			name: "real-world data structure - api_router parameter",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "app.requirements.demo", Name: "hello_world_dependency"},
+				Kind: "ns.dependency",
+				Data: payload.New(map[string]interface{}{
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":  "api_router",
+							"value": "system:api",
+						},
+						map[string]interface{}{
+							"name":  "text",
+							"value": "Updated Text",
+						},
+					},
+					"version":   ">=v0.0.1",
+					"component": "igor-test-3/test-2",
+					"kind":      "ns.dependency",
+					"meta": map[string]interface{}{
+						"description": "Component dependency management demo example",
+					},
+					"name":      "hello_world_dependency",
+					"namespace": "app.requirements.demo",
+				}),
+			},
+			path:     `.parameters[] | select(.name == "api_router") | .value`,
+			expected: "system:api",
+			wantErr:  false,
+		},
+		{
+			name: "invalid jq query",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test",
+				Data: payload.New(map[string]interface{}{
+					"value": "test",
+				}),
+			},
+			path:    "invalid[query",
+			wantErr: true,
+			errMsg:  "failed to parse jq query",
+		},
+		{
+			name: "field not found",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test",
+				Data: payload.New(map[string]interface{}{
+					"existing": "value",
+				}),
+			},
+			path:    ".nonexistent",
+			wantErr: true,
+			errMsg:  "no results found",
+		},
+		{
+			name: "array filter no matches",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test",
+				Data: payload.New(map[string]interface{}{
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":  "api_router",
+							"value": "system:api",
+						},
+					},
+				}),
+			},
+			path:    `.parameters[] | select(.name == "text") | .value`,
+			wantErr: true,
+			errMsg:  "no results found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := getValueFromEntry(tt.entry, tt.path)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestGojqDebug(t *testing.T) {
+	data := map[string]interface{}{
+		"existing": "value",
+	}
+
+	query, err := gojq.Parse(".nonexistent")
+	require.NoError(t, err)
+
+	iter := query.Run(data)
+	v, ok := iter.Next()
+
+	t.Logf("ok: %v, v: %v, type: %T", ok, v, v)
+
+	// Check if there are more results
+	v2, ok2 := iter.Next()
+	t.Logf("ok2: %v, v2: %v, type: %T", ok2, v2, v2)
 }
