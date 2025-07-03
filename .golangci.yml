@@ -2,6 +2,7 @@ version: "2"
 run:
   allow-parallel-runners: true
 linters:
+  disable-all: true
   default: none
   enable:
     - asciicheck
