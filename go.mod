@@ -1,6 +1,6 @@
 module github.com/ponyruntime/pony
 
-go 1.24.0
+go 1.24.4
 
 require (
 	connectrpc.com/connect v1.18.1
