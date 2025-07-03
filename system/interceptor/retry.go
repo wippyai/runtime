@@ -4,7 +4,6 @@ import (
 	"context"
 
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
 )
 
@@ -52,14 +51,4 @@ func (i *RetryInterceptor) Handle(ctx context.Context, next func(context.Context
 			continue
 		}
 	}
-}
-
-// Format implements the payload.Payload interface
-func (i *RetryInterceptor) Format() payload.Format {
-	return payload.Golang
-}
-
-// Data implements the payload.Payload interface
-func (i *RetryInterceptor) Data() any {
-	return i
 }

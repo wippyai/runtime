@@ -6,7 +6,6 @@ import (
 	"time"
 
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
 )
 
@@ -66,14 +65,4 @@ func (i *TimeoutInterceptor) Handle(ctx context.Context, next func(context.Conte
 		newCtx := <-contextChan
 		return result, newCtx
 	}
-}
-
-// Format implements the payload.Payload interface
-func (i *TimeoutInterceptor) Format() payload.Format {
-	return payload.Golang
-}
-
-// Data implements the payload.Payload interface
-func (i *TimeoutInterceptor) Data() any {
-	return i
 }

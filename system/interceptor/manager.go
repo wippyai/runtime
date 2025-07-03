@@ -64,9 +64,9 @@ func (m *Manager) InitInterceptors(ctx context.Context) error {
 			NS:   "interceptor",
 			Name: "ratelimit",
 		},
-		Data: &RateLimitInterceptor{
+		Data: payload.New(&RateLimitInterceptor{
 			cache: expirable.NewLRU[string, *rate.Limiter](10000, nil, time.Second),
-		},
+		}),
 	}); err != nil {
 		return fmt.Errorf("error adding ratelimit interceptor: %w", err)
 	}

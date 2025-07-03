@@ -3,7 +3,6 @@ package interceptor
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"go.opentelemetry.io/otel/attribute"
@@ -64,14 +63,4 @@ func (i *OTelInterceptor) Handle(ctx context.Context, next func(context.Context)
 	}
 
 	return result, newCtx
-}
-
-// Format implements the payload.Payload interface
-func (i *OTelInterceptor) Format() payload.Format {
-	return payload.Golang
-}
-
-// Data implements the payload.Payload interface
-func (i *OTelInterceptor) Data() any {
-	return i
 }

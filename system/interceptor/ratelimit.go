@@ -7,7 +7,6 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/security"
@@ -79,14 +78,4 @@ func (i *RateLimitInterceptor) Handle(ctx context.Context, next func(context.Con
 	}
 
 	return next(ctx)
-}
-
-// Format implements the payload.Payload interface
-func (i *RateLimitInterceptor) Format() payload.Format {
-	return payload.Golang
-}
-
-// Data implements the payload.Payload interface
-func (i *RateLimitInterceptor) Data() any {
-	return i
 }
