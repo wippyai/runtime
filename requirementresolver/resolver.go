@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/system/registry/loader"
 	"go.uber.org/zap"
 )
 
@@ -567,7 +566,13 @@ func parseNumber(s string) (float64, error) {
 	return strconv.ParseFloat(strings.TrimSpace(s), 64)
 }
 
-func findDefinitionTargetEntries(definitionTarget loader.RequirementTarget, ns string, entries []registry.Entry) []registry.Entry {
+// RequirementTarget represents a target in the new format
+type RequirementTarget struct {
+	Name  string `json:"name" yaml:"name"`
+	Value string `json:"value" yaml:"value"`
+}
+
+func findDefinitionTargetEntries(definitionTarget RequirementTarget, ns string, entries []registry.Entry) []registry.Entry {
 	results := make([]registry.Entry, 0)
 
 	for _, entry := range entries {
@@ -592,14 +597,31 @@ func findDefinitionTargetEntries(definitionTarget loader.RequirementTarget, ns s
 	return results
 }
 
-func getDefinitionTargets(definition registry.Entry) ([]loader.RequirementTarget, error) {
+func getDefinitionTargets(definition registry.Entry) ([]RequirementTarget, error) {
 	data := definition.Data.Data()
-	requirement, ok := data.(loader.Requirement)
-	if !ok {
-		return nil, fmt.Errorf("invalid requirement data in definition %s", definition.ID.Name)
+
+	// Try to parse as raw map data (new format)
+	if reqMap, ok := data.(map[string]interface{}); ok {
+		// Extract targets from the raw map format
+		if targetsRaw, ok := reqMap["targets"].([]interface{}); ok {
+			targets := make([]RequirementTarget, 0, len(targetsRaw))
+			for _, targetRaw := range targetsRaw {
+				if targetMap, ok := targetRaw.(map[string]interface{}); ok {
+					target := RequirementTarget{}
+					if name, ok := targetMap["name"].(string); ok {
+						target.Name = name
+					}
+					if value, ok := targetMap["value"].(string); ok {
+						target.Value = value
+					}
+					targets = append(targets, target)
+				}
+			}
+			return targets, nil
+		}
 	}
 
-	return requirement.Targets, nil
+	return nil, fmt.Errorf("invalid requirement data in definition %s", definition.ID.Name)
 }
 
 func findRequirementDefinition(requirement registry.Entry, nsDefinitions map[string]registry.Entry) (registry.Entry, error) {
@@ -617,22 +639,7 @@ func findDependencyRequirements(nsDependency registry.Entry, nsRequirements map[
 	for _, nsRequirement := range nsRequirements {
 		reqData := nsRequirement.Data.Data()
 
-		// Try to parse as loader.Requirement first (existing format)
-		if requirement, ok := reqData.(loader.Requirement); ok {
-			// Check if requirement targets match the dependency
-			for _, target := range requirement.Targets {
-				// Check if the target entry name matches the dependency name
-				// and if they're in the same namespace
-				if target.Name == nsDependency.ID.Name &&
-					nsRequirement.ID.NS == nsDependency.ID.NS {
-					matchingRequirements = append(matchingRequirements, nsRequirement)
-					break
-				}
-			}
-			continue
-		}
-
-		// Try to parse as raw map data (format from comments)
+		// Parse as raw map data (new format)
 		if reqMap, ok := reqData.(map[string]interface{}); ok {
 			// Extract targets from the raw map format
 			if targetsRaw, ok := reqMap["targets"].([]interface{}); ok {

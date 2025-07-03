@@ -143,74 +143,7 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		{
-			name: "requirements processing",
-			input: `{
-				"namespace": "test",
-				"requirements": [
-					{
-						"parameter": "API_KEY",
-						"description": "API key for external service",
-						"targets": [
-							{"name": "config.api.key", "value": "config.api.key"}
-						]
-					},
-					{
-						"parameter": "NAMESPACE",
-						"description": "Target namespace",
-						"targets": [
-							{"name": "meta.namespace", "value": "meta.namespace"}
-						]
-					}
-				],
-				"entries": [
-					{"name": "service_handler", "kind": "function.lua", "source": "file://handler.lua"}
-				]
-			}`,
-			format: payload.JSON,
-			want: []registry.Entry{
-				{
-					ID:   registry.ID{NS: "test", Name: "API_KEY"},
-					Kind: registry.KindNamespaceDefinition,
-					Meta: registry.Metadata{
-						"parameter":   "API_KEY",
-						"description": "API key for external service",
-					},
-					Data: payload.New(Requirement{
-						Parameter:   "API_KEY",
-						Description: "API key for external service",
-						Targets: []RequirementTarget{
-							{Name: "config.api.key", Value: "config.api.key"},
-						},
-					}),
-				},
-				{
-					ID:   registry.ID{NS: "test", Name: "NAMESPACE"},
-					Kind: registry.KindNamespaceDefinition,
-					Meta: registry.Metadata{
-						"parameter":   "NAMESPACE",
-						"description": "Target namespace",
-					},
-					Data: payload.New(Requirement{
-						Parameter:   "NAMESPACE",
-						Description: "Target namespace",
-						Targets: []RequirementTarget{
-							{Name: "meta.namespace", Value: "meta.namespace"},
-						},
-					}),
-				},
-				{
-					ID:   registry.ID{NS: "test", Name: "service_handler"},
-					Kind: "function.lua",
-					Data: payload.New(map[string]interface{}{
-						"name":   "service_handler",
-						"kind":   "function.lua",
-						"source": "file://handler.lua",
-					}),
-				},
-			},
-			wantErr: false,
-		},
+
 		{
 			name: "missing namespace",
 			input: `{
@@ -317,6 +250,10 @@ entries:
 			if !tt.wantErr {
 				if len(got) != len(tt.want) {
 					t.Errorf("ExtractDependenciesToEntries() got %d entries, want %d", len(got), len(tt.want))
+					// Debug output
+					for i, entry := range got {
+						t.Logf("Got entry[%d]: ID=%v, Kind=%s", i, entry.ID, entry.Kind)
+					}
 					return
 				}
 

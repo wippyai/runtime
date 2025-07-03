@@ -5,7 +5,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/system/registry/loader"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -125,7 +124,7 @@ func TestFindDependencyRequirements(t *testing.T) {
 	// Call the function with the exact data from comments
 	result := findDependencyRequirements(nsDependency, nsRequirements)
 
-	// The function now handles both loader.Requirement format and raw map data format
+	// The function now handles the new requirement format with targets field
 	// So it should find all three requirements that target hello_world_dependency
 	assert.Len(t, result, 3, "Function should find all three requirements with raw map data format")
 
@@ -140,7 +139,7 @@ func TestFindDependencyRequirements(t *testing.T) {
 		assert.Contains(t, foundNames, expectedName, "Expected requirement %s not found", expectedName)
 	}
 
-	// Test with proper loader.Requirement format to ensure backward compatibility
+	// Test with proper requirement format to ensure compatibility
 	nsRequirementsProper := map[string]registry.Entry{
 		"NAMESPACE": {
 			ID: registry.ID{
@@ -148,12 +147,13 @@ func TestFindDependencyRequirements(t *testing.T) {
 				Name: "NAMESPACE",
 			},
 			Kind: registry.KindNamespaceRequirement,
-			Data: payload.New(loader.Requirement{
-				Parameter: "NAMESPACE",
-				Targets: []loader.RequirementTarget{
-					{
-						Name:  "hello_world_dependency",
-						Value: "namespace",
+			Data: payload.New(map[string]interface{}{
+				"kind": "ns.requirement",
+				"name": "NAMESPACE",
+				"targets": []interface{}{
+					map[string]interface{}{
+						"entry": "hello_world_dependency",
+						"path":  "namespace",
 					},
 				},
 			}),
@@ -164,12 +164,13 @@ func TestFindDependencyRequirements(t *testing.T) {
 				Name: "API_ROUTER",
 			},
 			Kind: registry.KindNamespaceRequirement,
-			Data: payload.New(loader.Requirement{
-				Parameter: "API_ROUTER",
-				Targets: []loader.RequirementTarget{
-					{
-						Name:  "hello_world_dependency",
-						Value: "parameters[name=api_router].value",
+			Data: payload.New(map[string]interface{}{
+				"kind": "ns.requirement",
+				"name": "API_ROUTER",
+				"targets": []interface{}{
+					map[string]interface{}{
+						"entry": "hello_world_dependency",
+						"path":  "parameters[name=api_router].value",
 					},
 				},
 			}),
@@ -180,12 +181,13 @@ func TestFindDependencyRequirements(t *testing.T) {
 				Name: "TEXT",
 			},
 			Kind: registry.KindNamespaceRequirement,
-			Data: payload.New(loader.Requirement{
-				Parameter: "TEXT",
-				Targets: []loader.RequirementTarget{
-					{
-						Name:  "hello_world_dependency",
-						Value: "parameters[name=text].value",
+			Data: payload.New(map[string]interface{}{
+				"kind": "ns.requirement",
+				"name": "TEXT",
+				"targets": []interface{}{
+					map[string]interface{}{
+						"entry": "hello_world_dependency",
+						"path":  "parameters[name=text].value",
 					},
 				},
 			}),
@@ -193,7 +195,7 @@ func TestFindDependencyRequirements(t *testing.T) {
 	}
 
 	resultProper := findDependencyRequirements(nsDependency, nsRequirementsProper)
-	assert.Len(t, resultProper, 3, "Should find all three requirements with proper loader.Requirement format")
+	assert.Len(t, resultProper, 3, "Should find all three requirements with proper format")
 
 	// Verify all expected requirements are found with proper format too
 	foundNamesProper := make([]string, 0, len(resultProper))

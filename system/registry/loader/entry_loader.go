@@ -13,24 +13,6 @@ type Export struct {
 	Targets map[string]string `json:"targets,omitempty" yaml:"targets,omitempty"`
 }
 
-// Requirement represents a dependency that a module needs
-type Requirement struct {
-	Parameter   string              `json:"parameter" yaml:"parameter"`
-	Description string              `json:"description,omitempty" yaml:"description,omitempty"`
-	Targets     []RequirementTarget `json:"targets" yaml:"targets"`
-}
-
-// RequirementTarget defines how a requirement is mapped to an entry
-type RequirementTarget struct {
-	Name  string `json:"name" yaml:"name"`
-	Value string `json:"value" yaml:"value"`
-}
-
-type NsRequirementTarget struct {
-	Entry string `json:"entry" yaml:"entry"`
-	Path  string `json:"path" yaml:"path"`
-}
-
 // FileContent represents the structure of a registry configuration file.
 // It supports both single entry and batch entries formats, with common
 // metadata that can be applied to all entries in a file.
@@ -38,8 +20,6 @@ type FileContent struct {
 	Version   string            `json:"version,omitempty" yaml:"version,omitempty"`
 	Namespace string            `json:"namespace"`
 	Meta      registry.Metadata `json:"meta,omitempty" yaml:"meta,omitempty"`
-
-	Requirements []Requirement `json:"requirements,omitempty" yaml:"requirements,omitempty"`
 
 	// Store raw entries as map slice
 	RawEntries []map[string]interface{} `json:"entries,omitempty" yaml:"entries,omitempty"`
@@ -61,23 +41,6 @@ func ExtractDependenciesToEntries(p payload.Payload, dtt payload.Transcoder) ([]
 	}
 
 	entries := make([]registry.Entry, 0)
-
-	// Process requirements
-	for _, requirement := range content.Requirements {
-		entries = append(entries, registry.Entry{
-			ID: registry.ID{
-				NS: content.Namespace,
-				//Name: strings.ToLower(requirement.Parameter) + "_requirement",
-				Name: requirement.Parameter, // == name
-			},
-			Kind: registry.KindNamespaceDefinition,
-			Meta: registry.Metadata{
-				"parameter":   requirement.Parameter,
-				"description": requirement.Description,
-			},
-			Data: payload.New(requirement),
-		})
-	}
 
 	// Process raw entries (the entries array from YAML)
 	for i, rawEntry := range content.RawEntries {
