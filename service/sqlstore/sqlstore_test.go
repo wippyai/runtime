@@ -122,17 +122,21 @@ func setupTestDB(t *testing.T) *sql.DB {
 
 // setupSQLStoreTable creates the table required by SQLStore
 func setupSQLStoreTable(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig) {
+	ctx := t.Context()
+
 	createTable := `CREATE TABLE IF NOT EXISTS ` + config.TableName + ` (
 		` + config.IDColumnName + ` TEXT PRIMARY KEY,
 		` + config.PayloadColumnName + ` BLOB NOT NULL,
 		` + config.ExpireColumnName + ` TIMESTAMP NULL
 	)`
-	_, err := db.Exec(createTable)
+	_, err := db.ExecContext(ctx, createTable)
 	require.NoError(t, err)
 }
 
 // insertTestData inserts test key-value pairs into the database
 func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig, key string, value []byte, expire *time.Time) {
+	ctx := t.Context()
+
 	var expireVal interface{}
 	if expire != nil {
 		expireVal = expire.UTC()
@@ -146,7 +150,7 @@ func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig, key st
 		config.PayloadColumnName + `, ` +
 		config.ExpireColumnName + `) VALUES (?, ?, ?)`
 
-	_, err := db.Exec(query, key, value, expireVal)
+	_, err := db.ExecContext(ctx, query, key, value, expireVal)
 	require.NoError(t, err)
 }
 

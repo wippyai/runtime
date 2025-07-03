@@ -89,7 +89,7 @@ func NewMockConnPool(kind registry.Kind) *ConnPool {
 
 	// Set up WAL mode for SQLite if needed
 	if kind == apiconfig.KindSQLite {
-		_, err = db.Exec("PRAGMA journal_mode=WAL;")
+		_, err = db.ExecContext(context.Background(), "PRAGMA journal_mode=WAL;")
 		if err != nil {
 			_ = db.Close()
 			panic(err)
