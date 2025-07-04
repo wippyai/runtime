@@ -71,17 +71,26 @@ build-runner-linux-arm64:
 	mkdir -p ./dist
 	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-arm64 ./cmd/runner/main.go
 
-build-runner-darwin-amd64:
+# Build for M1 architecture on M1 Mac
+build-runner-darwin-arm64--on-M1:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 CC=o64-clang go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-amd64 ./cmd/runner/main.go
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 \
+	CC=clang \
+	go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-arm64 ./cmd/runner/main.go
 
-build-runner-darwin-arm64:
+build-runner-darwin-amd64--on-M1:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 CC=oa64-clang go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-arm64 ./cmd/runner/main.go
+	arch -x86_64 env \
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 \
+	CC=clang \
+	CGO_CFLAGS="-I/usr/local/include" \
+	CGO_LDFLAGS="-L/usr/local/lib" \
+	go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-amd64 ./cmd/runner/main.go
 
-build-runner-windows-amd64:
+# Build universal binary (both architectures)
+build-runner-darwin-universal--on-M1: build-runner-darwin-arm64--on-M1 build-runner-darwin-amd64--on-M1
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build --tags "fts5 sqlite_vec" -o ./dist/runner-windows-amd64.exe ./cmd/runner/main.go
+	lipo -create -output ./dist/runner-darwin-universal ./dist/runner-darwin-arm64 ./dist/runner-darwin-amd64
 
 # Build runner with embedded data (example: make build-runner-embed EMBED_DIR=/path/to/your/data)
 build-runner-embed:
