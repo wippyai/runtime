@@ -69,7 +69,7 @@ build-runner-linux-amd64:
 
 build-runner-linux-arm64:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-arm64 ./cmd/runner/main.go
+	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-arm64 ./cmd/runner/
 
 # Build for M1 architecture on M1 Mac
 build-runner-darwin-arm64--on-M1:
@@ -99,7 +99,7 @@ build-runner-embed:
 	rm -rf ./embed/data/*
 	cp -r $(EMBED_DIR)/* ./embed/data/ 2>/dev/null || :
 	mkdir -p ./dist
-	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-embed-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/main.go
+	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-embed-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/
 
 lint-init:
 	# binary will be bin/golangci-lint
