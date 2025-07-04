@@ -76,7 +76,7 @@ build-runner-darwin-arm64--on-M1:
 	mkdir -p ./dist
 	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 \
 	CC=clang \
-	go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-arm64 ./cmd/runner/main.go
+	go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-arm64 ./cmd/runner/
 
 build-runner-darwin-amd64--on-M1:
 	mkdir -p ./dist
@@ -85,7 +85,7 @@ build-runner-darwin-amd64--on-M1:
 	CC=clang \
 	CGO_CFLAGS="-I/usr/local/include" \
 	CGO_LDFLAGS="-L/usr/local/lib" \
-	go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-amd64 ./cmd/runner/main.go
+	go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-amd64 ./cmd/runner/
 
 # Build universal binary (both architectures)
 build-runner-darwin-universal--on-M1: build-runner-darwin-arm64--on-M1 build-runner-darwin-amd64--on-M1
