@@ -556,4 +556,60 @@ func TestExecutorModule(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "actor:async_user", fmt.Sprintf("%v", result))
 	})
+
+	t.Run("with_options functionality", func(t *testing.T) {
+		mod := NewFunctionModule()
+		vm, err := engine.NewCVM(logger,
+			engine.WithPreloaded(mod.Name(), mod.Loader),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.Import(`
+			function test_with_options()
+				local executor = funcs.new()
+				
+				-- Test with all options
+				local executor_with_options = executor:with_options({
+					retry = {
+						attempts = 10
+					},
+					ratelimit = {
+						rps = 1,
+						burst = 1
+					},
+					timeout = {
+						timeout = "200ms"
+					}
+				})
+				
+				-- Test function call with options
+				local result, err = executor_with_options:call("test:function", "test_arg")
+				assert(err == nil, "expected no error but got: " .. tostring(err))
+				assert(result == "success", "expected 'success' but got: " .. tostring(result))
+				
+				return result
+			end
+		`, "test", "test_with_options")
+		require.NoError(t, err)
+
+		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+
+		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		defer func() { _ = uw.Close() }()
+
+		mockExec := &mockExecutor{
+			result: &runtime.Result{
+				Value: payload.New("success"),
+			},
+		}
+
+		tr := createTestTranscoder()
+		ctx = payload.WithTranscoder(ctx, tr)
+		ctx = function.WithFunctions(ctx, mockExec)
+
+		result, err := wrapped.Execute(ctx, "test_with_options")
+		require.NoError(t, err)
+		assert.Equal(t, "success", fmt.Sprintf("%v", result))
+	})
 }

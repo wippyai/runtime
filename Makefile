@@ -89,11 +89,18 @@ build-runner-embed:
 lint-init:
 	# binary will be bin/golangci-lint
 	mkdir -p bin
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b bin v2.1.5
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b bin v2.2.1
 	bin/golangci-lint --version
 
 lint:
 	bin/golangci-lint run
+
+# OpenTelemetry commands
+otel-up:
+	cd tests && docker-compose up -d --remove-orphans
+
+otel-down:
+	cd tests && docker-compose down
 
 mock:
 	go tool mockgen -destination tests/mock/identityv1connect/identityv1connect.go github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect OrganizationServiceClient

@@ -15,14 +15,15 @@ import (
 
 // TestSelectBuilderWithDB tests using a SelectBuilder with a real DB
 func TestSelectBuilderWithDB(t *testing.T) {
+	ctx := t.Context()
 	// Setup test database with table and data
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
 	defer db.Close()
 
-	_, err = db.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, active INTEGER)`)
+	_, err = db.ExecContext(ctx, `CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, active INTEGER)`)
 	require.NoError(t, err)
-	_, err = db.Exec(`INSERT INTO users VALUES (1, 'Alice', 1), (2, 'Bob', 0), (3, 'Charlie', 1)`)
+	_, err = db.ExecContext(ctx, `INSERT INTO users VALUES (1, 'Alice', 1), (2, 'Bob', 0), (3, 'Charlie', 1)`)
 	require.NoError(t, err)
 
 	// Create mock resource
@@ -77,7 +78,7 @@ func TestInsertBuilderWithDB(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	_, err = db.Exec(`CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, price REAL)`)
+	_, err = db.ExecContext(t.Context(), `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, price REAL)`)
 	require.NoError(t, err)
 
 	// Create mock resource
@@ -136,14 +137,16 @@ func TestInsertBuilderWithDB(t *testing.T) {
 
 // TestUpdateBuilderWithDB tests using an UpdateBuilder with a real DB
 func TestUpdateBuilderWithDB(t *testing.T) {
+	ctx := t.Context()
+
 	// Setup test database
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
 	defer db.Close()
 
-	_, err = db.Exec(`CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL, active INTEGER)`)
+	_, err = db.ExecContext(ctx, `CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL, active INTEGER)`)
 	require.NoError(t, err)
-	_, err = db.Exec(`INSERT INTO products VALUES (1, 'Old Name', 10, 1)`)
+	_, err = db.ExecContext(ctx, `INSERT INTO products VALUES (1, 'Old Name', 10, 1)`)
 	require.NoError(t, err)
 
 	// Create mock resource
@@ -211,9 +214,9 @@ func TestDeleteBuilderWithDB(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	_, err = db.Exec(`CREATE TABLE contacts (id INTEGER PRIMARY KEY, name TEXT, active INTEGER)`)
+	_, err = db.ExecContext(t.Context(), `CREATE TABLE contacts (id INTEGER PRIMARY KEY, name TEXT, active INTEGER)`)
 	require.NoError(t, err)
-	_, err = db.Exec(`INSERT INTO contacts VALUES 
+	_, err = db.ExecContext(t.Context(), `INSERT INTO contacts VALUES 
 		(1, 'Keep', 1),
 		(2, 'Delete', 0),
 		(3, 'Keep Too', 1)`)

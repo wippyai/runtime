@@ -9,6 +9,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/service/http"
@@ -42,7 +43,14 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 		rCtx := config.NewRequestContext(r, w)
 		execCtx := context.WithValue(r.Context(), config.RequestCtx, rCtx)
 
-		resultCh, err := f.funcs.Call(execCtx, runtime.Task{ID: cfg.Func})
+		// Get the interceptor registry from the parent context
+		if ir := interceptor.GetInterceptors(r.Context()); ir != nil {
+			execCtx = interceptor.WithInterceptor(execCtx, ir)
+		}
+
+		task := runtime.Task{ID: cfg.Func}
+
+		resultCh, err := f.funcs.Call(execCtx, task)
 		if err != nil {
 			if !rCtx.ResponseHandled() {
 				http.Error(w, err.Error(), http.StatusInternalServerError)

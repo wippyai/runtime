@@ -177,6 +177,8 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 
 // dbQuery executes a query and returns rows
 func dbQuery(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get database
 	db := CheckDB(l)
 	if db == nil {
@@ -197,9 +199,9 @@ func dbQuery(l *lua.LState) int {
 	// Serve query with appropriate parameter style
 	switch p := params.(type) {
 	case nil:
-		rows, err = db.db.Query(query)
+		rows, err = db.db.QueryContext(ctx, query)
 	case []interface{}:
-		rows, err = db.db.Query(query, p...)
+		rows, err = db.db.QueryContext(ctx, query, p...)
 	case map[string]interface{}:
 		// Support for named parameters (placeholder for future implementation)
 		l.Push(lua.LNil)
@@ -250,6 +252,8 @@ func dbQuery(l *lua.LState) int {
 
 // dbExecute executes a statement that doesn't return rows
 func dbExecute(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get database
 	db := CheckDB(l)
 	if db == nil {
@@ -270,9 +274,9 @@ func dbExecute(l *lua.LState) int {
 	// Serve with appropriate parameter style
 	switch p := params.(type) {
 	case nil:
-		result, err = db.db.Exec(query)
+		result, err = db.db.ExecContext(ctx, query)
 	case []interface{}:
-		result, err = db.db.Exec(query, p...)
+		result, err = db.db.ExecContext(ctx, query, p...)
 	case map[string]interface{}:
 		// Support for named parameters (placeholder for future implementation)
 		l.Push(lua.LNil)
@@ -300,6 +304,8 @@ func dbExecute(l *lua.LState) int {
 
 // dbPrepare prepares a statement for repeated execution
 func dbPrepare(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get database
 	db := CheckDB(l)
 	if db == nil {
@@ -316,7 +322,7 @@ func dbPrepare(l *lua.LState) int {
 	query := l.CheckString(2)
 
 	// Prepare statement
-	stmt, err := db.db.Prepare(query)
+	stmt, err := db.db.PrepareContext(ctx, query)
 	if err != nil {
 		// Return the error to Lua instead of failing the test
 		l.Push(lua.LNil)
@@ -337,6 +343,8 @@ func dbPrepare(l *lua.LState) int {
 
 // dbBegin starts a new transaction
 func dbBegin(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get database
 	db := CheckDB(l)
 	if db == nil {
@@ -350,7 +358,7 @@ func dbBegin(l *lua.LState) int {
 	}
 
 	// Begin transaction
-	tx, err := db.db.Begin()
+	tx, err := db.db.BeginTx(ctx, nil)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
