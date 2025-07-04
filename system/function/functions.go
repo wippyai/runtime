@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -25,6 +26,7 @@ type Registry struct {
 	logger     *zap.Logger
 	bus        event.Bus
 	handlers   sync.Map
+	options    sync.Map
 	subscriber *eventbus.Subscriber
 }
 
@@ -36,6 +38,7 @@ func NewFunctionRegistry(bus event.Bus, host pubsub.Host, logger *zap.Logger) *R
 		host:     host,
 		logger:   logger,
 		handlers: sync.Map{},
+		options:  sync.Map{},
 	}
 }
 
@@ -49,7 +52,7 @@ func (f *Registry) Start(ctx context.Context) error {
 		f.ctx,
 		f.bus,
 		function.System,
-		"function.(register|delete)",
+		"function.(register|delete|optionsregister|optionsdelete)",
 		f.handleEvent,
 	)
 	if err != nil {
@@ -74,6 +77,11 @@ func (f *Registry) handleEvent(e event.Event) {
 		f.registerFunction(e)
 	case function.Delete:
 		f.deleteFunction(e)
+	case function.OptionsRegister:
+		f.registerOptions(e)
+	case function.OptionsDelete:
+		f.deleteOptions(e)
+
 	default:
 		f.logger.Warn("unknown event kind",
 			zap.String("kind", e.Kind),
@@ -115,6 +123,40 @@ func (f *Registry) deleteFunction(e event.Event) {
 	f.sendAccept(e.Path)
 }
 
+func (f *Registry) registerOptions(e event.Event) {
+	options, ok := e.Data.(interceptor.Options)
+	if !ok {
+		f.logger.Error("invalid register options payload",
+			zap.String("function", e.Path),
+			zap.String("type", fmt.Sprintf("%T", e.Data)))
+
+		f.sendOptionsReject(e.Path, "invalid register function payload")
+		return
+	}
+
+	// Store the function
+	f.options.Store(registry.ParseID(e.Path), options)
+	f.logger.Debug("options registered", zap.String("options", e.Path))
+
+	f.sendOptionsAccept(e.Path)
+}
+
+func (f *Registry) deleteOptions(e event.Event) {
+	// Check if the function exists before removing
+	_, exists := f.options.Load(registry.ParseID(e.Path))
+	if !exists {
+		f.logger.Warn("options not found", zap.String("options", e.Path))
+		f.sendOptionsReject(e.Path, "options not found")
+		return
+	}
+
+	// Done the function
+	f.options.Delete(registry.ParseID(e.Path))
+	f.logger.Debug("options removed", zap.String("options", e.Path))
+
+	f.sendOptionsAccept(e.Path)
+}
+
 func (f *Registry) sendAccept(path event.Path) {
 	f.bus.Send(f.ctx, event.Event{
 		System: function.System,
@@ -132,6 +174,23 @@ func (f *Registry) sendReject(path event.Path, reason string) {
 	})
 }
 
+func (f *Registry) sendOptionsAccept(path event.Path) {
+	f.bus.Send(f.ctx, event.Event{
+		System: function.System,
+		Kind:   function.OptionsAccept,
+		Path:   path,
+	})
+}
+
+func (f *Registry) sendOptionsReject(path event.Path, reason string) {
+	f.bus.Send(f.ctx, event.Event{
+		System: function.System,
+		Kind:   function.OptionsReject,
+		Path:   path,
+		Data:   reason,
+	})
+}
+
 // Call runs the given task using its registered handler and returns a channel
 // for receiving the execution result(s). Returns an error if no handler is registered
 // for the task's target or if the handler type is invalid.
@@ -139,6 +198,15 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 	handler, exists := f.handlers.Load(task.ID)
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for target: %s", task.ID)
+	}
+
+	storedOptions, exists := f.options.Load(task.ID)
+	if !exists {
+		storedOptions = interceptor.Options{}
+	}
+	options, ok := storedOptions.(interceptor.Options)
+	if !ok {
+		return nil, fmt.Errorf("invalid options type for target: %s", task.ID)
 	}
 
 	// keep context boundaries
@@ -158,15 +226,40 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 	}
 	ctx = pubsub.WithHost(ctx, f.host)
 	ctx = pubsub.WithPID(ctx, pid)
+	ctx = interceptor.WithOptions(ctx, options)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	ctx = interceptor.WithCancel(ctx, cancel)
+
+	interceptorsRegistry := interceptor.GetInterceptors(ctx)
+	if interceptorsRegistry != nil {
+		ch, err := interceptorsRegistry.GetChain().Execute(
+			ctx,
+			execHandler,
+			task,
+		)
+		if err != nil {
+			f.logger.Error("interceptor chain execution failed",
+				zap.String("function", task.ID.String()),
+				zap.String("pid", pid.String()),
+				zap.Error(err))
+
+			return nil, fmt.Errorf("interceptor chain execution failed: %w", err)
+		}
+
+		return ch, nil
+	}
 
 	ch, err := execHandler(ctx, task)
 	if err != nil {
 		f.logger.Error(err.Error(),
 			zap.String("function", task.ID.String()),
 			zap.String("pid", pid.String()))
+		return nil, err
 	}
 
-	return ch, err
+	return ch, nil
 }
 
 // Ensure Registry implements the operation.Registry interface

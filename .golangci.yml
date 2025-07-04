@@ -70,6 +70,8 @@ linters:
       - third_party$
       - builtin$
       - examples$
+      - github.com/yuin/gopher-lua
+      - github.com/ponyruntime/go-lua
 formatters:
   enable:
     - gofmt
