@@ -120,7 +120,7 @@ func TestModuleBasicDBGet(t *testing.T) {
 	}()
 
 	// Create a simple table for testing
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.ExecContext(t.Context(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
 	require.NoError(t, err, "Failed to create test table")
 
 	// Create our resource that will be tracked for release

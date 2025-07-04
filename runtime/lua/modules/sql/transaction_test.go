@@ -20,9 +20,9 @@ func TestTransactionCommit(t *testing.T) {
 	defer func() { assert.NoError(t, db.Close()) }()
 
 	// Create a table and insert an initial row.
-	_, err = db.Exec("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
+	_, err = db.ExecContext(t.Context(), "CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
 	require.NoError(t, err)
-	_, err = db.Exec("INSERT INTO items (value) VALUES ('old')")
+	_, err = db.ExecContext(t.Context(), "INSERT INTO items (value) VALUES ('old')")
 	require.NoError(t, err)
 
 	// Wrap the DB in a mockResource for Lua integration.
@@ -75,9 +75,9 @@ func TestTransactionRollback(t *testing.T) {
 	defer func() { assert.NoError(t, db.Close()) }()
 
 	// Create table and initial data.
-	_, err = db.Exec("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
+	_, err = db.ExecContext(t.Context(), "CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
 	require.NoError(t, err)
-	_, err = db.Exec("INSERT INTO items (value) VALUES ('old')")
+	_, err = db.ExecContext(t.Context(), "INSERT INTO items (value) VALUES ('old')")
 	require.NoError(t, err)
 
 	mockRes := &mockResource{
@@ -125,9 +125,9 @@ func TestTransactionSavepoint(t *testing.T) {
 	defer func() { assert.NoError(t, db.Close()) }()
 
 	// Create table and insert initial data.
-	_, err = db.Exec("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
+	_, err = db.ExecContext(t.Context(), "CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
 	require.NoError(t, err)
-	_, err = db.Exec("INSERT INTO items (value) VALUES ('old')")
+	_, err = db.ExecContext(t.Context(), "INSERT INTO items (value) VALUES ('old')")
 	require.NoError(t, err)
 
 	mockRes := &mockResource{
@@ -186,9 +186,9 @@ func TestTransactionErrorHandling(t *testing.T) {
 	defer func() { assert.NoError(t, db.Close()) }()
 
 	// Create a simple table and insert initial data.
-	_, err = db.Exec("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
+	_, err = db.ExecContext(t.Context(), "CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
 	require.NoError(t, err)
-	_, err = db.Exec("INSERT INTO items (value) VALUES ('old')")
+	_, err = db.ExecContext(t.Context(), "INSERT INTO items (value) VALUES ('old')")
 	require.NoError(t, err)
 
 	// Wrap the DB in a mockResource for Lua integration.

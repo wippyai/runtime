@@ -69,6 +69,8 @@ func registerStatement(l *lua.LState, _ *zap.Logger) {
 
 // stmtQuery executes a prepared query and returns rows
 func stmtQuery(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get statement.
 	stmt := CheckStatement(l)
 	if stmt == nil {
@@ -95,9 +97,9 @@ func stmtQuery(l *lua.LState) int {
 	// Serve query with appropriate parameter style.
 	switch p := params.(type) {
 	case nil:
-		rows, err = stmt.stmt.Query()
+		rows, err = stmt.stmt.QueryContext(ctx)
 	case []interface{}:
-		rows, err = stmt.stmt.Query(p...)
+		rows, err = stmt.stmt.QueryContext(ctx, p...)
 	default:
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
@@ -139,6 +141,8 @@ func stmtQuery(l *lua.LState) int {
 
 // stmtExecute executes a prepared statement that doesn't return rows
 func stmtExecute(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get statement.
 	stmt := CheckStatement(l)
 	if stmt == nil {
@@ -165,9 +169,9 @@ func stmtExecute(l *lua.LState) int {
 	// Serve with appropriate parameter style.
 	switch p := params.(type) {
 	case nil:
-		result, err = stmt.stmt.Exec()
+		result, err = stmt.stmt.ExecContext(ctx)
 	case []interface{}:
-		result, err = stmt.stmt.Exec(p...)
+		result, err = stmt.stmt.ExecContext(ctx, p...)
 	default:
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))

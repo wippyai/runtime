@@ -111,6 +111,8 @@ func (m *Manager) registerHandler(ctx context.Context, id registry.ID, hostID pu
 		Path:   id.String(),
 		Data:   handler,
 	})
+
+	// FIXME implement optinos sending
 }
 
 // unregisterHandler removes a process function handler from the function system

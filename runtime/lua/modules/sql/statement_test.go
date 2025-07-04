@@ -22,7 +22,7 @@ func setupTestDB(t *testing.T) (*sql.DB, *mockResource, func()) {
 	require.NoError(t, err, "Failed to open SQLite database")
 
 	// Create test tables
-	_, err = db.Exec(`CREATE TABLE users (
+	_, err = db.ExecContext(t.Context(), `CREATE TABLE users (
 		id INTEGER PRIMARY KEY, 
 		name TEXT,
 		age INTEGER,
@@ -31,7 +31,7 @@ func setupTestDB(t *testing.T) (*sql.DB, *mockResource, func()) {
 	require.NoError(t, err, "Failed to create test table")
 
 	// Pre-populate with some data
-	_, err = db.Exec(`INSERT INTO users (name, age, active) VALUES 
+	_, err = db.ExecContext(t.Context(), `INSERT INTO users (name, age, active) VALUES 
 		('Alice', 30, 1),
 		('Bob', 25, 0),
 		('Charlie', 35, 1)`)
@@ -454,10 +454,10 @@ func TestStatementWithNilParams(t *testing.T) {
 	}()
 
 	// Setup a statement that doesn't need parameters
-	_, err := db.Exec("CREATE TABLE counts (count INTEGER)")
+	_, err := db.ExecContext(t.Context(), "CREATE TABLE counts (count INTEGER)")
 	require.NoError(t, err, "Failed to create test table")
 
-	_, err = db.Exec("INSERT INTO counts VALUES (42)")
+	_, err = db.ExecContext(t.Context(), "INSERT INTO counts VALUES (42)")
 	require.NoError(t, err, "Failed to insert test data")
 
 	// Imports the test script
@@ -514,7 +514,7 @@ func TestStatementDataTypes(t *testing.T) {
 	}()
 
 	// Create a table with various data types
-	_, err := db.Exec(`CREATE TABLE datatypes (
+	_, err := db.ExecContext(t.Context(), `CREATE TABLE datatypes (
 		id INTEGER PRIMARY KEY,
 		int_val INTEGER,
 		real_val REAL,
@@ -720,14 +720,14 @@ func TestStatementQueryNullColumns(t *testing.T) {
 	defer cleanup()
 
 	// Create test data with NULL values
-	_, err := db.Exec(`CREATE TABLE nulls_test (
+	_, err := db.ExecContext(t.Context(), `CREATE TABLE nulls_test (
 		id INTEGER PRIMARY KEY,
 		nullable_text TEXT,
 		nullable_int INTEGER
 	)`)
 	require.NoError(t, err, "Failed to create test table")
 
-	_, err = db.Exec(`INSERT INTO nulls_test (id, nullable_text, nullable_int) VALUES 
+	_, err = db.ExecContext(t.Context(), `INSERT INTO nulls_test (id, nullable_text, nullable_int) VALUES 
 		(1, 'not null', 42),
 		(2, NULL, 10),
 		(3, 'text', NULL),
@@ -813,7 +813,7 @@ func TestStatementWithSQLNull(t *testing.T) {
 	defer cleanup()
 
 	// Create a table with nullable columns
-	_, err := db.Exec(`CREATE TABLE null_params_test (
+	_, err := db.ExecContext(t.Context(), `CREATE TABLE null_params_test (
 		id INTEGER PRIMARY KEY,
 		param1 TEXT,
 		param2 INTEGER,

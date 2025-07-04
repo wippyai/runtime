@@ -23,9 +23,9 @@ func setupTestDBWithTestTable(t *testing.T) (*sql.DB, *mockResource, func()) {
 	require.NoError(t, err)
 
 	// Create table "test" and insert a row.
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+	_, err = db.ExecContext(t.Context(), "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
 	require.NoError(t, err)
-	_, err = db.Exec("INSERT INTO test (value) VALUES ('hello')")
+	_, err = db.ExecContext(t.Context(), "INSERT INTO test (value) VALUES ('hello')")
 	require.NoError(t, err)
 
 	mockRes := &mockResource{
@@ -111,9 +111,9 @@ func TestDBExecute(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	_, err = db.Exec("CREATE TABLE exec_test (id INTEGER PRIMARY KEY, value TEXT)")
+	_, err = db.ExecContext(t.Context(), "CREATE TABLE exec_test (id INTEGER PRIMARY KEY, value TEXT)")
 	require.NoError(t, err)
-	_, err = db.Exec("INSERT INTO exec_test (value) VALUES ('old')")
+	_, err = db.ExecContext(t.Context(), "INSERT INTO exec_test (value) VALUES ('old')")
 	require.NoError(t, err)
 
 	// Wrap the DB in a mockResource so that setupLuaWithDB can use it.
