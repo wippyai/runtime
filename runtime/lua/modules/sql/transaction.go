@@ -76,14 +76,40 @@ func registerTransaction(l *lua.LState, _ *zap.Logger) {
 		"prepare":  txPrepare,
 		"commit":   txCommit,
 		"rollback": txRollback,
+		"db_type":  txDBType,
 
 		// Savepoint methods
 		"savepoint":   txSavepoint,
 		"rollback_to": txRollbackTo,
 		"release":     txReleaseSavepoint,
+
+		// Secondary
 	}
 
 	value.RegisterMethods(l, "sql.Transaction", methods)
+}
+
+// txDBType returns the database type of the transaction
+func txDBType(l *lua.LState) int {
+	// Check and get transaction
+	tx := CheckTransaction(l)
+	if tx == nil {
+		return 0
+	}
+
+	// Check if transaction is still active
+	if !tx.active {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("transaction is not active"))
+		return 2
+	}
+
+	// Get database type
+	dbType := tx.GetDBType()
+
+	l.Push(lua.LString(dbType))
+	l.Push(lua.LNil)
+	return 2
 }
 
 // txQuery executes a query within a transaction and returns rows
