@@ -37,11 +37,11 @@ jobs:
           go-version: ${{ matrix.go }}
 
       - name: Configure Git and Go for private modules
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Configure Git credentials for private repos
-          git config --global credential.helper store
-          echo "https://${{ secrets.GITHUB_TOKEN }}:x-oauth-basic@github.com" > ~/.git-credentials
-          chmod 600 ~/.git-credentials
+          # Configure Git to use token from environment
+          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           
           # Configure Go to skip verification for private modules
           go env -w GOPRIVATE=github.com/ponyruntime/*
