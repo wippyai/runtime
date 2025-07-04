@@ -105,7 +105,7 @@ func txDBType(l *lua.LState) int {
 	}
 
 	// Get database type
-	dbType := tx.GetDBType()
+	dbType := mapDBTypeFromResourceKind(tx.GetDBType())
 
 	l.Push(lua.LString(dbType))
 	l.Push(lua.LNil)
