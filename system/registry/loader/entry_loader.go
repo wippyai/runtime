@@ -132,7 +132,7 @@ func (ep *EntryProcessor) processBatchEntries(ctx context.Context, content *File
 }
 
 // processRawEntry processes a single raw entry from the batch
-func (ep *EntryProcessor) processRawEntry(ctx context.Context, content *FileContent, rawEntry map[string]interface{}, index int) (registry.Entry, error) {
+func (ep *EntryProcessor) processRawEntry(_ context.Context, content *FileContent, rawEntry map[string]interface{}, index int) (registry.Entry, error) {
 	// Validate required fields
 	if err := ep.validator.ValidateRawEntry(rawEntry, index); err != nil {
 		return registry.Entry{}, err
@@ -165,7 +165,7 @@ func (ep *EntryProcessor) processRawEntry(ctx context.Context, content *FileCont
 }
 
 // processSingleEntry processes a single entry format if applicable
-func (ep *EntryProcessor) processSingleEntry(ctx context.Context, content *FileContent) (*registry.Entry, error) {
+func (ep *EntryProcessor) processSingleEntry(_ context.Context, content *FileContent) (*registry.Entry, error) {
 	// Only process if no batch entries and single entry fields are present
 	if len(content.RawEntries) > 0 || content.Name == "" || content.Kind == "" {
 		return nil, nil

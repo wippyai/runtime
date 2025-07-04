@@ -2,6 +2,7 @@ package loader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -594,7 +595,7 @@ func TestErrorTypes(t *testing.T) {
 			t.Errorf("ProcessingError.Error() = %v, want %v", err.Error(), expected)
 		}
 
-		if err.Unwrap() != originalErr {
+		if !errors.Is(err.Unwrap(), originalErr) {
 			t.Errorf("ProcessingError.Unwrap() = %v, want %v", err.Unwrap(), originalErr)
 		}
 	})

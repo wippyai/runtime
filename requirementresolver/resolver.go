@@ -213,9 +213,9 @@ func setValueWithGojqReturnMap(data interface{}, path string, value string) (map
 
 	if resultMap, ok := v.(map[string]interface{}); ok {
 		return resultMap, nil
-	} else {
-		return nil, fmt.Errorf("unexpected result type from jq query: %T", v)
 	}
+
+	return nil, fmt.Errorf("unexpected result type from jq query: %T", v)
 }
 
 // joinErrors joins multiple errors into one. Uses errors.Join if available, otherwise concatenates messages.
