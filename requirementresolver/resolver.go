@@ -128,30 +128,25 @@ func applyPathValueToEntriesWithGojq(jqQuery string, value string, entries []reg
 // entryToRawJSONMap converts a registry.Entry to map[string]interface{} via JSON marshal/unmarshal
 func entryToRawJSONMap(entry *registry.Entry) (map[string]interface{}, error) {
 	// Temporarily save the Data field and set it to nil to avoid interface serialization issues
-	// originalData := entry.Data
+	originalData := entry.Data
 	entry.Data = nil
 
 	// Use default JSON marshal for the rest of the struct
 	b, err := json.Marshal(entry)
 	if err != nil {
 		// Restore the original Data field before returning error
-		// entry.Data = originalData
+		entry.Data = originalData
 		return nil, err
 	}
 
 	// Restore the original Data field
-	// entry.Data = originalData
+	entry.Data = originalData
 
 	// Unmarshal to map
 	var m map[string]interface{}
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, err
 	}
-
-	// Add Data field back to the map if it exists
-	// if originalData != nil {
-	// 	m["data"] = originalData.Data()
-	// }
 
 	return m, nil
 }

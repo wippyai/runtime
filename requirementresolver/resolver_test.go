@@ -1,13 +1,23 @@
 package requirementresolver
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
+
+func TestNewResolver(t *testing.T) {
+	logger := zap.NewNop()
+	resolver := NewResolver(logger)
+
+	assert.NotNil(t, resolver)
+	assert.Equal(t, logger, resolver.logger)
+}
 
 func TestFindRequirementDependency(t *testing.T) {
 	// Test using the exact data structure from the comments in findRequirementDependency function
@@ -1247,6 +1257,692 @@ func TestApplyPathValueToEntriesWithGojq(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, testEntries)
+			}
+		})
+	}
+}
+
+func TestFindDefinitionTargetEntries(t *testing.T) {
+	tests := []struct {
+		name               string
+		definitionTarget   RequirementTarget
+		ns                 string
+		entries            []registry.Entry
+		expectedEntryNames []string
+	}{
+		{
+			name: "match by name",
+			definitionTarget: RequirementTarget{
+				Name:  "target_entry",
+				Value: "meta.router",
+			},
+			ns: "test.ns",
+			entries: []registry.Entry{
+				{ID: registry.ID{NS: "test.ns", Name: "target_entry"}},
+				{ID: registry.ID{NS: "test.ns", Name: "other_entry"}},
+				{ID: registry.ID{NS: "other.ns", Name: "target_entry"}},
+			},
+			expectedEntryNames: []string{"target_entry"},
+		},
+		{
+			name: "match by value when name is empty",
+			definitionTarget: RequirementTarget{
+				Name:  "",
+				Value: "meta.depends_on[]",
+			},
+			ns: "test.ns",
+			entries: []registry.Entry{
+				{ID: registry.ID{NS: "test.ns", Name: "entry1"}},
+				{ID: registry.ID{NS: "test.ns", Name: "entry2"}},
+				{ID: registry.ID{NS: "other.ns", Name: "entry3"}},
+			},
+			expectedEntryNames: []string{"entry1", "entry2"},
+		},
+		{
+			name: "no matches in namespace",
+			definitionTarget: RequirementTarget{
+				Name:  "target_entry",
+				Value: "meta.router",
+			},
+			ns: "test.ns",
+			entries: []registry.Entry{
+				{ID: registry.ID{NS: "other.ns", Name: "target_entry"}},
+			},
+			expectedEntryNames: []string{},
+		},
+		{
+			name: "empty value when name is empty",
+			definitionTarget: RequirementTarget{
+				Name:  "",
+				Value: "",
+			},
+			ns: "test.ns",
+			entries: []registry.Entry{
+				{ID: registry.ID{NS: "test.ns", Name: "entry1"}},
+			},
+			expectedEntryNames: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := findDefinitionTargetEntries(tt.definitionTarget, tt.ns, tt.entries)
+
+			assert.Len(t, result, len(tt.expectedEntryNames))
+			for i, expectedName := range tt.expectedEntryNames {
+				assert.Equal(t, expectedName, result[i].ID.Name)
+			}
+		})
+	}
+}
+
+func TestGetDefinitionTargets(t *testing.T) {
+	tests := []struct {
+		name            string
+		definition      registry.Entry
+		expectedTargets []RequirementTarget
+		wantErr         bool
+		errMsg          string
+	}{
+		{
+			name: "valid definition with targets",
+			definition: registry.Entry{
+				ID: registry.ID{NS: "test.ns", Name: "test_definition"},
+				Data: payload.New(map[string]interface{}{
+					"targets": []interface{}{
+						map[string]interface{}{
+							"name":  "target1",
+							"value": "meta.router",
+						},
+						map[string]interface{}{
+							"name":  "",
+							"value": "meta.depends_on[]",
+						},
+					},
+				}),
+			},
+			expectedTargets: []RequirementTarget{
+				{Name: "target1", Value: "meta.router"},
+				{Name: "", Value: "meta.depends_on[]"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "definition without targets",
+			definition: registry.Entry{
+				ID: registry.ID{NS: "test.ns", Name: "test_definition"},
+				Data: payload.New(map[string]interface{}{
+					"other_field": "value",
+				}),
+			},
+			wantErr: true,
+			errMsg:  "invalid requirement data in definition test_definition",
+		},
+		{
+			name: "definition with invalid targets format",
+			definition: registry.Entry{
+				ID: registry.ID{NS: "test.ns", Name: "test_definition"},
+				Data: payload.New(map[string]interface{}{
+					"targets": "not_an_array",
+				}),
+			},
+			wantErr: true,
+			errMsg:  "invalid requirement data in definition test_definition",
+		},
+		{
+			name: "definition with invalid target format",
+			definition: registry.Entry{
+				ID: registry.ID{NS: "test.ns", Name: "test_definition"},
+				Data: payload.New(map[string]interface{}{
+					"targets": []interface{}{
+						"not_a_map",
+					},
+				}),
+			},
+			expectedTargets: []RequirementTarget{},
+			wantErr:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := getDefinitionTargets(tt.definition)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedTargets, result)
+			}
+		})
+	}
+}
+
+func TestFindRequirementDefinition(t *testing.T) {
+	tests := []struct {
+		name           string
+		requirement    registry.Entry
+		nsDefinitions  map[string]registry.Entry
+		expectedResult registry.Entry
+		wantErr        bool
+		errMsg         string
+	}{
+		{
+			name: "definition found",
+			requirement: registry.Entry{
+				ID: registry.ID{NS: "test.ns", Name: "API_ROUTER"},
+			},
+			nsDefinitions: map[string]registry.Entry{
+				"API_ROUTER": {
+					ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
+					Kind: registry.KindNamespaceDefinition,
+				},
+			},
+			expectedResult: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
+				Kind: registry.KindNamespaceDefinition,
+			},
+			wantErr: false,
+		},
+		{
+			name: "definition not found",
+			requirement: registry.Entry{
+				ID: registry.ID{NS: "test.ns", Name: "NON_EXISTENT"},
+			},
+			nsDefinitions: map[string]registry.Entry{
+				"API_ROUTER": {
+					ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
+					Kind: registry.KindNamespaceDefinition,
+				},
+			},
+			wantErr: true,
+			errMsg:  "definition for requirement NON_EXISTENT not found",
+		},
+		{
+			name: "empty definitions map",
+			requirement: registry.Entry{
+				ID: registry.ID{NS: "test.ns", Name: "API_ROUTER"},
+			},
+			nsDefinitions: map[string]registry.Entry{},
+			wantErr:       true,
+			errMsg:        "definition for requirement API_ROUTER not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := findRequirementDefinition(tt.requirement, tt.nsDefinitions)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedResult, result)
+			}
+		})
+	}
+}
+
+func TestResolveModuleRequirements(t *testing.T) {
+	logger := zap.NewNop()
+	resolver := NewResolver(logger)
+
+	// Create test entries
+	entries := []registry.Entry{
+		// Dependency
+		{
+			ID:   registry.ID{NS: "test.ns", Name: "test_dependency"},
+			Kind: registry.KindNamespaceDependency,
+			Data: payload.New(map[string]interface{}{
+				"parameters": []interface{}{
+					map[string]interface{}{
+						"name":  "api_router",
+						"value": "system:api",
+					},
+					map[string]interface{}{
+						"name":  "text",
+						"value": "Hello World",
+					},
+				},
+				"namespace": "test.ns",
+			}),
+		},
+		// Requirement
+		{
+			ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
+			Kind: registry.KindNamespaceRequirement,
+			Data: payload.New(map[string]interface{}{
+				"targets": []interface{}{
+					map[string]interface{}{
+						"entry": "test_dependency",
+						"path":  `.parameters[] | select(.name == "api_router") | .value`,
+					},
+				},
+			}),
+		},
+		// Definition
+		{
+			ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
+			Kind: registry.KindNamespaceDefinition,
+			Data: payload.New(map[string]interface{}{
+				"targets": []interface{}{
+					map[string]interface{}{
+						"name":  "test_endpoint",
+						"value": ".meta.router",
+					},
+				},
+			}),
+		},
+		// Target entry to be modified
+		{
+			ID:   registry.ID{NS: "test.ns", Name: "test_endpoint"},
+			Kind: "http.endpoint",
+			Meta: registry.Metadata{
+				"existing": "value",
+			},
+		},
+	}
+
+	err := resolver.ResolveModuleRequirements(entries)
+	require.NoError(t, err)
+
+	// Find the target entry that should have been modified
+	var targetEntry *registry.Entry
+	for i := range entries {
+		if entries[i].ID.Name == "test_endpoint" {
+			targetEntry = &entries[i]
+			break
+		}
+	}
+
+	require.NotNil(t, targetEntry)
+	assert.Equal(t, "system:api", targetEntry.Meta["router"])
+}
+
+func TestResolveModuleRequirements_NoRequirements(t *testing.T) {
+	logger := zap.NewNop()
+	resolver := NewResolver(logger)
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.ID{NS: "test.ns", Name: "test"},
+			Kind: "test",
+		},
+	}
+
+	err := resolver.ResolveModuleRequirements(entries)
+	require.NoError(t, err)
+}
+
+func TestResolveModuleRequirements_RequirementNotFound(t *testing.T) {
+	logger := zap.NewNop()
+	resolver := NewResolver(logger)
+
+	entries := []registry.Entry{
+		// Requirement without matching dependency
+		{
+			ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
+			Kind: registry.KindNamespaceRequirement,
+			Data: payload.New(map[string]interface{}{
+				"targets": []interface{}{
+					map[string]interface{}{
+						"entry": "non_existent_dependency",
+						"path":  "some.path",
+					},
+				},
+			}),
+		},
+	}
+
+	err := resolver.ResolveModuleRequirements(entries)
+	require.NoError(t, err) // Should not error, just log warning
+}
+
+func TestResolveModuleRequirements_DefinitionNotFound(t *testing.T) {
+	logger := zap.NewNop()
+	resolver := NewResolver(logger)
+
+	entries := []registry.Entry{
+		// Dependency
+		{
+			ID:   registry.ID{NS: "test.ns", Name: "test_dependency"},
+			Kind: registry.KindNamespaceDependency,
+			Data: payload.New(map[string]interface{}{
+				"parameters": []interface{}{
+					map[string]interface{}{
+						"name":  "api_router",
+						"value": "system:api",
+					},
+				},
+			}),
+		},
+		// Requirement without matching definition
+		{
+			ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
+			Kind: registry.KindNamespaceRequirement,
+			Data: payload.New(map[string]interface{}{
+				"targets": []interface{}{
+					map[string]interface{}{
+						"entry": "test_dependency",
+						"path":  `.parameters[] | select(.name == "api_router") | .value`,
+					},
+				},
+			}),
+		},
+	}
+
+	err := resolver.ResolveModuleRequirements(entries)
+	require.NoError(t, err) // Should not error, just log warning
+}
+
+func TestEntryToRawJSONMap(t *testing.T) {
+	entry := registry.Entry{
+		ID:   registry.ID{NS: "test.ns", Name: "test"},
+		Kind: "test.kind",
+		Meta: registry.Metadata{
+			"key1": "value1",
+			"key2": 42,
+		},
+		Data: payload.New(map[string]interface{}{
+			"data_key": "data_value",
+		}),
+	}
+
+	result, err := entryToRawJSONMap(&entry)
+	require.NoError(t, err)
+
+	// Verify the result contains the expected fields
+	assert.Equal(t, "test.ns:test", result["id"])
+	assert.Equal(t, "test.kind", result["kind"])
+
+	// Verify meta was preserved
+	meta, ok := result["meta"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "value1", meta["key1"])
+	assert.Equal(t, float64(42), meta["key2"])
+
+	// Verify Data field was temporarily removed during conversion
+	_, hasData := result["data"]
+	assert.True(t, hasData) // Data field is present but set to null
+}
+
+func TestEntryToRawJSONMap_EmptyEntry(t *testing.T) {
+	entry := registry.Entry{}
+
+	result, err := entryToRawJSONMap(&entry)
+	require.NoError(t, err)
+
+	assert.Equal(t, "", result["id"])
+	assert.Equal(t, "", result["kind"])
+}
+
+func TestEntryToRawJSONMap_NilData(t *testing.T) {
+	entry := registry.Entry{
+		ID:   registry.ID{NS: "test.ns", Name: "test"},
+		Kind: "test.kind",
+		Data: payload.New(nil),
+	}
+
+	result, err := entryToRawJSONMap(&entry)
+	require.NoError(t, err)
+
+	assert.Equal(t, "test.ns:test", result["id"])
+	assert.Equal(t, "test.kind", result["kind"])
+}
+
+func TestUpdateEntryFromRawJSONMap(t *testing.T) {
+	originalEntry := registry.Entry{
+		ID:   registry.ID{NS: "test.ns", Name: "test"},
+		Kind: "test.kind",
+		Meta: registry.Metadata{
+			"key1": "value1",
+		},
+		Data: payload.New(map[string]interface{}{
+			"data_key": "data_value",
+		}),
+	}
+
+	// Create a map with updated values
+	updatedMap := map[string]interface{}{
+		"id":   "updated.ns:updated_name",
+		"kind": "updated.kind",
+		"meta": map[string]interface{}{
+			"key1": "updated_value",
+			"key2": "new_value",
+		},
+	}
+
+	err := updateEntryFromRawJSONMap(&originalEntry, updatedMap)
+	require.NoError(t, err)
+
+	// Verify the entry was updated
+	assert.Equal(t, "updated.ns", originalEntry.ID.NS)
+	assert.Equal(t, "updated_name", originalEntry.ID.Name)
+	assert.Equal(t, "updated.kind", originalEntry.Kind)
+	assert.Equal(t, "updated_value", originalEntry.Meta["key1"])
+	assert.Equal(t, "new_value", originalEntry.Meta["key2"])
+
+	// Verify Data field was preserved
+	assert.NotNil(t, originalEntry.Data)
+}
+
+func TestUpdateEntryFromRawJSONMap_EmptyMap(t *testing.T) {
+	originalEntry := registry.Entry{
+		ID:   registry.ID{NS: "test.ns", Name: "test"},
+		Kind: "test.kind",
+		Meta: registry.Metadata{
+			"key1": "value1",
+		},
+		Data: payload.New("test_data"),
+	}
+
+	emptyMap := map[string]interface{}{}
+
+	err := updateEntryFromRawJSONMap(&originalEntry, emptyMap)
+	require.NoError(t, err)
+
+	// Verify the entry fields remain unchanged when empty map is provided
+	// (JSON unmarshaling doesn't overwrite fields not present in JSON)
+	assert.Equal(t, "test.ns", originalEntry.ID.NS)
+	assert.Equal(t, "test", originalEntry.ID.Name)
+	assert.Equal(t, "test.kind", originalEntry.Kind)
+	assert.Equal(t, "value1", originalEntry.Meta["key1"])
+
+	// Verify Data field was preserved
+	assert.NotNil(t, originalEntry.Data)
+}
+
+func TestUpdateEntryFromRawJSONMap_InvalidMap(t *testing.T) {
+	originalEntry := registry.Entry{
+		ID:   registry.ID{NS: "test.ns", Name: "test"},
+		Kind: "test.kind",
+	}
+
+	// Create an invalid map that can't be marshaled to JSON
+	invalidMap := map[string]interface{}{
+		"invalid": make(chan int), // Channels can't be marshaled to JSON
+	}
+
+	err := updateEntryFromRawJSONMap(&originalEntry, invalidMap)
+	require.Error(t, err)
+}
+
+func TestSetValueWithGojqReturnMap(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     interface{}
+		path     string
+		value    string
+		expected map[string]interface{}
+		wantErr  bool
+		errMsg   string
+	}{
+		{
+			name: "simple assignment",
+			data: map[string]interface{}{
+				"existing": "value",
+			},
+			path:  ".new_field",
+			value: "new_value",
+			expected: map[string]interface{}{
+				"existing":  "value",
+				"new_field": "new_value",
+			},
+			wantErr: false,
+		},
+		{
+			name: "assignment with existing operator",
+			data: map[string]interface{}{
+				"existing": "value",
+			},
+			path:  ".new_field =",
+			value: "new_value",
+			expected: map[string]interface{}{
+				"existing":  "value",
+				"new_field": "new_value",
+			},
+			wantErr: false,
+		},
+		{
+			name: "append to array",
+			data: map[string]interface{}{
+				"items": []interface{}{"item1", "item2"},
+			},
+			path:  ".items +=",
+			value: "item3",
+			expected: map[string]interface{}{
+				"items": []interface{}{"item1", "item2", "item3"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "nested field assignment",
+			data: map[string]interface{}{
+				"config": map[string]interface{}{
+					"existing": "value",
+				},
+			},
+			path:  ".config.database.host",
+			value: "localhost",
+			expected: map[string]interface{}{
+				"config": map[string]interface{}{
+					"existing": "value",
+					"database": map[string]interface{}{
+						"host": "localhost",
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "array element assignment",
+			data: map[string]interface{}{
+				"services": []interface{}{
+					map[string]interface{}{
+						"name": "api",
+						"port": 8080,
+					},
+				},
+			},
+			path:  `.services[] | select(.name == "api") | .version =`,
+			value: "1.0.0",
+			expected: map[string]interface{}{
+				"name":    "api",
+				"port":    8080,
+				"version": "1.0.0",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid jq query",
+			data: map[string]interface{}{
+				"value": "test",
+			},
+			path:    "invalid[query",
+			value:   "test",
+			wantErr: true,
+			errMsg:  "failed to parse jq query",
+		},
+		{
+			name:    "non-map result",
+			data:    "string_value",
+			path:    ".field",
+			value:   "test",
+			wantErr: true,
+			errMsg:  "setpath([\"field\"]; \"test\") cannot be applied to \"string_value\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := setValueWithGojqReturnMap(tt.data, tt.path, tt.value)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestJoinErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		errors   []error
+		expected string
+	}{
+		{
+			name:     "no errors",
+			errors:   []error{},
+			expected: "",
+		},
+		{
+			name: "single error",
+			errors: []error{
+				fmt.Errorf("single error"),
+			},
+			expected: "single error",
+		},
+		{
+			name: "multiple errors",
+			errors: []error{
+				fmt.Errorf("first error"),
+				fmt.Errorf("second error"),
+				fmt.Errorf("third error"),
+			},
+			expected: "first error\nsecond error\nthird error",
+		},
+		{
+			name: "nil errors",
+			errors: []error{
+				nil,
+				fmt.Errorf("valid error"),
+				nil,
+			},
+			expected: "valid error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := joinErrors(tt.errors)
+
+			if tt.expected == "" {
+				assert.Nil(t, result)
+			} else {
+				require.NotNil(t, result)
+				assert.Equal(t, tt.expected, result.Error())
 			}
 		})
 	}
