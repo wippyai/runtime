@@ -38,8 +38,10 @@ jobs:
 
       - name: Configure Git and Go for private modules
         run: |
-          # Configure Git to use PAT for authentication
-          git config --global url."https://${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          # Configure Git credentials for private repos
+          git config --global credential.helper store
+          echo "https://${{ secrets.GITHUB_TOKEN }}:x-oauth-basic@github.com" > ~/.git-credentials
+          chmod 600 ~/.git-credentials
           
           # Configure Go to skip verification for private modules
           go env -w GOPRIVATE=github.com/ponyruntime/*
