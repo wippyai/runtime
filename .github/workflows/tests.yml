@@ -17,11 +17,13 @@ jobs:
       matrix:
         go: [1.24]
         os: ["ubuntu-latest", "windows-latest"]
+    env:
+      GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PAT_TOKEN_IGOR }}  # Use PAT with repo scope for cross-org access
+          token: ${{ env.GITHUB_TOKEN }}  # Use PAT with repo scope for cross-org access
 
       - name: Setup msys
         if: matrix.os == 'windows-latest'
@@ -32,14 +34,30 @@ jobs:
           install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-sqlite3
           path-type: inherit
 
-      - name: Set up Go ${{ matrix.go }}
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
+          check-latest: false
+          token: ${{ env.GITHUB_TOKEN }}
+          cache: true
+        env:
+          MSYSTEM: MINGW64
 
       - name: Configure Git and Go for private modules
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
+        if: matrix.os != 'windows-latest'
+        run: |
+          # Configure Git to use token from environment
+          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          
+          # Configure Go to skip verification for private modules
+          go env -w GOPRIVATE=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOSUMDB=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOPROXY=github.com/ponyruntime/*,github.com/wippyai/*
+
+      - name: Configure Git and Go for private modules (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
         run: |
           # Configure Git to use token from environment
           git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -51,36 +69,26 @@ jobs:
 
       - name: Install Go dependencies
         if: matrix.os != 'windows-latest'
-        run: |
-          go mod download
+        run: go mod download
 
       - name: Install Go dependencies (Windows)
         if: matrix.os == 'windows-latest'
-        run: |
-          go mod download
         shell: msys2 {0}
-          
-      - name: Verify Go environment
-        run: |
-          echo "GOPRIVATE: $(go env GOPRIVATE)"
-          echo "GONOSUMDB: $(go env GONOSUMDB)"
-          echo "GONOPROXY: $(go env GONOPROXY)"
+        run: go mod download
 
-      - name: Run golang tests
+      - name: Run tests
         if: matrix.os != 'windows-latest'
         env:
           CGO_ENABLED: 1
           GORACE: "halt_on_error=1"
         run: |
-          # Run tests with parallel execution and shorter timeouts
           go test --tags "fts5 sqlite_vec" -race -timeout=10m -parallel=4 ./...
 
-      - name: Run golang tests
+      - name: Run tests (Windows)
         if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
         env:
           CGO_ENABLED: 1
           GORACE: "halt_on_error=1"
         run: |
-          # Run tests with parallel execution and shorter timeouts
           go test --tags "fts5 sqlite_vec" -race -timeout=10m -parallel=4 ./...
-        shell: msys2 {0}
