@@ -20,7 +20,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}  # Use Personal Access Token
+          token: ${{ secrets.GITHUB_TOKEN }}  # For private repos, consider using a PAT with repo scope
 
       - name: Setup msys
         if: matrix.os == 'windows-latest'
@@ -44,13 +44,19 @@ jobs:
           git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           
           # Configure Go to skip verification for private modules
-          go env -w GOPRIVATE=github.com/ponyruntime/*
-          go env -w GONOSUMDB=github.com/ponyruntime/*
-          go env -w GONOPROXY=github.com/ponyruntime/*
+          go env -w GOPRIVATE=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOSUMDB=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOPROXY=github.com/ponyruntime/*,github.com/wippyai/*
 
       - name: Install Go dependencies
         run: |
-          go mod download
+          go mod tidy
+          
+      - name: Verify Go environment
+        run: |
+          echo "GOPRIVATE: $(go env GOPRIVATE)"
+          echo "GONOSUMDB: $(go env GONOSUMDB)"
+          echo "GONOPROXY: $(go env GONOPROXY)"
 
       - name: Run golang tests
         if: matrix.os != 'windows-latest'
