@@ -1271,10 +1271,10 @@ func TestFindDefinitionTargetEntries(t *testing.T) {
 		expectedEntryNames []string
 	}{
 		{
-			name: "match by name",
+			name: "match by entry",
 			definitionTarget: RequirementTarget{
-				Name:  "target_entry",
-				Value: "meta.router",
+				Entry: "target_entry",
+				Path:  "meta.router",
 			},
 			ns: "test.ns",
 			entries: []registry.Entry{
@@ -1285,10 +1285,10 @@ func TestFindDefinitionTargetEntries(t *testing.T) {
 			expectedEntryNames: []string{"target_entry"},
 		},
 		{
-			name: "match by value when name is empty",
+			name: "match by path when entry is empty",
 			definitionTarget: RequirementTarget{
-				Name:  "",
-				Value: "meta.depends_on[]",
+				Entry: "",
+				Path:  "meta.depends_on[]",
 			},
 			ns: "test.ns",
 			entries: []registry.Entry{
@@ -1301,8 +1301,8 @@ func TestFindDefinitionTargetEntries(t *testing.T) {
 		{
 			name: "no matches in namespace",
 			definitionTarget: RequirementTarget{
-				Name:  "target_entry",
-				Value: "meta.router",
+				Entry: "target_entry",
+				Path:  "meta.router",
 			},
 			ns: "test.ns",
 			entries: []registry.Entry{
@@ -1311,10 +1311,10 @@ func TestFindDefinitionTargetEntries(t *testing.T) {
 			expectedEntryNames: []string{},
 		},
 		{
-			name: "empty value when name is empty",
+			name: "empty path when entry is empty",
 			definitionTarget: RequirementTarget{
-				Name:  "",
-				Value: "",
+				Entry: "",
+				Path:  "",
 			},
 			ns: "test.ns",
 			entries: []registry.Entry{
@@ -1351,19 +1351,19 @@ func TestGetDefinitionTargets(t *testing.T) {
 				Data: payload.New(map[string]interface{}{
 					"targets": []interface{}{
 						map[string]interface{}{
-							"name":  "target1",
-							"value": "meta.router",
+							"entry": "target1",
+							"path":  "meta.router",
 						},
 						map[string]interface{}{
-							"name":  "",
-							"value": "meta.depends_on[]",
+							"entry": "",
+							"path":  "meta.depends_on[]",
 						},
 					},
 				}),
 			},
 			expectedTargets: []RequirementTarget{
-				{Name: "target1", Value: "meta.router"},
-				{Name: "", Value: "meta.depends_on[]"},
+				{Entry: "target1", Path: "meta.router"},
+				{Entry: "", Path: "meta.depends_on[]"},
 			},
 			wantErr: false,
 		},
@@ -1533,8 +1533,8 @@ func TestResolveModuleRequirements(t *testing.T) {
 			Data: payload.New(map[string]interface{}{
 				"targets": []interface{}{
 					map[string]interface{}{
-						"name":  "test_endpoint",
-						"value": ".meta.router",
+						"entry": "test_endpoint",
+						"path":  ".meta.router",
 					},
 				},
 			}),

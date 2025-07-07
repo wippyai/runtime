@@ -41,8 +41,8 @@ requirements:
   - parameter: API_ROUTER
     description: "Router to use for endpoints"
     targets:
-        - name: hello_endpoint
-          value: meta.router
+        - entry: hello_endpoint
+          path: meta.router
 
 entries:
   - name: hello_handler
@@ -71,7 +71,7 @@ Each requirement item declares public parameters that might be modified when the
   - parameter: NAMESPACE
     description: "Target namespace for module dependency"
     targets:
-      - value: meta.depends_on[]
+      - path: meta.depends_on[]
 ```
 
 ## New Application Requirements System

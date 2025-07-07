@@ -75,7 +75,7 @@ func (r *Resolver) ResolveModuleRequirements(entries []registry.Entry) error {
 
 		for _, definitionTarget := range definitionTargets {
 			targetEntries := findDefinitionTargetEntries(definitionTarget, nsDefinition.ID.NS, entries)
-			r.applyPathValueToEntriesWithGojq(definitionTarget.Value, value, targetEntries)
+			r.applyPathValueToEntriesWithGojq(definitionTarget.Path, value, targetEntries)
 		}
 	}
 
@@ -329,27 +329,27 @@ func getValueFromEntryWithGojq(data interface{}, path string) (string, error) {
 
 // RequirementTarget represents a target in the new format
 type RequirementTarget struct {
-	Name  string `json:"name" yaml:"name"`
-	Value string `json:"value" yaml:"value"`
+	Entry string `json:"entry" yaml:"entry"`
+	Path  string `json:"path" yaml:"path"`
 }
 
 func findDefinitionTargetEntries(definitionTarget RequirementTarget, ns string, entries []registry.Entry) []registry.Entry {
 	results := make([]registry.Entry, 0)
 
 	for _, entry := range entries {
-		// Check if the entry ID matches the definition target name
+		// Check if the entry ID matches the definition target entry
 		if entry.ID.NS == ns {
-			if definitionTarget.Name == "" {
-				// When Name is empty, match by Value field which contains path like "meta.depends_on[]"
-				if definitionTarget.Value != "" {
-					// For now, just add all entries in the namespace when Value is specified
+			if definitionTarget.Entry == "" {
+				// When Entry is empty, match by Path field which contains path like "meta.depends_on[]"
+				if definitionTarget.Path != "" {
+					// For now, just add all entries in the namespace when Path is specified
 					results = append(results, entry)
 				}
 				continue
 			}
 
-			// When Name is specified, match by exact name
-			if entry.ID.Name == definitionTarget.Name {
+			// When Entry is specified, match by exact name
+			if entry.ID.Name == definitionTarget.Entry {
 				results = append(results, entry)
 			}
 		}
@@ -369,11 +369,11 @@ func getDefinitionTargets(definition registry.Entry) ([]RequirementTarget, error
 			for _, targetRaw := range targetsRaw {
 				if targetMap, ok := targetRaw.(map[string]interface{}); ok {
 					target := RequirementTarget{}
-					if name, ok := targetMap["name"].(string); ok {
-						target.Name = name
+					if entry, ok := targetMap["entry"].(string); ok {
+						target.Entry = entry
 					}
-					if value, ok := targetMap["value"].(string); ok {
-						target.Value = value
+					if path, ok := targetMap["path"].(string); ok {
+						target.Path = path
 					}
 					targets = append(targets, target)
 				}

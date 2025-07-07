@@ -59,15 +59,15 @@ The module declares definitions that specify where the resolved requirement valu
   meta:
     description: "Target namespace for module dependency"
   targets:
-    - value: ".meta.depends_on +="
+    - path: ".meta.depends_on +="
 
 - name: API_ROUTER
   kind: ns.definition
   meta:
     description: "Router to use for endpoints"
   targets:
-    - name: hello_endpoint
-      value: ".meta.router"
+    - entry: hello_endpoint
+      path: ".meta.router"
 ```
 
 ### 4. Module Target Entries (`module_example.yaml`)
@@ -143,15 +143,15 @@ entries:
     meta:
       description: "Target namespace for module dependency"
     targets:
-      - value: ".meta.depends_on +="
+      - path: ".meta.depends_on +="
 
   - name: API_ROUTER
     kind: ns.definition
     meta:
       description: "Router to use for endpoints"
     targets:
-      - name: hello_endpoint
-        value: ".meta.router"
+      - entry: hello_endpoint
+        path: ".meta.router"
 
   - name: hello_handler
     kind: function.lua
