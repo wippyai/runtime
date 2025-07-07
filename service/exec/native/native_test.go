@@ -133,12 +133,17 @@ func TestExecutor_Stdout(t *testing.T) {
 	err = process.Start()
 	assert.NoError(t, err)
 
+	// Add a small delay to ensure the process has time to start
+	// and we can check its state before it potentially terminates
+	time.Sleep(10 * time.Millisecond)
+
+	// Check state before starting the wait goroutine
+	assert.Equal(t, "running", processExecutor.State())
+
 	go func() {
 		_ = process.Wait()
 		assert.Equal(t, "terminated", processExecutor.State())
 	}()
-
-	assert.Equal(t, "running", processExecutor.State())
 
 	sb := new(strings.Builder)
 
