@@ -758,7 +758,7 @@ func loadApplicationState(
 	}
 
 	resolver := requirementresolver.NewResolver(mainLogger.Named("requirement-resolver"))
-	err = resolver.ResolveModuleRequirements(entries)
+	err = resolver.ResolveModuleDefinitions(entries)
 	if err != nil {
 		return nil, nil, err
 	}

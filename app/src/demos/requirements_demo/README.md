@@ -1,31 +1,31 @@
 # Requirements and Dependencies Demo
 
-This demo showcases the `ns.requirement`, `ns.dependency`, and `ns.definition` system in the Pony Runtime with parameter injection capabilities.
+This demo showcases the `ns.definition`, `ns.dependency`, and `ns.requirement` system in the Wippy Runtime with parameter injection capabilities.
 
 ## Overview
 
 The demo demonstrates:
-- Declaring requirements using `ns.requirement` entries in the application
+- Declaring definitions using `ns.definition` entries in the application
 - Defining dependencies using `ns.dependency` entries with parameters
-- Creating definitions using `ns.definition` entries in modules to specify where values should be injected
-- Injecting requirement values into target entries via jq syntax paths
-- Complete end-to-end flow from application requirements to module definitions
+- Creating requirements using `ns.requirement` entries in modules to specify where values should be injected
+- Injecting definition values into target entries via jq syntax paths
+- Complete end-to-end flow from application definitions to module requirements
 
 ## How It Works
 
-### 1. Application Requirements (`_index.yaml`)
+### 1. Application Definitions (`_index.yaml`)
 
-The application declares requirements that provide values for dependency parameters:
+The application declares definitions that provide values for dependency parameters:
 
 ```yaml
 - name: NAMESPACE
-  kind: ns.requirement
+  kind: ns.definition
   targets:
     - entry: hello_world_dependency
       path: ".parameters[] | select(.name == \"namespace\") | .value"
 
 - name: API_ROUTER
-  kind: ns.requirement
+  kind: ns.definition
   targets:
     - entry: hello_world_dependency
       path: ".parameters[] | select(.name == \"api_router\") | .value"
@@ -49,20 +49,20 @@ Dependencies define external components with their parameters:
       value: "ns:system"
 ```
 
-### 3. Module Definitions (`module_example.yaml`)
+### 3. Module Requirements (`module_example.yaml`)
 
-The module declares definitions that specify where the resolved requirement values should be injected:
+The module declares requirements that specify where the resolved definition values should be injected:
 
 ```yaml
 - name: NAMESPACE
-  kind: ns.definition
+  kind: ns.requirement
   meta:
     description: "Target namespace for module dependency"
   targets:
     - path: ".meta.depends_on +="
 
 - name: API_ROUTER
-  kind: ns.definition
+  kind: ns.requirement
   meta:
     description: "Router to use for endpoints"
   targets:
@@ -104,17 +104,17 @@ namespace: app.requirements.demo
 
 meta:
   depends_on: [ "ns:system" ]
-  comment: "Requirements and Dependencies Demo Application"
+  comment: "Definitions and Dependencies Demo Application"
 
 entries:
   - name: NAMESPACE
-    kind: ns.requirement
+    kind: ns.definition
     targets:
       - entry: hello_world_dependency
         path: .parameters[] | select(.name == "namespace") | .value
 
   - name: API_ROUTER
-    kind: ns.requirement
+    kind: ns.definition
     targets:
       - entry: hello_world_dependency
         path: .parameters[] | select(.name == "api_router") | .value
@@ -139,14 +139,14 @@ namespace: localspace
 
 entries:
   - name: NAMESPACE
-    kind: ns.definition
+    kind: ns.requirement
     meta:
       description: "Target namespace for module dependency"
     targets:
       - path: ".meta.depends_on +="
 
   - name: API_ROUTER
-    kind: ns.definition
+    kind: ns.requirement
     meta:
       description: "Router to use for endpoints"
     targets:
@@ -175,10 +175,10 @@ entries:
 
 ## Parameter Injection Flow
 
-1. **Application Requirements**: Application declares `ns.requirement` entries with jq path where the value is located in dependencies
+1. **Application Definitions**: Application declares `ns.definition` entries with jq path where the value is located in dependencies
 2. **Dependency Resolution**: System finds the dependency entry and extracts the value using the specified jq path
-3. **Module Definition Lookup**: System finds the corresponding `ns.definition` entry in the module for each requirement
-4. **Target Injection**: System injects the resolved values into the target entries specified in the module definitions
+3. **Module Requirement Lookup**: System finds the corresponding `ns.requirement` entry in the module for each definition
+4. **Target Injection**: System injects the resolved values into the target entries specified in the module requirements
 5. **Value Application**: Module entries receive the injected values in their metadata or other fields
 
 ## jq Targeting Syntax
@@ -188,16 +188,16 @@ The system uses jq syntax for parameter targeting. In this demo, we focus on tar
 - `.parameters[] | select(.name == "namespace") | .value` - Locates the `parameters` array, finds the object with `name == "namespace"`, then takes the `value` field
 - `.parameters[] | select(.name == "api_router") | .value` - Locates the `parameters` array, finds the object with `name == "api_router"`, then takes the `value` field
 
-For module definition targets, we use simpler paths:
+For module requirement targets, we use simpler paths:
 - `.meta.depends_on +=` - Appends the value to the `depends_on` array in the target entry's metadata
 - `.meta.router` - Sets the `router` field in the target entry's metadata
 
 ## Key Features
 
-- **Separation of Concerns**: Application requirements and dependencies are separate from module definitions and targets
-- **Parameter-Based Requirements**: Requirements target specific dependency parameters using jq syntax
-- **Module Definition Targeting**: Module definitions specify exactly where values should be injected
-- **jq Targeting**: Precise parameter targeting using jq syntax for both requirements and definitions
+- **Separation of Concerns**: Application definitions and dependencies are separate from module requirements and targets
+- **Parameter-Based Definitions**: Definitions target specific dependency parameters using jq syntax
+- **Module Requirement Targeting**: Module requirements specify exactly where values should be injected
+- **jq Targeting**: Precise parameter targeting using jq syntax for both definitions and requirements
 - **HTTP Endpoint Integration**: Endpoints that demonstrate the parameter injection system
 - **Lua Function Integration**: Lua functions that can use the injected parameters
 
@@ -208,13 +208,13 @@ Access the demo endpoint at:
 GET /api/v1/local/hello
 ```
 
-The endpoint demonstrates the requirements and dependencies system in action, showing how:
-- Requirements are resolved and values extracted from dependencies
-- Values are injected into module entries via definitions
-- The complete flow connects application requirements, dependencies, and module definitions
+The endpoint demonstrates the definitions and dependencies system in action, showing how:
+- Definitions are resolved and values extracted from dependencies
+- Values are injected into module entries via requirements
+- The complete flow connects application definitions, dependencies, and module requirements
 
 ## Files
 
-- `_index.yaml`: Application configuration with requirements and dependencies
-- `module_example.yaml`: Module configuration with definitions and target entries
+- `_index.yaml`: Application configuration with definitions and dependencies
+- `module_example.yaml`: Module configuration with requirements and target entries
 - `README.md`: This documentation 

@@ -48,14 +48,14 @@ const (
 	// KindEntry stores value in registry without propagation, useful for app specific configs.
 	KindEntry Kind = "registry.entry"
 
-	// KindNamespaceDefinition represents namespace definition variable which can be declared by export or any other source.
-	KindNamespaceDefinition Kind = "ns.definition"
+	// KindNamespaceRequirement represents namespace requirement variable which can be declared by export or any other source.
+	KindNamespaceRequirement Kind = "ns.requirement"
 
 	// KindNamespaceDependency represents a module dependency entry
 	KindNamespaceDependency Kind = "ns.dependency"
 
-	// KindNamespaceRequirement represents a module requirement entry
-	KindNamespaceRequirement Kind = "ns.requirement"
+	// KindNamespaceDefinition represents a module definition entry
+	KindNamespaceDefinition Kind = "ns.definition"
 )
 
 type (

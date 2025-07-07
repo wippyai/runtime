@@ -73,7 +73,7 @@ func TestFindRequirementDependency(t *testing.T) {
 				NS:   "app.requirements.demo",
 				Name: "NAMESPACE",
 			},
-			Kind: registry.KindNamespaceRequirement,
+			Kind: registry.KindNamespaceDefinition,
 			Meta: registry.Metadata{
 				"comment":    "Requirements and Dependencies Demo Application",
 				"depends_on": []interface{}{"ns:system"},
@@ -94,7 +94,7 @@ func TestFindRequirementDependency(t *testing.T) {
 				NS:   "app.requirements.demo",
 				Name: "API_ROUTER",
 			},
-			Kind: registry.KindNamespaceRequirement,
+			Kind: registry.KindNamespaceDefinition,
 			Meta: registry.Metadata{
 				"depends_on": []interface{}{"ns:system"},
 				"comment":    "Requirements and Dependencies Demo Application",
@@ -115,7 +115,7 @@ func TestFindRequirementDependency(t *testing.T) {
 				NS:   "app.requirements.demo",
 				Name: "TEXT",
 			},
-			Kind: registry.KindNamespaceRequirement,
+			Kind: registry.KindNamespaceDefinition,
 			Meta: registry.Metadata{
 				"comment":    "Requirements and Dependencies Demo Application",
 				"depends_on": []interface{}{"ns:system"},
@@ -181,7 +181,7 @@ func TestFindRequirementDependency(t *testing.T) {
 			NS:   "app.requirements.demo",
 			Name: "NON_MATCHING",
 		},
-		Kind: registry.KindNamespaceRequirement,
+		Kind: registry.KindNamespaceDefinition,
 		Data: payload.New(map[string]interface{}{
 			"kind": "ns.requirement",
 			"name": "NON_MATCHING",
@@ -209,7 +209,7 @@ func TestFindRequirementDependency(t *testing.T) {
 			NS:   "different.namespace",
 			Name: "DIFFERENT_NAMESPACE",
 		},
-		Kind: registry.KindNamespaceRequirement,
+		Kind: registry.KindNamespaceDefinition,
 		Data: payload.New(map[string]interface{}{
 			"kind": "ns.requirement",
 			"name": "DIFFERENT_NAMESPACE",
@@ -1438,12 +1438,12 @@ func TestFindRequirementDefinition(t *testing.T) {
 			nsDefinitions: map[string]registry.Entry{
 				"API_ROUTER": {
 					ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
-					Kind: registry.KindNamespaceDefinition,
+					Kind: registry.KindNamespaceRequirement,
 				},
 			},
 			expectedResult: registry.Entry{
 				ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
-				Kind: registry.KindNamespaceDefinition,
+				Kind: registry.KindNamespaceRequirement,
 			},
 			wantErr: false,
 		},
@@ -1455,7 +1455,7 @@ func TestFindRequirementDefinition(t *testing.T) {
 			nsDefinitions: map[string]registry.Entry{
 				"API_ROUTER": {
 					ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
-					Kind: registry.KindNamespaceDefinition,
+					Kind: registry.KindNamespaceRequirement,
 				},
 			},
 			wantErr: true,
@@ -1516,7 +1516,7 @@ func TestResolveModuleRequirements(t *testing.T) {
 		// Requirement
 		{
 			ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
-			Kind: registry.KindNamespaceRequirement,
+			Kind: registry.KindNamespaceDefinition,
 			Data: payload.New(map[string]interface{}{
 				"targets": []interface{}{
 					map[string]interface{}{
@@ -1529,7 +1529,7 @@ func TestResolveModuleRequirements(t *testing.T) {
 		// Definition
 		{
 			ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
-			Kind: registry.KindNamespaceDefinition,
+			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]interface{}{
 				"targets": []interface{}{
 					map[string]interface{}{
@@ -1588,7 +1588,7 @@ func TestResolveModuleRequirements_RequirementNotFound(t *testing.T) {
 		// Requirement without matching dependency
 		{
 			ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
-			Kind: registry.KindNamespaceRequirement,
+			Kind: registry.KindNamespaceDefinition,
 			Data: payload.New(map[string]interface{}{
 				"targets": []interface{}{
 					map[string]interface{}{
@@ -1625,7 +1625,7 @@ func TestResolveModuleRequirements_DefinitionNotFound(t *testing.T) {
 		// Requirement without matching definition
 		{
 			ID:   registry.ID{NS: "test.ns", Name: "API_ROUTER"},
-			Kind: registry.KindNamespaceRequirement,
+			Kind: registry.KindNamespaceDefinition,
 			Data: payload.New(map[string]interface{}{
 				"targets": []interface{}{
 					map[string]interface{}{

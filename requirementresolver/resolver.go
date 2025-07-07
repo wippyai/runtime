@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Resolver handles module requirement resolution
+// Resolver handles module Definition resolution
 type Resolver struct {
 	logger *zap.Logger
 }
@@ -23,11 +23,11 @@ func NewResolver(logger *zap.Logger) *Resolver {
 	}
 }
 
-// ResolveModuleRequirements resolves module requirements and injects parameters
-func (r *Resolver) ResolveModuleRequirements(entries []registry.Entry) error {
-	nsDefinitions := make(map[string]registry.Entry)
-	nsDependencies := make(map[string]registry.Entry)
+// ResolveModuleDefinitions resolves module Definitions and injects parameters
+func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) error {
 	nsRequirements := make(map[string]registry.Entry)
+	nsDependencies := make(map[string]registry.Entry)
+	nsDefinitions := make(map[string]registry.Entry)
 
 	for _, entry := range entries {
 		switch entry.Kind {
@@ -40,11 +40,11 @@ func (r *Resolver) ResolveModuleRequirements(entries []registry.Entry) error {
 		}
 	}
 
-	for _, nsRequirement := range nsRequirements {
-		nsDependency, path, err := findRequirementDependency(nsRequirement, nsDependencies)
+	for _, nsDefinition := range nsDefinitions {
+		nsDependency, path, err := findDefinitionDependency(nsDefinition, nsDependencies)
 		if err != nil {
-			r.logger.Warn("failed to find requirement dependency",
-				zap.String("requirement", nsRequirement.ID.Name),
+			r.logger.Warn("failed to find definition dependency",
+				zap.String("definition", nsDefinition.ID.Name),
 				zap.Error(err))
 			continue
 		}
@@ -57,25 +57,25 @@ func (r *Resolver) ResolveModuleRequirements(entries []registry.Entry) error {
 				zap.Error(err))
 		}
 
-		nsDefinition, err := findRequirementDefinition(nsRequirement, nsDefinitions)
+		nsRequirement, err := findDefinitionRequirement(nsDefinition, nsRequirements)
 		if err != nil {
-			r.logger.Warn("failed to find requirement definition",
+			r.logger.Warn("failed to find Definition Requirement",
+				zap.String("Definition", nsDefinition.ID.Name),
+				zap.Error(err))
+			continue
+		}
+
+		requirementTargets, err := getRequirementTargets(nsRequirement)
+		if err != nil {
+			r.logger.Warn("failed to get requirement targets",
 				zap.String("requirement", nsRequirement.ID.Name),
 				zap.Error(err))
 			continue
 		}
 
-		definitionTargets, err := getDefinitionTargets(nsDefinition)
-		if err != nil {
-			r.logger.Warn("failed to get definition targets",
-				zap.String("definition", nsDefinition.ID.Name),
-				zap.Error(err))
-			continue
-		}
-
-		for _, definitionTarget := range definitionTargets {
-			targetEntries := findDefinitionTargetEntries(definitionTarget, nsDefinition.ID.NS, entries)
-			r.applyPathValueToEntriesWithGojq(definitionTarget.Path, value, targetEntries)
+		for _, requirementTarget := range requirementTargets {
+			targetEntries := findRequirementTargetEntries(requirementTarget, nsRequirement.ID.NS, entries)
+			r.applyPathValueToEntriesWithGojq(requirementTarget.Path, value, targetEntries)
 		}
 	}
 
@@ -237,16 +237,16 @@ func (r *Resolver) applyPathValueToEntriesWithGojq(jqQuery string, value string,
 	}
 }
 
-func findRequirementDependency(nsRequirement registry.Entry, nsDependencies map[string]registry.Entry) (registry.Entry, string, error) {
-	reqData := nsRequirement.Data.Data()
+func findDefinitionDependency(nsDefinition registry.Entry, nsDependencies map[string]registry.Entry) (registry.Entry, string, error) {
+	reqData := nsDefinition.Data.Data()
 	reqMap, ok := reqData.(map[string]interface{})
 	if !ok {
-		return registry.Entry{}, "", fmt.Errorf("invalid requirement data in definition %s", nsRequirement.ID.Name)
+		return registry.Entry{}, "", fmt.Errorf("invalid definition data in requirement %s", nsDefinition.ID.Name)
 	}
 
 	targetsRaw, ok := reqMap["targets"].([]interface{})
 	if !ok {
-		return registry.Entry{}, "", fmt.Errorf("invalid requirement data in definition %s", nsRequirement.ID.Name)
+		return registry.Entry{}, "", fmt.Errorf("invalid definition data in requirement %s", nsDefinition.ID.Name)
 	}
 
 	// Iterate through all targets to find one that matches a dependency
@@ -256,8 +256,7 @@ func findRequirementDependency(nsRequirement registry.Entry, nsDependencies map[
 			if entryName, ok := targetMap["entry"].(string); ok {
 				for _, nsDependency := range nsDependencies {
 					if entryName == nsDependency.ID.Name &&
-						nsRequirement.ID.NS == nsDependency.ID.NS {
-						// The target map has "path" field, not "value"
+						nsDefinition.ID.NS == nsDependency.ID.NS {
 						if path, ok := targetMap["path"].(string); ok {
 							return nsDependency, path, nil
 						}
@@ -267,7 +266,7 @@ func findRequirementDependency(nsRequirement registry.Entry, nsDependencies map[
 		}
 	}
 
-	return registry.Entry{}, "", fmt.Errorf("dependency for requirement %s not found", nsRequirement.ID.Name)
+	return registry.Entry{}, "", fmt.Errorf("dependency for definition %s not found", nsDefinition.ID.Name)
 }
 
 func getValueFromEntry(entry registry.Entry, path string) (string, error) {
@@ -327,21 +326,21 @@ func getValueFromEntryWithGojq(data interface{}, path string) (string, error) {
 	}
 }
 
-// RequirementTarget represents a target in the new format
-type RequirementTarget struct {
+// DefinitionTarget represents a target in the new format
+type DefinitionTarget struct {
 	Entry string `json:"entry" yaml:"entry"`
 	Path  string `json:"path" yaml:"path"`
 }
 
-func findDefinitionTargetEntries(definitionTarget RequirementTarget, ns string, entries []registry.Entry) []registry.Entry {
+func findRequirementTargetEntries(requirementTarget DefinitionTarget, ns string, entries []registry.Entry) []registry.Entry {
 	results := make([]registry.Entry, 0)
 
 	for _, entry := range entries {
-		// Check if the entry ID matches the definition target entry
+		// Check if the entry ID matches the requirement target entry
 		if entry.ID.NS == ns {
-			if definitionTarget.Entry == "" {
+			if requirementTarget.Entry == "" {
 				// When Entry is empty, match by Path field which contains path like "meta.depends_on[]"
-				if definitionTarget.Path != "" {
+				if requirementTarget.Path != "" {
 					// For now, just add all entries in the namespace when Path is specified
 					results = append(results, entry)
 				}
@@ -349,7 +348,7 @@ func findDefinitionTargetEntries(definitionTarget RequirementTarget, ns string, 
 			}
 
 			// When Entry is specified, match by exact name
-			if entry.ID.Name == definitionTarget.Entry {
+			if entry.ID.Name == requirementTarget.Entry {
 				results = append(results, entry)
 			}
 		}
@@ -358,17 +357,17 @@ func findDefinitionTargetEntries(definitionTarget RequirementTarget, ns string, 
 	return results
 }
 
-func getDefinitionTargets(definition registry.Entry) ([]RequirementTarget, error) {
-	data := definition.Data.Data()
+func getRequirementTargets(requirement registry.Entry) ([]DefinitionTarget, error) {
+	data := requirement.Data.Data()
 
 	// Try to parse as raw map data (new format)
 	if reqMap, ok := data.(map[string]interface{}); ok {
 		// Extract targets from the raw map format
 		if targetsRaw, ok := reqMap["targets"].([]interface{}); ok {
-			targets := make([]RequirementTarget, 0, len(targetsRaw))
+			targets := make([]DefinitionTarget, 0, len(targetsRaw))
 			for _, targetRaw := range targetsRaw {
 				if targetMap, ok := targetRaw.(map[string]interface{}); ok {
-					target := RequirementTarget{}
+					target := DefinitionTarget{}
 					if entry, ok := targetMap["entry"].(string); ok {
 						target.Entry = entry
 					}
@@ -382,14 +381,14 @@ func getDefinitionTargets(definition registry.Entry) ([]RequirementTarget, error
 		}
 	}
 
-	return nil, fmt.Errorf("invalid requirement data in definition %s", definition.ID.Name)
+	return nil, fmt.Errorf("invalid Definition data in Requirement %s", requirement.ID.Name)
 }
 
-func findRequirementDefinition(requirement registry.Entry, nsDefinitions map[string]registry.Entry) (registry.Entry, error) {
-	definition, ok := nsDefinitions[requirement.ID.Name]
+func findDefinitionRequirement(definition registry.Entry, nsRequirements map[string]registry.Entry) (registry.Entry, error) {
+	Requirement, ok := nsRequirements[definition.ID.Name]
 	if !ok {
-		return registry.Entry{}, fmt.Errorf("definition for requirement %s not found", requirement.ID.Name)
+		return registry.Entry{}, fmt.Errorf("Requirement for Definition %s not found", definition.ID.Name)
 	}
 
-	return definition, nil
+	return Requirement, nil
 }

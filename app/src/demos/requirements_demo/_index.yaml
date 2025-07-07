@@ -3,17 +3,17 @@ namespace: app.requirements.demo
 
 meta:
   depends_on: [ "ns:system" ]
-  comment: "Requirements and Dependencies Demo Application"
+  comment: "Definitions and Dependencies Demo Application"
 
 entries:
   - name: NAMESPACE
-    kind: ns.requirement
+    kind: ns.definition
     targets:
       - entry: hello_world_dependency
         path: .parameters[] | select(.name == "namespace") | .value
 
   - name: API_ROUTER
-    kind: ns.requirement
+    kind: ns.definition
     targets:
       - entry: hello_world_dependency
         path: .parameters[] | select(.name == "api_router") | .value
