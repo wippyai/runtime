@@ -38,7 +38,7 @@ jobs:
 
       - name: Configure Git and Go for private modules
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
         run: |
           # Configure Git to use token from environment
           git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -50,7 +50,7 @@ jobs:
 
       - name: Install Go dependencies
         run: |
-          go mod tidy
+          go mod download
           
       - name: Verify Go environment
         run: |
