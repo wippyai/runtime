@@ -13,6 +13,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
+      fail-fast: false
       matrix:
         go: [1.24]
         os: ["ubuntu-latest", "windows-latest"]
@@ -62,13 +63,17 @@ jobs:
         if: matrix.os != 'windows-latest'
         env:
           CGO_ENABLED: 1
+          GORACE: "halt_on_error=1"
         run: |
-          go test --tags "fts5 sqlite_vec" -race -timeout=30m ./...
+          # Run tests with parallel execution and shorter timeouts
+          go test --tags "fts5 sqlite_vec" -race -timeout=10m -parallel=4 ./...
 
       - name: Run golang tests
         if: matrix.os == 'windows-latest'
         env:
           CGO_ENABLED: 1
+          GORACE: "halt_on_error=1"
         run: |
-          go test --tags "fts5 sqlite_vec" -race -timeout=30m ./...
+          # Run tests with parallel execution and shorter timeouts
+          go test --tags "fts5 sqlite_vec" -race -timeout=10m -parallel=4 ./...
         shell: msys2 {0}
