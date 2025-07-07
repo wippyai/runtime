@@ -385,10 +385,10 @@ func getRequirementTargets(requirement registry.Entry) ([]DefinitionTarget, erro
 }
 
 func findDefinitionRequirement(definition registry.Entry, nsRequirements map[string]registry.Entry) (registry.Entry, error) {
-	Requirement, ok := nsRequirements[definition.ID.Name]
+	requirement, ok := nsRequirements[definition.ID.Name]
 	if !ok {
-		return registry.Entry{}, fmt.Errorf("Requirement for Definition %s not found", definition.ID.Name)
+		return registry.Entry{}, fmt.Errorf("requirement for Definition %s not found", definition.ID.Name)
 	}
 
-	return Requirement, nil
+	return requirement, nil
 }

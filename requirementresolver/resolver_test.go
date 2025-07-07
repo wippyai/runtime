@@ -19,8 +19,8 @@ func TestNewResolver(t *testing.T) {
 	assert.Equal(t, logger, resolver.logger)
 }
 
-func TestFindRequirementDependency(t *testing.T) {
-	// Test using the exact data structure from the comments in findRequirementDependency function
+func TestFindDefinitionDependency(t *testing.T) {
+	// Test using the exact data structure from the comments in findDefinitionDependency function
 
 	// nsDependencies from the comment:
 	// ID: app.requirements.demo:hello_world_dependency
@@ -36,7 +36,7 @@ func TestFindRequirementDependency(t *testing.T) {
 			Kind: registry.KindNamespaceDependency,
 			Meta: registry.Metadata{
 				"description": "Component dependency management demo example",
-				"comment":     "Requirements and Dependencies Demo Application",
+				"comment":     "Definitions and Dependencies Demo Application",
 				"depends_on":  []interface{}{"ns:system"},
 			},
 			Data: payload.New(map[string]interface{}{
@@ -62,12 +62,12 @@ func TestFindRequirementDependency(t *testing.T) {
 		},
 	}
 
-	// nsRequirements from the comment:
-	// Three requirements: NAMESPACE, API_ROUTER, TEXT
+	// nsDefinitions from the comment:
+	// Three definitions: NAMESPACE, API_ROUTER, TEXT
 	// Each has targets with entry and path fields
 	// Meta: (registry.Metadata) (len=2) with comment, depends_on
 	// Data: (payload.payload) with data: (map[string]interface {}) (len=3)
-	nsRequirements := map[string]registry.Entry{
+	nsDefinitions := map[string]registry.Entry{
 		"NAMESPACE": {
 			ID: registry.ID{
 				NS:   "app.requirements.demo",
@@ -75,11 +75,11 @@ func TestFindRequirementDependency(t *testing.T) {
 			},
 			Kind: registry.KindNamespaceDefinition,
 			Meta: registry.Metadata{
-				"comment":    "Requirements and Dependencies Demo Application",
+				"comment":    "Definitions and Dependencies Demo Application",
 				"depends_on": []interface{}{"ns:system"},
 			},
 			Data: payload.New(map[string]interface{}{
-				"kind": "ns.requirement",
+				"kind": "ns.definition",
 				"name": "NAMESPACE",
 				"targets": []interface{}{
 					map[string]interface{}{
@@ -97,10 +97,10 @@ func TestFindRequirementDependency(t *testing.T) {
 			Kind: registry.KindNamespaceDefinition,
 			Meta: registry.Metadata{
 				"depends_on": []interface{}{"ns:system"},
-				"comment":    "Requirements and Dependencies Demo Application",
+				"comment":    "Definitions and Dependencies Demo Application",
 			},
 			Data: payload.New(map[string]interface{}{
-				"kind": "ns.requirement",
+				"kind": "ns.definition",
 				"name": "API_ROUTER",
 				"targets": []interface{}{
 					map[string]interface{}{
@@ -117,11 +117,11 @@ func TestFindRequirementDependency(t *testing.T) {
 			},
 			Kind: registry.KindNamespaceDefinition,
 			Meta: registry.Metadata{
-				"comment":    "Requirements and Dependencies Demo Application",
+				"comment":    "Definitions and Dependencies Demo Application",
 				"depends_on": []interface{}{"ns:system"},
 			},
 			Data: payload.New(map[string]interface{}{
-				"kind": "ns.requirement",
+				"kind": "ns.definition",
 				"name": "TEXT",
 				"targets": []interface{}{
 					map[string]interface{}{
@@ -133,28 +133,28 @@ func TestFindRequirementDependency(t *testing.T) {
 		},
 	}
 
-	// Test each requirement to find its dependency
+	// Test each definition to find its dependency
 	testCases := []struct {
 		name         string
-		requirement  registry.Entry
+		definition   registry.Entry
 		expectedPath string
 		shouldFind   bool
 	}{
 		{
-			name:         "NAMESPACE requirement should find hello_world_dependency",
-			requirement:  nsRequirements["NAMESPACE"],
+			name:         "NAMESPACE definition should find hello_world_dependency",
+			definition:   nsDefinitions["NAMESPACE"],
 			expectedPath: "namespace",
 			shouldFind:   true,
 		},
 		{
-			name:         "API_ROUTER requirement should find hello_world_dependency",
-			requirement:  nsRequirements["API_ROUTER"],
+			name:         "API_ROUTER definition should find hello_world_dependency",
+			definition:   nsDefinitions["API_ROUTER"],
 			expectedPath: "parameters[name=api_router].value",
 			shouldFind:   true,
 		},
 		{
-			name:         "TEXT requirement should find hello_world_dependency",
-			requirement:  nsRequirements["TEXT"],
+			name:         "TEXT definition should find hello_world_dependency",
+			definition:   nsDefinitions["TEXT"],
 			expectedPath: "parameters[name=text].value",
 			shouldFind:   true,
 		},
@@ -162,28 +162,28 @@ func TestFindRequirementDependency(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			dependency, path, err := findRequirementDependency(tc.requirement, nsDependencies)
+			dependency, path, err := findDefinitionDependency(tc.definition, nsDependencies)
 
 			if tc.shouldFind {
-				assert.NoError(t, err, "Should find dependency for requirement %s", tc.requirement.ID.Name)
+				assert.NoError(t, err, "Should find dependency for definition %s", tc.definition.ID.Name)
 				assert.Equal(t, "hello_world_dependency", dependency.ID.Name, "Should find correct dependency")
 				assert.Equal(t, "app.requirements.demo", dependency.ID.NS, "Should have correct namespace")
 				assert.Equal(t, tc.expectedPath, path, "Should return correct path")
 			} else {
-				assert.Error(t, err, "Should not find dependency for requirement %s", tc.requirement.ID.Name)
+				assert.Error(t, err, "Should not find dependency for definition %s", tc.definition.ID.Name)
 			}
 		})
 	}
 
-	// Test with requirement that doesn't match any dependency
-	nonMatchingRequirement := registry.Entry{
+	// Test with definition that doesn't match any dependency
+	nonMatchingDefinition := registry.Entry{
 		ID: registry.ID{
 			NS:   "app.requirements.demo",
 			Name: "NON_MATCHING",
 		},
 		Kind: registry.KindNamespaceDefinition,
 		Data: payload.New(map[string]interface{}{
-			"kind": "ns.requirement",
+			"kind": "ns.definition",
 			"name": "NON_MATCHING",
 			"targets": []interface{}{
 				map[string]interface{}{
@@ -194,24 +194,24 @@ func TestFindRequirementDependency(t *testing.T) {
 		}),
 	}
 
-	t.Run("non-matching requirement should return error", func(t *testing.T) {
-		dependency, path, err := findRequirementDependency(nonMatchingRequirement, nsDependencies)
+	t.Run("non-matching definition should return error", func(t *testing.T) {
+		dependency, path, err := findDefinitionDependency(nonMatchingDefinition, nsDependencies)
 
-		assert.Error(t, err, "Should return error for non-matching requirement")
+		assert.Error(t, err, "Should return error for non-matching definition")
 		assert.Equal(t, registry.Entry{}, dependency, "Should return empty dependency")
 		assert.Equal(t, "", path, "Should return empty path")
-		assert.Contains(t, err.Error(), "dependency for requirement NON_MATCHING not found")
+		assert.Contains(t, err.Error(), "dependency for definition NON_MATCHING not found")
 	})
 
-	// Test with requirement that has different namespace
-	differentNamespaceRequirement := registry.Entry{
+	// Test with definition that has different namespace
+	differentNamespaceDefinition := registry.Entry{
 		ID: registry.ID{
 			NS:   "different.namespace",
 			Name: "DIFFERENT_NAMESPACE",
 		},
 		Kind: registry.KindNamespaceDefinition,
 		Data: payload.New(map[string]interface{}{
-			"kind": "ns.requirement",
+			"kind": "ns.definition",
 			"name": "DIFFERENT_NAMESPACE",
 			"targets": []interface{}{
 				map[string]interface{}{
@@ -222,13 +222,13 @@ func TestFindRequirementDependency(t *testing.T) {
 		}),
 	}
 
-	t.Run("requirement with different namespace should return error", func(t *testing.T) {
-		dependency, path, err := findRequirementDependency(differentNamespaceRequirement, nsDependencies)
+	t.Run("definition with different namespace should return error", func(t *testing.T) {
+		dependency, path, err := findDefinitionDependency(differentNamespaceDefinition, nsDependencies)
 
-		assert.Error(t, err, "Should return error for requirement with different namespace")
+		assert.Error(t, err, "Should return error for definition with different namespace")
 		assert.Equal(t, registry.Entry{}, dependency, "Should return empty dependency")
 		assert.Equal(t, "", path, "Should return empty path")
-		assert.Contains(t, err.Error(), "dependency for requirement DIFFERENT_NAMESPACE not found")
+		assert.Contains(t, err.Error(), "dependency for definition DIFFERENT_NAMESPACE not found")
 	})
 }
 
@@ -323,7 +323,7 @@ func TestGetValueFromEntry(t *testing.T) {
 				Data: payload.New(map[string]interface{}{
 					"meta": map[string]interface{}{
 						"description": "Component dependency management demo example",
-						"comment":     "Requirements and Dependencies Demo Application",
+						"comment":     "Definitions and Dependencies Demo Application",
 					},
 				}),
 			},
@@ -849,7 +849,7 @@ func TestGetValueFromEntryWithGojq(t *testing.T) {
 				Data: payload.New(map[string]interface{}{
 					"meta": map[string]interface{}{
 						"description": "Component dependency management demo example",
-						"comment":     "Requirements and Dependencies Demo Application",
+						"comment":     "Definitions and Dependencies Demo Application",
 					},
 				}),
 			},
@@ -1262,17 +1262,17 @@ func TestApplyPathValueToEntriesWithGojq(t *testing.T) {
 	}
 }
 
-func TestFindDefinitionTargetEntries(t *testing.T) {
+func TestFindRequirementTargetEntries(t *testing.T) {
 	tests := []struct {
 		name               string
-		definitionTarget   RequirementTarget
+		definitionTarget   DefinitionTarget
 		ns                 string
 		entries            []registry.Entry
 		expectedEntryNames []string
 	}{
 		{
 			name: "match by entry",
-			definitionTarget: RequirementTarget{
+			definitionTarget: DefinitionTarget{
 				Entry: "target_entry",
 				Path:  "meta.router",
 			},
@@ -1286,7 +1286,7 @@ func TestFindDefinitionTargetEntries(t *testing.T) {
 		},
 		{
 			name: "match by path when entry is empty",
-			definitionTarget: RequirementTarget{
+			definitionTarget: DefinitionTarget{
 				Entry: "",
 				Path:  "meta.depends_on[]",
 			},
@@ -1300,7 +1300,7 @@ func TestFindDefinitionTargetEntries(t *testing.T) {
 		},
 		{
 			name: "no matches in namespace",
-			definitionTarget: RequirementTarget{
+			definitionTarget: DefinitionTarget{
 				Entry: "target_entry",
 				Path:  "meta.router",
 			},
@@ -1312,7 +1312,7 @@ func TestFindDefinitionTargetEntries(t *testing.T) {
 		},
 		{
 			name: "empty path when entry is empty",
-			definitionTarget: RequirementTarget{
+			definitionTarget: DefinitionTarget{
 				Entry: "",
 				Path:  "",
 			},
@@ -1326,7 +1326,7 @@ func TestFindDefinitionTargetEntries(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := findDefinitionTargetEntries(tt.definitionTarget, tt.ns, tt.entries)
+			result := findRequirementTargetEntries(tt.definitionTarget, tt.ns, tt.entries)
 
 			assert.Len(t, result, len(tt.expectedEntryNames))
 			for i, expectedName := range tt.expectedEntryNames {
@@ -1336,11 +1336,11 @@ func TestFindDefinitionTargetEntries(t *testing.T) {
 	}
 }
 
-func TestGetDefinitionTargets(t *testing.T) {
+func TestGetRequirementTargets(t *testing.T) {
 	tests := []struct {
 		name            string
 		definition      registry.Entry
-		expectedTargets []RequirementTarget
+		expectedTargets []DefinitionTarget
 		wantErr         bool
 		errMsg          string
 	}{
@@ -1361,7 +1361,7 @@ func TestGetDefinitionTargets(t *testing.T) {
 					},
 				}),
 			},
-			expectedTargets: []RequirementTarget{
+			expectedTargets: []DefinitionTarget{
 				{Entry: "target1", Path: "meta.router"},
 				{Entry: "", Path: "meta.depends_on[]"},
 			},
@@ -1376,7 +1376,7 @@ func TestGetDefinitionTargets(t *testing.T) {
 				}),
 			},
 			wantErr: true,
-			errMsg:  "invalid requirement data in definition test_definition",
+			errMsg:  "invalid Definition data in Requirement test_definition",
 		},
 		{
 			name: "definition with invalid targets format",
@@ -1387,7 +1387,7 @@ func TestGetDefinitionTargets(t *testing.T) {
 				}),
 			},
 			wantErr: true,
-			errMsg:  "invalid requirement data in definition test_definition",
+			errMsg:  "invalid Definition data in Requirement test_definition",
 		},
 		{
 			name: "definition with invalid target format",
@@ -1399,14 +1399,14 @@ func TestGetDefinitionTargets(t *testing.T) {
 					},
 				}),
 			},
-			expectedTargets: []RequirementTarget{},
+			expectedTargets: []DefinitionTarget{},
 			wantErr:         false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := getDefinitionTargets(tt.definition)
+			result, err := getRequirementTargets(tt.definition)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1421,7 +1421,7 @@ func TestGetDefinitionTargets(t *testing.T) {
 	}
 }
 
-func TestFindRequirementDefinition(t *testing.T) {
+func TestFindDefinitionRequirement(t *testing.T) {
 	tests := []struct {
 		name           string
 		requirement    registry.Entry
@@ -1459,7 +1459,7 @@ func TestFindRequirementDefinition(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "definition for requirement NON_EXISTENT not found",
+			errMsg:  "requirement for Definition NON_EXISTENT not found",
 		},
 		{
 			name: "empty definitions map",
@@ -1468,13 +1468,13 @@ func TestFindRequirementDefinition(t *testing.T) {
 			},
 			nsDefinitions: map[string]registry.Entry{},
 			wantErr:       true,
-			errMsg:        "definition for requirement API_ROUTER not found",
+			errMsg:        "requirement for Definition API_ROUTER not found",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := findRequirementDefinition(tt.requirement, tt.nsDefinitions)
+			result, err := findDefinitionRequirement(tt.requirement, tt.nsDefinitions)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1489,7 +1489,7 @@ func TestFindRequirementDefinition(t *testing.T) {
 	}
 }
 
-func TestResolveModuleRequirements(t *testing.T) {
+func TestResolveModuleDefinitions(t *testing.T) {
 	logger := zap.NewNop()
 	resolver := NewResolver(logger)
 
@@ -1549,7 +1549,7 @@ func TestResolveModuleRequirements(t *testing.T) {
 		},
 	}
 
-	err := resolver.ResolveModuleRequirements(entries)
+	err := resolver.ResolveModuleDefinitions(entries)
 	require.NoError(t, err)
 
 	// Find the target entry that should have been modified
@@ -1565,7 +1565,7 @@ func TestResolveModuleRequirements(t *testing.T) {
 	assert.Equal(t, "system:api", targetEntry.Meta["router"])
 }
 
-func TestResolveModuleRequirements_NoRequirements(t *testing.T) {
+func TestResolveModuleDefinitions_NoRequirements(t *testing.T) {
 	logger := zap.NewNop()
 	resolver := NewResolver(logger)
 
@@ -1576,11 +1576,11 @@ func TestResolveModuleRequirements_NoRequirements(t *testing.T) {
 		},
 	}
 
-	err := resolver.ResolveModuleRequirements(entries)
+	err := resolver.ResolveModuleDefinitions(entries)
 	require.NoError(t, err)
 }
 
-func TestResolveModuleRequirements_RequirementNotFound(t *testing.T) {
+func TestResolveModuleDefinitions_RequirementNotFound(t *testing.T) {
 	logger := zap.NewNop()
 	resolver := NewResolver(logger)
 
@@ -1600,11 +1600,11 @@ func TestResolveModuleRequirements_RequirementNotFound(t *testing.T) {
 		},
 	}
 
-	err := resolver.ResolveModuleRequirements(entries)
+	err := resolver.ResolveModuleDefinitions(entries)
 	require.NoError(t, err) // Should not error, just log warning
 }
 
-func TestResolveModuleRequirements_DefinitionNotFound(t *testing.T) {
+func TestResolveModuleDefinitions_DefinitionNotFound(t *testing.T) {
 	logger := zap.NewNop()
 	resolver := NewResolver(logger)
 
@@ -1637,7 +1637,7 @@ func TestResolveModuleRequirements_DefinitionNotFound(t *testing.T) {
 		},
 	}
 
-	err := resolver.ResolveModuleRequirements(entries)
+	err := resolver.ResolveModuleDefinitions(entries)
 	require.NoError(t, err) // Should not error, just log warning
 }
 
