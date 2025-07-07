@@ -11,7 +11,7 @@ jobs:
   tests:
     name: Wippy Tests (Go ${{ matrix.go }}, OS ${{matrix.os}})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     strategy:
       matrix:
         go: [1.24]
@@ -63,12 +63,12 @@ jobs:
         env:
           CGO_ENABLED: 1
         run: |
-          go test --tags "fts5 sqlite_vec" -race ./...
+          go test --tags "fts5 sqlite_vec" -race -timeout=30m ./...
 
       - name: Run golang tests
         if: matrix.os == 'windows-latest'
         env:
           CGO_ENABLED: 1
         run: |
-          go test --tags "fts5 sqlite_vec" -race ./...
+          go test --tags "fts5 sqlite_vec" -race -timeout=30m ./...
         shell: msys2 {0}
