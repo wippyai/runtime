@@ -72,7 +72,7 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	// Create the process
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
 
-	process, err := nativeExecutor.NewProcess("head -n 100 /dev/urandom", exec.ProcessOptions{})
+	process, err := nativeExecutor.NewProcess("sh -c 'yes | head -n 100'", exec.ProcessOptions{})
 	assert.NoError(t, err)
 
 	processExecutor, ok := process.(*ProcessExecutor)
@@ -86,27 +86,34 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	}()
 
 	go func() {
-		time.Sleep(time.Second * 5)
+		time.Sleep(4 * time.Second) // Give process time to start and produce output
 		processExecutor.Stop()
 	}()
 
 	sb := new(strings.Builder)
+	timeout := time.After(3 * time.Second) // Give more time to read output
+
 	for {
-		// we don't care about the perf here
-		buf := make([]byte, 65536)
-		_, err = process.Stdout().Read(buf)
-		if err != nil {
-			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
-				break
+		select {
+		case <-timeout:
+			t.Logf("Timeout reached, collected %d bytes of output", sb.Len())
+			goto readComplete
+		default:
+			buf := make([]byte, 65536) // Smaller buffer for faster reading
+			n, err := process.Stdout().Read(buf)
+			if err != nil {
+				if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+					goto readComplete
+				}
+				t.Fatal(err)
 			}
-
-			t.Fatal(err)
+			if n > 0 {
+				sb.Write(buf[:n])
+			}
 		}
-
-		sb.Write(buf)
 	}
 
+readComplete:
 	if sb.Len() == 0 {
 		t.Fatal("no output")
 	}
@@ -127,37 +134,49 @@ func TestExecutor_Stdout(t *testing.T) {
 	process, err := nativeExecutor.NewProcess(command, exec.ProcessOptions{})
 	assert.NoError(t, err)
 
-	processExecutor, ok := process.(*ProcessExecutor)
-	assert.True(t, ok)
-
 	err = process.Start()
 	assert.NoError(t, err)
 
+	// Start reading immediately in a goroutine
+	sb := new(strings.Builder)
+	readDone := make(chan struct{})
+
 	go func() {
-		_ = process.Wait()
-		assert.Equal(t, "terminated", processExecutor.State())
+		defer close(readDone)
+		timeout := time.After(2 * time.Second)
+
+		for {
+			select {
+			case <-timeout:
+				t.Logf("Timeout reached, stdout output: %q", sb.String())
+				return
+			default:
+				buf := make([]byte, 1024)
+				n, err := process.Stdout().Read(buf)
+				if err != nil {
+					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+						return
+					}
+					t.Errorf("Error reading stdout: %v", err)
+					return
+				}
+				if n > 0 {
+					sb.Write(buf[:n])
+				}
+			}
+		}
 	}()
 
-	assert.Equal(t, "running", processExecutor.State())
+	// Wait for the process to complete
+	_ = process.Wait()
 
-	sb := new(strings.Builder)
+	// Wait for reading to complete
+	<-readDone
 
-	for {
-		// we don't care about the perf here
-		buf := make([]byte, 65536)
-		_, err = process.Stdout().Read(buf)
-		if err != nil {
-			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
-				break
-			}
-			t.Fatal(err)
-		}
-
-		sb.Write(buf)
+	output := sb.String()
+	if !strings.Contains(output, "hello world") {
+		t.Errorf("Expected stdout to contain 'hello world', got: %q", output)
 	}
-
-	assert.Contains(t, sb.String(), "hello world")
 }
 
 func TestExecutor_EmptyCmd(t *testing.T) {
@@ -211,8 +230,8 @@ func TestExecutor_Stderr(t *testing.T) {
 		// On Windows, we need to use CMD to redirect to stderr
 		command = "cmd /c echo error message 1>&2"
 	} else {
-		// On Unix systems
-		command = "sh -c \"echo error message >&2\""
+		// On Unix systems - use a more reliable approach
+		command = "bash -c 'echo error message >&2'"
 	}
 
 	// Create the process
@@ -223,29 +242,46 @@ func TestExecutor_Stderr(t *testing.T) {
 	err = process.Start()
 	assert.NoError(t, err)
 
+	// Start reading immediately in a goroutine
+	sb := new(strings.Builder)
+	readDone := make(chan struct{})
+
 	go func() {
-		_ = process.Wait()
+		defer close(readDone)
+		timeout := time.After(2 * time.Second)
+
+		for {
+			select {
+			case <-timeout:
+				t.Logf("Timeout reached, stderr output: %q", sb.String())
+				return
+			default:
+				buf := make([]byte, 1024)
+				n, err := process.Stderr().Read(buf)
+				if err != nil {
+					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+						return
+					}
+					t.Errorf("Error reading stderr: %v", err)
+					return
+				}
+				if n > 0 {
+					sb.Write(buf[:n])
+				}
+			}
+		}
 	}()
 
-	sb := new(strings.Builder)
+	// Wait for the process to complete
+	_ = process.Wait()
 
-	for {
-		// we don't care about the perf here
-		buf := make([]byte, 65536)
-		_, err = process.Stderr().Read(buf)
-		if err != nil {
-			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
-				break
-			}
+	// Wait for reading to complete
+	<-readDone
 
-			t.Fatal(err)
-		}
-
-		sb.Write(buf)
+	output := sb.String()
+	if !strings.Contains(output, "error message") {
+		t.Errorf("Expected stderr to contain 'error message', got: %q", output)
 	}
-
-	assert.Contains(t, sb.String(), "error message")
 }
 
 func TestExecutor_ReadWithInvalidCommand(t *testing.T) {

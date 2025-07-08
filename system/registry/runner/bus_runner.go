@@ -112,7 +112,8 @@ func (br *BusRunner) applyOperation(
 	allowProcess := []registry.Kind{
 		registry.KindEntry,
 		registry.KindNamespaceDefinition,
-		registry.KindDependencyComponent,
+		registry.KindNamespaceDependency,
+		registry.KindNamespaceRequirement,
 	}
 	if slices.Contains(allowProcess, op.Entry.Kind) {
 		br.log.Debug("processing entry",

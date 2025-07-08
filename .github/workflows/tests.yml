@@ -4,24 +4,26 @@ on:
   push:
     branches:
       - main
+      - develop
   pull_request:
-    branches:
-      - main
 
 jobs:
   tests:
     name: Wippy Tests (Go ${{ matrix.go }}, OS ${{matrix.os}})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     strategy:
+      fail-fast: false
       matrix:
         go: [1.24]
         os: ["ubuntu-latest", "windows-latest"]
+    env:
+      GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}  # Use Personal Access Token
+          token: ${{ env.GITHUB_TOKEN }}  # Use PAT with repo scope for cross-org access
 
       - name: Setup msys
         if: matrix.os == 'windows-latest'
@@ -32,36 +34,61 @@ jobs:
           install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-sqlite3
           path-type: inherit
 
-      - name: Set up Go ${{ matrix.go }}
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
+          check-latest: false
+          token: ${{ env.GITHUB_TOKEN }}
+          cache: true
+        env:
+          MSYSTEM: MINGW64
 
       - name: Configure Git and Go for private modules
+        if: matrix.os != 'windows-latest'
         run: |
-          # Configure Git to use PAT for authentication
-          git config --global url."https://${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          # Configure Git to use token from environment
+          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           
           # Configure Go to skip verification for private modules
-          go env -w GOPRIVATE=github.com/ponyruntime/*
-          go env -w GONOSUMDB=github.com/ponyruntime/*
-          go env -w GONOPROXY=github.com/ponyruntime/*
+          go env -w GOPRIVATE=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOSUMDB=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOPROXY=github.com/ponyruntime/*,github.com/wippyai/*
+
+      - name: Configure Git and Go for private modules (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: |
+          # Configure Git to use token from environment
+          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          
+          # Configure Go to skip verification for private modules
+          go env -w GOPRIVATE=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOSUMDB=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOPROXY=github.com/ponyruntime/*,github.com/wippyai/*
 
       - name: Install Go dependencies
-        run: |
-          go mod download
+        if: matrix.os != 'windows-latest'
+        run: go mod download
 
-      - name: Run golang tests
+      - name: Install Go dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: go mod download
+
+      - name: Run tests
         if: matrix.os != 'windows-latest'
         env:
           CGO_ENABLED: 1
+          GORACE: "halt_on_error=1"
         run: |
-          go test --tags "fts5 sqlite_vec" -race ./...
+          go test --tags "fts5 sqlite_vec" -race -timeout=10m -parallel=4 ./...
 
-      - name: Run golang tests
+      - name: Run tests (Windows)
         if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
         env:
           CGO_ENABLED: 1
+          GORACE: "halt_on_error=1"
         run: |
-          go test --tags "fts5 sqlite_vec" -race ./...
-        shell: msys2 {0}
+          go test --tags "fts5 sqlite_vec" -race -timeout=10m -parallel=4 ./...

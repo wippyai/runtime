@@ -26,7 +26,7 @@ func (r *EntryLoader) LoadManifest(_ context.Context) (*Manifest, error) {
 	// Find all dependency.component entries
 	var entries []regapi.Entry
 	for _, entry := range r.entries {
-		if entry.Kind == regapi.KindDependencyComponent {
+		if entry.Kind == regapi.KindNamespaceDependency {
 			entries = append(entries, entry)
 		}
 	}

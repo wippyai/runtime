@@ -47,20 +47,22 @@ func (i *TimeoutInterceptor) Handle(ctx context.Context, next func(context.Conte
 	// Wait for either the timeout or the result
 	select {
 	case <-timeoutCtx.Done():
-		if timeoutCtx.Err() == context.DeadlineExceeded {
-			// Check if the original context is also done
-			select {
-			case <-ctx.Done():
-				return &runtime.Result{Error: ctx.Err()}, ctx
-			default:
+		// Check if the original context is also done
+		select {
+		case <-ctx.Done():
+			return &runtime.Result{Error: ctx.Err()}, ctx
+		default:
+			// Only timeout if it's the timeout context that expired
+			if timeoutCtx.Err() == context.DeadlineExceeded {
 				cancelFunc := apiinterceptor.GetCancelFromContext(ctx)
-				cancelFunc()
+				if cancelFunc != nil {
+					cancelFunc()
+				}
 
 				return &runtime.Result{Error: fmt.Errorf("operation timed out after %dms", time.Duration(timeout)/time.Millisecond)}, ctx
 			}
+			return &runtime.Result{Error: timeoutCtx.Err()}, ctx
 		}
-
-		return &runtime.Result{Error: timeoutCtx.Err()}, ctx
 	case result := <-resultChan:
 		newCtx := <-contextChan
 		return result, newCtx
