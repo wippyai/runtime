@@ -122,17 +122,21 @@ func setupTestDB(t *testing.T) *sql.DB {
 
 // setupSQLStoreTable creates the table required by SQLStore
 func setupSQLStoreTable(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig) {
+	ctx := t.Context()
+
 	createTable := `CREATE TABLE IF NOT EXISTS ` + config.TableName + ` (
 		` + config.IDColumnName + ` TEXT PRIMARY KEY,
 		` + config.PayloadColumnName + ` BLOB NOT NULL,
 		` + config.ExpireColumnName + ` TIMESTAMP NULL
 	)`
-	_, err := db.Exec(createTable)
+	_, err := db.ExecContext(ctx, createTable)
 	require.NoError(t, err)
 }
 
 // insertTestData inserts test key-value pairs into the database
 func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig, key string, value []byte, expire *time.Time) {
+	ctx := t.Context()
+
 	var expireVal interface{}
 	if expire != nil {
 		expireVal = expire.UTC()
@@ -140,13 +144,13 @@ func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig, key st
 		expireVal = nil
 	}
 
-	//nolint:gosec // FIXME variables should be verified at the config.Validate() step
+	//nolint:gosec // it's test
 	query := `INSERT INTO ` + config.TableName + ` (` +
 		config.IDColumnName + `, ` +
 		config.PayloadColumnName + `, ` +
 		config.ExpireColumnName + `) VALUES (?, ?, ?)`
 
-	_, err := db.Exec(query, key, value, expireVal)
+	_, err := db.ExecContext(ctx, query, key, value, expireVal)
 	require.NoError(t, err)
 }
 
@@ -316,6 +320,7 @@ func TestSQLStore_Get_ExpiredKey(t *testing.T) {
 	// Create store
 	logger := zap.NewNop()
 	ss := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+	ss.cleanup(ctx)
 
 	// Test Get with expired key
 	result, err := ss.Get(ctx, testKey)

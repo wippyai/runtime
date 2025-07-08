@@ -182,7 +182,7 @@ func TestUnitOfWork_AddCleanupWithError(t *testing.T) {
 
 	// Close should return the error, and should not panic
 	err := uw.Close()
-	if err != cleanupErr {
+	if !errors.Is(err, cleanupErr) {
 		t.Errorf("expected cleanup error, got %v", err)
 	}
 	// Do not call uw.Close() again or access state after close
@@ -269,13 +269,13 @@ func TestUnitOfWork_Terminate(t *testing.T) {
 		t.Errorf("expected no error from Terminate, got %v", err)
 	}
 
-	// Test that context is cancelled - check the original context, not the UnitOfWork context
+	// Test that context is canceled - check the original context, not the UnitOfWork context
 	// since the UnitOfWork context is reset after termination
 	select {
 	case <-ctx.Done():
 		// Expected
 	default:
-		t.Errorf("expected context to be cancelled")
+		t.Errorf("expected context to be canceled")
 	}
 }
 
@@ -292,13 +292,13 @@ func TestUnitOfWork_Close(t *testing.T) {
 		t.Errorf("expected no error from Close, got %v", err)
 	}
 
-	// Test that context is cancelled - check the original context, not the UnitOfWork context
+	// Test that context is canceled - check the original context, not the UnitOfWork context
 	// since the UnitOfWork context is reset after close
 	select {
 	case <-ctx.Done():
 		// Expected
 	default:
-		t.Errorf("expected context to be cancelled")
+		t.Errorf("expected context to be canceled")
 	}
 }
 

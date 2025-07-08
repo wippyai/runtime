@@ -503,9 +503,32 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 
 		wg.Wait()
 		// Verify final state is consistent
+		// Since we have equal numbers of Link and Unlink operations,
+		// the final state is indeterminate, but we can verify data structure integrity
 		links1 := topo.GetLinks(pid1)
 		links2 := topo.GetLinks(pid2)
-		assert.Equal(t, len(links1), len(links2), "links should be bidirectional")
+
+		// Check if the processes are linked bidirectionally
+		// If pid1 has pid2 in its links, then pid2 should have pid1 in its links
+		pid1HasPid2 := false
+		for _, link := range links1 {
+			if link.String() == pid2.String() {
+				pid1HasPid2 = true
+				break
+			}
+		}
+
+		pid2HasPid1 := false
+		for _, link := range links2 {
+			if link.String() == pid1.String() {
+				pid2HasPid1 = true
+				break
+			}
+		}
+
+		// The links should be consistent - either both processes are linked to each other
+		// or neither is linked to the other
+		assert.Equal(t, pid1HasPid2, pid2HasPid1, "links should be bidirectional - if pid1 links to pid2, pid2 should link to pid1")
 	})
 
 	t.Run("concurrent wait and release", func(t *testing.T) {
@@ -552,14 +575,34 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 		// Add a small delay to ensure all operations are processed
 		time.Sleep(100 * time.Millisecond)
 
-		// Verify final state by checking if pid2 is still monitoring pid1
+		// Verify that the final state is consistent
+		// Since we have equal numbers of Wait and Release operations,
+		// the final state is indeterminate, but we can verify the data structure integrity
 		value, ok := topo.monitors.Load(pid1.String())
-		if !ok {
-			return // No monitors, which is a valid final state
+		if ok {
+			watchers := value.(*sync.Map)
+			// Count how many watchers exist for pid1
+			watcherCount := 0
+			watchers.Range(func(_, _ interface{}) bool {
+				watcherCount++
+				return true
+			})
+
+			// Check if pid2 is monitoring pid1
+			_, stillMonitoring := watchers.Load(pid2.String())
+
+			// The final state should be consistent - either pid2 is monitoring pid1
+			// (in which case there should be exactly 1 watcher) or it's not
+			// (in which case there should be 0 watchers or pid2 should not be in the watchers)
+			if stillMonitoring {
+				assert.Equal(t, 1, watcherCount, "if pid2 is monitoring pid1, there should be exactly 1 watcher")
+			} else {
+				assert.Equal(t, 0, watcherCount, "if pid2 is not monitoring pid1, there should be no watchers")
+			}
+		} else {
+			// No monitors for pid1, which is a valid final state
+			// This means all Release operations completed after all Wait operations
 		}
-		watchers := value.(*sync.Map)
-		_, stillMonitoring := watchers.Load(pid2.String())
-		assert.False(t, stillMonitoring, "pid2 should not be monitoring pid1 after concurrent operations")
 	})
 }
 

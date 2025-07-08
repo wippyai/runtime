@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -76,7 +77,8 @@ func TestPublish(t *testing.T) {
 	}
 
 	// Process scheduled functions
-	uw.Tasks().Wait(ctx, false)
+	_, err = uw.Tasks().Wait(ctx, false)
+	require.NoError(t, err)
 
 	// Check that message was queued
 	length, err := QueueLength(ctx)
@@ -87,12 +89,12 @@ func TestPublish(t *testing.T) {
 		t.Errorf("expected queue length 1, got %d", length)
 	}
 
-	// Test publishing with cancelled context
+	// Test publishing with canceled context
 	cancelledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err = Publish(cancelledCtx, topic, values...)
 	if err == nil {
-		t.Error("expected error from Publish with cancelled context")
+		t.Error("expected error from Publish with canceled context")
 	}
 
 	// Test publishing without UnitOfWork
@@ -117,7 +119,8 @@ func TestRelease(t *testing.T) {
 	}
 
 	// Process scheduled functions
-	uw.Tasks().Wait(ctx, false)
+	_, err = uw.Tasks().Wait(ctx, false)
+	require.NoError(t, err)
 
 	// Check that unsubscription was queued
 	length, err := QueueLength(ctx)
@@ -182,19 +185,15 @@ func TestExists(t *testing.T) {
 		t.Error("expected topic to not exist")
 	}
 
-	// Test exists with cancelled context
+	// Test exists with canceled context
 	cancelledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
-	exists, err = Exists(cancelledCtx, topic)
-	if err == nil {
-		t.Error("expected error from Exists with cancelled context")
-	}
+	_, err = Exists(cancelledCtx, topic)
+	require.Error(t, err)
 
 	// Test exists without UnitOfWork
-	exists, err = Exists(context.Background(), topic)
-	if err == nil {
-		t.Error("expected error from Exists without UnitOfWork")
-	}
+	_, err = Exists(context.Background(), topic)
+	require.Error(t, err)
 }
 
 func TestQueueLength(t *testing.T) {
@@ -225,7 +224,8 @@ func TestQueueLength(t *testing.T) {
 	}
 
 	// Process scheduled functions
-	uw.Tasks().Wait(ctx, false)
+	_, err = uw.Tasks().Wait(ctx, false)
+	require.NoError(t, err)
 
 	length, err = QueueLength(ctx)
 	if err != nil {
@@ -282,7 +282,8 @@ func TestLayerContextOperations(t *testing.T) {
 	}
 
 	// Process scheduled functions
-	uw.Tasks().Wait(ctx, false)
+	_, err = uw.Tasks().Wait(ctx, false)
+	require.NoError(t, err)
 
 	if lCtx.messageQueue.Len() != 1 {
 		t.Errorf("expected queue length 1, got %d", lCtx.messageQueue.Len())
@@ -295,7 +296,8 @@ func TestLayerContextOperations(t *testing.T) {
 	}
 
 	// Process scheduled functions
-	uw.Tasks().Wait(ctx, false)
+	_, err = uw.Tasks().Wait(ctx, false)
+	require.NoError(t, err)
 
 	if lCtx.messageQueue.Len() != 2 {
 		t.Errorf("expected queue length 2, got %d", lCtx.messageQueue.Len())

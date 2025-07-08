@@ -638,7 +638,7 @@ func TestService_ResourceAcquisitionEdgeCases(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	// Test acquiring with cancelled context
+	// Test acquiring with canceled context
 	cancelledCtx, cancel := context.WithCancel(ctx)
 	cancel()
 	_, err = service.Acquire(cancelledCtx, id, resource.ModeNormal)

@@ -46,6 +46,19 @@ entries:
       resources: "demo.security:secure.endpoint"
       effect: "allow"
 
+  - name: otel_policy
+    kind: security.policy
+    meta:
+      comment: "OpenTelemetry access policy"
+    groups: [ "global:user" ]
+    policy:
+      actions: 
+        - "otel.attribute"
+        - "otel.event"
+        - "otel.status"
+      resources: "*"
+      effect: "allow"
+
   - name: auth.tokens
     kind: security.token_store
     meta:

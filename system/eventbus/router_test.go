@@ -582,7 +582,7 @@ func TestRouterPatternMatching(t *testing.T) {
 }
 
 //
-//func TestRouterHandlerRemoval(t *testing.T) {
+// func TestRouterHandlerRemoval(t *testing.T) {
 //	bus := NewBus()
 //	defer bus.Stop()
 //

@@ -8,6 +8,7 @@ import (
 
 	"github.com/yuin/gopher-lua/parse"
 
+	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -17,20 +18,14 @@ func TestVM_Basic(t *testing.T) {
 
 	t.Run("create new VM", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if vm == nil {
-			t.Fatal("expected non-nil VM")
-		}
+		require.NoError(t, err)
+		require.NotNil(t, vm)
 		defer vm.Close()
 	})
 
 	t.Run("compile and execute simple function", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		defer vm.Close()
 
 		script := `
@@ -1345,7 +1340,7 @@ func TestVM_Context_Cancellation(t *testing.T) {
 
 	_, err = vm.Execute(ctx, "test")
 	if err == nil {
-		t.Error("expected error from cancelled context")
+		t.Error("expected error from canceled context")
 	}
 }
 
@@ -1389,7 +1384,8 @@ func TestVM_ErrorHandling(t *testing.T) {
 			return 0
 		})
 		vm.state.Push(fn)
-		vm.exportFunctions("test")
+		err = vm.exportFunctions("test")
+		require.NoError(t, err)
 
 		_, err = vm.Execute(context.Background(), "test")
 		if err == nil {

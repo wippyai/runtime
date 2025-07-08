@@ -2,9 +2,11 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -34,7 +36,7 @@ func TestNewUpdate(t *testing.T) {
 	if len(update.Result) != 1 || update.Result[0].String() != "test" {
 		t.Errorf("expected result to match, got %v", update.Result)
 	}
-	if update.Error != err {
+	if !errors.Is(update.Error, err) {
 		t.Errorf("expected error to match, got %v", update.Error)
 	}
 }
@@ -232,7 +234,9 @@ func TestUnitOfWorkInterface(t *testing.T) {
 	})
 
 	// Give the goroutine time to run
-	uw.Tasks().Wait(ctx, false)
+	_, err := uw.Tasks().Wait(ctx, false)
+	require.NoError(t, err)
+
 	wg.Wait()
 	if !runCalled {
 		t.Errorf("expected Run function to be called")

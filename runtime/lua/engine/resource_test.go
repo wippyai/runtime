@@ -238,7 +238,7 @@ func TestResourceManager_CloseMultipleTimes(t *testing.T) {
 
 	// Close second time should return same error
 	err2 := manager.Close()
-	if err2 != err1 {
+	if !errors.Is(err2, err1) {
 		t.Errorf("expected same error from second Close")
 	}
 }
@@ -268,7 +268,7 @@ func TestResourceManager_ConcurrentClose(t *testing.T) {
 
 	// All should return the same result
 	for i := 1; i < len(results); i++ {
-		if results[i] != results[0] {
+		if !errors.Is(results[i], results[0]) {
 			t.Errorf("expected all Close calls to return same result")
 		}
 	}
@@ -289,7 +289,7 @@ func TestResourceManager_SetTerminationError(t *testing.T) {
 
 	// Close should return either the termination error or the cleanup error, depending on which is set first
 	err := manager.Close()
-	if err != terminationErr && err != cleanupErr {
+	if !errors.Is(err, terminationErr) && !errors.Is(err, cleanupErr) {
 		t.Errorf("expected termination error or cleanup error, got %v", err)
 	}
 }
