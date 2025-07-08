@@ -66,21 +66,6 @@ func (vc *ValidatedConfig) Validate() error {
 	return nil
 }
 
-// mockEventBus implements event.Bus for testing
-// type mockEventBus struct{}
-//
-// func (m *mockEventBus) Send(ctx context.Context, evt event.Event) error {
-//	return nil
-//}
-//
-// func (m *mockEventBus) Subscribe(_ eventbus.Pattern, handler eventbus.EventHandler) error {
-//	return nil
-//}
-//
-// func (m *mockEventBus) Unsubscribe(_ eventbus.Pattern, handler eventbus.EventHandler) error {
-//	return nil
-//}
-
 func TestNewHandler(t *testing.T) {
 	entityHandler := &mockEntityHandler{}
 	kinds := registry.Kind("test")
