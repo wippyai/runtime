@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"go.uber.org/zap"
 
@@ -18,6 +19,7 @@ type reg struct {
 	state          registry.State
 	mu             sync.RWMutex
 	currentVersion registry.Version
+	versionNum     atomic.Uint64
 	log            *zap.Logger
 }
 
@@ -64,14 +66,14 @@ func (r *reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	newVersion := version.FromParent(r.currentVersion, nextVersionID(r.currentVersion))
+	newVersion := version.FromParent(r.currentVersion, r.nextVersionID(r.currentVersion))
 
 	newState, err := r.runner.Transition(ctx, r.state, changes)
 	if err != nil {
-		r.log.Error("failed to apply changes", zap.Error(err))
+		r.log.Error("transition runner to new state", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				return nil, fmt.Errorf("failed to apply changes: %w, failed to rollback: %w", err, rerr)
+				return nil, fmt.Errorf("rollback changes: %w: %w", err, rerr)
 			}
 		}
 
@@ -100,6 +102,10 @@ func (r *reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if r.currentVersion.ID() == v.ID() {
+		return nil
+	}
+
 	target, err := r.builder.BuildState(r.history, v)
 	if err != nil {
 		return fmt.Errorf("failed build state of version %s: %w", v, err)
@@ -120,6 +126,7 @@ func (r *reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 
 	r.state = newState
 	r.currentVersion = v
+	r.versionNum.Store(uint64(v.ID()))
 
 	return nil
 }
@@ -170,9 +177,9 @@ func (r *reg) History() registry.History {
 
 // --- Helper Functions ---
 
-func nextVersionID(head registry.Version) uint {
+func (r *reg) nextVersionID(head registry.Version) uint {
 	if head == nil {
-		return 1
+		return 0
 	}
-	return head.ID() + 1
+	return uint(r.versionNum.Add(1))
 }

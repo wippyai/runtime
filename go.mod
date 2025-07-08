@@ -4,6 +4,7 @@ go 1.24.4
 
 require (
 	connectrpc.com/connect v1.18.1
+	git.spiralscout.com/estimation-engine/cloudsync v0.0.0-20250707134738-d494cea8d5d7
 	github.com/CloudyKit/jet/v6 v6.3.1
 	github.com/Masterminds/semver/v3 v3.2.1
 	github.com/Masterminds/squirrel v1.5.4
@@ -42,6 +43,7 @@ require (
 	github.com/tree-sitter/tree-sitter-php v0.23.11
 	github.com/tree-sitter/tree-sitter-python v0.23.6
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
+	github.com/wippyai/cloudhistory-poc v0.0.0-20250620123005-a29209f8d383
 	github.com/wippyai/module-registry-proto-go v0.0.1
 	github.com/xuri/excelize/v2 v2.9.0
 	github.com/yuin/gopher-lua v0.0.0-00010101000000-000000000000
@@ -55,6 +57,7 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.38.0
 	golang.org/x/time v0.5.0
+	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -67,7 +70,7 @@ replace github.com/ponyruntime/go-lua => github.com/wippyai/go-lua v1.2.3
 //replace github.com/yuin/gopher-lua => ../go-lua
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250425153114-8976f5be98c1.1 // indirect
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250625184727-c923a0c2a132.1 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/CloudyKit/fastprinter v0.0.0-20200109182630-33d98a066a53 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
@@ -137,7 +140,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20250519155744-55703ea1f237 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250519155744-55703ea1f237 // indirect
 	google.golang.org/grpc v1.72.1 // indirect
-	google.golang.org/protobuf v1.36.6 // indirect
 )
 
 tool go.uber.org/mock/mockgen

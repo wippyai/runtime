@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"git.spiralscout.com/estimation-engine/cloudsync/proto/gen/wippy/cloudsync/history/v1/historyv1connect"
 	iofs "io/fs"
 	httpbase "net/http"
 	"net/http/pprof"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -145,26 +147,27 @@ import (
 )
 
 type App struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	logger      *zap.Logger
-	logCore     logapi.Core
-	logManager  *logs.Manager
-	eventBus    event.Bus
-	eventRouter *eventbus.EventRouter
-	security    *security.PolicyRegistry
-	services    eventbus.RouterOption
-	dtt         *transcoder.Transcoder
-	reg         regapi.Registry
-	supervisor  *supervisor.Supervisor
-	funcs       *function.Registry
-	processes   *process.Manager
-	prototypes  *process.PrototypeRegistry
-	hosts       *process.HostRegistry
-	fsRegistry  *fs.Registry
-	envRegistry *env.Registry
-	resources   *resource.Registry
-	interceptor *interceptor.Registry
+	ctx           context.Context
+	cancel        context.CancelFunc
+	logger        *zap.Logger
+	logCore       logapi.Core
+	logManager    *logs.Manager
+	eventBus      event.Bus
+	eventRouter   *eventbus.EventRouter
+	security      *security.PolicyRegistry
+	services      eventbus.RouterOption
+	dtt           *transcoder.Transcoder
+	reg           regapi.Registry
+	supervisor    *supervisor.Supervisor
+	funcs         *function.Registry
+	processes     *process.Manager
+	prototypes    *process.PrototypeRegistry
+	hosts         *process.HostRegistry
+	fsRegistry    *fs.Registry
+	envRegistry   *env.Registry
+	resources     *resource.Registry
+	interceptor   *interceptor.Registry
+	remoteHistory *history.RemoteStorage
 
 	// mesh
 	node   *pubsub.NodeManager
@@ -253,9 +256,25 @@ func (a *App) Initialize() error {
 		return fmt.Errorf("failed to start security manager: %w", err)
 	}
 
+	httpClient := &httpbase.Client{}
+	baseURL := "http://localhost:8080"
+	//applicationService := historyv1connect.NewApplicationServiceClient(httpClient, baseURL)
+	//applicationTokenService := historyv1connect.NewApplicationTokenServiceClient(httpClient, baseURL)
+	versionService := historyv1connect.NewVersionServiceClient(httpClient, baseURL)
+
+	APP_ID := "0197e9a6-0785-7140-aed8-745baefb5db0"
+	remoteHistory := history.NewRemoteStorage(
+		history.NewMemory(),
+		versionService,
+		APP_ID,
+		a.logger.Named("remote-history"),
+	)
+
+	a.remoteHistory = remoteHistory
+
 	// Initialize core components
 	a.reg = registry.NewRegistry(
-		history.NewMemory(),
+		remoteHistory,
 		runner.NewBusRunner(a.eventBus, a.logger.Named("runner")),
 		regtop.NewStateBuilder(a.logger),
 		a.logger.Named("registry"),
@@ -434,7 +453,31 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	a.otelCleanup = cleanup
 
 	if _, err := a.reg.Apply(bootCtx, appState); err != nil {
-		return fmt.Errorf("failed to apply initial state: %w", err)
+		return fmt.Errorf("apply initial state: %w", err)
+	}
+
+	var version int
+	cloudVersion := os.Getenv("CLOUDHISTORY_VERSION")
+	if cloudVersion != "" {
+		version, _ = strconv.Atoi(cloudVersion)
+	}
+
+	if err := a.remoteHistory.InitializeFromCloud(bootCtx, version); err != nil {
+		a.logger.Error("initialize registry history from cloud", zap.Error(err))
+		return nil
+	}
+
+	if head, err := a.reg.History().Head(); err == nil && head.ID() != 0 {
+		a.logger.Info("head version available in history, apply found version", zap.String("version", head.String()))
+		if err := a.reg.ApplyVersion(bootCtx, head); err != nil {
+			return fmt.Errorf("apply current version: %w", err)
+		}
+	} else {
+		a.logger.Warn("no head version available in history")
+	}
+
+	if os.Getenv("CLOUDHISTORY_SYNC_ENABLED") == "true" {
+		a.remoteHistory.EnableSync()
 	}
 
 	return nil
@@ -572,7 +615,7 @@ func loadDotEnv(logger *zap.Logger, paths ...string) {
 
 func main() {
 	sqlite_vec.Auto()
-	debug.SetMemoryLimit(1 * 1024 * 1024 * 1024) // 3GB
+	debug.SetMemoryLimit(1 * 1024 * 1024 * 1024) // 1GB
 
 	// Parse command line flags
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
@@ -745,6 +788,9 @@ func loadApplicationState(
 	if err := m.Load(ctx); err != nil {
 		mainLogger.Error("load modules from registry", zap.Error(err))
 	} else {
+		if err := os.MkdirAll(moduleloader.VendorFolder, 0755); err != nil {
+			return nil, nil, fmt.Errorf("create modules folder at %s: %w", moduleloader.VendorFolder, err)
+		}
 		vendorDir, err := os.OpenRoot(moduleloader.VendorFolder)
 		if err != nil {
 			return nil, nil, fmt.Errorf("open vendor folder: %w", err)
