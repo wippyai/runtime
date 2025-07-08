@@ -21,6 +21,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/itchyny/gojq v0.12.17
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.10.9
 	github.com/lrstanley/bubblezone v0.0.0-20250110055121-b45205ce63e2
@@ -59,7 +60,9 @@ require (
 
 // replace github.com/ponyruntime/tree-sitter-sql => ../tree-sitter-sql
 
-replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v0.0.0-20250409012022-15ae569d11fd
+replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v1.2.3
+
+replace github.com/ponyruntime/go-lua => github.com/wippyai/go-lua v1.2.3
 
 //replace github.com/yuin/gopher-lua => ../go-lua
 
@@ -95,6 +98,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3 // indirect
+	github.com/itchyny/timefmt-go v0.1.6 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
@@ -107,7 +111,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/ponyruntime/go-lua v1.2.1 // indirect
+	github.com/ponyruntime/go-lua v1.2.3 // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

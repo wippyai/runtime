@@ -108,6 +108,10 @@ github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3 h1:5ZPtiqj0JL5oKWmcsq4VMaAW5uk
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3/go.mod h1:ndYquD05frm2vACXE1nsccT4oJzjhw2arTS2cpUD1PI=
 github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=
 github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
+github.com/itchyny/gojq v0.12.17 h1:8av8eGduDb5+rvEdaOO+zQUjA04MS0m3Ps8HiD+fceg=
+github.com/itchyny/gojq v0.12.17/go.mod h1:WBrEMkgAfAGO1LUcGOckBl5O726KPp+OlkKug0I/FEY=
+github.com/itchyny/timefmt-go v0.1.6 h1:ia3s54iciXDdzWzwaVKXZPbiXzxxnv1SPGFfM/myJ5Q=
+github.com/itchyny/timefmt-go v0.1.6/go.mod h1:RRDZYC5s9ErkjQvTvvU7keJjxUYzIISJGxm9/mAERQg=
 github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
 github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
@@ -155,10 +159,8 @@ github.com/pkoukk/tiktoken-go v0.1.6 h1:JF0TlJzhTbrI30wCvFuiw6FzP2+/bR+FIxUdgEAc
 github.com/pkoukk/tiktoken-go v0.1.6/go.mod h1:9NiV+i9mJKGj1rYOT+njbv+ZwA/zJxYdewGl6qVatpg=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/ponyruntime/go-lua v0.0.0-20250409012022-15ae569d11fd h1:rTAj2lYvlxI1/0n1rPHCqzwRcvYaFWDyvbVc5y0UaL4=
-github.com/ponyruntime/go-lua v0.0.0-20250409012022-15ae569d11fd/go.mod h1:MACtdm8bgMnTf8fdsbl5r+z2FJ3mA0A1mFQaVnQZ0xQ=
-github.com/ponyruntime/go-lua v1.2.1 h1:lVg1QB/43mIRaXiKbSRGIlTBHDPZBG08dZ7RGjXt9BY=
-github.com/ponyruntime/go-lua v1.2.1/go.mod h1:MACtdm8bgMnTf8fdsbl5r+z2FJ3mA0A1mFQaVnQZ0xQ=
+github.com/ponyruntime/go-lua v1.2.3 h1:e3fYBZ4MHA3fvYE7pcQRphyC93j96bX9O2gv/QRNz/E=
+github.com/ponyruntime/go-lua v1.2.3/go.mod h1:MACtdm8bgMnTf8fdsbl5r+z2FJ3mA0A1mFQaVnQZ0xQ=
 github.com/ponyruntime/tree-sitter-markdown v0.0.2 h1:BrPbu2nTYo75E6POp/mu4ijfwwjYfxGMf8gWBedsKM0=
 github.com/ponyruntime/tree-sitter-markdown v0.0.2/go.mod h1:Eg28LbIWoosBFNXTxws0WZMsXx/rAjN/g1dgHmq7CDI=
 github.com/ponyruntime/tree-sitter-sql v0.0.3 h1:2YO2JIs5OxSjo42lDwuxWdX/yeOwhTVcio+3EmdZhbA=
@@ -218,6 +220,8 @@ github.com/tree-sitter/tree-sitter-rust v0.21.3-0.20240818005432-2b43eafe6447 h1
 github.com/tree-sitter/tree-sitter-rust v0.21.3-0.20240818005432-2b43eafe6447/go.mod h1:1Oh95COkkTn6Ezp0vcMbvfhRP5gLeqqljR0BYnBzWvc=
 github.com/tree-sitter/tree-sitter-typescript v0.23.2 h1:/Odvphn18PniVixb9e97X0DbNVsU6Qocv9mfkyzdXwU=
 github.com/tree-sitter/tree-sitter-typescript v0.23.2/go.mod h1:zjzMXT/Ulffel2xfOcAkQQkiAkmgnbtPGlFQw/5X4xA=
+github.com/wippyai/go-lua v1.2.3 h1:rINbnxFGbOrhIFRl15heBDl58RZSwWlkg3h8OKSU99k=
+github.com/wippyai/go-lua v1.2.3/go.mod h1:MACtdm8bgMnTf8fdsbl5r+z2FJ3mA0A1mFQaVnQZ0xQ=
 github.com/wippyai/module-registry-proto-go v0.0.1 h1:EYnW8MTrI/gs7TJ0ilTVgJal3e0NWmXQigeamrXu0mk=
 github.com/wippyai/module-registry-proto-go v0.0.1/go.mod h1:p4ihYQKRQuqRVLxaH1YL0IEnkz4zKdyfVADOwvA5Tno=
 github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d h1:llb0neMWDQe87IzJLS4Ci7psK/lVsjIS2otl+1WyRyY=

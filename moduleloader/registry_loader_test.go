@@ -23,7 +23,7 @@ func TestEntryLoader_LoadManifest(t *testing.T) {
 			name: "single valid dependency",
 			entries: []regapi.Entry{
 				{
-					Kind: regapi.KindDependencyComponent,
+					Kind: regapi.KindNamespaceDependency,
 					ID:   regapi.ID{Name: "test-component"},
 					Data: payload.NewPayload(map[string]any{
 						"component": "myapp/test",
@@ -43,7 +43,7 @@ func TestEntryLoader_LoadManifest(t *testing.T) {
 			name: "multiple valid dependencies",
 			entries: []regapi.Entry{
 				{
-					Kind: regapi.KindDependencyComponent,
+					Kind: regapi.KindNamespaceDependency,
 					ID:   regapi.ID{Name: "component1"},
 					Data: payload.NewPayload(map[string]any{
 						"component": "myorg/app1",
@@ -51,7 +51,7 @@ func TestEntryLoader_LoadManifest(t *testing.T) {
 					}, payload.Golang),
 				},
 				{
-					Kind: regapi.KindDependencyComponent,
+					Kind: regapi.KindNamespaceDependency,
 					ID:   regapi.ID{Name: "component2"},
 					Data: payload.NewPayload(map[string]any{
 						"component": "myorg/app2",
@@ -75,7 +75,7 @@ func TestEntryLoader_LoadManifest(t *testing.T) {
 			name: "mixed entries with non-dependency components",
 			entries: []regapi.Entry{
 				{
-					Kind: regapi.KindDependencyComponent,
+					Kind: regapi.KindNamespaceDependency,
 					ID:   regapi.ID{Name: "component1"},
 					Data: payload.NewPayload(map[string]any{
 						"component": "validorg/validapp",

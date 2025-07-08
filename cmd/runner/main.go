@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ponyruntime/pony/requirementresolver"
+
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
@@ -753,6 +755,12 @@ func loadApplicationState(
 			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}
 		entries = append(entries, dependencyEntries...)
+	}
+
+	resolver := requirementresolver.NewResolver(mainLogger.Named("requirement-resolver"))
+	err = resolver.ResolveModuleDefinitions(entries)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)

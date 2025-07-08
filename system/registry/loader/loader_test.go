@@ -221,3 +221,64 @@ invalid: content
 		})
 	}
 }
+
+// equalMetadata compares metadata contents while being lenient with numeric types
+func equalMetadata(got, want registry.Metadata) bool {
+	if len(got) != len(want) {
+		return false
+	}
+
+	for k, wantV := range want {
+		gotV, exists := got[k]
+		if !exists {
+			return false
+		}
+
+		// Handle slices specially
+		if wantSlice, ok := wantV.([]interface{}); ok {
+			gotSlice, ok := gotV.([]interface{})
+			if !ok || len(gotSlice) != len(wantSlice) {
+				return false
+			}
+			// Compare slice elements
+			for i := range wantSlice {
+				if !equalValue(gotSlice[i], wantSlice[i]) {
+					return false
+				}
+			}
+			continue
+		}
+
+		// For non-slice values
+		if !equalValue(gotV, wantV) {
+			return false
+		}
+	}
+	return true
+}
+
+// equalValue compares values while being lenient with numeric types
+func equalValue(got, want interface{}) bool {
+	// If they're directly equal, no need for special handling
+	if reflect.DeepEqual(got, want) {
+		return true
+	}
+
+	// Handle numeric comparisons
+	switch w := want.(type) {
+	case int:
+		if g, ok := got.(float64); ok {
+			return float64(w) == g
+		}
+	case float64:
+		if g, ok := got.(int); ok {
+			return w == float64(g)
+		}
+	case map[string]interface{}:
+		if g, ok := got.(map[string]interface{}); ok {
+			return equalMetadata(registry.Metadata(g), registry.Metadata(w))
+		}
+	}
+
+	return false
+}
