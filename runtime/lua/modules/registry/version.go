@@ -26,7 +26,7 @@ func versionID(l *lua.LState) int {
 	}
 
 	// Simple accessor, no coroutine needed
-	l.Push(lua.LNumber(version.ID()))
+	l.Push(lua.LString(version.ID()))
 	return 1
 }
 

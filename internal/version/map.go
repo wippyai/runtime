@@ -28,7 +28,7 @@ type (
 		Add(v registry.Version) error
 
 		// Range iterates over the versions.
-		Range(f func(id uint, v registry.Version) bool)
+		Range(f func(id string, v registry.Version) bool)
 	}
 )
 
@@ -98,7 +98,7 @@ func (vm *versionHistory) Len() int {
 	return len(vm.versions)
 }
 
-func (vm *versionHistory) Range(f func(uint, registry.Version) bool) {
+func (vm *versionHistory) Range(f func(string, registry.Version) bool) {
 	// Collect versions into a slice for sorting
 	versions := make([]registry.Version, 0, len(vm.versions))
 	for _, v := range vm.versions {

@@ -9,8 +9,8 @@ import (
 
 // MemoryStorage is an in-memory implementation of the registry.History interface.
 type MemoryStorage struct {
-	versions map[uint]registry.Version
-	actions  map[uint]registry.ChangeSet
+	versions map[string]registry.Version
+	actions  map[string]registry.ChangeSet
 	head     registry.Version
 	mutex    sync.RWMutex
 }
@@ -18,8 +18,8 @@ type MemoryStorage struct {
 // NewMemory creates a new MemoryStorage.
 func NewMemory() *MemoryStorage {
 	return &MemoryStorage{
-		versions: map[uint]registry.Version{},
-		actions:  make(map[uint]registry.ChangeSet),
+		versions: make(map[string]registry.Version),
+		actions:  make(map[string]registry.ChangeSet),
 	}
 }
 
@@ -76,4 +76,13 @@ func (m *MemoryStorage) Head() (registry.Version, error) {
 	}
 
 	return m.head, nil
+}
+
+// SetHead sets given version as a head.
+func (m *MemoryStorage) SetHead(v registry.Version) error {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	m.head = v
+	return nil
 }

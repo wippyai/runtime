@@ -62,12 +62,12 @@ func historyGetVersion(l *lua.LState) int {
 	}
 
 	// Get version ID - parameter check
-	vID := l.CheckNumber(2)
-	if vID <= 0 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid version ID"))
-		return 2
-	}
+	vID := l.CheckString(2)
+	//if vID <= 0 {
+	//	l.Push(lua.LNil)
+	//	l.Push(lua.LString("invalid version ID"))
+	//	return 2
+	//}
 
 	// Get versions from history
 	versions, err := history.hist.Versions()
@@ -80,7 +80,7 @@ func historyGetVersion(l *lua.LState) int {
 	// Find the requested version
 	var foundVersion regapi.Version
 	for _, ver := range versions {
-		if ver.ID() == uint(vID) {
+		if ver.ID() == vID {
 			foundVersion = ver
 			break
 		}

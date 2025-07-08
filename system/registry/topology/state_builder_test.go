@@ -691,7 +691,7 @@ func TestBuildState_UnreachableVersion(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unreachable version")
 	}
-	if !strings.Contains(err.Error(), "failed to get path") {
+	if !strings.Contains(err.Error(), "get path from root to version") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }

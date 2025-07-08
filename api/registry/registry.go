@@ -76,7 +76,7 @@ type (
 	// Version represents a specific version of the registry's state
 	Version interface {
 		// ID returns the unique identifier of the version
-		ID() uint
+		ID() string
 		// Previous returns the previous Version, or nil if this is the root version
 		Previous() Version
 		// String returns a string representation of the version
@@ -152,6 +152,8 @@ type (
 		Save(v Version, cs ChangeSet, head bool) error
 		// Head returns the current head version of the history
 		Head() (Version, error)
+		// SetHead sets given version as a head
+		SetHead(Version) error
 	}
 
 	// Runner defines how ChangeSets are applied to a State to produce a new State

@@ -6,8 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"net/http/pprof"
+	"strconv"
 
-	"github.com/ponyruntime/pony/cloudhistory/client"
+	"github.com/wippyai/cloudhistory-poc/client"
 
 	"github.com/ponyruntime/pony/runtime/lua/modules/text"
 
@@ -138,6 +139,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+var withSync bool
+
 type App struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -232,27 +235,32 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 	return app, nil
 }
 
+var (
+	historyClient *client.HTTPCloudHistoryClient
+	remoteHistory *history.RemoteStorage
+)
+
 func (a *App) Initialize() error {
 	// LaunchProcess log manager first for proper logging
 	if err := a.logManager.Start(a.ctx); err != nil {
-		return fmt.Errorf("failed to start log manager: %w", err)
+		return fmt.Errorf("start log manager: %w", err)
 	}
 
 	a.security = security.NewPolicyRegistry(a.eventBus, a.logger.Named("security"))
 	if err := a.security.Start(a.ctx); err != nil {
-		return fmt.Errorf("failed to start security manager: %w", err)
+		return fmt.Errorf("start security manager: %w", err)
 	}
 
-	historyClient := client.NewHTTPCloudHistoryClient("http://localhost:9333")
-	remoteHistory := history.NewRemoteStorage(
+	historyClient = client.NewHTTPCloudHistoryClient(os.Getenv("CLOUDHISTORY_URL"))
+	remoteHistory = history.NewRemoteStorage(
 		history.NewMemory(),
 		historyClient,
-		"wippy-default",
+		os.Getenv("WIPPY_APP_ID"),
 		a.logger.Named("history"),
 	)
-	if err := remoteHistory.InitializeFromCloud(context.Background()); err != nil {
-		return fmt.Errorf("init history from cloud: %w", err)
-	}
+	//if err := remoteHistory.InitializeFromCloud(context.Background()); err != nil {
+	//	return fmt.Errorf("init history from cloud: %w", err)
+	//}
 
 	// Initialize core components
 	a.reg = registry.NewRegistry(
@@ -400,16 +408,6 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	bootCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
-	if head, err := a.reg.History().Head(); err == nil {
-		a.logger.Info("head version available in history, apply found version", zap.String("version", head.String()))
-		if err := a.reg.ApplyVersion(bootCtx, head); err != nil {
-			return fmt.Errorf("apply current version: %w", err)
-		}
-		return nil
-	}
-
-	a.logger.Warn("no head version available in history, load application state from the filesystem")
-
 	// Load and apply initial state
 	appState, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger)
 	if err != nil {
@@ -418,7 +416,30 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	}
 
 	if _, err := a.reg.Apply(bootCtx, appState); err != nil {
-		return fmt.Errorf("failed to apply initial state: %w", err)
+		return fmt.Errorf("apply initial state: %w", err)
+	}
+
+	var version int
+	cloudVersion := os.Getenv("CLOUDHISTORY_VERSION")
+	if cloudVersion != "" {
+		version, _ = strconv.Atoi(cloudVersion)
+	}
+	if err := remoteHistory.InitializeFromCloud(bootCtx, version); err != nil {
+		a.logger.Error("initialize registry history from cloud", zap.Error(err))
+		return nil
+	}
+
+	if head, err := a.reg.History().Head(); err == nil {
+		a.logger.Info("head version available in history, apply found version", zap.String("version", head.String()))
+		if err := a.reg.ApplyVersion(bootCtx, head); err != nil {
+			return fmt.Errorf("apply current version: %w", err)
+		}
+	} else {
+		a.logger.Warn("no head version available in history")
+	}
+
+	if os.Getenv("CLOUDHISTORY_SYNC_ENABLED") == "true" {
+		remoteHistory.EnableSync()
 	}
 
 	return nil
@@ -703,6 +724,9 @@ func loadApplicationState(
 	if err := m.Load(ctx); err != nil {
 		mainLogger.Error("load modules from registry", zap.Error(err))
 	} else {
+		if err := os.MkdirAll(moduleloader.VendorFolder, 0755); err != nil {
+			return nil, fmt.Errorf("create modules folder at %s: %w", moduleloader.VendorFolder, err)
+		}
 		vendorDir, err := os.OpenRoot(moduleloader.VendorFolder)
 		if err != nil {
 			return nil, fmt.Errorf("open vendor folder: %w", err)

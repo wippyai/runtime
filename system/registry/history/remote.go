@@ -3,7 +3,9 @@ package history
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -12,33 +14,13 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/version"
 	"github.com/ponyruntime/pony/system/payload"
+	"github.com/wippyai/cloudhistory-poc/history"
 )
-
-// VersionOperation represents a single operation within a version
-type VersionOperation struct {
-	Kind          string            `json:"kind"`
-	EntryKind     string            `json:"entry_kind"`
-	Name          string            `json:"name"`
-	Namespace     string            `json:"namespace"`
-	Metadata      map[string]any    `json:"metadata"`
-	Payload       []byte            `json:"payload"`
-	PayloadFormat payloadapi.Format `json:"payload_format"`
-}
-
-// CloudVersion represents a version to be sent to the cloud
-type CloudVersion struct {
-	Version    uint               `json:"version"`
-	Head       bool               `json:"head"`
-	Operations []VersionOperation `json:"operations"`
-}
-
-// CloudHistory represents the full history from cloud
-type CloudHistory []CloudVersion
 
 // CloudHistoryClient defines the interface for remote cloud operations
 type CloudHistoryClient interface {
-	CreateHistoryVersion(ctx context.Context, id string, version *CloudVersion) error
-	GetHistory(ctx context.Context, id string) (CloudHistory, error)
+	CreateHistoryVersion(ctx context.Context, id string, version *history.CloudVersion) error
+	GetHistory(ctx context.Context, id string) (history.CloudHistory, error)
 }
 
 // toSave represents an item to be queued for remote persistence
@@ -66,6 +48,8 @@ type RemoteStorage struct {
 	// Shutdown management
 	shutdownCh   chan struct{}
 	shutdownOnce sync.Once
+
+	enabled atomic.Bool
 }
 
 // NewRemoteStorage creates a new RemoteStorage instance
@@ -89,7 +73,7 @@ func NewRemoteStorage(inner registry.History, client CloudHistoryClient, appID s
 }
 
 // InitializeFromCloud loads the latest state from cloud
-func (rs *RemoteStorage) InitializeFromCloud(ctx context.Context) error {
+func (rs *RemoteStorage) InitializeFromCloud(ctx context.Context, toVersion int) error {
 	// Get full history from cloud
 	cloudHistory, err := rs.client.GetHistory(ctx, rs.appID)
 	if err != nil {
@@ -101,27 +85,35 @@ func (rs *RemoteStorage) InitializeFromCloud(ctx context.Context) error {
 		return nil
 	}
 
-	// Reconstruct versions in order
-	registryVersions := make([]registry.Version, 0, len(cloudHistory))
-	for i := 0; i < len(cloudHistory); i++ {
-		if i == 0 {
-			ver := version.New(cloudHistory[i].Version)
-			registryVersions = append(registryVersions, ver)
-			continue
-		}
-		ver := version.FromParent(registryVersions[i-1], cloudHistory[i].Version)
-		registryVersions = append(registryVersions, ver)
+	innerVersions, err := rs.inner.Versions()
+	if err != nil {
+		return fmt.Errorf("get inner versions: %w", err)
 	}
 
-	for i, cloudVersion := range cloudHistory {
-		changeSet, err := rs.convertCloudOperationsToChangeSet(cloudVersion.Operations)
+	lastVersion := innerVersions[len(innerVersions)-1]
+	rs.log.Debug("remote history inner version", zap.String("id", lastVersion.ID()))
+
+	if toVersion == 0 {
+		toVersion = len(cloudHistory)
+	}
+
+	// Reconstruct versions in order
+	registryVersions := make([]registry.Version, 0, len(cloudHistory))
+	for i := 0; i < toVersion; i++ {
+		ver := version.FromParent(lastVersion, strconv.Itoa(int(cloudHistory[i].Version)))
+		registryVersions = append(registryVersions, ver)
+		lastVersion = ver
+	}
+
+	for i := range toVersion {
+		changeSet, err := rs.convertCloudOperationsToChangeSet(cloudHistory[i].Operations)
 		if err != nil {
-			return fmt.Errorf("convert cloud operations for version %d: %w", cloudVersion.Version, err)
+			return fmt.Errorf("convert cloud operations for version %d: %w", cloudHistory[i].Version, err)
 		}
 
 		// Save to inner history
-		if err := rs.inner.Save(registryVersions[i], changeSet, cloudVersion.Head); err != nil {
-			return fmt.Errorf("restore version %d to inner history: %w", cloudVersion.Version, err)
+		if err := rs.inner.Save(registryVersions[i], changeSet, cloudHistory[i].Head); err != nil {
+			return fmt.Errorf("restore version %d to inner history: %w", cloudHistory[i].Version, err)
 		}
 	}
 
@@ -143,6 +135,15 @@ func (rs *RemoteStorage) Save(v registry.Version, cs registry.ChangeSet, head bo
 	// Save to inner history first (local persistence)
 	if err := rs.inner.Save(v, cs, head); err != nil {
 		return fmt.Errorf("save history: %w", err)
+	}
+
+	if !rs.enabled.Load() {
+		return nil
+	}
+
+	if v.ID() == "" {
+		rs.log.Info("zero version ignored in remote storage")
+		return nil
 	}
 
 	// Queue for remote persistence
@@ -167,6 +168,21 @@ func (rs *RemoteStorage) Save(v registry.Version, cs registry.ChangeSet, head bo
 // Head returns the current head version from inner history
 func (rs *RemoteStorage) Head() (registry.Version, error) {
 	return rs.inner.Head()
+}
+
+// SetHead sets head version.
+func (rs *RemoteStorage) SetHead(v registry.Version) error {
+	if err := rs.inner.SetHead(v); err != nil {
+		return fmt.Errorf("set head for inner history: %w", err)
+	}
+
+	// TODO: rpc call to set head version
+
+	return nil
+}
+
+func (rs *RemoteStorage) EnableSync() {
+	rs.enabled.Store(true)
 }
 
 // Shutdown gracefully shuts down the remote storage
@@ -226,8 +242,8 @@ func (rs *RemoteStorage) sendHistoryVersion(item toSave) error {
 }
 
 // convertToCloudVersion converts internal types to cloud API format
-func (rs *RemoteStorage) convertToCloudVersion(item toSave) (*CloudVersion, error) {
-	operations := make([]VersionOperation, len(item.changeSet))
+func (rs *RemoteStorage) convertToCloudVersion(item toSave) (*history.CloudVersion, error) {
+	operations := make([]history.VersionOperation, len(item.changeSet))
 
 	for i, op := range item.changeSet {
 		targetFormat := payloadapi.JSON
@@ -240,32 +256,32 @@ func (rs *RemoteStorage) convertToCloudVersion(item toSave) (*CloudVersion, erro
 			return nil, fmt.Errorf("transcoded data is not of type []byte")
 		}
 
-		operations[i] = VersionOperation{
+		operations[i] = history.VersionOperation{
 			Kind:          op.Kind,
 			EntryKind:     op.Entry.Kind,
 			Name:          op.Entry.ID.Name,
 			Namespace:     op.Entry.ID.NS,
 			Metadata:      op.Entry.Meta,
 			Payload:       data,
-			PayloadFormat: op.Entry.Data.Format(),
+			PayloadFormat: string(op.Entry.Data.Format()),
 		}
 	}
 
-	return &CloudVersion{
-		Version:    item.version.ID(),
+	return &history.CloudVersion{
+		//Version:    item.version.ID(),
 		Head:       item.head,
 		Operations: operations,
 	}, nil
 }
 
 // convertCloudOperationsToChangeSet converts cloud operations back to ChangeSet
-func (rs *RemoteStorage) convertCloudOperationsToChangeSet(ops []VersionOperation) (registry.ChangeSet, error) {
+func (rs *RemoteStorage) convertCloudOperationsToChangeSet(ops []history.VersionOperation) (registry.ChangeSet, error) {
 	changeSet := make(registry.ChangeSet, len(ops))
 
 	for i, op := range ops {
 		pld := payloadapi.NewPayload(op.Payload, payloadapi.JSON)
-		if op.PayloadFormat != payloadapi.JSON {
-			transcoded, err := payload.GlobalTranscoder().Transcode(pld, op.PayloadFormat)
+		if payloadapi.Format(op.PayloadFormat) != payloadapi.JSON {
+			transcoded, err := payload.GlobalTranscoder().Transcode(pld, payloadapi.Format(op.PayloadFormat))
 			if err != nil {
 				return nil, fmt.Errorf("transcode cloud payload operation %d: %w", i, err)
 			}

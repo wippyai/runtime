@@ -166,12 +166,12 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 	}
 
 	// Get version ID - this is a simple parameter check, no coroutine needed
-	versionID := l.CheckNumber(1)
-	if versionID <= 0 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid version ID"))
-		return 2
-	}
+	versionID := l.CheckString(1)
+	//if versionID <= 0 {
+	//	l.Push(lua.LNil)
+	//	l.Push(lua.LString("invalid version ID"))
+	//	return 2
+	//}
 
 	// Get history from registry
 	history := reg.History()
@@ -192,7 +192,7 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 	// Find the requested version
 	var foundVersion regapi.Version
 	for _, ver := range versions {
-		if ver.ID() == uint(versionID) {
+		if ver.ID() == versionID {
 			foundVersion = ver
 			break
 		}

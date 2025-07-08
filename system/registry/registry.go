@@ -3,6 +3,8 @@ package registry
 import (
 	"context"
 	"fmt"
+	"github.com/google/uuid"
+	"strings"
 	"sync"
 
 	"go.uber.org/zap"
@@ -100,6 +102,10 @@ func (r *reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if r.currentVersion.ID() == v.ID() {
+		return nil
+	}
+
 	target, err := r.builder.BuildState(r.history, v)
 	if err != nil {
 		return fmt.Errorf("build state of version %s: %w", v, err)
@@ -170,9 +176,11 @@ func (r *reg) History() registry.History {
 
 // --- Helper Functions ---
 
-func nextVersionID(head registry.Version) uint {
+func nextVersionID(head registry.Version) string {
 	if head == nil {
-		return 1
+		return "base"
 	}
-	return head.ID() + 1
+	id := uuid.Must(uuid.NewV7()).String()
+	trimmed := strings.ReplaceAll(id, "-", "")
+	return trimmed
 }
