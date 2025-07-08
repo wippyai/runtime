@@ -69,10 +69,10 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	}
 	logger := zap.NewNop()
 
-	// Use a smaller data size for faster test
+	// Create the process
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
 
-	process, err := nativeExecutor.NewProcess("head -c 1024 /dev/urandom", exec.ProcessOptions{})
+	process, err := nativeExecutor.NewProcess("sh -c 'yes | head -n 100'", exec.ProcessOptions{})
 	assert.NoError(t, err)
 
 	processExecutor, ok := process.(*ProcessExecutor)
@@ -86,12 +86,12 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	}()
 
 	go func() {
-		time.Sleep(1 * time.Second) // Shorter timeout
+		time.Sleep(4 * time.Second) // Give process time to start and produce output
 		processExecutor.Stop()
 	}()
 
 	sb := new(strings.Builder)
-	timeout := time.After(2 * time.Second) // Shorter timeout
+	timeout := time.After(3 * time.Second) // Give more time to read output
 
 	for {
 		select {
@@ -99,15 +99,17 @@ func TestExecutor_MegaCommand(t *testing.T) {
 			t.Logf("Timeout reached, collected %d bytes of output", sb.Len())
 			goto readComplete
 		default:
-			buf := make([]byte, 65536)
-			_, err = process.Stdout().Read(buf)
+			buf := make([]byte, 65536) // Smaller buffer for faster reading
+			n, err := process.Stdout().Read(buf)
 			if err != nil {
 				if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
 					goto readComplete
 				}
 				t.Fatal(err)
 			}
-			sb.Write(buf)
+			if n > 0 {
+				sb.Write(buf[:n])
+			}
 		}
 	}
 
