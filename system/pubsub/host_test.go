@@ -536,6 +536,6 @@ func TestHost_SendNilPackage(t *testing.T) {
 
 	// Try to send nil package - this should panic due to nil pointer dereference
 	assert.Panics(t, func() {
-		host.Send(nil)
+		_ = host.Send(nil)
 	})
 }

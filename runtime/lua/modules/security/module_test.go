@@ -16,64 +16,65 @@ import (
 )
 
 // mockPolicy implements secapi.Policy for testing
-type mockPolicy struct {
-	id       registry.ID
-	allowed  map[string]bool
-	metadata map[string]interface{}
-}
+// type mockPolicy struct {
+//	id       registry.ID
+//	allowed  map[string]bool
+//	metadata map[string]interface{}
+//}
 
-func newMockPolicy(id registry.ID) *mockPolicy {
-	return &mockPolicy{
-		id:       id,
-		allowed:  make(map[string]bool),
-		metadata: make(map[string]interface{}),
-	}
-}
+// func newMockPolicy(id registry.ID) *mockPolicy {
+//	return &mockPolicy{
+//		id:       id,
+//		allowed:  make(map[string]bool),
+//		metadata: make(map[string]interface{}),
+//	}
+//}
+//
+// func (m *mockPolicy) ID() registry.ID {
+//	return m.id
+//}
+//
+// func (m *mockPolicy) Evaluate(actor secapi.Actor, action, resource string, metadata registry.Metadata) secapi.Result {
+//	key := action + ":" + resource
+//	if m.allowed[key] {
+//		return secapi.Allow
+//	}
+//	return secapi.Deny
+//}
+//
+// func (m *mockPolicy) Allow(action, resource string) {
+//	m.allowed[action+":"+resource] = true
+//}
+//
+// func (m *mockPolicy) Metadata() map[string]interface{} {
+//	return m.metadata
+//}
 
-func (m *mockPolicy) ID() registry.ID {
-	return m.id
-}
-
-func (m *mockPolicy) Evaluate(actor secapi.Actor, action, resource string, metadata registry.Metadata) secapi.Result {
-	key := action + ":" + resource
-	if m.allowed[key] {
-		return secapi.Allow
-	}
-	return secapi.Deny
-}
-
-func (m *mockPolicy) Allow(action, resource string) {
-	m.allowed[action+":"+resource] = true
-}
-
-func (m *mockPolicy) Metadata() map[string]interface{} {
-	return m.metadata
-}
-
-// mockPolicyGroup implements secapi.PolicyGroup for testing
-type mockPolicyGroup struct {
-	id       registry.ID
-	policies []secapi.Policy
-}
-
-func newMockPolicyGroup(id registry.ID) *mockPolicyGroup {
-	return &mockPolicyGroup{
-		id:       id,
-		policies: make([]secapi.Policy, 0),
-	}
-}
-
-func (m *mockPolicyGroup) ID() registry.ID {
-	return m.id
-}
-
-func (m *mockPolicyGroup) Policies() []secapi.Policy {
-	return m.policies
-}
-
-func (m *mockPolicyGroup) AddPolicy(policy secapi.Policy) {
-	m.policies = append(m.policies, policy)
-}
+//
+//// mockPolicyGroup implements secapi.PolicyGroup for testing
+// type mockPolicyGroup struct {
+//	id       registry.ID
+//	policies []secapi.Policy
+//}
+//
+// func newMockPolicyGroup(id registry.ID) *mockPolicyGroup {
+//	return &mockPolicyGroup{
+//		id:       id,
+//		policies: make([]secapi.Policy, 0),
+//	}
+//}
+//
+// func (m *mockPolicyGroup) ID() registry.ID {
+//	return m.id
+//}
+//
+// func (m *mockPolicyGroup) Policies() []secapi.Policy {
+//	return m.policies
+//}
+//
+// func (m *mockPolicyGroup) AddPolicy(policy secapi.Policy) {
+//	m.policies = append(m.policies, policy)
+//}
 
 // mockTokenStore implements secapi.TokenStore for testing
 type mockTokenStore struct {
@@ -143,7 +144,7 @@ func newMockResourceRegistry() *mockResourceRegistry {
 	}
 }
 
-func (m *mockResourceRegistry) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (m *mockResourceRegistry) Acquire(_ context.Context, id registry.ID, _ resource.AccessMode) (resource.Resource[any], error) {
 	if res, exists := m.resources[id]; exists {
 		return res, nil
 	}

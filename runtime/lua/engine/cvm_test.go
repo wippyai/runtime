@@ -1321,7 +1321,9 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		monitorTask = tasks[0]
 
 		// Move target to second yield
-		targetTask.Resumed = []lua.LValue{lua.LString("resume1")}
+		if targetTask != nil {
+			targetTask.Resumed = []lua.LValue{lua.LString("resume1")}
+		}
 		tasks, err = vm.Step(targetTask)
 		if err != nil {
 			t.Fatal(err)
@@ -1342,7 +1344,9 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		monitorTask = tasks[0]
 
 		// Notify target
-		targetTask.Resumed = []lua.LValue{lua.LString("resume2")}
+		if targetTask != nil {
+			targetTask.Resumed = []lua.LValue{lua.LString("resume2")}
+		}
 		tasks, err = vm.Step(targetTask)
 		if err != nil {
 			t.Fatal(err)
@@ -2924,7 +2928,11 @@ func TestCoroutineVM_GoErrorPropagation(t *testing.T) {
 		}
 
 		// send error from producer to consumer
-		consumerTask.Resumed = producerTask.Yielded
+		if consumerTask != nil && producerTask != nil {
+			if consumerTask != nil && producerTask != nil {
+				consumerTask.Resumed = producerTask.Yielded
+			}
+		}
 
 		// Step consumer - should fail with wrapped error
 		//nolint:ineffassign,staticcheck // ok for now
@@ -3042,7 +3050,9 @@ func TestCoroutineVM_PcallErrorHandling(t *testing.T) {
 		}
 
 		// send error from producer to consumer
-		consumerTask.Resumed = producerTask.Yielded
+		if consumerTask != nil && producerTask != nil {
+			consumerTask.Resumed = producerTask.Yielded
+		}
 
 		// Step consumer - should fail with wrapped error that includes both contexts
 		//nolint:ineffassign,staticcheck // ok for now
@@ -3196,7 +3206,9 @@ func TestCoroutineVM_PcallErrorHandling(t *testing.T) {
 		}
 
 		// send error from producer to consumer
-		consumerTask.Resumed = producerTask.Yielded
+		if consumerTask != nil && producerTask != nil {
+			consumerTask.Resumed = producerTask.Yielded
+		}
 
 		// Step consumer - should fail with wrapped error that includes both contexts
 		//nolint:ineffassign,staticcheck // ok for now

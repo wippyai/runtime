@@ -64,7 +64,7 @@ func TestOpenRestrictedPackage(t *testing.T) {
 	preload := state.GetField(packageTable, "preload")
 	if preloadTable, ok := preload.(*lua.LTable); ok {
 		count := 0
-		preloadTable.ForEach(func(key, value lua.LValue) {
+		preloadTable.ForEach(func(_, _ lua.LValue) {
 			count++
 		})
 		if count != 0 {
@@ -78,7 +78,7 @@ func TestOpenRestrictedPackage(t *testing.T) {
 	loaded := state.GetField(packageTable, "loaded")
 	if loadedTable, ok := loaded.(*lua.LTable); ok {
 		count := 0
-		loadedTable.ForEach(func(key, value lua.LValue) {
+		loadedTable.ForEach(func(_, _ lua.LValue) {
 			count++
 		})
 		if count != 0 {

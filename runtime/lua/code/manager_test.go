@@ -21,11 +21,11 @@ func (b *testEventBus) Send(_ context.Context, e event.Event) {
 	b.events = append(b.events, e)
 }
 
-func (b *testEventBus) Subscribe(_ context.Context, _ event.System, ch chan<- event.Event) (event.SubscriberID, error) {
+func (b *testEventBus) Subscribe(_ context.Context, _ event.System, _ chan<- event.Event) (event.SubscriberID, error) {
 	return "test", nil
 }
 
-func (b *testEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, ch chan<- event.Event) (event.SubscriberID, error) {
+func (b *testEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ chan<- event.Event) (event.SubscriberID, error) {
 	return "test", nil
 }
 

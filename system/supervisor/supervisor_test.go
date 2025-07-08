@@ -888,7 +888,7 @@ func TestSupervisor_ConcurrentServiceOperations(t *testing.T) {
 			defer wg.Done()
 			// Randomly start/stop services
 			for _, id := range []string{"service-1", "service-2", "service-3"} {
-				if rand.Float32() < 0.5 {
+				if rand.Float32() < 0.5 { //nolint:gosec // math/rand is fine for test concurrency
 					h.sup.handleEvent(event.Event{
 						System: supervisor.System,
 						Kind:   supervisor.Start,

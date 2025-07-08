@@ -67,19 +67,19 @@ func (vc *ValidatedConfig) Validate() error {
 }
 
 // mockEventBus implements event.Bus for testing
-type mockEventBus struct{}
-
-func (m *mockEventBus) Send(ctx context.Context, evt event.Event) error {
-	return nil
-}
-
-func (m *mockEventBus) Subscribe(pattern eventbus.Pattern, handler eventbus.EventHandler) error {
-	return nil
-}
-
-func (m *mockEventBus) Unsubscribe(pattern eventbus.Pattern, handler eventbus.EventHandler) error {
-	return nil
-}
+// type mockEventBus struct{}
+//
+// func (m *mockEventBus) Send(ctx context.Context, evt event.Event) error {
+//	return nil
+//}
+//
+// func (m *mockEventBus) Subscribe(_ eventbus.Pattern, handler eventbus.EventHandler) error {
+//	return nil
+//}
+//
+// func (m *mockEventBus) Unsubscribe(_ eventbus.Pattern, handler eventbus.EventHandler) error {
+//	return nil
+//}
 
 func TestNewHandler(t *testing.T) {
 	entityHandler := &mockEntityHandler{}
@@ -114,7 +114,7 @@ func TestHandler_Handle_LuaInvalidateEvent(t *testing.T) {
 
 	// Track if Invalidate was called
 	var invalidatedIDs []registry.ID
-	entityHandler.onInvalidate = func(ctx context.Context, ids []registry.ID) {
+	entityHandler.onInvalidate = func(_ context.Context, ids []registry.ID) {
 		invalidatedIDs = ids
 	}
 
@@ -136,7 +136,7 @@ func TestHandler_Handle_LuaInvalidateEvent_InvalidData(t *testing.T) {
 
 	// Track if Invalidate was called
 	var invalidatedIDs []registry.ID
-	entityHandler.onInvalidate = func(ctx context.Context, ids []registry.ID) {
+	entityHandler.onInvalidate = func(_ context.Context, ids []registry.ID) {
 		invalidatedIDs = ids
 	}
 

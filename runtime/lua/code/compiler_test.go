@@ -380,7 +380,7 @@ func TestCompiler_Compile(t *testing.T) {
 		},
 		{
 			name: "Invalid entrypoint",
-			setup: func(mg *MemoryGraph) registry.ID {
+			setup: func(_ *MemoryGraph) registry.ID {
 				return registry.ID{NS: "test", Name: "non-existent"}
 			},
 			options:     NewBuildOptions(),

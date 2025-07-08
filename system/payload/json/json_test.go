@@ -224,7 +224,7 @@ type mockTranscoderRegister struct {
 	unmarshalers map[string]interface{}
 }
 
-func (m *mockTranscoderRegister) RegisterTranscoder(from, to payload.Format, priority int, transcoder payload.FormatTranscoder) {
+func (m *mockTranscoderRegister) RegisterTranscoder(from, to payload.Format, _ int, transcoder payload.FormatTranscoder) {
 	key := string(from) + "=>" + string(to)
 	m.transcoders[key] = transcoder
 }

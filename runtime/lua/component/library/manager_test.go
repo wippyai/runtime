@@ -100,7 +100,7 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
-func TestManager_Invalidate(t *testing.T) {
+func TestManager_Invalidate(_ *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
 	manager := NewManager(log, codeManager)

@@ -323,7 +323,7 @@ type mockTranscoderRegister struct {
 	registeredUnmarshalers map[payload.Format]payload.Unmarshaler
 }
 
-func (m *mockTranscoderRegister) RegisterTranscoder(from, to payload.Format, priority int, transcoder payload.FormatTranscoder) {
+func (m *mockTranscoderRegister) RegisterTranscoder(from, to payload.Format, _ int, transcoder payload.FormatTranscoder) {
 	key := fmt.Sprintf("%s->%s", from, to)
 	m.registeredTranscoders[key] = transcoder
 }

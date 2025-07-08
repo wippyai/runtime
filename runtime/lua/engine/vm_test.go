@@ -482,11 +482,8 @@ func TestVM_ErrorTraceback(t *testing.T) {
 		_, err = vm.Execute(context.Background(), "test")
 		if err == nil {
 			t.Error("expected error, got nil")
-		} else {
-			// Check that error contains traceback
-			if !strings.Contains(err.Error(), "test error") {
-				t.Errorf("error should contain 'test error', got: %v", err)
-			}
+		} else if !strings.Contains(err.Error(), "test error") {
+			t.Errorf("error should contain 'test error', got: %v", err)
 		}
 	})
 

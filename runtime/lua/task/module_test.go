@@ -25,7 +25,7 @@ func (t *MockTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 	return payload.NewPayload(p.Data(), format), nil
 }
 
-func (t *MockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (t *MockTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
 	// Simple unmarshal implementation for testing
 	return nil
 }
@@ -267,7 +267,8 @@ func TestTaskComplete_AlreadyCompleted(t *testing.T) {
 
 	// Create a task and complete it
 	task := NewTask(payload.NewString("input"), nil)
-	task.Complete(payload.NewString("first result"))
+	err := task.Complete(payload.NewString("first result"))
+	assert.NoError(t, err)
 
 	// Wrap task and push to stack
 	taskUD := WrapTask(L, task)
@@ -336,7 +337,8 @@ func TestTaskFail_AlreadyCompleted(t *testing.T) {
 
 	// Create a task and complete it
 	task := NewTask(payload.NewString("input"), nil)
-	task.Complete(payload.NewString("result"))
+	err := task.Complete(payload.NewString("result"))
+	assert.NoError(t, err)
 
 	// Wrap task and push to stack
 	taskUD := WrapTask(L, task)

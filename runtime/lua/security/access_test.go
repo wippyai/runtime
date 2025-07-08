@@ -31,7 +31,7 @@ func (m *mockPolicy) ID() registry.ID {
 	return m.id
 }
 
-func (m *mockPolicy) Evaluate(actor secapi.Actor, action, resource string, metadata registry.Metadata) secapi.Result {
+func (m *mockPolicy) Evaluate(_ secapi.Actor, action, resource string, _ registry.Metadata) secapi.Result {
 	key := action + ":" + resource
 	if m.allowed[key] {
 		return secapi.Allow

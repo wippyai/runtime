@@ -248,7 +248,7 @@ func TestTranscoder_TranscoderErrorHandling(t *testing.T) {
 	errorTranscoder := &MockFormatTranscoder{
 		From: formatA,
 		To:   formatB,
-		Func: func(p payload.Payload) (payload.Payload, error) {
+		Func: func(_ payload.Payload) (payload.Payload, error) {
 			return payload.NewPayload("", formatB), fmt.Errorf("transcoding error")
 		},
 	}
@@ -270,7 +270,7 @@ func TestTranscoder_UnmarshalerErrorHandling(t *testing.T) {
 	// Create an unmarshaler that returns an error
 	errorUnmarshaler := &MockUnmarshaler{
 		Format: formatA,
-		Func: func(p payload.Payload, v interface{}) error {
+		Func: func(_ payload.Payload, _ interface{}) error {
 			return fmt.Errorf("unmarshaling error")
 		},
 	}

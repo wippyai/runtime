@@ -18,19 +18,19 @@ import (
 // simpleEventBus implements event.Bus for testing
 type simpleEventBus struct{}
 
-func (s *simpleEventBus) Send(ctx context.Context, evt event.Event) {
+func (s *simpleEventBus) Send(_ context.Context, _ event.Event) {
 	// Do nothing for simple tests
 }
 
-func (s *simpleEventBus) Subscribe(ctx context.Context, system event.System, ch chan<- event.Event) (event.SubscriberID, error) {
+func (s *simpleEventBus) Subscribe(_ context.Context, _ event.System, _ chan<- event.Event) (event.SubscriberID, error) {
 	return "test", nil
 }
 
-func (s *simpleEventBus) SubscribeP(ctx context.Context, system event.System, kind event.Kind, ch chan<- event.Event) (event.SubscriberID, error) {
+func (s *simpleEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ chan<- event.Event) (event.SubscriberID, error) {
 	return "test", nil
 }
 
-func (s *simpleEventBus) Unsubscribe(ctx context.Context, id event.SubscriberID) {
+func (s *simpleEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {
 	// Do nothing for simple tests
 }
 
@@ -126,7 +126,7 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
-func TestManager_Invalidate(t *testing.T) {
+func TestManager_Invalidate(_ *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
 	bus := &simpleEventBus{}

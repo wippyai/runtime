@@ -31,54 +31,54 @@ func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 	return args.Error(0)
 }
 
-// mockState implements the process state interface for testing
-type mockState struct {
-	mock.Mock
-	ctx context.Context
-}
-
-func (m *mockState) GetTaskCount() int {
-	args := m.Called()
-	return args.Int(0)
-}
-
-func (m *mockState) Step(block bool) error {
-	args := m.Called(block)
-	return args.Error(0)
-}
-
-func (m *mockState) SendPackage(pkg *pubsub.Package) error {
-	args := m.Called(pkg)
-	return args.Error(0)
-}
-
-func (m *mockState) Complete(err error, result interface{}) {
-	m.Called(err, result)
-}
-
-func (m *mockState) InitContext(ctx context.Context, pid pubsub.PID) error {
-	args := m.Called(ctx, pid)
-	m.ctx = ctx
-	return args.Error(0)
-}
-
-func (m *mockState) Start(input payload.Payloads, onStart func()) error {
-	args := m.Called(input, onStart)
-	return args.Error(0)
-}
-
-func (m *mockState) Ctx() context.Context {
-	return m.ctx
-}
-
-func (m *mockState) PID() pubsub.PID {
-	args := m.Called()
-	return args.Get(0).(pubsub.PID)
-}
-
-func (m *mockState) Log() *zap.Logger {
-	return zap.NewNop()
-}
+//// mockState implements the process state interface for testing
+// type mockState struct {
+//	mock.Mock
+//	ctx context.Context
+//}
+//
+// func (m *mockState) GetTaskCount() int {
+//	args := m.Called()
+//	return args.Int(0)
+//}
+//
+// func (m *mockState) Step(block bool) error {
+//	args := m.Called(block)
+//	return args.Error(0)
+//}
+//
+// func (m *mockState) SendPackage(pkg *pubsub.Package) error {
+//	args := m.Called(pkg)
+//	return args.Error(0)
+//}
+//
+// func (m *mockState) Complete(err error, result interface{}) {
+//	m.Called(err, result)
+//}
+//
+// func (m *mockState) InitContext(ctx context.Context, pid pubsub.PID) error {
+//	args := m.Called(ctx, pid)
+//	m.ctx = ctx
+//	return args.Error(0)
+//}
+//
+// func (m *mockState) Start(input payload.Payloads, onStart func()) error {
+//	args := m.Called(input, onStart)
+//	return args.Error(0)
+//}
+//
+// func (m *mockState) Ctx() context.Context {
+//	return m.ctx
+//}
+//
+// func (m *mockState) PID() pubsub.PID {
+//	args := m.Called()
+//	return args.Get(0).(pubsub.PID)
+//}
+//
+// func (m *mockState) Log() *zap.Logger {
+//	return zap.NewNop()
+//}
 
 func TestNewApp_NilTranscoder(t *testing.T) {
 	log := zap.NewNop()

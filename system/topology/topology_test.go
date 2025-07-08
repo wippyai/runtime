@@ -451,7 +451,7 @@ func TestTopology_EdgeCases(t *testing.T) {
 		assert.Empty(t, links, "non-existent process should have no links")
 	})
 
-	t.Run("notify for non-existent process", func(t *testing.T) {
+	t.Run("notify for non-existent process", func(_ *testing.T) {
 		result := &runtime.Result{
 			Value: payload.New("test result"),
 		}
@@ -459,7 +459,7 @@ func TestTopology_EdgeCases(t *testing.T) {
 		topo.Notify(pid1, result)
 	})
 
-	t.Run("remove non-existent process", func(t *testing.T) {
+	t.Run("remove non-existent process", func(_ *testing.T) {
 		// Should not panic
 		topo.Remove(pid1)
 	})
@@ -599,10 +599,9 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 			} else {
 				assert.Equal(t, 0, watcherCount, "if pid2 is not monitoring pid1, there should be no watchers")
 			}
-		} else {
-			// No monitors for pid1, which is a valid final state
-			// This means all Release operations completed after all Wait operations
 		}
+		// No monitors for pid1, which is a valid final state
+		// This means all Release operations completed after all Wait operations
 	})
 }
 

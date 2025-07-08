@@ -28,7 +28,7 @@ func TestNewTask_WithCallback(t *testing.T) {
 	input := payload.NewString("test input")
 	called := false
 
-	callback := func(result runtime.Result) {
+	callback := func(_ runtime.Result) {
 		called = true
 	}
 

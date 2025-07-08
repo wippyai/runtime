@@ -58,7 +58,7 @@ func TestNewCommand(t *testing.T) {
 		vm.State().SetContext(ctx)
 
 		var cancelCalled bool
-		onCancel := func(cmd runtime.Command) {
+		onCancel := func(_ runtime.Command) {
 			cancelCalled = true
 		}
 

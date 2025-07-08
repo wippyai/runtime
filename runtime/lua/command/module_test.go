@@ -74,7 +74,7 @@ func TestNewCommandFunc(t *testing.T) {
 		cmd, ok := ud.Value.(*Command)
 		assert.True(t, ok)
 		assert.NotNil(t, cmd)
-		assert.Equal(t, "test", string(cmd.Type()))
+		assert.Equal(t, "test", cmd.Type())
 		assert.Len(t, cmd.Params(), 2)
 	})
 

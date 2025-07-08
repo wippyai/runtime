@@ -1,12 +1,10 @@
 package btea
 
 import (
-	"context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	lua "github.com/yuin/gopher-lua"
@@ -14,96 +12,96 @@ import (
 )
 
 // mockUnitOfWork implements engine.UnitOfWork for testing
-type mockUnitOfWork struct {
-	mock.Mock
-}
-
-func (m *mockUnitOfWork) State() *lua.LState {
-	args := m.Called()
-	if args.Get(0) == nil {
-		return nil
-	}
-	return args.Get(0).(*lua.LState)
-}
-
-func (m *mockUnitOfWork) Values() engine.ValueStore {
-	args := m.Called()
-	return args.Get(0).(engine.ValueStore)
-}
-
-func (m *mockUnitOfWork) Tasks() engine.Tasks {
-	args := m.Called()
-	return args.Get(0).(engine.Tasks)
-}
-
-func (m *mockUnitOfWork) Context() context.Context {
-	args := m.Called()
-	return args.Get(0).(context.Context)
-}
-
-func (m *mockUnitOfWork) Run(fn func(engine.UnitOfWork)) {
-	m.Called(fn)
-}
-
-func (m *mockUnitOfWork) AddCleanup(fn func() error) context.CancelFunc {
-	args := m.Called(fn)
-	return args.Get(0).(context.CancelFunc)
-}
-
-func (m *mockUnitOfWork) Terminate(err error) error {
-	args := m.Called(err)
-	return args.Error(0)
-}
-
-func (m *mockUnitOfWork) Close() error {
-	args := m.Called()
-	return args.Error(0)
-}
-
-// mockTasks implements engine.Tasks for testing
-type mockTasks struct {
-	mock.Mock
-}
-
-func (m *mockTasks) Add() {
-	m.Called()
-}
-
-func (m *mockTasks) Done() {
-	m.Called()
-}
-
-func (m *mockTasks) WakeUp() {
-	m.Called()
-}
-
-func (m *mockTasks) Wait(ctx context.Context, block bool) ([]*engine.Update, error) {
-	args := m.Called(ctx, block)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*engine.Update), args.Error(1)
-}
-
-func (m *mockTasks) Send(ctx context.Context, result *engine.Update) error {
-	args := m.Called(ctx, result)
-	return args.Error(0)
-}
-
-func (m *mockTasks) Schedule(fn func()) error {
-	args := m.Called(fn)
-	return args.Error(0)
-}
-
-func (m *mockTasks) Blocked() int {
-	args := m.Called()
-	return args.Int(0)
-}
-
-func (m *mockTasks) Ready() int {
-	args := m.Called()
-	return args.Int(0)
-}
+// type mockUnitOfWork struct {
+//	mock.Mock
+//}
+//
+// func (m *mockUnitOfWork) State() *lua.LState {
+//	args := m.Called()
+//	if args.Get(0) == nil {
+//		return nil
+//	}
+//	return args.Get(0).(*lua.LState)
+//}
+//
+// func (m *mockUnitOfWork) Values() engine.ValueStore {
+//	args := m.Called()
+//	return args.Get(0).(engine.ValueStore)
+//}
+//
+// func (m *mockUnitOfWork) Tasks() engine.Tasks {
+//	args := m.Called()
+//	return args.Get(0).(engine.Tasks)
+//}
+//
+// func (m *mockUnitOfWork) Context() context.Context {
+//	args := m.Called()
+//	return args.Get(0).(context.Context)
+//}
+//
+// func (m *mockUnitOfWork) Run(fn func(engine.UnitOfWork)) {
+//	m.Called(fn)
+//}
+//
+// func (m *mockUnitOfWork) AddCleanup(fn func() error) context.CancelFunc {
+//	args := m.Called(fn)
+//	return args.Get(0).(context.CancelFunc)
+//}
+//
+// func (m *mockUnitOfWork) Terminate(err error) error {
+//	args := m.Called(err)
+//	return args.Error(0)
+//}
+//
+// func (m *mockUnitOfWork) Close() error {
+//	args := m.Called()
+//	return args.Error(0)
+//}
+//
+//// mockTasks implements engine.Tasks for testing
+// type mockTasks struct {
+//	mock.Mock
+//}
+//
+// func (m *mockTasks) Add() {
+//	m.Called()
+//}
+//
+// func (m *mockTasks) Done() {
+//	m.Called()
+//}
+//
+// func (m *mockTasks) WakeUp() {
+//	m.Called()
+//}
+//
+// func (m *mockTasks) Wait(ctx context.Context, block bool) ([]*engine.Update, error) {
+//	args := m.Called(ctx, block)
+//	if args.Get(0) == nil {
+//		return nil, args.Error(1)
+//	}
+//	return args.Get(0).([]*engine.Update), args.Error(1)
+//}
+//
+// func (m *mockTasks) Send(ctx context.Context, result *engine.Update) error {
+//	args := m.Called(ctx, result)
+//	return args.Error(0)
+//}
+//
+// func (m *mockTasks) Schedule(fn func()) error {
+//	args := m.Called(fn)
+//	return args.Error(0)
+//}
+//
+// func (m *mockTasks) Blocked() int {
+//	args := m.Called()
+//	return args.Int(0)
+//}
+//
+// func (m *mockTasks) Ready() int {
+//	args := m.Called()
+//	return args.Int(0)
+//}
 
 // mockTranscoderRunner implements payload.Transcoder for testing
 type mockTranscoderRunner struct {

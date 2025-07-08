@@ -302,7 +302,10 @@ func TestRouterAddHandlerAfterStart(t *testing.T) {
 
 	router, err := StartRouter(context.Background(), bus, WithHandlers(initialHandler))
 	require.NoError(t, err)
-	defer router.Stop()
+	defer func() {
+		err := router.Stop()
+		require.NoError(t, err)
+	}()
 
 	// Add new handler after router is started
 	newHandler := NewBaseHandler(
@@ -364,7 +367,7 @@ func TestRouterOptions(t *testing.T) {
 	router, err := StartRouter(context.Background(), bus, WithLogger(logger))
 	require.NoError(t, err)
 	require.NotNil(t, router.log)
-	router.Stop()
+	require.NoError(t, router.Stop())
 
 	// Test WithHandlers
 	handler := NewBaseHandler(
@@ -378,7 +381,7 @@ func TestRouterOptions(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, router.subscribers)
 	require.Len(t, router.subscribers, 1)
-	router.Stop()
+	require.NoError(t, router.Stop())
 }
 
 func TestRouterHandlerErrorHandling(t *testing.T) {
@@ -402,7 +405,10 @@ func TestRouterHandlerErrorHandling(t *testing.T) {
 
 	router, err := StartRouter(context.Background(), bus, WithHandlers(handler))
 	require.NoError(t, err)
-	defer router.Stop()
+	defer func() {
+		err := router.Stop()
+		require.NoError(t, err)
+	}()
 
 	// Send multiple events
 	numEvents := 3
@@ -432,7 +438,7 @@ func TestRouterShutdown(t *testing.T) {
 		eventProcessed := make(chan struct{})
 		handler := NewBaseHandler(
 			Pattern{System: "test", Kind: "shutdown"},
-			func(_ context.Context, evt event.Event) error {
+			func(_ context.Context, _ event.Event) error {
 				time.Sleep(100 * time.Millisecond) // Simulate some work
 				close(eventProcessed)
 				return nil
@@ -496,7 +502,7 @@ func TestRouterPatternMatching(t *testing.T) {
 		eventReceived := make(chan struct{})
 		handler := NewBaseHandler(
 			Pattern{System: "", Kind: ""},
-			func(_ context.Context, evt event.Event) error {
+			func(_ context.Context, _ event.Event) error {
 				close(eventReceived)
 				return nil
 			},
@@ -504,7 +510,10 @@ func TestRouterPatternMatching(t *testing.T) {
 
 		router, err := StartRouter(context.Background(), bus, WithHandlers(handler))
 		require.NoError(t, err)
-		defer router.Stop()
+		defer func() {
+			err := router.Stop()
+			require.NoError(t, err)
+		}()
 
 		e := event.Event{
 			System: "",
@@ -554,7 +563,7 @@ func TestRouterPatternMatching(t *testing.T) {
 				eventReceived := make(chan struct{})
 				handler := NewBaseHandler(
 					tc.pattern,
-					func(_ context.Context, evt event.Event) error {
+					func(_ context.Context, _ event.Event) error {
 						close(eventReceived)
 						return nil
 					},
@@ -562,7 +571,10 @@ func TestRouterPatternMatching(t *testing.T) {
 
 				router, err := StartRouter(context.Background(), bus, WithHandlers(handler))
 				require.NoError(t, err)
-				defer router.Stop()
+				defer func() {
+					err := router.Stop()
+					require.NoError(t, err)
+				}()
 
 				bus.Send(context.Background(), tc.event)
 

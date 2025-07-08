@@ -244,7 +244,7 @@ func TestManager_EventHandling(t *testing.T) {
 		Data:   initialConfig,
 	})
 
-	t.Run("unknown_event_kind", func(t *testing.T) {
+	t.Run("unknown_event_kind", func(_ *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: api.System,
 			Kind:   "unknown.kind",
@@ -253,7 +253,7 @@ func TestManager_EventHandling(t *testing.T) {
 		time.Sleep(50 * time.Millisecond) // Give manager time to process
 	})
 
-	t.Run("wrong_system_for_get_config", func(t *testing.T) {
+	t.Run("wrong_system_for_get_config", func(_ *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: "wrong.system",
 			Kind:   api.GetConfig,

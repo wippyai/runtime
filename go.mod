@@ -59,7 +59,9 @@ require (
 
 // replace github.com/ponyruntime/tree-sitter-sql => ../tree-sitter-sql
 
-replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v0.0.0-20250409012022-15ae569d11fd
+replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v1.2.3
+
+replace github.com/ponyruntime/go-lua => github.com/wippyai/go-lua v1.2.3
 
 //replace github.com/yuin/gopher-lua => ../go-lua
 
@@ -107,7 +109,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/ponyruntime/go-lua v1.2.1 // indirect
+	github.com/ponyruntime/go-lua v1.2.3 // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

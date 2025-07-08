@@ -42,9 +42,6 @@ func (d *dummyUpstream) Send(_ *api.Package) error {
 	return nil
 }
 
-// invalidHost is a struct that doesn't implement the Host interface
-type invalidHost struct{}
-
 func TestNodeSendLocal(t *testing.T) {
 	// Create a dummy host and register it with the node.
 	dhost := &dummyHost{}
@@ -295,14 +292,14 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid type")
 }
 
-func TestNodeUnregisterHostNonExistent(t *testing.T) {
+func TestNodeUnregisterHostNonExistent(_ *testing.T) {
 	node := NewNode("node1", nil)
 
 	// Unregister a non-existent host should not panic
 	node.UnregisterHost("nonexistent")
 }
 
-func TestNodeUnregisterHostInvalidType(t *testing.T) {
+func TestNodeUnregisterHostInvalidType(_ *testing.T) {
 	node := NewNode("node1", nil)
 
 	// Store an invalid type

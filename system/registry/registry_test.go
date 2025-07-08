@@ -829,7 +829,7 @@ func TestInMemoryRegistry_Rollback(t *testing.T) {
 		{ID: registry.ID{Name: "/bar"}, Kind: "test", Data: payload.NewString("data2")},
 	}
 
-	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+	runner.RunFunc = func(_ registry.State, _ registry.ChangeSet) (registry.State, error) {
 		return toState, nil
 	}
 
@@ -839,7 +839,7 @@ func TestInMemoryRegistry_Rollback(t *testing.T) {
 	}
 
 	// Test rollback failure
-	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+	runner.RunFunc = func(_ registry.State, _ registry.ChangeSet) (registry.State, error) {
 		return nil, errors.New("rollback failed")
 	}
 
@@ -867,7 +867,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 		{ID: registry.ID{Name: "/bar"}, Kind: "test", Data: payload.NewString("data2")},
 	}
 
-	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+	runner.RunFunc = func(_ registry.State, _ registry.ChangeSet) (registry.State, error) {
 		return toState, nil
 	}
 
@@ -880,7 +880,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 	}
 
 	// Test transition with no changes
-	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+	runner.RunFunc = func(_ registry.State, _ registry.ChangeSet) (registry.State, error) {
 		return fromState, nil
 	}
 
@@ -893,7 +893,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 	}
 
 	// Test transition failure
-	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+	runner.RunFunc = func(_ registry.State, _ registry.ChangeSet) (registry.State, error) {
 		return nil, errors.New("transition failed")
 	}
 

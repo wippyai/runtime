@@ -25,7 +25,10 @@ func newTestConfigBus() *testConfigBus {
 	}
 }
 
-func (t *testConfigBus) Subscribe(ctx context.Context, system event.System, ch chan<- event.Event) (event.SubscriberID, error) {
+func (t *testConfigBus) Subscribe(_ context.Context, system event.System, ch chan<- event.Event) (event.SubscriberID, error) {
+	t.subs[system][event.Kind("")] = append(t.subs[system][event.Kind("")], func(evt event.Event) {
+		ch <- evt
+	})
 	return "test", nil
 }
 
@@ -52,9 +55,9 @@ func (t *testConfigBus) SubscribeP(ctx context.Context, system event.System, kin
 	return "test", nil
 }
 
-func (t *testConfigBus) Unsubscribe(ctx context.Context, id event.SubscriberID) {}
+func (t *testConfigBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {}
 
-func (t *testConfigBus) Send(ctx context.Context, evt event.Event) {
+func (t *testConfigBus) Send(_ context.Context, evt event.Event) {
 	t.mu.Lock()
 	t.sendCalls = append(t.sendCalls, evt)
 	t.mu.Unlock()
@@ -73,6 +76,7 @@ func TestNewConfigurationManager(t *testing.T) {
 	manager := NewConfigurationManager()
 	if manager == nil {
 		t.Error("expected non-nil ConfigurationManager")
+		return
 	}
 	if manager.defaultTimeout != time.Second*20 {
 		t.Errorf("expected default timeout of 20s, got %v", manager.defaultTimeout)

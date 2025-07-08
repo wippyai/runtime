@@ -245,7 +245,7 @@ func TestUnitOfWorkInterface(t *testing.T) {
 
 func TestGetUnitOfWork(t *testing.T) {
 	// Test with nil context
-	if uw := GetUnitOfWork(nil); uw != nil {
+	if uw := GetUnitOfWork(t.Context()); uw != nil {
 		t.Errorf("expected nil UnitOfWork for nil context")
 	}
 

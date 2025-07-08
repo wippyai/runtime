@@ -237,7 +237,7 @@ func TestUnitOfWork_RunWhenClosed(t *testing.T) {
 	var mu sync.Mutex
 	runCalled := false
 
-	uw.Run(func(u UnitOfWork) {
+	uw.Run(func(_ UnitOfWork) {
 		mu.Lock()
 		defer mu.Unlock()
 		runCalled = true

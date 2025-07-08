@@ -187,7 +187,7 @@ func TestSubscriberConcurrentHandlerExecution(t *testing.T) {
 	)
 
 	// Create a handler that simulates concurrent execution
-	handlerFunc := func(evt event.Event) {
+	handlerFunc := func(_ event.Event) {
 		defer handlerDone.Done()
 		time.Sleep(50 * time.Millisecond) // Simulate work
 		mu.Lock()
@@ -233,7 +233,7 @@ func TestSubscriberHandlerTimeout(t *testing.T) {
 		mu            sync.Mutex
 		handlerCalled bool
 	)
-	handlerFunc := func(evt event.Event) {
+	handlerFunc := func(_ event.Event) {
 		mu.Lock()
 		handlerCalled = true
 		mu.Unlock()

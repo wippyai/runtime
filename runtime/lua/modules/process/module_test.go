@@ -28,7 +28,7 @@ func newMockProcessManager() *mockProcessManager {
 	}
 }
 
-func (m *mockProcessManager) Start(ctx context.Context, start *processapi.Start) (pubsub.PID, error) {
+func (m *mockProcessManager) Start(_ context.Context, start *processapi.Start) (pubsub.PID, error) {
 	pid := pubsub.PID{
 		Host:   start.HostID,
 		ID:     start.Source,
@@ -38,17 +38,17 @@ func (m *mockProcessManager) Start(ctx context.Context, start *processapi.Start)
 	return pid, nil
 }
 
-func (m *mockProcessManager) Terminate(ctx context.Context, pid pubsub.PID) error {
+func (m *mockProcessManager) Terminate(_ context.Context, pid pubsub.PID) error {
 	delete(m.processes, pid)
 	return nil
 }
 
-func (m *mockProcessManager) Cancel(ctx context.Context, from, pid pubsub.PID, deadline time.Time) error {
+func (m *mockProcessManager) Cancel(_ context.Context, _ pubsub.PID, pid pubsub.PID, _ time.Time) error {
 	delete(m.processes, pid)
 	return nil
 }
 
-func (m *mockProcessManager) AttachLifecycle(ctx context.Context, lifecycle processapi.Lifecycle) context.Context {
+func (m *mockProcessManager) AttachLifecycle(ctx context.Context, _ processapi.Lifecycle) context.Context {
 	return ctx
 }
 
@@ -119,7 +119,7 @@ func (m *mockTopology) GetLinks(pid pubsub.PID) []pubsub.PID {
 	return m.links[pid]
 }
 
-func (m *mockTopology) Notify(pid pubsub.PID, result *runtime.Result) {
+func (m *mockTopology) Notify(_ pubsub.PID, _ *runtime.Result) {
 	// No-op for testing
 }
 
@@ -151,7 +151,7 @@ func (m *mockNode) Detach(pid pubsub.PID) {
 	delete(m.attached, pid)
 }
 
-func (m *mockNode) Send(pkg *pubsub.Package) error {
+func (m *mockNode) Send(_ *pubsub.Package) error {
 	return nil
 }
 
@@ -159,16 +159,16 @@ func (m *mockNode) ID() pubsub.NodeID {
 	return "test-node"
 }
 
-func (m *mockNode) RegisterHost(hostID pubsub.HostID, host pubsub.Host) error {
+func (m *mockNode) RegisterHost(_ pubsub.HostID, _ pubsub.Host) error {
 	return nil
 }
 
-func (m *mockNode) UnregisterHost(hostID pubsub.HostID) {
+func (m *mockNode) UnregisterHost(_ pubsub.HostID) {
 	// No-op for testing
 }
 
 // setupTestEnvironment creates a test environment with Process module
-func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner, *mockProcessManager, *mockNode) {
+func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork) {
 	logger := zap.NewNop()
 
 	// Create the Process module
@@ -209,7 +209,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	// Set the context in the Lua state
 	L.SetContext(ctx)
 
-	return vm, L, uw, runner, mockManager, mockNode
+	return vm, L, uw
 }
 
 func TestProcessModule(t *testing.T) {
@@ -264,7 +264,7 @@ func TestProcessModule(t *testing.T) {
 	})
 
 	t.Run("pid function returns current pid", func(t *testing.T) {
-		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		vm, L, uw := setupTestEnvironment(t)
 		defer vm.Close()
 		defer uw.Close()
 
@@ -279,7 +279,7 @@ func TestProcessModule(t *testing.T) {
 	})
 
 	t.Run("id function returns current id", func(t *testing.T) {
-		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		vm, L, uw := setupTestEnvironment(t)
 		defer vm.Close()
 		defer uw.Close()
 
@@ -294,7 +294,7 @@ func TestProcessModule(t *testing.T) {
 	})
 
 	t.Run("send function works with valid pid", func(t *testing.T) {
-		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		vm, L, uw := setupTestEnvironment(t)
 		defer vm.Close()
 		defer uw.Close()
 
@@ -307,7 +307,7 @@ func TestProcessModule(t *testing.T) {
 	})
 
 	t.Run("spawn function works", func(t *testing.T) {
-		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		vm, L, uw := setupTestEnvironment(t)
 		defer vm.Close()
 		defer uw.Close()
 
@@ -320,7 +320,7 @@ func TestProcessModule(t *testing.T) {
 	})
 
 	t.Run("terminate function works", func(t *testing.T) {
-		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		vm, L, uw := setupTestEnvironment(t)
 		defer vm.Close()
 		defer uw.Close()
 
@@ -333,7 +333,7 @@ func TestProcessModule(t *testing.T) {
 	})
 
 	t.Run("cancel function works", func(t *testing.T) {
-		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		vm, L, uw := setupTestEnvironment(t)
 		defer vm.Close()
 		defer uw.Close()
 
@@ -346,7 +346,7 @@ func TestProcessModule(t *testing.T) {
 	})
 
 	t.Run("registry functions work", func(t *testing.T) {
-		vm, L, uw, _, _, _ := setupTestEnvironment(t)
+		vm, L, uw := setupTestEnvironment(t)
 		defer vm.Close()
 		defer uw.Close()
 

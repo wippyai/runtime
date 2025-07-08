@@ -20,18 +20,18 @@ func (m *mockEventBus) Publish(e event.Event) error {
 	return nil
 }
 
-func (m *mockEventBus) Subscribe(ctx context.Context, system event.System, ch chan<- event.Event) (event.SubscriberID, error) {
+func (m *mockEventBus) Subscribe(_ context.Context, _ event.System, _ chan<- event.Event) (event.SubscriberID, error) {
 	return "", nil
 }
 
-func (m *mockEventBus) SubscribeP(ctx context.Context, system event.System, kind event.Kind, ch chan<- event.Event) (event.SubscriberID, error) {
+func (m *mockEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ chan<- event.Event) (event.SubscriberID, error) {
 	return "", nil
 }
 
-func (m *mockEventBus) Unsubscribe(ctx context.Context, id event.SubscriberID) {
+func (m *mockEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {
 }
 
-func (m *mockEventBus) Send(ctx context.Context, e event.Event) {
+func (m *mockEventBus) Send(_ context.Context, e event.Event) {
 	m.events = append(m.events, e)
 }
 

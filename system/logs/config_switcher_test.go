@@ -260,7 +260,7 @@ func TestConfigSwitcher_ConcurrentAccess(t *testing.T) {
 	var successMutex sync.Mutex
 
 	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
+		go func(_ int) {
 			defer func() { done <- struct{}{} }()
 
 			tempConfig := logsapi.Config{
