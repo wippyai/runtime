@@ -179,4 +179,122 @@ func TestBase64ModuleWithVM(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, input, result.String())
 	})
+
+	t.Run("encode with invalid input types", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			input       lua.LValue
+			shouldError bool
+		}{
+			{
+				name:        "nil input",
+				input:       lua.LNil,
+				shouldError: true,
+			},
+			{
+				name:        "number input",
+				input:       lua.LNumber(123),
+				shouldError: true,
+			},
+			{
+				name:        "boolean input",
+				input:       lua.LBool(true),
+				shouldError: true,
+			},
+			{
+				name:        "table input",
+				input:       &lua.LTable{},
+				shouldError: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				mod := NewBase64Module()
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				require.NoError(t, err)
+				defer vm.Close()
+
+				script := `
+					local base64 = require("base64")
+					function test(input)
+						local success, result = pcall(base64.encode, input)
+						if not success then
+							return nil, result
+						end
+						return result
+					end
+					return test
+				`
+				err = vm.Import(script, "test", "test")
+				require.NoError(t, err)
+
+				result, err := vm.Execute(context.Background(), "test", tc.input)
+				require.NoError(t, err)
+
+				if tc.shouldError {
+					assert.Equal(t, lua.LNil, result)
+				}
+			})
+		}
+	})
+
+	t.Run("decode with invalid input types", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			input       lua.LValue
+			shouldError bool
+		}{
+			{
+				name:        "nil input",
+				input:       lua.LNil,
+				shouldError: true,
+			},
+			{
+				name:        "number input",
+				input:       lua.LNumber(123),
+				shouldError: true,
+			},
+			{
+				name:        "boolean input",
+				input:       lua.LBool(true),
+				shouldError: true,
+			},
+			{
+				name:        "table input",
+				input:       &lua.LTable{},
+				shouldError: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				mod := NewBase64Module()
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				require.NoError(t, err)
+				defer vm.Close()
+
+				script := `
+					local base64 = require("base64")
+					function test(input)
+						local success, result = pcall(base64.decode, input)
+						if not success then
+							return nil, result
+						end
+						return result
+					end
+					return test
+				`
+				err = vm.Import(script, "test", "test")
+				require.NoError(t, err)
+
+				result, err := vm.Execute(context.Background(), "test", tc.input)
+				require.NoError(t, err)
+
+				if tc.shouldError {
+					assert.Equal(t, lua.LNil, result)
+				}
+			})
+		}
+	})
 }

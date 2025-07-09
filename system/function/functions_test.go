@@ -422,3 +422,188 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 		assert.Equal(t, fmt.Sprintf("result %d", i), result.Value.Data().(string))
 	}
 }
+
+func TestFunctions_CallErrorHandling(t *testing.T) {
+	ctx := context.Background()
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+
+	executor, _ := setupTest()
+	require.NoError(t, executor.Start(ctx))
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
+
+	tests := []struct {
+		name        string
+		task        runtime.Task
+		expectedErr string
+	}{
+		{
+			name: "non-existent handler",
+			task: runtime.Task{
+				ID: registry.ParseID("nonexistent:handler"),
+			},
+			expectedErr: "no handler registered for target: nonexistent:handler",
+		},
+		{
+			name: "invalid handler type",
+			task: runtime.Task{
+				ID: registry.ParseID("invalid:handler"),
+			},
+			expectedErr: "invalid handler type for target: invalid:handler",
+		},
+	}
+
+	// Register an invalid handler type for the second test
+	executor.handlers.Store(registry.ParseID("invalid:handler"), "not a function")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ch, err := executor.Call(ctx, tt.task)
+			assert.Error(t, err)
+			assert.Equal(t, tt.expectedErr, err.Error())
+			assert.Nil(t, ch)
+		})
+	}
+}
+
+func TestFunctions_CallContextHandling(t *testing.T) {
+	ctx := context.Background()
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+
+	executor, _ := setupTest()
+	require.NoError(t, executor.Start(ctx))
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
+
+	// Register a handler that checks context
+	handlerID := registry.ParseID("test:context-handler")
+	executor.handlers.Store(handlerID, function.Func(func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+		// Verify context has required values
+		pid, exists := pubsubapi.GetPID(ctx)
+		require.True(t, exists)
+		require.NotNil(t, pid)
+		assert.NotEmpty(t, pid.UniqID)
+		assert.Equal(t, function.HostID, pid.Host)
+		assert.Equal(t, handlerID, pid.ID)
+		return make(chan *runtime.Result), nil
+	}))
+
+	t.Run("nil context", func(t *testing.T) {
+		ch, err := executor.Call(ctx, runtime.Task{ID: handlerID})
+		assert.NoError(t, err)
+		assert.NotNil(t, ch)
+	})
+
+	t.Run("context with values", func(t *testing.T) {
+		ch, err := executor.Call(ctx, runtime.Task{ID: handlerID})
+		assert.NoError(t, err)
+		assert.NotNil(t, ch)
+	})
+}
+
+func TestFunctions_EdgeCases(t *testing.T) {
+	ctx := context.Background()
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+
+	executor, bus := setupTest()
+	require.NoError(t, executor.Start(ctx))
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
+
+	t.Run("register with empty path", func(t *testing.T) {
+		bus.Send(ctx, event.Event{
+			System: function.System,
+			Kind:   function.Register,
+			Path:   "",
+			Data: function.Func(func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+				return make(chan *runtime.Result), nil
+			}),
+		})
+
+		// Wait for registration to complete
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify function was registered
+		_, exists := executor.handlers.Load(registry.ParseID(""))
+		assert.True(t, exists)
+	})
+
+	t.Run("register nil function", func(t *testing.T) {
+		bus.Send(ctx, event.Event{
+			System: function.System,
+			Kind:   function.Register,
+			Path:   "test:nil-function",
+			Data:   nil,
+		})
+
+		// Wait for registration to complete
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify function was not registered
+		_, exists := executor.handlers.Load(registry.ParseID("test:nil-function"))
+		assert.False(t, exists)
+	})
+
+	t.Run("delete empty path", func(t *testing.T) {
+		bus.Send(ctx, event.Event{
+			System: function.System,
+			Kind:   function.Delete,
+			Path:   "",
+		})
+
+		// Wait for deletion to complete
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify function was deleted
+		_, exists := executor.handlers.Load(registry.ParseID(""))
+		assert.False(t, exists)
+	})
+}
+
+func TestFunctions_ConcurrentExecution(t *testing.T) {
+	ctx := context.Background()
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+
+	executor, _ := setupTest()
+	require.NoError(t, executor.Start(ctx))
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
+
+	const numGoroutines = 10
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	// Register a handler that returns a result
+	handlerID := registry.ParseID("test:concurrent-handler")
+	executor.handlers.Store(handlerID, function.Func(func(_ context.Context, task runtime.Task) (chan *runtime.Result, error) {
+		ch := make(chan *runtime.Result, 1)
+		ch <- &runtime.Result{
+			Value: payload.New(task.ID.String()),
+		}
+		close(ch)
+		return ch, nil
+	}))
+
+	// Test concurrent execution
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			ch, err := executor.Call(ctx, runtime.Task{ID: handlerID})
+			require.NoError(t, err)
+			require.NotNil(t, ch)
+
+			select {
+			case result := <-ch:
+				assert.Equal(t, handlerID.String(), result.Value.Data())
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for result")
+			}
+		}()
+	}
+
+	wg.Wait()
+}
