@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -39,6 +41,7 @@ type Functions struct {
 	hasActor bool
 	scope    secapi.Scope
 	hasScope bool
+	options  interceptor.Options
 }
 
 // NewFunctionModule creates a new function module
@@ -68,6 +71,7 @@ func (m *Module) initModuleTable(l *lua.LState) {
 		"with_context": m.withContext,
 		"with_actor":   m.withActor,
 		"with_scope":   m.withScope,
+		"with_options": m.withOptions,
 		"call":         m.call,
 		"async":        m.async,
 	})
@@ -286,6 +290,90 @@ func (m *Module) withScope(l *lua.LState) int {
 	return 1
 }
 
+// withOptions creates a new executor with specific options
+func (m *Module) withOptions(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	functions, ok := ud.Value.(*Functions)
+	if !ok {
+		l.ArgError(1, "functions executor expected")
+		return 0
+	}
+
+	// Helper function to recursively convert Lua table to Go map
+	var convertTable func(t *lua.LTable) map[string]any
+	convertTable = func(t *lua.LTable) map[string]any {
+		result := make(map[string]any)
+		t.ForEach(func(k, v lua.LValue) {
+			key, ok := k.(lua.LString)
+			if !ok {
+				l.ArgError(2, "options keys must be strings")
+				return
+			}
+
+			// If value is a table, recursively convert it
+			if tbl, ok := v.(*lua.LTable); ok {
+				result[string(key)] = convertTable(tbl)
+			} else {
+				result[string(key)] = luaconv.ToGoAny(v)
+			}
+		})
+		return result
+	}
+
+	optionsTable := l.CheckTable(2)
+
+	// Convert the options table
+	optionsMap := convertTable(optionsTable)
+
+	options := interceptor.Options{}
+
+	// Convert retry options
+	if retry, ok := optionsMap["retry"].(map[string]any); ok {
+		if maxAttempts, ok := retry["max_attempts"].(int); ok {
+			options.Retry.MaxAttempts = maxAttempts
+		}
+	}
+
+	// Convert rate limit options
+	if rateLimit, ok := optionsMap["ratelimit"].(map[string]any); ok {
+		if rps, ok := rateLimit["requests_per_second"].(int); ok {
+			options.RateLimit.RequestsPerSecond = rps
+		}
+		if burst, ok := rateLimit["burst"].(int); ok {
+			options.RateLimit.Burst = burst
+		}
+	}
+
+	// Convert timeout options
+	if timeout, ok := optionsMap["timeout"].(map[string]any); ok {
+		if timeoutStr, ok := timeout["timeout"].(string); ok {
+			if duration, err := time.ParseDuration(timeoutStr); err == nil {
+				options.Timeout.Timeout = interceptor.Duration(duration)
+			}
+		}
+	}
+
+	// Create new Functions instance with copied values and new options
+	newFunctions := &Functions{
+		funcs:    functions.funcs,
+		dtt:      functions.dtt,
+		values:   functions.values.Clone(),
+		actor:    functions.actor,
+		hasActor: functions.hasActor,
+		scope:    functions.scope,
+		hasScope: functions.hasScope,
+		options:  options,
+	}
+
+	// Create new userdata with the new Functions instance
+	newUd := l.NewUserData()
+	newUd.Value = newFunctions
+	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
+	l.Push(newUd)
+
+	return 1
+}
+
 // validateRegistryID validates a registry ID
 func validateRegistryID(id registry.ID) error {
 	if id.NS == "" {
@@ -355,6 +443,7 @@ func (m *Module) call(l *lua.LState) int {
 		execCtx := engine.DetachUnitOfWork(uw.Context())
 		execCtx = functions.applySecurityContext(execCtx)
 		execCtx = context.WithValue(execCtx, contextapi.ValuesCtx, functions.values)
+		execCtx = context.WithValue(execCtx, interceptor.OptionsContextKey{}, functions.options)
 
 		resultChan, err := functions.funcs.Call(execCtx, t)
 		if err != nil {

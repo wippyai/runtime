@@ -104,11 +104,24 @@ build-runner-embed:
 lint-init:
 	# binary will be bin/golangci-lint
 	mkdir -p bin
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b bin v2.1.5
-	golangci-lint --version
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b bin v2.2.1
+	bin/golangci-lint --version
 
 lint:
 	bin/golangci-lint run
+
+mock:
+	go tool mockgen -destination tests/mock/identityv1connect/identityv1connect.go github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect OrganizationServiceClient
+	go tool mockgen -destination tests/mock/modulev1connect/modulev1connect.go github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect ModuleServiceClient,CommitServiceClient,LabelServiceClient,DownloadServiceClient
+	go tool mockgen -destination tests/mock/moduleloader/moduleloader.go github.com/ponyruntime/pony/moduleloader ManifestLoader
+
+
+# OpenTelemetry commands
+otel-up:
+	cd tests && docker-compose up -d --remove-orphans
+
+otel-down:
+	cd tests && docker-compose down
 
 mock:
 	go tool mockgen -destination tests/mock/identityv1connect/identityv1connect.go github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect OrganizationServiceClient

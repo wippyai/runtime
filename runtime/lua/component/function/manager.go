@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/ponyruntime/pony/api/interceptor"
+
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -116,14 +118,17 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to add function: %w", err)
 	}
 
+	options := cfg.Meta.Options
 	// Spawn and store pool
-	if err := m.pushHandler(entry.ID, cfg); err != nil {
+	if err = m.pushHandler(entry.ID, cfg); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
 		return fmt.Errorf("failed to create function: %w", err)
 	}
 
 	// Register function caller
 	m.registerCaller(ctx, entry.ID, cfg.Method)
+
+	m.registerCallerOptions(ctx, entry.ID, options)
 
 	return nil
 }
@@ -322,6 +327,15 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, _ string) 
 		Kind:   function.Register,
 		Path:   id.String(),
 		Data:   function.Func(m.Execute),
+	})
+}
+
+func (m *Manager) registerCallerOptions(ctx context.Context, id registry.ID, options interceptor.Options) {
+	m.bus.Send(ctx, event.Event{
+		System: function.System,
+		Kind:   function.OptionsRegister,
+		Path:   id.String(),
+		Data:   options,
 	})
 }
 

@@ -101,7 +101,7 @@ func (r *PolicyRegistry) registerPolicy(e event.Event) {
 }
 
 func (r *PolicyRegistry) updatePolicy(e event.Event) {
-	entry, ok := e.Data.(security.PolicyEntry)
+	entry, ok := e.Data.(*security.PolicyEntry)
 	if !ok {
 		r.logger.Error("invalid policy update payload",
 			zap.String("policy", e.Path),

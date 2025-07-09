@@ -223,3 +223,66 @@ func TestNodeDetach(t *testing.T) {
 	}
 	node.Detach(pidInvalidHost) // Should not panic
 }
+
+func TestNodeRegisterHostDuplicate(t *testing.T) {
+	node := NewNode("node1", nil)
+	dhost := &dummyHost{}
+
+	// First registration should succeed
+	err := node.RegisterHost("host1", dhost)
+	assert.NoError(t, err)
+
+	// Second registration should fail
+	err = node.RegisterHost("host1", dhost)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+}
+
+func TestNodeRegisterHostInvalidType(t *testing.T) {
+	node := NewNode("node1", nil)
+
+	// Store an invalid type directly in the hosts map
+	node.hosts.Store("host1", "not a host")
+
+	// Try to use the invalid host
+	pid := api.PID{
+		Node:   "node1",
+		Host:   "host1",
+		ID:     registry.ID{NS: "test", Name: "proc"},
+		UniqID: "test",
+	}
+
+	// Try to attach to the invalid host
+	ch := make(chan *api.Package)
+	_, err := node.Attach(pid, ch)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid type")
+
+	// Try to send to the invalid host
+	pkg := &api.Package{
+		Target: pid,
+		Messages: []*api.Message{
+			{Topic: "test"},
+		},
+	}
+	err = node.Send(pkg)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid type")
+}
+
+func TestNodeUnregisterHostNonExistent(_ *testing.T) {
+	node := NewNode("node1", nil)
+
+	// Unregister a non-existent host should not panic
+	node.UnregisterHost("nonexistent")
+}
+
+func TestNodeUnregisterHostInvalidType(_ *testing.T) {
+	node := NewNode("node1", nil)
+
+	// Store an invalid type
+	node.hosts.Store("host1", "not a host")
+
+	// Unregister should not panic
+	node.UnregisterHost("host1")
+}

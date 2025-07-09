@@ -1,16 +1,6 @@
 version: "1.0"
 namespace: system
 
-# Exports section declares what this system makes available to dependent modules
-exports:
-  - name: NAMESPACE
-    description: "System namespace reference"
-    value: "ns:system"
-
-  - name: API_ROUTER
-    description: "Main API router for endpoints"
-    value: "system:api"
-
 entries:
   - name: helloworld_dependency
     kind: "dependency.component"
@@ -146,3 +136,16 @@ entries:
     file: "./app/data/app.db"
     lifecycle:
       auto_start: true
+
+  - name: envmemory
+    kind: env.storagememory
+    meta:
+      type: envstorage
+      comment: Memory storage for environment variables
+
+  - name: envfile
+    kind: env.storagefile
+    meta:
+      type: envstorage
+      comment: Memory storage for environment variables
+    file_path: "./app/env/.env.sample"

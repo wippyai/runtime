@@ -68,7 +68,10 @@ func TestWrappedErrorWithStack(t *testing.T) {
 	// Build and print actual error chain for debugging
 	//nolint:prealloc // ok for now
 	var actualChain []string
-	current := wrapped.Err // Launch with the wrapped error's inner error
+	var current error
+	if wrapped != nil {
+		current = wrapped.Err // Launch with the wrapped error's inner error
+	}
 	for current != nil {
 		actualChain = append(actualChain, current.Error())
 		current = errors.Unwrap(current)
@@ -230,7 +233,10 @@ func TestErrorIdentification(t *testing.T) {
 	// Build and print actual error chain for debugging
 	//nolint:prealloc // ok for now
 	var actualChain []string
-	current := wrapped.Err // Launch with the wrapped error's inner error
+	var current error
+	if wrapped != nil {
+		current = wrapped.Err // Launch with the wrapped error's inner error
+	}
 	for current != nil {
 		actualChain = append(actualChain, current.Error())
 		current = errors.Unwrap(current)

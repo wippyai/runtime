@@ -114,6 +114,8 @@ func txDBType(l *lua.LState) int {
 
 // txQuery executes a query within a transaction and returns rows
 func txQuery(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -141,9 +143,9 @@ func txQuery(l *lua.LState) int {
 	// Serve query with appropriate parameter style
 	switch p := params.(type) {
 	case nil:
-		rows, err = tx.tx.Query(query)
+		rows, err = tx.tx.QueryContext(ctx, query)
 	case []interface{}:
-		rows, err = tx.tx.Query(query, p...)
+		rows, err = tx.tx.QueryContext(ctx, query, p...)
 	default:
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
@@ -189,6 +191,8 @@ func txQuery(l *lua.LState) int {
 
 // txExecute executes a statement within a transaction that doesn't return rows
 func txExecute(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -216,9 +220,9 @@ func txExecute(l *lua.LState) int {
 	// Serve with appropriate parameter style
 	switch p := params.(type) {
 	case nil:
-		result, err = tx.tx.Exec(query)
+		result, err = tx.tx.ExecContext(ctx, query)
 	case []interface{}:
-		result, err = tx.tx.Exec(query, p...)
+		result, err = tx.tx.ExecContext(ctx, query, p...)
 	default:
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
@@ -241,6 +245,8 @@ func txExecute(l *lua.LState) int {
 
 // txPrepare prepares a statement within a transaction for repeated execution
 func txPrepare(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -264,7 +270,7 @@ func txPrepare(l *lua.LState) int {
 	}
 
 	// Prepare statement
-	stmt, err := tx.tx.Prepare(query)
+	stmt, err := tx.tx.PrepareContext(ctx, query)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -356,6 +362,8 @@ func txRollback(l *lua.LState) int {
 
 // txSavepoint creates a savepoint in the transaction
 func txSavepoint(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -389,7 +397,7 @@ func txSavepoint(l *lua.LState) int {
 
 	// Create savepoint
 	query := fmt.Sprintf("SAVEPOINT %s", name)
-	_, err := tx.tx.Exec(query)
+	_, err := tx.tx.ExecContext(ctx, query)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to create savepoint: %v", err)))
@@ -403,6 +411,8 @@ func txSavepoint(l *lua.LState) int {
 
 // txRollbackTo rolls back to a savepoint in the transaction
 func txRollbackTo(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -435,7 +445,7 @@ func txRollbackTo(l *lua.LState) int {
 
 	// Roll back to savepoint
 	query := fmt.Sprintf("ROLLBACK TO SAVEPOINT %s", name)
-	_, err := tx.tx.Exec(query)
+	_, err := tx.tx.ExecContext(ctx, query)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to rollback to savepoint: %v", err)))
@@ -449,6 +459,8 @@ func txRollbackTo(l *lua.LState) int {
 
 // txReleaseSavepoint releases a savepoint in the transaction
 func txReleaseSavepoint(l *lua.LState) int {
+	ctx := l.Context()
+
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -481,7 +493,7 @@ func txReleaseSavepoint(l *lua.LState) int {
 
 	// Release savepoint
 	query := fmt.Sprintf("RELEASE SAVEPOINT %s", name)
-	_, err := tx.tx.Exec(query)
+	_, err := tx.tx.ExecContext(ctx, query)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to release savepoint: %v", err)))

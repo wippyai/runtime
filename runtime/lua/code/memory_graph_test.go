@@ -7,6 +7,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/registry"
 	runtime "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -1106,4 +1107,11 @@ func TestMemoryGraph_GetAllDependents_NoDuplicates(t *testing.T) {
 			t.Errorf("unexpected dependent: %v", dep.ID.Name)
 		}
 	}
+}
+
+func TestNewMemoryGraph(t *testing.T) {
+	mg := NewMemoryGraph()
+	assert.NotNil(t, mg)
+	assert.NotNil(t, mg.nodes)
+	assert.NotNil(t, mg.graph)
 }

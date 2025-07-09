@@ -2,6 +2,8 @@ package fs
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -336,4 +338,204 @@ func TestFSRegistry_WithContext(t *testing.T) {
 	// Test retrieving from context without registry
 	emptyRegistry := fsapi.GetRegistry(ctx)
 	assert.Nil(t, emptyRegistry)
+}
+
+func TestFSRegistry_ConcurrentOperations(t *testing.T) {
+	ctx := context.Background()
+	fsRegistry, bus := newTestFSRegistry(t)
+	require.NoError(t, fsRegistry.Start(ctx))
+	defer func() { assert.NoError(t, fsRegistry.Stop()) }()
+
+	const numGoroutines = 10
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	// Test concurrent registration and deletion
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			fsID := fmt.Sprintf("test:concurrent-fs-%d", idx)
+			f := &mockFS{}
+
+			// Register
+			bus.Send(ctx, event.Event{
+				System: fsapi.System,
+				Kind:   fsapi.Register,
+				Path:   fsID,
+				Data:   f,
+			})
+
+			// Verify registration
+			time.Sleep(10 * time.Millisecond)
+			registeredFS, exists := fsRegistry.GetFS(fsID)
+			assert.True(t, exists)
+			assert.NotNil(t, registeredFS)
+
+			// Delete
+			bus.Send(ctx, event.Event{
+				System: fsapi.System,
+				Kind:   fsapi.Delete,
+				Path:   fsID,
+			})
+
+			// Verify deletion
+			time.Sleep(10 * time.Millisecond)
+			_, exists = fsRegistry.GetFS(fsID)
+			assert.False(t, exists)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+func TestFSRegistry_ErrorHandling(t *testing.T) {
+	ctx := context.Background()
+	fsRegistry, bus := newTestFSRegistry(t)
+	require.NoError(t, fsRegistry.Start(ctx))
+	defer func() { assert.NoError(t, fsRegistry.Stop()) }()
+
+	responses := make(chan event.Event, 1)
+	sub, err := eventbus.NewSubscriber(
+		ctx,
+		bus,
+		fsapi.System,
+		"fs.*",
+		func(evt event.Event) {
+			if evt.Kind == fsapi.Accept || evt.Kind == fsapi.Reject {
+				responses <- evt
+			}
+		},
+	)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	t.Run("delete non-existent filesystem", func(t *testing.T) {
+		bus.Send(ctx, event.Event{
+			System: fsapi.System,
+			Kind:   fsapi.Delete,
+			Path:   "test:non-existent",
+		})
+
+		select {
+		case resp := <-responses:
+			assert.Equal(t, fsapi.Reject, resp.Kind)
+			assert.Equal(t, "test:non-existent", resp.Path)
+			assert.Equal(t, "filesystem not found", resp.Data)
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for response")
+		}
+	})
+
+	t.Run("register with nil filesystem", func(t *testing.T) {
+		bus.Send(ctx, event.Event{
+			System: fsapi.System,
+			Kind:   fsapi.Register,
+			Path:   "test:nil-fs",
+			Data:   nil,
+		})
+
+		select {
+		case resp := <-responses:
+			assert.Equal(t, fsapi.Reject, resp.Kind)
+			assert.Equal(t, "test:nil-fs", resp.Path)
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for response")
+		}
+	})
+}
+
+func TestFSRegistry_EdgeCases(t *testing.T) {
+	ctx := context.Background()
+	fsRegistry, bus := newTestFSRegistry(t)
+	require.NoError(t, fsRegistry.Start(ctx))
+	defer func() { assert.NoError(t, fsRegistry.Stop()) }()
+
+	responses := make(chan event.Event, 1)
+	sub, err := eventbus.NewSubscriber(
+		ctx,
+		bus,
+		fsapi.System,
+		"fs.*",
+		func(evt event.Event) {
+			if evt.Kind == fsapi.Accept || evt.Kind == fsapi.Reject {
+				responses <- evt
+			}
+		},
+	)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	t.Run("register with empty path", func(t *testing.T) {
+		f := &mockFS{}
+		bus.Send(ctx, event.Event{
+			System: fsapi.System,
+			Kind:   fsapi.Register,
+			Path:   "",
+			Data:   f,
+		})
+
+		// Wait for registration response
+		select {
+		case resp := <-responses:
+			assert.Equal(t, fsapi.Accept, resp.Kind)
+			assert.Equal(t, "", resp.Path)
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for registration response")
+		}
+
+		// Verify filesystem was registered
+		registeredFS, exists := fsRegistry.GetFS("")
+		assert.True(t, exists)
+		assert.NotNil(t, registeredFS)
+	})
+
+	t.Run("register same filesystem twice", func(t *testing.T) {
+		fsID := "test:duplicate-fs"
+		f := &mockFS{}
+
+		// First registration
+		bus.Send(ctx, event.Event{
+			System: fsapi.System,
+			Kind:   fsapi.Register,
+			Path:   fsID,
+			Data:   f,
+		})
+
+		// Wait for first registration response
+		select {
+		case resp := <-responses:
+			assert.Equal(t, fsapi.Accept, resp.Kind)
+			assert.Equal(t, fsID, resp.Path)
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for first registration response")
+		}
+
+		// Second registration
+		bus.Send(ctx, event.Event{
+			System: fsapi.System,
+			Kind:   fsapi.Register,
+			Path:   fsID,
+			Data:   f,
+		})
+
+		// Wait for second registration response
+		select {
+		case resp := <-responses:
+			assert.Equal(t, fsapi.Accept, resp.Kind)
+			assert.Equal(t, fsID, resp.Path)
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for second registration response")
+		}
+
+		// Verify filesystem is still registered
+		registeredFS, exists := fsRegistry.GetFS(fsID)
+		assert.True(t, exists)
+		assert.NotNil(t, registeredFS)
+	})
+
+	t.Run("get non-existent filesystem", func(t *testing.T) {
+		fs, exists := fsRegistry.GetFS("test:non-existent")
+		assert.False(t, exists)
+		assert.Nil(t, fs)
+	})
 }
