@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"io"
 	"sync"
 	"testing"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"go.uber.org/zap"

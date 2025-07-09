@@ -62,7 +62,7 @@ func RegisterTypeMethods(
 
 	// Check if metatable already exists in our registry
 	var mt *lua.LTable
-	var shouldCreateNew bool = false
+	var shouldCreateNew = false
 
 	if existing, ok := metatableRegistry.Load(typeName); ok {
 		if existingMt, ok := existing.(*lua.LTable); ok {

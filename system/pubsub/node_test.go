@@ -225,7 +225,7 @@ func TestNodeDetach(t *testing.T) {
 }
 
 func TestNodeRegisterHostDuplicate(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	dhost := &dummyHost{}
 
 	// First registration should succeed
@@ -239,7 +239,7 @@ func TestNodeRegisterHostDuplicate(t *testing.T) {
 }
 
 func TestNodeRegisterHostInvalidType(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 
 	// Store an invalid type directly in the hosts map
 	node.hosts.Store("host1", "not a host")
@@ -271,14 +271,14 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 }
 
 func TestNodeUnregisterHostNonExistent(_ *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 
 	// Unregister a non-existent host should not panic
 	node.UnregisterHost("nonexistent")
 }
 
 func TestNodeUnregisterHostInvalidType(_ *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 
 	// Store an invalid type
 	node.hosts.Store("host1", "not a host")

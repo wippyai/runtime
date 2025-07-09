@@ -230,17 +230,6 @@ func TestExecutor_Stderr(t *testing.T) {
 		// On Windows, we need to use CMD to redirect to stderr
 		command = "cmd /c echo error message 1>&2"
 	} else {
-		// On Unix systems
-		command = "sh -c \"echo error message >&2\""
-	}
-	logger := zap.NewNop()
-
-	// Use a cross-platform way to generate stderr output
-	var command string
-	if runtime.GOOS == "windows" {
-		// On Windows, we need to use CMD to redirect to stderr
-		command = "cmd /c echo error message 1>&2"
-	} else {
 		// On Unix systems - use a more reliable approach
 		command = "bash -c 'echo error message >&2'"
 	}

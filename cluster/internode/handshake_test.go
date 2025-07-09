@@ -1,12 +1,14 @@
 package internode
 
 import (
-	"github.com/ponyruntime/pony/api/cluster"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
+	"errors"
 	"net"
 	"sync"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/cluster"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestHandshake_Success(t *testing.T) {
@@ -80,7 +82,8 @@ func TestHandshake_Client_UnexpectedRemoteID(t *testing.T) {
 
 	// The client MUST fail with a protocol error (wrong remote node ID)
 	require.Error(t, clientErr)
-	clientConnErr, ok := clientErr.(*ConnectionError)
+	clientConnErr := &ConnectionError{}
+	ok := errors.As(clientErr, &clientConnErr)
 	require.True(t, ok)
 	require.Equal(t, ExitProtocolError, clientConnErr.Reason)
 	require.Contains(t, clientConnErr.Error(), "expected remote node ID 'node-B' but got 'node-C'")

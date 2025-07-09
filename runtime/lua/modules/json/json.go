@@ -352,7 +352,7 @@ func (j *jsonValue) writeArrayDirect(buf *bytes.Buffer, table *lua.LTable, maxNu
 	first := true
 
 	for i := 1; i <= maxNumericKey; i++ {
-		var value lua.LValue = lua.LNil
+		var value = lua.LNil
 
 		// Check Array part
 		if table.Array != nil && i-1 < len(table.Array) {
@@ -414,7 +414,7 @@ func (j *jsonValue) writeObjectDirect(buf *bytes.Buffer, table *lua.LTable, maxN
 	// Write numeric keys first (if treating mixed as objects)
 	if maxNumericKey > 0 {
 		for i := 1; i <= maxNumericKey; i++ {
-			var value lua.LValue = lua.LNil
+			var value = lua.LNil
 
 			// Check Array part
 			if table.Array != nil && i-1 < len(table.Array) {

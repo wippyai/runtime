@@ -3,10 +3,11 @@ package websocket
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/runtime/lua/security"
 

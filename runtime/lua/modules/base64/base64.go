@@ -2,6 +2,7 @@ package base64
 
 import (
 	"encoding/base64"
+
 	lua "github.com/yuin/gopher-lua"
 )
 

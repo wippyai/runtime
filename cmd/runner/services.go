@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/registry"
 	httpbase "net/http"
+	"os"
 	"time"
+
+	"github.com/ponyruntime/pony/api/registry"
 
 	"github.com/go-chi/chi/v5/middleware"
 	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
@@ -25,7 +28,7 @@ import (
 	contractmod "github.com/ponyruntime/pony/runtime/lua/modules/contract"
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ctx"
-	"github.com/ponyruntime/pony/runtime/lua/modules/env"
+	envlua "github.com/ponyruntime/pony/runtime/lua/modules/env"
 	"github.com/ponyruntime/pony/runtime/lua/modules/events"
 	"github.com/ponyruntime/pony/runtime/lua/modules/excel"
 	"github.com/ponyruntime/pony/runtime/lua/modules/exec"
@@ -38,6 +41,7 @@ import (
 	jsonmod "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ostime"
+	otelmod "github.com/ponyruntime/pony/runtime/lua/modules/otel"
 	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
 	processmodapi "github.com/ponyruntime/pony/runtime/lua/modules/processmod"
@@ -59,6 +63,7 @@ import (
 	"github.com/ponyruntime/pony/service/aws/s3"
 	"github.com/ponyruntime/pony/service/di"
 	fsdir "github.com/ponyruntime/pony/service/directory"
+	envservice "github.com/ponyruntime/pony/service/env"
 	native "github.com/ponyruntime/pony/service/exec"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
@@ -78,6 +83,12 @@ import (
 	reghandler "github.com/ponyruntime/pony/system/registry/events"
 	"github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
 	"github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	otelresource "go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+	oteltrace "go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
 )
 
@@ -86,6 +97,7 @@ func createServiceHandlers(a *App) eventbus.RouterOption {
 	return eventbus.WithHandlers(append(
 		withLuaRuntime(a),
 		withYamlPolicies(a),
+		withEnvManager(a),
 		withDirectoryManager(a),
 		withHTTPService(a),
 		withTokenStoreManager(a),
@@ -236,6 +248,14 @@ func withS3Manager(a *App) eventbus.EventHandler {
 	))
 }
 
+func withEnvManager(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("env.*", envservice.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("env"),
+	))
+}
+
 func withSQLManager(a *App) eventbus.EventHandler {
 	// Create manager with required dependencies
 	manager, err := sql.NewManager(
@@ -333,7 +353,7 @@ func withLuaRuntime(a *App) []eventbus.EventHandler {
 		a.eventBus,
 		code.Config{
 			Modules: []luaapi.Module{
-				env.NewEnvModule(),
+				envlua.NewEnvModule(),
 				ostime.NewOSTimeModule(),
 				channel.NewChannelModule(),
 				timemod.NewTimeModule(),
@@ -373,6 +393,7 @@ func withLuaRuntime(a *App) []eventbus.EventHandler {
 				cloudstorage.NewModule(),
 				system.NewSystemModule(),
 				contractmod.NewContractModule(a.logger.Named("contract")),
+				otelmod.NewOTelModule(),
 			},
 			ProtoCacheSize: 60000,
 			MainCacheSize:  10000,
@@ -415,4 +436,76 @@ func newModuleloaderManager(baseURL string, entries []registry.Entry, logger *za
 		registryLoader,
 		moduleloader.VendorFolder,
 	)
+}
+
+// initOpenTelemetry initializes the OpenTelemetry tracer
+func initOpenTelemetry(
+	ctx context.Context,
+	endpoint string,
+	serviceName string,
+	serviceVersion string,
+	mainLogger *zap.Logger,
+) (func(), error) {
+	if endpoint == "" {
+		mainLogger.Info("No OpenTelemetry endpoint specified, using no-op tracer")
+		otel.SetTracerProvider(oteltrace.NewTracerProvider())
+		return func() {}, nil
+	}
+
+	if serviceName == "" {
+		serviceName = "wippy-runtime"
+	}
+	if serviceVersion == "" {
+		serviceVersion = "1.0.0"
+	}
+
+	// Create OTLP exporter
+	exporter, err := otlptracegrpc.New(ctx,
+		otlptracegrpc.WithInsecure(),
+		otlptracegrpc.WithEndpoint(endpoint),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
+	}
+
+	// Create resource with service information
+	res, err := otelresource.New(ctx,
+		otelresource.WithAttributes(
+			semconv.ServiceNameKey.String(serviceName),
+			semconv.ServiceVersionKey.String(serviceVersion),
+			semconv.HostNameKey.String(getHostname()),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create resource: %w", err)
+	}
+
+	// Create trace provider with sampling
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	)
+	otel.SetTracerProvider(tp)
+
+	// Store cleanup function
+	cleanup := func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err = tp.Shutdown(cleanupCtx); err != nil {
+			mainLogger.Warn("Error shutting down tracer provider", zap.Error(err))
+		}
+	}
+
+	return cleanup, nil
+}
+
+// getHostname returns the hostname of the current machine
+func getHostname() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return hostname
 }

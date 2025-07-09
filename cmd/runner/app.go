@@ -16,9 +16,11 @@ import (
 	"github.com/ponyruntime/pony/api/cluster"
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/contract"
+	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	funcapi "github.com/ponyruntime/pony/api/function"
+	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	logapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
 	procapi "github.com/ponyruntime/pony/api/process"
@@ -30,10 +32,13 @@ import (
 	"github.com/ponyruntime/pony/cluster/internode"
 	"github.com/ponyruntime/pony/cluster/membership"
 	"github.com/ponyruntime/pony/embed"
+	"github.com/ponyruntime/pony/requirementresolver"
 	contractsys "github.com/ponyruntime/pony/system/contract"
+	"github.com/ponyruntime/pony/system/env"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/fs"
 	"github.com/ponyruntime/pony/system/function"
+	"github.com/ponyruntime/pony/system/interceptor"
 	"github.com/ponyruntime/pony/system/logs"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
@@ -79,7 +84,9 @@ type App struct {
 	prototypes  *process.PrototypeRegistry
 	hosts       *process.HostRegistry
 	fsRegistry  *fs.Registry
+	envRegistry *env.Registry
 	resources   *resource.Registry
+	interceptor *interceptor.Registry
 
 	// contract system
 	contractRegistry     *contractsys.ContractRegistry
@@ -99,6 +106,7 @@ type App struct {
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
+	otelCleanup   func()
 }
 
 func NewApp(config *Config) (*App, error) {
@@ -372,6 +380,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	appCtx = event.WithBus(appCtx, a.eventBus)
 	appCtx = secapi.WithRegistry(appCtx, a.security)
 	appCtx = fsapi.WithFSRegistry(appCtx, a.fsRegistry)
+	appCtx = envapi.WithRegistry(appCtx, a.envRegistry)
 	appCtx = regapi.WithRegistry(appCtx, a.reg)
 	appCtx = payload.WithTranscoder(appCtx, a.dtt)
 	appCtx = funcapi.WithFunctions(appCtx, a.funcs)
@@ -387,6 +396,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	appCtx = topapi.WithTopology(appCtx, a.topo)
 	appCtx = topapi.WithPIDRegistry(appCtx, a.pidReg)
 	appCtx = logapi.WithLogger(appCtx, a.logger)
+	appCtx = apiinterceptor.WithInterceptor(appCtx, a.interceptor)
 	appCtx = contract.WithServices(appCtx, a.contractRegistry, a.contractInstantiator)
 
 	// Add environment context
@@ -405,11 +415,22 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to start filesystem service: %w", err)
 	}
 
+	if err := a.envRegistry.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start env registry: %w", err)
+	}
+
 	if err := a.resources.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start resource service: %w", err)
 	}
 
+	if err := a.interceptor.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start interceptor service: %w", err)
+	}
+
+	// LaunchProcess core function registry
 	if err := a.funcs.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start function executor: %w", err)
@@ -489,11 +510,21 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	bootCtx, cancel := context.WithTimeout(appCtx, 300*time.Second)
 	defer cancel()
 
-	appState, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger)
+	manager := interceptor.NewManager(a.eventBus, a.logger.Named("interceptor"))
+	err = manager.InitInterceptors(appCtx)
+	if err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to initialize interceptors: %w", err)
+	}
+
+	appState, cleanup, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("load application state: %w", err)
 	}
+
+	// Store cleanup function
+	a.otelCleanup = cleanup
 
 	if _, err := a.reg.Apply(bootCtx, appState); err != nil {
 		return fmt.Errorf("failed to apply initial state: %w", err)
@@ -518,6 +549,11 @@ func (a *App) Stop() error {
 		case <-cancelCtx.Done():
 		}
 	}()
+
+	// Cleanup OpenTelemetry
+	if a.otelCleanup != nil {
+		a.otelCleanup()
+	}
 
 	// Stop services in REVERSE order of startup
 	if err := a.eventRouter.Stop(); err != nil {
@@ -557,6 +593,10 @@ func (a *App) Stop() error {
 		a.logger.Error("failed to stop hosts registry", zap.Error(err))
 	}
 
+	if err := a.interceptor.Stop(); err != nil {
+		a.logger.Error("failed to stop interceptor service", zap.Error(err))
+	}
+
 	if err := a.prototypes.Stop(); err != nil {
 		a.logger.Error("failed to stop prototype registry", zap.Error(err))
 	}
@@ -571,6 +611,10 @@ func (a *App) Stop() error {
 
 	if err := a.fsRegistry.Stop(); err != nil {
 		a.logger.Error("failed to stop filesystem registry", zap.Error(err))
+	}
+
+	if err := a.envRegistry.Stop(); err != nil {
+		a.logger.Error("failed to stop env registry", zap.Error(err))
 	}
 
 	if err := a.security.Stop(); err != nil {
@@ -642,7 +686,7 @@ func loadApplicationState(
 	fs iofs.FS,
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
-) (regapi.ChangeSet, error) {
+) (regapi.ChangeSet, func(), error) {
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
@@ -654,9 +698,21 @@ func loadApplicationState(
 		vars[pair[0]] = pair[1]
 	}
 
+	// Initialize OpenTelemetry
+	cleanup, err := initOpenTelemetry(
+		context.Background(),
+		os.Getenv("OTEL_ENDPOINT"),
+		os.Getenv("OTEL_SERVICE_NAME"),
+		os.Getenv("OTEL_SERVICE_VERSION"),
+		mainLogger,
+	)
+	if err != nil {
+		mainLogger.Error("failed to initialize OpenTelemetry", zap.Error(err))
+	}
+
 	entries, err := folderLoader.LoadFS(fs, vars)
 	if err != nil {
-		return nil, fmt.Errorf("load entries: %w", err)
+		return nil, nil, fmt.Errorf("load entries: %w", err)
 	}
 
 	// Module registry loader
@@ -672,20 +728,26 @@ func loadApplicationState(
 	} else {
 		vendorDir, err := os.OpenRoot("vendor")
 		if err != nil {
-			return nil, fmt.Errorf("open vendor folder: %w", err)
+			return nil, nil, fmt.Errorf("open vendor folder: %w", err)
 		}
 
 		dependencyEntries, err := folderLoader.LoadFS(vendorDir.FS(), vars)
 		if err != nil {
-			return nil, fmt.Errorf("load dependencies: %w", err)
+			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}
 		entries = append(entries, dependencyEntries...)
 	}
 
-	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
+	resolver := requirementresolver.NewResolver(mainLogger.Named("requirement-resolver"))
+	err = resolver.ResolveModuleDefinitions(entries)
 	if err != nil {
-		return nil, fmt.Errorf("build state delta: %w", err)
+		return nil, nil, err
 	}
 
-	return boot, nil
+	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build state delta: %w", err)
+	}
+
+	return boot, cleanup, nil
 }

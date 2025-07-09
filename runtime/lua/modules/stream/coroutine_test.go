@@ -2,8 +2,9 @@ package stream
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"testing"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"

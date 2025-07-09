@@ -2,8 +2,9 @@ package topology
 
 import (
 	"encoding/json"
-	"github.com/ponyruntime/pony/api/payload"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/payload"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"

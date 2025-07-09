@@ -2,8 +2,9 @@ package http
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	basehttp "net/http"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"

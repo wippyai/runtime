@@ -1,8 +1,9 @@
 package fs
 
 import (
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"io/fs"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/runtime/lua/security"
 

@@ -16,7 +16,7 @@ func TestNewTaskCoordinator(t *testing.T) {
 	coordinator := newTaskCoordinator(10, nil)
 	require.NotNil(t, coordinator, "expected non-nil coordinator")
 	require.NotNil(t, coordinator.updates, "expected non-nil updates channel")
-	require.NotNil(t, coordinator.wakeup, "expected non-nil wakeup channel")
+	require.NotNil(t, coordinator.wakeupFunc, "expected non-nil wakeup channel")
 
 	// Test with wakeup function
 	wakeupFunc := func() {}

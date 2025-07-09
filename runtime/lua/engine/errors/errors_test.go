@@ -3,10 +3,11 @@ package errors
 import (
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	lua "github.com/yuin/gopher-lua"
 )

@@ -1,4 +1,4 @@
-// Package cluster centralises event-bus metadata that higher-level components
+// Package cluster centralizes event-bus metadata that higher-level components
 // use to observe membership changes, leader transitions, and KV mutations.
 package cluster
 

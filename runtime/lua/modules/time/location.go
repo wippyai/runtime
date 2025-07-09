@@ -1,8 +1,9 @@
 package time
 
 import (
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"time"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	lua "github.com/yuin/gopher-lua"
 )

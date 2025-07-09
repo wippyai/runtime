@@ -363,7 +363,7 @@ func (m *Module) withContext(l *lua.LState) int {
 	}
 
 	ctxTable := l.CheckTable(2)
-	newCallCtx := wrapper.callContext.clone()
+	newCallCtx := wrapper.clone()
 
 	// Add new values from Lua table to existing context
 	ctxTable.ForEach(func(k, v lua.LValue) {
@@ -411,7 +411,7 @@ func (m *Module) withActor(l *lua.LState) int {
 	}
 
 	// Create new call context with actor
-	newCallCtx := wrapper.callContext.clone()
+	newCallCtx := wrapper.clone()
 	newCallCtx.actor = actor
 	newCallCtx.hasActor = true
 
@@ -451,7 +451,7 @@ func (m *Module) withScope(l *lua.LState) int {
 	}
 
 	// Create new call context with scope
-	newCallCtx := wrapper.callContext.clone()
+	newCallCtx := wrapper.clone()
 	newCallCtx.scope = scope
 	newCallCtx.hasScope = true
 
@@ -513,7 +513,7 @@ func contractOpen(l *lua.LState) int {
 	}
 
 	// Create merged call context: start with wrapper context
-	mergedCallCtx := wrapper.callContext.clone()
+	mergedCallCtx := wrapper.clone()
 
 	// Merge query parameters from binding ID (second priority)
 	for k, v := range queryArgs {
@@ -793,7 +793,7 @@ func collectPayloadArgs(l *lua.LState, startIndex int) []payload.Payload {
 func executeAsync(l *lua.LState, wrapper *InstanceWrapper, methodName string, args []payload.Payload, uw engine.UnitOfWork) int {
 	// Detach from unit of work and apply inherited call context
 	baseCtx := engine.DetachUnitOfWork(uw.Context())
-	execCtx := wrapper.callContext.applyToContext(baseCtx)
+	execCtx := wrapper.applyToContext(baseCtx)
 	ctx, cancel := context.WithCancel(execCtx)
 	cmd := command.NewCommand(l, methodName, func(_ runtime.Command) { cancel() }, args...)
 
@@ -823,7 +823,7 @@ func executeSync(l *lua.LState, wrapper *InstanceWrapper, methodName string, arg
 	coroutine.Wrap(l, func() *engine.Update {
 		// Detach from unit of work and apply inherited call context
 		baseCtx := engine.DetachUnitOfWork(uw.Context())
-		execCtx := wrapper.callContext.applyToContext(baseCtx)
+		execCtx := wrapper.applyToContext(baseCtx)
 
 		resultChan, err := wrapper.instance.Call(execCtx, methodName, args)
 		if err != nil {

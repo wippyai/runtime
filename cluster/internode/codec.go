@@ -131,7 +131,7 @@ func (c *MessageCodec) Decode(data []byte) (*pubsub.Package, error) {
 
 	decoder := codec.NewDecoder(bytes.NewReader(data), c.handle)
 	if err := decoder.Decode(encPkg); err != nil {
-		if err == io.EOF || errors.Is(err, io.ErrUnexpectedEOF) {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			return nil, fmt.Errorf("failed to msgpack decode package: buffer is empty or incomplete")
 		}
 		return nil, fmt.Errorf("failed to msgpack decode package: %w", err)
