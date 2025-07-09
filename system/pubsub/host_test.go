@@ -309,3 +309,233 @@ func TestHost_HostShutdown(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "context canceled")
 }
+
+func TestHost_InvalidConfig(t *testing.T) {
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	tests := []struct {
+		name           string
+		config         HostConfig
+		expectedConfig HostConfig
+		shouldPanic    bool
+	}{
+		{
+			name: "zero buffer size",
+			config: HostConfig{
+				BufferSize:  0,
+				WorkerCount: 4,
+				Logger:      logger,
+			},
+			expectedConfig: HostConfig{
+				BufferSize:  0, // Zero buffer size is allowed
+				WorkerCount: 4,
+				Logger:      logger,
+			},
+		},
+		{
+			name: "negative buffer size",
+			config: HostConfig{
+				BufferSize:  -1,
+				WorkerCount: 4,
+				Logger:      logger,
+			},
+			shouldPanic: true, // Negative buffer size will cause panic in make()
+		},
+		{
+			name: "zero worker count",
+			config: HostConfig{
+				BufferSize:  100,
+				WorkerCount: 0,
+				Logger:      logger,
+			},
+			expectedConfig: HostConfig{
+				BufferSize:  100,
+				WorkerCount: 1, // Zero worker count is set to 1
+				Logger:      logger,
+			},
+		},
+		{
+			name: "negative worker count",
+			config: HostConfig{
+				BufferSize:  100,
+				WorkerCount: -1,
+				Logger:      logger,
+			},
+			expectedConfig: HostConfig{
+				BufferSize:  100,
+				WorkerCount: 1, // Negative worker count is set to 1
+				Logger:      logger,
+			},
+		},
+		{
+			name: "nil logger",
+			config: HostConfig{
+				BufferSize:  100,
+				WorkerCount: 4,
+				Logger:      nil,
+			},
+			expectedConfig: HostConfig{
+				BufferSize:  100,
+				WorkerCount: 4,
+				Logger:      zap.NewNop(), // Nil logger is replaced with noop logger
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.shouldPanic {
+				assert.Panics(t, func() {
+					NewHost(ctx, tt.config)
+				})
+			} else {
+				host := NewHost(ctx, tt.config)
+				assert.NotNil(t, host)
+				assert.Equal(t, tt.expectedConfig.WorkerCount, host.config.WorkerCount)
+				assert.Equal(t, tt.expectedConfig.BufferSize, host.config.BufferSize)
+				if tt.config.Logger == nil {
+					assert.NotNil(t, host.config.Logger)
+				} else {
+					assert.Equal(t, tt.expectedConfig.Logger, host.config.Logger)
+				}
+			}
+		})
+	}
+}
+
+func TestHost_SendMultipleMessages(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	host := NewHost(ctx, HostConfig{
+		BufferSize:  100,
+		WorkerCount: 1,
+	})
+
+	pid := api.PID{
+		Node:   "node1",
+		Host:   "host1",
+		ID:     registry.ID{NS: "ns1", Name: "proc1"},
+		UniqID: "uniq1",
+	}
+
+	receiverCh := make(chan *api.Package, 1)
+	_, err := host.Attach(pid, receiverCh)
+	assert.NoError(t, err)
+
+	// Create a package with multiple messages
+	pkg := &api.Package{
+		Target: pid,
+		Messages: []*api.Message{
+			{Topic: "test1", Payloads: nil},
+			{Topic: "test2", Payloads: nil},
+			{Topic: "test3", Payloads: nil},
+		},
+	}
+
+	err = host.Send(pkg)
+	assert.NoError(t, err)
+
+	select {
+	case received := <-receiverCh:
+		assert.Equal(t, pkg, received)
+		assert.Len(t, received.Messages, 3)
+		assert.Equal(t, "test1", received.Messages[0].Topic)
+		assert.Equal(t, "test2", received.Messages[1].Topic)
+		assert.Equal(t, "test3", received.Messages[2].Topic)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+func TestHost_SendEmptyMessages(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	host := NewHost(ctx, HostConfig{
+		BufferSize:  100,
+		WorkerCount: 1,
+	})
+
+	pid := api.PID{
+		Node:   "node1",
+		Host:   "host1",
+		ID:     registry.ID{NS: "ns1", Name: "proc1"},
+		UniqID: "uniq1",
+	}
+
+	receiverCh := make(chan *api.Package, 1)
+	_, err := host.Attach(pid, receiverCh)
+	assert.NoError(t, err)
+
+	// Create a package with empty messages array
+	pkg := &api.Package{
+		Target:   pid,
+		Messages: []*api.Message{},
+	}
+
+	err = host.Send(pkg)
+	assert.NoError(t, err)
+
+	select {
+	case received := <-receiverCh:
+		assert.Equal(t, pkg, received)
+		assert.Empty(t, received.Messages)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+func TestHost_SendNilMessages(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	host := NewHost(ctx, HostConfig{
+		BufferSize:  100,
+		WorkerCount: 1,
+	})
+
+	pid := api.PID{
+		Node:   "node1",
+		Host:   "host1",
+		ID:     registry.ID{NS: "ns1", Name: "proc1"},
+		UniqID: "uniq1",
+	}
+
+	receiverCh := make(chan *api.Package, 1)
+	_, err := host.Attach(pid, receiverCh)
+	assert.NoError(t, err)
+
+	// Create a package with nil messages array
+	pkg := &api.Package{
+		Target:   pid,
+		Messages: nil,
+	}
+
+	err = host.Send(pkg)
+	assert.NoError(t, err)
+
+	select {
+	case received := <-receiverCh:
+		assert.Equal(t, pkg, received)
+		assert.Nil(t, received.Messages)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+func TestHost_SendNilPackage(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	host := NewHost(ctx, HostConfig{
+		BufferSize:  100,
+		WorkerCount: 1,
+	})
+
+	// Try to send nil package - this should panic due to nil pointer dereference
+	assert.Panics(t, func() {
+		_ = host.Send(nil)
+	})
+}
