@@ -492,3 +492,226 @@ func TestService_HandleEvent(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	})
 }
+
+func TestService_EventHandlingErrors(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() {
+		require.NoError(t, service.Stop())
+	}()
+
+	// Test invalid event data for register
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Register,
+		Path:   "test/resource1",
+		Data:   "invalid-data", // Should be resource.Entry
+	})
+
+	// Test invalid event data for update
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Update,
+		Path:   "test/resource1",
+		Data:   "invalid-data", // Should be resource.Entry
+	})
+
+	// Test invalid event data for delete
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Delete,
+		Path:   "test/resource1",
+		Data:   "invalid-data", // Should be registry.ID
+	})
+
+	// Test unknown event kind
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   "unknown",
+		Path:   "test/resource1",
+		Data:   nil,
+	})
+
+	// Give some time for event processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify no resources were registered due to invalid events
+	ids, err := service.List()
+	require.NoError(t, err)
+	assert.Empty(t, ids, "No resources should be registered after invalid events")
+}
+
+func TestService_ResourceUpdateScenarios(t *testing.T) {
+	ctx := context.Background()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() {
+		require.NoError(t, service.Stop())
+	}()
+
+	provider := newMockResourceProvider()
+	id := registry.ID{NS: "test", Name: "resource1"}
+
+	// Initialize the provider with the resource
+	provider.resources[id] = "initial-data"
+
+	// Register initial resource
+	entry := resource.Entry{
+		ID:       id,
+		Provider: provider,
+		Meta:     map[string]interface{}{"type": "test", "version": 1},
+	}
+
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Register,
+		Path:   id.String(),
+		Data:   entry,
+	})
+
+	time.Sleep(10 * time.Millisecond)
+
+	// Test updating non-existent resource
+	nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Update,
+		Path:   nonExistentID.String(),
+		Data: resource.Entry{
+			ID:       nonExistentID,
+			Provider: provider,
+			Meta:     map[string]interface{}{"type": "test"},
+		},
+	})
+
+	// Update existing resource
+	updatedEntry := resource.Entry{
+		ID:       id,
+		Provider: provider,
+		Meta:     map[string]interface{}{"type": "test", "version": 2},
+	}
+
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Update,
+		Path:   id.String(),
+		Data:   updatedEntry,
+	})
+
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify resource still exists after update
+	assert.True(t, service.Exists(id))
+}
+
+func TestService_ResourceAcquisitionEdgeCases(t *testing.T) {
+	ctx := context.Background()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() {
+		require.NoError(t, service.Stop())
+	}()
+
+	provider := newMockResourceProvider()
+	id := registry.ID{NS: "test", Name: "resource1"}
+
+	// Test acquiring non-existent resource
+	_, err := service.Acquire(ctx, id, resource.ModeNormal)
+	assert.Equal(t, resource.ErrResourceNotFound, err)
+
+	// Register resource
+	entry := resource.Entry{
+		ID:       id,
+		Provider: provider,
+		Meta:     map[string]interface{}{"type": "test"},
+	}
+
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Register,
+		Path:   id.String(),
+		Data:   entry,
+	})
+
+	time.Sleep(10 * time.Millisecond)
+
+	// Test acquiring with canceled context
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = service.Acquire(cancelledCtx, id, resource.ModeNormal)
+	assert.Equal(t, context.Canceled, err)
+
+	// Test acquiring with deadline exceeded
+	deadlineCtx, cancel := context.WithTimeout(ctx, 1*time.Nanosecond)
+	defer cancel()
+	time.Sleep(1 * time.Millisecond) // Ensure deadline is exceeded
+	_, err = service.Acquire(deadlineCtx, id, resource.ModeNormal)
+	assert.Equal(t, context.DeadlineExceeded, err)
+}
+
+func TestService_ResourceListingEdgeCases(t *testing.T) {
+	ctx := context.Background()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() {
+		require.NoError(t, service.Stop())
+	}()
+
+	// Test empty listing
+	ids, err := service.List()
+	require.NoError(t, err)
+	assert.Empty(t, ids)
+
+	// Register multiple resources
+	provider := newMockResourceProvider()
+	resources := []registry.ID{
+		{NS: "test", Name: "resource1"},
+		{NS: "test", Name: "resource2"},
+		{NS: "other", Name: "resource1"},
+	}
+
+	for _, id := range resources {
+		entry := resource.Entry{
+			ID:       id,
+			Provider: provider,
+			Meta:     map[string]interface{}{"type": "test"},
+		}
+
+		bus.Send(ctx, event.Event{
+			System: resource.System,
+			Kind:   resource.Register,
+			Path:   id.String(),
+			Data:   entry,
+		})
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	// Test listing all resources
+	ids, err = service.List()
+	require.NoError(t, err)
+	assert.Len(t, ids, len(resources))
+
+	// Verify all registered resources are in the list
+	for _, id := range resources {
+		assert.Contains(t, ids, id)
+	}
+
+	// Remove one resource and verify listing
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Delete,
+		Path:   resources[0].String(),
+		Data:   resources[0],
+	})
+
+	time.Sleep(10 * time.Millisecond)
+
+	ids, err = service.List()
+	require.NoError(t, err)
+	assert.Len(t, ids, len(resources)-1)
+	assert.NotContains(t, ids, resources[0])
+}

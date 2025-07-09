@@ -17,6 +17,7 @@ import (
 )
 
 func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
+	t.Parallel()
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
 	//nolint:errcheck // ok for tests
@@ -84,6 +85,7 @@ func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
 }
 
 func TestEventBus_VariableUpdate(t *testing.T) {
+	t.Parallel()
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
 	//nolint:errcheck // ok for tests
@@ -178,6 +180,7 @@ func TestEventBus_VariableUpdate(t *testing.T) {
 }
 
 func TestEventBus_ReadOnlyVariable(t *testing.T) {
+	t.Parallel()
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
 	//nolint:errcheck // ok for tests
@@ -240,6 +243,7 @@ func TestEventBus_ReadOnlyVariable(t *testing.T) {
 }
 
 func TestEventBus_DuplicateVariable(t *testing.T) {
+	t.Parallel()
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
 	//nolint:errcheck // ok for tests
@@ -348,4 +352,241 @@ func TestEventBus_DuplicateVariable(t *testing.T) {
 	value, err = reg.Get(ctx, "test_var")
 	require.NoError(t, err)
 	assert.Equal(t, "test_value", value)
+}
+
+func TestEventBus_InvalidPayloads(t *testing.T) {
+	t.Parallel()
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer logger.Sync()
+
+	ctx := context.Background()
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+
+	reg := NewRegistry(bus, logger)
+	err = reg.Start(ctx)
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer reg.Stop()
+
+	// Create a channel to receive reject events
+	rejectCh := make(chan event.Event, 1)
+	subscriber, err := eventbus.NewSubscriber(ctx, bus, env.System, registry.Reject, func(e event.Event) {
+		rejectCh <- e
+	})
+	require.NoError(t, err)
+	defer bus.Unsubscribe(ctx, subscriber.ID())
+
+	// Test invalid storage payload
+	invalidStorageEvt := event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   "test:mock-storage",
+		Data:   "invalid-storage",
+	}
+	bus.Send(ctx, invalidStorageEvt)
+
+	select {
+	case rejectEvt := <-rejectCh:
+		assert.Equal(t, registry.Reject, rejectEvt.Kind)
+		assert.Equal(t, "test:mock-storage", rejectEvt.Path)
+		assert.Contains(t, rejectEvt.Data.(string), "invalid storage data type")
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for reject event")
+	}
+
+	// Test invalid variable payload
+	invalidVarEvt := event.Event{
+		System: env.System,
+		Kind:   env.VariableRegister,
+		Path:   "test:test_var",
+		Data:   "invalid-variable",
+	}
+	bus.Send(ctx, invalidVarEvt)
+
+	select {
+	case rejectEvt := <-rejectCh:
+		assert.Equal(t, registry.Reject, rejectEvt.Kind)
+		assert.Equal(t, "test:test_var", rejectEvt.Path)
+		assert.Contains(t, rejectEvt.Data.(string), "invalid variable data type")
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for reject event")
+	}
+}
+
+func TestEventBus_NamespaceHandling(t *testing.T) {
+	t.Parallel()
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer logger.Sync()
+
+	ctx := context.Background()
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+
+	reg := NewRegistry(bus, logger)
+	err = reg.Start(ctx)
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer reg.Stop()
+
+	// Create a memory storage
+	memStorage := serviceenv.NewMemoryStorage(map[string]string{
+		"TEST_VAR": "test_value",
+	}, logger)
+
+	// Register storage
+	storageEvt := event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   "test:mock-storage",
+		Data:   memStorage,
+	}
+	bus.Send(ctx, storageEvt)
+	time.Sleep(100 * time.Millisecond)
+
+	// Register variable in test namespace
+	variable := env.Variable{
+		Name:         "test_var",
+		EnvName:      "TEST_VAR",
+		StorageID:    "test:mock-storage",
+		DefaultValue: "default_value",
+		ReadOnly:     false,
+	}
+	varEvt := event.Event{
+		System: env.System,
+		Kind:   env.VariableRegister,
+		Path:   "test:test_var",
+		Data:   variable,
+	}
+	bus.Send(ctx, varEvt)
+	time.Sleep(100 * time.Millisecond)
+
+	// Test getting variable with explicit namespace
+	pid := registry.ParseID("test:ns")
+	ctx = pubsub.WithPID(ctx, pubsub.PID{ID: pid})
+	value, err := reg.Get(ctx, "test:test_var")
+	require.NoError(t, err)
+	assert.Equal(t, "test_value", value)
+
+	// Test getting variable without namespace (should use default)
+	value, err = reg.Get(ctx, "test_var")
+	require.NoError(t, err)
+	assert.Equal(t, "test_value", value)
+}
+
+func TestEventBus_AllStorages(t *testing.T) {
+	t.Parallel()
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer logger.Sync()
+
+	ctx := context.Background()
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+
+	reg := NewRegistry(bus, logger)
+	err = reg.Start(ctx)
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer reg.Stop()
+
+	// Create two memory storages
+	memStorage1 := serviceenv.NewMemoryStorage(map[string]string{
+		"TEST_VAR1": "value1",
+	}, logger)
+	memStorage2 := serviceenv.NewMemoryStorage(map[string]string{
+		"TEST_VAR2": "value2",
+	}, logger)
+
+	// Register storages
+	storageEvt1 := event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   "test:mock-storage1",
+		Data:   memStorage1,
+	}
+	storageEvt2 := event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   "test:mock-storage2",
+		Data:   memStorage2,
+	}
+	bus.Send(ctx, storageEvt1)
+	bus.Send(ctx, storageEvt2)
+	time.Sleep(100 * time.Millisecond)
+
+	// Get all storages
+	storages, err := reg.All(ctx)
+	require.NoError(t, err)
+	assert.Len(t, storages, 2)
+}
+
+func TestEventBus_NotFoundCases(t *testing.T) {
+	t.Parallel()
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer logger.Sync()
+
+	ctx := context.Background()
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+
+	reg := NewRegistry(bus, logger)
+	err = reg.Start(ctx)
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer reg.Stop()
+
+	// Test getting non-existent variable
+	_, err = reg.Get(ctx, "non_existent_var")
+	require.Error(t, err)
+	assert.Equal(t, env.ErrVariableNotFound, err)
+
+	// Test setting non-existent variable
+	err = reg.Set(ctx, "non_existent_var", "value")
+	require.Error(t, err)
+	assert.Equal(t, env.ErrVariableNotFound, err)
+
+	// Create a memory storage
+	memStorage := serviceenv.NewMemoryStorage(map[string]string{
+		"TEST_VAR": "test_value",
+	}, logger)
+
+	// Register storage
+	storageEvt := event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   "test:mock-storage",
+		Data:   memStorage,
+	}
+	bus.Send(ctx, storageEvt)
+	time.Sleep(100 * time.Millisecond)
+
+	// Register variable with non-existent storage
+	variable := env.Variable{
+		Name:         "test_var",
+		EnvName:      "TEST_VAR",
+		StorageID:    "test:non-existent-storage",
+		DefaultValue: "default_value",
+		ReadOnly:     false,
+	}
+	varEvt := event.Event{
+		System: env.System,
+		Kind:   env.VariableRegister,
+		Path:   "test:test_var",
+		Data:   variable,
+	}
+	bus.Send(ctx, varEvt)
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify variable was not registered
+	_, err = reg.Get(ctx, "test_var")
+	require.Error(t, err)
+	assert.Equal(t, env.ErrVariableNotFound, err)
 }

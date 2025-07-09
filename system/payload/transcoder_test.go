@@ -189,3 +189,124 @@ func TestTranscoder_NoUnmarshalingPath(t *testing.T) {
 		t.Errorf("Expected error '%s', got '%s'", expectedError, err.Error())
 	}
 }
+
+func TestTranscoder_ConcurrentAccess(t *testing.T) {
+	transcoder := NewTranscoder()
+	formatA := payload.Format("format/A")
+	formatB := payload.Format("format/B")
+	formatC := payload.Format("format/C")
+
+	// Create mock transcoders
+	transcoderAB := &MockFormatTranscoder{
+		From: formatA,
+		To:   formatB,
+		Func: func(p payload.Payload) (payload.Payload, error) {
+			return payload.NewPayload(fmt.Sprintf("%s_AB", p.Data()), formatB), nil
+		},
+	}
+
+	transcoderBC := &MockFormatTranscoder{
+		From: formatB,
+		To:   formatC,
+		Func: func(p payload.Payload) (payload.Payload, error) {
+			return payload.NewPayload(fmt.Sprintf("%s_BC", p.Data()), formatC), nil
+		},
+	}
+
+	// Register transcoders
+	transcoder.RegisterTranscoder(formatA, formatB, 1, transcoderAB)
+	transcoder.RegisterTranscoder(formatB, formatC, 1, transcoderBC)
+
+	// Test concurrent transcoding
+	const numGoroutines = 10
+	done := make(chan struct{})
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer func() { done <- struct{}{} }()
+
+			p := payload.NewPayload(fmt.Sprintf("test_%d", id), formatA)
+			_, err := transcoder.Transcode(p, formatC)
+			if err != nil {
+				t.Errorf("Transcode failed in goroutine %d: %v", id, err)
+			}
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+}
+
+func TestTranscoder_TranscoderErrorHandling(t *testing.T) {
+	transcoder := NewTranscoder()
+	formatA := payload.Format("format/A")
+	formatB := payload.Format("format/B")
+
+	// Create a transcoder that returns an error
+	errorTranscoder := &MockFormatTranscoder{
+		From: formatA,
+		To:   formatB,
+		Func: func(_ payload.Payload) (payload.Payload, error) {
+			return payload.NewPayload("", formatB), fmt.Errorf("transcoding error")
+		},
+	}
+
+	transcoder.RegisterTranscoder(formatA, formatB, 1, errorTranscoder)
+
+	// Attempt to transcode
+	p := payload.NewPayload("test", formatA)
+	_, err := transcoder.Transcode(p, formatB)
+	if err == nil {
+		t.Error("Expected error from transcoder, got nil")
+	}
+}
+
+func TestTranscoder_UnmarshalerErrorHandling(t *testing.T) {
+	transcoder := NewTranscoder()
+	formatA := payload.Format("format/A")
+
+	// Create an unmarshaler that returns an error
+	errorUnmarshaler := &MockUnmarshaler{
+		Format: formatA,
+		Func: func(_ payload.Payload, _ interface{}) error {
+			return fmt.Errorf("unmarshaling error")
+		},
+	}
+
+	transcoder.RegisterUnmarshaler(formatA, errorUnmarshaler)
+
+	// Attempt to unmarshal
+	p := payload.NewPayload("test", formatA)
+	var result string
+	err := transcoder.Unmarshal(p, &result)
+	if err == nil {
+		t.Error("Expected error from unmarshaler, got nil")
+	}
+}
+
+func TestTranscoder_InvalidUnmarshalTarget(t *testing.T) {
+	transcoder := NewTranscoder()
+	formatA := payload.Format("format/A")
+
+	// Register an unmarshaler
+	unmarshaler := &MockUnmarshaler{
+		Format: formatA,
+	}
+	transcoder.RegisterUnmarshaler(formatA, unmarshaler)
+
+	// Test with nil target
+	p := payload.NewPayload("test", formatA)
+	err := transcoder.Unmarshal(p, nil)
+	if err == nil {
+		t.Error("Expected error for nil target, got nil")
+	}
+
+	// Test with non-pointer target
+	var result string
+	err = transcoder.Unmarshal(p, result)
+	if err == nil {
+		t.Error("Expected error for non-pointer target, got nil")
+	}
+}

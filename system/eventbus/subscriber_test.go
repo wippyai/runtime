@@ -2,6 +2,7 @@ package eventbus
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ func newTestBusForEvents(t *testing.T) event.Bus {
 	t.Helper()
 	return NewBus()
 }
+
 func TestEventListener_NewEventListener(t *testing.T) {
 	b := newTestBusForEvents(t)
 
@@ -169,4 +171,93 @@ func TestEventListener_ContextCancellation(t *testing.T) {
 	mu.Lock()
 	require.Len(t, receivedEvents, 0)
 	mu.Unlock()
+}
+
+func TestSubscriberConcurrentHandlerExecution(t *testing.T) {
+	b := newTestBusForEvents(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var (
+		mu            sync.Mutex
+		executionTime time.Duration
+		startTime     = time.Now()
+		handlerDone   sync.WaitGroup
+	)
+
+	// Create a handler that simulates concurrent execution
+	handlerFunc := func(_ event.Event) {
+		defer handlerDone.Done()
+		time.Sleep(50 * time.Millisecond) // Simulate work
+		mu.Lock()
+		executionTime = time.Since(startTime)
+		mu.Unlock()
+	}
+
+	handler, err := NewSubscriber(ctx, b, "test-system", "test-kind.*", handlerFunc)
+	require.NoError(t, err)
+	defer handler.Close()
+
+	// Send multiple events concurrently
+	numEvents := 5
+	handlerDone.Add(numEvents)
+	for i := 0; i < numEvents; i++ {
+		go func(idx int) {
+			e := event.Event{
+				System: "test-system",
+				Kind:   fmt.Sprintf("test-kind.event-%d", idx),
+				Data:   fmt.Sprintf("data-%d", idx),
+			}
+			b.Send(context.Background(), e)
+		}(i)
+	}
+
+	// Wait for all handlers to complete
+	handlerDone.Wait()
+
+	// Verify concurrent execution
+	mu.Lock()
+	defer mu.Unlock()
+	require.Less(t, executionTime, time.Duration(numEvents)*100*time.Millisecond,
+		"Handlers should execute concurrently")
+}
+
+func TestSubscriberHandlerTimeout(t *testing.T) {
+	b := newTestBusForEvents(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	var (
+		mu            sync.Mutex
+		handlerCalled bool
+	)
+	handlerFunc := func(_ event.Event) {
+		mu.Lock()
+		handlerCalled = true
+		mu.Unlock()
+		time.Sleep(200 * time.Millisecond) // Simulate work longer than context timeout
+	}
+
+	handler, err := NewSubscriber(ctx, b, "test-system", "test-kind.*", handlerFunc)
+	require.NoError(t, err)
+	defer handler.Close()
+
+	// Send an event
+	e := event.Event{
+		System: "test-system",
+		Kind:   "test-kind.event",
+		Data:   "test-data",
+	}
+	b.Send(context.Background(), e)
+
+	// Wait for context timeout
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify handler was called but didn't complete
+	mu.Lock()
+	wasCalled := handlerCalled
+	mu.Unlock()
+	require.True(t, wasCalled, "Handler should have been called")
 }

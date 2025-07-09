@@ -704,3 +704,230 @@ func TestManager_GeneratesUniqID(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, managedHost.lastLaunch.PID.UniqID, "Manager should generate a UniqID when none is provided")
 }
+
+// Invalid host type for testing
+type managerInvalidHost struct{}
+
+func (h *managerInvalidHost) Send(_ *pubsub.Package) error {
+	return nil
+}
+
+func (h *managerInvalidHost) Terminate(_ context.Context, _ pubsub.PID) error {
+	return nil
+}
+
+func TestManager_Start_InvalidHostType(t *testing.T) {
+	// Setup test dependencies
+	nodeID := pubsub.NodeID("test-node")
+	logger := zap.NewNop()
+
+	hostLookup := newManagerHostLookup()
+	factory := &managerProcessMock{}
+	ctx, _ := contextWithManagerTopology()
+
+	// Create an invalid host type
+	hostID := "invalid-host"
+	hostLookup.AddHost(hostID, &managerInvalidHost{})
+
+	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
+
+	// Test Start with invalid host type
+	start := &process.Start{
+		HostID:    hostID,
+		Source:    registry.ParseID("test-process"),
+		Input:     payload.Payloads{},
+		Lifecycle: process.Lifecycle{},
+	}
+
+	_, err := manager.Start(ctx, start)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid host type")
+}
+
+func TestManager_Start_ProcessCreationError(t *testing.T) {
+	// Setup test dependencies
+	nodeID := pubsub.NodeID("test-node")
+	logger := zap.NewNop()
+
+	hostLookup := newManagerHostLookup()
+	factory := &managerProcessMock{
+		createErr: errors.New("process creation failed"),
+	}
+	ctx, _ := contextWithManagerTopology()
+
+	// Create the managed host mock
+	managedHost := &managerManagedHost{}
+	hostID := "managed-host"
+	hostLookup.AddHost(hostID, managedHost)
+
+	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
+
+	// Test Start with process creation error
+	start := &process.Start{
+		HostID:    hostID,
+		Source:    registry.ParseID("test-process"),
+		Input:     payload.Payloads{},
+		Lifecycle: process.Lifecycle{},
+	}
+
+	_, err := manager.Start(ctx, start)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to init launch")
+}
+
+func TestManager_AttachLifecycle_MissingTopology(t *testing.T) {
+	// Setup test dependencies
+	nodeID := pubsub.NodeID("test-node")
+	logger := zap.NewNop()
+	hostLookup := newManagerHostLookup()
+	factory := &managerProcessMock{}
+
+	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
+
+	// Test AttachLifecycle with missing topology
+	ctx := context.Background()
+	lifecycle := process.Lifecycle{
+		Monitor: true,
+		Link:    true,
+		Parent:  pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")},
+	}
+
+	ctx = manager.AttachLifecycle(ctx, lifecycle)
+
+	// Verify that the callbacks are attached but handle missing topology gracefully
+	onStart := process.GetOnStart(ctx)
+	onComplete := process.GetOnComplete(ctx)
+
+	assert.NotNil(t, onStart)
+	assert.NotNil(t, onComplete)
+
+	// Test the callbacks with missing topology
+	pid := pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")}
+	onStart(pid, &mockProcess{})
+	onComplete(pid, &runtime.Result{})
+}
+
+func TestManager_AttachLifecycle_MissingPIDRegistry(t *testing.T) {
+	// Setup test dependencies
+	nodeID := pubsub.NodeID("test-node")
+	logger := zap.NewNop()
+	hostLookup := newManagerHostLookup()
+	factory := &managerProcessMock{}
+
+	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
+
+	// Test AttachLifecycle with missing PID registry
+	ctx := context.Background()
+	ctx = topology.WithTopology(ctx, newManagerTopology())
+	lifecycle := process.Lifecycle{
+		Monitor: true,
+		Link:    true,
+		Parent:  pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")},
+	}
+
+	ctx = manager.AttachLifecycle(ctx, lifecycle)
+
+	// Verify that the callbacks are attached but handle missing PID registry gracefully
+	onComplete := process.GetOnComplete(ctx)
+	assert.NotNil(t, onComplete)
+
+	// Test the callback with missing PID registry
+	pid := pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")}
+	onComplete(pid, &runtime.Result{})
+}
+
+func TestManager_AttachLifecycle_RegistrationError(t *testing.T) {
+	// Setup test dependencies
+	nodeID := pubsub.NodeID("test-node")
+	logger := zap.NewNop()
+	hostLookup := newManagerHostLookup()
+	factory := &managerProcessMock{}
+
+	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
+
+	// Create topology with registration error
+	topo := newManagerTopology()
+	topo.registerErr = errors.New("registration failed")
+
+	ctx := context.Background()
+	ctx = topology.WithTopology(ctx, topo)
+	ctx = topology.WithPIDRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
+	lifecycle := process.Lifecycle{
+		Monitor: true,
+		Link:    true,
+		Parent:  pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")},
+	}
+
+	ctx = manager.AttachLifecycle(ctx, lifecycle)
+
+	// Test the callback with registration error
+	onStart := process.GetOnStart(ctx)
+	assert.NotNil(t, onStart)
+
+	pid := pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")}
+	onStart(pid, &mockProcess{})
+}
+
+func TestManager_AttachLifecycle_MonitoringError(t *testing.T) {
+	// Setup test dependencies
+	nodeID := pubsub.NodeID("test-node")
+	logger := zap.NewNop()
+	hostLookup := newManagerHostLookup()
+	factory := &managerProcessMock{}
+
+	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
+
+	// Create topology with monitoring error
+	topo := newManagerTopology()
+	topo.waitErr = errors.New("monitoring failed")
+
+	ctx := context.Background()
+	ctx = topology.WithTopology(ctx, topo)
+	ctx = topology.WithPIDRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
+	lifecycle := process.Lifecycle{
+		Monitor: true,
+		Link:    true,
+		Parent:  pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")},
+	}
+
+	ctx = manager.AttachLifecycle(ctx, lifecycle)
+
+	// Test the callback with monitoring error
+	onStart := process.GetOnStart(ctx)
+	assert.NotNil(t, onStart)
+
+	pid := pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")}
+	onStart(pid, &mockProcess{})
+}
+
+func TestManager_AttachLifecycle_LinkingError(t *testing.T) {
+	// Setup test dependencies
+	nodeID := pubsub.NodeID("test-node")
+	logger := zap.NewNop()
+	hostLookup := newManagerHostLookup()
+	factory := &managerProcessMock{}
+
+	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
+
+	// Create topology with linking error
+	topo := newManagerTopology()
+	topo.linkErr = errors.New("linking failed")
+
+	ctx := context.Background()
+	ctx = topology.WithTopology(ctx, topo)
+	ctx = topology.WithPIDRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
+	lifecycle := process.Lifecycle{
+		Monitor: true,
+		Link:    true,
+		Parent:  pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")},
+	}
+
+	ctx = manager.AttachLifecycle(ctx, lifecycle)
+
+	// Test the callback with linking error
+	onStart := process.GetOnStart(ctx)
+	assert.NotNil(t, onStart)
+
+	pid := pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")}
+	onStart(pid, &mockProcess{})
+}
