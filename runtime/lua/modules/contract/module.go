@@ -751,9 +751,8 @@ func callInstanceMethod(l *lua.LState, isAsync bool) int {
 	// Execute method with appropriate sync/async pattern
 	if isAsync {
 		return executeAsync(l, wrapper, methodName, args, uw)
-	} else {
-		return executeSync(l, wrapper, methodName, args, uw)
 	}
+	return executeSync(l, wrapper, methodName, args, uw)
 }
 
 // handleError centralizes error handling for sync vs async method calls
@@ -772,7 +771,8 @@ func handleError(l *lua.LState, isAsync bool, format string, args ...interface{}
 // collectPayloadArgs collects method arguments from Lua stack with payload unwrapping
 // Supports both regular Lua values and payload wrapper userdata
 func collectPayloadArgs(l *lua.LState, startIndex int) []payload.Payload {
-	var args []payload.Payload
+	argCount := l.GetTop() - startIndex + 1
+	args := make([]payload.Payload, 0, argCount)
 	for i := startIndex; i <= l.GetTop(); i++ {
 		v := l.Get(i)
 		// Check for payload wrapper userdata (avoid double-wrapping)

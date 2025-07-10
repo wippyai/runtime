@@ -126,25 +126,6 @@ func (m *Module) checkPID(l *lua.LState) (pubsub.PID, bool) {
 	return pid, ok
 }
 
-// getNode retrieves node from context
-func (m *Module) getNode(l *lua.LState) (pubsub.Node, bool) {
-	ctx := l.Context()
-	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
-		return nil, false
-	}
-
-	node := pubsub.GetNode(ctx)
-	if node == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no node found in context"))
-		return nil, false
-	}
-
-	return node, true
-}
-
 // getProcessManager retrieves process manager from context
 func (m *Module) getProcessManager(l *lua.LState) (process.Manager, bool) {
 	ctx := l.Context()

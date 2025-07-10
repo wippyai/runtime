@@ -231,7 +231,7 @@ func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte) error {
 	err := m.nodeStates.QueueMessage(nodeID, data)
 	if err != nil {
 		if errors.Is(err, ErrNodeNotManaged) {
-			m.logger.Warn("Dropping message for non-existent or unmanaged node", zap.String("target_node", string(nodeID)))
+			m.logger.Warn("Dropping message for non-existent or unmanaged node", zap.String("target_node", nodeID))
 			// Return nil to not propagate "node not found" errors for fire-and-forget sends.
 			// The caller can check the cluster membership itself if a response is required.
 			return nil
@@ -243,7 +243,7 @@ func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte) error {
 
 func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int) {
 	if m.nodeStates.GetNodeState(nodeID) == nil {
-		m.logger.Error("EnsureConnection called for an unmanaged node. This is a logic error.", zap.String("node", string(nodeID)))
+		m.logger.Error("EnsureConnection called for an unmanaged node. This is a logic error.", zap.String("node", nodeID))
 		return
 	}
 
@@ -272,12 +272,12 @@ func (m *manager) ConnectedNodes() []cluster.NodeID {
 }
 
 func (m *manager) AddManagedNode(nodeID cluster.NodeID) {
-	m.logger.Info("Adding new managed node", zap.String("node", string(nodeID)))
+	m.logger.Info("Adding new managed node", zap.String("node", nodeID))
 	m.nodeStates.CreateNodeState(nodeID)
 }
 
 func (m *manager) RemoveManagedNode(nodeID cluster.NodeID) {
-	m.logger.Info("Removing managed node", zap.String("node", string(nodeID)))
+	m.logger.Info("Removing managed node", zap.String("node", nodeID))
 	m.sendCommand(nodeID, nodeCommand{Type: cmdKill})
 	m.nodeStates.RemoveNodeState(nodeID)
 }
@@ -293,7 +293,7 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 		// Before creating a loop, verify the underlying state exists.
 		if m.nodeStates.GetNodeState(nodeID) == nil {
 			m.controlLoopsMu.Unlock()
-			m.logger.Error("Attempted to create control loop for unmanaged node", zap.String("node", string(nodeID)))
+			m.logger.Error("Attempted to create control loop for unmanaged node", zap.String("node", nodeID))
 			return
 		}
 
@@ -305,7 +305,7 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 			state:      StateNone,
 			ctx:        ctx,
 			cancel:     cancel,
-			logger:     m.logger.With(zap.String("node", string(nodeID))),
+			logger:     m.logger.With(zap.String("node", nodeID)),
 			retryDelay: m.config.InitialRetryDelay,
 		}
 		m.controlLoops[nodeID] = loop
@@ -329,7 +329,7 @@ func (m *manager) cleanupControlLoop(nodeID cluster.NodeID) {
 	m.controlLoopsMu.Lock()
 	delete(m.controlLoops, nodeID)
 	m.controlLoopsMu.Unlock()
-	m.logger.Debug("Control loop cleaned up", zap.String("node", string(nodeID)))
+	m.logger.Debug("Control loop cleaned up", zap.String("node", nodeID))
 }
 
 func (loop *nodeControlLoop) run() {
@@ -341,7 +341,7 @@ func (loop *nodeControlLoop) run() {
 	if messageNotifier == nil {
 		// This path indicates a severe logic error in the new design.
 		loop.logger.Error("Failed to get message notifier for a managed node; loop will be ineffective.",
-			zap.String("node", string(loop.nodeID)))
+			zap.String("node", loop.nodeID))
 		messageNotifier = make(<-chan struct{}) // Prevent nil-channel-select panic.
 	}
 
@@ -611,20 +611,20 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 	remoteNodeID := nodeConn.RemoteNodeID()
 
 	if m.nodeStates.GetNodeState(remoteNodeID) == nil {
-		m.logger.Warn("Received connection from an unmanaged/unknown node", zap.String("node", string(remoteNodeID)))
+		m.logger.Warn("Received connection from an unmanaged/unknown node", zap.String("node", remoteNodeID))
 		nodeConn.Close()
 		return
 	}
 
 	_, currentState := m.nodeStates.GetNodeConnection(remoteNodeID)
 	if currentState == StateConnected {
-		m.logger.Debug("Already connected, dropping new inbound connection", zap.String("node", string(remoteNodeID)))
+		m.logger.Debug("Already connected, dropping new inbound connection", zap.String("node", remoteNodeID))
 		nodeConn.Close()
 		return
 	}
 
 	if m.shouldDropInbound(remoteNodeID) {
-		m.logger.Debug("Dropping inbound connection due to tie-breaking", zap.String("node", string(remoteNodeID)))
+		m.logger.Debug("Dropping inbound connection due to tie-breaking", zap.String("node", remoteNodeID))
 		nodeConn.Close()
 		return
 	}
@@ -636,7 +636,7 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 }
 
 func (m *manager) shouldInitiateConnection(remoteNodeID cluster.NodeID) bool {
-	return strings.Compare(string(m.config.LocalNodeID), string(remoteNodeID)) < 0
+	return strings.Compare(m.config.LocalNodeID, remoteNodeID) < 0
 }
 
 func (m *manager) shouldDropInbound(remoteNodeID cluster.NodeID) bool {

@@ -102,8 +102,8 @@ var bufferPool = sync.Pool{
 	},
 }
 
-// InternodeConnection defines the public interface for a connection to another node.
-type InternodeConnection interface {
+// Connection defines the public interface for a connection to another node.
+type Connection interface {
 	Run(handler func(msg []byte)) *ConnectionError
 	Send(data []byte) error
 	Close()
@@ -149,7 +149,7 @@ type NodeConnection struct {
 func newNodeConnection(conn net.Conn, remoteNode cluster.NodeID, config NodeConnectionConfig, logger *zap.Logger) *NodeConnection {
 	return &NodeConnection{
 		conn:            conn,
-		logger:          logger.With(zap.String("remote_node", string(remoteNode))),
+		logger:          logger.With(zap.String("remote_node", remoteNode)),
 		config:          config,
 		remoteNode:      remoteNode,
 		activeQueue:     list.New(),
@@ -388,12 +388,12 @@ func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
 
 	// Check for potential integer overflow before casting to uint32
 	bufCap := cap(*bp)
-	if bufCap > math.MaxUint32 {
+	if bufCap < 0 || bufCap > int(math.MaxUint32) {
 		// This shouldn't happen in practice, but handle it safely
-		bufCap = math.MaxUint32
+		bufCap = int(math.MaxUint32)
 	}
 
-	if size > uint32(bufCap) {
+	if int(size) > bufCap {
 		msg = make([]byte, size)
 	} else {
 		msg = (*bp)[:size]

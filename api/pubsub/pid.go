@@ -58,7 +58,7 @@ func (p PID) toString() string {
 	defer builderPool.Put(b)
 
 	// Pre-allocate rough capacity to avoid reallocations
-	b.Grow(len(p.Host) + len(p.UniqID) + len(p.Node) + len(string(p.ID.NS)) + len(string(p.ID.Name)) + 32)
+	b.Grow(len(p.Host) + len(p.UniqID) + len(p.Node) + len(p.ID.NS) + len(p.ID.Name) + 32)
 
 	b.WriteByte('{')
 
@@ -70,12 +70,12 @@ func (p PID) toString() string {
 	b.WriteString(p.Host)
 	b.WriteByte('|')
 
-	b.WriteString(string(p.ID.NS))
+	b.WriteString(p.ID.NS)
 	b.WriteByte(':')
-	b.WriteString(string(p.ID.Name))
+	b.WriteString(p.ID.Name)
 
 	b.WriteByte('|')
-	b.WriteString(string(p.UniqID))
+	b.WriteString(p.UniqID)
 	b.WriteByte('}')
 
 	return b.String()
@@ -139,7 +139,7 @@ func (p PID) MarshalJSON() ([]byte, error) {
 	defer builderPool.Put(b)
 
 	// Pre-allocate capacity
-	b.Grow(len(p.Host) + len(p.UniqID) + len(p.Node) + len(string(p.ID.NS)) + len(string(p.ID.Name)) + 34)
+	b.Grow(len(p.Host) + len(p.UniqID) + len(p.Node) + len(p.ID.NS) + len(p.ID.Name) + 34)
 	b.WriteByte('"')
 	b.WriteString(p.String())
 	b.WriteByte('"')

@@ -82,9 +82,7 @@ func PerformClientHandshake(conn net.Conn, config NodeConnectionConfig, logger *
 	}
 
 	// Handshake successful, clear deadline and return connection object
-	if err := conn.SetDeadline(time.Time{}); err != nil {
-		// Ignore deadline clearing errors - handshake was successful
-	}
+	_ = conn.SetDeadline(time.Time{})
 
 	return newNodeConnection(conn, remoteNodeID, config, logger), nil
 }
@@ -111,9 +109,7 @@ func PerformServerHandshake(conn net.Conn, config NodeConnectionConfig, logger *
 	}
 
 	// Handshake successful, clear deadline and return connection object
-	if err := conn.SetDeadline(time.Time{}); err != nil {
-		// Ignore deadline clearing errors - handshake was successful
-	}
+	_ = conn.SetDeadline(time.Time{})
 
 	return newNodeConnection(conn, remoteNodeID, config, logger), nil
 }

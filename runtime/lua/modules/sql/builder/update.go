@@ -158,7 +158,7 @@ func updateSet(l *lua.LState) int {
 			l.ArgError(3, "invalid userdata")
 			return 0
 		}
-	default:
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTString, lua.LTFunction, lua.LTThread, lua.LTTable, lua.LTChannel:
 		// Use CheckParam for all other types
 		var err error
 		v, err = sqlutil.CheckParam(l, 3)

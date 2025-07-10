@@ -136,7 +136,7 @@ func (m *Manager) validateDefinitionStructure(def *contract.Definition, defID re
 // validateBindingAgainstDefinitions checks if a binding is valid with the current set of definitions.
 // Assumes m.mu is RLock'd or Lock'd by the caller appropriately for m.definitions access.
 func (m *Manager) validateBindingAgainstDefinitions(binding *contract.Binding, bindingID registry.ID) error {
-	if binding.Contracts == nil || len(binding.Contracts) == 0 {
+	if len(binding.Contracts) == 0 {
 		return fmt.Errorf("binding '%s' must bind at least one contract", bindingID)
 	}
 	for i, bc := range binding.Contracts {

@@ -492,15 +492,14 @@ func (j *jsonValue) writeValueOptimized(buf *bytes.Buffer, value lua.LValue) err
 		if isSimpleASCII(str) && !needsEscaping(str) {
 			writeSimpleASCIIString(buf, str)
 			return nil
-		} else {
-			// Fallback to safe marshaling for complex strings
-			valBytes, err := json.Marshal(str)
-			if err != nil {
-				return err
-			}
-			buf.Write(valBytes)
-			return nil
 		}
+		// Fallback to safe marshaling for complex strings
+		valBytes, err := json.Marshal(str)
+		if err != nil {
+			return err
+		}
+		buf.Write(valBytes)
+		return nil
 	case lua.LNumber:
 		f := float64(v)
 		if math.IsInf(f, 0) || math.IsNaN(f) {

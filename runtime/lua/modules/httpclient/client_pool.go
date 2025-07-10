@@ -27,7 +27,6 @@ func (k clientKey) String() string {
 type clientOnce struct {
 	once   sync.Once
 	client Client
-	err    error
 }
 
 // clientPool manages a pool of HTTP clients using lock-free operations
@@ -80,7 +79,7 @@ func (p *clientPool) createClient(timeout time.Duration, unixSocket string) Clie
 
 	// Configure Unix socket dialing if specified
 	if unixSocket != "" {
-		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
 			dialer := &net.Dialer{}
 			return dialer.DialContext(ctx, "unix", unixSocket)
 		}

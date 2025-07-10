@@ -177,7 +177,7 @@ func TestWebSocketClient(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// The Lua test expects to see five messages in order.
+		// The Lua test expects to see three messages in order.
 		script := `
             function test()
                 local ws = websocket.connect("` + wsURL + `")
@@ -187,7 +187,7 @@ func TestWebSocketClient(t *testing.T) {
                     { type = websocket.TYPE_BINARY, data = "Binary Data" },
                     { type = websocket.TYPE_CLOSE, code = websocket.CLOSE_CODES.NORMAL, reason = "normal closure" }
                 }
-                for _, expected in ipairs(messages) do
+                for i, expected in ipairs(messages) do
                     local msg = ch:receive()
                     assert(msg.type == expected.type, "Expected "..expected.type.." got "..tostring(msg.type))
                     if expected.data then

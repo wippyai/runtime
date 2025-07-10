@@ -1,5 +1,5 @@
 run:
-	go run --tags "fts5 sqlite_vec" -race ./cmd/runner/main.go run -c config.json
+	go run --tags "fts5 sqlite_vec" -race ./cmd/runner/ run -c config.json
 
 debug:
 	dlv debug --build-flags "--tags=fts5,sqlite_vec -race" ./cmd/runner/main.go -- run -c config.json

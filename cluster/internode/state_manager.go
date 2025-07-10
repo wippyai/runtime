@@ -47,11 +47,11 @@ func NewNodeStateManager(config ManagerConfig, logger *zap.Logger) *NodeStateMan
 // This should only be called by the manager when a node joins the cluster.
 func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 	if _, ok := nsm.nodeStates.Load(nodeID); ok {
-		nsm.logger.Debug("State for node already exists, skipping creation", zap.String("node_id", string(nodeID)))
+		nsm.logger.Debug("State for node already exists, skipping creation", zap.String("node_id", nodeID))
 		return
 	}
 
-	nsm.logger.Debug("Creating new managed state for node", zap.String("node_id", string(nodeID)))
+	nsm.logger.Debug("Creating new managed state for node", zap.String("node_id", nodeID))
 	newState := &NodeState{
 		messageQueue:  list.New(),
 		messageNotify: make(chan struct{}, 1),
@@ -94,7 +94,7 @@ func (nsm *NodeStateManager) QueueMessage(nodeID cluster.NodeID, data []byte) er
 func (nsm *NodeStateManager) SetNodeConnection(nodeID cluster.NodeID, conn *NodeConnection, newState ConnectionState) {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
-		nsm.logger.Warn("Attempted to set connection for an unmanaged node", zap.String("node_id", string(nodeID)))
+		nsm.logger.Warn("Attempted to set connection for an unmanaged node", zap.String("node_id", nodeID))
 		return
 	}
 
@@ -121,7 +121,7 @@ func (nsm *NodeStateManager) GetNodeConnection(nodeID cluster.NodeID) (*NodeConn
 func (nsm *NodeStateManager) SetNodeState(nodeID cluster.NodeID, newState ConnectionState) {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
-		nsm.logger.Warn("Attempted to set state for an unmanaged node", zap.String("node_id", string(nodeID)))
+		nsm.logger.Warn("Attempted to set state for an unmanaged node", zap.String("node_id", nodeID))
 		return
 	}
 
@@ -133,7 +133,7 @@ func (nsm *NodeStateManager) SetNodeState(nodeID cluster.NodeID, newState Connec
 func (nsm *NodeStateManager) UpdateNodeAddress(nodeID cluster.NodeID, addr string, port int) {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
-		nsm.logger.Warn("Attempted to update address for an unmanaged node", zap.String("node_id", string(nodeID)))
+		nsm.logger.Warn("Attempted to update address for an unmanaged node", zap.String("node_id", nodeID))
 		return
 	}
 
@@ -198,7 +198,7 @@ func (nsm *NodeStateManager) GetMessageNotifier(nodeID cluster.NodeID) <-chan st
 	if state == nil {
 		// This should not happen in the new design, as control loops are only
 		// created for managed nodes. Returning nil is the safe fallback.
-		nsm.logger.Error("GetMessageNotifier called for unmanaged node", zap.String("node_id", string(nodeID)))
+		nsm.logger.Error("GetMessageNotifier called for unmanaged node", zap.String("node_id", nodeID))
 		return nil
 	}
 	return state.messageNotify
@@ -212,7 +212,7 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages [][
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
 		nsm.logger.Warn("Dropping messages to requeue for unmanaged node",
-			zap.String("node_id", string(nodeID)),
+			zap.String("node_id", nodeID),
 			zap.Int("message_count", len(messages)))
 		return
 	}
@@ -239,7 +239,7 @@ func (nsm *NodeStateManager) RemoveNodeState(nodeID cluster.NodeID) {
 		return
 	}
 
-	nsm.logger.Info("Removing managed state for node", zap.String("node", string(nodeID)))
+	nsm.logger.Info("Removing managed state for node", zap.String("node", nodeID))
 	nodeState := state.(*NodeState)
 
 	nodeState.stateMu.Lock()
@@ -256,7 +256,7 @@ func (nsm *NodeStateManager) RemoveNodeState(nodeID cluster.NodeID) {
 
 	if queueLen > 0 {
 		nsm.logger.Warn("Discarded pending messages for removed node",
-			zap.String("node", string(nodeID)),
+			zap.String("node", nodeID),
 			zap.Int("discarded_messages", queueLen))
 	}
 }

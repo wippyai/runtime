@@ -89,7 +89,7 @@ type App struct {
 	interceptor *interceptor.Registry
 
 	// contract system
-	contractRegistry     *contractsys.ContractRegistry
+	contractRegistry     *contractsys.Registry
 	contractInstantiator *contractsys.Instantiator
 
 	// mesh layer
@@ -162,17 +162,14 @@ func NewApp(config *Config) (*App, error) {
 			return nil, fmt.Errorf("failed to initialize cluster mesh: %w", err)
 		}
 	} else {
-		if err := app.initSingleNodeMesh(); err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to initialize single node mesh: %w", err)
-		}
+		app.initSingleNodeMesh()
 	}
 
 	return app, nil
 }
 
 // initSingleNodeMesh initializes mesh layer for single node mode
-func (a *App) initSingleNodeMesh() error {
+func (a *App) initSingleNodeMesh() {
 	nodeName := a.config.ClusterName
 	localNode := pubsub.NewNode(nodeName)
 
@@ -189,8 +186,6 @@ func (a *App) initSingleNodeMesh() error {
 		Parent: nil,
 		Logger: a.logger.Named("pid"),
 	})
-
-	return nil
 }
 
 // initClusterMesh initializes mesh layer for cluster mode with internode integration
@@ -207,7 +202,7 @@ func (a *App) initClusterMesh() error {
 	a.messageCodec = internode.NewMessageCodec(a.dtt)
 
 	connManagerConfig := internode.DefaultManagerConfig()
-	connManagerConfig.LocalNodeID = cluster.NodeID(a.config.ClusterName)
+	connManagerConfig.LocalNodeID = a.config.ClusterName
 	connManagerConfig.BindAddr = "0.0.0.0"
 	connManagerConfig.AutoPort = true
 	connManagerConfig.Logger = a.logger
@@ -217,7 +212,7 @@ func (a *App) initClusterMesh() error {
 	// Pre-start the connection manager to allocate the port
 	// We'll use a dummy callback for now since we don't have the delivery callback yet
 	tempCtx, tempCancel := context.WithCancel(context.Background())
-	dummyCallback := func(nodeID cluster.NodeID, data []byte) {
+	dummyCallback := func(_ cluster.NodeID, _ []byte) {
 		// This won't be called during port allocation
 	}
 
@@ -359,6 +354,12 @@ func (a *App) Initialize() error {
 	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
 	a.resources = resource.NewResourceRegistry(a.eventBus, a.logger.Named("resources"))
+
+	// Initialize environment registry
+	a.envRegistry = env.NewRegistry(a.eventBus, a.logger.Named("env"))
+
+	// Initialize interceptor registry
+	a.interceptor = interceptor.NewInterceptorRegistry(a.eventBus, a.logger.Named("interceptor"))
 
 	a.processes = process.NewProcessManager(
 		a.hosts,

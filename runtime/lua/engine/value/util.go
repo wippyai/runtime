@@ -34,7 +34,7 @@ func IsTypeRegistered(typeName string) bool {
 
 // GetTypeMetatable retrieves a type's metatable from internal storage
 // without touching the Lua state registry. Returns the shared immutable metatable.
-func GetTypeMetatable(l *lua.LState, typeName string) *lua.LTable {
+func GetTypeMetatable(_ *lua.LState, typeName string) *lua.LTable {
 	if mt, ok := metatableRegistry.Load(typeName); ok {
 		if table, ok := mt.(*lua.LTable); ok {
 			return table
@@ -52,7 +52,7 @@ func GetTypeMetatable(l *lua.LState, typeName string) *lua.LTable {
 // If a metatable already exists and is immutable, attempting to add new methods
 // will create a new metatable (this allows for incremental registration).
 func RegisterTypeMethods(
-	l *lua.LState, // Not used for function creation, only for validation
+	_ *lua.LState, // Not used for function creation, only for validation
 	typeName string,
 	metamethods map[string]lua.LGFunction,
 	methods map[string]lua.LGFunction,
@@ -201,7 +201,7 @@ func GetField(l *lua.LState, value lua.LValue, field string) (lua.LValue, bool) 
 			}
 			return lua.LNil, false
 
-		default:
+		case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTString, lua.LTUserData, lua.LTThread, lua.LTChannel:
 			// Invalid __index type according to Lua spec
 			return lua.LNil, false
 		}

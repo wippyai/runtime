@@ -58,7 +58,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	yamlmod "github.com/ponyruntime/pony/runtime/lua/modules/yaml"
 	"github.com/ponyruntime/pony/runtime/lua/task"
-	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/aws/config"
 	"github.com/ponyruntime/pony/service/aws/s3"
 	"github.com/ponyruntime/pony/service/di"
@@ -213,13 +212,6 @@ func withEphemeralHost(a *App) eventbus.EventHandler {
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("hosts"),
-	))
-}
-
-func withNoopRuntime(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("(function|workflow|process|library).*", noop.NewNoopRuntime(
-		a.eventBus,
-		a.logger.Named("noop"),
 	))
 }
 
