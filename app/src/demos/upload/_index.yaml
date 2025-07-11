@@ -1,5 +1,5 @@
 version: "1.0"
-namespace: app.upload.handlers
+#namespace: app.upload.handlers
 
 meta:
   depends_on: [ ns:system ]

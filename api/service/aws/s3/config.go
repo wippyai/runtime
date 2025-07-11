@@ -15,9 +15,9 @@ type Config struct {
 	Bucket string `json:"bucket"`
 
 	// AWSConfig is a resource name of aws config.
-	AWSConfig string `json:"config"`
+	AWSConfig string `json:"config"` // todo: must be registry ID !!
 
-	// AccessKeyIDEnv is the AWS access key ID env name.
+	// AccessKeyIDEnv is the AWS access key id env name.
 	AccessKeyIDEnv string `json:"access_key_id_env,omitempty"`
 
 	// SecretAccessKeyEnv is the AWS secret access key env name.

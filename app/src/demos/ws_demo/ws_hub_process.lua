@@ -133,21 +133,58 @@ local function run()
         state.blob.position.x = state.blob.position.x + state.blob.velocity.x * dt
         state.blob.position.y = state.blob.position.y + state.blob.velocity.y * dt
 
-        -- Enforce boundaries with bouncing
+        -- Enforce boundaries with bouncing (updated version)
         if state.blob.position.x < state.blob.boundary.x_min then
             state.blob.position.x = state.blob.boundary.x_min
-            state.blob.velocity.x = -state.blob.velocity.x * 0.5 -- Bounce with energy loss
+            state.blob.velocity.x = -state.blob.velocity.x * 0.6 -- Reduced bounce energy as requested
+
+            -- Add extra push when in corner
+            if state.blob.position.y <= state.blob.boundary.y_min + state.blob.radius * 2 or
+               state.blob.position.y >= state.blob.boundary.y_max - state.blob.radius * 2 then
+                state.blob.velocity.x = state.blob.velocity.x * 1.2
+                state.blob.velocity.y = state.blob.velocity.y + (math.random() - 0.5) * 10
+            end
         elseif state.blob.position.x > state.blob.boundary.x_max then
             state.blob.position.x = state.blob.boundary.x_max
-            state.blob.velocity.x = -state.blob.velocity.x * 0.5
+            state.blob.velocity.x = -state.blob.velocity.x * 0.6
+
+            -- Add extra push when in corner
+            if state.blob.position.y <= state.blob.boundary.y_min + state.blob.radius * 2 or
+               state.blob.position.y >= state.blob.boundary.y_max - state.blob.radius * 2 then
+                state.blob.velocity.x = state.blob.velocity.x * 1.2
+                state.blob.velocity.y = state.blob.velocity.y + (math.random() - 0.5) * 10
+            end
         end
 
         if state.blob.position.y < state.blob.boundary.y_min then
             state.blob.position.y = state.blob.boundary.y_min
-            state.blob.velocity.y = -state.blob.velocity.y * 0.5
+            state.blob.velocity.y = -state.blob.velocity.y * 0.6
+
+            -- Add extra push when in corner
+            if state.blob.position.x <= state.blob.boundary.x_min + state.blob.radius * 2 or
+               state.blob.position.x >= state.blob.boundary.x_max - state.blob.radius * 2 then
+                state.blob.velocity.y = state.blob.velocity.y * 1.2
+                state.blob.velocity.x = state.blob.velocity.x + (math.random() - 0.5) * 10
+            end
         elseif state.blob.position.y > state.blob.boundary.y_max then
             state.blob.position.y = state.blob.boundary.y_max
-            state.blob.velocity.y = -state.blob.velocity.y * 0.5
+            state.blob.velocity.y = -state.blob.velocity.y * 0.6
+
+            -- Add extra push when in corner
+            if state.blob.position.x <= state.blob.boundary.x_min + state.blob.radius * 2 or
+               state.blob.position.x >= state.blob.boundary.x_max - state.blob.radius * 2 then
+                state.blob.velocity.y = state.blob.velocity.y * 1.2
+                state.blob.velocity.x = state.blob.velocity.x + (math.random() - 0.5) * 10
+            end
+        end
+
+        -- Add minimum velocity if blob is moving too slowly
+        local min_velocity = 0.2
+        local current_speed = math.sqrt(state.blob.velocity.x^2 + state.blob.velocity.y^2)
+        if current_speed < min_velocity and current_speed > 0 then
+            local scale = min_velocity / current_speed
+            state.blob.velocity.x = state.blob.velocity.x * scale
+            state.blob.velocity.y = state.blob.velocity.y * scale
         end
     end
 

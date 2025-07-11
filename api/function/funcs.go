@@ -54,4 +54,7 @@ type (
 		// for streaming results and any immediate errors.
 		Call(context.Context, runtime.Task) (chan *runtime.Result, error)
 	}
+
+	// CallInterceptor is a function that can modify the behavior of a function call.
+	CallInterceptor func(context.Context, runtime.Task) (chan *runtime.Result, error)
 )

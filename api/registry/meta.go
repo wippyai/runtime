@@ -68,3 +68,17 @@ func (m Metadata) TagValue(key string) []string {
 	}
 	return nil
 }
+
+// MapValue retrieves the value associated with the given key as a Metadata map.
+func (m Metadata) MapValue(key string) Metadata {
+	if v, ok := m[key]; ok {
+		if m, ok := v.(Metadata); ok {
+			return m
+		}
+
+		if m, ok := v.(map[string]any); ok {
+			return m
+		}
+	}
+	return nil
+}

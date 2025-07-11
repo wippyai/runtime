@@ -71,3 +71,18 @@ func (mr *MockOrganizationServiceClientMockRecorder) ListOrganizations(arg0, arg
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrganizations", reflect.TypeOf((*MockOrganizationServiceClient)(nil).ListOrganizations), arg0, arg1)
 }
+
+// ListUserOrganizations mocks base method.
+func (m *MockOrganizationServiceClient) ListUserOrganizations(arg0 context.Context, arg1 *connect.Request[identityv1.ListOrganizationsRequest]) (*connect.Response[identityv1.ListOrganizationsResponse], error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUserOrganizations", arg0, arg1)
+	ret0, _ := ret[0].(*connect.Response[identityv1.ListOrganizationsResponse])
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUserOrganizations indicates an expected call of ListUserOrganizations.
+func (mr *MockOrganizationServiceClientMockRecorder) ListUserOrganizations(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUserOrganizations", reflect.TypeOf((*MockOrganizationServiceClient)(nil).ListUserOrganizations), arg0, arg1)
+}

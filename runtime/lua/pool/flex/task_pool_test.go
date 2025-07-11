@@ -327,7 +327,7 @@ func TestFlexPool_VMNotReused(t *testing.T) {
 		require.True(t, ok, "Expected lua value")
 
 		id := float64(luaValue.(lua.LNumber))
-		assert.Equal(t, float64(1), id, "Each VM should start with ID 1 since they're not reused")
+		assert.Equal(t, float64(1), id, "Each VM should start with id 1 since they're not reused")
 	}
 
 	// Verify we created 5 VMs

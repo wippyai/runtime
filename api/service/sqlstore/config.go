@@ -19,7 +19,7 @@ const (
 
 // SQLConfig defines configuration for a SQL-based key-value store
 type SQLConfig struct {
-	// Database is the ID of the database resource to use
+	// Database is the id of the database resource to use
 	Database registry.ID `json:"database"`
 
 	// TableName is the name of the table to use for storage
@@ -45,9 +45,9 @@ type SQLConfig struct {
 // Validate checks if the configuration is valid
 // Returns an error if any configuration values are invalid
 func (c *SQLConfig) Validate() error {
-	// Database ID must be valid
+	// Database id must be valid
 	if c.Database.Name == "" {
-		return fmt.Errorf("database ID is required")
+		return fmt.Errorf("database id is required")
 	}
 
 	// Table name must be specified
@@ -55,7 +55,7 @@ func (c *SQLConfig) Validate() error {
 		return fmt.Errorf("table_name is required")
 	}
 
-	// ID column name must be specified
+	// id column name must be specified
 	if c.IDColumnName == "" {
 		return fmt.Errorf("id_column_name is required")
 	}
@@ -75,9 +75,9 @@ func (c *SQLConfig) Validate() error {
 		return fmt.Errorf("cleanup_interval must be greater than or equal to 0")
 	}
 
-	// Validate the database ID and table name for SQL injection prevention
+	// Validate the database id and table name for SQL injection prevention
 	if !c.IsSafe(c.Database.Name) {
-		return fmt.Errorf("database ID is invalid")
+		return fmt.Errorf("database id is invalid")
 	}
 
 	// Validate the table name and column names for SQL injection prevention

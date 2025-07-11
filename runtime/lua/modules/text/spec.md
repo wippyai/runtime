@@ -231,7 +231,9 @@ Splits multiple text items with associated metadata in a single operation. Each 
 
 **Returns:**
 
-- **On success:** Array of chunk objects (each containing `content` and `metadata`), `nil`
+- **On success:** Array of chunk objects, each containing:
+  - **`content`** (string): The chunk text
+  - **`metadata`** (table): The original metadata from the source page
 - **On failure:** `nil` and an error message string
 
 **Example:**
@@ -278,12 +280,10 @@ Compares two text strings and returns an array of diff operations describing the
 
 **Returns:**
 
-- **On success:** Array of diff objects (each containing `operation` and `text`), `nil`
+- **On success:** Array of diff objects, each containing:
+  - **`operation`** (string): The operation type ("equal", "delete", "insert")
+  - **`text`** (string): The text content for this operation
 - **On failure:** `nil` and an error message string
-
-Each diff object contains:
-- **`operation`** (string): The operation type ("equal", "delete", "insert")
-- **`text`** (string): The text content for this operation
 
 **Example:**
 
@@ -908,7 +908,36 @@ local doc_differ = text.diff.new({
 })
 ```
 
-### 3. Error Handling Pattern
+### 3. Batch Processing for Efficiency
+
+```lua
+-- Process multiple files with diff analysis
+local function analyze_file_changes(file_pairs)
+    local differ, err = text.diff.new()
+    if err then
+        error("Failed to create differ: " .. err)
+    end
+    
+    local results = {}
+    for _, pair in ipairs(file_pairs) do
+        local diffs, err = differ:compare(pair.old_content, pair.new_content)
+        if err then
+            print("Error processing " .. pair.filename .. ": " .. err)
+        else
+            local summary = differ:summarize(diffs)
+            table.insert(results, {
+                filename = pair.filename,
+                changes = summary.deletions + summary.insertions,
+                summary = summary
+            })
+        end
+    end
+    
+    return results
+end
+```
+
+### 4. Error Handling and Validation
 
 ```lua
 local function safe_text_processing(old_text, new_text)
@@ -942,7 +971,66 @@ local function safe_text_processing(old_text, new_text)
 end
 ```
 
+### 5. Memory Efficiency for Large Documents
+
+```lua
+-- Process large documents in chunks for diff analysis
+local function diff_large_documents(doc1, doc2, chunk_size)
+    chunk_size = chunk_size or 10000
+    local splitter, err = text.splitter.recursive({
+        chunk_size = chunk_size,
+        chunk_overlap = 200
+    })
+    if err then
+        error("Failed to create splitter: " .. err)
+    end
+    
+    local differ, err = text.diff.new()
+    if err then
+        error("Failed to create differ: " .. err)
+    end
+    
+    -- Split both documents
+    local chunks1, err = splitter:split_text(doc1)
+    if err then
+        error("Failed to split document 1: " .. err)
+    end
+    
+    local chunks2, err = splitter:split_text(doc2)
+    if err then
+        error("Failed to split document 2: " .. err)
+    end
+    
+    -- Compare corresponding chunks
+    local all_diffs = {}
+    local max_chunks = math.max(#chunks1, #chunks2)
+    
+    for i = 1, max_chunks do
+        local chunk1 = chunks1[i] or ""
+        local chunk2 = chunks2[i] or ""
+        
+        local diffs, err = differ:compare(chunk1, chunk2)
+        if err then
+            print("Warning: Failed to compare chunk " .. i .. ": " .. err)
+        else
+            table.insert(all_diffs, {
+                chunk_index = i,
+                diffs = diffs,
+                summary = differ:summarize(diffs)
+            })
+        end
+    end
+    
+    return all_diffs
+end
+```
+
 ### 4. Complete Example Usage
+---
+
+## Complete Example Usage
+
+### Document Processing with Change Tracking
 
 ```lua
 local text = require("text")
@@ -966,76 +1054,163 @@ local function complete_document_workflow()
         error("Failed to create differ: " .. err)
     end
     
-    -- Process document
-    local original_doc = [[
-# Document Title
 
-This is the original introduction.
-
-## Section 1
-Original content here.
-]]
-    
-    local modified_doc = [[
-# Document Title
-
-This is the updated introduction with more details.
-
-## Section 1
-Enhanced content with examples.
-
-## Section 2
-New section added.
-]]
-    
-    -- Generate diff and patches
-    local diffs, err = differ:compare(original_doc, modified_doc)
+-- Process document versions
+local function analyze_document_changes(old_doc, new_doc, document_id)
+    -- First, compare overall documents
+    local doc_diffs, err = differ:compare(old_doc, new_doc)
     if err then
-        error("Failed to compare: " .. err)
+        error("Failed to compare documents: " .. err)
     end
     
-    local patches, err = differ:patch_make(original_doc, modified_doc)
+    local doc_summary = differ:summarize(doc_diffs)
+    print(string.format("Document %s: %d chars changed (%d del, %d ins)", 
+        document_id, doc_summary.deletions + doc_summary.insertions,
+        doc_summary.deletions, doc_summary.insertions))
+    
+    -- Split both versions for detailed analysis
+    local old_chunks, err = splitter:split_text(old_doc)
+    if err then
+        error("Failed to split old document: " .. err)
+    end
+    
+    local new_chunks, err = splitter:split_text(new_doc)
+    if err then
+        error("Failed to split new document: " .. err)
+    end
+    
+    -- Analyze changes at chunk level
+    local chunk_changes = {}
+    local max_chunks = math.max(#old_chunks, #new_chunks)
+    
+    for i = 1, max_chunks do
+        local old_chunk = old_chunks[i] or ""
+        local new_chunk = new_chunks[i] or ""
+        
+        if old_chunk ~= new_chunk then
+            local chunk_diffs, err = differ:compare(old_chunk, new_chunk)
+            if err then
+                print("Warning: Failed to compare chunk " .. i)
+            else
+                local chunk_summary = differ:summarize(chunk_diffs)
+                table.insert(chunk_changes, {
+                    chunk_index = i,
+                    summary = chunk_summary,
+                    pretty_diff = differ:pretty_text(chunk_diffs)
+                })
+            end
+        end
+    end
+    
+    return {
+        overall_summary = doc_summary,
+        chunk_changes = chunk_changes,
+        total_chunks = max_chunks
+    }
+end
+
+-- Usage example
+local old_version = [[
+# Document Title
+
+This is the introduction paragraph.
+
+## Section 1
+
+Content of section 1 with some details.
+
+## Section 2
+
+Content of section 2 with more information.
+]]
+
+local new_version = [[
+# Document Title
+
+This is the updated introduction paragraph with more details.
+
+## Section 1
+
+Enhanced content of section 1 with additional details and examples.
+
+## Section 2
+
+Content of section 2 with more information.
+
+## Section 3
+
+This is a new section with additional content.
+]]
+
+local analysis = analyze_document_changes(old_version, new_version, "doc_v2")
+print("Analysis complete: " .. #analysis.chunk_changes .. " chunks changed")
+```
+
+### Version Control Workflow
+
+```lua
+local text = require("text")
+
+-- Create differ for patch-based workflow
+local differ, err = text.diff.new({
+    patch_margin = 3,
+    match_threshold = 0.3
+})
+if err then
+    error("Failed to create differ: " .. err)
+end
+
+-- Simulate git-like operations
+local function create_commit(old_content, new_content, commit_message)
+    -- Generate patches (like git diff)
+    local patches, err = differ:patch_make(old_content, new_content)
     if err then
         error("Failed to create patches: " .. err)
     end
     
-    local summary = differ:summarize(diffs)
+    -- Generate human-readable diff
+    local diffs, err = differ:compare(old_content, new_content)
+    if err then
+        error("Failed to generate diffs: " .. err)
+    end
+    
     local pretty_diff, err = differ:pretty_text(diffs)
     if err then
-        error("Failed to create pretty diff: " .. err)
-    end
-    
-    -- Split the modified document for processing
-    local chunks, err = splitter:split_text(modified_doc)
-    if err then
-        error("Failed to split document: " .. err)
-    end
-    
-    -- Export patches for external systems
-    local exportable_patches = {}
-    for i, patch in ipairs(patches) do
-        table.insert(exportable_patches, {
-            text = patch.text,
-            format = "unified_diff",
-            created = os.time()
-        })
+        error("Failed to generate pretty diff: " .. err)
     end
     
     return {
-        summary = summary,
-        diff_output = pretty_diff,
-        chunk_count = #chunks,
-        exportable_patches = exportable_patches,
-        can_roundtrip = true
+        message = commit_message,
+        patches = patches,
+        diff = pretty_diff,
+        summary = differ:summarize(diffs)
     }
 end
 
--- Execute workflow
-local result = complete_document_workflow()
-print("Document processing complete:")
-print("Changes: " .. result.summary.insertions .. " insertions, " .. result.summary.deletions .. " deletions")
-print("Chunks created: " .. result.chunk_count)
-print("Patches available for export: " .. #result.exportable_patches)
-```
+local function apply_commit(commit, base_content)
+    -- Apply patches (like git apply)
+    local result, success = differ:patch_apply(commit.patches, base_content)
+    
+    return result, success
+end
 
-This specification provides comprehensive coverage of the text module's capabilities, with particular emphasis on the external patch functionality that enables integration with other systems and agents.
+-- Example usage
+local original = "function hello() {\n    console.log('Hello');\n}"
+local modified = "function hello() {\n    console.log('Hello World!');\n    return true;\n}"
+
+local commit = create_commit(original, modified, "Add return value and update message")
+print("Commit created:")
+print("Message: " .. commit.message)
+print("Changes: " .. commit.summary.insertions .. " insertions, " .. commit.summary.deletions .. " deletions")
+print("\nDiff:")
+print(commit.diff)
+
+-- Apply to another branch
+local result, success = apply_commit(commit, original)
+if success then
+    print("\nPatch applied successfully:")
+    print(result)
+else
+    print("Patch application failed")
+end
+```

@@ -145,7 +145,7 @@ func (m *Manager) handleTemplateAdd(_ context.Context, entry registry.Entry) err
 		return fmt.Errorf("%w: %s", ErrSetNotFound, cfg.Set)
 	}
 
-	// Determine template name (using meta name or ID name as fallback)
+	// Determine template name (using meta name or id name as fallback)
 	templateName := cfg.Meta.StringValue("name")
 	if templateName == "" {
 		templateName = entry.ID.Name
@@ -219,7 +219,7 @@ func (m *Manager) handleTemplateUpdate(_ context.Context, entry registry.Entry) 
 			return fmt.Errorf("%w: %s", ErrSetNotFound, cfg.Set)
 		}
 
-		// Determine template name for the target set (using meta name or ID name as fallback)
+		// Determine template name for the target set (using meta name or id name as fallback)
 		newTemplateName := cfg.Meta.StringValue("name")
 		if newTemplateName == "" {
 			newTemplateName = entry.ID.Name
@@ -490,7 +490,7 @@ func (m *Manager) handleSetDelete(ctx context.Context, entry registry.Entry) err
 	return nil
 }
 
-// GetTemplateSet retrieves a template set by ID
+// GetTemplateSet retrieves a template set by id
 func (m *Manager) GetTemplateSet(id registry.ID) (*TemplateSet, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -509,7 +509,7 @@ func (m *Manager) Acquire(
 	id registry.ID,
 	mode resource.AccessMode,
 ) (resource.Resource[any], error) {
-	// Find the set that this ID refers to
+	// Find the set that this id refers to
 	set, err := m.GetTemplateSet(id)
 	if err == nil {
 		// It's a set, forward the acquisition
