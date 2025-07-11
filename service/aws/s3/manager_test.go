@@ -324,7 +324,7 @@ func TestManager_Add(t *testing.T) {
 
 	t.Run("duplicate storage", func(t *testing.T) {
 		entry := registry.Entry{
-			ID:   testID, // Same id as in successful test
+			ID:   testID, // Same ID as in successful test
 			Kind: services3.Kind,
 			Data: NewMockPayload(&services3.Config{
 				Bucket:    "test-bucket",
@@ -390,7 +390,7 @@ func TestManager_Update(t *testing.T) {
 	waitForResourceEvent(t, resourceEvents, resource.Register, time.Second)
 
 	t.Run("successful update", func(t *testing.T) {
-		// Create update entry with the same id
+		// Create update entry with the same ID
 		updateEntry := registry.Entry{
 			ID:   testID,
 			Kind: services3.Kind,
@@ -521,7 +521,7 @@ func TestManager_Delete(t *testing.T) {
 		evt := waitForResourceEvent(t, resourceEvents, resource.Delete, time.Second)
 		assert.Equal(t, testID.String(), evt.Path)
 
-		// Verify event data contains the id
+		// Verify event data contains the ID
 		id, ok := evt.Data.(registry.ID)
 		assert.True(t, ok)
 		assert.Equal(t, testID, id)

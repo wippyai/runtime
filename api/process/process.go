@@ -71,8 +71,8 @@ type (
 	// Factory manages process prototypes and handles process creation.
 	// It provides a way to create process instances from their registry IDs.
 	Factory interface {
-		// Create instantiates a new process from the provided registry id.
-		// Returns an error if no prototype is registered for the id or if process creation fails.
+		// Create instantiates a new process from the provided registry ID.
+		// Returns an error if no prototype is registered for the ID or if process creation fails.
 		Create(registry.ID) (Process, error)
 	}
 
@@ -99,8 +99,6 @@ type (
 
 	Workflow interface {
 		Process
-
-		// Commands to process and return to the workflow.
 		Commands() []runtime.Command
 	}
 
@@ -128,7 +126,7 @@ type (
 		// HostID is the identifier of the host where the process will run
 		HostID pubsub.HostID
 
-		// Source is the registry id of the process prototype to instantiate
+		// Source is the registry ID of the process prototype to instantiate
 		Source registry.ID
 
 		// UniqID is an optional unique identifier for the process instance.

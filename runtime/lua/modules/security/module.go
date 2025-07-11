@@ -102,7 +102,7 @@ func (m *Module) can(l *lua.LState) int {
 	return 1
 }
 
-// Policy retrieves a policy by id
+// Policy retrieves a policy by ID
 func (m *Module) policy(l *lua.LState) int {
 	idStr := l.CheckString(1)
 	id := registry.ParseID(idStr)
@@ -183,9 +183,9 @@ func (m *Module) newScope(l *lua.LState) int {
 func (m *Module) newActor(l *lua.LState) int {
 	id := l.CheckString(1)
 
-	// Check permission to create actors with this id
+	// Check permission to create actors with this ID
 	if !securityapi.IsAllowed(l.Context(), "security.actor.create", id, nil) {
-		l.RaiseError("not allowed to create actor with id: %s", id)
+		l.RaiseError("not allowed to create actor with ID: %s", id)
 		return 0
 	}
 

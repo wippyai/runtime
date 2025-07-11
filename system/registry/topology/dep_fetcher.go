@@ -20,10 +20,6 @@ var DependencyPaths = []PathConfig{
 	{Path: "meta.depends_on", Description: "Explicit dependencies in metadata", AllowWildcard: true},
 	{Path: "meta.groups", Description: "Group membership list in metadata", AllowWildcard: true},
 	{Path: "data.server", Description: "Reference to HTTP server in data section"},
-	{Path: "meta.temporal_activity.task_queue", Description: "Task queue for Temporal activity"},
-	{Path: "meta.host", Description: "Reference to a host component in metadata"},
-	{Path: "meta.default_host", Description: "Reference to the default host component in metadata"},
-	{Path: "data.router", Description: "Reference to router component in data section"},
 	{Path: "data.fs", Description: "Reference to filesystem"},
 	{Path: "data.store", Description: "Reference to a store (e.g., 'session')"},
 	{Path: "data.env", Description: "Reference to env"},
@@ -57,7 +53,9 @@ func extractDependenciesInternal(data any) []string {
 	if m, ok := data.(map[string]any); ok {
 		for _, pathConfig := range DependencyPaths {
 			pathDeps := extractFromPath(m, pathConfig.Path, pathConfig.AllowWildcard)
-			deps = append(deps, pathDeps...)
+			if len(pathDeps) > 0 {
+				deps = append(deps, pathDeps...)
+			}
 		}
 	} else if arr, ok := data.([]any); ok {
 		for _, item := range arr {
@@ -77,7 +75,6 @@ func extractFromPath(data map[string]any, path string, allowWildcard bool) []str
 }
 
 func navigatePath(currentData any, segments []string, index int, allowWildcard bool) []string {
-	// Check for bounds to avoid panic
 	if index >= len(segments) {
 		return processLeafValue(currentData)
 	}
@@ -112,27 +109,21 @@ func navigatePath(currentData any, segments []string, index int, allowWildcard b
 		return deps
 	}
 
-	// Handle different map types
-	if currentMap, ok := currentData.(map[string]any); ok {
-		value, exists := currentMap[segment]
-		if !exists {
-			return nil
-		}
-		return navigatePath(value, segments, index+1, allowWildcard)
+	currentMap, ok := currentData.(map[string]any)
+	if !ok {
+		return nil
 	}
-	if metaMap, ok := currentData.(registry.Metadata); ok {
-		value, exists := metaMap[segment]
-		if !exists {
-			return nil
-		}
-		return navigatePath(value, segments, index+1, allowWildcard)
+
+	value, exists := currentMap[segment]
+	if !exists {
+		return nil
 	}
-	return nil
+
+	return navigatePath(value, segments, index+1, allowWildcard)
 }
 
 func processLeafValue(value any) []string {
 	var deps []string
-
 	switch v := value.(type) {
 	case string:
 		if v != "" {
@@ -148,24 +139,8 @@ func processLeafValue(value any) []string {
 			}
 		}
 	case map[string]any:
-		for k, mapValue := range v {
-			if k == "task_queue" {
-				// Special handling for task_queue
-				if strValue, ok := mapValue.(string); ok && strValue != "" {
-					deps = append(deps, strValue)
-				}
-			} else if strValue, ok := mapValue.(string); ok && strValue != "" {
-				deps = append(deps, strValue)
-			}
-		}
-	case registry.Metadata:
-		for k, mapValue := range v {
-			if k == "task_queue" {
-				// Special handling for task_queue
-				if strValue, ok := mapValue.(string); ok && strValue != "" {
-					deps = append(deps, strValue)
-				}
-			} else if strValue, ok := mapValue.(string); ok && strValue != "" {
+		for _, mapValue := range v {
+			if strValue, ok := mapValue.(string); ok && strValue != "" {
 				deps = append(deps, strValue)
 			}
 		}
@@ -202,28 +177,7 @@ func fetchDependencies(entry registry.Entry) []string {
 	combinedData := make(map[string]any)
 
 	if len(entry.Meta) > 0 {
-		// Convert Metadata to map[string]any with proper structure preservation
-		metaMap := make(map[string]any)
-		for k, v := range entry.Meta {
-			if k == "temporal_activity" {
-				// Special handling for temporal_activity to preserve nested structure
-				if tempAct, ok := v.(map[string]any); ok {
-					metaMap[k] = tempAct
-				} else if tempAct, ok := v.(registry.Metadata); ok {
-					// Convert to map[string]any
-					tempActMap := make(map[string]any)
-					for tk, tv := range tempAct {
-						tempActMap[tk] = tv
-					}
-					metaMap[k] = tempActMap
-				} else {
-					metaMap[k] = v
-				}
-			} else {
-				metaMap[k] = v
-			}
-		}
-		combinedData["meta"] = metaMap
+		combinedData["meta"] = entry.Meta
 	}
 
 	if entry.Data != nil {

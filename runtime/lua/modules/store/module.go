@@ -108,12 +108,12 @@ func WrapStore(l *lua.LState, store *Store) *lua.LUserData {
 	return ud
 }
 
-// storeGet retrieves a store resource by id
+// storeGet retrieves a store resource by ID
 func storeGet(l *lua.LState, log *zap.Logger) int {
-	// Get resource id
+	// Get resource ID
 	id := l.CheckString(1)
 	if id == "" {
-		l.RaiseError("resource id is required")
+		l.RaiseError("resource ID is required")
 		return 0
 	}
 
@@ -135,7 +135,7 @@ func storeGet(l *lua.LState, log *zap.Logger) int {
 		return 0
 	}
 
-	// Parse resource id
+	// Parse resource ID
 	resID := registry.ParseID(id)
 
 	// Acquire resource

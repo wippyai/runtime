@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ponyruntime/pony/requirementresolver"
+
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
@@ -37,14 +39,13 @@ import (
 	topapi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/embed"
 	"github.com/ponyruntime/pony/moduleloader"
-	"github.com/ponyruntime/pony/requirementresolver"
 	"github.com/ponyruntime/pony/runtime/lua/code"
+	"github.com/ponyruntime/pony/runtime/lua/command"
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	bteaapp "github.com/ponyruntime/pony/runtime/lua/component/btea"
 	funclua "github.com/ponyruntime/pony/runtime/lua/component/function"
 	"github.com/ponyruntime/pony/runtime/lua/component/library"
 	proclua "github.com/ponyruntime/pony/runtime/lua/component/process"
-	"github.com/ponyruntime/pony/runtime/lua/component/workflow"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/lua/engine/upstream"
@@ -101,12 +102,6 @@ import (
 	"github.com/ponyruntime/pony/service/sqlstore"
 	service "github.com/ponyruntime/pony/service/supervisor"
 	"github.com/ponyruntime/pony/service/template"
-	temporalsys "github.com/ponyruntime/pony/service/temporal"
-	"github.com/ponyruntime/pony/service/temporal/activity"
-	"github.com/ponyruntime/pony/service/temporal/client"
-	"github.com/ponyruntime/pony/service/temporal/dataconverter"
-	temporal "github.com/ponyruntime/pony/service/temporal/task_queue"
-	tworkflow "github.com/ponyruntime/pony/service/temporal/workflow"
 	"github.com/ponyruntime/pony/service/terminal"
 	"github.com/ponyruntime/pony/service/tokenstore"
 	"github.com/ponyruntime/pony/system/env"
@@ -140,7 +135,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	oteltrace "go.opentelemetry.io/otel/trace/noop"
-	"go.temporal.io/sdk/converter"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -632,11 +626,6 @@ func main() {
 		WithMemStore(app),
 		WithNativeExecutor(app),
 		WithJetTemplates(app),
-		WithTemporalClient(app),
-		WithTemporalSystem(app),
-		WithTemporalWorkers(app),
-		WithTemporalFunctions(app),
-		WithTemporalWorkflows(app),
 	)...)
 	// --------------------------------------------------
 
@@ -1024,8 +1013,8 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				payloadmod.NewPayloadModule(),
 				task.NewTaskModule(),
 				hash.NewHashModule(),
+				command.NewCommandModule(),
 				yamlmod.NewYAMLModule(),
-				workflow.NewModule(),
 				text.NewTextModule(),
 				registrymod.NewLoaderModule(a.logger.Named("loader")),
 				events.NewEventsModule(a.logger.Named("events")),
@@ -1060,7 +1049,6 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 	funcs := funclua.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
 	libraries := library.NewManager(a.logger.Named("lua.libs"), codeManager)
 	processes := proclua.NewProcessManager(a.logger.Named("lua.proc"), codeManager, a.eventBus)
-	workflows := workflow.NewManager(a.logger.Named("lua.wf"), codeManager, a.eventBus)
 	terminalApps := bteaapp.NewBteaManager(a.logger.Named("lua.bteaapp"), codeManager, a.eventBus)
 
 	return []eventbus.EventHandler{
@@ -1068,62 +1056,8 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		component.NewHandler("function.lua", funcs),
 		component.NewHandler("library.lua", libraries),
 		component.NewHandler("process.lua", processes),
-		component.NewHandler("workflow.lua", workflows),
 		component.NewHandler("btea.app.lua", terminalApps),
 	}
-}
-
-// WithTemporalClient creates and registers the Temporal client manager
-func WithTemporalClient(a *App) eventbus.EventHandler {
-	// Create data converter, you can customize it here
-	dc := dataconverter.NewDataConverter(a.dtt, converter.GetDefaultDataConverter())
-
-	// Create manager with required dependencies
-	manager := client.NewClientManagerWithFactory(
-		a.logger.Named("temporal.client"),
-		client.NewDefaultFactory(),
-		dc,
-	)
-
-	// Register handler for Temporal client entries
-	return reghandler.NewRegistryHandler("temporal.client", manager)
-}
-
-// WithTemporalSystem creates and registers the Temporal hosts manager
-func WithTemporalSystem(a *App) eventbus.EventHandler {
-	// Create manager with required dependencies
-	manager := temporalsys.NewSystem(
-		a.eventBus,
-		a.logger.Named("temporal"),
-		temporal.NewDefaultHostFactory(a.logger.Named("temporal.host")),
-	)
-
-	return manager
-}
-
-func WithTemporalWorkers(a *App) eventbus.EventHandler {
-	manager := temporalsys.NewWorkerManager(a.eventBus, a.dtt, a.logger.Named("temporal.workers"))
-	return reghandler.NewRegistryHandler("temporal.worker", manager)
-}
-
-func WithTemporalFunctions(a *App) eventbus.EventHandler {
-	functionListener := activity.NewFunctionListener(
-		a.eventBus,
-		a.logger.Named("temporal.functions"),
-	)
-
-	// This handler listens for all function.* registry events
-	return functionListener
-}
-
-func WithTemporalWorkflows(a *App) eventbus.EventHandler {
-	wflListener := tworkflow.NewListener(
-		a.eventBus,
-		a.logger.Named("temporal.workflows"),
-	)
-
-	// This handler listens for all function.* registry events
-	return wflListener
 }
 
 func newModuleloaderManager(baseURL string, loader moduleloader.ManifestLoader) *moduleloader.Manager {

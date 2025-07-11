@@ -149,7 +149,7 @@ func TestVectorWithSQLite(t *testing.T) {
 	closestLabel := resultTable.RawGetString("closest_label").(lua.LString)
 
 	assert.Equal(t, float64(3), float64(numResults), "Should have 3 results")
-	assert.Equal(t, float64(3), float64(closestID), "Closest vector should be id 3")
+	assert.Equal(t, float64(3), float64(closestID), "Closest vector should be ID 3")
 	assert.Equal(t, "item3", string(closestLabel), "Closest vector should be item3")
 }
 

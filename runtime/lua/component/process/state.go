@@ -94,7 +94,7 @@ func (s *State) InitContext(ctx context.Context, pid pubsub.PID) error {
 	s.UoW, s.Ctx = s.Runner.InitUnitOfWork(ctx)
 	s.UoW.Values().Set(StateKey, s) // self-ref for process module
 
-	// We expect ctx being overwritten by parent caller
+	// We expect Ctx being overwritten by parent caller
 
 	return nil
 }

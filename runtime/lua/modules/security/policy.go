@@ -34,7 +34,7 @@ func registerPolicyType(l *lua.LState) {
 	})
 }
 
-// policyID returns the policy's id
+// policyID returns the policy's ID
 func policyID(l *lua.LState) int {
 	policy := checkPolicy(l)
 	if policy == nil {

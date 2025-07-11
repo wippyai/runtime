@@ -50,7 +50,7 @@ func ReleasePackage(p *Package) {
 	packagePool.Put(p)
 }
 
-// NewPackage creates a new message package with the specified process id, topic, and payload items.
+// NewPackage creates a new message package with the specified process ID, topic, and payload items.
 // This is implemented using the object pool to improve performance.
 func NewPackage(source, pid PID, topic Topic, payloads ...payload.Payload) *Package {
 	p := AcquirePackage()

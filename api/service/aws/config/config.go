@@ -14,7 +14,7 @@ type Config struct {
 	// Region is the AWS region where the bucket is located.
 	Region string `json:"region"`
 
-	// AccessKeyIDEnv is the AWS access key id env name.
+	// AccessKeyIDEnv is the AWS access key ID env name.
 	AccessKeyIDEnv string `json:"access_key_id_env,omitempty"`
 
 	// SecretAccessKeyEnv is the AWS secret access key env name.

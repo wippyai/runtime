@@ -23,7 +23,7 @@ const (
 
 // Config defines configuration for a token store
 type Config struct {
-	// Store is the id of the key-value store to use for token storage
+	// Store is the ID of the key-value store to use for token storage
 	Store registry.ID `json:"store"`
 
 	// TokenLength is the length of generated tokens in bytes (before encoding)
@@ -41,7 +41,7 @@ type Config struct {
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
 	if c.Store.Name == "" {
-		return fmt.Errorf("store id is required")
+		return fmt.Errorf("store ID is required")
 	}
 
 	if c.TokenLength <= 0 {

@@ -1,5 +1,5 @@
 version: "1.0"
-#namespace: app.demo.document_search
+namespace: app.demo.document_search
 
 meta:
   depends_on:

@@ -17,7 +17,7 @@ import (
 
 // ExecutorFactoryAPI defines interface for executor factory
 type ExecutorFactoryAPI interface {
-	// CreateExecutor creates a new executor with the given id and configuration
+	// CreateExecutor creates a new executor with the given ID and configuration
 	CreateExecutor(id registry.ID, cfg *exec.NativeExecutorConfig) (exec.ProcessExecutor, error)
 }
 

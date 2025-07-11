@@ -208,7 +208,7 @@ func TestFinder_Find(t *testing.T) {
 
 			// Check that all expected IDs are present
 			for _, id := range tt.wantIDs {
-				assert.Contains(t, resultIDs, id, "Result should contain id %s", id)
+				assert.Contains(t, resultIDs, id, "Result should contain ID %s", id)
 			}
 
 			// Check that there are no unexpected IDs

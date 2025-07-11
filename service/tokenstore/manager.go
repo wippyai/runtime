@@ -113,7 +113,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	// Update configuration
 	m.configs[entry.ID] = cfg
 
-	// If we've already created a store for this id, remove it so it gets recreated
+	// If we've already created a store for this ID, remove it so it gets recreated
 	// with the new configuration on next acquisition
 	delete(m.stores, entry.ID)
 

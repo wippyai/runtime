@@ -743,13 +743,13 @@ func TestInvalidTokenStore(t *testing.T) {
 	// Create a test transcoder
 	transcoder := &jsonTranscoder{}
 
-	// Test with invalid config (no store id)
+	// Test with invalid config (no store ID)
 	invalidConfig := &tokenstore.Config{
 		TokenLength:       32,
 		DefaultExpiration: time.Hour,
 	}
 	_, err := tokenstore2.NewStoreTokenStore(invalidConfig, transcoder, nil, nil)
-	assert.Error(t, err, "Should fail with no store id")
+	assert.Error(t, err, "Should fail with no store ID")
 
 	// Test with invalid config (invalid token length)
 	invalidConfig = &tokenstore.Config{
