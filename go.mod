@@ -64,9 +64,9 @@ require (
 
 replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v1.2.3
 
-replace github.com/ponyruntime/go-lua => github.com/wippyai/go-lua v1.2.3
+replace github.com/ponyruntime/go-lua => github.com/wippyai/go-lua v1.2.5
 
-//replace github.com/yuin/gopher-lua => ../go-lua
+//replace github.com/wippyai/go-lua => ../go-lua
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250425153114-8976f5be98c1.1 // indirect
