@@ -110,11 +110,11 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 			return
 		}
 
-		// Get server ID from context
+		// Get server id from context
 		serverID, ok := r.Context().Value(httpapi.ContextServerID).(registry.ID)
 		if !ok || serverID.String() == "" {
-			logger.Error("Server ID not found in context")
-			http.Error(w, "Server ID not found in context", http.StatusInternalServerError)
+			logger.Error("Server id not found in context")
+			http.Error(w, "Server id not found in context", http.StatusInternalServerError)
 			return
 		}
 		// todO: fix options

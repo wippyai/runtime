@@ -42,11 +42,11 @@ func (m *Module) Loader(l *lua.LState) int {
 }
 
 func apiGet(l *lua.LState) int {
-	// Get resource ID
+	// Get resource id
 	id := l.CheckString(1)
 	if id == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("resource ID is required"))
+		l.Push(lua.LString("resource id is required"))
 		return 2
 	}
 
@@ -66,7 +66,7 @@ func apiGet(l *lua.LState) int {
 		return 2
 	}
 
-	// Parse resource ID
+	// Parse resource id
 	resID := registry.ParseID(id)
 
 	// Add security check for accessing cloud storage resource

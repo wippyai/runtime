@@ -1,5 +1,5 @@
 version: "1.0"
-namespace: app.websocket.demo
+#namespace: app.websocket.demo
 
 meta:
   depends_on: [ "ns:system" ]

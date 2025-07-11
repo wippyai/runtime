@@ -52,7 +52,7 @@ func CreateEndpointFirewallMiddleware(options map[string]string) func(http.Handl
 				return
 			}
 
-			// Get the route information which will provide the endpoint ID
+			// Get the route information which will provide the endpoint id
 			rInfo, ok := httpapi.GetRouteInfo(ctx)
 			if !ok {
 				logs.GetLogger(ctx).Debug("endpoint firewall: no route info in context",

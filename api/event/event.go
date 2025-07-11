@@ -34,11 +34,11 @@ type (
 	// It allows subscribers to listen for events and publishers to send events.
 	Bus interface {
 		// Subscribe subscribes a channel to events from a specific system.
-		// Returns a unique subscriber ID and an error if the subscription fails.
+		// Returns a unique subscriber id and an error if the subscription fails.
 		Subscribe(context.Context, System, chan<- Event) (SubscriberID, error)
 
 		// SubscribeP subscribes a channel to events from a specific system and matching a specific pattern.
-		// Returns a unique subscriber ID and an error if the subscription fails.
+		// Returns a unique subscriber id and an error if the subscription fails.
 		SubscribeP(context.Context, System, Kind, chan<- Event) (SubscriberID, error)
 
 		// Unsubscribe removes a subscription using its SubscriberID.

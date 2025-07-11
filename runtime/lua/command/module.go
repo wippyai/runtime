@@ -8,8 +8,9 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Module represents the command Lua module
-type Module struct{}
+// Module provides Lua bindings for command operations
+type Module struct {
+}
 
 // NewCommandModule creates a new command module
 func NewCommandModule() *Module {
@@ -21,15 +22,15 @@ func (m *Module) Name() string {
 	return "command.Command"
 }
 
-// Loader registers the module functions
+// Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
+	// Register command type methods
 	RegisterCommand(l)
 
 	// Create module table with new function
-	mod := l.CreateTable(0, 1)
-	mod.RawSetString("new", l.NewFunction(newCommandFunc))
-
-	l.Push(mod)
+	t := l.CreateTable(0, 1)
+	t.RawSetString("new", l.NewFunction(newCommandFunc))
+	l.Push(t)
 	return 1
 }
 
@@ -77,7 +78,7 @@ func newCommandFunc(l *lua.LState) int {
 	// Return command userdata
 	ud := l.NewUserData()
 	ud.Value = cmd
-	ud.Metatable = value.GetTypeMetatable(l, "command")
+	ud.Metatable = value.GetTypeMetatable(l, "command.Command")
 	l.Push(ud)
 	return 1
 }

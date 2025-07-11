@@ -107,6 +107,10 @@ func WithLoader(name string, loader lua.LGFunction) Option {
 // the result as a global variable with the given name.
 func WithPreloaded(name string, loader lua.LGFunction) Option {
 	return func(vm *VM) {
+		// todo: we can seriously optimize this function by adding immutable tables and sharing module tables
+		// todo: using own vm section, it will drop the need to init modules at start of each process/workflow
+		// todo: as well reduce overall memory usage. Implementation is not trivial, but possible.
+
 		// Spawn module instance using loader
 		L := vm.state
 		L.Push(L.NewFunction(loader))
