@@ -2,7 +2,7 @@ run:
 	go run --tags "fts5 sqlite_vec" -race ./cmd/runner/ run -c config.json
 
 debug:
-	dlv debug --build-flags "--tags=fts5,sqlite_vec -race" ./cmd/runner/main.go -- run -c config.json
+	dlv debug --build-flags "--tags=fts5,sqlite_vec -race" ./cmd/runner/ -- run -c config.json
 
 test-clean:
 	go clean -testcache
@@ -44,7 +44,7 @@ build-runner-all: build-runner-local build-runner-cross
 # Build for the local platform (always works)
 build-runner-local:
 	mkdir -p ./dist
-	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/main.go
+	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/
 
 # Cross-compilation targets (require appropriate toolchains)
 build-runner-cross: build-runner-check
