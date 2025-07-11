@@ -152,8 +152,6 @@ func NewApp(config *Config) (*App, error) {
 		eventBus:      bus,
 		services:      nil,
 		dtt:           dtt,
-		interceptor:   interceptor.NewInterceptorRegistry(bus, appLogger.Named("interceptor")),
-		envRegistry:   env.NewRegistry(bus, appLogger.Named("env")),
 		forceShutdown: make(chan struct{}),
 	}
 

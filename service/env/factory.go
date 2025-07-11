@@ -8,10 +8,10 @@ import (
 	"go.uber.org/zap"
 )
 
-//nolint:revive // ok for now
 type EnvStorageFactoryAPI interface {
 	CreateMemoryEnvStorage(kind registry.Kind, cfg *envservice.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error)
 	CreateFileEnvStorage(kind registry.Kind, cfg *envservice.CreateFileEnvStorageConfig, log *zap.Logger) (*FileStorage, error)
+	CreateOSEnvStorage(kind registry.Kind, cfg *envservice.CreateOSEnvStorageConfig, log *zap.Logger) (*OSStorage, error)
 }
 
 type DefaultEnvStorageFactory struct{}
@@ -46,4 +46,16 @@ func (f *DefaultEnvStorageFactory) CreateFileEnvStorage(_ registry.Kind, cfg *en
 	storage := NewFileStorage(cfg.FilePath, log)
 
 	return storage, nil
+}
+
+func (f *DefaultEnvStorageFactory) CreateOSEnvStorage(_ registry.Kind, cfg *envservice.CreateOSEnvStorageConfig, log *zap.Logger) (*OSStorage, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("configuration cannot be nil")
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	return NewOSStorage(log), nil
 }
