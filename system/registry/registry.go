@@ -12,7 +12,7 @@ import (
 	"github.com/ponyruntime/pony/internal/version"
 )
 
-type reg struct {
+type Reg struct {
 	history        registry.History
 	runner         registry.Runner
 	builder        registry.StateBuilder
@@ -29,25 +29,33 @@ func NewRegistry(
 	runner registry.Runner,
 	builder registry.StateBuilder,
 	log *zap.Logger,
-) registry.Registry {
-	return &reg{
-		history: history,
-		runner:  runner,
-		builder: builder,
-		state:   registry.State{},
-		log:     log,
+) *Reg {
+	re := &Reg{
+		history:        history,
+		runner:         runner,
+		builder:        builder,
+		state:          registry.State{},
+		currentVersion: nil,
+		log:            log,
 	}
+
+	return re
+}
+
+func (r *Reg) SetVersionNum(x uint64) {
+	r.log.Info("setting version num", zap.Uint64("version", x))
+	r.versionNum.Store(x)
 }
 
 // --- EntryReader Interface Implementation ---
 
-func (r *reg) GetAllEntries() ([]registry.Entry, error) {
+func (r *Reg) GetAllEntries() ([]registry.Entry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.state, nil
 }
 
-func (r *reg) GetEntry(path registry.ID) (registry.Entry, error) {
+func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -62,7 +70,7 @@ func (r *reg) GetEntry(path registry.ID) (registry.Entry, error) {
 
 // --- StateWriter Interface Implementation ---
 
-func (r *reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
+func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -98,7 +106,7 @@ func (r *reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	return newVersion, nil
 }
 
-func (r *reg) ApplyVersion(ctx context.Context, v registry.Version) error {
+func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -124,15 +132,18 @@ func (r *reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		return fmt.Errorf("failed transition to version %s: %w", v, err)
 	}
 
+	if err := r.history.SetHead(v); err != nil {
+		return fmt.Errorf("history set head to %d: %w", v.ID(), err)
+	}
+
 	r.state = newState
 	r.currentVersion = v
-	r.versionNum.Store(uint64(v.ID()))
 
 	return nil
 }
 
 // rollback state desync between actual state in system and state in history
-func (r *reg) rollback(ctx context.Context, from, to registry.State) error {
+func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	r.log.Debug("attempting to rollback", zap.Any("from", from), zap.Any("to", to))
 
 	partial, err := r.transitionState(ctx, from, to)
@@ -145,7 +156,7 @@ func (r *reg) rollback(ctx context.Context, from, to registry.State) error {
 	return err
 }
 
-func (r *reg) transitionState(ctx context.Context, from, to registry.State) (registry.State, error) {
+func (r *Reg) transitionState(ctx context.Context, from, to registry.State) (registry.State, error) {
 	r.log.Debug("transitioning state", zap.Any("from", from), zap.Any("to", to))
 
 	cs, terr := r.builder.BuildDelta(from, to)
@@ -160,7 +171,7 @@ func (r *reg) transitionState(ctx context.Context, from, to registry.State) (reg
 	return r.runner.Transition(ctx, from, cs)
 }
 
-func (r *reg) Current() (registry.Version, error) {
+func (r *Reg) Current() (registry.Version, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -171,13 +182,13 @@ func (r *reg) Current() (registry.Version, error) {
 	return r.currentVersion, nil
 }
 
-func (r *reg) History() registry.History {
+func (r *Reg) History() registry.History {
 	return r.history
 }
 
 // --- Helper Functions ---
 
-func (r *reg) nextVersionID(head registry.Version) uint {
+func (r *Reg) nextVersionID(head registry.Version) uint {
 	if head == nil {
 		return 0
 	}

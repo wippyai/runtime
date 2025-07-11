@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"git.spiralscout.com/estimation-engine/cloudsync/proto/gen/wippy/cloudsync/history/v1/historyv1connect"
 	iofs "io/fs"
 	httpbase "net/http"
 	"net/http/pprof"
@@ -18,6 +17,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"git.spiralscout.com/estimation-engine/cloudsync/proto/gen/wippy/cloudsync/history/v1/historyv1connect"
+	"github.com/ponyruntime/pony/system/registry/history/authmanager"
 
 	"github.com/ponyruntime/pony/requirementresolver"
 
@@ -146,6 +148,16 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// Cloudsync env variables
+const (
+	EnvCloudsyncURL           = "CLOUDSYNC_URL"
+	EnvCloudsyncApplicationID = "CLOUDSYNC_APPLICATION_ID"
+	EnvCloudsyncUser          = "CLOUDSYNC_USER"
+	EnvCloudsyncPassword      = "CLOUDSYNC_PASSWORD" //nolint:gosec //G101: Potential hardcoded credentials
+	EnvCloudsyncVersion       = "CLOUDSYNC_VERSION"
+	EnvCloudsyncEnabled       = "CLOUDSYNC_ENABLED"
+)
+
 type App struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -256,29 +268,9 @@ func (a *App) Initialize() error {
 		return fmt.Errorf("failed to start security manager: %w", err)
 	}
 
-	httpClient := &httpbase.Client{}
-	baseURL := "http://localhost:8080"
-	//applicationService := historyv1connect.NewApplicationServiceClient(httpClient, baseURL)
-	//applicationTokenService := historyv1connect.NewApplicationTokenServiceClient(httpClient, baseURL)
-	versionService := historyv1connect.NewVersionServiceClient(httpClient, baseURL)
-
-	APP_ID := "0197e9a6-0785-7140-aed8-745baefb5db0"
-	remoteHistory := history.NewRemoteStorage(
-		history.NewMemory(),
-		versionService,
-		APP_ID,
-		a.logger.Named("remote-history"),
-	)
-
-	a.remoteHistory = remoteHistory
-
-	// Initialize core components
-	a.reg = registry.NewRegistry(
-		remoteHistory,
-		runner.NewBusRunner(a.eventBus, a.logger.Named("runner")),
-		regtop.NewStateBuilder(a.logger),
-		a.logger.Named("registry"),
-	)
+	if err := a.initRegistry(); err != nil {
+		return fmt.Errorf("initialize runtime registry: %w", err)
+	}
 
 	a.supervisor = supervisor.NewSupervisor(a.eventBus, a.logger.Named("core"))
 
@@ -290,7 +282,6 @@ func (a *App) Initialize() error {
 		WorkerCount: 16,
 		Logger:      a.logger.Named("control"),
 	}))
-
 	if err != nil {
 		return fmt.Errorf("failed to register control host: %w", err)
 	}
@@ -456,28 +447,8 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("apply initial state: %w", err)
 	}
 
-	var version int
-	cloudVersion := os.Getenv("CLOUDHISTORY_VERSION")
-	if cloudVersion != "" {
-		version, _ = strconv.Atoi(cloudVersion)
-	}
-
-	if err := a.remoteHistory.InitializeFromCloud(bootCtx, version); err != nil {
-		a.logger.Error("initialize registry history from cloud", zap.Error(err))
-		return nil
-	}
-
-	if head, err := a.reg.History().Head(); err == nil && head.ID() != 0 {
-		a.logger.Info("head version available in history, apply found version", zap.String("version", head.String()))
-		if err := a.reg.ApplyVersion(bootCtx, head); err != nil {
-			return fmt.Errorf("apply current version: %w", err)
-		}
-	} else {
-		a.logger.Warn("no head version available in history")
-	}
-
-	if os.Getenv("CLOUDHISTORY_SYNC_ENABLED") == "true" {
-		a.remoteHistory.EnableSync()
+	if err := a.initCloudHistory(bootCtx); err != nil {
+		return fmt.Errorf("init cloud history: %w", err)
 	}
 
 	return nil
@@ -564,7 +535,7 @@ func (a *App) Stop() error {
 	return nil
 }
 
-// AddCleanup this method to your App struct
+// StartProfiler starts application profiler.
 func (a *App) StartProfiler() {
 	// HTTP server for live profiling
 	go func() {
@@ -586,6 +557,83 @@ func (a *App) StartProfiler() {
 			}
 		}
 	}()
+}
+
+func (a *App) initRegistry() error {
+	cloudsyncURL := os.Getenv(EnvCloudsyncURL)
+	if cloudsyncURL == "" {
+		a.logger.Warn("no cloudsync url environment variable set, using default memory history")
+		a.reg = registry.NewRegistry(
+			history.NewMemory(),
+			runner.NewBusRunner(a.eventBus, a.logger.Named("runner")),
+			regtop.NewStateBuilder(a.logger),
+			a.logger.Named("registry"),
+		)
+		return nil
+	}
+
+	a.logger.Info("using cloudsync history", zap.String("url", cloudsyncURL))
+
+	httpClient := &httpbase.Client{Timeout: time.Minute} // Todo: consider to use retryable http client
+	versionService := historyv1connect.NewVersionServiceClient(httpClient, cloudsyncURL)
+
+	applicationID := os.Getenv(EnvCloudsyncApplicationID)
+	if applicationID == "" {
+		return fmt.Errorf("environment variable %s not set", EnvCloudsyncApplicationID)
+	}
+
+	remoteHistory := history.NewRemoteStorage(history.NewMemory(), versionService, applicationID, a.logger.Named("remote-history"))
+	a.remoteHistory = remoteHistory
+
+	a.remoteHistory.SetAuthManager(authmanager.NewBasic(os.Getenv(EnvCloudsyncUser), os.Getenv(EnvCloudsyncPassword)))
+
+	reg := registry.NewRegistry(
+		a.remoteHistory,
+		runner.NewBusRunner(a.eventBus, a.logger.Named("runner")),
+		regtop.NewStateBuilder(a.logger),
+		a.logger.Named("registry"),
+	)
+	seq, err := a.remoteHistory.LatestSequence(a.ctx)
+	if err != nil {
+		return fmt.Errorf("get latest sequence for remote history service: %w", err)
+	}
+
+	a.logger.Info(fmt.Sprintf("using remote history service at seq %d", seq))
+	reg.SetVersionNum(seq)
+
+	a.reg = reg
+	return nil
+}
+
+func (a *App) initCloudHistory(ctx context.Context) error {
+	if a.remoteHistory == nil {
+		return nil
+	}
+
+	var version int
+	cloudVersion := os.Getenv(EnvCloudsyncVersion)
+	if cloudVersion != "" {
+		version, _ = strconv.Atoi(cloudVersion)
+	}
+
+	if err := a.remoteHistory.InitializeFromCloud(ctx, version); err != nil {
+		a.logger.Error("initialize registry history from cloud", zap.Error(err))
+		return nil
+	}
+
+	if head, err := a.reg.History().Head(); err == nil && head.ID() != 0 {
+		a.logger.Info("head version available in history, apply found version", zap.String("version", head.String()))
+		if err := a.reg.ApplyVersion(ctx, head); err != nil {
+			return fmt.Errorf("apply current version: %w", err)
+		}
+	} else {
+		a.logger.Warn("no head version available in history")
+	}
+
+	if os.Getenv(EnvCloudsyncEnabled) == "true" {
+		a.remoteHistory.Sync(true)
+	}
+	return nil
 }
 
 // loadDotEnv loads environment variables from .env files

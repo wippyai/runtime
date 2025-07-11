@@ -1,20 +1,25 @@
 package history
 
 import (
-	"connectrpc.com/connect"
+	"cmp"
 	"context"
-	"encoding/base64"
 	"fmt"
-	"github.com/wippyai/cloudhistory-poc/history"
-	"google.golang.org/protobuf/types/known/structpb"
+	"math"
+	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"connectrpc.com/connect"
+	"github.com/ponyruntime/pony/system/registry/history/authmanager"
+	"google.golang.org/protobuf/types/known/structpb"
+
 	"go.uber.org/zap"
 
-	"git.spiralscout.com/estimation-engine/cloudsync/proto/gen/wippy/cloudsync/history/v1"
+	historyv1 "git.spiralscout.com/estimation-engine/cloudsync/proto/gen/wippy/cloudsync/history/v1"
 	"git.spiralscout.com/estimation-engine/cloudsync/proto/gen/wippy/cloudsync/history/v1/historyv1connect"
 	payloadapi "github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -22,10 +27,11 @@ import (
 	"github.com/ponyruntime/pony/system/payload"
 )
 
-// CloudHistoryClient defines the interface for remote cloud operations
-type CloudHistoryClient interface {
-	CreateHistoryVersion(ctx context.Context, id string, version *history.CloudVersion) error
-	GetHistory(ctx context.Context, id string) (history.CloudHistory, error)
+const timeout = 5 * time.Second
+
+// AuthManager sets auth to http header.
+type AuthManager interface {
+	SetAuth(http.Header)
 }
 
 // toSave represents an item to be queued for remote persistence
@@ -39,12 +45,13 @@ type toSave struct {
 // RemoteStorage provides cloud-backed history storage with local caching
 type RemoteStorage struct {
 	// Core components
-	inner                   registry.History
-	applicationTokenService historyv1connect.ApplicationTokenServiceClient
-	applicationService      historyv1connect.ApplicationServiceClient
-	versionService          historyv1connect.VersionServiceClient
-	appID                   string
-	log                     *zap.Logger
+	inner          registry.History
+	versionService historyv1connect.VersionServiceClient
+	appID          string
+	log            *zap.Logger
+	authManager    AuthManager
+
+	remoteVersionLogs map[uint]*historyv1.VersionLog
 
 	// Channel-based queue
 	queue chan toSave
@@ -67,15 +74,17 @@ func NewRemoteStorage(
 	log *zap.Logger,
 ) *RemoteStorage {
 	rs := &RemoteStorage{
-		inner:          inner,
-		versionService: versionService,
-		appID:          appID,
-		log:            log,
-		queue:          make(chan toSave, 1),
-		workerWg:       sync.WaitGroup{},
-		shutdownCh:     make(chan struct{}),
-		shutdownOnce:   sync.Once{},
-		enabled:        atomic.Bool{},
+		inner:             inner,
+		versionService:    versionService,
+		appID:             appID,
+		log:               log,
+		authManager:       authmanager.Noop{},
+		remoteVersionLogs: make(map[uint]*historyv1.VersionLog),
+		queue:             make(chan toSave, 1),
+		workerWg:          sync.WaitGroup{},
+		shutdownCh:        make(chan struct{}),
+		shutdownOnce:      sync.Once{},
+		enabled:           atomic.Bool{},
 	}
 
 	// Start background worker
@@ -85,42 +94,51 @@ func NewRemoteStorage(
 	return rs
 }
 
-// InitializeFromCloud loads the latest state from cloud
-func (rs *RemoteStorage) InitializeFromCloud(ctx context.Context, toVersion int) error {
-	//var application *historyv1.Application
-	//{
-	//	// todo: move to init
-	//	resp1, _ := rs.applicationTokenService.GetTokenApplication(ctx, connect.NewRequest(&historyv1.GetTokenApplicationRequest{}))
-	//	applicationId := resp1.Msg.GetApplicationId()
-	//
-	//	resp, err := rs.applicationService.ListApplications(ctx, connect.NewRequest(&historyv1.ListApplicationsRequest{}))
-	//	if err != nil {
-	//		return fmt.Errorf("list applications: %w", err)
-	//	}
-	//
-	//	applications := resp.Msg.GetApplications()
-	//	for _, app := range applications {
-	//		if app.GetId() == applicationId {
-	//			application = app
-	//		}
-	//	}
-	//	if application == nil {
-	//		return fmt.Errorf("application not found: %s", applicationId)
-	//	}
-	//
-	//	rs.appID = application.Id
-	//}
+// SetAuthManager sets new auth manager for remote storage.
+func (rs *RemoteStorage) SetAuthManager(am AuthManager) {
+	rs.authManager = am
+}
 
-	if toVersion == 0 {
-		return nil
+func (rs *RemoteStorage) LatestSequence(ctx context.Context) (uint64, error) {
+	req := connect.NewRequest(&historyv1.ListVersionLogsRequest{ApplicationId: rs.appID})
+	rs.authManager.SetAuth(req.Header())
+	resp, err := rs.versionService.ListVersionLogs(ctx, req)
+	if err != nil {
+		return 0, fmt.Errorf("list remote history version logs: %w", err)
 	}
 
-	// Get full history from cloud
-	resp, err := rs.versionService.GetVersionSequence(ctx, withAuth(connect.NewRequest(&historyv1.GetVersionSequenceRequest{
+	versionLogs := resp.Msg.GetVersionLogs()
+	if len(versionLogs) == 0 {
+		return 0, nil
+	}
+
+	maxSequence := slices.MaxFunc(resp.Msg.GetVersionLogs(), func(a, b *historyv1.VersionLog) int {
+		return max(int(a.GetSequence()), int(b.GetSequence())) //nolint:gosec //G101: Potential hardcoded credentials
+	})
+	return maxSequence.GetSequence(), nil
+}
+
+// InitializeFromCloud loads the latest state from cloud
+func (rs *RemoteStorage) InitializeFromCloud(ctx context.Context, toVersion int) error {
+	request := &historyv1.GetVersionSequenceRequest{
 		ApplicationId: rs.appID,
-		Hash:          strconv.Itoa(toVersion),
-	})))
+	}
+
+	if toVersion == 0 {
+		request.Source = &historyv1.GetVersionSequenceRequest_Head{Head: true}
+	} else {
+		request.Source = &historyv1.GetVersionSequenceRequest_Sequence{Sequence: uint64(toVersion)} //nolint:gosec //G115 is ok
+	}
+	req := connect.NewRequest(request)
+	rs.authManager.SetAuth(req.Header())
+
+	// Get full history from cloud
+	resp, err := rs.versionService.GetVersionSequence(ctx, req)
 	if err != nil {
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			rs.log.Warn("version sequence not found, ignore initialization", zap.Error(err))
+			return nil
+		}
 		return fmt.Errorf("get version sequence: %w", err)
 	}
 
@@ -131,6 +149,10 @@ func (rs *RemoteStorage) InitializeFromCloud(ctx context.Context, toVersion int)
 		return nil
 	}
 
+	slices.SortFunc(versions, func(a, b *historyv1.Version) int {
+		return cmp.Compare(a.VersionLog.Sequence, b.VersionLog.Sequence)
+	})
+
 	innerVersions, err := rs.inner.Versions()
 	if err != nil {
 		return fmt.Errorf("get inner versions: %w", err)
@@ -139,38 +161,30 @@ func (rs *RemoteStorage) InitializeFromCloud(ctx context.Context, toVersion int)
 	lastVersion := innerVersions[len(innerVersions)-1]
 	rs.log.Debug("remote history last inner version", zap.Uint("id", lastVersion.ID()))
 
-	if toVersion == 0 {
-		hash := versions[len(versions)-1].GetVersionLog().GetHash()
-		parsed, _ := strconv.ParseUint(hash, 10, 64)
-		toVersion = int(parsed)
-	}
-
 	// Reconstruct versions in order
-	registryVersions := make([]registry.Version, 0, len(versions))
-	for i := 0; i < toVersion; i++ {
-		hash := versions[len(versions)-1].GetVersionLog().GetHash()
-		parsed, _ := strconv.ParseUint(hash, 10, 64)
-		ver := version.FromParent(lastVersion, uint(parsed))
-		registryVersions = append(registryVersions, ver)
+
+	chain := make([]string, 0, len(versions))
+	for _, remoteVersion := range versions {
+		versionLog := remoteVersion.GetVersionLog()
+		seq := versionLog.GetSequence()
+		ver := version.FromParent(lastVersion, uint(seq))
 		lastVersion = ver
-	}
+		chain = append(chain, strconv.Itoa(int(ver.ID()))) //nolint:gosec //G115: integer overflow conversion uint -> int
 
-	for i := range toVersion {
-		changeSet, err := rs.convertCloudOperationsToChangeSet(versions[i].GetOperations())
+		changeSet, err := rs.convertCloudOperationsToChangeSet(remoteVersion.GetOperations())
 		if err != nil {
-			return fmt.Errorf("convert cloud operations for version %s: %w", versions[i].GetVersionLog().GetHash(), err)
-		}
-
-		isHead := false
-		if i == toVersion-1 {
-			isHead = true
+			return fmt.Errorf("convert cloud operations for version %d: %w", versionLog.GetSequence(), err)
 		}
 
 		// Save to inner history
-		if err := rs.inner.Save(registryVersions[i], changeSet, isHead); err != nil {
-			return fmt.Errorf("restore version %s to inner history: %w", versions[i].GetVersionLog().GetHash(), err)
+		if err := rs.inner.Save(ver, changeSet, versionLog.GetIsHead()); err != nil {
+			return fmt.Errorf("restore version %d to inner history: %w", versionLog.GetSequence(), err)
 		}
+
+		rs.remoteVersionLogs[ver.ID()] = versionLog
 	}
+
+	rs.log.Info(fmt.Sprintf("history version chain: %s", strings.Join(chain, "->")))
 
 	return nil
 }
@@ -201,6 +215,8 @@ func (rs *RemoteStorage) Save(v registry.Version, cs registry.ChangeSet, head bo
 		return nil
 	}
 
+	rs.log.Info("save version to remote", zap.String("version", v.String()), zap.Bool("head", head))
+
 	// Queue for remote persistence
 	item := toSave{
 		version:   v,
@@ -226,18 +242,44 @@ func (rs *RemoteStorage) Head() (registry.Version, error) {
 }
 
 // SetHead sets head version.
-//func (rs *RemoteStorage) SetHead(v registry.Version) error {
-//	if err := rs.inner.SetHead(v); err != nil {
-//		return fmt.Errorf("set head for inner history: %w", err)
-//	}
-//
-//	// TODO: rpc call to set head version
-//
-//	return nil
-//}
+func (rs *RemoteStorage) SetHead(v registry.Version) error {
+	head, err := rs.inner.Head()
+	if err != nil {
+		return fmt.Errorf("get head: %w", err)
+	}
 
-func (rs *RemoteStorage) EnableSync() {
-	rs.enabled.Store(true)
+	if head.ID() == v.ID() {
+		return nil
+	}
+
+	if err := rs.inner.SetHead(v); err != nil {
+		return fmt.Errorf("set head for inner history: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req := &historyv1.SetHeadVersionRequest{
+		ApplicationId: rs.appID,
+		VersionId:     rs.remoteVersionLogs[v.ID()].GetId(),
+	}
+	request := connect.NewRequest(req)
+	rs.authManager.SetAuth(request.Header())
+	_, err = rs.versionService.SetHeadVersion(ctx, request)
+	if err != nil {
+		return fmt.Errorf("set version %d in remote cloud: %w", v.ID(), err)
+	}
+
+	rs.log.Info(fmt.Sprintf("set head for remote history: %d", v.ID()))
+
+	return nil
+}
+
+func (rs *RemoteStorage) Sync(enabled bool) {
+	if enabled {
+		rs.log.Info("enabled sync with remote storage")
+	}
+	rs.enabled.Store(enabled)
 }
 
 // Shutdown gracefully shuts down the remote storage
@@ -271,7 +313,10 @@ func (rs *RemoteStorage) worker() {
 	defer rs.workerWg.Done()
 
 	for item := range rs.queue {
-		if err := rs.sendHistoryVersion(item); err != nil {
+		err := rs.retryWithBackoff(100, func() error {
+			return rs.sendHistoryVersion(item)
+		})
+		if err != nil {
 			rs.log.Error("send history version to cloud", zap.Error(err))
 		}
 	}
@@ -279,7 +324,6 @@ func (rs *RemoteStorage) worker() {
 
 // sendHistoryVersion sends a single item to the cloud
 func (rs *RemoteStorage) sendHistoryVersion(item toSave) error {
-	const timeout = 5 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -289,9 +333,17 @@ func (rs *RemoteStorage) sendHistoryVersion(item toSave) error {
 		return fmt.Errorf("convert to cloud version: %w", err)
 	}
 
-	if _, err := rs.versionService.CreateVersion(ctx, withAuth(connect.NewRequest(cloudVersion))); err != nil {
+	req := connect.NewRequest(cloudVersion)
+	rs.authManager.SetAuth(req.Header())
+	resp, err := rs.versionService.CreateVersion(ctx, req)
+	if err != nil {
 		return fmt.Errorf("create history version: %w", err)
 	}
+	rs.log.Info("created new history version in cloud",
+		zap.Uint("id", item.version.ID()),
+		zap.String("remote_id", resp.Msg.GetVersionLog().GetId()))
+
+	rs.remoteVersionLogs[item.version.ID()] = resp.Msg.GetVersionLog()
 
 	return nil
 }
@@ -330,10 +382,10 @@ func (rs *RemoteStorage) convertToCloudVersion(item toSave) (*historyv1.CreateVe
 	}
 
 	return &historyv1.CreateVersionRequest{
-		ApplicationId: rs.appID,
-		Hash:          strconv.FormatUint(uint64(item.version.ID()), 10),
-		PreviousHash:  strconv.FormatUint(uint64(item.version.Previous().ID()), 10),
-		Operations:    operations,
+		ApplicationId:    rs.appID,
+		Sequence:         uint64(item.version.ID()),
+		PreviousSequence: uint64(item.version.Previous().ID()),
+		Operations:       operations,
 	}, nil
 }
 
@@ -369,12 +421,37 @@ func (rs *RemoteStorage) convertCloudOperationsToChangeSet(ops []*historyv1.Oper
 	return changeSet, nil
 }
 
-func withAuth[E any](req *connect.Request[E]) *connect.Request[E] {
-	req.Header().Set("Authorization", basicAuth("x-ddf7bea9-665f-44d4-87cc-fa64b763cf1e@mail.com", "pass1234"))
-	return req
-}
+func (rs *RemoteStorage) retryWithBackoff(maxAttempts int, fn func() error) error {
+	var lastErr error
 
-func basicAuth(username, password string) string {
-	auth := username + ":" + password
-	return "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		err := fn()
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+
+		// Don't sleep after last attempt
+		if attempt == maxAttempts-1 {
+			break
+		}
+
+		// Exponential backoff: 100ms, 200ms, 400ms, 800ms, etc.
+		backoff := time.Duration(100*math.Pow(2, float64(attempt))) * time.Millisecond
+
+		rs.log.Warn("retrying after error",
+			zap.Error(lastErr),
+			zap.Int("attempt", attempt+1),
+			zap.Duration("backoff", backoff))
+
+		select {
+		case <-rs.shutdownCh:
+			return lastErr
+		case <-time.After(backoff):
+			continue
+		}
+	}
+
+	return lastErr
 }

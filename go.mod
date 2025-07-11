@@ -4,7 +4,7 @@ go 1.24.4
 
 require (
 	connectrpc.com/connect v1.18.1
-	git.spiralscout.com/estimation-engine/cloudsync v0.0.0-20250707134738-d494cea8d5d7
+	git.spiralscout.com/estimation-engine/cloudsync v0.0.0-20250711112546-e18ba8d757b7
 	github.com/CloudyKit/jet/v6 v6.3.1
 	github.com/Masterminds/semver/v3 v3.2.1
 	github.com/Masterminds/squirrel v1.5.4
@@ -43,7 +43,6 @@ require (
 	github.com/tree-sitter/tree-sitter-php v0.23.11
 	github.com/tree-sitter/tree-sitter-python v0.23.6
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
-	github.com/wippyai/cloudhistory-poc v0.0.0-20250620123005-a29209f8d383
 	github.com/wippyai/module-registry-proto-go v0.0.1
 	github.com/xuri/excelize/v2 v2.9.0
 	github.com/yuin/gopher-lua v0.0.0-00010101000000-000000000000
