@@ -15,7 +15,7 @@ func (m *Module) registerVersionType(l *lua.LState) {
 	})
 }
 
-// versionID returns the id of a version
+// versionID returns the ID of a version
 func versionID(l *lua.LState) int {
 	// Get version - parameter check, no coroutine needed
 	ud := l.CheckUserData(1)

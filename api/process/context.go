@@ -43,23 +43,14 @@ func GetProcesses(ctx context.Context) Manager {
 	return nil
 }
 
-// GetPrototypeFactory retrieves the process Factory from the context.
-func GetPrototypeFactory(ctx context.Context) Factory {
-	if m, ok := ctx.Value(managerCtx).(Factory); ok {
-		return m
-	}
-
-	return nil
-}
-
 // OnComplete is the type for a process completion callback.
 // It is called when a process finishes execution, either successfully or with an error.
-// The callback receives the process id and the execution result.
+// The callback receives the process ID and the execution result.
 type OnComplete func(pid pubsub.PID, result *runtime.Result)
 
 // OnStart is the type for a process start callback.
 // It is called when a process begins execution.
-// The callback receives the process id and the process instance.
+// The callback receives the process ID and the process instance.
 type OnStart func(pid pubsub.PID, proc Process)
 
 // WithAddedOnComplete attaches an OnComplete callback to the context.

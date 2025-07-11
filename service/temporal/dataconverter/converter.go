@@ -17,8 +17,7 @@ type DataConverter struct {
 // NewDataConverter creates a new data converter that handles internal payloads.
 func NewDataConverter(
 	dtt payload.Transcoder,
-	fallback converter.DataConverter,
-) converter.DataConverter {
+	fallback converter.DataConverter) converter.DataConverter {
 	return &DataConverter{
 		dtt:      dtt,
 		fallback: fallback,

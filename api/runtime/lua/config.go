@@ -14,9 +14,8 @@ const (
 	// KindFunction identifies a Lua function component in the registry
 	KindFunction registry.Kind = "function.lua"
 
-	KindBteaApp  registry.Kind = "btea.app.lua"
-	KindProcess  registry.Kind = "process.lua"
-	KindWorkflow registry.Kind = "workflow.lua"
+	KindBteaApp registry.Kind = "btea.app.lua"
+	KindProcess registry.Kind = "process.lua"
 
 	// KindLibrary identifies a Lua library component in the registry
 	KindLibrary registry.Kind = "library.lua"
@@ -76,16 +75,6 @@ type (
 	// BteaConfig defines the configuration for a Lua terminal app, this is custom process with host expectations.
 	BteaConfig struct {
 		Meta    registry.Metadata      `json:"meta"`              // Metadata for the terminal
-		Source  string                 `json:"source"`            // Lua source code
-		Method  string                 `json:"method"`            // Alias of the Lua method to execute
-		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
-		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
-	}
-
-	// WorkflowConfig defines the configuration for a Lua workflow component.
-	// Workflows are deterministic processes that manage a command pipeline.
-	WorkflowConfig struct {
-		Meta    registry.Metadata      `json:"meta"`              // Metadata for the workflow
 		Source  string                 `json:"source"`            // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
@@ -164,42 +153,6 @@ func (c *LibraryConfig) Validate() error {
 		}
 	}
 
-	for _, module := range c.Modules {
-		if module == "" {
-			return fmt.Errorf("module cannot be empty")
-		}
-
-		id := registry.ParseID(module)
-		if id.NS != "" {
-			return fmt.Errorf("module cannot have a namespace")
-		}
-	}
-
-	return nil
-}
-
-// Validate checks if the WorkflowConfig has all required fields set to valid values.
-// It returns an error if any validation check fails.
-func (c *WorkflowConfig) Validate() error {
-	if c.Source == "" {
-		return fmt.Errorf("source is required")
-	}
-
-	if c.Method == "" {
-		return fmt.Errorf("method is required")
-	}
-
-	// Validate imports
-	for alias, id := range c.Imports {
-		if alias == "" {
-			return fmt.Errorf("import alias cannot be empty")
-		}
-		if id.Name == "" {
-			return fmt.Errorf("import :name cannot be empty")
-		}
-	}
-
-	// Validate modules
 	for _, module := range c.Modules {
 		if module == "" {
 			return fmt.Errorf("module cannot be empty")

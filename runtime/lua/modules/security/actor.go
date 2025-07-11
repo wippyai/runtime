@@ -36,7 +36,7 @@ func registerActorType(l *lua.LState) {
 	})
 }
 
-// actorID returns the actor's id
+// actorID returns the actor's ID
 func actorID(l *lua.LState) int {
 	actor := checkActor(l)
 	l.Push(lua.LString(actor.ID))

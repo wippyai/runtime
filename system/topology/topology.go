@@ -19,7 +19,6 @@ type Topology struct {
 	registry sync.Map // map[string]bool - registered PIDs
 	links    sync.Map // map[string]*sync.Map - bidirectional links between PIDs
 	upstream pubsub.Receiver
-	linkMu   sync.Mutex // protects Link and Unlink operations
 }
 
 // NewTopology creates a new Topology instance with the given context and upstream receiver.
@@ -35,7 +34,7 @@ func (t *Topology) Send(pkg *pubsub.Package) error {
 	return t.upstream.Send(pkg)
 }
 
-// Register adds a process id to the registry, allowing it to be monitored
+// Register adds a process ID to the registry, allowing it to be monitored
 // and linked with other processes.
 func (t *Topology) Register(pid pubsub.PID) error {
 	t.registry.LoadOrStore(pid.String(), true)
@@ -88,9 +87,6 @@ func (t *Topology) Release(caller, pid pubsub.PID) error {
 // Both processes must be registered first.
 // Returns error if either process is not registered.
 func (t *Topology) Link(from, to pubsub.PID) error {
-	t.linkMu.Lock()
-	defer t.linkMu.Unlock()
-
 	// Verify both PIDs are registered
 	if _, ok := t.registry.Load(from.String()); !ok {
 		return fmt.Errorf("cannot link unregistered pid: %s", from)
@@ -122,9 +118,6 @@ func (t *Topology) Link(from, to pubsub.PID) error {
 // Unlink removes a bidirectional link between two processes.
 // Returns nil if the operation is successful or if the processes are not linked.
 func (t *Topology) Unlink(from, to pubsub.PID) error {
-	t.linkMu.Lock()
-	defer t.linkMu.Unlock()
-
 	// Check if links exist
 	fromLinksValue, fromOk := t.links.Load(from.String())
 	if !fromOk {

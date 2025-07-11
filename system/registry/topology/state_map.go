@@ -34,7 +34,7 @@ func (sm StateMap) ToSlice() registry.State {
 	for _, entry := range sm {
 		slice = append(slice, entry)
 	}
-	// Sort the slice by id (namespace first, then name)
+	// Sort the slice by ID (namespace first, then name)
 	slices.SortFunc(slice, func(a, b registry.Entry) int {
 		// First compare by namespace
 		if nsComp := strings.Compare(a.ID.NS, b.ID.NS); nsComp != 0 {

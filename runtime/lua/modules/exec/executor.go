@@ -82,7 +82,7 @@ func WrapExecutor(l *lua.LState, execWrapper *Executor) *lua.LUserData {
 func execGet(l *lua.LState, log *zap.Logger) int {
 	idStr := l.CheckString(1)
 	if idStr == "" {
-		l.RaiseError("resource id is required")
+		l.RaiseError("resource ID is required")
 		return 0
 	}
 

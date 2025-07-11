@@ -8,6 +8,7 @@ import (
 
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 
+	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
@@ -85,6 +86,9 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 
 	// Create the result channel with buffer size 1 to avoid blocking
 	resultChan := make(chan *runtime.Result, 1)
+
+	// Ensure context has a logger
+	ctx = logs.WithLogger(ctx, p.logger.With(zap.String("func", task.ID.String())))
 
 	// Get transcoder from context
 	dtt := payload.GetTranscoder(ctx)

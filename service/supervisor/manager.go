@@ -27,7 +27,7 @@ type Manager struct {
 	log      *zap.Logger
 	bus      event.Bus
 	proc     *process.Manager
-	services sync.Map // map[registry.id]supervisor.Service
+	services sync.Map // map[registry.ID]supervisor.Service
 	factory  ServiceFactory
 }
 

@@ -46,7 +46,7 @@ func (m *mockExecutor) Call(ctx context.Context, _ runtime.Task) (chan *runtime.
 		default:
 			// Check if we have an actor in the context
 			if actor, ok := secapi.GetActor(ctx); ok {
-				// Return actor id as result to verify it was passed correctly
+				// Return actor ID as result to verify it was passed correctly
 				resultChan <- &runtime.Result{
 					Value: payload.New(fmt.Sprintf("actor:%s", actor.ID)),
 				}
@@ -299,7 +299,7 @@ func TestExecutorModule(t *testing.T) {
 				-- Create executor with actor
 				local executor_with_actor = executor:with_actor(actor)
 				
-				-- Call function, result should include the actor id
+				-- Call function, result should include the actor ID
 				local result, err = executor_with_actor:call("test:function")
 				assert(err == nil, "expected no error but got: " .. tostring(err))
 				assert(result == "actor:test_user", "expected 'actor:test_user' but got: " .. tostring(result))

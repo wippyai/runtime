@@ -74,7 +74,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Helper function to convert an id table to a registry id
+// Helper function to convert an ID table to a registry ID
 func tableToID(_ *lua.LState, table *lua.LTable) (regapi.ID, error) {
 	ns := table.RawGetString("ns")
 	name := table.RawGetString("name")
@@ -89,7 +89,7 @@ func tableToID(_ *lua.LState, table *lua.LTable) (regapi.ID, error) {
 	}, nil
 }
 
-// parseID creates an id from a string
+// parseID creates an ID from a string
 func parseID(l *lua.LState) int {
 	idStr := l.CheckString(1)
 	id := regapi.ParseID(idStr)
@@ -165,11 +165,11 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 		return 2
 	}
 
-	// Get version id - this is a simple parameter check, no coroutine needed
+	// Get version ID - this is a simple parameter check, no coroutine needed
 	versionID := l.CheckNumber(1)
 	if versionID <= 0 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid version id"))
+		l.Push(lua.LString("invalid version ID"))
 		return 2
 	}
 
@@ -371,7 +371,7 @@ func (m *Module) historyCreate(l *lua.LState) int {
 	return 1
 }
 
-// registryGet retrieves a specific entry by id from the registry
+// registryGet retrieves a specific entry by ID from the registry
 func (m *Module) registryGet(l *lua.LState) int {
 	// Get registry from context
 	reg := regapi.GetRegistry(l.Context())
@@ -381,7 +381,7 @@ func (m *Module) registryGet(l *lua.LState) int {
 		return 2
 	}
 
-	// Get id
+	// Get ID
 	idStr := l.CheckString(1)
 	id := regapi.ParseID(idStr)
 

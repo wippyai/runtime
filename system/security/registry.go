@@ -18,8 +18,8 @@ type PolicyRegistry struct {
 	ctx        context.Context
 	logger     *zap.Logger
 	bus        event.Bus
-	policies   sync.Map // map[registry.id]PolicyEntry
-	groups     sync.Map // map[registry.id][]registry.ID (group id -> policy IDs)
+	policies   sync.Map // map[registry.ID]PolicyEntry
+	groups     sync.Map // map[registry.ID][]registry.ID (group ID -> policy IDs)
 	subscriber *eventbus.Subscriber
 }
 
@@ -227,7 +227,7 @@ func (r *PolicyRegistry) removePolicyFromGroup(groupID, policyID registry.ID) {
 	}
 }
 
-// GetPolicy retrieves a policy by its id
+// GetPolicy retrieves a policy by its ID
 func (r *PolicyRegistry) GetPolicy(id registry.ID) (security.Policy, error) {
 	val, ok := r.policies.Load(id)
 	if !ok {

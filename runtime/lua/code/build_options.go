@@ -94,12 +94,12 @@ func contains(slice []registry.ID, item registry.ID) bool {
 }
 
 // Validate checks if the given nodes comply with the build constraints
-func (o *BuildOptions) Validate(mainID registry.ID, nodes map[registry.ID]*Node) error {
+func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 	// In StrictListed mode, verify all required IDs are also in allowed list
 	if o.Mode == StrictListed {
 		for _, required := range o.Required {
 			if !contains(o.Allowed, required) {
-				return fmt.Errorf("required dependency `%v` must also be in allowed list (StrictListed mode)", required)
+				return fmt.Errorf("required process `%v` must also be in allowed list (StrictListed mode)", required)
 			}
 		}
 	}
@@ -112,14 +112,9 @@ func (o *BuildOptions) Validate(mainID registry.ID, nodes map[registry.ID]*Node)
 
 	// Validate nodes
 	for id := range nodes {
-		if id == mainID {
-			// Skip main id as it is always allowed
-			continue
-		}
-
 		// Check denied IDs first (highest precedence)
 		if contains(o.Denied, id) {
-			return fmt.Errorf("dependency `%v` is not allowed in this build", id)
+			return fmt.Errorf("process `%v` is not allowed in this build", id)
 		}
 
 		// Mark required IDs as found
@@ -127,7 +122,7 @@ func (o *BuildOptions) Validate(mainID registry.ID, nodes map[registry.ID]*Node)
 			foundRequired[id] = true
 			// In StrictListed mode, required IDs must still be explicitly allowed
 			if o.Mode == StrictListed && !contains(o.Allowed, id) {
-				return fmt.Errorf("dependency `%v` is required but not allowed (StrictListed mode)", id)
+				return fmt.Errorf("process `%v` is required but not allowed (StrictListed mode)", id)
 			}
 			continue
 		}
@@ -138,17 +133,17 @@ func (o *BuildOptions) Validate(mainID registry.ID, nodes map[registry.ID]*Node)
 			// Allow anything not explicitly denied (already checked above)
 		case AllowListed, StrictListed:
 			if !contains(o.Allowed, id) {
-				return fmt.Errorf("dependency `%v` is not in the allowed IDs list", id)
+				return fmt.Errorf("process `%v` is not in the allowed IDs list", id)
 			}
 		case DenyAll:
-			return fmt.Errorf("dependency `%v` is not allowed (DenyAll mode)", id)
+			return fmt.Errorf("process `%v` is not allowed (DenyAll mode)", id)
 		}
 	}
 
 	// Verify all required IDs were found
 	for id, found := range foundRequired {
 		if !found {
-			return fmt.Errorf("required dependency `%v` was not found", id)
+			return fmt.Errorf("required process `%v` was not found", id)
 		}
 	}
 

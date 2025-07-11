@@ -243,10 +243,10 @@ func (*Module) hostname(l *lua.LState) int {
 	return 2
 }
 
-// pid returns the process id of the caller.
+// pid returns the process ID of the caller.
 func (*Module) pid(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "pid", nil) {
-		l.RaiseError("not allowed to access process id information")
+		l.RaiseError("not allowed to access process ID information")
 		return 0
 	}
 

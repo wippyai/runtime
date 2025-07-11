@@ -22,7 +22,7 @@ var (
 // It includes routing parameters, endpoint configuration, and matching details.
 type RouteInfo struct {
 	Params     map[string]string // URL parameters extracted from the route
-	Endpoint   registry.ID       // id of the matched endpoint configuration
+	Endpoint   registry.ID       // ID of the matched endpoint configuration
 	Func       registry.ID       // Identifier for the function to be called
 	MatchedURI string            // The URI pattern that matched the request
 }

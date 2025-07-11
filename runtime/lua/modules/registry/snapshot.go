@@ -24,7 +24,7 @@ func (s *Snapshot) GetAllEntries() ([]regapi.Entry, error) {
 	return s.entries, nil
 }
 
-// GetEntry returns a specific entry by id
+// GetEntry returns a specific entry by ID
 func (s *Snapshot) GetEntry(id regapi.ID) (regapi.Entry, error) {
 	for _, entry := range s.entries {
 		if entry.ID == id {
@@ -85,7 +85,7 @@ func snapshotEntries(l *lua.LState) int {
 	return 1
 }
 
-// snapshotGet retrieves a specific entry by id
+// snapshotGet retrieves a specific entry by ID
 func snapshotGet(l *lua.LState) int {
 	// Get snapshot
 	snap := CheckSnapshot(l)
@@ -93,7 +93,7 @@ func snapshotGet(l *lua.LState) int {
 		return 0
 	}
 
-	// Get id
+	// Get ID
 	idStr := l.CheckString(2)
 	id := regapi.ParseID(idStr)
 

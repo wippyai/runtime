@@ -455,7 +455,7 @@ func TestServerFactory(t *testing.T) {
 		Addr: ":8080",
 	}
 
-	// Create server with id
+	// Create server with ID
 	serverID := apiregistry.ID{NS: "test", Name: "server1"}
 	server, err := factory.CreateServer(serverID, cfg)
 	require.NoError(t, err)

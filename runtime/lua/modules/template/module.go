@@ -109,12 +109,12 @@ func WrapTemplateSet(l *lua.LState, wrapper *Wrapper) *lua.LUserData {
 	return ud
 }
 
-// templateGet retrieves a template set resource by id
+// templateGet retrieves a template set resource by ID
 func templateGet(l *lua.LState, log *zap.Logger) int {
-	// Get resource id
+	// Get resource ID
 	id := l.CheckString(1)
 	if id == "" {
-		l.RaiseError("resource id is required")
+		l.RaiseError("resource ID is required")
 		return 0
 	}
 
@@ -130,7 +130,7 @@ func templateGet(l *lua.LState, log *zap.Logger) int {
 		return 0
 	}
 
-	// Parse resource id
+	// Parse resource ID
 	resID := registry.ParseID(id)
 
 	// Acquire resource

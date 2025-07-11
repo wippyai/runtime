@@ -72,16 +72,7 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	// Create the process
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
 
-	// Using direct command equivalents instead of shell piping
-	// We'll use a single command with args for cross-platform compatibility
-	var command string
-	if runtime.GOOS == "windows" {
-		command = "findstr"
-	} else {
-		command = "sh -c 'yes | head -n 100'"
-	}
-
-	process, err := nativeExecutor.NewProcess(command+" -n 100 /dev/urandom", exec.ProcessOptions{})
+	process, err := nativeExecutor.NewProcess("sh -c 'yes | head -n 100'", exec.ProcessOptions{})
 	assert.NoError(t, err)
 
 	processExecutor, ok := process.(*ProcessExecutor)
@@ -239,8 +230,8 @@ func TestExecutor_Stderr(t *testing.T) {
 		// On Windows, we need to use CMD to redirect to stderr
 		command = "cmd /c echo error message 1>&2"
 	} else {
-		// On Unix systems
-		command = "sh -c \"echo error message >&2\""
+		// On Unix systems - use a more reliable approach
+		command = "bash -c 'echo error message >&2'"
 	}
 
 	// Create the process

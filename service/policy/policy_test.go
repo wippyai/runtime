@@ -90,9 +90,9 @@ func TestPolicy(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	// Check policy id
+	// Check policy ID
 	if p.ID().String() != "test:admin-policy" {
-		t.Errorf("Expected policy id to be 'test:admin-policy', got %s", p.ID().String())
+		t.Errorf("Expected policy ID to be 'test:admin-policy', got %s", p.ID().String())
 	}
 
 	// Test policy evaluation with matching role

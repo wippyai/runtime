@@ -186,7 +186,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 	})
 
 	t.Run("add and remove endpoint", func(t *testing.T) {
-		// Use a different router id to avoid conflicts
+		// Use a different router ID to avoid conflicts
 		routerID := registry.ID{NS: "test", Name: "router2"}
 		routerCfg := &config.RouterConfig{
 			Prefix: "/api/v2",
@@ -394,7 +394,7 @@ func TestServerService_Middleware(t *testing.T) {
 		WithMiddlewareCreator("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
 			return func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					// Pass through any existing request id
+					// Pass through any existing request ID
 					reqID := r.Header.Get("X-Request-Id")
 					if reqID == "" {
 						reqID = "generated-id"
@@ -429,11 +429,11 @@ func TestServerService_Middleware(t *testing.T) {
 	err = server.UpsertRouter(routerID, routerCfg)
 	require.NoError(t, err)
 
-	// Add test endpoint that checks request id middleware
+	// Add test endpoint that checks request ID middleware
 	endpointID := registry.ID{NS: "test", Name: "endpoint5"}
 
 	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if request id was set by middleware
+		// Check if request ID was set by middleware
 		reqID := r.Header.Get("X-Request-Id")
 		// Important: Copy the header from request to response
 		w.Header().Set("X-Got-Request-Id", reqID)
@@ -475,7 +475,7 @@ func TestServerService_Middleware(t *testing.T) {
 	var resp *http.Response
 	var lastErr error
 
-	// Set a custom request id in the client request to ensure middleware processes it
+	// Set a custom request ID in the client request to ensure middleware processes it
 	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://%s/api/test", cfg.Addr), nil)
 	require.NoError(t, err)
 	req.Header.Set("X-Request-Id", "test-request-id")
@@ -491,9 +491,9 @@ func TestServerService_Middleware(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// Check if request id header was set
+	// Check if request ID header was set
 	reqID := resp.Header.Get("X-Got-Request-Id")
-	assert.Equal(t, "test-request-id", reqID, "Request id middleware should pass through the id")
+	assert.Equal(t, "test-request-id", reqID, "Request ID middleware should pass through the ID")
 	assert.NoError(t, resp.Body.Close())
 
 	// Stop the server

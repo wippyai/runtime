@@ -227,7 +227,7 @@
             // Extract unique namespaces
             namespaces = new Set();
             allTools.forEach(tool => {
-                // Extract namespace from tool id
+                // Extract namespace from tool ID
                 const parts = tool.id.split(':');
                 if (parts.length > 1) {
                     namespaces.add(parts[0]);
@@ -312,7 +312,7 @@
         const card = document.createElement('div');
         card.className = 'tool-card bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden theme-transition';
 
-        // Extract namespace from id
+        // Extract namespace from ID
         const idParts = tool.id.split(':');
         const namespace = idParts.length > 1 ? idParts[0] : 'default';
 
