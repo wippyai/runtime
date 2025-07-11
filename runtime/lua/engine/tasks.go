@@ -14,11 +14,13 @@ import (
 
 // taskCoordinator implements the Tasks interface for coroutine coordination
 type taskCoordinator struct {
-	updates   chan *Update // Channel for task updates
-	cond      *sync.Cond   // Condition variable for wake-up notifications
-	taskCount atomic.Int32 // Counter for external activities, usually counting blocked channels
-	updCount  atomic.Int32 // Counter for sent updates and internal updates
-	awaken    atomic.Bool  // Flag indicating if wake-up has been signaled
+	updates   chan *Update  // Channel for task updates
+	cond      *sync.Cond    // Condition variable for wake-up notifications
+	wakeCh    chan struct{} // Channel for context-aware wake-up signals
+	taskCount atomic.Int32  // Counter for external activities, usually counting blocked channels
+	updCount  atomic.Int32  // Counter for sent updates and internal updates
+	wakeCount atomic.Int32  // Counter for wake-up signals
+	awaken    atomic.Bool   // Flag indicating if wake-up has been signaled
 
 	wmu        sync.Mutex // Mutex for scheduled functions
 	wakeupFunc func()     // Function to call on wake-up
@@ -37,6 +39,7 @@ func newTaskCoordinator(bufferSize int, wakeupFunc func()) *taskCoordinator {
 	return &taskCoordinator{
 		updates:         make(chan *Update, bufferSize),
 		cond:            sync.NewCond(condMu),
+		wakeCh:          make(chan struct{}, 1),
 		wakeupFunc:      wakeupFunc,
 		scheduled:       list.New(),
 		scheduledBackup: list.New(),
@@ -109,8 +112,15 @@ func (t *taskCoordinator) executeScheduled() {
 // WakeUp signals that threads may be ready to process
 // This is thread-safe and can be called from any goroutine
 func (t *taskCoordinator) WakeUp() {
+	t.wakeCount.Add(1)
 	if t.awaken.CompareAndSwap(false, true) {
 		t.cond.Signal()
+		// Signal the wake channel for context-aware waiting
+		select {
+		case t.wakeCh <- struct{}{}:
+		default:
+			// Channel is full, which means someone is already waiting
+		}
 	}
 
 	t.wmu.Lock()
@@ -141,7 +151,7 @@ func (t *taskCoordinator) Blocked() int {
 
 // Ready returns the number of tasks that are currently ready to be processed
 func (t *taskCoordinator) Ready() int {
-	ready := int(t.updCount.Load())
+	ready := int(t.updCount.Load()) + int(t.wakeCount.Load())
 	if t.undelivered.Load() {
 		// this flag is true until executeScheduled is called with empty list
 		ready++
@@ -174,24 +184,18 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 				return nil, ctx.Err()
 
 			default:
-				// No updates available, wait for signal
-				t.cond.L.Lock()
-				// Check context again before waiting
+				// No updates available, wait for signal with context awareness
+				// Use the wakeCh channel for context-aware waiting
 				select {
-				case <-ctx.Done():
-					t.cond.L.Unlock()
-					return nil, ctx.Err()
-				default:
-				}
+				case <-t.wakeCh:
+					// Consume the wake-up signal
+					t.awaken.Store(false)
+					block = false
+					continue
 
-				// Wait for signal, but only if we're still supposed to be awake
-				if !t.awaken.Load() {
-					t.cond.Wait()
+				case <-ctx.Done():
+					return nil, ctx.Err()
 				}
-				t.awaken.Store(false)
-				t.cond.L.Unlock()
-				block = false
-				continue
 			}
 		}
 
@@ -203,6 +207,10 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 				updates = append(updates, upd)
 			}
 		default:
+			// Consume any pending wake-up signals
+			if t.wakeCount.Load() > 0 {
+				t.wakeCount.Store(0)
+			}
 			return updates, nil
 		}
 	}
@@ -246,6 +254,7 @@ func (t *taskCoordinator) reset() {
 	// Reset all atomic counters
 	t.taskCount.Store(0)
 	t.updCount.Store(0)
+	t.wakeCount.Store(0)
 	t.awaken.Store(false)
 	t.undelivered.Store(false)
 
@@ -254,6 +263,12 @@ func (t *taskCoordinator) reset() {
 	t.scheduled.Init()
 	t.scheduledBackup.Init()
 	t.smu.Unlock()
+
+	// Drain wake channel
+	select {
+	case <-t.wakeCh:
+	default:
+	}
 }
 
 // Interface implementation verification
