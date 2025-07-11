@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -149,6 +150,7 @@ func main() {
 
 	// Configure services
 	app.services = createServiceHandlers(app)
+	runtime.GC()
 
 	// Start profiler if enabled
 	if config.EnableProfiling {

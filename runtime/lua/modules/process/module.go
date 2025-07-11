@@ -80,6 +80,53 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
+// NewProcessTable creates a new mutable process table for extension by other modules
+func (m *Module) NewProcessTable(l *lua.LState) *lua.LTable {
+	m.registerContextType(l)
+
+	mod := l.CreateTable(0, 16)
+
+	// Register process functions
+	mod.RawSetString("id", l.NewFunction(m.id))
+	mod.RawSetString("pid", l.NewFunction(m.pid))
+	mod.RawSetString("send", l.NewFunction(m.send))
+	mod.RawSetString("spawn", l.NewFunction(m.spawn))
+	mod.RawSetString("spawn_monitored", l.NewFunction(m.spawnMonitored))
+	mod.RawSetString("spawn_linked", l.NewFunction(m.spawnLinked))
+	mod.RawSetString("spawn_linked_monitored", l.NewFunction(m.spawnLinkedMonitored))
+	mod.RawSetString("terminate", l.NewFunction(m.terminate))
+	mod.RawSetString("cancel", l.NewFunction(m.cancel))
+	mod.RawSetString("get_options", l.NewFunction(m.getOptions))
+	mod.RawSetString("set_options", l.NewFunction(m.setOptions))
+	mod.RawSetString("monitor", l.NewFunction(m.monitor))
+	mod.RawSetString("unmonitor", l.NewFunction(m.unmonitor))
+	mod.RawSetString("link", l.NewFunction(m.link))
+	mod.RawSetString("unlink", l.NewFunction(m.unlink))
+
+	mod.RawSetString("with_context", l.NewFunction(m.withContext))
+
+	// Create event constants table (immutable)
+	events := l.CreateTable(0, 3)
+	events.RawSetString("CANCEL", lua.LString(topology.KindCancel))
+	events.RawSetString("EXIT", lua.LString(topology.KindExit))
+	events.RawSetString("LINK_DOWN", lua.LString(topology.KindLinkDown))
+	events.Immutable = true
+	mod.RawSetString("event", events)
+
+	// Registry table (immutable)
+	reg := l.CreateTable(0, 3)
+	reg.RawSetString("register", l.NewFunction(m.registryRegister))
+	reg.RawSetString("lookup", l.NewFunction(m.registryLookup))
+	reg.RawSetString("unregister", l.NewFunction(m.registryUnregister))
+	reg.Immutable = true
+	mod.RawSetString("registry", reg)
+
+	RegisterMessageType(l)
+
+	// Return mutable table (no Immutable = true)
+	return mod
+}
+
 // getOptions returns an empty table (placeholder for process options)
 func (m *Module) getOptions(l *lua.LState) int {
 	l.Push(l.CreateTable(0, 0))

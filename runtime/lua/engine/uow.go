@@ -2,11 +2,10 @@ package engine
 
 import (
 	"context"
-	"sync"
-	"sync/atomic"
-
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	lua "github.com/yuin/gopher-lua"
+	"sync"
+	"sync/atomic"
 )
 
 const scheduleSize = 32
@@ -133,7 +132,6 @@ func (u *unitOfWork) Run(fn func(uw UnitOfWork)) {
 	go func() {
 		defer u.wg.Done()
 		defer u.tasks.Done()
-
 		fn(u)
 	}()
 }

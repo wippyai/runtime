@@ -124,6 +124,7 @@ func (m *Module) Loader(l *lua.LState) int {
 		t := l.NewTable()
 		l.SetField(t, "decode", l.NewFunction(m.decode))
 		l.SetField(t, "encode", l.NewFunction(m.encode))
+		t.Immutable = true
 		m.moduleTable = t
 	})
 	l.Push(m.moduleTable)
