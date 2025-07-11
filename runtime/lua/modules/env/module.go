@@ -56,6 +56,7 @@ func (m *Module) get(l *lua.LState) int {
 		return 0
 	}
 
+	// todo: fix duplicate
 	if _, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); !ok {
 		l.RaiseError("invalid environment context")
 		return 0
