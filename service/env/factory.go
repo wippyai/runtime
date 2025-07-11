@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type EnvStorageFactoryAPI interface {
+type StorageFactoryAPI interface {
 	CreateMemoryEnvStorage(kind registry.Kind, cfg *envservice.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error)
 	CreateFileEnvStorage(kind registry.Kind, cfg *envservice.CreateFileEnvStorageConfig, log *zap.Logger) (*FileStorage, error)
 	CreateOSEnvStorage(kind registry.Kind, cfg *envservice.CreateOSEnvStorageConfig, log *zap.Logger) (*OSStorage, error)

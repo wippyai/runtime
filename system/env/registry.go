@@ -91,7 +91,6 @@ func (s *Registry) registerStorage(e event.Event) {
 }
 
 func (s *Registry) registerVariable(e event.Event) {
-
 	variable, ok := e.Data.(env.Variable)
 	if !ok {
 		s.log.Error("invalid variable payload",

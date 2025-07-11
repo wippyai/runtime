@@ -27,7 +27,7 @@ type Manager struct {
 	bus      event.Bus
 	mu       sync.RWMutex
 	storages map[registry.ID]env.Storage
-	factory  EnvStorageFactoryAPI
+	factory  StorageFactoryAPI
 }
 
 // NewManager creates a new environment storage manager instance

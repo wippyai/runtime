@@ -32,11 +32,11 @@ func (s *OSStorage) Get(_ context.Context, key string) (string, error) {
 	return "", os.ErrNotExist
 }
 
-func (s *OSStorage) Set(_ context.Context, key, value string) error {
+func (s *OSStorage) Set(_ context.Context, _, _ string) error {
 	return ErrStorageReadOnly
 }
 
-func (s *OSStorage) Delete(_ context.Context, key string) error {
+func (s *OSStorage) Delete(_ context.Context, _ string) error {
 	return ErrStorageReadOnly
 }
 
