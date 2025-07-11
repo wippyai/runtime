@@ -43,7 +43,7 @@ func NewRegistry(bus event.Bus, log *zap.Logger) *Registry {
 
 func (s *Registry) Start(ctx context.Context) error {
 	s.ctx = ctx
-	subscriber, err := eventbus.NewSubscriber(ctx, s.bus, env.System, "env.*", s.handleEvent)
+	subscriber, err := eventbus.NewSubscriber(ctx, s.bus, env.System, "(storage|variable).*", s.handleEvent)
 	if err != nil {
 		return fmt.Errorf("failed to create subscriber: %w", err)
 	}
@@ -91,6 +91,7 @@ func (s *Registry) registerStorage(e event.Event) {
 }
 
 func (s *Registry) registerVariable(e event.Event) {
+
 	variable, ok := e.Data.(env.Variable)
 	if !ok {
 		s.log.Error("invalid variable payload",
@@ -289,6 +290,7 @@ func (s *Registry) getEnvValueByName(ctx context.Context, name string) (*EnvValu
 func (s *Registry) getEnvValueByEnvName(_ context.Context, envName string) (*EnvValue, error) {
 	var variable EnvValue
 	var found bool
+	// todo: this is hot path btw, need secondary map
 	s.values.Range(func(_ interface{}, value interface{}) bool {
 		v := value.(EnvValue)
 		if v.EnvName == envName {

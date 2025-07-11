@@ -22,6 +22,7 @@ var DependencyPaths = []PathConfig{
 	{Path: "data.server", Description: "Reference to HTTP server in data section"},
 	{Path: "data.fs", Description: "Reference to filesystem"},
 	{Path: "data.store", Description: "Reference to a store (e.g., 'session')"},
+	{Path: "data.storage", Description: "Reference to a storage"},
 	{Path: "data.env", Description: "Reference to env"},
 	{Path: "data.token_store", Description: "Reference to token storage"},
 	{Path: "data.set", Description: "Reference to a template set"},
