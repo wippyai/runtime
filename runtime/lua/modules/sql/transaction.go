@@ -10,6 +10,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -23,7 +24,6 @@ type Transaction struct {
 	onRelease context.CancelFunc
 }
 
-// In your sql package, add to Transaction type:
 // GetRawTx exposes the underlying sql.Tx for external components like QueryBuilder
 func (t *Transaction) GetRawTx() *sql.Tx {
 	return t.tx
@@ -82,8 +82,6 @@ func registerTransaction(l *lua.LState, _ *zap.Logger) {
 		"savepoint":   txSavepoint,
 		"rollback_to": txRollbackTo,
 		"release":     txReleaseSavepoint,
-
-		// Secondary
 	}
 
 	value.RegisterMethods(l, "sql.Transaction", methods)
@@ -114,8 +112,6 @@ func txDBType(l *lua.LState) int {
 
 // txQuery executes a query within a transaction and returns rows
 func txQuery(l *lua.LState) int {
-	ctx := l.Context()
-
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -138,61 +134,69 @@ func txQuery(l *lua.LState) int {
 		return 2
 	}
 
-	var rows *sql.Rows
+	coroutine.Wrap(l, func() *engine.Update {
+		ctx := l.Context()
+		var rows *sql.Rows
 
-	// Serve query with appropriate parameter style
-	switch p := params.(type) {
-	case nil:
-		rows, err = tx.tx.QueryContext(ctx, query)
-	case []interface{}:
-		rows, err = tx.tx.QueryContext(ctx, query, p...)
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
-		return 2
-	}
+		// Serve query with appropriate parameter style
+		switch p := params.(type) {
+		case nil:
+			rows, err = tx.tx.QueryContext(ctx, query)
+		case []interface{}:
+			rows, err = tx.tx.QueryContext(ctx, query, p...)
+		default:
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("unsupported parameter type: %T", params))},
+				nil,
+			)
+		}
 
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
 
-	var resultTable *lua.LTable
-	// Use a named return parameter to capture errors from both RowsToTable and rows.close
-	err = func() error {
-		defer func() {
-			closeErr := rows.Close()
-			if closeErr != nil {
-				tx.log.Error("failed to close rows", zap.Error(closeErr))
-				// If we don't already have an error, use the close error
-				if err == nil {
-					err = closeErr
+		var resultTable *lua.LTable
+		err = func() error {
+			defer func() {
+				closeErr := rows.Close()
+				if closeErr != nil {
+					tx.log.Error("failed to close rows", zap.Error(closeErr))
+					if err == nil {
+						err = closeErr
+					}
 				}
-			}
+			}()
+
+			var tableErr error
+			resultTable, tableErr = sqlutil.RowsToTable(l, rows)
+			return tableErr
 		}()
 
-		// Convert rows to Lua table
-		var tableErr error
-		resultTable, tableErr = sqlutil.RowsToTable(l, rows)
-		return tableErr
-	}()
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
 
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{resultTable, lua.LNil},
+			nil,
+		)
+	})
 
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
+	return -1
 }
 
 // txExecute executes a statement within a transaction that doesn't return rows
 func txExecute(l *lua.LState) int {
-	ctx := l.Context()
-
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -215,38 +219,47 @@ func txExecute(l *lua.LState) int {
 		return 2
 	}
 
-	var result sql.Result
+	coroutine.Wrap(l, func() *engine.Update {
+		ctx := l.Context()
+		var result sql.Result
 
-	// Serve with appropriate parameter style
-	switch p := params.(type) {
-	case nil:
-		result, err = tx.tx.ExecContext(ctx, query)
-	case []interface{}:
-		result, err = tx.tx.ExecContext(ctx, query, p...)
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
-		return 2
-	}
+		// Serve with appropriate parameter style
+		switch p := params.(type) {
+		case nil:
+			result, err = tx.tx.ExecContext(ctx, query)
+		case []interface{}:
+			result, err = tx.tx.ExecContext(ctx, query, p...)
+		default:
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("unsupported parameter type: %T", params))},
+				nil,
+			)
+		}
 
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
 
-	// Convert result to Lua table
-	resultTable := sqlutil.ResultToTable(l, result)
+		// Convert result to Lua table
+		resultTable := sqlutil.ResultToTable(l, result)
 
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{resultTable, lua.LNil},
+			nil,
+		)
+	})
+
+	return -1
 }
 
 // txPrepare prepares a statement within a transaction for repeated execution
 func txPrepare(l *lua.LState) int {
-	ctx := l.Context()
-
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -269,23 +282,33 @@ func txPrepare(l *lua.LState) int {
 		return 2
 	}
 
-	// Prepare statement
-	stmt, err := tx.tx.PrepareContext(ctx, query)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+	coroutine.Wrap(l, func() *engine.Update {
+		ctx := l.Context()
 
-	// Create statement wrapper using the constructor
-	stmtObj := NewStatement(uw, stmt, tx.db, tx.log)
+		// Prepare statement
+		stmt, err := tx.tx.PrepareContext(ctx, query)
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
 
-	// Create userdata
-	ud := WrapStatement(l, stmtObj)
+		// Create statement wrapper using the constructor
+		stmtObj := NewStatement(uw, stmt, tx.db, tx.log)
 
-	l.Push(ud)
-	l.Push(lua.LNil)
-	return 2
+		// Create userdata
+		ud := WrapStatement(l, stmtObj)
+
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{ud, lua.LNil},
+			nil,
+		)
+	})
+
+	return -1
 }
 
 // txCommit commits the transaction
@@ -303,25 +326,33 @@ func txCommit(l *lua.LState) int {
 		return 2
 	}
 
-	// Commit transaction
-	if err := tx.tx.Commit(); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+	coroutine.Wrap(l, func() *engine.Update {
+		// Commit transaction
+		if err := tx.tx.Commit(); err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
 
-	// Mark as inactive
-	tx.active = false
+		// Mark as inactive
+		tx.active = false
 
-	// Cancel the cleanup function in UoW (don't execute it, just remove it)
-	if tx.onRelease != nil {
-		tx.onRelease()
-		tx.onRelease = nil
-	}
+		// Cancel the cleanup function in UoW (don't execute it, just remove it)
+		if tx.onRelease != nil {
+			tx.onRelease()
+			tx.onRelease = nil
+		}
 
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{lua.LTrue, lua.LNil},
+			nil,
+		)
+	})
+
+	return -1
 }
 
 // txRollback rolls back the transaction
@@ -339,31 +370,37 @@ func txRollback(l *lua.LState) int {
 		return 2
 	}
 
-	// Rollback transaction explicitly
-	if err := tx.tx.Rollback(); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+	coroutine.Wrap(l, func() *engine.Update {
+		// Rollback transaction explicitly
+		if err := tx.tx.Rollback(); err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
 
-	// Mark as inactive after successful rollback
-	tx.active = false
+		// Mark as inactive after successful rollback
+		tx.active = false
 
-	// Cancel the cleanup function in UoW (don't execute it, just remove it)
-	if tx.onRelease != nil {
-		tx.onRelease()
-		tx.onRelease = nil
-	}
+		// Cancel the cleanup function in UoW (don't execute it, just remove it)
+		if tx.onRelease != nil {
+			tx.onRelease()
+			tx.onRelease = nil
+		}
 
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{lua.LTrue, lua.LNil},
+			nil,
+		)
+	})
+
+	return -1
 }
 
 // txSavepoint creates a savepoint in the transaction
 func txSavepoint(l *lua.LState) int {
-	ctx := l.Context()
-
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -395,24 +432,32 @@ func txSavepoint(l *lua.LState) int {
 		return 2
 	}
 
-	// Create savepoint
-	query := fmt.Sprintf("SAVEPOINT %s", name)
-	_, err := tx.tx.ExecContext(ctx, query)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to create savepoint: %v", err)))
-		return 2
-	}
+	coroutine.Wrap(l, func() *engine.Update {
+		ctx := l.Context()
 
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
+		// Create savepoint
+		query := fmt.Sprintf("SAVEPOINT %s", name)
+		_, err := tx.tx.ExecContext(ctx, query)
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("failed to create savepoint: %v", err))},
+				nil,
+			)
+		}
+
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{lua.LTrue, lua.LNil},
+			nil,
+		)
+	})
+
+	return -1
 }
 
 // txRollbackTo rolls back to a savepoint in the transaction
 func txRollbackTo(l *lua.LState) int {
-	ctx := l.Context()
-
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -443,24 +488,32 @@ func txRollbackTo(l *lua.LState) int {
 		return 2
 	}
 
-	// Roll back to savepoint
-	query := fmt.Sprintf("ROLLBACK TO SAVEPOINT %s", name)
-	_, err := tx.tx.ExecContext(ctx, query)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to rollback to savepoint: %v", err)))
-		return 2
-	}
+	coroutine.Wrap(l, func() *engine.Update {
+		ctx := l.Context()
 
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
+		// Roll back to savepoint
+		query := fmt.Sprintf("ROLLBACK TO SAVEPOINT %s", name)
+		_, err := tx.tx.ExecContext(ctx, query)
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("failed to rollback to savepoint: %v", err))},
+				nil,
+			)
+		}
+
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{lua.LTrue, lua.LNil},
+			nil,
+		)
+	})
+
+	return -1
 }
 
 // txReleaseSavepoint releases a savepoint in the transaction
 func txReleaseSavepoint(l *lua.LState) int {
-	ctx := l.Context()
-
 	// Check and get transaction
 	tx := CheckTransaction(l)
 	if tx == nil {
@@ -491,16 +544,26 @@ func txReleaseSavepoint(l *lua.LState) int {
 		return 2
 	}
 
-	// Release savepoint
-	query := fmt.Sprintf("RELEASE SAVEPOINT %s", name)
-	_, err := tx.tx.ExecContext(ctx, query)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to release savepoint: %v", err)))
-		return 2
-	}
+	coroutine.Wrap(l, func() *engine.Update {
+		ctx := l.Context()
 
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
+		// Release savepoint
+		query := fmt.Sprintf("RELEASE SAVEPOINT %s", name)
+		_, err := tx.tx.ExecContext(ctx, query)
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("failed to release savepoint: %v", err))},
+				nil,
+			)
+		}
+
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{lua.LTrue, lua.LNil},
+			nil,
+		)
+	})
+
+	return -1
 }
