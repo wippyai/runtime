@@ -30,10 +30,10 @@ const (
 // Default configuration values
 const (
 	// DefaultMaxOpen is the default maximum number of open connections
-	DefaultMaxOpen = 10
+	DefaultMaxOpen = 0
 
 	// DefaultMaxIdle is the default maximum number of idle connections
-	DefaultMaxIdle = 5
+	DefaultMaxIdle = 0
 
 	// DefaultMaxLifetime is the default maximum lifetime of a connection
 	DefaultMaxLifetime = 1 * time.Hour
@@ -174,8 +174,8 @@ func (c *DBConfig) Validate() error {
 		return fmt.Errorf("password is required")
 	}
 
-	if c.Pool.MaxOpen <= 0 {
-		return fmt.Errorf("pool.max_open must be greater than 0")
+	if c.Pool.MaxOpen < 0 {
+		return fmt.Errorf("pool.max_open must be greater or equal to 0")
 	}
 
 	if c.Pool.MaxIdle < 0 {

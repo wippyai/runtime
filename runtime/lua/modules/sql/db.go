@@ -4,14 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-
-	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
-	"github.com/ponyruntime/pony/runtime/lua/security"
-
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
+	"github.com/ponyruntime/pony/runtime/lua/security"
 	sqlres "github.com/ponyruntime/pony/service/sql"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -84,6 +82,7 @@ func registerDB(l *lua.LState, mod *lua.LTable, log *zap.Logger) {
 		"prepare": dbPrepare,
 		"begin":   dbBegin,
 		"release": dbRelease,
+		"stats":   dbStats,
 	}
 
 	value.RegisterMethods(l, "sql.DB", methods)
@@ -357,8 +356,46 @@ func dbBegin(l *lua.LState) int {
 		return 0
 	}
 
+	// Parse transaction options if provided
+	var txOptions *sql.TxOptions
+	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
+		optsTable := l.CheckTable(2)
+		txOptions = &sql.TxOptions{}
+
+		// Parse read_only option
+		if readOnlyVal := optsTable.RawGet(lua.LString("read_only")); readOnlyVal != lua.LNil {
+			if readOnlyBool, ok := readOnlyVal.(lua.LBool); ok {
+				txOptions.ReadOnly = bool(readOnlyBool)
+			}
+		}
+
+		// Parse isolation level
+		if isolationVal := optsTable.RawGet(lua.LString("isolation")); isolationVal != lua.LNil {
+			if isolationStr, ok := isolationVal.(lua.LString); ok {
+				switch string(isolationStr) {
+				case "default":
+					txOptions.Isolation = sql.LevelDefault
+				case "read_uncommitted":
+					txOptions.Isolation = sql.LevelReadUncommitted
+				case "read_committed":
+					txOptions.Isolation = sql.LevelReadCommitted
+				case "write_committed":
+					txOptions.Isolation = sql.LevelWriteCommitted
+				case "repeatable_read":
+					txOptions.Isolation = sql.LevelRepeatableRead
+				case "serializable":
+					txOptions.Isolation = sql.LevelSerializable
+				default:
+					l.Push(lua.LNil)
+					l.Push(lua.LString(fmt.Sprintf("invalid isolation level: %s", string(isolationStr))))
+					return 2
+				}
+			}
+		}
+	}
+
 	// Begin transaction
-	tx, err := db.db.BeginTx(ctx, nil)
+	tx, err := db.db.BeginTx(ctx, txOptions)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -398,6 +435,33 @@ func dbRelease(l *lua.LState) int {
 	}
 
 	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
+}
+
+// dbStats returns database connection pool statistics
+func dbStats(l *lua.LState) int {
+	// Check and get database
+	db := CheckDB(l)
+	if db == nil {
+		return 0
+	}
+
+	stats := db.db.Stats()
+
+	statsTable := l.CreateTable(0, 9)
+	statsTable.RawSetString("max_open_connections", lua.LNumber(stats.MaxOpenConnections))
+	statsTable.RawSetString("open_connections", lua.LNumber(stats.OpenConnections))
+	statsTable.RawSetString("in_use", lua.LNumber(stats.InUse))
+	statsTable.RawSetString("idle", lua.LNumber(stats.Idle))
+	statsTable.RawSetString("wait_count", lua.LNumber(stats.WaitCount))
+	statsTable.RawSetString("wait_duration", lua.LString(stats.WaitDuration.String()))
+	statsTable.RawSetString("max_idle_closed", lua.LNumber(stats.MaxIdleClosed))
+	statsTable.RawSetString("max_idle_time_closed", lua.LNumber(stats.MaxIdleTimeClosed))
+	statsTable.RawSetString("max_lifetime_closed", lua.LNumber(stats.MaxLifetimeClosed))
+	statsTable.Immutable = true
+
+	l.Push(statsTable)
 	l.Push(lua.LNil)
 	return 2
 }

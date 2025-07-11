@@ -24,7 +24,6 @@ var DependencyPaths = []PathConfig{
 	{Path: "data.store", Description: "Reference to a store (e.g., 'session')"},
 	{Path: "data.storage", Description: "Reference to a storage"},
 	{Path: "data.env", Description: "Reference to env"},
-	{Path: "data.*_env", Description: "Reference to any environment variable ending with _env", AllowWildcard: true}, // NEW
 	{Path: "data.token_store", Description: "Reference to token storage"},
 	{Path: "data.set", Description: "Reference to a template set"},
 	{Path: "data.host", Description: "Reference to a host component"},
@@ -79,24 +78,6 @@ func extractFromPath(data map[string]any, path string, allowWildcard bool) []str
 	return navigatePath(data, segments, 0, allowWildcard)
 }
 
-// NEW: Helper function to check if a key matches a pattern
-func matchesPattern(key, pattern string) bool {
-	if pattern == "*" {
-		return true
-	}
-	if strings.HasPrefix(pattern, "*") {
-		// Pattern like "*_env" - check if key ends with "_env"
-		suffix := pattern[1:]
-		return strings.HasSuffix(key, suffix)
-	}
-	if strings.HasSuffix(pattern, "*") {
-		// Pattern like "prefix*" - check if key starts with "prefix"
-		prefix := pattern[:len(pattern)-1]
-		return strings.HasPrefix(key, prefix)
-	}
-	return key == pattern
-}
-
 func navigatePath(currentData any, segments []string, index int, allowWildcard bool) []string {
 	if index >= len(segments) {
 		return processLeafValue(currentData)
@@ -104,24 +85,17 @@ func navigatePath(currentData any, segments []string, index int, allowWildcard b
 
 	segment := segments[index]
 
-	// Enhanced wildcard handling
-	if allowWildcard && strings.Contains(segment, "*") {
+	if segment == "*" && allowWildcard {
 		var deps []string
 		if currentMap, ok := currentData.(map[string]any); ok {
 			if index >= len(segments)-1 {
-				// This is the last segment, process matching values
-				for key, value := range currentMap {
-					if matchesPattern(key, segment) {
-						deps = append(deps, processLeafValue(value)...)
-					}
+				for _, value := range currentMap {
+					deps = append(deps, processLeafValue(value)...)
 				}
 			} else {
-				// Continue navigation for matching keys
-				for key, value := range currentMap {
-					if matchesPattern(key, segment) {
-						valueDeps := navigatePath(value, segments, index+1, allowWildcard)
-						deps = append(deps, valueDeps...)
-					}
+				for _, value := range currentMap {
+					valueDeps := navigatePath(value, segments, index+1, allowWildcard)
+					deps = append(deps, valueDeps...)
 				}
 			}
 		} else if currentArray, ok := currentData.([]any); ok {
