@@ -106,7 +106,7 @@ func (c *Compiler) Compile(
 	}
 	nodes[rt.Main.ID] = rt.Main
 
-	if err := options.Validate(nodes); err != nil {
+	if err := options.Validate(rt.Main.ID, nodes); err != nil {
 		return nil, fmt.Errorf("build options validation failed: %w", err)
 	}
 

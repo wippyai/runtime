@@ -136,3 +136,31 @@ entries:
       type: envstorage
       comment: Memory storage for environment variables
     file_path: "./app/env/.env.sample"
+
+  - name: temporal
+    kind: temporal.client
+    meta:
+      comment: "Default Temporal service."
+    connect:
+      address: "localhost:7233"
+      namespace: "default"
+    auth:
+      type: "none"
+    health_check:
+      interval: 60s
+      enabled: true
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 3
+        backoff_factor: 1.5
+
+  - name: simple_queue
+    kind: temporal.worker
+    meta:
+      comment: "Simple task queue worker"
+    client: system:temporal
+    task_queue: "simple-task-queue-2"
+    lifecycle:
+      auto_start: true

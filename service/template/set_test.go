@@ -639,7 +639,7 @@ func TestTemplateSet_RenderWithComplexNestedData(t *testing.T) {
 				<p>No orders</p>
 			<< else >>
 				<table>
-					<tr><th>ID</th><th>Date</th><th>Total</th></tr>
+					<tr><th>id</th><th>Date</th><th>Total</th></tr>
 					<< range .orders >>
 						<tr>
 							<td><< .id >></td>

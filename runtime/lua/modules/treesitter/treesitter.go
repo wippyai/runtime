@@ -124,27 +124,31 @@ func (m *Module) parse(l *lua.LState) int {
 		return 2
 	}
 
-	// Use context from Lua state if available
-	ctx := l.Context()
-
-	uw := engine.GetUnitOfWork(ctx)
-	if uw == nil {
-		l.RaiseError("unit of work is not found")
-		return 0
-	}
-
-	var cflag uintptr
-	parser.SetCancellationFlag(&cflag)
-
-	// Parse with context
-	tree := parser.ParseCtx(uw.Context(), []byte(code), nil)
+	// Use the simpler Parse method to avoid context-related panics
+	tree := parser.Parse([]byte(code), nil)
 	if tree == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("failed to parse code"))
 		return 2
 	}
 
-	// Use the new constructor
+	// Get unit of work for cleanup
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		// If no UoW, create a simple tree wrapper without cleanup
+		treeWrapper := &TreeWrapper{
+			tree:   tree,
+			source: code,
+		}
+
+		ud := l.NewUserData()
+		ud.Value = treeWrapper
+		ud.Metatable = value.GetTypeMetatable(l, "treesitter.Tree")
+		l.Push(ud)
+		return 1
+	}
+
+	// Use the new constructor with UoW
 	treeWrapper := NewTree(uw, tree, code)
 
 	// Return tree userdata

@@ -23,7 +23,7 @@ import (
 
 // tokenData is the internal structure stored in the key-value store for each token
 type tokenData struct {
-	// ActorID is the ID of the actor associated with the token
+	// ActorID is the id of the actor associated with the token
 	ActorID string `json:"actor_id"`
 
 	// ActorMeta contains the actor's metadata

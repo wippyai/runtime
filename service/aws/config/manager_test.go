@@ -227,7 +227,7 @@ func TestManager_Add(t *testing.T) {
 
 	t.Run("duplicate config", func(t *testing.T) {
 		entry := registry.Entry{
-			ID:   testID, // Same ID as in successful test
+			ID:   testID, // Same id as in successful test
 			Kind: serviceaws.Kind,
 			Data: NewMockPayload(&serviceaws.Config{
 				Region: "us-east-1",
@@ -285,7 +285,7 @@ func TestManager_Update(t *testing.T) {
 	waitForResourceEvent(t, resourceEvents, resource.Register, time.Second)
 
 	t.Run("successful update", func(t *testing.T) {
-		// Create update entry with the same ID but different region
+		// Create update entry with the same id but different region
 		updateEntry := registry.Entry{
 			ID:   testID,
 			Kind: serviceaws.Kind,
@@ -421,7 +421,7 @@ func TestManager_Delete(t *testing.T) {
 		evt := waitForResourceEvent(t, resourceEvents, resource.Delete, time.Second)
 		assert.Equal(t, testID.String(), evt.Path)
 
-		// Verify event data contains the ID
+		// Verify event data contains the id
 		id, ok := evt.Data.(registry.ID)
 		assert.True(t, ok)
 		assert.Equal(t, testID, id)

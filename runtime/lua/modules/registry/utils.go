@@ -14,7 +14,7 @@ import (
 func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 	var entry regapi.Entry
 
-	// Extract ID
+	// Extract id
 	idVal := table.RawGetString("id")
 	switch idVal.Type() {
 	case lua.LTTable:
@@ -72,7 +72,7 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 	// Create the base table
 	entryTable := l.CreateTable(0, 4)
 
-	// Convert ID
+	// Convert id
 	entryTable.RawSetString("id", lua.LString(entry.ID.String()))
 
 	// Add kind

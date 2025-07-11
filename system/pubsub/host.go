@@ -103,8 +103,8 @@ func (h *Host) Send(pkg *api.Package) error {
 		return err
 	}
 
-	// Use UniqID for hashing as it's the most specific part of Source
-	hash := fnv1a32(pkg.Source.UniqID)
+	// Use UniqID for hashing as it's the most specific part of Target (all target queue must be synced)
+	hash := fnv1a32(pkg.Target.UniqID)
 	workerIndex := int(hash) % len(h.jobQueues)
 
 	// Send to the determined worker queue

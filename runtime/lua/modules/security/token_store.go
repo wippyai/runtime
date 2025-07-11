@@ -97,7 +97,7 @@ func tokenStoreValidate(l *lua.LState) int {
 		"token": tokenStr,
 	}
 
-	// Add permission check with store ID as resource
+	// Add permission check with store id as resource
 	storeID := ts.id.String()
 	if !securityapi.IsAllowed(l.Context(), "security.token.validate", storeID, meta) {
 		l.Push(lua.LNil)
@@ -159,7 +159,7 @@ func tokenStoreCreate(l *lua.LState) int {
 		"actor": actor.ID,
 	}
 
-	// Add permission check with store ID as resource
+	// Add permission check with store id as resource
 	storeID := ts.id.String()
 	if !securityapi.IsAllowed(l.Context(), "security.token.create", storeID, meta) {
 		l.Push(lua.LNil)
@@ -245,7 +245,7 @@ func tokenStoreRevoke(l *lua.LState) int {
 		"token": token,
 	}
 
-	// Add permission check with store ID as resource
+	// Add permission check with store id as resource
 	storeID := ts.id.String()
 	if !securityapi.IsAllowed(l.Context(), "security.token.revoke", storeID, meta) {
 		l.Push(lua.LNil)

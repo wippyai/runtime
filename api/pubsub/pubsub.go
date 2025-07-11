@@ -32,7 +32,7 @@ var (
 	ErrAlreadyAttached = errors.New("receiver already attached")
 	// ErrHostNotFound indicates that the requested host could not be found
 	ErrHostNotFound = errors.New("host not found")
-	// ErrHostAlreadyExists indicates that a host with the given ID is already registered
+	// ErrHostAlreadyExists indicates that a host with the given id is already registered
 	ErrHostAlreadyExists = errors.New("host already exists")
 )
 
@@ -75,6 +75,10 @@ type (
 		Attach(PID, chan *Package) (context.CancelFunc, error)
 		// Detach disconnects a process (identified by PID) from the host
 		Detach(PID)
+	}
+
+	TransparentHost interface {
+		Host
 	}
 
 	// Node represents a messaging node that can host and route messages between multiple hosts

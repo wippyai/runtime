@@ -56,6 +56,9 @@ const (
 
 	// KindNamespaceDefinition represents a module definition entry
 	KindNamespaceDefinition Kind = "ns.definition"
+
+	// KindDependencyComponent represents a module dependency entry
+	KindDependencyComponent Kind = "dependency.component"
 )
 
 type (

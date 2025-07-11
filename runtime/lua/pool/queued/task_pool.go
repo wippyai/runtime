@@ -8,7 +8,6 @@ import (
 
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 
-	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
@@ -151,13 +150,11 @@ func (p *TaskPool) worker() {
 			return
 		}
 
-		ctx := logs.WithLogger(t.ctx, p.logger.With(zap.String("func", t.task.ID.String())))
-
 		// Get transcoder from context
-		dtt := payload.GetTranscoder(ctx)
+		dtt := payload.GetTranscoder(t.ctx)
 		if dtt == nil {
 			select {
-			case <-ctx.Done():
+			case <-t.ctx.Done():
 			case t.result <- &runtime.Result{
 				Error: fmt.Errorf("no transcoder found in context"),
 			}:
@@ -173,7 +170,7 @@ func (p *TaskPool) worker() {
 			luaPayload, err := dtt.Transcode(p, payload.Lua)
 			if err != nil {
 				select {
-				case <-ctx.Done():
+				case <-t.ctx.Done():
 				case t.result <- &runtime.Result{
 					Error: fmt.Errorf("failed to transcode payload: %w", err),
 				}:
@@ -209,7 +206,7 @@ func (p *TaskPool) worker() {
 		// Send the result (if the task context isn't done).
 		select {
 		case t.result <- runtimeResult:
-		case <-ctx.Done():
+		case <-t.ctx.Done():
 		default:
 			p.logger.Error("failed to send result")
 		}

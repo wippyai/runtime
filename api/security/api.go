@@ -96,7 +96,7 @@ type (
 
 	// Registry defines the core interface for accessing security policies
 	Registry interface {
-		// GetPolicy retrieves a policy by its ID
+		// GetPolicy retrieves a policy by its id
 		GetPolicy(id registry.ID) (Policy, error)
 
 		// GetPolicyGroup retrieves all policies in a group as a scope

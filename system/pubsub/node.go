@@ -18,7 +18,7 @@ type Node struct {
 	upstream atomic.Pointer[api.Receiver] // Parent plane
 }
 
-// NewNode creates a new messaging node with the specified node ID and optional
+// NewNode creates a new messaging node with the specified node id and optional
 // upstream receiver. If upstream is not nil, the node will forward messages
 // to it when they are destined for other nodes.
 func NewNode(nodeID api.NodeID, upstream *api.Receiver) *Node {
@@ -68,6 +68,21 @@ func (n *Node) Send(pkg *api.Package) error {
 			return host.Send(pkg)
 		}
 		return fmt.Errorf("host %s not found in node", pkg.Target.Host)
+	}
+
+	// Transparent hosts can manage routing for us (if represented locally), e.g. Temporal, NATS, etc
+	if h, ok := n.hosts.Load(pkg.Target.Host); ok {
+		host, ok := h.(api.TransparentHost)
+		if !ok {
+			return fmt.Errorf("host %s has invalid type", pkg.Target.Host)
+		}
+
+		err := host.Send(pkg)
+		if err != nil {
+			return fmt.Errorf("host %s failed to send package: %w", pkg.Target.Host, err)
+		}
+
+		return nil
 	}
 
 	// Handle upstream messages if we have an upstream configured
