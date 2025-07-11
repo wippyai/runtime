@@ -32,16 +32,6 @@ func (d *dummyHost) Detach(_ api.PID) {
 	// No-op for testing
 }
 
-// dummyUpstream is a stub that implements the Receiver interface.
-type dummyUpstream struct {
-	sendCalled int32
-}
-
-func (d *dummyUpstream) Send(_ *api.Package) error {
-	atomic.AddInt32(&d.sendCalled, 1)
-	return nil
-}
-
 func TestNodeSendLocal(t *testing.T) {
 	// Create a dummy host and register it with the node.
 	dhost := &dummyHost{}

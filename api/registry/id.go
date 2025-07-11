@@ -14,18 +14,18 @@ type ID struct {
 }
 
 func (t ID) String() string {
-	return string(t.NS) + ":" + string(t.Name)
+	return t.NS + ":" + t.Name
 }
 
 // MarshalJSON implements the json.Marshaler interface.
 // Fixed to use simple concatenation instead of pool
 func (t ID) MarshalJSON() ([]byte, error) {
 	if t.NS == "" {
-		return json.Marshal(string(t.Name))
+		return json.Marshal(t.Name)
 	}
 
 	// Simple string concatenation - much faster than pool
-	str := string(t.NS) + ":" + string(t.Name)
+	str := t.NS + ":" + t.Name
 	return json.Marshal(str)
 }
 
@@ -49,15 +49,15 @@ func ParseID(s string) ID {
 	if idx := strings.IndexByte(s, ':'); idx != -1 {
 		// Has colon - parse as ns:name
 		return ID{
-			NS:   Namespace(s[:idx]),
-			Name: Name(s[idx+1:]),
+			NS:   s[:idx],
+			Name: s[idx+1:],
 		}
 	}
 
 	// Name-only format
 	return ID{
 		NS:   "",
-		Name: Name(s),
+		Name: s,
 	}
 }
 
@@ -72,14 +72,14 @@ func (t *ID) UnmarshalJSON(data []byte) error {
 		// Fast path: find first colon using IndexByte
 		if idx := strings.IndexByte(s, ':'); idx != -1 {
 			// Has colon - parse as ns:name
-			t.NS = Namespace(s[:idx])
-			t.Name = Name(s[idx+1:])
+			t.NS = s[:idx]
+			t.Name = s[idx+1:]
 			return nil
 		}
 
 		// Name-only format
 		t.NS = ""
-		t.Name = Name(s)
+		t.Name = s
 		return nil
 	}
 

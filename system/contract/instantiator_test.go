@@ -23,7 +23,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func setupInstantiatorTest() (*Instantiator, event.Bus, *ContractRegistry, *functionSys.Registry) {
+func setupInstantiatorTest() (*Instantiator, event.Bus, *Registry, *functionSys.Registry) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 
@@ -258,7 +258,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 
 	// Register function
 	funcID := registry.ID{NS: "test", Name: "test_func"}
-	testFunc := function.Func(func(_ context.Context, task runtime.Task) (chan *runtime.Result, error) {
+	testFunc := function.Func(func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 		resultChan := make(chan *runtime.Result, 1)
 		resultChan <- &runtime.Result{Value: payload.New("function_result")}
 		close(resultChan)
@@ -349,7 +349,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 
 	// Function that checks context values
 	funcID := registry.ID{NS: "test", Name: "context_func"}
-	testFunc := function.Func(func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 		resultChan := make(chan *runtime.Result, 1)
 
 		result := map[string]interface{}{"has_context": false}
@@ -480,7 +480,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 
 	// Function that captures and returns all context values it receives
 	funcID := registry.ID{NS: "test", Name: "capture_context_func"}
-	testFunc := function.Func(func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 		resultChan := make(chan *runtime.Result, 1)
 
 		captured := map[string]interface{}{}
@@ -634,7 +634,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 
 	// Register function that returns a test result
 	funcID := registry.ID{NS: "test", Name: "context_test_func"}
-	testFunc := function.Func(func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+	testFunc := function.Func(func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 		resultChan := make(chan *runtime.Result, 1)
 		resultChan <- &runtime.Result{Value: payload.New("validation_and_execution_success")}
 		close(resultChan)

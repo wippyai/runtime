@@ -90,9 +90,8 @@ func (t *taskCoordinator) executeScheduled() {
 		}
 
 		// Swap lists instead of creating new one - avoid 1.85GB allocation
-		funcs := t.scheduled
-		t.scheduled = t.scheduledBackup // scheduledBackup is always empty when we swap to it
-		t.scheduledBackup = funcs       // Will be cleared after execution
+		t.scheduled, t.scheduledBackup = t.scheduledBackup, t.scheduled // scheduledBackup is always empty when we swap to it
+		funcs := t.scheduledBackup                                      // Will be cleared after execution
 		t.smu.Unlock()
 
 		// Execute all scheduled functions

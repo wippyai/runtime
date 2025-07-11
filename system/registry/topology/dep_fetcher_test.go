@@ -599,7 +599,7 @@ func TestDependencyExtraction_FluentAPI(t *testing.T) {
 	sdk := NewDepTestSDK(t)
 
 	// Test fluent API patterns
-	t.Run("Fluent Assertions", func(t *testing.T) {
+	t.Run("Fluent Assertions", func(_ *testing.T) {
 		// Test ToContain
 		sdk.ExpectDeps(`{
 			"id": "test",

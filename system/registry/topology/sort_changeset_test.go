@@ -1,7 +1,6 @@
 package topology
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -38,7 +37,7 @@ func (ot opTest) toOperation() registry.Operation {
 }
 
 // Fluent builders for operations
-func CreateOp(ns, name string) *opBuilder {
+func createOp(ns, name string) *opBuilder {
 	return &opBuilder{
 		kind: registry.Create,
 		ns:   ns,
@@ -46,7 +45,7 @@ func CreateOp(ns, name string) *opBuilder {
 	}
 }
 
-func UpdateOp(ns, name string) *opBuilder {
+func updateOp(ns, name string) *opBuilder {
 	return &opBuilder{
 		kind: registry.Update,
 		ns:   ns,
@@ -54,7 +53,7 @@ func UpdateOp(ns, name string) *opBuilder {
 	}
 }
 
-func DeleteOp(ns, name string) *opBuilder {
+func deleteOp(ns, name string) *opBuilder {
 	return &opBuilder{
 		kind: registry.Delete,
 		ns:   ns,
@@ -151,19 +150,19 @@ func verifyOperationOrder(t *testing.T, sorted registry.ChangeSet, checks []stru
 	for i, op := range sorted {
 		key := op.Entry.ID.Name
 		posMap[key] = i
-		kindPosMap[string(op.Kind)] = append(kindPosMap[string(op.Kind)], i)
+		kindPosMap[op.Kind] = append(kindPosMap[op.Kind], i)
 	}
 
 	// Verify operation type ordering: Deletes before Creates/Updates
-	if deletePositions, hasDeletes := kindPosMap[string(registry.Delete)]; hasDeletes {
-		if createPositions, hasCreates := kindPosMap[string(registry.Create)]; hasCreates {
+	if deletePositions, hasDeletes := kindPosMap[registry.Delete]; hasDeletes {
+		if createPositions, hasCreates := kindPosMap[registry.Create]; hasCreates {
 			lastDelete := deletePositions[len(deletePositions)-1]
 			firstCreate := createPositions[0]
 			if lastDelete > firstCreate {
 				t.Errorf("Operation type ordering violation: all deletes must come before creates")
 			}
 		}
-		if updatePositions, hasUpdates := kindPosMap[string(registry.Update)]; hasUpdates {
+		if updatePositions, hasUpdates := kindPosMap[registry.Update]; hasUpdates {
 			lastDelete := deletePositions[len(deletePositions)-1]
 			firstUpdate := updatePositions[0]
 			if lastDelete > firstUpdate {
@@ -211,22 +210,6 @@ func verifyOperationOrder(t *testing.T, sorted registry.ChangeSet, checks []stru
 	}
 }
 
-// formatChangeSet formats a ChangeSet for error messages
-func formatChangeSet(cs registry.ChangeSet, title string) string {
-	var result strings.Builder
-	result.WriteString(title + ":\n")
-	for i, op := range cs {
-		result.WriteString(formatOperation(i, op))
-	}
-	return result.String()
-}
-
-func formatOperation(index int, op registry.Operation) string {
-	deps := fetchDependencies(op.Entry)
-	return fmt.Sprintf("  [%d] %s %s:%s (deps: %v)\n",
-		index, op.Kind, op.Entry.ID.NS, op.Entry.ID.Name, deps)
-}
-
 func TestSortChangeSet_Empty(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop())
 
@@ -246,7 +229,7 @@ func TestSortChangeSet_Empty(t *testing.T) {
 
 	t.Run("Nil FromState", func(t *testing.T) {
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "service")).
+			AddOp(createOp("test", "service")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(nil, cs)
@@ -266,9 +249,9 @@ func TestSortChangeSet_SingleOperationType(t *testing.T) {
 	t.Run("Only Creates", func(t *testing.T) {
 		fromState := registry.State{}
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "service").DependsOn("database")).
-			AddOp(CreateOp("test", "database")).
-			AddOp(CreateOp("test", "cache").DependsOn("database")).
+			AddOp(createOp("test", "service").DependsOn("database")).
+			AddOp(createOp("test", "database")).
+			AddOp(createOp("test", "cache").DependsOn("database")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -282,7 +265,7 @@ func TestSortChangeSet_SingleOperationType(t *testing.T) {
 			mustAfterNames  []string
 		}{
 			{
-				operation:       CreateOp("test", "database").Build(),
+				operation:       createOp("test", "database").Build(),
 				mustBeforeNames: []string{"service", "cache"},
 			},
 		})
@@ -296,8 +279,8 @@ func TestSortChangeSet_SingleOperationType(t *testing.T) {
 		}
 
 		cs := NewChangeSet().
-			AddOp(UpdateOp("test", "service").Data("v2").DependsOn("database")).
-			AddOp(UpdateOp("test", "database").Data("v2")).
+			AddOp(updateOp("test", "service").Data("v2").DependsOn("database")).
+			AddOp(updateOp("test", "database").Data("v2")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -311,7 +294,7 @@ func TestSortChangeSet_SingleOperationType(t *testing.T) {
 			mustAfterNames  []string
 		}{
 			{
-				operation:       UpdateOp("test", "database").Build(),
+				operation:       updateOp("test", "database").Build(),
 				mustBeforeNames: []string{"service"},
 			},
 		})
@@ -325,9 +308,9 @@ func TestSortChangeSet_SingleOperationType(t *testing.T) {
 		}
 
 		cs := NewChangeSet().
-			AddOp(DeleteOp("test", "service")).
-			AddOp(DeleteOp("test", "database")).
-			AddOp(DeleteOp("test", "cache")).
+			AddOp(deleteOp("test", "service")).
+			AddOp(deleteOp("test", "database")).
+			AddOp(deleteOp("test", "cache")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -342,11 +325,11 @@ func TestSortChangeSet_SingleOperationType(t *testing.T) {
 			mustAfterNames  []string
 		}{
 			{
-				operation:       DeleteOp("test", "service").Build(),
+				operation:       deleteOp("test", "service").Build(),
 				mustBeforeNames: []string{"database"},
 			},
 			{
-				operation:       DeleteOp("test", "cache").Build(),
+				operation:       deleteOp("test", "cache").Build(),
 				mustBeforeNames: []string{"database"},
 			},
 		})
@@ -362,9 +345,9 @@ func TestSortChangeSet_MixedOperations(t *testing.T) {
 		}
 
 		cs := NewChangeSet().
-			AddOp(UpdateOp("test", "existing").Data("v2")).
-			AddOp(CreateOp("test", "new-service")).
-			AddOp(DeleteOp("test", "old-service")).
+			AddOp(updateOp("test", "existing").Data("v2")).
+			AddOp(createOp("test", "new-service")).
+			AddOp(deleteOp("test", "old-service")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -390,9 +373,9 @@ func TestSortChangeSet_MixedOperations(t *testing.T) {
 		}
 
 		cs := NewChangeSet().
-			AddOp(DeleteOp("test", "old-service")).                       // Should be first (delete dependent)
-			AddOp(UpdateOp("test", "database").Data("v2")).               // Should be second (update dependency)
-			AddOp(CreateOp("test", "new-service").DependsOn("database")). // Should be last (create dependent)
+			AddOp(deleteOp("test", "old-service")).                       // Should be first (delete dependent)
+			AddOp(updateOp("test", "database").Data("v2")).               // Should be second (update dependency)
+			AddOp(createOp("test", "new-service").DependsOn("database")). // Should be last (create dependent)
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -406,11 +389,11 @@ func TestSortChangeSet_MixedOperations(t *testing.T) {
 			mustAfterNames  []string
 		}{
 			{
-				operation:       DeleteOp("test", "old-service").Build(),
+				operation:       deleteOp("test", "old-service").Build(),
 				mustBeforeNames: []string{"database", "new-service"},
 			},
 			{
-				operation:       UpdateOp("test", "database").Build(),
+				operation:       updateOp("test", "database").Build(),
 				mustBeforeNames: []string{"new-service"},
 			},
 		})
@@ -424,9 +407,9 @@ func TestSortChangeSet_Dependencies(t *testing.T) {
 		fromState := registry.State{}
 
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "frontend").DependsOn("api")).
-			AddOp(CreateOp("test", "api").DependsOn("database")).
-			AddOp(CreateOp("test", "database")).
+			AddOp(createOp("test", "frontend").DependsOn("api")).
+			AddOp(createOp("test", "api").DependsOn("database")).
+			AddOp(createOp("test", "database")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -440,11 +423,11 @@ func TestSortChangeSet_Dependencies(t *testing.T) {
 			mustAfterNames  []string
 		}{
 			{
-				operation:       CreateOp("test", "database").Build(),
+				operation:       createOp("test", "database").Build(),
 				mustBeforeNames: []string{"api", "frontend"},
 			},
 			{
-				operation:       CreateOp("test", "api").Build(),
+				operation:       createOp("test", "api").Build(),
 				mustBeforeNames: []string{"frontend"},
 				mustAfterNames:  []string{"database"},
 			},
@@ -455,9 +438,9 @@ func TestSortChangeSet_Dependencies(t *testing.T) {
 		fromState := registry.State{}
 
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "frontend").DependsOn("group:backend")).
-			AddOp(CreateOp("test", "api").Groups("backend")).
-			AddOp(CreateOp("test", "database").Groups("backend")).
+			AddOp(createOp("test", "frontend").DependsOn("group:backend")).
+			AddOp(createOp("test", "api").Groups("backend")).
+			AddOp(createOp("test", "database").Groups("backend")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -471,11 +454,11 @@ func TestSortChangeSet_Dependencies(t *testing.T) {
 			mustAfterNames  []string
 		}{
 			{
-				operation:       CreateOp("test", "api").Build(),
+				operation:       createOp("test", "api").Build(),
 				mustBeforeNames: []string{"frontend"},
 			},
 			{
-				operation:       CreateOp("test", "database").Build(),
+				operation:       createOp("test", "database").Build(),
 				mustBeforeNames: []string{"frontend"},
 			},
 		})
@@ -485,9 +468,9 @@ func TestSortChangeSet_Dependencies(t *testing.T) {
 		fromState := registry.State{}
 
 		cs := NewChangeSet().
-			AddOp(CreateOp("app", "service").DependsOn("ns:infra")).
-			AddOp(CreateOp("infra", "database")).
-			AddOp(CreateOp("infra", "cache")).
+			AddOp(createOp("app", "service").DependsOn("ns:infra")).
+			AddOp(createOp("infra", "database")).
+			AddOp(createOp("infra", "cache")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -501,11 +484,11 @@ func TestSortChangeSet_Dependencies(t *testing.T) {
 			mustAfterNames  []string
 		}{
 			{
-				operation:       CreateOp("infra", "database").Build(),
+				operation:       createOp("infra", "database").Build(),
 				mustBeforeNames: []string{"service"},
 			},
 			{
-				operation:       CreateOp("infra", "cache").Build(),
+				operation:       createOp("infra", "cache").Build(),
 				mustBeforeNames: []string{"service"},
 			},
 		})
@@ -523,14 +506,14 @@ func TestSortChangeSet_ComplexScenarios(t *testing.T) {
 
 		cs := NewChangeSet().
 			// Delete old API (should be first)
-			AddOp(DeleteOp("app", "old-api")).
+			AddOp(deleteOp("app", "old-api")).
 			// Update database (dependency)
-			AddOp(UpdateOp("infra", "database").Data("v2").Groups("storage")).
+			AddOp(updateOp("infra", "database").Data("v2").Groups("storage")).
 			// Create new services that depend on storage
-			AddOp(CreateOp("app", "new-api").DependsOn("group:storage")).
-			AddOp(CreateOp("infra", "cache").Groups("storage")).
+			AddOp(createOp("app", "new-api").DependsOn("group:storage")).
+			AddOp(createOp("infra", "cache").Groups("storage")).
 			// Create frontend that depends on new API
-			AddOp(CreateOp("web", "frontend").DependsOn("app:new-api")).
+			AddOp(createOp("web", "frontend").DependsOn("app:new-api")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -545,21 +528,21 @@ func TestSortChangeSet_ComplexScenarios(t *testing.T) {
 		}{
 			// Delete operations come first
 			{
-				operation:       DeleteOp("app", "old-api").Build(),
+				operation:       deleteOp("app", "old-api").Build(),
 				mustBeforeNames: []string{"database", "new-api", "cache", "frontend"},
 			},
 			// Storage components before their dependents
 			{
-				operation:       UpdateOp("infra", "database").Build(),
+				operation:       updateOp("infra", "database").Build(),
 				mustBeforeNames: []string{"new-api", "frontend"},
 			},
 			{
-				operation:       CreateOp("infra", "cache").Build(),
+				operation:       createOp("infra", "cache").Build(),
 				mustBeforeNames: []string{"new-api", "frontend"},
 			},
 			// API before frontend
 			{
-				operation:       CreateOp("app", "new-api").Build(),
+				operation:       createOp("app", "new-api").Build(),
 				mustBeforeNames: []string{"frontend"},
 			},
 		})
@@ -570,14 +553,14 @@ func TestSortChangeSet_ComplexScenarios(t *testing.T) {
 
 		cs := NewChangeSet().
 			// Web tier
-			AddOp(CreateOp("web", "frontend").DependsOn("ns:app")).
-			AddOp(CreateOp("web", "cdn").Groups("web-tier")).
+			AddOp(createOp("web", "frontend").DependsOn("ns:app")).
+			AddOp(createOp("web", "cdn").Groups("web-tier")).
 			// App tier
-			AddOp(CreateOp("app", "api").DependsOn("ns:infra", "group:web-tier")).
-			AddOp(CreateOp("app", "auth").DependsOn("ns:infra")).
+			AddOp(createOp("app", "api").DependsOn("ns:infra", "group:web-tier")).
+			AddOp(createOp("app", "auth").DependsOn("ns:infra")).
 			// Infrastructure
-			AddOp(CreateOp("infra", "database").Groups("persistence")).
-			AddOp(CreateOp("infra", "cache").Groups("persistence")).
+			AddOp(createOp("infra", "database").Groups("persistence")).
+			AddOp(createOp("infra", "cache").Groups("persistence")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -592,25 +575,25 @@ func TestSortChangeSet_ComplexScenarios(t *testing.T) {
 		}{
 			// Infrastructure first
 			{
-				operation:       CreateOp("infra", "database").Build(),
+				operation:       createOp("infra", "database").Build(),
 				mustBeforeNames: []string{"api", "auth", "frontend"},
 			},
 			{
-				operation:       CreateOp("infra", "cache").Build(),
+				operation:       createOp("infra", "cache").Build(),
 				mustBeforeNames: []string{"api", "auth", "frontend"},
 			},
 			// Web tier before app (app depends on web-tier group)
 			{
-				operation:       CreateOp("web", "cdn").Build(),
+				operation:       createOp("web", "cdn").Build(),
 				mustBeforeNames: []string{"api"},
 			},
 			// App tier before web frontend
 			{
-				operation:       CreateOp("app", "api").Build(),
+				operation:       createOp("app", "api").Build(),
 				mustBeforeNames: []string{"frontend"},
 			},
 			{
-				operation:       CreateOp("app", "auth").Build(),
+				operation:       createOp("app", "auth").Build(),
 				mustBeforeNames: []string{"frontend"},
 			},
 		})
@@ -624,8 +607,8 @@ func TestSortChangeSet_CircularDependencies(t *testing.T) {
 		fromState := registry.State{}
 
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "service-a").DependsOn("service-b")).
-			AddOp(CreateOp("test", "service-b").DependsOn("service-a")).
+			AddOp(createOp("test", "service-a").DependsOn("service-b")).
+			AddOp(createOp("test", "service-b").DependsOn("service-a")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -648,8 +631,8 @@ func TestSortChangeSet_CircularDependencies(t *testing.T) {
 		fromState := registry.State{}
 
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "service-a").Groups("group-a").DependsOn("group:group-b")).
-			AddOp(CreateOp("test", "service-b").Groups("group-b").DependsOn("group:group-a")).
+			AddOp(createOp("test", "service-a").Groups("group-a").DependsOn("group:group-b")).
+			AddOp(createOp("test", "service-b").Groups("group-b").DependsOn("group:group-a")).
 			Build()
 
 		_, err := builder.SortChangeSet(fromState, cs)
@@ -675,18 +658,18 @@ func TestSortChangeSet_RealWorldScenarios(t *testing.T) {
 
 		cs := NewChangeSet().
 			// Remove old cache
-			AddOp(DeleteOp("infra", "old-cache")).
+			AddOp(deleteOp("infra", "old-cache")).
 			// Update database
-			AddOp(UpdateOp("infra", "database").Data("v2")).
+			AddOp(updateOp("infra", "database").Data("v2")).
 			// Update existing service
-			AddOp(UpdateOp("app", "user-service").Data("v2").DependsOn("infra:database")).
+			AddOp(updateOp("app", "user-service").Data("v2").DependsOn("infra:database")).
 			// Add new cache
-			AddOp(CreateOp("infra", "redis-cache").Kind("cache")).
+			AddOp(createOp("infra", "redis-cache").Kind("cache")).
 			// Add new services
-			AddOp(CreateOp("app", "auth-service").DependsOn("infra:database")).
-			AddOp(CreateOp("app", "api-gateway").DependsOn("app:user-service", "app:auth-service")).
+			AddOp(createOp("app", "auth-service").DependsOn("infra:database")).
+			AddOp(createOp("app", "api-gateway").DependsOn("app:user-service", "app:auth-service")).
 			// Add monitoring
-			AddOp(CreateOp("monitoring", "metrics").DependsOn("ns:app")).
+			AddOp(createOp("monitoring", "metrics").DependsOn("ns:app")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -701,26 +684,26 @@ func TestSortChangeSet_RealWorldScenarios(t *testing.T) {
 		}{
 			// Deletes first
 			{
-				operation:       DeleteOp("infra", "old-cache").Build(),
+				operation:       deleteOp("infra", "old-cache").Build(),
 				mustBeforeNames: []string{"database", "user-service", "auth-service", "api-gateway", "redis-cache", "metrics"},
 			},
 			// Infrastructure updates before services
 			{
-				operation:       UpdateOp("infra", "database").Build(),
+				operation:       updateOp("infra", "database").Build(),
 				mustBeforeNames: []string{"user-service", "auth-service", "api-gateway", "metrics"},
 			},
 			// Services before API gateway
 			{
-				operation:       UpdateOp("app", "user-service").Build(),
+				operation:       updateOp("app", "user-service").Build(),
 				mustBeforeNames: []string{"api-gateway", "metrics"},
 			},
 			{
-				operation:       CreateOp("app", "auth-service").Build(),
+				operation:       createOp("app", "auth-service").Build(),
 				mustBeforeNames: []string{"api-gateway", "metrics"},
 			},
 			// Gateway before monitoring
 			{
-				operation:       CreateOp("app", "api-gateway").Build(),
+				operation:       createOp("app", "api-gateway").Build(),
 				mustBeforeNames: []string{"metrics"},
 			},
 		})
@@ -735,12 +718,12 @@ func TestSortChangeSet_RealWorldScenarios(t *testing.T) {
 
 		cs := NewChangeSet().
 			// Create new database
-			AddOp(CreateOp("data", "new-db").Kind("database").Data("postgres")).
+			AddOp(createOp("data", "new-db").Kind("database").Data("postgres")).
 			// Update services to use new database
-			AddOp(UpdateOp("app", "service-a").Data("v2").DependsOn("data:new-db")).
-			AddOp(UpdateOp("app", "service-b").Data("v2").DependsOn("data:new-db")).
+			AddOp(updateOp("app", "service-a").Data("v2").DependsOn("data:new-db")).
+			AddOp(updateOp("app", "service-b").Data("v2").DependsOn("data:new-db")).
 			// Remove old database (after services are updated)
-			AddOp(DeleteOp("data", "old-db")).
+			AddOp(deleteOp("data", "old-db")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -755,12 +738,12 @@ func TestSortChangeSet_RealWorldScenarios(t *testing.T) {
 		}{
 			// Delete old DB first (since services in fromState depend on it)
 			{
-				operation:       DeleteOp("data", "old-db").Build(),
+				operation:       deleteOp("data", "old-db").Build(),
 				mustBeforeNames: []string{"new-db", "service-a", "service-b"},
 			},
 			// New DB before services
 			{
-				operation:       CreateOp("data", "new-db").Build(),
+				operation:       createOp("data", "new-db").Build(),
 				mustBeforeNames: []string{"service-a", "service-b"},
 			},
 		})
@@ -774,9 +757,9 @@ func TestSortChangeSet_EdgeCases(t *testing.T) {
 		fromState := registry.State{}
 
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "service-c")).
-			AddOp(CreateOp("test", "service-a")).
-			AddOp(CreateOp("test", "service-b")).
+			AddOp(createOp("test", "service-c")).
+			AddOp(createOp("test", "service-a")).
+			AddOp(createOp("test", "service-b")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -794,7 +777,7 @@ func TestSortChangeSet_EdgeCases(t *testing.T) {
 		fromState := registry.State{}
 
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "service").DependsOn("non-existent")).
+			AddOp(createOp("test", "service").DependsOn("non-existent")).
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -812,7 +795,7 @@ func TestSortChangeSet_EdgeCases(t *testing.T) {
 		fromState := registry.State{}
 
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "service").DependsOn("service")). // Self-dependency
+			AddOp(createOp("test", "service").DependsOn("service")). // Self-dependency
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -836,10 +819,10 @@ func TestSortChangeSet_WrongOrder(t *testing.T) {
 
 		// Intentionally provide operations in wrong order
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "frontend").DependsOn("api")). // Dependent first
-			AddOp(CreateOp("test", "ui").DependsOn("frontend")).  // Deep dependent second
-			AddOp(CreateOp("test", "api").DependsOn("database")). // Mid-dependency third
-			AddOp(CreateOp("test", "database")).                  // Root dependency last
+			AddOp(createOp("test", "frontend").DependsOn("api")). // Dependent first
+			AddOp(createOp("test", "ui").DependsOn("frontend")).  // Deep dependent second
+			AddOp(createOp("test", "api").DependsOn("database")). // Mid-dependency third
+			AddOp(createOp("test", "database")).                  // Root dependency last
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -854,16 +837,16 @@ func TestSortChangeSet_WrongOrder(t *testing.T) {
 			mustAfterNames  []string
 		}{
 			{
-				operation:       CreateOp("test", "database").Build(),
+				operation:       createOp("test", "database").Build(),
 				mustBeforeNames: []string{"api", "frontend", "ui"},
 			},
 			{
-				operation:       CreateOp("test", "api").Build(),
+				operation:       createOp("test", "api").Build(),
 				mustBeforeNames: []string{"frontend", "ui"},
 				mustAfterNames:  []string{"database"},
 			},
 			{
-				operation:       CreateOp("test", "frontend").Build(),
+				operation:       createOp("test", "frontend").Build(),
 				mustBeforeNames: []string{"ui"},
 				mustAfterNames:  []string{"database", "api"},
 			},
@@ -878,10 +861,10 @@ func TestSortChangeSet_WrongOrder(t *testing.T) {
 
 		// Provide operations in completely wrong order
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "new-frontend").DependsOn("new-api")). // Create dependent first
-			AddOp(UpdateOp("test", "database").Data("v2")).               // Update in middle
-			AddOp(CreateOp("test", "new-api").DependsOn("database")).     // Create dependency after dependent
-			AddOp(DeleteOp("test", "old-api")).                           // Delete last instead of first
+			AddOp(createOp("test", "new-frontend").DependsOn("new-api")). // Create dependent first
+			AddOp(updateOp("test", "database").Data("v2")).               // Update in middle
+			AddOp(createOp("test", "new-api").DependsOn("database")).     // Create dependency after dependent
+			AddOp(deleteOp("test", "old-api")).                           // Delete last instead of first
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -896,15 +879,15 @@ func TestSortChangeSet_WrongOrder(t *testing.T) {
 			mustAfterNames  []string
 		}{
 			{
-				operation:       DeleteOp("test", "old-api").Build(),
+				operation:       deleteOp("test", "old-api").Build(),
 				mustBeforeNames: []string{"database", "new-api", "new-frontend"},
 			},
 			{
-				operation:       UpdateOp("test", "database").Build(),
+				operation:       updateOp("test", "database").Build(),
 				mustBeforeNames: []string{"new-api", "new-frontend"},
 			},
 			{
-				operation:       CreateOp("test", "new-api").Build(),
+				operation:       createOp("test", "new-api").Build(),
 				mustBeforeNames: []string{"new-frontend"},
 				mustAfterNames:  []string{"database"},
 			},
@@ -916,10 +899,10 @@ func TestSortChangeSet_WrongOrder(t *testing.T) {
 
 		// Wrong order: dependent first, group members last
 		cs := NewChangeSet().
-			AddOp(CreateOp("test", "frontend").DependsOn("group:backend")). // Dependent first
-			AddOp(CreateOp("test", "database").Groups("backend")).          // Group member 1
-			AddOp(CreateOp("test", "api").Groups("backend")).               // Group member 2
-			AddOp(CreateOp("test", "cache").Groups("backend")).             // Group member 3
+			AddOp(createOp("test", "frontend").DependsOn("group:backend")). // Dependent first
+			AddOp(createOp("test", "database").Groups("backend")).          // Group member 1
+			AddOp(createOp("test", "api").Groups("backend")).               // Group member 2
+			AddOp(createOp("test", "cache").Groups("backend")).             // Group member 3
 			Build()
 
 		sorted, err := builder.SortChangeSet(fromState, cs)
@@ -934,15 +917,15 @@ func TestSortChangeSet_WrongOrder(t *testing.T) {
 			mustAfterNames  []string
 		}{
 			{
-				operation:       CreateOp("test", "database").Build(),
+				operation:       createOp("test", "database").Build(),
 				mustBeforeNames: []string{"frontend"},
 			},
 			{
-				operation:       CreateOp("test", "api").Build(),
+				operation:       createOp("test", "api").Build(),
 				mustBeforeNames: []string{"frontend"},
 			},
 			{
-				operation:       CreateOp("test", "cache").Build(),
+				operation:       createOp("test", "cache").Build(),
 				mustBeforeNames: []string{"frontend"},
 			},
 		})

@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func setupRegistryTest() (*ContractRegistry, event.Bus) {
+func setupRegistryTest() (*Registry, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	contractRegistry := NewContractRegistry(bus, logger)
@@ -27,14 +27,13 @@ func TestNewContractRegistry(t *testing.T) {
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
 
-	contractRegistry := NewContractRegistry(bus, logger)
-
-	assert.NotNil(t, contractRegistry)
-	assert.Equal(t, bus, contractRegistry.bus)
-	assert.Equal(t, logger, contractRegistry.logger)
-	assert.NotNil(t, contractRegistry.definitions)
-	assert.NotNil(t, contractRegistry.bindings)
-	assert.NotNil(t, contractRegistry.defaultBindings)
+	registry := NewContractRegistry(bus, logger)
+	assert.NotNil(t, registry)
+	assert.Equal(t, bus, registry.bus)
+	assert.Equal(t, logger, registry.logger)
+	assert.NotNil(t, registry.definitions)
+	assert.NotNil(t, registry.bindings)
+	assert.NotNil(t, registry.defaultBindings)
 }
 
 func TestContractRegistry_StartStop(t *testing.T) {

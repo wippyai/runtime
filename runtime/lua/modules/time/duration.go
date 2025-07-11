@@ -97,7 +97,7 @@ func parseDuration(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Duration{duration: duration}
-	ud.Metatable = value.GetTypeMetatable(nil, "time.Duration")
+	ud.Metatable = value.GetTypeMetatable(l, "time.Duration")
 
 	l.Push(ud)
 	return 1

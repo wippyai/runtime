@@ -39,7 +39,7 @@ func (p *TestPolicy) ID() registry.ID {
 	return p.id
 }
 
-func (p *TestPolicy) Evaluate(actor secapi.Actor, action, resource string, meta registry.Metadata) secapi.Result {
+func (p *TestPolicy) Evaluate(_ secapi.Actor, _, _ string, _ registry.Metadata) secapi.Result {
 	// Allow everything for testing
 	return secapi.Allow
 }
@@ -93,7 +93,7 @@ func (m *mockInstance) Args() registry.Metadata {
 	return m.scope
 }
 
-func (m *mockInstance) Call(ctx context.Context, method string, args payload.Payloads) (chan *runtime.Result, error) {
+func (m *mockInstance) Call(_ context.Context, method string, args payload.Payloads) (chan *runtime.Result, error) {
 	resultChan := make(chan *runtime.Result, 1)
 	go func() {
 		defer close(resultChan)
@@ -117,28 +117,28 @@ type mockRegistry struct {
 	defaultBindings     map[registry.ID]registry.ID
 }
 
-func (m *mockRegistry) GetContract(ctx context.Context, id registry.ID) (contract.Contract, error) {
+func (m *mockRegistry) GetContract(_ context.Context, id registry.ID) (contract.Contract, error) {
 	if c, ok := m.contracts[id]; ok {
 		return c, nil
 	}
 	return nil, ErrNotFound
 }
 
-func (m *mockRegistry) GetBinding(ctx context.Context, id registry.ID) (*contract.Binding, error) {
+func (m *mockRegistry) GetBinding(_ context.Context, id registry.ID) (*contract.Binding, error) {
 	if b, ok := m.bindings[id]; ok {
 		return b, nil
 	}
 	return nil, ErrNotFound
 }
 
-func (m *mockRegistry) GetBindingsForContract(ctx context.Context, contractID registry.ID) ([]registry.ID, error) {
+func (m *mockRegistry) GetBindingsForContract(_ context.Context, contractID registry.ID) ([]registry.ID, error) {
 	if bindings, ok := m.bindingsForContract[contractID]; ok {
 		return bindings, nil
 	}
 	return []registry.ID{}, nil
 }
 
-func (m *mockRegistry) GetDefaultBinding(ctx context.Context, contractID registry.ID) (registry.ID, error) {
+func (m *mockRegistry) GetDefaultBinding(_ context.Context, contractID registry.ID) (registry.ID, error) {
 	if binding, ok := m.defaultBindings[contractID]; ok {
 		return binding, nil
 	}
@@ -150,7 +150,7 @@ type mockInstantiator struct {
 	instances map[registry.ID]contract.Instance
 }
 
-func (m *mockInstantiator) Instantiate(ctx context.Context, bindingID registry.ID, scope registry.Metadata) (contract.Instance, error) {
+func (m *mockInstantiator) Instantiate(_ context.Context, bindingID registry.ID, _ registry.Metadata) (contract.Instance, error) {
 	if instance, ok := m.instances[bindingID]; ok {
 		return instance, nil
 	}

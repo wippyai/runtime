@@ -41,9 +41,9 @@ func (c *mockConn) LocalAddr() net.Addr {
 func (c *mockConn) RemoteAddr() net.Addr {
 	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5678}
 }
-func (c *mockConn) SetDeadline(t time.Time) error      { return nil }
-func (c *mockConn) SetReadDeadline(t time.Time) error  { return nil }
-func (c *mockConn) SetWriteDeadline(t time.Time) error { return nil }
+func (c *mockConn) SetDeadline(_ time.Time) error      { return nil }
+func (c *mockConn) SetReadDeadline(_ time.Time) error  { return nil }
+func (c *mockConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 func (c *mockConn) Write(b []byte) (n int, err error) {
 	c.mu.Lock()
@@ -78,7 +78,7 @@ func (c *mockConn) setWriteError(err error) {
 
 // --- TEST HELPERS ---
 
-func newTestConnectionPair(t *testing.T, nodeAID, nodeBID cluster.NodeID) (InternodeConnection, InternodeConnection) {
+func newTestConnectionPair(t *testing.T, _, _ cluster.NodeID) (Connection, Connection) {
 	t.Helper()
 	pipeA, pipeB := net.Pipe()
 	cfg := DefaultNodeConnectionConfig()
@@ -91,11 +91,11 @@ func newTestConnectionPair(t *testing.T, nodeAID, nodeBID cluster.NodeID) (Inter
 
 	go func() {
 		defer wg.Done()
-		connA, errA = PerformClientHandshake(pipeA, cfg, logger, nodeAID, nodeBID)
+		connA, errA = PerformClientHandshake(pipeA, cfg, logger, "node-A", "node-B")
 	}()
 	go func() {
 		defer wg.Done()
-		connB, errB = PerformServerHandshake(pipeB, cfg, logger, nodeBID)
+		connB, errB = PerformServerHandshake(pipeB, cfg, logger, "node-B")
 	}()
 
 	wg.Wait()
@@ -119,7 +119,7 @@ func TestNodeConnection_SendReceive(t *testing.T) {
 	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
 	msgChan := make(chan []byte, 1)
 
-	go func() { _ = nodeA.Run(func(msg []byte) {}) }()
+	go func() { _ = nodeA.Run(func(_ []byte) {}) }()
 	go func() { _ = nodeB.Run(func(msg []byte) { msgChan <- msg }) }()
 
 	testMsg := []byte("hello, world!")
@@ -137,7 +137,7 @@ func TestNodeConnection_Shutdown(t *testing.T) {
 	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
 	runLoopExited := make(chan *ConnectionError, 1)
 
-	go func() { runLoopExited <- nodeB.Run(func(msg []byte) {}) }()
+	go func() { runLoopExited <- nodeB.Run(func(_ []byte) {}) }()
 
 	time.Sleep(50 * time.Millisecond)
 	nodeA.Close()
@@ -155,7 +155,7 @@ func TestNodeConnection_SelfClose(t *testing.T) {
 	nodeA, _ := newTestConnectionPair(t, "node-A", "node-B")
 	runLoopExited := make(chan *ConnectionError, 1)
 
-	go func() { runLoopExited <- nodeA.Run(func(msg []byte) {}) }()
+	go func() { runLoopExited <- nodeA.Run(func(_ []byte) {}) }()
 
 	time.Sleep(50 * time.Millisecond)
 	nodeA.Close()
@@ -173,7 +173,7 @@ func TestNodeConnection_ZeroLengthMessage(t *testing.T) {
 	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
 	msgChan := make(chan []byte, 1)
 
-	go func() { _ = nodeA.Run(func(msg []byte) {}) }()
+	go func() { _ = nodeA.Run(func(_ []byte) {}) }()
 	go func() { _ = nodeB.Run(func(data []byte) { msgChan <- data }) }()
 
 	require.NoError(t, nodeA.Send([]byte{}))
@@ -195,9 +195,9 @@ func TestNodeConnection_ConcurrentSend(t *testing.T) {
 	var receivedCount int64
 	doneChan := make(chan struct{})
 
-	go func() { _ = nodeA.Run(func(msg []byte) {}) }()
+	go func() { _ = nodeA.Run(func(_ []byte) {}) }()
 	go func() {
-		_ = nodeB.Run(func(msg []byte) {
+		_ = nodeB.Run(func(_ []byte) {
 			if atomic.AddInt64(&receivedCount, 1) == numMessages {
 				close(doneChan)
 			}
@@ -268,8 +268,8 @@ func TestNodeConnection_FailureAndMessageExtraction(t *testing.T) {
 
 	runErrA := make(chan *ConnectionError, 1)
 
-	go func() { _ = nodeB.Run(func(msg []byte) {}) }()
-	go func() { runErrA <- nodeA.Run(func(msg []byte) {}) }()
+	go func() { _ = nodeB.Run(func(_ []byte) {}) }()
+	go func() { runErrA <- nodeA.Run(func(_ []byte) {}) }()
 
 	msg1 := []byte("unsent-1")
 	require.NoError(t, nodeA.Send(msg1))

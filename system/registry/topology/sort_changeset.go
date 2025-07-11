@@ -29,19 +29,13 @@ func (b *StateBuilder) SortChangeSet(fromState registry.State, changeSet registr
 
 	// Process deletes first (reverse dependency order)
 	if len(deleteOps) > 0 {
-		sortedDeletes, err := b.sortDeleteOperations(fromState, deleteOps)
-		if err != nil {
-			return nil, err
-		}
+		sortedDeletes := b.sortDeleteOperations(fromState, deleteOps)
 		sortedChangeSet = append(sortedChangeSet, sortedDeletes...)
 	}
 
 	// Process creates and updates (forward dependency order)
 	if len(createUpdateOps) > 0 {
-		sortedCreateUpdates, err := b.sortCreateUpdateOperations(createUpdateOps)
-		if err != nil {
-			return nil, err
-		}
+		sortedCreateUpdates := b.sortCreateUpdateOperations(createUpdateOps)
 		sortedChangeSet = append(sortedChangeSet, sortedCreateUpdates...)
 	}
 
@@ -49,7 +43,7 @@ func (b *StateBuilder) SortChangeSet(fromState registry.State, changeSet registr
 }
 
 // sortDeleteOperations sorts delete operations in reverse dependency order
-func (b *StateBuilder) sortDeleteOperations(fromState registry.State, deleteOps []registry.Operation) ([]registry.Operation, error) {
+func (b *StateBuilder) sortDeleteOperations(fromState registry.State, deleteOps []registry.Operation) []registry.Operation {
 	// Build map for O(1) lookup of current state entries
 	fromStateMap := make(map[registry.ID]registry.Entry, len(fromState))
 	for _, entry := range fromState {
@@ -69,10 +63,7 @@ func (b *StateBuilder) sortDeleteOperations(fromState registry.State, deleteOps 
 	}
 
 	// Sort by dependencies with cycle fallback
-	sortedEntries, err := b.sortEntriesWithFallback(deleteEntries)
-	if err != nil {
-		return nil, err
-	}
+	sortedEntries := b.sortEntriesWithFallback(deleteEntries)
 
 	// Map back to operations in reverse order (dependents before dependencies)
 	result := make([]registry.Operation, 0, len(deleteOps))
@@ -86,11 +77,11 @@ func (b *StateBuilder) sortDeleteOperations(fromState registry.State, deleteOps 
 		}
 	}
 
-	return result, nil
+	return result
 }
 
 // sortCreateUpdateOperations sorts create and update operations in forward dependency order
-func (b *StateBuilder) sortCreateUpdateOperations(createUpdateOps []registry.Operation) ([]registry.Operation, error) {
+func (b *StateBuilder) sortCreateUpdateOperations(createUpdateOps []registry.Operation) []registry.Operation {
 	// Extract entries from operations
 	entries := make([]registry.Entry, 0, len(createUpdateOps))
 	for _, operation := range createUpdateOps {
@@ -98,10 +89,7 @@ func (b *StateBuilder) sortCreateUpdateOperations(createUpdateOps []registry.Ope
 	}
 
 	// Sort by dependencies with cycle fallback
-	sortedEntries, err := b.sortEntriesWithFallback(entries)
-	if err != nil {
-		return nil, err
-	}
+	sortedEntries := b.sortEntriesWithFallback(entries)
 
 	// Map back to operations in forward order (dependencies before dependents)
 	result := make([]registry.Operation, 0, len(createUpdateOps))
@@ -114,11 +102,11 @@ func (b *StateBuilder) sortCreateUpdateOperations(createUpdateOps []registry.Ope
 		}
 	}
 
-	return result, nil
+	return result
 }
 
 // sortEntriesWithFallback sorts entries by dependencies with graceful cycle handling
-func (b *StateBuilder) sortEntriesWithFallback(entries []registry.Entry) ([]registry.Entry, error) {
+func (b *StateBuilder) sortEntriesWithFallback(entries []registry.Entry) []registry.Entry {
 	sortedEntries, err := SortEntriesByDependency(entries)
 	if err != nil {
 		// On cycle detection, fall back to lexicographical sort
@@ -128,5 +116,5 @@ func (b *StateBuilder) sortEntriesWithFallback(entries []registry.Entry) ([]regi
 			return sortedEntries[i].ID.String() < sortedEntries[j].ID.String()
 		})
 	}
-	return sortedEntries, nil
+	return sortedEntries
 }

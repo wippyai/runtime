@@ -194,16 +194,17 @@ func (s *Service) loadSecretKey() ([]byte, error) {
 	var keyStr string
 
 	// Load from file if specified
-	if s.config.SecretFile != "" {
+	switch {
+	case s.config.SecretFile != "":
 		data, err := os.ReadFile(s.config.SecretFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read secret file: %w", err)
 		}
 		keyStr = strings.TrimSpace(string(data))
-	} else if s.config.SecretString != "" {
+	case s.config.SecretString != "":
 		// Use string directly
 		keyStr = s.config.SecretString
-	} else {
+	default:
 		return nil, fmt.Errorf("no secret key provided")
 	}
 
@@ -233,7 +234,7 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 	}
 
 	nodeInfo := cluster.NodeInfo{
-		ID:   cluster.NodeID(node.Name),
+		ID:   node.Name,
 		Addr: node.Addr.String(), // Just the IP address
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
@@ -257,7 +258,7 @@ func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
 	}
 
 	nodeInfo := cluster.NodeInfo{
-		ID:   cluster.NodeID(node.Name),
+		ID:   node.Name,
 		Addr: node.Addr.String(), // Just the IP address
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
@@ -280,7 +281,7 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 	}
 
 	nodeInfo := cluster.NodeInfo{
-		ID:   cluster.NodeID(node.Name),
+		ID:   node.Name,
 		Addr: node.Addr.String(), // Just the IP address
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
@@ -344,13 +345,13 @@ func (d *delegate) NotifyMsg(data []byte) {
 	}
 }
 
-func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
+func (d *delegate) GetBroadcasts(_, _ int) [][]byte {
 	// Return messages to broadcast - could be used for custom state sync
 	// For now, no custom broadcasts
 	return nil
 }
 
-func (d *delegate) LocalState(join bool) []byte {
+func (d *delegate) LocalState(_ bool) []byte {
 	// TODO: Can be used later for gossip state sync
 	return []byte("{}")
 }

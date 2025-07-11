@@ -51,13 +51,13 @@ func (s *Service) Start(ctx context.Context) error {
 		pkg, err := s.codec.Decode(data)
 		if err != nil {
 			s.logger.Error("Failed to decode incoming message",
-				zap.String("from_node", string(nodeID)),
+				zap.String("from_node", nodeID),
 				zap.Error(err))
 			return
 		}
 		if err := s.deliveryCallback(pkg); err != nil {
 			s.logger.Error("Failed to deliver message from remote node",
-				zap.String("from_node", string(nodeID)),
+				zap.String("from_node", nodeID),
 				zap.Error(err))
 		}
 	}
@@ -76,7 +76,7 @@ func (s *Service) Start(ctx context.Context) error {
 	// Process nodes that are already in the cluster at startup.
 	for _, nodeInfo := range s.membership.Nodes() {
 		if nodeInfo.ID != s.membership.LocalNode().ID {
-			s.logger.Info("Processing pre-existing cluster member", zap.String("node_id", string(nodeInfo.ID)))
+			s.logger.Info("Processing pre-existing cluster member", zap.String("node_id", nodeInfo.ID))
 			s.connMan.AddManagedNode(nodeInfo.ID)
 			s.connectToNode(nodeInfo)
 		}
@@ -118,12 +118,12 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 	switch e.Kind {
 	case cluster.NodeJoinedEventKind:
 		s.logger.Info("Node joined cluster, preparing state and connection",
-			zap.String("node_id", string(nodeInfo.ID)))
+			zap.String("node_id", nodeInfo.ID))
 		s.connMan.AddManagedNode(nodeInfo.ID)
 		s.connectToNode(nodeInfo)
 	case cluster.NodeLeftEventKind:
 		s.logger.Info("Node left cluster, cleaning up state and connection",
-			zap.String("node_id", string(nodeInfo.ID)))
+			zap.String("node_id", nodeInfo.ID))
 		s.connMan.RemoveManagedNode(nodeInfo.ID)
 	}
 }
@@ -132,13 +132,13 @@ func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
 	portStr, ok := nodeInfo.Meta["internode_port"]
 	if !ok {
 		s.logger.Warn("Node metadata missing 'internode_port', cannot connect",
-			zap.String("node_id", string(nodeInfo.ID)))
+			zap.String("node_id", nodeInfo.ID))
 		return
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
 		s.logger.Error("Invalid 'internode_port' metadata for node",
-			zap.String("node_id", string(nodeInfo.ID)), zap.String("port", portStr), zap.Error(err))
+			zap.String("node_id", nodeInfo.ID), zap.String("port", portStr), zap.Error(err))
 		return
 	}
 	s.connMan.EnsureConnection(nodeInfo.ID, nodeInfo.Addr, port)

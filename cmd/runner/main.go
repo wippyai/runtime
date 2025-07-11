@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -125,19 +124,6 @@ func parseFlags() *Config {
 	}
 
 	return config
-}
-
-// parseJoinAddrs parses comma-separated join addresses
-func parseJoinAddrs(joinStr string) []string {
-	if joinStr == "" {
-		return nil
-	}
-
-	addrs := strings.Split(joinStr, ",")
-	for i, addr := range addrs {
-		addrs[i] = strings.TrimSpace(addr)
-	}
-	return addrs
 }
 
 func main() {

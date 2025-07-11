@@ -11,11 +11,11 @@ import (
 // mockTranscoder for testing
 type mockTranscoder struct{}
 
-func (mt *mockTranscoder) Transcode(p payload.Payload, to payload.Format) (payload.Payload, error) {
+func (mt *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil // Pass through
 }
 
-func (mt *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (mt *mockTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
 	return nil
 }
 

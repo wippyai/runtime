@@ -158,19 +158,3 @@ func timerChannel(l *lua.LState) int {
 	l.Push(t.chValue)
 	return 1
 }
-
-// Register Timer
-func registerTimer(l *lua.LState, mod *lua.LTable) {
-	// Register Timer methods
-	methods := map[string]lua.LGFunction{
-		"stop":    timerStop,
-		"reset":   timerReset,
-		"channel": timerChannel,
-	}
-
-	// Use the efficient registration method
-	value.RegisterMethods(l, "time.Timer", methods)
-
-	// Register timer constructor
-	mod.RawSetString("timer", l.NewFunction(timer))
-}

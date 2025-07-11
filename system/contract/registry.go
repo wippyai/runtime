@@ -19,8 +19,8 @@ type bindingWithMeta struct {
 	Binding *contract.Binding
 }
 
-// ContractRegistry implements contract.Registry interface for data management
-type ContractRegistry struct {
+// Registry implements contract.Registry interface for data management
+type Registry struct {
 	ctx    context.Context
 	bus    event.Bus
 	logger *zap.Logger
@@ -34,8 +34,8 @@ type ContractRegistry struct {
 }
 
 // NewContractRegistry creates a new contract registry
-func NewContractRegistry(bus event.Bus, logger *zap.Logger) *ContractRegistry {
-	return &ContractRegistry{
+func NewContractRegistry(bus event.Bus, logger *zap.Logger) *Registry {
+	return &Registry{
 		bus:             bus,
 		logger:          logger,
 		definitions:     make(map[string]*contract.Definition),
@@ -45,7 +45,7 @@ func NewContractRegistry(bus event.Bus, logger *zap.Logger) *ContractRegistry {
 }
 
 // Start begins listening for contract events
-func (r *ContractRegistry) Start(ctx context.Context) error {
+func (r *Registry) Start(ctx context.Context) error {
 	r.ctx = ctx
 
 	sub, err := eventbus.NewSubscriber(
@@ -64,14 +64,14 @@ func (r *ContractRegistry) Start(ctx context.Context) error {
 }
 
 // Stop cleanly shuts down the registry
-func (r *ContractRegistry) Stop() error {
+func (r *Registry) Stop() error {
 	if r.subscriber != nil {
 		r.subscriber.Close()
 	}
 	return nil
 }
 
-func (r *ContractRegistry) handleEvent(e event.Event) {
+func (r *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
 	case contract.RegisterDefinition:
 		r.registerDefinition(e)
@@ -92,7 +92,7 @@ func (r *ContractRegistry) handleEvent(e event.Event) {
 	}
 }
 
-func (r *ContractRegistry) registerDefinition(e event.Event) {
+func (r *Registry) registerDefinition(e event.Event) {
 	def, ok := e.Data.(*contract.Definition)
 	if !ok {
 		r.logger.Error("invalid definition payload",
@@ -117,7 +117,7 @@ func (r *ContractRegistry) registerDefinition(e event.Event) {
 	r.sendAccept(e.Path)
 }
 
-func (r *ContractRegistry) updateDefinition(e event.Event) {
+func (r *Registry) updateDefinition(e event.Event) {
 	def, ok := e.Data.(*contract.Definition)
 	if !ok {
 		r.sendReject(e.Path, "invalid definition payload")
@@ -139,7 +139,7 @@ func (r *ContractRegistry) updateDefinition(e event.Event) {
 	r.sendAccept(e.Path)
 }
 
-func (r *ContractRegistry) deleteDefinition(e event.Event) {
+func (r *Registry) deleteDefinition(e event.Event) {
 	r.mu.Lock()
 	delete(r.definitions, e.Path)
 	// Clean up any default bindings for this contract
@@ -150,7 +150,7 @@ func (r *ContractRegistry) deleteDefinition(e event.Event) {
 	r.sendAccept(e.Path)
 }
 
-func (r *ContractRegistry) registerBinding(e event.Event) {
+func (r *Registry) registerBinding(e event.Event) {
 	binding, ok := e.Data.(*contract.Binding)
 	if !ok {
 		r.logger.Error("invalid binding payload",
@@ -183,7 +183,7 @@ func (r *ContractRegistry) registerBinding(e event.Event) {
 	r.sendAccept(e.Path)
 }
 
-func (r *ContractRegistry) updateBinding(e event.Event) {
+func (r *Registry) updateBinding(e event.Event) {
 	binding, ok := e.Data.(*contract.Binding)
 	if !ok {
 		r.sendReject(e.Path, "invalid binding payload")
@@ -216,7 +216,7 @@ func (r *ContractRegistry) updateBinding(e event.Event) {
 	r.sendAccept(e.Path)
 }
 
-func (r *ContractRegistry) deleteBinding(e event.Event) {
+func (r *Registry) deleteBinding(e event.Event) {
 	bindingID := registry.ParseID(e.Path)
 
 	r.mu.Lock()
@@ -231,7 +231,7 @@ func (r *ContractRegistry) deleteBinding(e event.Event) {
 
 // updateDefaultBindings updates the default bindings map for contracts that are marked as default
 // Assumes r.mu is already locked
-func (r *ContractRegistry) updateDefaultBindings(binding *contract.Binding, bindingID registry.ID) {
+func (r *Registry) updateDefaultBindings(binding *contract.Binding, bindingID registry.ID) {
 	for _, bc := range binding.Contracts {
 		if bc.Default {
 			r.defaultBindings[bc.Contract.String()] = bindingID
@@ -241,7 +241,7 @@ func (r *ContractRegistry) updateDefaultBindings(binding *contract.Binding, bind
 
 // removeDefaultBindings removes any default bindings for the given binding ID
 // Assumes r.mu is already locked
-func (r *ContractRegistry) removeDefaultBindings(bindingID registry.ID) {
+func (r *Registry) removeDefaultBindings(bindingID registry.ID) {
 	for contractID, defaultBindingID := range r.defaultBindings {
 		if defaultBindingID == bindingID {
 			delete(r.defaultBindings, contractID)
@@ -249,7 +249,7 @@ func (r *ContractRegistry) removeDefaultBindings(bindingID registry.ID) {
 	}
 }
 
-func (r *ContractRegistry) sendAccept(path event.Path) {
+func (r *Registry) sendAccept(path event.Path) {
 	r.bus.Send(r.ctx, event.Event{
 		System: contract.System,
 		Kind:   contract.Accept,
@@ -257,7 +257,7 @@ func (r *ContractRegistry) sendAccept(path event.Path) {
 	})
 }
 
-func (r *ContractRegistry) sendReject(path event.Path, reason string) {
+func (r *Registry) sendReject(path event.Path, reason string) {
 	r.bus.Send(r.ctx, event.Event{
 		System: contract.System,
 		Kind:   contract.Reject,
@@ -267,7 +267,7 @@ func (r *ContractRegistry) sendReject(path event.Path, reason string) {
 }
 
 // GetContract implements contract.Registry interface
-func (r *ContractRegistry) GetContract(ctx context.Context, id registry.ID) (contract.Contract, error) {
+func (r *Registry) GetContract(_ context.Context, id registry.ID) (contract.Contract, error) {
 	r.mu.RLock()
 	def, exists := r.definitions[id.String()]
 	r.mu.RUnlock()
@@ -283,7 +283,7 @@ func (r *ContractRegistry) GetContract(ctx context.Context, id registry.ID) (con
 }
 
 // GetBinding implements contract.Registry interface
-func (r *ContractRegistry) GetBinding(ctx context.Context, id registry.ID) (*contract.Binding, error) {
+func (r *Registry) GetBinding(_ context.Context, id registry.ID) (*contract.Binding, error) {
 	r.mu.RLock()
 	bindingWithMeta, exists := r.bindings[id.String()]
 	r.mu.RUnlock()
@@ -296,7 +296,7 @@ func (r *ContractRegistry) GetBinding(ctx context.Context, id registry.ID) (*con
 }
 
 // GetBindingsForContract implements contract.Registry interface
-func (r *ContractRegistry) GetBindingsForContract(ctx context.Context, contractID registry.ID) ([]registry.ID, error) {
+func (r *Registry) GetBindingsForContract(_ context.Context, contractID registry.ID) ([]registry.ID, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -314,7 +314,7 @@ func (r *ContractRegistry) GetBindingsForContract(ctx context.Context, contractI
 }
 
 // GetDefaultBinding implements contract.Registry interface
-func (r *ContractRegistry) GetDefaultBinding(ctx context.Context, contractID registry.ID) (registry.ID, error) {
+func (r *Registry) GetDefaultBinding(_ context.Context, contractID registry.ID) (registry.ID, error) {
 	r.mu.RLock()
 	bindingID, exists := r.defaultBindings[contractID.String()]
 	r.mu.RUnlock()
@@ -353,5 +353,5 @@ func (c *contractImpl) Method(name string) (*contract.MethodDef, error) {
 	return nil, fmt.Errorf("method '%s' not found in contract '%s'", name, c.id)
 }
 
-// Ensure ContractRegistry implements contract.Registry interface
-var _ contract.Registry = (*ContractRegistry)(nil)
+// Ensure Registry implements contract.Registry interface
+var _ contract.Registry = (*Registry)(nil)
