@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/modules/html"
 	httpbase "net/http"
 	"os"
 	"time"
@@ -386,6 +387,7 @@ func withLuaRuntime(a *App) []eventbus.EventHandler {
 				system.NewSystemModule(),
 				contractmod.NewContractModule(a.logger.Named("contract")),
 				otelmod.NewOTelModule(),
+				html.NewHTMLModule(),
 			},
 			ProtoCacheSize: 60000,
 			MainCacheSize:  10000,
