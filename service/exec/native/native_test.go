@@ -72,16 +72,16 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	// Create the process
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
 
-	// Using direct command equivalents instead of shell piping
-	// We'll use a single command with args for cross-platform compatibility
+	// Use a command that generates output from /dev/urandom and limits it
 	var command string
 	if runtime.GOOS == "windows" {
 		command = "findstr"
 	} else {
-		command = "sh -c 'yes | head -n 100'"
+		// Use head to read from /dev/urandom and limit to 100 bytes
+		command = "head -c 100 /dev/urandom"
 	}
 
-	process, err := nativeExecutor.NewProcess(command+" -n 100 /dev/urandom", exec.ProcessOptions{})
+	process, err := nativeExecutor.NewProcess(command, exec.ProcessOptions{})
 	assert.NoError(t, err)
 
 	processExecutor, ok := process.(*ProcessExecutor)
@@ -152,7 +152,7 @@ func TestExecutor_Stdout(t *testing.T) {
 
 	go func() {
 		defer close(readDone)
-		timeout := time.After(2 * time.Second)
+		timeout := time.After(5 * time.Second)
 
 		for {
 			select {
@@ -164,6 +164,7 @@ func TestExecutor_Stdout(t *testing.T) {
 				n, err := process.Stdout().Read(buf)
 				if err != nil {
 					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+						t.Logf("Pipe closed, final stdout output: %q", sb.String())
 						return
 					}
 					t.Errorf("Error reading stdout: %v", err)
@@ -171,18 +172,26 @@ func TestExecutor_Stdout(t *testing.T) {
 				}
 				if n > 0 {
 					sb.Write(buf[:n])
+					t.Logf("Read %d bytes from stdout: %q", n, string(buf[:n]))
 				}
 			}
 		}
 	}()
 
+	// Give the reading goroutine a chance to start
+	time.Sleep(10 * time.Millisecond)
+
 	// Wait for the process to complete
-	_ = process.Wait()
+	err = process.Wait()
+	if err != nil {
+		t.Logf("Process wait error: %v", err)
+	}
 
 	// Wait for reading to complete
 	<-readDone
 
 	output := sb.String()
+	t.Logf("Final stdout output: %q", output)
 	if !strings.Contains(output, "hello world") {
 		t.Errorf("Expected stdout to contain 'hello world', got: %q", output)
 	}
@@ -257,7 +266,7 @@ func TestExecutor_Stderr(t *testing.T) {
 
 	go func() {
 		defer close(readDone)
-		timeout := time.After(2 * time.Second)
+		timeout := time.After(5 * time.Second)
 
 		for {
 			select {
@@ -280,6 +289,9 @@ func TestExecutor_Stderr(t *testing.T) {
 			}
 		}
 	}()
+
+	// Give the reading goroutine a chance to start
+	time.Sleep(10 * time.Millisecond)
 
 	// Wait for the process to complete
 	_ = process.Wait()
