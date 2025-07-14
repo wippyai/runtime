@@ -3,6 +3,7 @@ package component
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
@@ -73,9 +74,17 @@ func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) 
 
 // BuildImports creates imports from a list of IDs and their aliases
 func BuildImports(imports map[string]registry.ID, modules []string) []lua.Import {
-	out := make([]lua.Import, 0, len(imports))
-	for k, v := range imports {
-		out = append(out, lua.Import{ID: v, Alias: k})
+	out := make([]lua.Import, 0, len(imports)+len(modules))
+
+	// Sort imports by alias to ensure deterministic ordering
+	aliases := make([]string, 0, len(imports))
+	for k := range imports {
+		aliases = append(aliases, k)
+	}
+	sort.Strings(aliases)
+
+	for _, alias := range aliases {
+		out = append(out, lua.Import{ID: imports[alias], Alias: alias})
 	}
 
 	for _, module := range modules {
