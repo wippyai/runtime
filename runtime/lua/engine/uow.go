@@ -2,10 +2,11 @@ package engine
 
 import (
 	"context"
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	lua "github.com/yuin/gopher-lua"
 	"sync"
 	"sync/atomic"
+
+	ctxapi "github.com/ponyruntime/pony/api/context"
+	lua "github.com/yuin/gopher-lua"
 )
 
 const scheduleSize = 32

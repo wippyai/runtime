@@ -1,10 +1,11 @@
 package html
 
 import (
+	"regexp"
+
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
-	"regexp"
 )
 
 const (
@@ -21,7 +22,6 @@ type AttrBuilder struct {
 	policyUD *lua.LUserData // Store reference to original policy userdata
 	attrs    []string
 	regex    *regexp.Regexp
-	enum     []string
 }
 
 func checkPolicy(l *lua.LState) *PolicyWrapper {
@@ -56,7 +56,7 @@ func registerPolicy(l *lua.LState) {
 func policyAllowElements(l *lua.LState) int {
 	wrapper := checkPolicy(l)
 
-	var elements []string
+	elements := make([]string, 0, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
 		elements = append(elements, l.CheckString(i))
 	}
@@ -70,7 +70,7 @@ func policyAllowElements(l *lua.LState) int {
 func policyAllowAttrs(l *lua.LState) int {
 	wrapper := checkPolicy(l)
 
-	var attrs []string
+	attrs := make([]string, 0, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
 		attrs = append(attrs, l.CheckString(i))
 	}
@@ -109,7 +109,7 @@ func registerAttrBuilder(l *lua.LState) {
 func attrBuilderOnElements(l *lua.LState) int {
 	builder := checkAttrBuilder(l)
 
-	var elements []string
+	elements := make([]string, 0, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
 		elements = append(elements, l.CheckString(i))
 	}
@@ -180,7 +180,7 @@ func policyAllowRelativeURLs(l *lua.LState) int {
 func policyAllowURLSchemes(l *lua.LState) int {
 	wrapper := checkPolicy(l)
 
-	var schemes []string
+	schemes := make([]string, 0, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
 		schemes = append(schemes, l.CheckString(i))
 	}

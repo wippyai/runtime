@@ -218,7 +218,7 @@ func TestHTMLModule(t *testing.T) {
 		result := vm.State().Get(-1).(*lua.LTable)
 		var allMatch = true
 
-		result.ForEach(func(key, value lua.LValue) {
+		result.ForEach(func(_, value lua.LValue) {
 			caseTable := value.(*lua.LTable)
 			matches := bool(caseTable.RawGetString("matches").(lua.LBool))
 			if !matches {
@@ -300,7 +300,7 @@ func TestHTMLModule(t *testing.T) {
 		result := vm.State().Get(-1).(*lua.LTable)
 		var allMatch = true
 
-		result.ForEach(func(key, value lua.LValue) {
+		result.ForEach(func(_, value lua.LValue) {
 			caseTable := value.(*lua.LTable)
 			matches := bool(caseTable.RawGetString("matches").(lua.LBool))
 			if !matches {
@@ -378,7 +378,7 @@ func TestHTMLModule(t *testing.T) {
 
 		result := vm.State().Get(-1).(*lua.LTable)
 
-		result.ForEach(func(key, value lua.LValue) {
+		result.ForEach(func(_, value lua.LValue) {
 			caseTable := value.(*lua.LTable)
 			input := caseTable.RawGetString("input").String()
 			resultStr := caseTable.RawGetString("result").String()
@@ -460,7 +460,7 @@ func TestHTMLModule(t *testing.T) {
 
 		result := vm.State().Get(-1).(*lua.LTable)
 
-		result.ForEach(func(key, value lua.LValue) {
+		result.ForEach(func(_, value lua.LValue) {
 			caseTable := value.(*lua.LTable)
 			testPasses := bool(caseTable.RawGetString("test_passes").(lua.LBool))
 			desc := caseTable.RawGetString("desc").String()
@@ -531,7 +531,7 @@ func TestHTMLModule(t *testing.T) {
 
 		result := vm.State().Get(-1).(*lua.LTable)
 
-		result.ForEach(func(key, value lua.LValue) {
+		result.ForEach(func(_, value lua.LValue) {
 			caseTable := value.(*lua.LTable)
 			testPasses := bool(caseTable.RawGetString("test_passes").(lua.LBool))
 			desc := caseTable.RawGetString("desc").String()
@@ -613,7 +613,7 @@ func TestHTMLModule(t *testing.T) {
 
 		result := vm.State().Get(-1).(*lua.LTable)
 
-		result.ForEach(func(key, value lua.LValue) {
+		result.ForEach(func(_, value lua.LValue) {
 			caseTable := value.(*lua.LTable)
 			resultType := caseTable.RawGetString("result_type").String()
 			input := caseTable.RawGetString("input").String()
