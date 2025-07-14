@@ -72,13 +72,13 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	// Create the process
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
 
-	// Use a command that generates output from /dev/urandom and limits it
+	// Use a command that generates predictable output for testing
 	var command string
 	if runtime.GOOS == "windows" {
 		command = "findstr"
 	} else {
-		// Use head to read from /dev/urandom and limit to 100 bytes
-		command = "head -c 100 /dev/urandom"
+		// Use shell to allow pipes
+		command = "sh -c \"yes 'test output' | head -n 10\""
 	}
 
 	process, err := nativeExecutor.NewProcess(command, exec.ProcessOptions{})
