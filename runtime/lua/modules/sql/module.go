@@ -1,6 +1,8 @@
 package sql
 
 import (
+	"sync"
+
 	"github.com/ponyruntime/pony/api/service/sql"
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/builder"
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
@@ -26,7 +28,98 @@ const (
 
 	// TypeUnknown for unrecognized database types
 	TypeUnknown = "unknown"
+
+	// Isolation level constants
+	IsolationDefault         = "default"
+	IsolationReadUncommitted = "read_uncommitted"
+	IsolationReadCommitted   = "read_committed"
+	IsolationWriteCommitted  = "write_committed"
+	IsolationRepeatableRead  = "repeatable_read"
+	IsolationSerializable    = "serializable"
 )
+
+// Module represents the SQL module for Lua
+type Module struct {
+	log         *zap.Logger
+	moduleTable *lua.LTable
+	once        sync.Once
+}
+
+// NewSQLModule creates a new SQL module
+func NewSQLModule(log *zap.Logger) *Module {
+	if log == nil {
+		log = zap.NewNop()
+	}
+	return &Module{
+		log: log,
+	}
+}
+
+// Name returns the module name
+func (m *Module) Name() string {
+	return "sql"
+}
+
+// Loader is the entry point for loading the module into Lua
+func (m *Module) Loader(l *lua.LState) int {
+	m.once.Do(func() {
+		m.initModuleTable(l)
+	})
+
+	l.Push(m.moduleTable)
+	return 1
+}
+
+// initModuleTable creates and initializes the module table once
+func (m *Module) initModuleTable(l *lua.LState) {
+	// Create main module table with exact capacity
+	mod := l.CreateTable(0, 5) // 5 elements: get function, type table, isolation table, NULL, and submodules
+
+	// Register main DB functions
+	registerDB(l, mod, m.log)
+
+	// Register statement and transaction methods
+	registerStatement(l, m.log)
+	registerTransaction(l, m.log)
+
+	// Create NULL value
+	nullUserData := l.NewUserData()
+	nullUserData.Value = "SQL_NULL"
+	mod.RawSetString("NULL", nullUserData)
+
+	// Create database type constants table
+	types := l.CreateTable(0, 6) // 6 database types
+	types.RawSetString("POSTGRES", lua.LString(TypePostgres))
+	types.RawSetString("MYSQL", lua.LString(TypeMySQL))
+	types.RawSetString("SQLITE", lua.LString(TypeSQLite))
+	types.RawSetString("MSSQL", lua.LString(TypeMSSQL))
+	types.RawSetString("ORACLE", lua.LString(TypeOracle))
+	types.RawSetString("UNKNOWN", lua.LString(TypeUnknown))
+	types.Immutable = true
+	mod.RawSetString("type", types)
+
+	// Create isolation level constants table
+	isolation := l.CreateTable(0, 6) // 6 isolation levels
+	isolation.RawSetString("DEFAULT", lua.LString(IsolationDefault))
+	isolation.RawSetString("READ_UNCOMMITTED", lua.LString(IsolationReadUncommitted))
+	isolation.RawSetString("READ_COMMITTED", lua.LString(IsolationReadCommitted))
+	isolation.RawSetString("WRITE_COMMITTED", lua.LString(IsolationWriteCommitted))
+	isolation.RawSetString("REPEATABLE_READ", lua.LString(IsolationRepeatableRead))
+	isolation.RawSetString("SERIALIZABLE", lua.LString(IsolationSerializable))
+	isolation.Immutable = true
+	mod.RawSetString("isolation", isolation)
+
+	// Register sqlutil as submodule
+	sqlutil.RegisterAsModule(l, mod)
+
+	// Register builder submodule
+	builder.RegisterBuilderModule(l, mod)
+
+	// Make the main module table immutable
+	mod.Immutable = true
+
+	m.moduleTable = mod
+}
 
 // mapDBTypeFromResourceKind maps a registry.Kind to a database type string
 func mapDBTypeFromResourceKind(dbType string) string {
@@ -44,60 +137,4 @@ func mapDBTypeFromResourceKind(dbType string) string {
 	default:
 		return TypeUnknown
 	}
-}
-
-// NewSQLModule creates a new SQL module
-func NewSQLModule(log *zap.Logger) *Module {
-	return &Module{
-		log: log,
-	}
-}
-
-// Module represents the SQL module for Lua
-type Module struct {
-	log *zap.Logger
-}
-
-// Name returns the module name
-func (m *Module) Name() string {
-	return "sql"
-}
-
-// Loader is the entry point for loading the module into Lua
-func (m *Module) Loader(l *lua.LState) int {
-	mod := l.CreateTable(0, 4) // 4 elements: NULL, type table, vec sub-module, and DB functions
-
-	registerDB(l, mod, m.log)
-
-	// Register statement and transaction functions
-	registerStatement(l, m.log)
-	registerTransaction(l, m.log)
-
-	// Create NULL value
-	nullUserData := l.NewUserData()
-	nullUserData.Value = "SQL_NULL" // Marker value
-	mod.RawSetString("NULL", nullUserData)
-
-	// Create database type constants table with exact capacity
-	types := l.CreateTable(0, 6) // 6 database types
-
-	// Add database types directly - UPPERCASE for Lua constants
-	types.RawSetString("POSTGRES", lua.LString(TypePostgres))
-	types.RawSetString("MYSQL", lua.LString(TypeMySQL))
-	types.RawSetString("SQLITE", lua.LString(TypeSQLite))
-	types.RawSetString("MSSQL", lua.LString(TypeMSSQL))
-	types.RawSetString("ORACLE", lua.LString(TypeOracle))
-	types.RawSetString("UNKNOWN", lua.LString(TypeUnknown))
-
-	// Add types table to module
-	mod.RawSetString("type", types)
-
-	sqlutil.RegisterAsModule(l, mod)
-
-	// Register the builder submodule
-	builder.RegisterBuilderModule(l, mod)
-
-	// Return module
-	l.Push(mod)
-	return 1
 }

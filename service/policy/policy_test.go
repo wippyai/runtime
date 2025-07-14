@@ -9,7 +9,6 @@ import (
 	"github.com/ponyruntime/pony/api/security"
 )
 
-// Test pattern matching function
 func TestMatchesPattern(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -66,9 +65,7 @@ func TestMatchesPattern(t *testing.T) {
 	}
 }
 
-// Tests for Policy implementation
 func TestPolicy(t *testing.T) {
-	// Create a test policy
 	policyID := registry.ID{NS: "test", Name: "admin-policy"}
 	policyConfig := &policy.Config{
 		Policy: policy.Definition{
@@ -90,26 +87,22 @@ func TestPolicy(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	// Check policy ID
 	if p.ID().String() != "test:admin-policy" {
 		t.Errorf("Expected policy ID to be 'test:admin-policy', got %s", p.ID().String())
 	}
 
-	// Test policy evaluation with matching role
 	adminActor := newMockActor("admin-user", registry.Metadata{"role": "admin"})
 	result := p.Evaluate(adminActor, "read", "document", nil)
 	if result != security.Allow {
 		t.Errorf("Expected Allow result for admin user, got %v", result)
 	}
 
-	// Test policy evaluation with non-matching role
 	userActor := newMockActor("regular-user", registry.Metadata{"role": "user"})
 	result = p.Evaluate(userActor, "read", "document", nil)
 	if result != security.Undefined {
 		t.Errorf("Expected Undefined result for regular user, got %v", result)
 	}
 
-	// Test with empty actor (not nil)
 	emptyActor := newMockActor("", nil)
 	result = p.Evaluate(emptyActor, "read", "document", nil)
 	if result != security.Undefined {
@@ -117,14 +110,69 @@ func TestPolicy(t *testing.T) {
 	}
 }
 
-// Test policy with wildcard patterns
+func TestPolicyWithRegexConditions(t *testing.T) {
+	policyID := registry.ID{NS: "test", Name: "regex-policy"}
+	policyConfig := &policy.Config{
+		Policy: policy.Definition{
+			Actions:   "*",
+			Resources: "*",
+			Effect:    policy.Allow,
+			Conditions: []policy.Condition{
+				{
+					Field:    "resource",
+					Operator: "matches",
+					Value:    "^doc.*$",
+				},
+			},
+		},
+	}
+
+	p, err := NewPolicy(policyID, policyConfig)
+	if err != nil {
+		t.Fatalf("Failed to create policy: %v", err)
+	}
+
+	actor := newMockActor("user123", nil)
+
+	result := p.Evaluate(actor, "read", "document", nil)
+	if result != security.Allow {
+		t.Errorf("Expected Allow result for document resource, got %v", result)
+	}
+
+	result = p.Evaluate(actor, "read", "image", nil)
+	if result != security.Undefined {
+		t.Errorf("Expected Undefined result for image resource, got %v", result)
+	}
+}
+
+func TestPolicyWithInvalidRegex(t *testing.T) {
+	policyID := registry.ID{NS: "test", Name: "invalid-regex-policy"}
+	policyConfig := &policy.Config{
+		Policy: policy.Definition{
+			Actions:   "*",
+			Resources: "*",
+			Effect:    policy.Allow,
+			Conditions: []policy.Condition{
+				{
+					Field:    "resource",
+					Operator: "matches",
+					Value:    "[invalid regex",
+				},
+			},
+		},
+	}
+
+	_, err := NewPolicy(policyID, policyConfig)
+	if err == nil {
+		t.Error("Expected error for policy with invalid regex pattern")
+	}
+}
+
 func TestPolicyWithWildcards(t *testing.T) {
-	// Create a test actor
 	actor := newMockActor("test-user", registry.Metadata{
 		"role": "editor",
 	})
 
-	// Test cases for action wildcards
 	actionWildcardTests := []struct {
 		name     string
 		config   *policy.Config
@@ -200,7 +248,6 @@ func TestPolicyWithWildcards(t *testing.T) {
 		})
 	}
 
-	// Test cases for resource wildcards
 	resourceWildcardTests := []struct {
 		name     string
 		config   *policy.Config
@@ -274,5 +321,133 @@ func TestPolicyWithWildcards(t *testing.T) {
 				t.Errorf("Policy.Evaluate() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPolicyWithComplexRegexConditions(t *testing.T) {
+	policyID := registry.ID{NS: "test", Name: "complex-regex-policy"}
+	policyConfig := &policy.Config{
+		Policy: policy.Definition{
+			Actions:   "*",
+			Resources: "*",
+			Effect:    policy.Allow,
+			Conditions: []policy.Condition{
+				{
+					Field:    "actor.meta.email",
+					Operator: "matches",
+					Value:    "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+				},
+				{
+					Field:    "resource",
+					Operator: "matches",
+					Value:    "^(document|file):[a-z]+$",
+				},
+			},
+		},
+	}
+
+	p, err := NewPolicy(policyID, policyConfig)
+	if err != nil {
+		t.Fatalf("Failed to create policy: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		actor    security.Actor
+		action   string
+		resource string
+		want     security.Result
+	}{
+		{
+			name: "valid email and resource",
+			actor: newMockActor("user123", registry.Metadata{
+				"email": "user@example.com",
+			}),
+			action:   "read",
+			resource: "document:financial",
+			want:     security.Allow,
+		},
+		{
+			name: "invalid email format",
+			actor: newMockActor("user123", registry.Metadata{
+				"email": "invalid-email",
+			}),
+			action:   "read",
+			resource: "document:financial",
+			want:     security.Undefined,
+		},
+		{
+			name: "valid email but invalid resource",
+			actor: newMockActor("user123", registry.Metadata{
+				"email": "user@example.com",
+			}),
+			action:   "read",
+			resource: "image:logo",
+			want:     security.Undefined,
+		},
+		{
+			name: "file resource matches",
+			actor: newMockActor("user123", registry.Metadata{
+				"email": "user@example.com",
+			}),
+			action:   "read",
+			resource: "file:data",
+			want:     security.Allow,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := p.Evaluate(tt.actor, tt.action, tt.resource, nil)
+			if got != tt.want {
+				t.Errorf("Policy.Evaluate() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPolicyPrecompilationEfficiency(t *testing.T) {
+	conditions := []policy.Condition{
+		{
+			Field:    "resource",
+			Operator: "matches",
+			Value:    "^doc.*$",
+		},
+		{
+			Field:    "actor.meta.email",
+			Operator: "matches",
+			Value:    "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+		},
+		{
+			Field:    "resource",
+			Operator: "matches",
+			Value:    "^doc.*$",
+		},
+	}
+
+	policyConfig := &policy.Config{
+		Policy: policy.Definition{
+			Actions:    "*",
+			Resources:  "*",
+			Effect:     policy.Allow,
+			Conditions: conditions,
+		},
+	}
+
+	p, err := NewPolicy(registry.ID{NS: "test", Name: "efficiency-test"}, policyConfig)
+	if err != nil {
+		t.Fatalf("Failed to create policy: %v", err)
+	}
+
+	if len(p.evaluator.compiledPatterns) != 2 {
+		t.Errorf("Expected 2 unique compiled patterns, got %d", len(p.evaluator.compiledPatterns))
+	}
+
+	if _, exists := p.evaluator.compiledPatterns["^doc.*$"]; !exists {
+		t.Error("Pattern '^doc.*$' should be pre-compiled")
+	}
+
+	if _, exists := p.evaluator.compiledPatterns["^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]; !exists {
+		t.Error("Email pattern should be pre-compiled")
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/Masterminds/squirrel"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 	lua "github.com/yuin/gopher-lua"
@@ -116,36 +118,47 @@ func executorExec(l *lua.LState) int {
 		return 0
 	}
 
-	var result sql.Result
-	var err error
+	coroutine.Wrap(l, func() *engine.Update {
+		var result sql.Result
+		var err error
 
-	// Execute based on builder type
-	switch b := executor.builder.(type) {
-	case squirrel.SelectBuilder:
-		result, err = b.RunWith(executor.runner).Exec()
-	case squirrel.InsertBuilder:
-		result, err = b.RunWith(executor.runner).Exec()
-	case squirrel.UpdateBuilder:
-		result, err = b.RunWith(executor.runner).Exec()
-	case squirrel.DeleteBuilder:
-		result, err = b.RunWith(executor.runner).Exec()
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported builder type: %T", b)))
-		return 2
-	}
+		// Execute based on builder type
+		switch b := executor.builder.(type) {
+		case squirrel.SelectBuilder:
+			result, err = b.RunWith(executor.runner).Exec()
+		case squirrel.InsertBuilder:
+			result, err = b.RunWith(executor.runner).Exec()
+		case squirrel.UpdateBuilder:
+			result, err = b.RunWith(executor.runner).Exec()
+		case squirrel.DeleteBuilder:
+			result, err = b.RunWith(executor.runner).Exec()
+		default:
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("unsupported builder type: %T", b))},
+				nil,
+			)
+		}
 
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
 
-	// Convert result to table using sqlutil.ResultToTable
-	resultTable := sqlutil.ResultToTable(l, result)
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
+		// Convert result to table using sqlutil.ResultToTable
+		resultTable := sqlutil.ResultToTable(l, result)
+
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{resultTable, lua.LNil},
+			nil,
+		)
+	})
+
+	return -1
 }
 
 // executorQuery executes the query and returns all rows
@@ -155,40 +168,68 @@ func executorQuery(l *lua.LState) int {
 		return 0
 	}
 
-	var rows *sql.Rows
-	var err error
+	coroutine.Wrap(l, func() *engine.Update {
+		var rows *sql.Rows
+		var err error
 
-	// Execute based on builder type
-	switch b := executor.builder.(type) {
-	case squirrel.SelectBuilder:
-		rows, err = b.RunWith(executor.runner).Query()
-	case squirrel.InsertBuilder:
-		rows, err = b.RunWith(executor.runner).Query()
-	case squirrel.UpdateBuilder:
-		rows, err = b.RunWith(executor.runner).Query()
-	case squirrel.DeleteBuilder:
-		rows, err = b.RunWith(executor.runner).Query()
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported builder type: %T", b)))
-		return 2
-	}
+		// Execute based on builder type
+		switch b := executor.builder.(type) {
+		case squirrel.SelectBuilder:
+			rows, err = b.RunWith(executor.runner).Query()
+		case squirrel.InsertBuilder:
+			rows, err = b.RunWith(executor.runner).Query()
+		case squirrel.UpdateBuilder:
+			rows, err = b.RunWith(executor.runner).Query()
+		case squirrel.DeleteBuilder:
+			rows, err = b.RunWith(executor.runner).Query()
+		default:
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("unsupported builder type: %T", b))},
+				nil,
+			)
+		}
 
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
 
-	// Convert rows to table using sqlutil.RowsToTable
-	resultTable, err := sqlutil.RowsToTable(l, rows)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+		// Convert rows to table using sqlutil.RowsToTable
+		var resultTable *lua.LTable
+		err = func() error {
+			defer func() {
+				closeErr := rows.Close()
+				if closeErr != nil {
+					// No logger available here, but this follows the same pattern as other files
+					if err == nil {
+						err = closeErr
+					}
+				}
+			}()
 
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
+			var tableErr error
+			resultTable, tableErr = sqlutil.RowsToTable(l, rows)
+			return tableErr
+		}()
+
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
+
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{resultTable, lua.LNil},
+			nil,
+		)
+	})
+
+	return -1
 }

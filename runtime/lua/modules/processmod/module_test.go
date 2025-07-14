@@ -4,49 +4,91 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
 func TestProcessmodModule(t *testing.T) {
-	t.Run("module loader registers functions", func(t *testing.T) {
+	t.Run("module provides complete process API", func(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewProcessAPIModule(logger)
-		processModule := processmod.NewProcessAPIModule(logger)
 
 		vm, err := engine.NewCVM(logger)
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Register the process module first
-		vm.State().PreloadModule(processModule.Name(), processModule.Loader)
-
-		// Register the processmod module
+		// Register only the process_api module
 		vm.State().PreloadModule(module.Name(), module.Loader)
 
 		// Check that the module name is correct
 		assert.Equal(t, "process_api", module.Name())
 
-		// Load the module and check that process functions are registered
+		// Load process_api as complete process API
 		err = vm.State().DoString(`
-			-- Load the process module first to create the process table
-			local process = require("process")
+			local process = require("process_api")
 			
-			-- Set it as a global variable so processmod can find it
-			_G.process = process
-			
-			-- Load the processmod module (this should register functions with process table)
-			require("process_api")
-			
-			-- Check that process table exists and has our functions
+			-- Check that all core process functions exist
 			assert(process ~= nil, "process table should exist")
+			assert(type(process.id) == "function", "process.id should be a function")
+			assert(type(process.pid) == "function", "process.pid should be a function")
+			assert(type(process.send) == "function", "process.send should be a function")
+			assert(type(process.spawn) == "function", "process.spawn should be a function")
+			assert(type(process.terminate) == "function", "process.terminate should be a function")
+			
+			-- Check that process-specific methods exist
 			assert(type(process.inbox) == "function", "process.inbox should be a function")
 			assert(type(process.events) == "function", "process.events should be a function")
 			assert(type(process.listen) == "function", "process.listen should be a function")
 			assert(type(process.get_options) == "function", "process.get_options should be a function")
 			assert(type(process.set_options) == "function", "process.set_options should be a function")
+			
+			-- Check that registry and events exist
+			assert(process.registry ~= nil, "process.registry should exist")
+			assert(process.event ~= nil, "process.event should exist")
+			assert(type(process.registry.register) == "function", "process.registry.register should be a function")
+		`)
+		require.NoError(t, err)
+	})
+
+	t.Run("table is immutable", func(t *testing.T) {
+		logger := zap.NewNop()
+		module := NewProcessAPIModule(logger)
+
+		vm, err := engine.NewCVM(logger)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		vm.State().PreloadModule(module.Name(), module.Loader)
+
+		// Test that the table is immutable
+		err = vm.State().DoString(`
+			local process = require("process_api")
+			
+			-- This should fail because table is immutable
+			process.test_field = "should fail"
+		`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "attempt to modify Immutable table")
+	})
+
+	t.Run("same table instance across requires", func(t *testing.T) {
+		logger := zap.NewNop()
+		module := NewProcessAPIModule(logger)
+
+		vm, err := engine.NewCVM(logger)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		vm.State().PreloadModule(module.Name(), module.Loader)
+
+		// Test that multiple requires return the same table
+		err = vm.State().DoString(`
+			local process1 = require("process_api")
+			local process2 = require("process_api")
+			
+			-- Should be the same table reference
+			assert(process1 == process2, "should return same table instance")
 		`)
 		require.NoError(t, err)
 	})
@@ -54,23 +96,17 @@ func TestProcessmodModule(t *testing.T) {
 	t.Run("listen rejects empty topic", func(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewProcessAPIModule(logger)
-		processModule := processmod.NewProcessAPIModule(logger)
 
 		vm, err := engine.NewCVM(logger)
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Register modules
-		vm.State().PreloadModule(processModule.Name(), processModule.Loader)
 		vm.State().PreloadModule(module.Name(), module.Loader)
 
 		// Test that listen fails with empty topic
 		err = vm.State().DoString(`
-			local process = require("process")
-			_G.process = process
-			require("process_api")
+			local process = require("process_api")
 			
-			-- This should fail because topic is empty
 			local ch, err = process.listen("")
 			if err then
 				error(err)
@@ -83,23 +119,17 @@ func TestProcessmodModule(t *testing.T) {
 	t.Run("listen rejects @ topics", func(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewProcessAPIModule(logger)
-		processModule := processmod.NewProcessAPIModule(logger)
 
 		vm, err := engine.NewCVM(logger)
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Register modules
-		vm.State().PreloadModule(processModule.Name(), processModule.Loader)
 		vm.State().PreloadModule(module.Name(), module.Loader)
 
 		// Test that listen fails with @ topic
 		err = vm.State().DoString(`
-			local process = require("process")
-			_G.process = process
-			require("process_api")
+			local process = require("process_api")
 			
-			-- This should fail because topic starts with @
 			local ch, err = process.listen("@test")
 			if err then
 				error(err)
@@ -108,28 +138,68 @@ func TestProcessmodModule(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot use @ topics")
 	})
+}
 
+func TestProcessmodModuleErrorHandling(t *testing.T) {
 	t.Run("functions fail without unit of work", func(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewProcessAPIModule(logger)
-		processModule := processmod.NewProcessAPIModule(logger)
 
 		vm, err := engine.NewCVM(logger)
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Register modules
-		vm.State().PreloadModule(processModule.Name(), processModule.Loader)
 		vm.State().PreloadModule(module.Name(), module.Loader)
 
 		// Test that functions fail without proper context setup
 		err = vm.State().DoString(`
-			local process = require("process")
-			_G.process = process
-			require("process_api")
+			local process = require("process_api")
 			
-			-- This should fail because there's no unit of work
 			local inbox, err = process.inbox()
+			if err then
+				error(err)
+			end
+		`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no unit of work found")
+	})
+
+	t.Run("get_options fails without unit of work", func(t *testing.T) {
+		logger := zap.NewNop()
+		module := NewProcessAPIModule(logger)
+
+		vm, err := engine.NewCVM(logger)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		vm.State().PreloadModule(module.Name(), module.Loader)
+
+		err = vm.State().DoString(`
+			local process = require("process_api")
+			
+			local options, err = process.get_options()
+			if err then
+				error(err)
+			end
+		`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no unit of work found")
+	})
+
+	t.Run("set_options fails without unit of work", func(t *testing.T) {
+		logger := zap.NewNop()
+		module := NewProcessAPIModule(logger)
+
+		vm, err := engine.NewCVM(logger)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		vm.State().PreloadModule(module.Name(), module.Loader)
+
+		err = vm.State().DoString(`
+			local process = require("process_api")
+			
+			local success, err = process.set_options({trap_links = true})
 			if err then
 				error(err)
 			end
