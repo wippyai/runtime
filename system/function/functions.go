@@ -243,7 +243,7 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 			task,
 		)
 		if err != nil {
-			f.logger.Error("interceptor chain execution failed",
+			f.logger.Debug("interceptor chain execution failed",
 				zap.String("function", task.ID.String()),
 				zap.String("pid", pid.String()),
 				zap.Error(err))
