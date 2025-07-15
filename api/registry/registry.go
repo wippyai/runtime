@@ -155,6 +155,8 @@ type (
 		Save(v Version, cs ChangeSet, head bool) error
 		// Head returns the current head version of the history
 		Head() (Version, error)
+		// SetHead sets given version as head version
+		SetHead(Version) error
 	}
 
 	// Runner defines how ChangeSets are applied to a State to produce a new State
