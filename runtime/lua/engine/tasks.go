@@ -15,7 +15,6 @@ import (
 // taskCoordinator implements the Tasks interface for coroutine coordination
 type taskCoordinator struct {
 	updates   chan *Update  // Channel for task updates
-	cond      *sync.Cond    // Condition variable for wake-up notifications
 	wakeCh    chan struct{} // Channel for context-aware wake-up signals
 	taskCount atomic.Int32  // Counter for external activities, usually counting blocked channels
 	updCount  atomic.Int32  // Counter for sent updates and internal updates
@@ -35,10 +34,8 @@ type taskCoordinator struct {
 // newTaskCoordinator creates a new task coordinator with specified buffer size
 // and optional wakeup function
 func newTaskCoordinator(bufferSize int, wakeupFunc func()) *taskCoordinator {
-	condMu := &sync.Mutex{}
 	return &taskCoordinator{
 		updates:         make(chan *Update, bufferSize),
-		cond:            sync.NewCond(condMu),
 		wakeCh:          make(chan struct{}, 1),
 		wakeupFunc:      wakeupFunc,
 		scheduled:       list.New(),
@@ -114,7 +111,6 @@ func (t *taskCoordinator) executeScheduled() {
 func (t *taskCoordinator) WakeUp() {
 	t.wakeCount.Add(1)
 	if t.awaken.CompareAndSwap(false, true) {
-		t.cond.Signal()
 		// Signal the wake channel for context-aware waiting
 		select {
 		case t.wakeCh <- struct{}{}:
@@ -220,6 +216,15 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 
 // clean resets the task coordinator to its initial state
 func (t *taskCoordinator) clean() {
+	done := false
+	for !done {
+		select {
+		case <-t.updates:
+		default:
+			done = true
+		}
+	}
+
 	if t.taskCount.Load() == 0 {
 		return
 	}
@@ -231,17 +236,6 @@ func (t *taskCoordinator) clean() {
 	t.scheduled.Init()       // Reinitialize the active list
 	t.scheduledBackup.Init() // Reinitialize the backup list
 	t.smu.Unlock()
-
-	// Drain channels
-	for {
-		select {
-		case <-t.updates:
-			// Drain updates channel
-		default:
-			// Channel empty, exit loop
-			return
-		}
-	}
 }
 
 func (t *taskCoordinator) reset() {
