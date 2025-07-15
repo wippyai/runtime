@@ -3,7 +3,7 @@ package registry
 import (
 	"fmt"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	envapi "github.com/ponyruntime/pony/api/env"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/system/registry/loader"
@@ -149,12 +149,18 @@ func loaderLoadDirectory(l *lua.LState) int {
 	// Get variables table (optional)
 	varsTable := l.OptTable(3, l.CreateTable(0, 8))
 
-	// Convert Lua variables table to Go map todo: remove
+	// Convert Lua variables table to Go map
 	vars := makeVariables(varsTable)
-	if envCtx, ok := l.Context().Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); ok && envCtx != nil {
-		envCtx.Iterate(func(key string, value string) {
-			vars[key] = value
-		})
+
+	// Get environment variables from registry
+	envRegistry := envapi.GetRegistry(l.Context())
+	if envRegistry != nil {
+		envVars, err := envRegistry.All(l.Context())
+		if err == nil {
+			for key, value := range envVars {
+				vars[key] = value
+			}
+		}
 	}
 
 	// Load entries
@@ -203,10 +209,16 @@ func loaderLoadFile(l *lua.LState) int {
 
 	// Convert Lua variables table to Go map
 	vars := makeVariables(varsTable)
-	if envCtx, ok := l.Context().Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); ok && envCtx != nil {
-		envCtx.Iterate(func(key string, value string) {
-			vars[key] = value
-		})
+
+	// Get environment variables from registry
+	envRegistry := envapi.GetRegistry(l.Context())
+	if envRegistry != nil {
+		envVars, err := envRegistry.All(l.Context())
+		if err == nil {
+			for key, value := range envVars {
+				vars[key] = value
+			}
+		}
 	}
 
 	// Load entries from file

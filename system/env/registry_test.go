@@ -54,10 +54,11 @@ func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
 	// Wait for processing
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify storage was registered
-	storages, err := reg.All(ctx)
+	// Verify storage was registered and contains variables
+	variables, err := reg.All(ctx)
 	require.NoError(t, err)
-	assert.Len(t, storages, 1)
+	assert.Contains(t, variables, "TEST_VAR")
+	assert.Equal(t, "test_value", variables["TEST_VAR"])
 
 	// Register a variable
 	variable := env.Variable{
@@ -520,10 +521,13 @@ func TestEventBus_AllStorages(t *testing.T) {
 	bus.Send(ctx, storageEvt2)
 	time.Sleep(100 * time.Millisecond)
 
-	// Get all storages
-	storages, err := reg.All(ctx)
+	// Get all variables from all storages
+	variables, err := reg.All(ctx)
 	require.NoError(t, err)
-	assert.Len(t, storages, 2)
+	assert.Contains(t, variables, "TEST_VAR1")
+	assert.Equal(t, "value1", variables["TEST_VAR1"])
+	assert.Contains(t, variables, "TEST_VAR2")
+	assert.Equal(t, "value2", variables["TEST_VAR2"])
 }
 
 func TestEventBus_NotFoundCases(t *testing.T) {

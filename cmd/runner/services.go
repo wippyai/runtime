@@ -229,6 +229,7 @@ func withAWSConfigManager(a *App) eventbus.EventHandler {
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("config.aws"),
+		a.envRegistry,
 	))
 }
 
@@ -254,6 +255,7 @@ func withSQLManager(a *App) eventbus.EventHandler {
 		a.dtt,
 		a.eventBus,
 		a.logger.Named("sql"),
+		a.envRegistry,
 	)
 	if err != nil {
 		panic(fmt.Errorf("failed to create sql manager: %w", err))

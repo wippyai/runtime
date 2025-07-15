@@ -228,16 +228,29 @@ func (s *Registry) sendReject(path event.Path, reason string) {
 	})
 }
 
-// All returns all env storages
-func (s *Registry) All(_ context.Context) ([]env.Storage, error) {
-	var storages []env.Storage
+// All returns all available variables from all storages
+func (s *Registry) All(ctx context.Context) (map[string]string, error) {
+	result := make(map[string]string)
+
+	// Iterate through all storages
 	s.storages.Range(func(_ interface{}, value interface{}) bool {
 		if storage, ok := value.(env.Storage); ok {
-			storages = append(storages, storage)
+			// Get all variables from this storage
+			variables, err := storage.List(ctx)
+			if err != nil {
+				s.log.Error("failed to list variables from storage", zap.Error(err))
+				return true // continue with other storages
+			}
+
+			// Add variables to result map
+			for name, value := range variables {
+				result[name] = value
+			}
 		}
 		return true
 	})
-	return storages, nil
+
+	return result, nil
 }
 
 func (s *Registry) getEnvValue(ctx context.Context, name string) (*EnvValue, error) {

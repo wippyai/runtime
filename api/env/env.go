@@ -56,7 +56,7 @@ type (
 	Registry interface {
 		Get(ctx context.Context, name string) (string, error)
 		Set(ctx context.Context, name string, value string) error
-		All(ctx context.Context) ([]Storage, error)
+		All(ctx context.Context) (map[string]string, error)
 	}
 
 	Variable struct {

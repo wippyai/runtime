@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
@@ -37,9 +36,9 @@ func (m *mockResourceRegistry) Set(_ context.Context, name string, value string)
 	return nil
 }
 
-func (m *mockResourceRegistry) All(_ context.Context) ([]envapi.Storage, error) {
-	// For testing purposes, we return an empty slice since we don't need actual storage
-	return []envapi.Storage{}, nil
+func (m *mockResourceRegistry) All(_ context.Context) (map[string]string, error) {
+	// For testing purposes, we return the variables map
+	return m.vars, nil
 }
 
 func (m *mockResourceRegistry) Acquire(
@@ -143,10 +142,6 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	scope := newTestScope()
 	ctx = security.WithActor(ctx, actor)
 	ctx = security.WithScope(ctx, scope)
-
-	// Add environment context
-	contexter := ctxapi.NewContexter[string]()
-	ctx = context.WithValue(ctx, ctxapi.EnvCtx, contexter)
 
 	// Add pubsub context
 	pid := pubsub.PID{ID: registry.ID{NS: "test", Name: "test"}}

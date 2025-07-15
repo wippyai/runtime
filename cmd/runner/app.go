@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/api/cluster"
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/contract"
 	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
@@ -400,16 +399,6 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	appCtx = apiinterceptor.WithInterceptor(appCtx, a.interceptor)
 	appCtx = contract.WithServices(appCtx, a.contractRegistry, a.contractInstantiator)
 
-	// Add environment context
-	envCtx := ctxapi.NewContexter[string]()
-	for _, en := range os.Environ() {
-		pair := strings.SplitN(en, "=", 2)
-		if len(pair) == 2 {
-			envCtx.SetValue(pair[0], pair[1])
-		}
-	}
-	appCtx = context.WithValue(appCtx, ctxapi.EnvCtx, envCtx)
-
 	// Start core services IN ORDER
 	if err := a.fsRegistry.Start(appCtx); err != nil {
 		a.cancel()
@@ -518,7 +507,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to initialize interceptors: %w", err)
 	}
 
-	appState, cleanup, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger)
+	appState, cleanup, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger, a.envRegistry)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("load application state: %w", err)
@@ -687,19 +676,26 @@ func loadApplicationState(
 	fs iofs.FS,
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
+	envRegistry envapi.Registry,
 ) (regapi.ChangeSet, func(), error) {
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
 	))
 
-	vars := interpolate.Variables{}
-	for _, en := range os.Environ() {
-		pair := strings.SplitN(en, "=", 2)
-		vars[pair[0]] = pair[1]
-	}
+	// time.Sleep(time.Second)
 
-	// Initialize OpenTelemetry
+	// envVars, err := envRegistry.All(ctx)
+	// if err != nil {
+	// 	return nil, nil, fmt.Errorf("get env vars: %w", err)
+	// }
+
+	// spew.Dump("envVars", envVars)
+
+	// vars := interpolate.Variables(envVars)
+	// spew.Dump("vars", vars)
+
+	// Initialize OpenTelemetry from ENV variables
 	cleanup, err := initOpenTelemetry(
 		context.Background(),
 		os.Getenv("OTEL_ENDPOINT"),

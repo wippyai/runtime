@@ -635,7 +635,7 @@ func TestDependencyExtraction_EnvPattern(t *testing.T) {
 	sdk := NewDepTestSDK(t)
 
 	// Test basic *_env pattern matching
-	t.Run("Basic *_env Pattern", func(t *testing.T) {
+	t.Run("Basic *_env Pattern", func(_ *testing.T) {
 		// Single *_env field
 		sdk.ExpectDeps(`{
 			"id": "test",
@@ -667,7 +667,7 @@ func TestDependencyExtraction_EnvPattern(t *testing.T) {
 	})
 
 	// Test what does NOT match *_env pattern
-	t.Run("Non-matching Fields", func(t *testing.T) {
+	t.Run("Non-matching Fields", func(_ *testing.T) {
 		// Fields that don't end with _env should not match *_env pattern
 		sdk.ExpectDeps(`{
 			"id": "test",
@@ -692,7 +692,7 @@ func TestDependencyExtraction_EnvPattern(t *testing.T) {
 	})
 
 	// Test *_env combined with existing dependency paths
-	t.Run("*_env with Other Dependencies", func(t *testing.T) {
+	t.Run("*_env with Other Dependencies", func(_ *testing.T) {
 		// *_env with data.server (existing path)
 		sdk.ExpectDeps(`{
 			"id": "test",
@@ -725,7 +725,7 @@ func TestDependencyExtraction_EnvPattern(t *testing.T) {
 	})
 
 	// Test *_env with meta dependencies
-	t.Run("*_env with Meta Dependencies", func(t *testing.T) {
+	t.Run("*_env with Meta Dependencies", func(_ *testing.T) {
 		// *_env with meta.server
 		sdk.ExpectDeps(`{
 			"id": "test",
@@ -752,7 +752,7 @@ func TestDependencyExtraction_EnvPattern(t *testing.T) {
 	})
 
 	// Test edge cases
-	t.Run("Edge Cases", func(t *testing.T) {
+	t.Run("Edge Cases", func(_ *testing.T) {
 		// Empty *_env values should be ignored
 		sdk.ExpectDeps(`{
 			"id": "test",
@@ -775,7 +775,7 @@ func TestDependencyExtraction_EnvPattern(t *testing.T) {
 	})
 
 	// Test realistic scenarios
-	t.Run("Real World Scenarios", func(t *testing.T) {
+	t.Run("Real World Scenarios", func(_ *testing.T) {
 		// Database with env dependencies
 		sdk.ExpectDeps(`{
 			"id": "app:database",
