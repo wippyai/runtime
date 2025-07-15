@@ -3,6 +3,8 @@ package version
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/ponyruntime/pony/api/registry"
 )
 
@@ -58,5 +60,26 @@ func TestVersion(t *testing.T) {
 				t.Errorf("Expected String() for %v to be %v, got %v", tc.v1, tc.v1String, v1String)
 			}
 		})
+	}
+}
+
+func TestChain(t *testing.T) {
+	v1 := New(1)
+	v2 := FromParent(v1, 2)
+	v3 := FromParent(v2, 3)
+
+	{
+		v := v3
+		for i := 3; i > 0; i-- {
+			assert.Equal(t, v.ID(), uint(i))
+			v = v.Previous()
+		}
+	}
+	{
+		v := v1
+		for i := 1; i <= 3; i++ {
+			assert.Equal(t, v.ID(), uint(i)) //nolint:gosec // its ok
+			v, _ = v.Next()
+		}
 	}
 }
