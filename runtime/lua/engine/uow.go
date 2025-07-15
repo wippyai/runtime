@@ -133,7 +133,6 @@ func (u *unitOfWork) Run(fn func(uw UnitOfWork)) {
 	go func() {
 		defer u.wg.Done()
 		defer u.tasks.Done()
-
 		fn(u)
 	}()
 }

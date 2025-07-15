@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/ponyruntime/pony/runtime/lua/modules/html"
+
 	"github.com/ponyruntime/pony/api/registry"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -388,6 +390,7 @@ func withLuaRuntime(a *App) []eventbus.EventHandler {
 				system.NewSystemModule(),
 				contractmod.NewContractModule(a.logger.Named("contract")),
 				otelmod.NewOTelModule(),
+				html.NewHTMLModule(),
 			},
 			ProtoCacheSize: 60000,
 			MainCacheSize:  10000,

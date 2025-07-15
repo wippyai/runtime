@@ -12,28 +12,41 @@ import (
 	"github.com/ponyruntime/pony/api/security"
 )
 
-// ConditionEvaluator evaluates policy conditions against actors and metadata
-type ConditionEvaluator struct{}
-
-// NewConditionEvaluator creates a new ConditionEvaluator
-func NewConditionEvaluator() *ConditionEvaluator {
-	return &ConditionEvaluator{}
+type ConditionEvaluator struct {
+	compiledPatterns map[string]*regexp.Regexp
 }
 
-// EvaluateCondition evaluates a single condition
+func NewConditionEvaluator(conditions []policy.Condition) (*ConditionEvaluator, error) {
+	patterns := make(map[string]*regexp.Regexp)
+
+	for _, condition := range conditions {
+		if condition.Operator == "matches" {
+			if patternStr, ok := condition.Value.(string); ok {
+				if _, exists := patterns[patternStr]; !exists {
+					compiled, err := regexp.Compile(patternStr)
+					if err != nil {
+						return nil, fmt.Errorf("invalid regex pattern %q: %w", patternStr, err)
+					}
+					patterns[patternStr] = compiled
+				}
+			}
+		}
+	}
+
+	return &ConditionEvaluator{compiledPatterns: patterns}, nil
+}
+
 func (e *ConditionEvaluator) EvaluateCondition(
 	condition policy.Condition,
 	actor security.Actor,
 	action, resource string,
 	meta registry.Metadata,
 ) (bool, error) {
-	// Extract the field value using dot notation
 	fieldValue, err := e.extractField(condition.Field, actor, action, resource, meta)
 	if err != nil {
 		return false, err
 	}
 
-	// If value_from is specified, extract the comparison value
 	var compareValue any
 	if condition.ValueFrom != "" {
 		compareValue, err = e.extractField(condition.ValueFrom, actor, action, resource, meta)
@@ -44,11 +57,9 @@ func (e *ConditionEvaluator) EvaluateCondition(
 		compareValue = condition.Value
 	}
 
-	// Perform the comparison
 	return e.compare(fieldValue, compareValue, condition.Operator)
 }
 
-// extractField extracts a value using dot notation from actor, metadata, or context
 func (e *ConditionEvaluator) extractField(
 	fieldPath string,
 	actor security.Actor,
@@ -60,7 +71,6 @@ func (e *ConditionEvaluator) extractField(
 		return nil, fmt.Errorf("empty field path")
 	}
 
-	// Handle special cases
 	switch parts[0] {
 	case "actor":
 		if len(parts) < 2 {
@@ -77,19 +87,15 @@ func (e *ConditionEvaluator) extractField(
 	case "resource":
 		return resource, nil
 	default:
-		// Direct metadata key
 		return meta[fieldPath], nil
 	}
 }
 
-// extractActorField extracts a field from the actor
 func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []string) (any, error) {
-	// Check if actor is nil or zero value
 	if actor.ID == "" && actor.Meta == nil {
 		return nil, fmt.Errorf("nil or empty actor")
 	}
 
-	// Handle first level of actor fields
 	if len(parts) == 0 {
 		return nil, fmt.Errorf("no actor field specified")
 	}
@@ -102,9 +108,7 @@ func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []str
 			return actor.Meta, nil
 		}
 
-		// Handle nested metadata access
 		actorMeta := actor.Meta
-		// Handle nil metadata
 		if actorMeta == nil {
 			return nil, nil
 		}
@@ -114,43 +118,37 @@ func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []str
 			return actorMeta[key], nil
 		}
 
-		// Handle deeply nested access
 		if nestedMap, ok := actorMeta[key].(map[string]any); ok {
 			return e.extractNestedMap(nestedMap, parts[2:])
 		}
 
-		return nil, nil // Key not found or not a map
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("unknown actor field: %s", parts[0])
 	}
 }
 
-// extractMetaField extracts a field from metadata
 func (e *ConditionEvaluator) extractMetaField(meta registry.Metadata, parts []string) (any, error) {
 	if meta == nil {
-		return nil, nil // Return nil for non-existent metadata
+		return nil, nil
 	}
 
 	if len(parts) == 0 {
 		return nil, fmt.Errorf("no metadata field specified")
 	}
 
-	// If it's a direct metadata key
 	key := parts[0]
 	if len(parts) == 1 {
-		// Simply return the value (or nil if not found) without error
 		return meta[key], nil
 	}
 
-	// Handle nested maps
 	if nestedMap, ok := meta[key].(map[string]any); ok {
 		return e.extractNestedMap(nestedMap, parts[1:])
 	}
 
-	return nil, nil // Key not found or not a map
+	return nil, nil
 }
 
-// extractNestedMap handles nested map access without reflection
 func (e *ConditionEvaluator) extractNestedMap(m map[string]any, parts []string) (any, error) {
 	if len(parts) == 0 || m == nil {
 		return m, nil
@@ -166,23 +164,18 @@ func (e *ConditionEvaluator) extractNestedMap(m map[string]any, parts []string) 
 		return value, nil
 	}
 
-	// Continue traversing if the value is another map
 	if nestedMap, ok := value.(map[string]any); ok {
 		return e.extractNestedMap(nestedMap, parts[1:])
 	}
 
-	return nil, nil // Cannot traverse further
+	return nil, nil
 }
 
-// compare performs the actual comparison based on the operator
 func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator string) (bool, error) {
-	// Handle nil values
 	if fieldValue == nil {
-		// Only exists operator can return true for nil field values
 		return operator == "exists" && !compareValue.(bool), nil
 	}
 
-	// Handle special operators
 	switch operator {
 	case "exists":
 		if boolValue, ok := compareValue.(bool); ok {
@@ -214,21 +207,17 @@ func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator stri
 	}
 }
 
-// equals checks if fieldValue equals compareValue
 func (e *ConditionEvaluator) equals(fieldValue, compareValue any) (bool, error) {
-	// Direct equality check
 	if fieldValue == compareValue {
 		return true, nil
 	}
 
-	// Try type conversion for numeric comparisons
 	fieldNum, fieldOk := e.toFloat64(fieldValue)
 	compareNum, compareOk := e.toFloat64(compareValue)
 	if fieldOk && compareOk {
 		return fieldNum == compareNum, nil
 	}
 
-	// Try string comparison
 	fieldStr, fieldOk := toString(fieldValue)
 	compareStr, compareOk := toString(compareValue)
 	if fieldOk && compareOk {
@@ -238,9 +227,7 @@ func (e *ConditionEvaluator) equals(fieldValue, compareValue any) (bool, error) 
 	return false, nil
 }
 
-// compareNumeric handles numeric comparisons (lt, gt, lte, gte)
 func (e *ConditionEvaluator) compareNumeric(fieldValue, compareValue any, operator string) (bool, error) {
-	// Convert values to float64 for comparison
 	fieldNum, fieldOk := e.toFloat64(fieldValue)
 	compareNum, compareOk := e.toFloat64(compareValue)
 	if !fieldOk || !compareOk {
@@ -261,35 +248,29 @@ func (e *ConditionEvaluator) compareNumeric(fieldValue, compareValue any, operat
 	}
 }
 
-// isIn checks if fieldValue is in the compareValue (which should be a slice or array)
 func (e *ConditionEvaluator) isIn(fieldValue, compareValue any) (bool, error) {
-	// Convert compareValue to a slice if needed
 	var slice []any
 
 	switch cv := compareValue.(type) {
 	case []any:
 		slice = cv
 	case []string:
-		// Convert []string to []any
 		slice = make([]any, len(cv))
 		for i, v := range cv {
 			slice[i] = v
 		}
 	case []int:
-		// Convert []int to []any
 		slice = make([]any, len(cv))
 		for i, v := range cv {
 			slice[i] = v
 		}
 	case string:
-		// Single value comparison
 		equal, _ := e.equals(fieldValue, cv)
 		return equal, nil
 	default:
 		return false, fmt.Errorf("'in' operator requires slice or array for comparison")
 	}
 
-	// Check each element in the slice
 	for _, item := range slice {
 		equal, _ := e.equals(fieldValue, item)
 		if equal {
@@ -300,16 +281,13 @@ func (e *ConditionEvaluator) isIn(fieldValue, compareValue any) (bool, error) {
 	return false, nil
 }
 
-// contains checks if fieldValue (which should be a string or slice) contains compareValue
 func (e *ConditionEvaluator) contains(fieldValue, compareValue any) (bool, error) {
-	// Handle string contains
 	fieldStr, isFieldStr := toString(fieldValue)
 	compareStr, isCompareStr := toString(compareValue)
 	if isFieldStr && isCompareStr {
 		return strings.Contains(fieldStr, compareStr), nil
 	}
 
-	// Handle slice contains
 	if slice, ok := toSlice(fieldValue); ok {
 		for _, item := range slice {
 			equal, _ := e.equals(item, compareValue)
@@ -323,7 +301,6 @@ func (e *ConditionEvaluator) contains(fieldValue, compareValue any) (bool, error
 	return false, fmt.Errorf("'contains' operator requires string or slice field value")
 }
 
-// matches checks if fieldValue (which should be a string) matches the regex pattern in compareValue
 func (e *ConditionEvaluator) matches(fieldValue, compareValue any) (bool, error) {
 	fieldStr, isFieldStr := toString(fieldValue)
 	patternStr, isPatternStr := toString(compareValue)
@@ -331,16 +308,14 @@ func (e *ConditionEvaluator) matches(fieldValue, compareValue any) (bool, error)
 		return false, fmt.Errorf("'matches' operator requires string values")
 	}
 
-	// Compile and match regex
-	pattern, err := regexp.Compile(patternStr)
-	if err != nil {
-		return false, fmt.Errorf("invalid regex pattern: %w", err)
+	pattern, exists := e.compiledPatterns[patternStr]
+	if !exists {
+		return false, fmt.Errorf("regex pattern %q not pre-compiled", patternStr)
 	}
 
 	return pattern.MatchString(fieldStr), nil
 }
 
-// toFloat64 attempts to convert a value to float64
 func (e *ConditionEvaluator) toFloat64(value any) (float64, bool) {
 	if value == nil {
 		return 0, false
@@ -372,7 +347,6 @@ func (e *ConditionEvaluator) toFloat64(value any) (float64, bool) {
 	return 0, false
 }
 
-// toString attempts to convert a value to string
 func toString(value any) (string, bool) {
 	if value == nil {
 		return "", false
@@ -389,11 +363,9 @@ func toString(value any) (string, bool) {
 		return strconv.FormatBool(v), true
 	}
 
-	// Try standard string conversion as last resort
 	return fmt.Sprintf("%v", value), true
 }
 
-// toSlice attempts to convert a value to a slice
 func toSlice(value any) ([]any, bool) {
 	if value == nil {
 		return nil, false
@@ -415,7 +387,6 @@ func toSlice(value any) ([]any, bool) {
 		}
 		return result, true
 	case string:
-		// For strings, consider as array of runes/chars
 		runes := []rune(v)
 		result := make([]any, len(runes))
 		for i, r := range runes {
