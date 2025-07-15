@@ -216,12 +216,12 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 
 // clean resets the task coordinator to its initial state
 func (t *taskCoordinator) clean() {
-	done := false
-	for !done {
+	clean := false
+	for !clean {
 		select {
 		case <-t.updates:
 		default:
-			done = true
+			clean = true
 		}
 	}
 
