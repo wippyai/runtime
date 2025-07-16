@@ -61,6 +61,12 @@ func extractDependenciesInternal(data any) []string {
 				deps = append(deps, pathDeps...)
 			}
 		}
+
+		//// Extract *_env pattern dependencies
+		//envDeps := extractEnvPatternDependencies(m)
+		//if len(envDeps) > 0 {
+		//	deps = append(deps, envDeps...)
+		//}
 	} else if arr, ok := data.([]any); ok {
 		for _, item := range arr {
 			itemDeps := extractDependenciesInternal(item)
@@ -161,6 +167,59 @@ func extractStringsFromArray(arr []any) []string {
 	}
 	return result
 }
+
+//// extractEnvPatternDependencies extracts dependencies from fields ending with "_env"
+//func extractEnvPatternDependencies(data map[string]any) []string {
+//	var deps []string
+//
+//	// Recursively search for *_env patterns in the data structure
+//	extractEnvPatternFromValue(data, &deps)
+//
+//	return deps
+//}
+
+//// extractEnvPatternFromValue recursively searches for *_env patterns in any value
+//func extractEnvPatternFromValue(value any, deps *[]string) {
+//	switch v := value.(type) {
+//	case map[string]any:
+//		for key, val := range v {
+//			// Check if the key ends with "_env"
+//			if strings.HasSuffix(key, "_env") {
+//				// Extract dependencies from the value
+//				extractDepsFromEnvValue(val, deps)
+//			} else {
+//				// Recursively search in nested structures
+//				extractEnvPatternFromValue(val, deps)
+//			}
+//		}
+//	case []any:
+//		for _, item := range v {
+//			extractEnvPatternFromValue(item, deps)
+//		}
+//	}
+//}
+
+//// extractDepsFromEnvValue extracts dependencies from environment variable values
+//func extractDepsFromEnvValue(value any, deps *[]string) {
+//	switch v := value.(type) {
+//	case string:
+//		if v != "" {
+//			*deps = append(*deps, v)
+//		}
+//	case []any:
+//		for _, item := range v {
+//			if str, ok := item.(string); ok && str != "" {
+//				*deps = append(*deps, str)
+//			}
+//		}
+//	case []string:
+//		for _, str := range v {
+//			if str != "" {
+//				*deps = append(*deps, str)
+//			}
+//		}
+//	}
+//}
 
 func removeDuplicates(slice []string) []string {
 	if len(slice) < 2 {

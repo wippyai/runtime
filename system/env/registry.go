@@ -131,6 +131,7 @@ func (s *Registry) registerVariable(e event.Event) {
 		return
 	}
 
+	//
 	variableValue, err := storage.Get(s.ctx, variableName)
 	if err != nil {
 		s.log.Error("failed to get variable value",
@@ -188,6 +189,7 @@ func (s *Registry) updateVariable(e event.Event) {
 		return
 	}
 
+	//
 	variableValue, err := storage.Get(s.ctx, variableName)
 	if err != nil {
 		s.log.Error("failed to get variable value",
@@ -243,8 +245,8 @@ func (s *Registry) All(ctx context.Context) (map[string]string, error) {
 			}
 
 			// Add variables to result map
-			for name, value := range variables {
-				result[name] = value
+			for name, val := range variables {
+				result[name] = val
 			}
 		}
 		return true
@@ -276,7 +278,7 @@ func (s *Registry) getEnvValueByName(ctx context.Context, name string) (*EnvValu
 	if ns == "" {
 		pid, pidFound := pubsub.GetPID(ctx)
 		if !pidFound {
-			s.log.Error("pubsub context not found")
+			s.log.Error("PID not found")
 			return nil, env.ErrVariableNotFound
 		}
 
@@ -302,6 +304,7 @@ func (s *Registry) getEnvValueByName(ctx context.Context, name string) (*EnvValu
 func (s *Registry) getEnvValueByEnvName(_ context.Context, envName string) (*EnvValue, error) {
 	var variable EnvValue
 	var found bool
+
 	// todo: this is hot path btw, need secondary map
 	s.values.Range(func(_ interface{}, value interface{}) bool {
 		v := value.(EnvValue)
@@ -314,7 +317,8 @@ func (s *Registry) getEnvValueByEnvName(_ context.Context, envName string) (*Env
 	})
 
 	if !found {
-		s.log.Error("variable not found", zap.String("name", envName))
+		s.log.Warn("variable not found", zap.String("name", envName))
+
 		return nil, env.ErrVariableNotFound
 	}
 
@@ -353,6 +357,76 @@ func (s *Registry) Get(ctx context.Context, name string) (string, error) {
 	}
 
 	return value.DefaultValue, nil
+}
+
+func (s *Registry) GetEventually(ctx context.Context, name string) (string, error) {
+	// Subscribe to accept events first to avoid race conditions
+	eventCh := make(chan event.Event, 1)
+	subID, err := s.bus.SubscribeP(ctx, env.System, registry.Accept, eventCh)
+	if err != nil {
+		return "", fmt.Errorf("failed to subscribe to accept events: %w", err)
+	}
+	defer s.bus.Unsubscribe(ctx, subID)
+
+	// Parse the name to get the expected ID
+	nameID := registry.ParseID(name)
+	ns := nameID.NS
+	if ns == "" {
+		pid, pidFound := pubsub.GetPID(ctx)
+		if !pidFound {
+			s.log.Error("PID not found")
+			return "", env.ErrVariableNotFound
+		}
+		ns = pid.ID.NS
+	}
+	expectedID := nameID.WithDefaultNS(ns)
+
+	// Now check if the value is already available
+	value, err := s.getEnvValue(ctx, name)
+	if err == nil {
+		if value.Value != "" {
+			return value.Value, nil
+		}
+		return value.DefaultValue, nil
+	}
+
+	// If not found, wait for it to become available
+	return s.waitForVariableWithSubscription(ctx, name, expectedID, eventCh)
+}
+
+func (s *Registry) waitForVariableWithSubscription(ctx context.Context, name string, expectedID registry.ID, eventCh chan event.Event) (string, error) {
+	s.log.Debug("waiting for variable to become available",
+		zap.String("name", name),
+		zap.String("expectedID", expectedID.String()))
+
+	// Wait for accept events
+	for {
+		select {
+		case evt := <-eventCh:
+			// Check if this accept event is for our expected variable
+			acceptedID := registry.ParseID(evt.Path)
+			if acceptedID == expectedID {
+				s.log.Debug("variable became available",
+					zap.String("name", name),
+					zap.String("acceptedID", acceptedID.String()))
+
+				// Try to get the value again now that it's been accepted
+				value, err := s.getEnvValue(ctx, name)
+				if err != nil {
+					return "", err
+				}
+
+				if value.Value != "" {
+					return value.Value, nil
+				}
+				return value.DefaultValue, nil
+			}
+			// Continue waiting if this accept event is for a different variable
+
+		case <-ctx.Done():
+			return "", fmt.Errorf("context cancelled while waiting for variable %s: %w", name, ctx.Err())
+		}
+	}
 }
 
 func (s *Registry) Set(ctx context.Context, name string, value string) error {

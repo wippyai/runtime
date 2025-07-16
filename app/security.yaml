@@ -65,11 +65,12 @@ entries:
       comment: "Authentication token storage"
       depends_on:
         - session
+        - system:ENV_TOKEN_KEY
+        - system:envfile
     store: session
     token_length: 32
     token_key: "${ENV_TOKEN_KEY:-secretkey123}"
     default_expiration: 24h
-
   - name: session
     kind: store.memory
     meta:

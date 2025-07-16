@@ -248,11 +248,11 @@ func (m *Manager) createAWSConfig(ctx context.Context, cfg *serviceaws.Config) (
 
 	// Only try to get credentials if environment variable names are provided
 	if cfg.AccessKeyIDEnv != "" {
-		accessKey, _ = m.envRegistry.Get(ctx, cfg.AccessKeyIDEnv)
+		accessKey, _ = m.envRegistry.GetEventually(ctx, cfg.AccessKeyIDEnv)
 	}
 
 	if cfg.SecretAccessKeyEnv != "" {
-		secretKey, _ = m.envRegistry.Get(ctx, cfg.SecretAccessKeyEnv)
+		secretKey, _ = m.envRegistry.GetEventually(ctx, cfg.SecretAccessKeyEnv)
 	}
 
 	// Add credentials if provided

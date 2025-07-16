@@ -116,23 +116,23 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 	}
 
 	if cfg.HostEnv != "" {
-		cfg.Host, _ = m.envRegistry.Get(ctx, cfg.HostEnv)
+		cfg.Host, _ = m.envRegistry.GetEventually(ctx, cfg.HostEnv)
 	}
 	if cfg.PortEnv != "" {
-		val, _ := m.envRegistry.Get(ctx, cfg.PortEnv)
+		val, _ := m.envRegistry.GetEventually(ctx, cfg.PortEnv)
 		cfg.Port, err = strconv.Atoi(val)
 		if err != nil {
 			return fmt.Errorf("invalid port value: %w", err)
 		}
 	}
 	if cfg.DatabaseEnv != "" {
-		cfg.Database, _ = m.envRegistry.Get(ctx, cfg.DatabaseEnv)
+		cfg.Database, _ = m.envRegistry.GetEventually(ctx, cfg.DatabaseEnv)
 	}
 	if cfg.UsernameEnv != "" {
-		cfg.Username, _ = m.envRegistry.Get(ctx, cfg.UsernameEnv)
+		cfg.Username, _ = m.envRegistry.GetEventually(ctx, cfg.UsernameEnv)
 	}
 	if cfg.PasswordEnv != "" {
-		cfg.Password, _ = m.envRegistry.Get(ctx, cfg.PasswordEnv)
+		cfg.Password, _ = m.envRegistry.GetEventually(ctx, cfg.PasswordEnv)
 	}
 
 	pool, err := m.factory.CreateStandardPool(entry.Kind, cfg)

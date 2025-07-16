@@ -1,9 +1,11 @@
 package interpolate
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/stretchr/testify/assert"
 )
@@ -46,7 +48,7 @@ func TestNewEntryInterpolator(t *testing.T) {
 func TestHelper_Interpolate(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Vars:     Variables{"ENV": "production"},
+		Context:  envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"ENV": "production"})),
 		Filename: "config.yaml",
 	}
 
@@ -135,7 +137,7 @@ func TestHelper_Interpolate(t *testing.T) {
 func TestHelper_interpolateString(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Vars:     Variables{"KEY": "value"},
+		Context:  envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"KEY": "value"})),
 		Filename: "config.yaml",
 	}
 
@@ -196,7 +198,7 @@ func TestHelper_interpolateString(t *testing.T) {
 func TestHelper_interpolateMap(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Vars:     Variables{"KEY": "value"},
+		Context:  envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"KEY": "value"})),
 		Filename: "config.yaml",
 	}
 
@@ -251,7 +253,7 @@ func TestHelper_interpolateMap(t *testing.T) {
 func TestHelper_interpolateSlice(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Vars:     Variables{"KEY": "value"},
+		Context:  envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"KEY": "value"})),
 		Filename: "config.yaml",
 	}
 

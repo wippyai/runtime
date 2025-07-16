@@ -660,7 +660,7 @@ data:
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	// 3. Load entries from the folder
-	entries, err := folderLoader.LoadFS(mapFS, interpolate.Variables{})
+	entries, err := folderLoader.LoadFS(context.Background(), mapFS)
 	if err != nil {
 		t.Fatalf("failed to load entries from folder: %v", err)
 	}

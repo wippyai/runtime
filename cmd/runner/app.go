@@ -507,7 +507,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to initialize interceptors: %w", err)
 	}
 
-	appState, cleanup, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger, a.envRegistry)
+	appState, cleanup, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("load application state: %w", err)
@@ -676,24 +676,11 @@ func loadApplicationState(
 	fs iofs.FS,
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
-	envRegistry envapi.Registry,
 ) (regapi.ChangeSet, func(), error) {
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
 	))
-
-	// time.Sleep(time.Second)
-
-	// envVars, err := envRegistry.All(ctx)
-	// if err != nil {
-	// 	return nil, nil, fmt.Errorf("get env vars: %w", err)
-	// }
-
-	// spew.Dump("envVars", envVars)
-
-	// vars := interpolate.Variables(envVars)
-	// spew.Dump("vars", vars)
 
 	// Initialize OpenTelemetry from ENV variables
 	cleanup, err := initOpenTelemetry(
@@ -707,7 +694,7 @@ func loadApplicationState(
 		mainLogger.Error("failed to initialize OpenTelemetry", zap.Error(err))
 	}
 
-	entries, err := folderLoader.LoadFS(fs, vars)
+	entries, err := folderLoader.LoadFS(ctx, fs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load entries: %w", err)
 	}
@@ -723,12 +710,12 @@ func loadApplicationState(
 	if err := registryLoader.Load(ctx); err != nil {
 		mainLogger.Error("load modules from registry", zap.Error(err))
 	} else {
-		vendorDir, err := os.OpenRoot("vendor")
+		vendorDir, err := os.OpenRoot(".wippy")
 		if err != nil {
 			return nil, nil, fmt.Errorf("open vendor folder: %w", err)
 		}
 
-		dependencyEntries, err := folderLoader.LoadFS(vendorDir.FS(), vars)
+		dependencyEntries, err := folderLoader.LoadFS(ctx, vendorDir.FS())
 		if err != nil {
 			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}

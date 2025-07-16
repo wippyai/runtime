@@ -1,15 +1,48 @@
 package interpolate
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
+	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// MockEnvRegistry implements envapi.Registry for testing
+type MockEnvRegistry struct {
+	variables map[string]string
+}
+
+func NewMockEnvRegistry(vars map[string]string) *MockEnvRegistry {
+	return &MockEnvRegistry{
+		variables: vars,
+	}
+}
+
+func (m *MockEnvRegistry) Get(_ context.Context, name string) (string, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (m *MockEnvRegistry) Set(_ context.Context, name string, value string) error {
+	m.variables[name] = value
+	return nil
+}
+
+func (m *MockEnvRegistry) All(_ context.Context) (map[string]string, error) {
+	result := make(map[string]string)
+	for k, v := range m.variables {
+		result[k] = v
+	}
+	return result, nil
+}
 
 func TestLoadVars(t *testing.T) {
 	testCases := []struct {
@@ -22,7 +55,7 @@ func TestLoadVars(t *testing.T) {
 			name:  "simple replacement",
 			input: "Hello ${NAME}!",
 			ctx: EntryContext{
-				Vars: Variables{"NAME": "World"},
+				Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"NAME": "World"})),
 			},
 			expected: "Hello World!",
 		},
@@ -30,7 +63,7 @@ func TestLoadVars(t *testing.T) {
 			name:  "multiple replacements",
 			input: "Port: ${PORT}, Env: ${ENV}",
 			ctx: EntryContext{
-				Vars: Variables{"PORT": "8080", "ENV": "production"},
+				Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"PORT": "8080", "ENV": "production"})),
 			},
 			expected: "Port: 8080, Env: production",
 		},
@@ -38,7 +71,7 @@ func TestLoadVars(t *testing.T) {
 			name:  "no replacement",
 			input: "No variables here.",
 			ctx: EntryContext{
-				Vars: Variables{"PORT": "8080"},
+				Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"PORT": "8080"})),
 			},
 			expected: "No variables here.",
 		},
@@ -46,7 +79,7 @@ func TestLoadVars(t *testing.T) {
 			name:  "unknown variable",
 			input: "value: ${UNKNOWN}",
 			ctx: EntryContext{
-				Vars: Variables{"PORT": "8080"},
+				Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"PORT": "8080"})),
 			},
 			expected: "value: ${UNKNOWN}", // Unresolved variable is left as is
 		},
@@ -54,9 +87,33 @@ func TestLoadVars(t *testing.T) {
 			name:  "empty variables",
 			input: "value: ${EMPTY}",
 			ctx: EntryContext{
-				Vars: Variables{},
+				Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{})),
 			},
 			expected: "value: ${EMPTY}",
+		},
+		{
+			name:  "variable with default value",
+			input: "token: ${ENV_TOKEN_KEY:-secretkey123}",
+			ctx: EntryContext{
+				Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{})),
+			},
+			expected: "token: secretkey123",
+		},
+		{
+			name:  "variable with default value when variable exists",
+			input: "token: ${ENV_TOKEN_KEY:-secretkey123}",
+			ctx: EntryContext{
+				Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"ENV_TOKEN_KEY": "customkey456"})),
+			},
+			expected: "token: customkey456",
+		},
+		{
+			name:  "variable with default value with spaces",
+			input: "token: ${ENV_TOKEN_KEY:-default value with spaces}",
+			ctx: EntryContext{
+				Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{})),
+			},
+			expected: "token: default value with spaces",
 		},
 	}
 
@@ -182,4 +239,58 @@ func TestLoadFile(t *testing.T) {
 			tt.expectErr(t, err)
 		})
 	}
+}
+
+func TestEnvFieldInterpolation(t *testing.T) {
+	t.Run("_env field resolves to env variable value", func(t *testing.T) {
+		h := NewEntryInterpolator(nil)
+		ctx := EntryContext{
+			Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"ACCESS_KEY_ID_CUSTOM": "my-access-key"})),
+		}
+		input := map[string]interface{}{
+			"access_key_id_env": "ACCESS_KEY_ID_CUSTOM",
+		}
+		out, err := h.interpolateMap(input, ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]interface{}{"access_key_id_env": "my-access-key"}, out)
+	})
+
+	t.Run("_env field with missing env variable and no default", func(t *testing.T) {
+		h := NewEntryInterpolator(nil)
+		ctx := EntryContext{
+			Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{})),
+		}
+		input := map[string]interface{}{
+			"access_key_id_env": "ACCESS_KEY_ID_CUSTOM",
+		}
+		out, err := h.interpolateMap(input, ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]interface{}{"access_key_id_env": "ACCESS_KEY_ID_CUSTOM"}, out)
+	})
+
+	t.Run("_env field with default value", func(t *testing.T) {
+		h := NewEntryInterpolator(nil)
+		ctx := EntryContext{
+			Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{})),
+		}
+		input := map[string]interface{}{
+			"access_key_id_env": "ACCESS_KEY_ID_CUSTOM:-default-key",
+		}
+		out, err := h.interpolateMap(input, ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]interface{}{"access_key_id_env": "default-key"}, out)
+	})
+
+	t.Run("_env field with env variable and default value", func(t *testing.T) {
+		h := NewEntryInterpolator(nil)
+		ctx := EntryContext{
+			Context: envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"ACCESS_KEY_ID_CUSTOM": "real-key"})),
+		}
+		input := map[string]interface{}{
+			"access_key_id_env": "ACCESS_KEY_ID_CUSTOM:-default-key",
+		}
+		out, err := h.interpolateMap(input, ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]interface{}{"access_key_id_env": "real-key"}, out)
+	})
 }

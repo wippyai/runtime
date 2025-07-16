@@ -2,19 +2,68 @@ version: "1.0"
 namespace: system
 
 entries:
-  - name: helloworld_dependency
-    kind: "dependency.component"
+  - name: envmemory
+    kind: env.storage.memory
     meta:
-      description: "Component dependency management demo example"
-    component: "wippyai-test/helloworld"
-    version: ">=v0.0.1"
+      type: envstorage
+      comment: Memory storage for environment variables
+
+  - name: file_test_env2
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envfile
+    variable: FILE_TEST_ENV2
+    storage: system:envfile
+    default:
+
+  - name: ACCESS_KEY_ID_CUSTOM
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envfile
+    variable: ACCESS_KEY_ID_CUSTOM
+    storage: system:envfile
+    default:
+
+  - name: ENV_TOKEN_KEY
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envfile
+    variable: ENV_TOKEN_KEY
+    storage: system:envfile
+    default:
+
+  - name: SQLITE_DATABASE
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envfile
+    variable: SQLITE_DATABASE
+    storage: system:envfile
+    default:
 
   - name: aws_config
     kind: config.aws
     meta:
       comment: "Aws Config"
     region: us-east-1
-    access_key_id_env: ACCESS_KEY_ID_CUSTOM
+    depends_on:
+      - system:ACCESS_KEY_ID_CUSTOM
+      - system:envfile
+    access_key_id_env: system:ACCESS_KEY_ID_CUSTOM
+
+  - name: envfile
+    kind: env.storage.file
+    meta:
+      type: envstorage
+      comment: File storage for environment variables
+    file_path: "./app/env/.env.sample"
 
   - name: test_s3
     kind: cloudstorage.s3
@@ -136,16 +185,4 @@ entries:
     file: "./app/data/app.db"
     lifecycle:
       auto_start: true
-
-  - name: envmemory
-    kind: env.storagememory
-    meta:
-      type: envstorage
-      comment: Memory storage for environment variables
-
-  - name: envfile
-    kind: env.storagefile
-    meta:
-      type: envstorage
-      comment: Memory storage for environment variables
-    file_path: "./app/env/.env.sample"
+      database_env: system:SQLITE_DATABASE

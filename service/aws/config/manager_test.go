@@ -282,9 +282,7 @@ func TestManager_Add(t *testing.T) {
 			ID:   registry.ID{NS: "test", Name: "env-error"},
 			Kind: serviceaws.Kind,
 			Data: NewMockPayload(&serviceaws.Config{
-				Region:             "us-east-1",
-				AccessKeyIDEnv:     "NONEXISTENT_ACCESS_KEY",
-				SecretAccessKeyEnv: "NONEXISTENT_SECRET_KEY",
+				Region: "us-east-1",
 			}),
 		}
 

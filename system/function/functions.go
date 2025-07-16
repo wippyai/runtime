@@ -230,7 +230,7 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 	ctx = pubsub.WithPID(ctx, pid)
 	ctx = interceptor.WithOptions(ctx, options)
 	ctx, cancel := context.WithCancel(ctx)
-	//defer cancel()
+	// defer cancel()
 
 	ctx = interceptor.WithCancel(ctx, cancel)
 	// ---

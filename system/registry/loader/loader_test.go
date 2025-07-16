@@ -1,11 +1,13 @@
 package loader
 
 import (
+	"context"
 	"io/fs"
 	"reflect"
 	"testing"
 	"testing/fstest"
 
+	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	tr "github.com/ponyruntime/pony/system/payload"
@@ -14,6 +16,33 @@ import (
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"go.uber.org/zap"
 )
+
+// MockEnvRegistry implements envapi.Registry for testing
+type MockEnvRegistry struct {
+	variables map[string]string
+}
+
+func NewMockEnvRegistry(vars map[string]string) *MockEnvRegistry {
+	return &MockEnvRegistry{
+		variables: vars,
+	}
+}
+
+func (m *MockEnvRegistry) Get(_ context.Context, name string) (string, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (m *MockEnvRegistry) Set(_ context.Context, name string, value string) error {
+	m.variables[name] = value
+	return nil
+}
+
+func (m *MockEnvRegistry) All(_ context.Context) (map[string]string, error) {
+	return m.variables, nil
+}
 
 func setupTranscoder() payload.Transcoder {
 	transcoder := tr.NewTranscoder()
@@ -43,7 +72,7 @@ func TestLoader_LoadFolder(t *testing.T) {
 	tests := []struct {
 		name    string
 		files   map[string]string
-		vars    interpolate.Variables
+		vars    map[string]string
 		want    []registry.Entry
 		wantErr bool
 	}{
@@ -60,7 +89,7 @@ data:
   url: http://example.com
 `,
 			},
-
+			vars: map[string]string{},
 			want: []registry.Entry{
 				{
 					ID: registry.ID{
@@ -108,7 +137,7 @@ entries:
       url: http://${host}/service2
 `,
 			},
-			vars: interpolate.Variables{
+			vars: map[string]string{
 				"env":  "production",
 				"host": "example.com",
 			},
@@ -160,6 +189,7 @@ kind: service
 invalid: content
 `,
 			},
+			vars: map[string]string{},
 			want: []registry.Entry{
 				{
 					ID: registry.ID{
@@ -183,11 +213,18 @@ invalid: content
 			// Create in-memory filesystem for testing
 			fsys := createTestFS(tt.files)
 
+			// Create context with mock environment registry
+			ctx := context.Background()
+			if len(tt.vars) > 0 {
+				mockEnv := NewMockEnvRegistry(tt.vars)
+				ctx = envapi.WithRegistry(ctx, mockEnv)
+			}
+
 			// Initialize loader
 			loader := NewLoader(transcoder, logger, interpolator)
 
 			// Load entries
-			got, err := loader.LoadFS(fsys, tt.vars)
+			got, err := loader.LoadFS(ctx, fsys)
 
 			if tt.wantErr {
 				if err == nil {
