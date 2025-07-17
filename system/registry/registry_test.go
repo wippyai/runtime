@@ -175,8 +175,8 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 	}
 
 	head, _ := hist.Head()
-	if newVersion.ID() != 1 {
-		t.Errorf("Expected new version to be v1, got: %v", newVersion)
+	if newVersion.ID() != 0 {
+		t.Errorf("Expected new version to be v0, got: %v", newVersion)
 	}
 
 	if !reflect.DeepEqual(head, newVersion) {
@@ -442,7 +442,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	}
 
 	//nolint:gosec // used in tests
-	if int(currentVersion.ID()) != numGoroutines*changesPerRoutine {
+	if int(currentVersion.ID()) != numGoroutines*changesPerRoutine-1 {
 		t.Errorf("Expected current version Process %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
 	}
 }
@@ -698,8 +698,8 @@ data:
 	}
 
 	// 6. Verify the state
-	if newVersion.ID() != 1 {
-		t.Errorf("Expected current version to be 1, got: %v", newVersion.ID())
+	if newVersion.ID() != 0 {
+		t.Errorf("Expected current version to be 0, got: %v", newVersion.ID())
 	}
 
 	expectedState := registry.State{
