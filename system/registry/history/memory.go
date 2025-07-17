@@ -77,3 +77,15 @@ func (m *MemoryStorage) Head() (registry.Version, error) {
 
 	return m.head, nil
 }
+
+// SetHead sets head version.
+func (m *MemoryStorage) SetHead(v registry.Version) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if _, ok := m.versions[v.ID()]; !ok {
+		return fmt.Errorf("version not found: %s", v)
+	}
+	m.head = v
+	return nil
+}
