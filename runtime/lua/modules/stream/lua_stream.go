@@ -288,7 +288,7 @@ func streamScanner(l *lua.LState) int {
 		return 0
 	}
 
-	var splitType SplitType = SplitLines
+	splitType := SplitLines
 	if l.GetTop() >= 2 {
 		splitStr := l.CheckString(2)
 		switch splitStr {
