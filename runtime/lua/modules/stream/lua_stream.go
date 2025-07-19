@@ -43,10 +43,9 @@ func (ls *LuaStream) Close() error {
 	return nil
 }
 
-// LuaScanner wraps Scanner for Lua integration with UoW cleanup
+// LuaScanner wraps Scanner for Lua integration
 type LuaScanner struct {
 	*Scanner
-	release context.CancelFunc
 }
 
 // Module represents the Stream Lua module
@@ -135,17 +134,11 @@ func NewLuaStream(uw engine.UnitOfWork, stream *Stream, onComplete context.Cance
 	return luaStream
 }
 
-// NewLuaScanner creates a new LuaScanner with UoW integration
-func NewLuaScanner(uw engine.UnitOfWork, scanner *Scanner) *LuaScanner {
-	luaScanner := &LuaScanner{
+// NewLuaScanner creates a new LuaScanner
+func NewLuaScanner(scanner *Scanner) *LuaScanner {
+	return &LuaScanner{
 		Scanner: scanner,
 	}
-
-	luaScanner.release = uw.AddCleanup(func() error {
-		return nil
-	})
-
-	return luaScanner
 }
 
 // checkStream verifies and returns the Stream from Lua userdata
@@ -295,12 +288,6 @@ func streamScanner(l *lua.LState) int {
 		return 0
 	}
 
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("no unit of work found for scanner creation")
-		return 0
-	}
-
 	var splitType SplitType = SplitLines
 	if l.GetTop() >= 2 {
 		splitStr := l.CheckString(2)
@@ -325,7 +312,7 @@ func streamScanner(l *lua.LState) int {
 		return 0
 	}
 
-	luaScanner := NewLuaScanner(uw, scanner)
+	luaScanner := NewLuaScanner(scanner)
 
 	ud := l.NewUserData()
 	ud.Value = luaScanner
