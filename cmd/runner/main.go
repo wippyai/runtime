@@ -253,13 +253,9 @@ func (a *App) Initialize() error {
 		return fmt.Errorf("failed to start security manager: %w", err)
 	}
 
-	// Initialize core components
-	a.reg = registry.NewRegistry(
-		history.NewMemory(),
-		runner.NewBusRunner(a.eventBus, a.logger.Named("runner")),
-		regtop.NewStateBuilder(a.logger),
-		a.logger.Named("registry"),
-	)
+	if err := a.initRegistry(); err != nil {
+		return fmt.Errorf("initialize runtime registry: %w", err)
+	}
 
 	a.supervisor = supervisor.NewSupervisor(a.eventBus, a.logger.Named("core"))
 
@@ -543,6 +539,16 @@ func (a *App) StartProfiler() {
 			}
 		}
 	}()
+}
+
+func (a *App) initRegistry() error { //nolint:unparam // future changes
+	a.reg = registry.NewRegistry(
+		history.NewMemory(),
+		runner.NewBusRunner(a.eventBus, a.logger.Named("runner")),
+		regtop.NewStateBuilder(a.logger),
+		a.logger.Named("registry"),
+	)
+	return nil
 }
 
 // loadDotEnv loads environment variables from .env files

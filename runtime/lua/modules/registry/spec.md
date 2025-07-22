@@ -384,6 +384,13 @@ local previousVersion = version:previous()
 -- Returns: previous version object or nil if this is the first version
 ```
 
+### Get Next Version
+
+```lua
+local nextVersion = version:next()
+-- Returns: next version object or nil if this is the latest version
+```
+
 ### Get Version String Representation
 
 ```lua
@@ -561,6 +568,11 @@ if versions then
     local prev = ver:previous()
     if prev then
       print("   Previous: " .. prev:id())
+    end
+    
+    local next = ver:next()
+    if next then
+      print("   Next: " .. next:id())
     end
   end
 else
