@@ -12,6 +12,7 @@ import (
 	tr "github.com/ponyruntime/pony/system/payload"
 	jsoncodec "github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/yaml"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSuite holds common test setup and utilities
@@ -280,9 +281,7 @@ func TestEntryProcessor(t *testing.T) {
 
 	t.Run("NewEntryProcessor", func(t *testing.T) {
 		processor := NewEntryProcessor(suite.transcoder)
-		if processor == nil {
-			t.Fatal("NewEntryProcessor returned nil")
-		}
+		require.NotNil(t, processor, "NewEntryProcessor returned nil")
 		if processor.transcoder != suite.transcoder {
 			t.Error("transcoder not set correctly")
 		}
@@ -348,9 +347,7 @@ func TestEntryProcessor(t *testing.T) {
 			t.Fatalf("processSingleEntry failed: %v", err)
 		}
 
-		if entry == nil {
-			t.Fatal("expected non-nil entry")
-		}
+		require.NotNil(t, entry, "expected non-nil entry")
 
 		if entry.ID.NS != "test" {
 			t.Errorf("expected namespace 'test', got '%s'", entry.ID.NS)

@@ -42,17 +42,9 @@ func TestEnsureLayerContext(t *testing.T) {
 	defer uw.Close()
 
 	ctx := ensureLayerContext(uw)
-	if ctx == nil {
-		t.Fatal("expected non-nil context")
-	}
-
-	if ctx.subs == nil {
-		t.Error("expected non-nil subscription context")
-	}
-
-	if ctx.messageQueue == nil {
-		t.Error("expected non-nil message queue")
-	}
+	require.NotNil(t, ctx, "expected non-nil context")
+	require.NotNil(t, ctx.subs, "expected non-nil subscription context")
+	require.NotNil(t, ctx.messageQueue, "expected non-nil message queue")
 
 	// Test getting existing layer context
 	ctx2 := ensureLayerContext(uw)
@@ -254,19 +246,9 @@ func TestLayerContextOperations(t *testing.T) {
 
 	// Ensure layer context exists
 	lCtx := ensureLayerContext(uw)
-	if lCtx == nil {
-		t.Fatal("failed to create layer context")
-	}
-
-	// Test subscription context
-	if lCtx.subs == nil {
-		t.Error("subscription context should not be nil")
-	}
-
-	// Test message queue
-	if lCtx.messageQueue == nil {
-		t.Error("message queue should not be nil")
-	}
+	require.NotNil(t, lCtx, "failed to create layer context")
+	require.NotNil(t, lCtx.subs, "subscription context should not be nil")
+	require.NotNil(t, lCtx.messageQueue, "message queue should not be nil")
 
 	// Test initial queue length
 	if lCtx.messageQueue.Len() != 0 {

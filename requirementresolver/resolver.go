@@ -150,16 +150,16 @@ func ApplyPathValueToEntriesWithGojq(jqQuery string, value string, entries []reg
 			continue
 		}
 
-		// Check if the jqQuery starts with ".meta" to determine update strategy
+		// Check if the jqQuery targets kind or meta fields to determine update strategy
 		trimmedQuery := strings.TrimSpace(jqQuery)
-		if strings.HasPrefix(trimmedQuery, ".meta") {
-			// Update entire object (including meta fields)
+		if trimmedQuery == ".kind" || strings.HasPrefix(trimmedQuery, ".meta") {
+			// Update entire object (including kind and meta fields)
 			err := updateEntireEntryWithGojq(entry, jqQuery, value)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("failed to update entire entry with jq query '%s' for entry %s: %w", jqQuery, entry.ID.Name, err))
 			}
 		} else {
-			// Update only the Data field
+			// Update only the Data field (including .data queries)
 			err := updateEntryDataWithGojq(entry, jqQuery, value)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("failed to update entry data with jq query '%s' for entry %s: %w", jqQuery, entry.ID.Name, err))
@@ -213,6 +213,25 @@ func updateEntryDataWithGojq(entry *registry.Entry, jqQuery string, value string
 	if currentData == nil {
 		// If no data exists, create an empty map
 		currentData = make(map[string]interface{})
+	}
+
+	// Handle .data queries by stripping the .data prefix
+	trimmedQuery := strings.TrimSpace(jqQuery)
+	if strings.HasPrefix(trimmedQuery, ".data") {
+		// Remove the .data prefix and apply the query to the data
+		dataQuery := strings.TrimPrefix(trimmedQuery, ".data")
+		if dataQuery == "" {
+			// If query is just ".data", set the entire data field
+			entry.Data = payload.New(value)
+			return nil
+		}
+		// Apply the query to the data field
+		updatedData, err := setValueWithGojqReturnMap(currentData, dataQuery, value)
+		if err != nil {
+			return fmt.Errorf("failed to set value with jq query: %w", err)
+		}
+		entry.Data = payload.New(updatedData)
+		return nil
 	}
 
 	// Apply jq query to the data
@@ -528,9 +547,9 @@ func (r *Resolver) verifyInjection(entries []registry.Entry, path string, expect
 		var actualValue string
 		var err error
 
-		// Check if the path starts with ".meta" to determine verification strategy
-		if strings.HasPrefix(path, ".meta") {
-			// For meta paths, verify against the entire entry object
+		// Check if the path starts with ".kind" or ".meta" to determine verification strategy
+		if path == ".kind" || strings.HasPrefix(path, ".meta") {
+			// For kind and meta paths, verify against the entire entry object
 			entryMap, err := entryToRawJSONMap(&entry)
 			if err != nil {
 				r.logger.Info("failed to convert entry for verification",
@@ -540,7 +559,7 @@ func (r *Resolver) verifyInjection(entries []registry.Entry, path string, expect
 			}
 
 			// Extract the actual value from the path
-			actualValue, err = getValueFromEntryWithGojq(entryMap, path)
+			actualValue, _ = getValueFromEntryWithGojq(entryMap, path)
 		} else {
 			// For data paths, verify against the Data field only
 			data := entry.Data.Data()

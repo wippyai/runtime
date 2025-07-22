@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	processapi "github.com/ponyruntime/pony/api/service/supervisor"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -32,7 +31,7 @@ func (m *MockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 				cfg.Process = registry.ParseID(processID)
 			}
 			if hostID, ok := data["host"].(string); ok {
-				cfg.HostID = pubsub.HostID(hostID)
+				cfg.HostID = hostID
 			}
 			if input, ok := data["input"].([]interface{}); ok {
 				cfg.Input = input

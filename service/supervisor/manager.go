@@ -112,7 +112,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.log.Info("process supervisor add - config decoded successfully",
 		zap.String("id", entry.ID.String()),
 		zap.String("process", cfg.Process.String()),
-		zap.String("host_id", string(cfg.HostID)),
+		zap.String("host_id", cfg.HostID),
 		zap.Int("input_count", len(cfg.Input)),
 		zap.Any("lifecycle", cfg.Lifecycle),
 	)
@@ -207,7 +207,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.log.Info("process supervisor update - config decoded successfully",
 		zap.String("id", entry.ID.String()),
 		zap.String("process", cfg.Process.String()),
-		zap.String("host_id", string(cfg.HostID)),
+		zap.String("host_id", cfg.HostID),
 		zap.Int("input_count", len(cfg.Input)),
 		zap.Any("lifecycle", cfg.Lifecycle),
 	)
