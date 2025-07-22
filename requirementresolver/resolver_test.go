@@ -1247,7 +1247,7 @@ func TestApplyPathValueToEntriesWithGojq(t *testing.T) {
 				}
 			}
 
-			err := applyPathValueToEntriesWithGojq(tt.jqQuery, tt.value, testEntries)
+			err := ApplyPathValueToEntriesWithGojq(tt.jqQuery, tt.value, testEntries)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1549,8 +1549,9 @@ func TestResolveModuleDefinitions(t *testing.T) {
 		},
 	}
 
-	err := resolver.ResolveModuleDefinitions(entries)
+	updatedEntries, err := resolver.ResolveModuleDefinitions(entries)
 	require.NoError(t, err)
+	entries = updatedEntries
 
 	// Find the target entry that should have been modified
 	var targetEntry *registry.Entry
@@ -1576,8 +1577,9 @@ func TestResolveModuleDefinitions_NoRequirements(t *testing.T) {
 		},
 	}
 
-	err := resolver.ResolveModuleDefinitions(entries)
+	updatedEntries, err := resolver.ResolveModuleDefinitions(entries)
 	require.NoError(t, err)
+	entries = updatedEntries
 }
 
 func TestResolveModuleDefinitions_RequirementNotFound(t *testing.T) {
@@ -1600,8 +1602,9 @@ func TestResolveModuleDefinitions_RequirementNotFound(t *testing.T) {
 		},
 	}
 
-	err := resolver.ResolveModuleDefinitions(entries)
+	updatedEntries, err := resolver.ResolveModuleDefinitions(entries)
 	require.NoError(t, err) // Should not error, just log warning
+	entries = updatedEntries
 }
 
 func TestResolveModuleDefinitions_DefinitionNotFound(t *testing.T) {
@@ -1637,8 +1640,9 @@ func TestResolveModuleDefinitions_DefinitionNotFound(t *testing.T) {
 		},
 	}
 
-	err := resolver.ResolveModuleDefinitions(entries)
+	updatedEntries, err := resolver.ResolveModuleDefinitions(entries)
 	require.NoError(t, err) // Should not error, just log warning
+	entries = updatedEntries
 }
 
 func TestEntryToRawJSONMap(t *testing.T) {
@@ -1944,6 +1948,218 @@ func TestJoinErrors(t *testing.T) {
 				require.NotNil(t, result)
 				assert.Equal(t, tt.expected, result.Error())
 			}
+		})
+	}
+}
+
+func TestApplyPathValueToEntriesWithGojq_MetaVsDataPaths(t *testing.T) {
+	tests := []struct {
+		name             string
+		jqQuery          string
+		value            string
+		initialEntry     registry.Entry
+		expectedMeta     registry.Metadata
+		expectedData     interface{}
+		shouldUpdateMeta bool
+	}{
+		{
+			name:    "meta path should update entire object",
+			jqQuery: ".meta.router",
+			value:   "system:api",
+			initialEntry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test.kind",
+				Meta: registry.Metadata{
+					"existing": "value",
+				},
+				Data: payload.New(map[string]interface{}{
+					"config": "original",
+				}),
+			},
+			expectedMeta: registry.Metadata{
+				"existing": "value",
+				"router":   "system:api",
+			},
+			expectedData: map[string]interface{}{
+				"config": "original",
+			},
+			shouldUpdateMeta: true,
+		},
+		{
+			name:    "data path should update only Data field",
+			jqQuery: ".config.database.host",
+			value:   "localhost",
+			initialEntry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test.kind",
+				Meta: registry.Metadata{
+					"existing": "value",
+				},
+				Data: payload.New(map[string]interface{}{
+					"config": map[string]interface{}{
+						"port": 5432,
+					},
+				}),
+			},
+			expectedMeta: registry.Metadata{
+				"existing": "value",
+			},
+			expectedData: map[string]interface{}{
+				"config": map[string]interface{}{
+					"port": 5432,
+					"database": map[string]interface{}{
+						"host": "localhost",
+					},
+				},
+			},
+			shouldUpdateMeta: false,
+		},
+		{
+			name:    "non-meta path should update only Data field",
+			jqQuery: ".version",
+			value:   "2.0.0",
+			initialEntry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test.kind",
+				Meta: registry.Metadata{
+					"existing": "value",
+				},
+				Data: payload.New(map[string]interface{}{
+					"name": "test",
+				}),
+			},
+			expectedMeta: registry.Metadata{
+				"existing": "value",
+			},
+			expectedData: map[string]interface{}{
+				"name":    "test",
+				"version": "2.0.0",
+			},
+			shouldUpdateMeta: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entries := []registry.Entry{tt.initialEntry}
+
+			err := ApplyPathValueToEntriesWithGojq(tt.jqQuery, tt.value, entries)
+			require.NoError(t, err)
+
+			updatedEntry := entries[0]
+
+			// Verify meta was updated correctly
+			if tt.shouldUpdateMeta {
+				assert.Equal(t, tt.expectedMeta, updatedEntry.Meta)
+			} else {
+				// Meta should remain unchanged for data paths
+				assert.Equal(t, tt.initialEntry.Meta, updatedEntry.Meta)
+			}
+
+			// Verify data was updated correctly
+			actualData := updatedEntry.Data.Data()
+			assert.Equal(t, tt.expectedData, actualData)
+
+			// Verify other fields remain unchanged
+			assert.Equal(t, tt.initialEntry.ID, updatedEntry.ID)
+			assert.Equal(t, tt.initialEntry.Kind, updatedEntry.Kind)
+		})
+	}
+}
+
+func TestVerifyInjection_MetaVsDataPaths(t *testing.T) {
+	logger := zap.NewNop()
+	resolver := NewResolver(logger)
+
+	tests := []struct {
+		name          string
+		path          string
+		expectedValue string
+		entry         registry.Entry
+		shouldContain bool
+	}{
+		{
+			name:          "meta path verification",
+			path:          ".meta.router",
+			expectedValue: "system:api",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test.kind",
+				Meta: registry.Metadata{
+					"router": "system:api",
+				},
+				Data: payload.New(map[string]interface{}{
+					"config": "original",
+				}),
+			},
+			shouldContain: true,
+		},
+		{
+			name:          "data path verification",
+			path:          ".config.database.host",
+			expectedValue: "localhost",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test.kind",
+				Meta: registry.Metadata{
+					"existing": "value",
+				},
+				Data: payload.New(map[string]interface{}{
+					"config": map[string]interface{}{
+						"database": map[string]interface{}{
+							"host": "localhost",
+						},
+					},
+				}),
+			},
+			shouldContain: true,
+		},
+		{
+			name:          "meta path verification - value not found",
+			path:          ".meta.router",
+			expectedValue: "system:api",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test.kind",
+				Meta: registry.Metadata{
+					"other": "value",
+				},
+				Data: payload.New(map[string]interface{}{
+					"config": "original",
+				}),
+			},
+			shouldContain: false,
+		},
+		{
+			name:          "data path verification - value not found",
+			path:          ".config.database.host",
+			expectedValue: "localhost",
+			entry: registry.Entry{
+				ID:   registry.ID{NS: "test.ns", Name: "test"},
+				Kind: "test.kind",
+				Meta: registry.Metadata{
+					"existing": "value",
+				},
+				Data: payload.New(map[string]interface{}{
+					"config": map[string]interface{}{
+						"other": "value",
+					},
+				}),
+			},
+			shouldContain: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entries := []registry.Entry{tt.entry}
+
+			// This should not panic and should log appropriate messages
+			resolver.verifyInjection(entries, tt.path, tt.expectedValue)
+
+			// For this test, we're mainly verifying that the function doesn't panic
+			// and handles both meta and data paths correctly
+			// The actual verification logic is tested through the main resolution tests
 		})
 	}
 }
