@@ -346,6 +346,7 @@ func TestPool_StressTest(t *testing.T) {
 
 			var wg sync.WaitGroup
 			successCount := atomic.Int32{}
+			errorCount := atomic.Int32{}
 
 			// Launch many parallel jobs
 			for j := 0; j < 1000; j++ {
@@ -356,10 +357,13 @@ func TestPool_StressTest(t *testing.T) {
 						lua.LString(fmt.Sprintf("job-%d", id)))
 					if err == nil && result != nil {
 						successCount.Add(1)
+					} else {
+						errorCount.Add(1)
 					}
 				}(j)
 
-				if j == 500 {
+				// Close the pool earlier to ensure more jobs are affected
+				if j == 100 {
 					go p.Close()
 				}
 			}
