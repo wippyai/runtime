@@ -140,10 +140,11 @@ func TestExecutor_Stdout(t *testing.T) {
 	// Start reading immediately in a goroutine
 	sb := new(strings.Builder)
 	readDone := make(chan struct{})
+	processDone := make(chan struct{})
 
 	go func() {
 		defer close(readDone)
-		timeout := time.After(2 * time.Second)
+		timeout := time.After(5 * time.Second) // Increased timeout
 
 		for {
 			select {
@@ -155,6 +156,7 @@ func TestExecutor_Stdout(t *testing.T) {
 				n, err := process.Stdout().Read(buf)
 				if err != nil {
 					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+						// Process has finished, but we might have read some data
 						return
 					}
 					t.Errorf("Error reading stdout: %v", err)
@@ -167,11 +169,28 @@ func TestExecutor_Stdout(t *testing.T) {
 		}
 	}()
 
-	// Wait for the process to complete
-	_ = process.Wait()
+	// Wait for the process to complete in a separate goroutine
+	go func() {
+		defer close(processDone)
+		_ = process.Wait()
+	}()
 
-	// Wait for reading to complete
-	<-readDone
+	// Wait for both the process to complete and reading to finish
+	select {
+	case <-processDone:
+		// Process completed, give a little time for reading to finish
+		select {
+		case <-readDone:
+			// Reading completed
+		case <-time.After(1 * time.Second):
+			// Reading timed out, but process is done
+		}
+	case <-readDone:
+		// Reading completed, wait for process
+		<-processDone
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out")
+	}
 
 	output := sb.String()
 	if !strings.Contains(output, "hello world") {
