@@ -124,6 +124,8 @@ func TestExecutor_Stdout(t *testing.T) {
 
 	// Create the process with platform-compatible echo command
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+
+	// Use a command that should work reliably in any environment
 	var command string
 	if runtime.GOOS == "windows" {
 		command = "echo hello world"
@@ -134,17 +136,14 @@ func TestExecutor_Stdout(t *testing.T) {
 	process, err := nativeExecutor.NewProcess(command, exec.ProcessOptions{})
 	assert.NoError(t, err)
 
-	err = process.Start()
-	assert.NoError(t, err)
-
-	// Start reading immediately in a goroutine
+	// Start reading BEFORE starting the process
 	sb := new(strings.Builder)
 	readDone := make(chan struct{})
 	processDone := make(chan struct{})
 
 	go func() {
 		defer close(readDone)
-		timeout := time.After(5 * time.Second) // Increased timeout
+		timeout := time.After(5 * time.Second)
 
 		for {
 			select {
@@ -169,10 +168,20 @@ func TestExecutor_Stdout(t *testing.T) {
 		}
 	}()
 
+	// Give a moment for the reading goroutine to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Now start the process
+	err = process.Start()
+	assert.NoError(t, err)
+
 	// Wait for the process to complete in a separate goroutine
 	go func() {
 		defer close(processDone)
-		_ = process.Wait()
+		err := process.Wait()
+		if err != nil {
+			t.Logf("Process completed with error: %v", err)
+		}
 	}()
 
 	// Wait for both the process to complete and reading to finish
