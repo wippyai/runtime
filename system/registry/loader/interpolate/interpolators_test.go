@@ -31,6 +31,13 @@ func (m *MockEnvRegistry) Get(_ context.Context, name string) (string, error) {
 	return "", envapi.ErrVariableNotFound
 }
 
+func (m *MockEnvRegistry) GetEventually(_ context.Context, name string) (string, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
 func (m *MockEnvRegistry) Set(_ context.Context, name string, value string) error {
 	m.variables[name] = value
 	return nil

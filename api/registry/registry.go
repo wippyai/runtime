@@ -56,9 +56,6 @@ const (
 
 	// KindNamespaceDefinition represents a module definition entry
 	KindNamespaceDefinition Kind = "ns.definition"
-
-	// KindDependencyComponent represents a module dependency entry
-	KindDependencyComponent Kind = "dependency.component"
 )
 
 type (
@@ -77,6 +74,8 @@ type (
 		ID() uint
 		// Previous returns the previous Version, or nil if this is the root version
 		Previous() Version
+		// Next returns the next Version if available, with a boolean indicating presence
+		Next() (Version, bool)
 		// String returns a string representation of the version
 		String() string
 	}
@@ -150,6 +149,8 @@ type (
 		Save(v Version, cs ChangeSet, head bool) error
 		// Head returns the current head version of the history
 		Head() (Version, error)
+		// SetHead sets given version as head version
+		SetHead(Version) error
 	}
 
 	// Runner defines how ChangeSets are applied to a State to produce a new State

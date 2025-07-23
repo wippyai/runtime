@@ -45,7 +45,7 @@ func resolveDependencyID(sourceNS string, depStr string) registry.ID {
 // getEntryPriority returns a priority value for sorting entries.
 // Lower values have higher priority (processed first).
 func getEntryPriority(entry registry.Entry) int {
-	kind := string(entry.Kind)
+	kind := entry.Kind
 
 	// Highest priority: env storage and variables
 	if strings.HasPrefix(kind, "env.storage.") {
@@ -56,18 +56,18 @@ func getEntryPriority(entry registry.Entry) int {
 	}
 
 	//// Medium priority: config and core services
-	//if strings.HasPrefix(kind, "config.") {
+	// if strings.HasPrefix(kind, "config.") {
 	//	return 10
 	//}
-	//if strings.HasPrefix(kind, "db.") {
+	// if strings.HasPrefix(kind, "db.") {
 	//	return 15
 	//}
 	//
 	//// Lower priority: other services
-	//if strings.HasPrefix(kind, "http.") {
+	// if strings.HasPrefix(kind, "http.") {
 	//	return 20
 	//}
-	//if strings.HasPrefix(kind, "cloudstorage.") {
+	// if strings.HasPrefix(kind, "cloudstorage.") {
 	//	return 25
 	//}
 	//

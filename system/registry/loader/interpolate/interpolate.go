@@ -3,8 +3,9 @@ package interpolate
 import (
 	"context"
 	"fmt"
-	envapi "github.com/ponyruntime/pony/api/env"
 	"io/fs"
+
+	envapi "github.com/ponyruntime/pony/api/env"
 
 	"github.com/ponyruntime/pony/api/payload"
 )

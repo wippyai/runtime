@@ -63,8 +63,8 @@ func extractDependenciesInternal(data any) []string {
 		}
 
 		//// Extract *_env pattern dependencies
-		//envDeps := extractEnvPatternDependencies(m)
-		//if len(envDeps) > 0 {
+		// envDeps := extractEnvPatternDependencies(m)
+		// if len(envDeps) > 0 {
 		//	deps = append(deps, envDeps...)
 		//}
 	} else if arr, ok := data.([]any); ok {
@@ -169,7 +169,7 @@ func extractStringsFromArray(arr []any) []string {
 }
 
 //// extractEnvPatternDependencies extracts dependencies from fields ending with "_env"
-//func extractEnvPatternDependencies(data map[string]any) []string {
+// func extractEnvPatternDependencies(data map[string]any) []string {
 //	var deps []string
 //
 //	// Recursively search for *_env patterns in the data structure
@@ -179,7 +179,7 @@ func extractStringsFromArray(arr []any) []string {
 //}
 
 //// extractEnvPatternFromValue recursively searches for *_env patterns in any value
-//func extractEnvPatternFromValue(value any, deps *[]string) {
+// func extractEnvPatternFromValue(value any, deps *[]string) {
 //	switch v := value.(type) {
 //	case map[string]any:
 //		for key, val := range v {
@@ -200,7 +200,7 @@ func extractStringsFromArray(arr []any) []string {
 //}
 
 //// extractDepsFromEnvValue extracts dependencies from environment variable values
-//func extractDepsFromEnvValue(value any, deps *[]string) {
+// func extractDepsFromEnvValue(value any, deps *[]string) {
 //	switch v := value.(type) {
 //	case string:
 //		if v != "" {

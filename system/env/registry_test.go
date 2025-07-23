@@ -803,7 +803,7 @@ func TestEventBus_GetEventuallyContextCancellation(t *testing.T) {
 	case value := <-resultCh:
 		t.Fatalf("GetEventually should have failed with context cancellation, but returned: %s", value)
 	case err := <-errorCh:
-		assert.Contains(t, err.Error(), "context cancelled")
+		assert.Contains(t, err.Error(), "context canceled")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for GetEventually to return")
 	}

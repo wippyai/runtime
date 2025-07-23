@@ -11,6 +11,7 @@ func (m *Module) registerVersionType(l *lua.LState) {
 	value.RegisterMethods(l, versionMetatable, map[string]lua.LGFunction{
 		"id":       versionID,
 		"previous": versionPrevious,
+		"next":     versionNext,
 		"string":   versionString,
 	})
 }
@@ -49,6 +50,29 @@ func versionPrevious(l *lua.LState) int {
 
 	// Create userdata for Version
 	ud = wrapVersion(l, prev)
+	l.Push(ud)
+	return 1
+}
+
+// versionNext returns the next version
+func versionNext(l *lua.LState) int {
+	// Get version - parameter check, no coroutine needed
+	ud := l.CheckUserData(1)
+	version, ok := ud.Value.(regapi.Version)
+	if !ok {
+		l.ArgError(1, "version expected")
+		return 0
+	}
+
+	// Simple accessor, no coroutine needed
+	next, exists := version.Next()
+	if !exists {
+		l.Push(lua.LNil)
+		return 1
+	}
+
+	// Create userdata for Version
+	ud = wrapVersion(l, next)
 	l.Push(ud)
 	return 1
 }

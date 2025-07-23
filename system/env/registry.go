@@ -424,7 +424,7 @@ func (s *Registry) waitForVariableWithSubscription(ctx context.Context, name str
 			// Continue waiting if this accept event is for a different variable
 
 		case <-ctx.Done():
-			return "", fmt.Errorf("context cancelled while waiting for variable %s: %w", name, ctx.Err())
+			return "", fmt.Errorf("context canceled while waiting for variable %s: %w", name, ctx.Err())
 		}
 	}
 }
