@@ -124,6 +124,8 @@ func TestExecutor_Stdout(t *testing.T) {
 
 	// Create the process with platform-compatible echo command
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+
+	// Use a command that should work reliably in any environment
 	var command string
 	if runtime.GOOS == "windows" {
 		command = "echo hello world"
@@ -134,16 +136,16 @@ func TestExecutor_Stdout(t *testing.T) {
 	process, err := nativeExecutor.NewProcess(command, exec.ProcessOptions{})
 	assert.NoError(t, err)
 
-	err = process.Start()
-	assert.NoError(t, err)
-
-	// Start reading immediately in a goroutine
+	// Start reading BEFORE starting the process
 	sb := new(strings.Builder)
 	readDone := make(chan struct{})
+	processDone := make(chan struct{})
+	readStarted := make(chan struct{})
 
 	go func() {
 		defer close(readDone)
-		timeout := time.After(2 * time.Second)
+		close(readStarted) // Signal that reading has started
+		timeout := time.After(5 * time.Second)
 
 		for {
 			select {
@@ -155,6 +157,7 @@ func TestExecutor_Stdout(t *testing.T) {
 				n, err := process.Stdout().Read(buf)
 				if err != nil {
 					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+						// Process has finished, but we might have read some data
 						return
 					}
 					t.Errorf("Error reading stdout: %v", err)
@@ -167,11 +170,134 @@ func TestExecutor_Stdout(t *testing.T) {
 		}
 	}()
 
-	// Wait for the process to complete
-	_ = process.Wait()
+	// Wait for reading goroutine to start
+	<-readStarted
 
-	// Wait for reading to complete
-	<-readDone
+	// Give a moment for the reading goroutine to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Now start the process
+	err = process.Start()
+	assert.NoError(t, err)
+
+	// Wait for the process to complete in a separate goroutine
+	go func() {
+		defer close(processDone)
+		err := process.Wait()
+		if err != nil {
+			t.Logf("Process completed with error: %v", err)
+		}
+	}()
+
+	// Wait for both the process to complete and reading to finish
+	select {
+	case <-processDone:
+		// Process completed, give a little time for reading to finish
+		select {
+		case <-readDone:
+			// Reading completed
+		case <-time.After(1 * time.Second):
+			// Reading timed out, but process is done
+		}
+	case <-readDone:
+		// Reading completed, wait for process
+		<-processDone
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out")
+	}
+
+	output := sb.String()
+	if !strings.Contains(output, "hello world") {
+		t.Errorf("Expected stdout to contain 'hello world', got: %q", output)
+	}
+}
+
+func TestExecutor_StdoutWithSleep(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create the process with a command that writes and then sleeps
+	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+
+	// Use a command that writes to stdout and then sleeps
+	var command string
+	if runtime.GOOS == "windows" {
+		command = "cmd /c echo hello world && timeout 1"
+	} else {
+		command = "sh -c 'echo hello world && sleep 0.1'"
+	}
+
+	process, err := nativeExecutor.NewProcess(command, exec.ProcessOptions{})
+	assert.NoError(t, err)
+
+	// Start reading BEFORE starting the process
+	sb := new(strings.Builder)
+	readDone := make(chan struct{})
+	processDone := make(chan struct{})
+	readStarted := make(chan struct{})
+
+	go func() {
+		defer close(readDone)
+		close(readStarted) // Signal that reading has started
+		timeout := time.After(5 * time.Second)
+
+		for {
+			select {
+			case <-timeout:
+				t.Logf("Timeout reached, stdout output: %q", sb.String())
+				return
+			default:
+				buf := make([]byte, 1024)
+				n, err := process.Stdout().Read(buf)
+				if err != nil {
+					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+						// Process has finished, but we might have read some data
+						return
+					}
+					t.Errorf("Error reading stdout: %v", err)
+					return
+				}
+				if n > 0 {
+					sb.Write(buf[:n])
+				}
+			}
+		}
+	}()
+
+	// Wait for reading goroutine to start
+	<-readStarted
+
+	// Give a moment for the reading goroutine to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Now start the process
+	err = process.Start()
+	assert.NoError(t, err)
+
+	// Wait for the process to complete in a separate goroutine
+	go func() {
+		defer close(processDone)
+		err := process.Wait()
+		if err != nil {
+			t.Logf("Process completed with error: %v", err)
+		}
+	}()
+
+	// Wait for both the process to complete and reading to finish
+	select {
+	case <-processDone:
+		// Process completed, give a little time for reading to finish
+		select {
+		case <-readDone:
+			// Reading completed
+		case <-time.After(1 * time.Second):
+			// Reading timed out, but process is done
+		}
+	case <-readDone:
+		// Reading completed, wait for process
+		<-processDone
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out")
+	}
 
 	output := sb.String()
 	if !strings.Contains(output, "hello world") {

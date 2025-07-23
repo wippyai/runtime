@@ -346,9 +346,11 @@ func TestPool_StressTest(t *testing.T) {
 
 			var wg sync.WaitGroup
 			successCount := atomic.Int32{}
+			errorCount := atomic.Int32{}
 
-			// Launch many parallel jobs
-			for j := 0; j < 1000; j++ {
+			// First, launch a batch of jobs that should succeed
+			// This ensures we have some successful jobs regardless of timing
+			for j := 0; j < 200; j++ {
 				wg.Add(1)
 				go func(id int) {
 					defer wg.Done()
@@ -356,17 +358,45 @@ func TestPool_StressTest(t *testing.T) {
 						lua.LString(fmt.Sprintf("job-%d", id)))
 					if err == nil && result != nil {
 						successCount.Add(1)
+					} else {
+						errorCount.Add(1)
 					}
 				}(j)
+			}
 
-				if j == 500 {
-					go p.Close()
-				}
+			// Give some time for the first batch to start
+			time.Sleep(10 * time.Millisecond)
+
+			// Now close the pool
+			go p.Close()
+
+			// Launch the remaining jobs that should mostly fail
+			for j := 200; j < 1000; j++ {
+				wg.Add(1)
+				go func(id int) {
+					defer wg.Done()
+					result, err := p.Execute(context.Background(), "test",
+						lua.LString(fmt.Sprintf("job-%d", id)))
+					if err == nil && result != nil {
+						successCount.Add(1)
+					} else {
+						errorCount.Add(1)
+					}
+				}(j)
 			}
 
 			wg.Wait()
 			success := successCount.Load()
+			errors := errorCount.Load()
+
+			// In slower CI/CD environments, we need to be more flexible with our expectations
+			// The key is that we have some mix of successes and failures, not exact numbers
+
+			// Ensure we have some successful jobs (jobs that started before close)
 			require.True(t, success > 0, "Some jobs should succeed")
+			// Ensure we have some failed jobs (jobs that started after close)
+			require.True(t, errors > 0, "Some jobs should fail due to close")
+			// Ensure not all jobs succeed (some should fail due to close)
 			require.True(t, success < 1000, "Not all jobs should succeed due to close")
 		}
 	})
