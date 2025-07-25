@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/stretchr/testify/assert"
 )
@@ -48,7 +47,7 @@ func TestNewEntryInterpolator(t *testing.T) {
 func TestHelper_Interpolate(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Context:  envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"ENV": "production"})),
+		Context:  context.Background(),
 		Filename: "config.yaml",
 	}
 
@@ -61,52 +60,57 @@ func TestHelper_Interpolate(t *testing.T) {
 	}{
 		{
 			name:  "interpolate string",
-			input: payload.New("Hello ${ENV}"),
-			want:  "Hello production",
+			input: payload.New("Hello World"),
+			want:  "Hello World",
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, LoadVars)
+				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+					return s, nil
+				})
 			},
 		},
 		{
 			name: "interpolate map",
 			input: payload.New(map[string]interface{}{
-				"greeting": "Hello ${ENV}",
+				"greeting": "Hello World",
 				"port":     8080,
 			}),
 			want: map[string]interface{}{
-				"greeting": "Hello production",
+				"greeting": "Hello World",
 				"port":     8080,
 			},
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, LoadVars)
+				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+					return s, nil
+				})
 			},
 		},
 		{
 			name: "interpolate slice",
 			input: payload.New([]interface{}{
-				"Hello ${ENV}",
+				"Hello World",
 				123,
 				"World",
 			}),
 			want: []interface{}{
-				"Hello production",
+				"Hello World",
 				123,
 				"World",
 			},
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, LoadVars)
+				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+					return s, nil
+				})
 			},
 		},
 		{
 			name:  "multiple interpolators",
-			input: payload.New("file://${ENV}/config.yaml"),
-			want:  "Hello from production!",
+			input: payload.New("file://config.yaml"),
+			want:  "Hello from config!",
 			setupFn: func(h *Helper) {
 				h.interpolators = append(h.interpolators,
-					LoadVars,
 					func(s string, _ interface{}) (string, error) {
-						if s == "file://production/config.yaml" {
-							return "Hello from production!", nil
+						if s == "file://config.yaml" {
+							return "Hello from config!", nil
 						}
 						return s, nil
 					},
@@ -137,7 +141,7 @@ func TestHelper_Interpolate(t *testing.T) {
 func TestHelper_interpolateString(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Context:  envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"KEY": "value"})),
+		Context:  context.Background(),
 		Filename: "config.yaml",
 	}
 
@@ -150,19 +154,20 @@ func TestHelper_interpolateString(t *testing.T) {
 	}{
 		{
 			name:  "single interpolator",
-			input: "Hello ${KEY}",
-			want:  "Hello value",
+			input: "Hello World",
+			want:  "Hello World",
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, LoadVars)
+				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+					return s, nil
+				})
 			},
 		},
 		{
 			name:  "multiple interpolators",
-			input: "Hello ${KEY}",
-			want:  "HELLO VALUE",
+			input: "Hello World",
+			want:  "HELLO WORLD",
 			setupFn: func(h *Helper) {
 				h.interpolators = append(h.interpolators,
-					LoadVars,
 					func(s string, _ interface{}) (string, error) {
 						return strings.ToUpper(s), nil
 					},
@@ -171,8 +176,8 @@ func TestHelper_interpolateString(t *testing.T) {
 		},
 		{
 			name:  "no interpolators",
-			input: "Hello ${KEY}",
-			want:  "Hello ${KEY}",
+			input: "Hello World",
+			want:  "Hello World",
 		},
 	}
 
@@ -198,7 +203,7 @@ func TestHelper_interpolateString(t *testing.T) {
 func TestHelper_interpolateMap(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Context:  envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"KEY": "value"})),
+		Context:  context.Background(),
 		Filename: "config.yaml",
 	}
 
@@ -212,21 +217,23 @@ func TestHelper_interpolateMap(t *testing.T) {
 		{
 			name: "nested map interpolation",
 			input: map[string]interface{}{
-				"string": "Hello ${KEY}",
+				"string": "Hello World",
 				"number": 42,
 				"nested": map[string]interface{}{
-					"key": "${KEY}",
+					"key": "value",
 				},
 			},
 			want: map[string]interface{}{
-				"string": "Hello value",
+				"string": "Hello World",
 				"number": 42,
 				"nested": map[string]interface{}{
 					"key": "value",
 				},
 			},
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, LoadVars)
+				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+					return s, nil
+				})
 			},
 		},
 	}
@@ -253,7 +260,7 @@ func TestHelper_interpolateMap(t *testing.T) {
 func TestHelper_interpolateSlice(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Context:  envapi.WithRegistry(context.Background(), NewMockEnvRegistry(map[string]string{"KEY": "value"})),
+		Context:  context.Background(),
 		Filename: "config.yaml",
 	}
 
@@ -267,21 +274,23 @@ func TestHelper_interpolateSlice(t *testing.T) {
 		{
 			name: "mixed slice interpolation",
 			input: []interface{}{
-				"Hello ${KEY}",
+				"Hello World",
 				42,
 				map[string]interface{}{
-					"key": "${KEY}",
+					"key": "value",
 				},
 			},
 			want: []interface{}{
-				"Hello value",
+				"Hello World",
 				42,
 				map[string]interface{}{
 					"key": "value",
 				},
 			},
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, LoadVars)
+				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+					return s, nil
+				})
 			},
 		},
 	}

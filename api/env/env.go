@@ -55,7 +55,7 @@ type (
 
 	Registry interface {
 		Get(ctx context.Context, name string) (string, error)
-		GetEventually(ctx context.Context, name string) (string, error)
+		GetFromStorage(ctx context.Context, name string) (string, error)
 		Set(ctx context.Context, name string, value string) error
 		All(ctx context.Context) (map[string]string, error)
 	}

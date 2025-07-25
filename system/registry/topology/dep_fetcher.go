@@ -45,6 +45,9 @@ var DependencyPaths = []PathConfig{
 	// Contract binding dependencies - automatically detect contract and method references
 	{Path: "data.contracts.*.contract", Description: "Contract definition references in bindings", AllowWildcard: true},
 	{Path: "data.contracts.*.methods.*", Description: "Method implementation function references in bindings", AllowWildcard: true},
+	// Environment variable dependencies - extract from fields ending with _env
+	{Path: "data.*_env", Description: "Environment variable dependencies", AllowWildcard: true},
+	{Path: "meta.*_env", Description: "Environment variable dependencies in metadata", AllowWildcard: true},
 }
 
 func extractDependenciesInternal(data any) []string {
@@ -61,12 +64,6 @@ func extractDependenciesInternal(data any) []string {
 				deps = append(deps, pathDeps...)
 			}
 		}
-
-		//// Extract *_env pattern dependencies
-		// envDeps := extractEnvPatternDependencies(m)
-		// if len(envDeps) > 0 {
-		//	deps = append(deps, envDeps...)
-		//}
 	} else if arr, ok := data.([]any); ok {
 		for _, item := range arr {
 			itemDeps := extractDependenciesInternal(item)
@@ -84,6 +81,30 @@ func extractFromPath(data map[string]any, path string, allowWildcard bool) []str
 	return navigatePath(data, segments, 0, allowWildcard)
 }
 
+// matchPattern checks if a key matches a pattern with wildcards
+func matchPattern(key, pattern string) bool {
+	// Handle *_env pattern specifically
+	if pattern == "*_env" {
+		return strings.HasSuffix(key, "_env")
+	}
+
+	// Handle other wildcard patterns
+	if strings.Contains(pattern, "*") {
+		// Simple wildcard matching: replace * with any characters
+		// For now, just check if the key ends with the suffix after *
+		if strings.HasPrefix(pattern, "*") {
+			suffix := strings.TrimPrefix(pattern, "*")
+			return strings.HasSuffix(key, suffix)
+		}
+		if strings.HasSuffix(pattern, "*") {
+			prefix := strings.TrimSuffix(pattern, "*")
+			return strings.HasPrefix(key, prefix)
+		}
+	}
+
+	return key == pattern
+}
+
 func navigatePath(currentData any, segments []string, index int, allowWildcard bool) []string {
 	if index >= len(segments) {
 		return processLeafValue(currentData)
@@ -91,17 +112,23 @@ func navigatePath(currentData any, segments []string, index int, allowWildcard b
 
 	segment := segments[index]
 
-	if segment == "*" && allowWildcard {
+	if allowWildcard && (segment == "*" || strings.Contains(segment, "*")) {
 		var deps []string
 		if currentMap, ok := currentData.(map[string]any); ok {
 			if index >= len(segments)-1 {
-				for _, value := range currentMap {
-					deps = append(deps, processLeafValue(value)...)
+				// Process all matching keys at the leaf level
+				for key, value := range currentMap {
+					if segment == "*" || matchPattern(key, segment) {
+						deps = append(deps, processLeafValue(value)...)
+					}
 				}
 			} else {
-				for _, value := range currentMap {
-					valueDeps := navigatePath(value, segments, index+1, allowWildcard)
-					deps = append(deps, valueDeps...)
+				// Continue navigation for matching keys
+				for key, value := range currentMap {
+					if segment == "*" || matchPattern(key, segment) {
+						valueDeps := navigatePath(value, segments, index+1, allowWildcard)
+						deps = append(deps, valueDeps...)
+					}
 				}
 			}
 		} else if currentArray, ok := currentData.([]any); ok {
@@ -167,59 +194,6 @@ func extractStringsFromArray(arr []any) []string {
 	}
 	return result
 }
-
-//// extractEnvPatternDependencies extracts dependencies from fields ending with "_env"
-// func extractEnvPatternDependencies(data map[string]any) []string {
-//	var deps []string
-//
-//	// Recursively search for *_env patterns in the data structure
-//	extractEnvPatternFromValue(data, &deps)
-//
-//	return deps
-//}
-
-//// extractEnvPatternFromValue recursively searches for *_env patterns in any value
-// func extractEnvPatternFromValue(value any, deps *[]string) {
-//	switch v := value.(type) {
-//	case map[string]any:
-//		for key, val := range v {
-//			// Check if the key ends with "_env"
-//			if strings.HasSuffix(key, "_env") {
-//				// Extract dependencies from the value
-//				extractDepsFromEnvValue(val, deps)
-//			} else {
-//				// Recursively search in nested structures
-//				extractEnvPatternFromValue(val, deps)
-//			}
-//		}
-//	case []any:
-//		for _, item := range v {
-//			extractEnvPatternFromValue(item, deps)
-//		}
-//	}
-//}
-
-//// extractDepsFromEnvValue extracts dependencies from environment variable values
-// func extractDepsFromEnvValue(value any, deps *[]string) {
-//	switch v := value.(type) {
-//	case string:
-//		if v != "" {
-//			*deps = append(*deps, v)
-//		}
-//	case []any:
-//		for _, item := range v {
-//			if str, ok := item.(string); ok && str != "" {
-//				*deps = append(*deps, str)
-//			}
-//		}
-//	case []string:
-//		for _, str := range v {
-//			if str != "" {
-//				*deps = append(*deps, str)
-//			}
-//		}
-//	}
-//}
 
 func removeDuplicates(slice []string) []string {
 	if len(slice) < 2 {

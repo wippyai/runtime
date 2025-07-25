@@ -104,7 +104,6 @@ func (m *LoaderModule) createLoader(l *lua.LState) int {
 
 	// Create interpolator with FS support
 	interpolators := interpolate.NewEntryInterpolator(dtt,
-		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
 	)
 

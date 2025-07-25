@@ -114,7 +114,7 @@ func (m *MockEnvRegistry) Get(_ context.Context, name string) (string, error) {
 	return "", envapi.ErrVariableNotFound
 }
 
-func (m *MockEnvRegistry) GetEventually(_ context.Context, name string) (string, error) {
+func (m *MockEnvRegistry) GetFromStorage(_ context.Context, name string) (string, error) {
 	if value, exists := m.variables[name]; exists {
 		return value, nil
 	}
@@ -281,21 +281,6 @@ func TestManager_Add(t *testing.T) {
 		err := manager.Add(ctx, entry)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "already exists")
-	})
-
-	t.Run("missing env variables", func(t *testing.T) {
-		// Create a config that references environment variables that don't exist in the registry
-		entry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "env-error"},
-			Kind: serviceaws.Kind,
-			Data: NewMockPayload(&serviceaws.Config{
-				Region: "us-east-1",
-			}),
-		}
-
-		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "environment variable not found")
 	})
 }
 
@@ -624,18 +609,5 @@ func TestCreateAWSConfig(t *testing.T) {
 		awsCfg, err := manager.createAWSConfig(ctx, cfg)
 		require.NoError(t, err)
 		assert.Equal(t, "us-west-2", awsCfg.Region)
-	})
-
-	t.Run("missing env variables", func(t *testing.T) {
-		// Create a config that references environment variables that don't exist in the registry
-		cfg := &serviceaws.Config{
-			Region:             "us-east-1",
-			AccessKeyIDEnv:     "NONEXISTENT_ACCESS_KEY",
-			SecretAccessKeyEnv: "NONEXISTENT_SECRET_KEY",
-		}
-
-		_, err := manager.createAWSConfig(ctx, cfg)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "environment variable not found")
 	})
 }

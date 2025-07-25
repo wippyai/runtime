@@ -49,7 +49,6 @@ func main() {
 
 	// 3. Spawn Loader:
 	folderLoader := loader.NewLoader(dtt, logger, interpolate.NewEntryInterpolator(dtt,
-		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
 	))
 

@@ -3,6 +3,7 @@ package env
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/env"
@@ -359,74 +360,99 @@ func (s *Registry) Get(ctx context.Context, name string) (string, error) {
 	return value.DefaultValue, nil
 }
 
-func (s *Registry) GetEventually(ctx context.Context, name string) (string, error) {
-	// Subscribe to accept events first to avoid race conditions
-	eventCh := make(chan event.Event, 1)
-	subID, err := s.bus.SubscribeP(ctx, env.System, registry.Accept, eventCh)
-	if err != nil {
-		return "", fmt.Errorf("failed to subscribe to accept events: %w", err)
-	}
-	defer s.bus.Unsubscribe(ctx, subID)
-
-	// Parse the name to get the expected ID
-	nameID := registry.ParseID(name)
-	ns := nameID.NS
-	if ns == "" {
-		pid, pidFound := pubsub.GetPID(ctx)
-		if !pidFound {
-			s.log.Error("PID not found")
-			return "", env.ErrVariableNotFound
-		}
-		ns = pid.ID.NS
-	}
-	expectedID := nameID.WithDefaultNS(ns)
-
-	// Now check if the value is already available
-	value, err := s.getEnvValue(ctx, name)
-	if err == nil {
-		if value.Value != "" {
-			return value.Value, nil
-		}
-		return value.DefaultValue, nil
+func (s *Registry) GetFromStorage(ctx context.Context, name string) (string, error) {
+	// Find the last colon to separate storage ID from environment variable name
+	lastColonIndex := strings.LastIndex(name, ":")
+	if lastColonIndex == -1 {
+		return "", fmt.Errorf("invalid name format: expected 'storage:envvar' but got '%s'", name)
 	}
 
-	// If not found, wait for it to become available
-	return s.waitForVariableWithSubscription(ctx, name, expectedID, eventCh)
+	storageIDStr := name[:lastColonIndex]
+	envVarName := name[lastColonIndex+1:]
+
+	if envVarName == "" {
+		return "", fmt.Errorf("invalid name format: environment variable name cannot be empty")
+	}
+
+	// if storage ID is empty, iterate over all storages
+	if storageIDStr == "" {
+		return s.getFromAnyStorage(ctx, envVarName)
+	}
+
+	// get from specific storage
+	return s.getFromSpecificStorage(ctx, storageIDStr, envVarName, name)
 }
 
-func (s *Registry) waitForVariableWithSubscription(ctx context.Context, name string, expectedID registry.ID, eventCh chan event.Event) (string, error) {
-	s.log.Debug("waiting for variable to become available",
-		zap.String("name", name),
-		zap.String("expectedID", expectedID.String()))
+func (s *Registry) getFromAnyStorage(ctx context.Context, envVarName string) (string, error) {
+	// Iterate through all storages to find the variable
+	var foundVariable string
+	var foundStorageKey interface{}
 
-	// Wait for accept events
-	for {
-		select {
-		case evt := <-eventCh:
-			// Check if this accept event is for our expected variable
-			acceptedID := registry.ParseID(evt.Path)
-			if acceptedID == expectedID {
-				s.log.Debug("variable became available",
-					zap.String("name", name),
-					zap.String("acceptedID", acceptedID.String()))
-
-				// Try to get the value again now that it's been accepted
-				value, err := s.getEnvValue(ctx, name)
-				if err != nil {
-					return "", err
-				}
-
-				if value.Value != "" {
-					return value.Value, nil
-				}
-				return value.DefaultValue, nil
-			}
-			// Continue waiting if this accept event is for a different variable
-
-		case <-ctx.Done():
-			return "", fmt.Errorf("context canceled while waiting for variable %s: %w", name, ctx.Err())
+	s.storages.Range(func(key interface{}, value interface{}) bool {
+		storage, ok := value.(env.Storage)
+		if !ok {
+			s.log.Error("invalid storage type",
+				zap.String("storage", fmt.Sprintf("%v", key)),
+				zap.String("type", fmt.Sprintf("%T", value)))
+			return true // continue with other storages
 		}
+
+		// Try to get the variable from this storage
+		variable, err := storage.Get(ctx, envVarName)
+		if err == nil {
+			foundVariable = variable
+			foundStorageKey = key
+			return false // stop iteration
+		}
+
+		return true // continue with other storages
+	})
+
+	if foundVariable != "" {
+		s.log.Info("got variable from storage",
+			zap.String("storage", fmt.Sprintf("%v", foundStorageKey)),
+			zap.String("variable", envVarName),
+			zap.String("value", foundVariable))
+		return foundVariable, nil
 	}
+
+	// If we reach here, the variable was not found in any storage
+	s.log.Error("variable not found in any storage", zap.String("variable", envVarName))
+	return "", env.ErrVariableNotFound
+}
+
+func (s *Registry) getFromSpecificStorage(ctx context.Context, storageIDStr, envVarName, originalName string) (string, error) {
+	// Parse the storage ID
+	storageID := registry.ParseID(storageIDStr)
+
+	// Look up the specific storage
+	storedStorage, found := s.storages.Load(storageID.String())
+	if !found {
+		s.log.Error("storage not found",
+			zap.String("storage", storageID.String()),
+			zap.String("name", originalName))
+		return "", env.ErrVariableNotFound
+	}
+
+	storage, ok := storedStorage.(env.Storage)
+	if !ok {
+		s.log.Error("invalid storage type",
+			zap.String("storage", storageID.String()),
+			zap.String("type", fmt.Sprintf("%T", storedStorage)))
+		return "", env.ErrVariableNotFound
+	}
+
+	// Get the environment variable from the specific storage
+	variable, err := storage.Get(ctx, envVarName)
+	if err != nil {
+		s.log.Error("failed to get variable from storage",
+			zap.String("storage", storageID.String()),
+			zap.String("variable", envVarName),
+			zap.Error(err))
+		return "", err
+	}
+
+	return variable, nil
 }
 
 func (s *Registry) Set(ctx context.Context, name string, value string) error {

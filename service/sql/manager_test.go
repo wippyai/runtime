@@ -208,7 +208,7 @@ func (m *MockEnvRegistry) Get(_ context.Context, name string) (string, error) {
 	return "", envapi.ErrVariableNotFound
 }
 
-func (m *MockEnvRegistry) GetEventually(_ context.Context, name string) (string, error) {
+func (m *MockEnvRegistry) GetFromStorage(_ context.Context, name string) (string, error) {
 	if value, exists := m.variables[name]; exists {
 		return value, nil
 	}

@@ -5,19 +5,12 @@ import (
 	"fmt"
 	"io/fs"
 
-	envapi "github.com/ponyruntime/pony/api/env"
-
 	"github.com/ponyruntime/pony/api/payload"
 )
 
-// Variables is a map of key-value pairs for variable interpolation
-type Variables map[string]string
-
 // EntryContext holds the context for loading and interpolating configuration entries.
-// It contains variables for interpolation, root directory for file resolution,
-// the current configuration filename being processed, and a context for accessing services.
+// It contains the current configuration filename being processed, and a context for accessing services.
 type EntryContext struct {
-	Vars     Variables
 	Filename string
 	FS       fs.FS
 	Context  context.Context
@@ -101,38 +94,6 @@ func (h *Helper) interpolateString(s string, ctx EntryContext) (string, error) {
 func (h *Helper) interpolateMap(m map[string]interface{}, ctx EntryContext) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 	for k, v := range m {
-		// Special handling for keys ending with _env
-		if len(k) > 4 && k[len(k)-4:] == "_env" {
-			// Only process if value is a string
-			if envVarName, ok := v.(string); ok {
-				// Support optional default value syntax: ENV_VAR_NAME or ENV_VAR_NAME:-default
-				varName, defaultValue := parseVariableWithDefault(envVarName)
-				var envValue string
-				var found bool
-				if ctx.Context != nil {
-					envRegistry := envapi.GetRegistry(ctx.Context)
-					if envRegistry != nil {
-						val, err := envRegistry.Get(ctx.Context, varName)
-						if err == nil {
-							envValue = val
-							found = true
-						}
-					}
-				}
-				if !found {
-					if defaultValue != "" {
-						envValue = defaultValue
-					} else {
-						envValue = envVarName // leave as-is if not found and no default
-					}
-				}
-				fmt.Println("envValue", k, varName, envValue)
-
-				result[k] = envValue
-				continue
-			}
-		}
-
 		interpolated, err := h.interpolateValue(v, ctx)
 		if err != nil {
 			return nil, err

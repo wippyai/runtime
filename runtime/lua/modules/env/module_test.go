@@ -31,7 +31,7 @@ func (m *mockResourceRegistry) Get(_ context.Context, name string) (string, erro
 	return value, nil
 }
 
-func (m *mockResourceRegistry) GetEventually(_ context.Context, name string) (string, error) {
+func (m *mockResourceRegistry) GetFromStorage(_ context.Context, name string) (string, error) {
 	value, ok := m.vars[name]
 	if !ok {
 		return "", envapi.ErrVariableNotFound

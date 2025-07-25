@@ -45,7 +45,7 @@ func NewManagerWithFactory(
 	dtt payload.Transcoder,
 	bus event.Bus,
 	log *zap.Logger,
-	_ envapi.Registry,
+	envRegistry envapi.Registry,
 	factory PoolFactoryAPI,
 ) (*Manager, error) {
 	if dtt == nil {
@@ -59,11 +59,12 @@ func NewManagerWithFactory(
 	}
 
 	return &Manager{
-		log:      log,
-		dtt:      dtt,
-		bus:      bus,
-		factory:  factory,
-		services: make(map[registry.ID]*ConnPool),
+		log:         log,
+		dtt:         dtt,
+		bus:         bus,
+		factory:     factory,
+		services:    make(map[registry.ID]*ConnPool),
+		envRegistry: envRegistry,
 	}, nil
 }
 
@@ -116,23 +117,23 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 	}
 
 	if cfg.HostEnv != "" {
-		cfg.Host, _ = m.envRegistry.GetEventually(ctx, cfg.HostEnv)
+		cfg.Host, _ = m.envRegistry.GetFromStorage(ctx, cfg.HostEnv)
 	}
 	if cfg.PortEnv != "" {
-		val, _ := m.envRegistry.GetEventually(ctx, cfg.PortEnv)
+		val, _ := m.envRegistry.GetFromStorage(ctx, cfg.PortEnv)
 		cfg.Port, err = strconv.Atoi(val)
 		if err != nil {
 			return fmt.Errorf("invalid port value: %w", err)
 		}
 	}
 	if cfg.DatabaseEnv != "" {
-		cfg.Database, _ = m.envRegistry.GetEventually(ctx, cfg.DatabaseEnv)
+		cfg.Database, _ = m.envRegistry.GetFromStorage(ctx, cfg.DatabaseEnv)
 	}
 	if cfg.UsernameEnv != "" {
-		cfg.Username, _ = m.envRegistry.GetEventually(ctx, cfg.UsernameEnv)
+		cfg.Username, _ = m.envRegistry.GetFromStorage(ctx, cfg.UsernameEnv)
 	}
 	if cfg.PasswordEnv != "" {
-		cfg.Password, _ = m.envRegistry.GetEventually(ctx, cfg.PasswordEnv)
+		cfg.Password, _ = m.envRegistry.GetFromStorage(ctx, cfg.PasswordEnv)
 	}
 
 	pool, err := m.factory.CreateStandardPool(entry.Kind, cfg)

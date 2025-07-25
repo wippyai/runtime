@@ -595,7 +595,7 @@ func TestEventBus_NotFoundCases(t *testing.T) {
 	assert.Equal(t, env.ErrVariableNotFound, err)
 }
 
-func TestEventBus_GetEventually(t *testing.T) {
+func TestEventBus_GetFromStorage(t *testing.T) {
 	t.Parallel()
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
@@ -616,24 +616,7 @@ func TestEventBus_GetEventually(t *testing.T) {
 	pid := registry.ParseID("test:ns")
 	ctx = pubsub.WithPID(ctx, pubsub.PID{ID: pid})
 
-	// Test GetEventually with a variable that doesn't exist yet
-	// This should start waiting for the variable to be registered
-	resultCh := make(chan string, 1)
-	errorCh := make(chan error, 1)
-
-	go func() {
-		value, err := reg.GetEventually(ctx, "test_var")
-		if err != nil {
-			errorCh <- err
-			return
-		}
-		resultCh <- value
-	}()
-
-	// Wait a bit to ensure GetEventually is waiting
-	time.Sleep(50 * time.Millisecond)
-
-	// Create a memory storage
+	// Create a memory storage first
 	memStorage := serviceenv.NewMemoryStorage(map[string]string{
 		"TEST_VAR": "test_value",
 	}, logger)
@@ -648,34 +631,13 @@ func TestEventBus_GetEventually(t *testing.T) {
 	bus.Send(ctx, storageEvt)
 	time.Sleep(100 * time.Millisecond)
 
-	// Register the variable that GetEventually is waiting for
-	variable := env.Variable{
-		Name:         "test_var",
-		EnvName:      "TEST_VAR",
-		StorageID:    "test:mock-storage",
-		DefaultValue: "default_value",
-		ReadOnly:     false,
-	}
-	varEvt := event.Event{
-		System: env.System,
-		Kind:   env.VariableRegister,
-		Path:   "test:test_var",
-		Data:   variable,
-	}
-	bus.Send(ctx, varEvt)
-
-	// Wait for GetEventually to return the value
-	select {
-	case value := <-resultCh:
-		assert.Equal(t, "test_value", value)
-	case err := <-errorCh:
-		t.Fatalf("GetEventually failed: %v", err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for GetEventually to return")
-	}
+	// Now test GetFromStorage with the registered storage
+	value, err := reg.GetFromStorage(ctx, "test:mock-storage:TEST_VAR")
+	require.NoError(t, err)
+	assert.Equal(t, "test_value", value)
 }
 
-func TestEventBus_GetEventuallyWithDefaultValue(t *testing.T) {
+func TestEventBus_GetFromStorageWithDefaultValue(t *testing.T) {
 	t.Parallel()
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
@@ -695,22 +657,6 @@ func TestEventBus_GetEventuallyWithDefaultValue(t *testing.T) {
 	// Create a context with PID
 	pid := registry.ParseID("test:ns")
 	ctx = pubsub.WithPID(ctx, pubsub.PID{ID: pid})
-
-	// Test GetEventually with a variable that has a default value but no actual value
-	resultCh := make(chan string, 1)
-	errorCh := make(chan error, 1)
-
-	go func() {
-		value, err := reg.GetEventually(ctx, "test_var_default")
-		if err != nil {
-			errorCh <- err
-			return
-		}
-		resultCh <- value
-	}()
-
-	// Wait a bit to ensure GetEventually is waiting
-	time.Sleep(50 * time.Millisecond)
 
 	// Create a memory storage with empty value
 	memStorage := serviceenv.NewMemoryStorage(map[string]string{
@@ -727,34 +673,13 @@ func TestEventBus_GetEventuallyWithDefaultValue(t *testing.T) {
 	bus.Send(ctx, storageEvt)
 	time.Sleep(100 * time.Millisecond)
 
-	// Register the variable with a default value
-	variable := env.Variable{
-		Name:         "test_var_default",
-		EnvName:      "TEST_VAR_DEFAULT",
-		StorageID:    "test:mock-storage",
-		DefaultValue: "default_value",
-		ReadOnly:     false,
-	}
-	varEvt := event.Event{
-		System: env.System,
-		Kind:   env.VariableRegister,
-		Path:   "test:test_var_default",
-		Data:   variable,
-	}
-	bus.Send(ctx, varEvt)
-
-	// Wait for GetEventually to return the default value
-	select {
-	case value := <-resultCh:
-		assert.Equal(t, "default_value", value)
-	case err := <-errorCh:
-		t.Fatalf("GetEventually failed: %v", err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for GetEventually to return")
-	}
+	// Now test GetFromStorage with empty value (should return empty string)
+	value, err := reg.GetFromStorage(ctx, "test:mock-storage:TEST_VAR_DEFAULT")
+	require.NoError(t, err)
+	assert.Equal(t, "", value)
 }
 
-func TestEventBus_GetEventuallyContextCancellation(t *testing.T) {
+func TestEventBus_GetFromStorageContextCancellation(t *testing.T) {
 	t.Parallel()
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
@@ -779,32 +704,8 @@ func TestEventBus_GetEventuallyContextCancellation(t *testing.T) {
 	cancelCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Test GetEventually with context cancellation
-	resultCh := make(chan string, 1)
-	errorCh := make(chan error, 1)
-
-	go func() {
-		value, err := reg.GetEventually(cancelCtx, "test_var_cancel")
-		if err != nil {
-			errorCh <- err
-			return
-		}
-		resultCh <- value
-	}()
-
-	// Wait a bit to ensure GetEventually is waiting
-	time.Sleep(50 * time.Millisecond)
-
-	// Cancel the context
-	cancel()
-
-	// Wait for GetEventually to return with context cancellation error
-	select {
-	case value := <-resultCh:
-		t.Fatalf("GetEventually should have failed with context cancellation, but returned: %s", value)
-	case err := <-errorCh:
-		assert.Contains(t, err.Error(), "context canceled")
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for GetEventually to return")
-	}
+	// Test GetFromStorage with non-existent storage (should fail immediately)
+	_, err = reg.GetFromStorage(cancelCtx, "test:non-existent-storage:TEST_VAR_CANCEL")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "environment variable not found")
 }

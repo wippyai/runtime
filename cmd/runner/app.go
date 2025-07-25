@@ -30,6 +30,7 @@ import (
 	topapi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/cluster/internode"
 	"github.com/ponyruntime/pony/cluster/membership"
+	"github.com/ponyruntime/pony/dependsadjuster"
 	"github.com/ponyruntime/pony/embed"
 	"github.com/ponyruntime/pony/requirementresolver"
 	contractsys "github.com/ponyruntime/pony/system/contract"
@@ -678,7 +679,6 @@ func loadApplicationState(
 	mainLogger *zap.Logger,
 ) (regapi.ChangeSet, func(), error) {
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
-		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
 	))
 
@@ -724,6 +724,13 @@ func loadApplicationState(
 
 	resolver := requirementresolver.NewResolver(mainLogger.Named("requirement-resolver"))
 	err = resolver.ResolveModuleDefinitions(entries)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// update here
+	dependsOnAdjuster := dependsadjuster.NewAdjuster(mainLogger.Named("dependson-adjuster"))
+	entries, err = dependsOnAdjuster.Adjust(entries)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -3,7 +3,7 @@
 ## Overview
 
 The Loader module provides functionality for loading registry entries from configuration files and directories.
-It supports various file formats (JSON, YAML) and includes interpolation capabilities for variable substitution within
+It supports various file formats (JSON, YAML) and includes interpolation capabilities for file inclusion within
 configuration files.
 
 ## Module Interface
@@ -38,20 +38,14 @@ end
 #### Load Entries from Directory
 
 ```lua
-local entries, err = loader_instance:load_directory(dir_path, variables)
+local entries, err = loader_instance:load_directory(dir_path)
 -- Parameters: 
 --   dir_path (string) - Path to the directory containing registry configuration files
---   variables (table, optional) - Variables for interpolation
 -- Returns on success: array of entry tables, nil
 -- Returns on error: nil, error message
 
 -- Example:
-local variables = {
-  env = "production",
-  region = "us-west-2"
-}
-
-local entries, err = loader_instance:load_directory("/path/to/configs", variables)
+local entries, err = loader_instance:load_directory("/path/to/configs")
 if not entries then
   print("Error loading entries: " .. err)
   return
@@ -61,15 +55,14 @@ end
 #### Load Entries from File
 
 ```lua
-local entries, err = loader_instance:load_file(file_path, variables)
+local entries, err = loader_instance:load_file(file_path)
 -- Parameters:
 --   file_path (string) - Path to the registry configuration file
---   variables (table, optional) - Variables for interpolation
 -- Returns on success: array of entry tables, nil
 -- Returns on error: nil, error message
 
 -- Example:
-local entries, err = loader_instance:load_file("/path/to/config.yaml", variables)
+local entries, err = loader_instance:load_file("/path/to/config.yaml")
 if not entries then
   print("Error loading file: " .. err)
   return
@@ -127,29 +120,6 @@ entries:
         port: 8081
 ```
 
-### Variable Interpolation
-
-Configuration files support variable interpolation using `${variable}` syntax:
-
-```yaml
-namespace: ${env}-services
-name: api-gateway
-kind: service
-meta:
-  environment: ${env}
-  region: ${region}
-```
-
-Variables are provided as a Lua table when calling `load_directory` or `load_file`:
-
-```lua
-local variables = {
-  env = "production",
-  region = "us-west-2",
-  domain = "example.com"
-}
-```
-
 ### File Inclusion
 
 Configuration files can include content from other files using the `file://` protocol:
@@ -195,15 +165,8 @@ if not loader_instance then
   return
 end
 
--- Define variables for interpolation
-local variables = {
-  env = "production",
-  region = "us-west-2",
-  domain = "example.com"
-}
-
--- Load all configuration files from a directory with variable interpolation
-local entries, err = loader_instance:load_directory("/path/to/configs", variables)
+-- Load all configuration files from a directory
+local entries, err = loader_instance:load_directory("/path/to/configs")
 if not entries then
   print("Error loading entries: " .. err)
   return
@@ -230,7 +193,7 @@ for i, entry in ipairs(entries) do
 end
 
 -- Example: Alternative approach using a single file
-local service_entries, err = loader_instance:load_file("/path/to/services.yaml", variables)
+local service_entries, err = loader_instance:load_file("/path/to/services.yaml")
 if not service_entries then
   print("Error loading services file: " .. err)
   return

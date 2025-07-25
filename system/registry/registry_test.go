@@ -646,7 +646,7 @@ data:
 	runner := &CustomizableMockRunner{}
 	stateBuilder := topology.NewStateBuilder(zap.NewNop())
 	dtt := createTestTranscoder()
-	folderLoader := loader.NewLoader(dtt, zap.NewNop(), interpolate.NewEntryInterpolator(dtt, interpolate.WithInterpolator(interpolate.LoadVars)))
+	folderLoader := loader.NewLoader(dtt, zap.NewNop(), interpolate.NewEntryInterpolator(dtt))
 
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
 

@@ -2,78 +2,6 @@ version: "1.0"
 namespace: system
 
 entries:
-  - name: envmemory
-    kind: env.storage.memory
-    meta:
-      type: envstorage
-      comment: Memory storage for environment variables
-
-  - name: file_test_env2
-    kind: env.variable
-    meta:
-      type: secret_key
-      depends_on:
-        - system:envfile
-    variable: FILE_TEST_ENV2
-    storage: system:envfile
-    default:
-
-  - name: ACCESS_KEY_ID_CUSTOM
-    kind: env.variable
-    meta:
-      type: secret_key
-      depends_on:
-        - system:envfile
-    variable: ACCESS_KEY_ID_CUSTOM
-    storage: system:envfile
-    default:
-
-  - name: ENV_TOKEN_KEY
-    kind: env.variable
-    meta:
-      type: secret_key
-      depends_on:
-        - system:envfile
-    variable: ENV_TOKEN_KEY
-    storage: system:envfile
-    default:
-
-  - name: SQLITE_DATABASE
-    kind: env.variable
-    meta:
-      type: secret_key
-      depends_on:
-        - system:envfile
-    variable: SQLITE_DATABASE
-    storage: system:envfile
-    default:
-
-  - name: aws_config
-    kind: config.aws
-    meta:
-      comment: "Aws Config"
-    region: us-east-1
-    depends_on:
-      - system:ACCESS_KEY_ID_CUSTOM
-      - system:envfile
-    access_key_id_env: system:ACCESS_KEY_ID_CUSTOM
-
-  - name: envfile
-    kind: env.storage.file
-    meta:
-      type: envstorage
-      comment: File storage for environment variables
-    file_path: "./app/env/.env.sample"
-
-  - name: test_s3
-    kind: cloudstorage.s3
-    meta:
-      comment: "Cloud Storage S3"
-      depends_on:
-        - aws_config
-    bucket: mybucket
-    config: system:aws_config
-
   - name: root
     kind: fs.directory
     meta:
@@ -185,4 +113,63 @@ entries:
     file: "./app/data/app.db"
     lifecycle:
       auto_start: true
-      database_env: system:SQLITE_DATABASE
+
+  - name: envmemory
+    kind: env.storage.memory
+    meta:
+      type: envstorage
+      comment: Memory storage for environment variables
+
+  - name: file_test_env2
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envfile
+    variable: FILE_TEST_ENV2
+    storage: system:envfile
+    default:
+
+  - name: aws_config
+    kind: config.aws
+    meta:
+      comment: "Aws Config"
+    region: us-east-1
+    access_key_id_env: system:envfile:ACCESS_KEY_ID_CUSTOM
+
+  - name: aws_config2
+    kind: config.aws
+    meta:
+      comment: "Aws Config"
+    region: us-east-1
+    access_key_id_env: ACCESS_KEY_ID_CUSTOM
+
+  - name: envfile
+    kind: env.storage.file
+    meta:
+      type: envstorage
+      comment: File storage for environment variables
+    file_path: "./app/env/.env.sample"
+
+  - name: test_s3
+    kind: cloudstorage.s3
+    meta:
+      comment: "Cloud Storage S3"
+      depends_on:
+        - aws_config
+    bucket: mybucket
+    config: system:aws_config
+
+#  - name: db_postgres
+#    kind: db.sql.postgres
+#    meta:
+#      comment: Application Postgres database
+#      depends_on:
+#        - aws_config
+#    host_env: system:envfile:POSTGRESQL_DEFAULT_HOST
+#    port_env: system:envfile:POSTGRESQL_DEFAULT_PORT
+#    database_env: system:envfile:POSTGRESQL_DEFAULT_DATABASE
+#    username_env: system:envfile:POSTGRESQL_DEFAULT_USERNAME
+#    password_env: system:envfile:POSTGRESQL_DEFAULT_PASSWORD
+#    lifecycle:
+#      auto_start: true
