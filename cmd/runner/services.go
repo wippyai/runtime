@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/ponyruntime/pony/runtime/noop"
+
 	"github.com/ponyruntime/pony/runtime/lua/modules/html"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -114,6 +116,7 @@ func createServiceHandlers(a *App) eventbus.RouterOption {
 		withNativeExecutor(a),
 		withJetTemplates(a),
 		withContractSystem(a),
+		withNoopRuntime(a),
 	)...)
 }
 
@@ -214,6 +217,13 @@ func withEphemeralHost(a *App) eventbus.EventHandler {
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("hosts"),
+	))
+}
+
+func withNoopRuntime(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("(function|workflow|process|library).*", noop.NewNoopRuntime(
+		a.eventBus,
+		a.logger.Named("noop"),
 	))
 }
 

@@ -86,6 +86,12 @@ func (m *MockHistory) Head() (registry.Version, error) {
 	return m.head, nil
 }
 
+func (m *MockHistory) SetHead(v registry.Version) error {
+	m.callStack = append(m.callStack, fmt.Sprintf("SetHead(%d)", v.ID()))
+	m.head = v
+	return nil
+}
+
 // Helper functions for common operations
 func verifyState(t *testing.T, got, want registry.State) {
 	t.Helper()
