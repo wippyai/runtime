@@ -118,14 +118,3 @@ func multipartFileToString(l *lua.LState) int {
 		mpFile.fileHeader.Filename, mpFile.fileHeader.Size)))
 	return 1
 }
-
-// registerMultipartFile registers the MultipartFile type and its methods
-func registerMultipartFile(l *lua.LState) {
-	mt := l.NewTypeMetatable("MultipartFile")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"stream": multipartFileStream,
-		"size":   multipartFileSize,
-		"name":   multipartFileName,
-	}))
-	l.SetField(mt, "__tostring", l.NewFunction(multipartFileToString))
-}

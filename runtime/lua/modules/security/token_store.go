@@ -65,16 +65,6 @@ func checkTokenStore(l *lua.LState) *TokenStore {
 	return nil
 }
 
-// registerTokenStoreType registers the TokenStore type and methods
-func registerTokenStoreType(l *lua.LState) {
-	value.RegisterMethods(l, TokenStoreMetatable, map[string]lua.LGFunction{
-		"validate": tokenStoreValidate,
-		"create":   tokenStoreCreate,
-		"revoke":   tokenStoreRevoke,
-		"close":    tokenStoreClose,
-	})
-}
-
 // tokenStoreValidate validates a token
 func tokenStoreValidate(l *lua.LState) int {
 	ts := checkTokenStore(l)

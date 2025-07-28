@@ -26,14 +26,6 @@ func checkPolicy(l *lua.LState) secapi.Policy {
 	return nil
 }
 
-// registerPolicyType registers the Policy type and methods
-func registerPolicyType(l *lua.LState) {
-	value.RegisterMethods(l, PolicyMetatable, map[string]lua.LGFunction{
-		"id":       policyID,
-		"evaluate": policyEvaluate,
-	})
-}
-
 // policyID returns the policy's ID
 func policyID(l *lua.LState) int {
 	policy := checkPolicy(l)

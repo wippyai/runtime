@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -21,7 +22,9 @@ const (
 
 // Module represents the events module for Lua
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // NewEventsModule creates a new events module
@@ -38,24 +41,39 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	// Create module table
-	mod := l.NewTable()
+	m.once.Do(func() {
+		m.initModuleTable(l)
+	})
+
+	l.Push(m.moduleTable)
+	return 1
+}
+
+// initModuleTable creates and initializes the module table once
+func (m *Module) initModuleTable(l *lua.LState) {
+	// Create module table with pre-allocated size
+	mod := l.CreateTable(0, 2) // 2 functions: subscribe and send
 
 	// Register top-level subscribe function (without needing to get the bus first)
 	mod.RawSetString("subscribe", l.NewFunction(func(l *lua.LState) int {
 		return m.subscribe(l)
 	}))
 
-	// Register subscription metatable
-	mt := l.NewTypeMetatable(subscriptionMetatable)
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"channel": m.subChannel,
-		"close":   m.subClose,
+	// Register top-level send function
+	mod.RawSetString("send", l.NewFunction(func(l *lua.LState) int {
+		return m.send(l)
 	}))
 
-	// Set module as return value
-	l.Push(mod)
-	return 1
+	// Make the table immutable so it can be safely reused
+	mod.Immutable = true
+
+	// Register subscription metatable
+	value.RegisterMethods(l, subscriptionMetatable, map[string]lua.LGFunction{
+		"channel": m.subChannel,
+		"close":   m.subClose,
+	})
+
+	m.moduleTable = mod
 }
 
 // LuaSubscription wraps an eventbus Subscriber for Lua
@@ -191,6 +209,68 @@ func (m *Module) subscribe(l *lua.LState) int {
 
 	// Return subscription object
 	l.Push(ud)
+	return 1
+}
+
+// send publishes an event to the event bus
+func (m *Module) send(l *lua.LState) int {
+	// Get required parameters
+	system := l.CheckString(1)
+	if system == "" {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString("system is required"))
+		return 2
+	}
+
+	kind := l.CheckString(2)
+	if kind == "" {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString("kind is required"))
+		return 2
+	}
+
+	path := l.CheckString(3)
+	if path == "" {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString("path is required"))
+		return 2
+	}
+
+	// Check security permissions
+	if !security.IsAllowed(l.Context(), "events.send", system, nil) {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString(fmt.Sprintf("not allowed to send events to system: %s", system)))
+		return 2
+	}
+
+	// Get context
+	ctx := l.Context()
+
+	// Get event bus from context
+	bus := event.GetBus(ctx)
+	if bus == nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString("event bus not found in context"))
+		return 2
+	}
+
+	// Optional data parameter
+	var data any
+	if l.GetTop() >= 4 && l.Get(4) != lua.LNil {
+		data = luaconv.ToGoAny(l.Get(4))
+	}
+
+	// Create and send event
+	evt := event.Event{
+		System: system,
+		Kind:   kind,
+		Path:   path,
+		Data:   data,
+	}
+
+	bus.Send(ctx, evt)
+
+	l.Push(lua.LTrue)
 	return 1
 }
 

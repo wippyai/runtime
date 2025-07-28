@@ -22,6 +22,7 @@ var DependencyPaths = []PathConfig{
 	{Path: "data.server", Description: "Reference to HTTP server in data section"},
 	{Path: "data.fs", Description: "Reference to filesystem"},
 	{Path: "data.store", Description: "Reference to a store (e.g., 'session')"},
+	{Path: "data.storage", Description: "Reference to a storage"},
 	{Path: "data.env", Description: "Reference to env"},
 	{Path: "data.token_store", Description: "Reference to token storage"},
 	{Path: "data.set", Description: "Reference to a template set"},
@@ -41,6 +42,9 @@ var DependencyPaths = []PathConfig{
 	{Path: "data.security.policies", Description: "Direct security policies", AllowWildcard: true},
 	{Path: "data.security.groups", Description: "Direct security groups", AllowWildcard: true},
 	{Path: "data.security.token_store", Description: "Token store reference"},
+	// Contract binding dependencies - automatically detect contract and method references
+	{Path: "data.contracts.*.contract", Description: "Contract definition references in bindings", AllowWildcard: true},
+	{Path: "data.contracts.*.methods.*", Description: "Method implementation function references in bindings", AllowWildcard: true},
 }
 
 func extractDependenciesInternal(data any) []string {
@@ -173,11 +177,25 @@ func removeDuplicates(slice []string) []string {
 	return unique
 }
 
+func filterEmptyStrings(slice []string) []string {
+	if len(slice) == 0 {
+		return slice
+	}
+
+	var result []string
+	for _, s := range slice {
+		if s != "" {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
 func fetchDependencies(entry registry.Entry) []string {
 	combinedData := make(map[string]any)
 
 	if len(entry.Meta) > 0 {
-		combinedData["meta"] = entry.Meta
+		combinedData["meta"] = map[string]any(entry.Meta)
 	}
 
 	if entry.Data != nil {
@@ -199,7 +217,8 @@ func fetchDependencies(entry registry.Entry) []string {
 	if entry.Meta != nil {
 		metaTagDeps := entry.Meta.TagValue(registry.TagDependsOn)
 		if len(metaTagDeps) > 0 {
-			rawDeps = append(rawDeps, metaTagDeps...)
+			filteredTagDeps := filterEmptyStrings(metaTagDeps)
+			rawDeps = append(rawDeps, filteredTagDeps...)
 		}
 	}
 

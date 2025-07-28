@@ -24,8 +24,6 @@ func TestRequestInsidePcall(t *testing.T) {
 		// Spawn a mock client that simulates network delay
 		mockClient := &mockHTTPClient{
 			doFunc: func(req *http.Request) (*http.Response, error) {
-				fmt.Println("DOING CALL")
-
 				// Simulate network delay
 				time.Sleep(50 * time.Millisecond)
 

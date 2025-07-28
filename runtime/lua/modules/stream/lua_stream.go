@@ -114,7 +114,6 @@ func NewLuaStream(uw engine.UnitOfWork, stream *Stream, onComplete context.Cance
 			luaStream.onComplete()
 			luaStream.onComplete = nil
 		}
-
 		return luaStream.Stream.Close()
 	})
 

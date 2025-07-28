@@ -16,7 +16,7 @@ func TestNewTaskCoordinator(t *testing.T) {
 	coordinator := newTaskCoordinator(10, nil)
 	require.NotNil(t, coordinator, "expected non-nil coordinator")
 	require.NotNil(t, coordinator.updates, "expected non-nil updates channel")
-	require.NotNil(t, coordinator.wakeup, "expected non-nil wakeup channel")
+	require.Nil(t, coordinator.wakeupFunc, "expected nil wakeup function when nil is passed")
 
 	// Test with wakeup function
 	wakeupFunc := func() {}
@@ -286,8 +286,10 @@ func TestTaskCoordinator_Wait(t *testing.T) {
 }
 
 func TestTaskCoordinator_WaitBlocking(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*3)
+	defer cancel()
+
 	coordinator := newTaskCoordinator(10, nil)
-	ctx := context.Background()
 
 	// Test blocking Wait with timeout
 	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)

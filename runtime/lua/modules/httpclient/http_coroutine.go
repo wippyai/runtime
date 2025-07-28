@@ -37,7 +37,10 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 	)
 
 	coroutine.Wrap(l, func() *engine.Update {
-		resp, err := m.client.Do(req)
+		// Get appropriate client based on timeout and unix socket
+		client := m.getClientForTimeout(opts.timeout, opts.unixSocket)
+
+		resp, err := client.Do(req)
 		if err != nil {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}

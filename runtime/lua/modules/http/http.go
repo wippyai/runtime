@@ -1,6 +1,9 @@
 package http
 
 import (
+	"sync"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -8,7 +11,9 @@ import (
 
 // Module represents the http Lua module
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 func getTransferConstants() map[string]string {
@@ -30,27 +35,100 @@ func (m *Module) Name() string {
 
 // Loader registers the module functions and constants
 func (m *Module) Loader(l *lua.LState) int {
-	// Spawn module table
-	mod := l.NewTable()
+	m.once.Do(func() {
+		m.initModuleTable(l)
+	})
 
-	// Register constants
-	m.registerConstants(l, mod)
+	l.Push(m.moduleTable)
+	return 1
+}
 
-	// a helper class is always needed
+// initModuleTable creates and initializes the module table once
+func (m *Module) initModuleTable(l *lua.LState) {
+	// Register stream helper (only once)
 	stream.RegisterStream(l)
 
-	// Register MultipartFile type
-	registerMultipartFile(l)
+	// Register all HTTP types with their methods (only once)
+	m.registerMultipartFileType(l)
+	m.registerRequestType(l)
+	m.registerResponseType(l)
 
-	// Register Request type and methods
-	registerRequest(l, mod)
+	// Create module table
+	mod := l.NewTable()
 
-	// Register Response type and methods
-	registerResponse(l, mod)
+	// Register constants with immutable tables
+	m.registerConstants(l, mod)
 
-	// Set the module
-	l.Push(mod)
-	return 1
+	// Register constructors
+	l.SetField(mod, "request", l.NewFunction(newRequest))
+	l.SetField(mod, "response", l.NewFunction(newResponse))
+
+	// Make the module table immutable so it can be safely reused
+	mod.Immutable = true
+
+	m.moduleTable = mod
+}
+
+// registerMultipartFileType registers the MultipartFile type and its methods
+func (m *Module) registerMultipartFileType(l *lua.LState) {
+	value.RegisterTypeMethods(l, "MultipartFile",
+		map[string]lua.LGFunction{
+			"__tostring": multipartFileToString,
+		},
+		map[string]lua.LGFunction{
+			"stream": multipartFileStream,
+			"size":   multipartFileSize,
+			"name":   multipartFileName,
+		},
+	)
+}
+
+// registerRequestType registers the Request type and its methods
+func (m *Module) registerRequestType(l *lua.LState) {
+	value.RegisterTypeMethods(l, "Request",
+		map[string]lua.LGFunction{
+			"__tostring": requestToString,
+		},
+		map[string]lua.LGFunction{
+			"method":          requestMethod,
+			"path":            requestPath,
+			"query":           requestQuery,
+			"query_params":    requestQueryAll,
+			"header":          requestHeader,
+			"content_type":    requestContentType,
+			"content_length":  requestContentLength,
+			"host":            requestHost,
+			"remote_addr":     requestRemoteAddr,
+			"body":            requestBody,
+			"body_json":       requestBodyJSON,
+			"has_body":        requestHasBody,
+			"accepts":         requestAccepts,
+			"is_content_type": requestIsContentType,
+			"stream":          requestStream,
+			"parse_multipart": requestParseMultipart,
+			"param":           requestParam,
+			"params":          requestParams,
+		},
+	)
+}
+
+// registerResponseType registers the Response type and its methods
+func (m *Module) registerResponseType(l *lua.LState) {
+	value.RegisterTypeMethods(l, "Response",
+		map[string]lua.LGFunction{
+			"__tostring": responseToString,
+		},
+		map[string]lua.LGFunction{
+			"set_status":       responseSetStatus,
+			"set_header":       responseSetHeader,
+			"write":            responseWrite,
+			"flush":            responseFlush,
+			"write_json":       responseWriteJSON,
+			"set_content_type": responseSetContentType,
+			"write_event":      responseWriteEvent,
+			"set_transfer":     responseSetTransfer,
+		},
+	)
 }
 
 // registerConstants registers all constant tables with explanatory comments
@@ -69,6 +147,7 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 	for name, value := range methods {
 		methodTbl.RawSetString(name, lua.LString(value))
 	}
+	methodTbl.Immutable = true
 	mod.RawSetString("METHOD", methodTbl)
 
 	// STATUS table - HTTP status codes
@@ -113,6 +192,7 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 	for name, value := range statuses {
 		statusTbl.RawSetString(name, lua.LNumber(value))
 	}
+	statusTbl.Immutable = true
 	mod.RawSetString("STATUS", statusTbl)
 
 	// CONTENT table - Content types
@@ -127,6 +207,7 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 	for name, val := range contentTypes {
 		contentTbl.RawSetString(name, lua.LString(val))
 	}
+	contentTbl.Immutable = true
 	mod.RawSetString("CONTENT", contentTbl)
 
 	// TRANSFER table - Transfer encoding types
@@ -135,6 +216,7 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 	for name, val := range transferConstants {
 		transferTbl.RawSetString(name, lua.LString(val))
 	}
+	transferTbl.Immutable = true
 	mod.RawSetString("TRANSFER", transferTbl)
 
 	// ERROR table - Error types
@@ -148,5 +230,6 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 	for name, val := range errorTypes {
 		errorTbl.RawSetString(name, lua.LString(val))
 	}
+	errorTbl.Immutable = true
 	mod.RawSetString("ERROR", errorTbl)
 }

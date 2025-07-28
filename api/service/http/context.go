@@ -66,3 +66,18 @@ func (h *RequestContext) MarkHandled() {
 func (h *RequestContext) ResponseHandled() bool {
 	return h.responseHandled
 }
+
+// SetRequest sets the HTTP request (for pooling)
+func (h *RequestContext) SetRequest(r *http.Request) {
+	h.r = r
+}
+
+// SetResponseWriter sets the HTTP response writer (for pooling)
+func (h *RequestContext) SetResponseWriter(w http.ResponseWriter) {
+	h.w = w
+}
+
+// ResetHandled resets the response handled flag (for pooling)
+func (h *RequestContext) ResetHandled() {
+	h.responseHandled = false
+}

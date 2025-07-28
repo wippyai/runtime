@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
@@ -46,7 +48,7 @@ func TestAsyncStreamRead(t *testing.T) {
 		luaStream := &LuaStream{Stream: stream}
 		ud := vm.State().NewUserData()
 		ud.Value = luaStream
-		vm.State().SetMetatable(ud, vm.State().GetTypeMetatable("Stream"))
+		vm.State().SetMetatable(ud, value.GetTypeMetatable(nil, "Stream"))
 		vm.State().SetGlobal("test_stream", ud)
 
 		// Imports test script with coroutines
@@ -132,7 +134,7 @@ func TestAsyncStreamIter(t *testing.T) {
 		luaStream := &LuaStream{Stream: stream}
 		ud := vm.State().NewUserData()
 		ud.Value = luaStream
-		vm.State().SetMetatable(ud, vm.State().GetTypeMetatable("Stream"))
+		vm.State().SetMetatable(ud, value.GetTypeMetatable(nil, "Stream"))
 		vm.State().SetGlobal("test_stream", ud)
 
 		// Imports test script with coroutines

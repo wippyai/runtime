@@ -152,7 +152,7 @@ func matchToLuaTable(l *lua.LState, query *treesitter.Query, match *treesitter.Q
 		// Spawn Node wrapper for the specific capture's node
 		nodeUD := l.NewUserData()
 		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &source}
-		l.SetMetatable(nodeUD, l.GetTypeMetatable("treesitter.Node"))
+		l.SetMetatable(nodeUD, value.GetTypeMetatable(nil, "treesitter.Node"))
 
 		captureTable.RawSetString("node", nodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))
@@ -222,7 +222,7 @@ func queryCaptures(l *lua.LState) int {
 		// Spawn Node wrapper
 		nodeUD := l.NewUserData()
 		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &source}
-		nodeUD.Metatable = l.GetTypeMetatable("treesitter.Node")
+		nodeUD.Metatable = value.GetTypeMetatable(nil, "treesitter.Node")
 
 		captureTable.RawSetString("node", nodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))

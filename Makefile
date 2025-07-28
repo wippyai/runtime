@@ -1,8 +1,8 @@
 run:
-	go run --tags "fts5 sqlite_vec" -race ./cmd/runner/main.go run -c config.json
+	go run --tags "fts5 sqlite_vec" -race ./cmd/runner/ run -c config.json
 
 debug:
-	dlv debug --build-flags "--tags=fts5,sqlite_vec -race" ./cmd/runner/main.go -- run -c config.json
+	dlv debug --build-flags "--tags=fts5,sqlite_vec -race" ./cmd/runner/ -- run -c config.json
 
 test-clean:
 	go clean -testcache
@@ -12,6 +12,7 @@ test:
 	go test ./api/... -v -race
 	go test ./system/... -v -race
 	go test ./service/... -v -race
+	go test ./cluster/... -v -race
 	go test --tags "fts5 sqlite_vec" ./runtime/... -v -race
 
 test-system:
@@ -29,6 +30,11 @@ test-service:
 	go test ./api/... -v -race
 	go test ./service/... -v -race
 
+test-cluster:
+	go test ./internal/... -v -race
+	go test ./api/... -v -race
+	go test ./cluster/... -v -race
+
 debug_vm:
 	dlv test --build-flags "--tags=fts5,sqlite_vec" -- test.v -test.run="^TestVM\$"
 
@@ -38,7 +44,7 @@ build-runner-all: build-runner-local build-runner-cross
 # Build for the local platform (always works)
 build-runner-local:
 	mkdir -p ./dist
-	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/main.go
+	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/
 
 # Cross-compilation targets (require appropriate toolchains)
 build-runner-cross: build-runner-check
@@ -59,23 +65,32 @@ build-runner-check:
 # Individual platform targets
 build-runner-linux-amd64:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-amd64 ./cmd/runner/main.go
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-amd64 ./cmd/runner/
 
 build-runner-linux-arm64:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-arm64 ./cmd/runner/main.go
+	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-arm64 ./cmd/runner/
 
-build-runner-darwin-amd64:
+# Build for M1 architecture on M1 Mac
+build-runner-darwin-arm64--on-M1:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 CC=o64-clang go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-amd64 ./cmd/runner/main.go
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 \
+	CC=clang \
+	go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-arm64 ./cmd/runner/
 
-build-runner-darwin-arm64:
+build-runner-darwin-amd64--on-M1:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 CC=oa64-clang go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-arm64 ./cmd/runner/main.go
+	arch -x86_64 env \
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 \
+	CC=clang \
+	CGO_CFLAGS="-I/usr/local/include" \
+	CGO_LDFLAGS="-L/usr/local/lib" \
+	go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-amd64 ./cmd/runner/
 
-build-runner-windows-amd64:
+# Build universal binary (both architectures)
+build-runner-darwin-universal--on-M1: build-runner-darwin-arm64--on-M1 build-runner-darwin-amd64--on-M1
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build --tags "fts5 sqlite_vec" -o ./dist/runner-windows-amd64.exe ./cmd/runner/main.go
+	lipo -create -output ./dist/runner-darwin-universal ./dist/runner-darwin-arm64 ./dist/runner-darwin-amd64
 
 # Build runner with embedded data (example: make build-runner-embed EMBED_DIR=/path/to/your/data)
 build-runner-embed:
@@ -84,7 +99,7 @@ build-runner-embed:
 	rm -rf ./embed/data/*
 	cp -r $(EMBED_DIR)/* ./embed/data/ 2>/dev/null || :
 	mkdir -p ./dist
-	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-embed-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/main.go
+	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-embed-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/
 
 lint-init:
 	# binary will be bin/golangci-lint
@@ -95,15 +110,16 @@ lint-init:
 lint:
 	bin/golangci-lint run
 
+mock:
+	go tool mockgen -destination tests/mock/identityv1connect/identityv1connect.go github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect OrganizationServiceClient
+	go tool mockgen -destination tests/mock/modulev1connect/modulev1connect.go github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect ModuleServiceClient,CommitServiceClient,LabelServiceClient,DownloadServiceClient
+	go tool mockgen -destination tests/mock/moduleloader/moduleloader.go github.com/ponyruntime/pony/moduleloader ManifestLoader
+
+
 # OpenTelemetry commands
 otel-up:
 	cd tests && docker-compose up -d --remove-orphans
 
 otel-down:
 	cd tests && docker-compose down
-
-mock:
-	go tool mockgen -destination tests/mock/identityv1connect/identityv1connect.go github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect OrganizationServiceClient
-	go tool mockgen -destination tests/mock/modulev1connect/modulev1connect.go github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect ModuleServiceClient,CommitServiceClient,LabelServiceClient,DownloadServiceClient
-	go tool mockgen -destination tests/mock/moduleloader/moduleloader.go github.com/ponyruntime/pony/moduleloader ManifestLoader
 

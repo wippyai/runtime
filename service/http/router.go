@@ -13,6 +13,38 @@ import (
 	httpapi "github.com/ponyruntime/pony/api/service/http"
 )
 
+// RouteInfoPool safely pools RouteInfo objects to reduce allocations
+var routeInfoPool = sync.Pool{
+	New: func() interface{} {
+		return &httpapi.RouteInfo{
+			Params: make(map[string]string, 2), // Max 2 params
+		}
+	},
+}
+
+// getRouteInfo gets a RouteInfo from pool and resets it
+func getRouteInfo() *httpapi.RouteInfo {
+	info := routeInfoPool.Get().(*httpapi.RouteInfo)
+
+	// Clear the map but keep the underlying storage
+	for k := range info.Params {
+		delete(info.Params, k)
+	}
+
+	// Reset other fields
+	info.Endpoint = registry.ID{}
+	info.Func = registry.ID{}
+
+	return info
+}
+
+// putRouteInfo returns RouteInfo to pool
+func putRouteInfo(info *httpapi.RouteInfo) {
+	if info != nil {
+		routeInfoPool.Put(info)
+	}
+}
+
 // RouteEntry represents a single route within a router
 type RouteEntry struct {
 	method  string
@@ -244,24 +276,25 @@ func (rm *RouteManager) Build() error {
 			// 3. Finally calls the original handler
 
 			finalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Get pooled RouteInfo
+				routeInfo := getRouteInfo()
+
+				// CRITICAL: Return to pool when request is done
+				defer putRouteInfo(routeInfo)
+
 				// Step 1: Extract URL parameters and add route context
 				chiRouteCtx := chi.RouteContext(r.Context())
-				params := make(map[string]string)
-
 				if chiRouteCtx != nil {
 					for i, key := range chiRouteCtx.URLParams.Keys {
 						if i < len(chiRouteCtx.URLParams.Values) {
-							params[key] = chiRouteCtx.URLParams.Values[i]
+							routeInfo.Params[key] = chiRouteCtx.URLParams.Values[i]
 						}
 					}
 				}
 
-				// Create route info
-				routeInfo := &httpapi.RouteInfo{
-					Params:   params,
-					Endpoint: routeID,
-					Func:     route.funcID,
-				}
+				// Set route metadata
+				routeInfo.Endpoint = routeID
+				routeInfo.Func = route.funcID
 
 				// Create request with updated context
 				r = r.WithContext(context.WithValue(r.Context(), httpapi.RouteCtx, routeInfo))

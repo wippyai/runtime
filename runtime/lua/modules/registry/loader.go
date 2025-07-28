@@ -149,7 +149,7 @@ func loaderLoadDirectory(l *lua.LState) int {
 	// Get variables table (optional)
 	varsTable := l.OptTable(3, l.CreateTable(0, 8))
 
-	// Convert Lua variables table to Go map
+	// Convert Lua variables table to Go map todo: remove
 	vars := makeVariables(varsTable)
 	if envCtx, ok := l.Context().Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); ok && envCtx != nil {
 		envCtx.Iterate(func(key string, value string) {

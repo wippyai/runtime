@@ -35,7 +35,7 @@ local function decrypt_session_pid(token)
     end
 
     -- Validate the PID format
-    if not pid:match("^{Antares@.+:.+|.+}$") then
+    if not pid:match("^{.+@.+:.+|.+}$") then
         return nil, "Malformed session identifier"
     end
 

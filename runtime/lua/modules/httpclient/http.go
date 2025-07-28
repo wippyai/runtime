@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -31,13 +32,20 @@ type Client interface {
 
 // Module implements HTTP client functionality for Lua runtime
 type Module struct {
-	log    *zap.Logger
-	client Client
+	log         *zap.Logger
+	client      Client
+	clientPool  *clientPool
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // NewHTTPClientModule creates a new HTTP module instance with the given client and logger
 func NewHTTPClientModule(log *zap.Logger, client Client) *Module {
-	return &Module{log: log, client: client}
+	return &Module{
+		log:        log,
+		client:     client,
+		clientPool: newClientPool(client),
+	}
 }
 
 // Name returns the module name
@@ -47,26 +55,35 @@ func (m *Module) Name() string {
 
 // Loader implements the module loader
 func (m *Module) Loader(l *lua.LState) int {
-	// Pre-allocate table with exact capacity needed
-	mod := l.CreateTable(0, 10) // 10 functions will be added
+	// Create module table once and cache it
+	m.once.Do(func() {
+		// Pre-allocate table with exact capacity needed
+		mod := l.CreateTable(0, 10) // 10 functions will be added
 
-	// Directly register functions instead of using SetFuncs
-	mod.RawSetString("get", l.NewFunction(m.makeMethod("GET")))
-	mod.RawSetString("post", l.NewFunction(m.makeMethod("POST")))
-	mod.RawSetString("put", l.NewFunction(m.makeMethod("PUT")))
-	mod.RawSetString("delete", l.NewFunction(m.makeMethod("DELETE")))
-	mod.RawSetString("head", l.NewFunction(m.makeMethod("HEAD")))
-	mod.RawSetString("patch", l.NewFunction(m.makeMethod("PATCH")))
-	mod.RawSetString("request", l.NewFunction(m.request))
-	mod.RawSetString("request_batch", l.NewFunction(m.requestBatch))
-	mod.RawSetString("encode_uri", l.NewFunction(encodeURI))
-	mod.RawSetString("decode_uri", l.NewFunction(decodeURI))
+		// Directly register functions instead of using SetFuncs
+		mod.RawSetString("get", l.NewFunction(m.makeMethod("GET")))
+		mod.RawSetString("post", l.NewFunction(m.makeMethod("POST")))
+		mod.RawSetString("put", l.NewFunction(m.makeMethod("PUT")))
+		mod.RawSetString("delete", l.NewFunction(m.makeMethod("DELETE")))
+		mod.RawSetString("head", l.NewFunction(m.makeMethod("HEAD")))
+		mod.RawSetString("patch", l.NewFunction(m.makeMethod("PATCH")))
+		mod.RawSetString("request", l.NewFunction(m.request))
+		mod.RawSetString("request_batch", l.NewFunction(m.requestBatch))
+		mod.RawSetString("encode_uri", l.NewFunction(encodeURI))
+		mod.RawSetString("decode_uri", l.NewFunction(decodeURI))
 
-	// Register response type
-	registerHTTPResponseType(mod, l)
+		// Make the table immutable so it can be safely reused
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+
+	// Register response type using value helper
+	value.RegisterMetamethods(l, "http.response", map[string]lua.LGFunction{
+		"__index": httpResponseIndex,
+	})
 	stream.RegisterStream(l)
 
-	l.Push(mod)
+	l.Push(m.moduleTable)
 	return 1
 }
 
@@ -79,14 +96,22 @@ func (m *Module) makeMethod(method string) lua.LGFunction {
 			return 0
 		}
 
-		if !security.IsAllowed(l.Context(), "http_client.request", url, nil) {
-			l.RaiseError("not allowed to make request to: %s", url)
-			return 0
-		}
-
 		opts, err := getOptionsFromArgs(l, 2)
 		if err != nil {
 			l.ArgError(2, err.Error())
+			return 0
+		}
+
+		// Check Unix socket security permission
+		if opts.unixSocket != "" {
+			if !security.IsAllowed(l.Context(), "http_client.unix_socket", opts.unixSocket, nil) {
+				l.RaiseError("not allowed to connect to Unix socket: %s", opts.unixSocket)
+				return 0
+			}
+		}
+
+		if !security.IsAllowed(l.Context(), "http_client.request", url, nil) {
+			l.RaiseError("not allowed to make request to: %s", url)
 			return 0
 		}
 
@@ -124,6 +149,19 @@ func (m *Module) request(l *lua.LState) int {
 		return 0
 	}
 
+	// Check Unix socket security permission
+	if opts.unixSocket != "" {
+		if !security.IsAllowed(l.Context(), "http_client.unix_socket", opts.unixSocket, nil) {
+			l.RaiseError("not allowed to connect to Unix socket: %s", opts.unixSocket)
+			return 0
+		}
+	}
+
+	if !security.IsAllowed(l.Context(), "http_client.request", url, nil) {
+		l.RaiseError("not allowed to make request to: %s", url)
+		return 0
+	}
+
 	req, err := makeRequest(method, url, opts)
 	if err != nil {
 		// Consider using a more generic error message here
@@ -134,23 +172,13 @@ func (m *Module) request(l *lua.LState) int {
 	if engine.IsCoroutineVM(l) {
 		return m.executeRequestYield(l, req, opts)
 	}
+
 	return m.executeRequest(l, req, opts)
 }
 
-// getClientForTimeout returns appropriate client based on timeout
-func (m *Module) getClientForTimeout(timeout time.Duration) Client {
-	// Use custom client if timeout exceeds default idle timeout (90s)
-	if timeout > 90*time.Second {
-		transport := &http.Transport{
-			IdleConnTimeout:       timeout + 30*time.Second, // timeout + buffer
-			MaxIdleConns:          100,
-			MaxIdleConnsPerHost:   2,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		}
-		return &http.Client{Transport: transport}
-	}
-	return m.client
+// getClientForTimeout returns appropriate client from the pool
+func (m *Module) getClientForTimeout(timeout time.Duration, unixSocket string) Client {
+	return m.clientPool.GetClient(timeout, unixSocket)
 }
 
 // executeRequest performs the actual HTTP request
@@ -171,8 +199,8 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 
 	req = req.WithContext(ctx)
 
-	// Get appropriate client based on timeout
-	client := m.getClientForTimeout(opts.timeout)
+	// Get appropriate client from the pool
+	client := m.getClientForTimeout(opts.timeout, opts.unixSocket)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -286,15 +314,23 @@ func (m *Module) requestBatch(l *lua.LState) int {
 			return
 		}
 
-		if !security.IsAllowed(l.Context(), "http_client.request", url.String(), nil) {
-			l.ArgError(1, "not allowed to make request to: "+url.String())
-			return
-		}
-
 		optionsValue := reqTable.RawGet(lua.LNumber(3))
 		opts, err := parseOptions(optionsValue)
 		if err != nil {
 			l.ArgError(1, err.Error())
+			return
+		}
+
+		// Check Unix socket security permission
+		if opts.unixSocket != "" {
+			if !security.IsAllowed(l.Context(), "http_client.unix_socket", opts.unixSocket, nil) {
+				l.ArgError(1, "not allowed to connect to Unix socket: "+opts.unixSocket)
+				return
+			}
+		}
+
+		if !security.IsAllowed(l.Context(), "http_client.request", url.String(), nil) {
+			l.ArgError(1, "not allowed to make request to: "+url.String())
 			return
 		}
 
@@ -347,8 +383,8 @@ func (m *Module) requestBatch(l *lua.LState) int {
 				}
 			}()
 
-			// Get appropriate client based on timeout
-			client := m.getClientForTimeout(reqInfo.options.timeout)
+			// Get appropriate client from the pool
+			client := m.getClientForTimeout(reqInfo.options.timeout, reqInfo.options.unixSocket)
 
 			resp, err := client.Do(reqInfo.request)
 			if err != nil {
@@ -368,8 +404,8 @@ func (m *Module) requestBatch(l *lua.LState) int {
 	}
 
 	// Collect results
-	responsesTable := l.NewTable()
-	errorsTable := l.NewTable()
+	responsesTable := l.CreateTable(count, 0) // Pre-allocate for exact array size
+	errorsTable := l.CreateTable(count, 0)    // Pre-allocate for exact array size
 	hasErrors := false
 
 	for i := 0; i < count; i++ {

@@ -1,6 +1,8 @@
 package ctx
 
 import (
+	"sync"
+
 	ctxapi "github.com/ponyruntime/pony/api/context" // Spawn sure this import path is correct
 	transcoder "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
@@ -9,7 +11,9 @@ import (
 
 // Module (ctx) gets or sets a context value found by a given key.
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // NewCtxModule creates a new context module with the specified logger.
@@ -27,13 +31,19 @@ func (m *Module) Name() string {
 // Loader is the entry point for loading the module into Lua.
 // It registers the get, set, and all functions into the Lua state.
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.CreateTable(0, 3) // Now 3 functions: get, set, and all
+	// Create module table once and cache it
+	m.once.Do(func() {
+		t := l.CreateTable(0, 3) // Now 3 functions: get, set, and all
 
-	t.RawSetString("get", l.NewFunction(m.get))
-	t.RawSetString("set", l.NewFunction(m.set))
-	t.RawSetString("all", l.NewFunction(m.all))
+		t.RawSetString("get", l.NewFunction(m.get))
+		t.RawSetString("set", l.NewFunction(m.set))
+		t.RawSetString("all", l.NewFunction(m.all))
 
-	l.Push(t)
+		t.Immutable = true
+		m.moduleTable = t
+	})
+
+	l.Push(m.moduleTable)
 	return 1
 }
 

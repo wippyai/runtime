@@ -26,6 +26,7 @@ go.work.sum
 .env
 .DS_Store
 app/data
+/dist/
 
 dist/
 /bin/

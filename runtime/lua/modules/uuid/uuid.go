@@ -3,13 +3,17 @@ package uuid
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // Module represents a UUID Lua module.
-type Module struct{}
+type Module struct {
+	moduleTable *lua.LTable
+	once        sync.Once
+}
 
 // NewUUIDModule creates and returns a new instance of the UUID Module.
 func NewUUIDModule() *Module {
@@ -23,23 +27,35 @@ func (m *Module) Name() string {
 
 // Loader registers the module's functions into Lua state.
 func (m *Module) Loader(l *lua.LState) int {
+	m.once.Do(func() {
+		m.initModuleTable(l)
+	})
+
+	l.Push(m.moduleTable)
+	return 1
+}
+
+// initModuleTable creates and initializes the module table once
+func (m *Module) initModuleTable(l *lua.LState) {
 	// Create a module table with exact pre-allocated size
-	mod := l.CreateTable(0, 10) // Exactly 10 functions
+	t := l.CreateTable(0, 10) // Exactly 10 functions
 
 	// Register functions using RawSetString for better performance
-	mod.RawSetString("v1", l.NewFunction(m.v1))
-	mod.RawSetString("v3", l.NewFunction(m.v3))
-	mod.RawSetString("v4", l.NewFunction(m.v4))
-	mod.RawSetString("v5", l.NewFunction(m.v5))
-	mod.RawSetString("v7", l.NewFunction(m.v7))
-	mod.RawSetString("validate", l.NewFunction(m.validate))
-	mod.RawSetString("version", l.NewFunction(m.version))
-	mod.RawSetString("variant", l.NewFunction(m.variant))
-	mod.RawSetString("parse", l.NewFunction(m.parse))
-	mod.RawSetString("format", l.NewFunction(m.format))
+	t.RawSetString("v1", l.NewFunction(m.v1))
+	t.RawSetString("v3", l.NewFunction(m.v3))
+	t.RawSetString("v4", l.NewFunction(m.v4))
+	t.RawSetString("v5", l.NewFunction(m.v5))
+	t.RawSetString("v7", l.NewFunction(m.v7))
+	t.RawSetString("validate", l.NewFunction(m.validate))
+	t.RawSetString("version", l.NewFunction(m.version))
+	t.RawSetString("variant", l.NewFunction(m.variant))
+	t.RawSetString("parse", l.NewFunction(m.parse))
+	t.RawSetString("format", l.NewFunction(m.format))
 
-	l.Push(mod)
-	return 1
+	// Make the table immutable so it can be safely reused
+	t.Immutable = true
+
+	m.moduleTable = t
 }
 
 // v4 generates a random UUID.

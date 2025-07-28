@@ -9,6 +9,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -69,22 +70,20 @@ func registerStatement(l *lua.LState, _ *zap.Logger) {
 
 // stmtQuery executes a prepared query and returns rows
 func stmtQuery(l *lua.LState) int {
-	ctx := l.Context()
-
-	// Check and get statement.
+	// Check and get statement
 	stmt := CheckStatement(l)
 	if stmt == nil {
 		return 0
 	}
 
-	// Return an error if the statement has been closed.
+	// Return an error if the statement has been closed
 	if stmt.closed {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("statement is closed"))
 		return 2
 	}
 
-	// Get parameters.
+	// Get parameters
 	params, err := sqlutil.CheckParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -92,71 +91,82 @@ func stmtQuery(l *lua.LState) int {
 		return 2
 	}
 
-	var rows *sql.Rows
+	coroutine.Wrap(l, func() *engine.Update {
+		ctx := l.Context()
+		var rows *sql.Rows
 
-	// Serve query with appropriate parameter style.
-	switch p := params.(type) {
-	case nil:
-		rows, err = stmt.stmt.QueryContext(ctx)
-	case []interface{}:
-		rows, err = stmt.stmt.QueryContext(ctx, p...)
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
-		return 2
-	}
+		// Serve query with appropriate parameter style
+		switch p := params.(type) {
+		case nil:
+			rows, err = stmt.stmt.QueryContext(ctx)
+		case []interface{}:
+			rows, err = stmt.stmt.QueryContext(ctx, p...)
+		default:
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("unsupported parameter type: %T", params))},
+				nil,
+			)
+		}
 
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
 
-	var resultTable *lua.LTable
-	err = func() error {
-		defer func() {
-			closeErr := rows.Close()
-			if closeErr != nil {
-				stmt.log.Error("failed to close rows", zap.Error(closeErr))
-				if err == nil {
-					err = closeErr
+		var resultTable *lua.LTable
+		err = func() error {
+			defer func() {
+				closeErr := rows.Close()
+				if closeErr != nil {
+					stmt.log.Error("failed to close rows", zap.Error(closeErr))
+					if err == nil {
+						err = closeErr
+					}
 				}
-			}
+			}()
+			var tableErr error
+			resultTable, tableErr = sqlutil.RowsToTable(l, rows)
+			return tableErr
 		}()
-		var tableErr error
-		resultTable, tableErr = sqlutil.RowsToTable(l, rows)
-		return tableErr
-	}()
 
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
 
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{resultTable, lua.LNil},
+			nil,
+		)
+	})
+
+	return -1
 }
 
 // stmtExecute executes a prepared statement that doesn't return rows
 func stmtExecute(l *lua.LState) int {
-	ctx := l.Context()
-
-	// Check and get statement.
+	// Check and get statement
 	stmt := CheckStatement(l)
 	if stmt == nil {
 		return 0
 	}
 
-	// Return an error if the statement has been closed.
+	// Return an error if the statement has been closed
 	if stmt.closed {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("statement is closed"))
 		return 2
 	}
 
-	// Get parameters.
+	// Get parameters
 	params, err := sqlutil.CheckParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -164,42 +174,54 @@ func stmtExecute(l *lua.LState) int {
 		return 2
 	}
 
-	var result sql.Result
+	coroutine.Wrap(l, func() *engine.Update {
+		ctx := l.Context()
+		var result sql.Result
 
-	// Serve with appropriate parameter style.
-	switch p := params.(type) {
-	case nil:
-		result, err = stmt.stmt.ExecContext(ctx)
-	case []interface{}:
-		result, err = stmt.stmt.ExecContext(ctx, p...)
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
-		return 2
-	}
+		// Serve with appropriate parameter style
+		switch p := params.(type) {
+		case nil:
+			result, err = stmt.stmt.ExecContext(ctx)
+		case []interface{}:
+			result, err = stmt.stmt.ExecContext(ctx, p...)
+		default:
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(fmt.Sprintf("unsupported parameter type: %T", params))},
+				nil,
+			)
+		}
 
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+		if err != nil {
+			return engine.NewUpdate(
+				l,
+				[]lua.LValue{lua.LNil, lua.LString(err.Error())},
+				nil,
+			)
+		}
 
-	// Convert result to Lua table.
-	resultTable := sqlutil.ResultToTable(l, result)
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
+		// Convert result to Lua table
+		resultTable := sqlutil.ResultToTable(l, result)
+
+		return engine.NewUpdate(
+			l,
+			[]lua.LValue{resultTable, lua.LNil},
+			nil,
+		)
+	})
+
+	return -1
 }
 
 // stmtClose closes a prepared statement
 func stmtClose(l *lua.LState) int {
-	// Check and get statement.
+	// Check and get statement
 	stmt := CheckStatement(l)
 	if stmt == nil {
 		return 0
 	}
 
-	// If already closed, return error.
+	// If already closed, return error
 	if stmt.closed {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("statement is already closed"))

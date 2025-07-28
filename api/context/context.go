@@ -19,6 +19,4 @@ var (
 	ValuesCtx = &Key{Name: "values"}
 	// WakeUpKey represents a callback that can be used to notify process host about async process activity
 	WakeUpKey = &Key{Name: "wakeup"}
-	// TerminalCtx represents the terminal manager context key
-	TerminalCtx = &Key{Name: "terminal"}
 )

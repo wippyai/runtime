@@ -3,6 +3,7 @@ package processmod
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/topology"
@@ -10,20 +11,22 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	processbase "github.com/ponyruntime/pony/runtime/lua/modules/process"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
 // Channel context keys for UoW storage
 var (
-	inboxChannel = &context.Key{Name: "process.channel.inbox"}
-
+	inboxChannel  = &context.Key{Name: "process.channel.inbox"}
 	eventsChannel = &context.Key{Name: "process.channel.events"}
 )
 
 // Module provides pubsub-based inbox and channel functionality for long-running processes
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // NewProcessAPIModule creates a new pubsub-based inbox module
@@ -40,27 +43,27 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	// Get the existing process module from global scope
-	v := l.GetGlobal("process")
-	if v.Type() != lua.LTTable {
-		m.log.Error("process table not found")
-		return 0
-	}
+	m.once.Do(func() {
+		// Get the process module to create base table
+		processModule := processbase.NewProcessAPIModule(m.log)
 
-	// Get process table
-	processTable := v.(*lua.LTable)
+		// Create fresh mutable base table with all core process functions
+		mod := processModule.NewProcessTable(l)
 
-	// Register process-specific methods
-	processTable.RawSetString("inbox", l.NewFunction(m.inbox))
-	processTable.RawSetString("events", l.NewFunction(m.events))
-	processTable.RawSetString("listen", l.NewFunction(m.listen))
+		// Add process-specific methods to the base table
+		mod.RawSetString("inbox", l.NewFunction(m.inbox))
+		mod.RawSetString("events", l.NewFunction(m.events))
+		mod.RawSetString("listen", l.NewFunction(m.listen))
+		mod.RawSetString("get_options", l.NewFunction(m.getOptions))
+		mod.RawSetString("set_options", l.NewFunction(m.setOptions))
 
-	// Add our methods to the process table
-	processTable.RawSetString("get_options", l.NewFunction(m.getOptions))
-	processTable.RawSetString("set_options", l.NewFunction(m.setOptions))
+		// Make immutable for reuse across all processes
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
 
-	// No need to return anything as we're modifying the global module
-	return 0
+	l.Push(m.moduleTable)
+	return 1
 }
 
 // getOptions retrieves current process options from UoW

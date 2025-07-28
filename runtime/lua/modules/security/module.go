@@ -1,10 +1,13 @@
 package security
 
 import (
+	"sync"
+
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	secapi "github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	securityapi "github.com/ponyruntime/pony/runtime/lua/security"
 	"github.com/ponyruntime/pony/system/security"
 	lua "github.com/yuin/gopher-lua"
@@ -13,7 +16,9 @@ import (
 
 // Module represents the security module for Lua
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // NewSecurityModule creates a new security module
@@ -30,31 +35,41 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	// Create module table with preallocated size
-	mod := l.CreateTable(0, 9)
+	m.once.Do(func() {
+		m.initModuleTable(l)
+	})
 
-	// Register context-related functions
-	mod.RawSetString("actor", l.NewFunction(m.actor))
-	mod.RawSetString("scope", l.NewFunction(m.scope))
-	mod.RawSetString("can", l.NewFunction(m.can))
+	l.Push(m.moduleTable)
+	return 1
+}
 
-	// Register policy and scope functions
-	mod.RawSetString("policy", l.NewFunction(m.policy))
-	mod.RawSetString("named_scope", l.NewFunction(m.namedScope))
-	mod.RawSetString("new_scope", l.NewFunction(m.newScope))
-	mod.RawSetString("new_actor", l.NewFunction(m.newActor))
-
-	mod.RawSetString("token_store", l.NewFunction(m.tokenStore))
-
-	// Register types and their methods
+// initModuleTable creates and initializes the module table once
+func (m *Module) initModuleTable(l *lua.LState) {
+	// Register types and their methods (only once)
 	registerActorType(l)
 	registerScopeType(l)
 	registerPolicyType(l)
 	registerTokenStoreType(l)
 
-	// Return the module
-	l.Push(mod)
-	return 1
+	// Create module table with preallocated size
+	t := l.CreateTable(0, 8)
+
+	// Register context-related functions
+	t.RawSetString("actor", l.NewFunction(m.actor))
+	t.RawSetString("scope", l.NewFunction(m.scope))
+	t.RawSetString("can", l.NewFunction(m.can))
+
+	// Register policy and scope functions
+	t.RawSetString("policy", l.NewFunction(m.policy))
+	t.RawSetString("named_scope", l.NewFunction(m.namedScope))
+	t.RawSetString("new_scope", l.NewFunction(m.newScope))
+	t.RawSetString("new_actor", l.NewFunction(m.newActor))
+	t.RawSetString("token_store", l.NewFunction(m.tokenStore))
+
+	// Make the table immutable so it can be safely reused
+	t.Immutable = true
+
+	m.moduleTable = t
 }
 
 // Actor retrieves the current actor from context
@@ -251,4 +266,41 @@ func (m *Module) tokenStore(l *lua.LState) int {
 	l.Push(tokenStoreUD)
 	l.Push(lua.LNil)
 	return 2
+}
+
+// registerActorType registers the Actor type and methods
+func registerActorType(l *lua.LState) {
+	value.RegisterMethods(l, ActorMetatable, map[string]lua.LGFunction{
+		"id":   actorID,
+		"meta": actorMeta,
+	})
+}
+
+// registerPolicyType registers the Policy type and methods
+func registerPolicyType(l *lua.LState) {
+	value.RegisterMethods(l, PolicyMetatable, map[string]lua.LGFunction{
+		"id":       policyID,
+		"evaluate": policyEvaluate,
+	})
+}
+
+// registerScopeType registers the Scope type and methods
+func registerScopeType(l *lua.LState) {
+	value.RegisterMethods(l, ScopeMetatable, map[string]lua.LGFunction{
+		"with":     scopeWith,
+		"without":  scopeWithout,
+		"evaluate": scopeEvaluate,
+		"contains": scopeContains,
+		"policies": scopePolicies,
+	})
+}
+
+// registerTokenStoreType registers the TokenStore type and methods
+func registerTokenStoreType(l *lua.LState) {
+	value.RegisterMethods(l, TokenStoreMetatable, map[string]lua.LGFunction{
+		"validate": tokenStoreValidate,
+		"create":   tokenStoreCreate,
+		"revoke":   tokenStoreRevoke,
+		"close":    tokenStoreClose,
+	})
 }

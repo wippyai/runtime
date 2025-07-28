@@ -223,14 +223,17 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 		Host:   function.HostID,
 		ID:     task.ID,
 		UniqID: f.uniqID.Generate(),
-	}
+	}.Precomputed()
+
+	// --- todo: we need to add proper layers for CTX to avoid so many ctx spans
 	ctx = pubsub.WithHost(ctx, f.host)
 	ctx = pubsub.WithPID(ctx, pid)
 	ctx = interceptor.WithOptions(ctx, options)
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	// defer cancel()
 
 	ctx = interceptor.WithCancel(ctx, cancel)
+	// ---
 
 	interceptorsRegistry := interceptor.GetInterceptors(ctx)
 	if interceptorsRegistry != nil {
@@ -240,7 +243,7 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 			task,
 		)
 		if err != nil {
-			f.logger.Error("interceptor chain execution failed",
+			f.logger.Debug("interceptor chain execution failed",
 				zap.String("function", task.ID.String()),
 				zap.String("pid", pid.String()),
 				zap.Error(err))

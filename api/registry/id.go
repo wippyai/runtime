@@ -2,21 +2,31 @@ package registry
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 )
 
+// ID uniquely identifies a registry entry by namespace and name
+type ID struct {
+	// NS is the namespace of the entry
+	NS Namespace `json:"ns"`
+	// Name is the unique identifier within the namespace
+	Name Name `json:"name"`
+}
+
 func (t ID) String() string {
-	return fmt.Sprintf("%s:%s", t.NS, t.Name)
+	return t.NS + ":" + t.Name
 }
 
 // MarshalJSON implements the json.Marshaler interface.
-// It serializes the ID as a string in the format "namespace:name" or just "name" if namespace is empty.
+// Fixed to use simple concatenation instead of pool
 func (t ID) MarshalJSON() ([]byte, error) {
 	if t.NS == "" {
 		return json.Marshal(t.Name)
 	}
-	return json.Marshal(fmt.Sprintf("%s:%s", t.NS, t.Name))
+
+	// Simple string concatenation - much faster than pool
+	str := t.NS + ":" + t.Name
+	return json.Marshal(str)
 }
 
 // WithDefaultNS returns a new ID with the given default namespace if one is not already set.
@@ -35,19 +45,19 @@ func (t ID) WithDefaultNS(defaultNS Namespace) ID {
 // For "namespace:name" format, the first colon is used as the separator.
 // For "name-only" format, an empty namespace is used.
 func ParseID(s string) ID {
-	// Split on first colon
-	parts := strings.SplitN(s, ":", 2)
-	if len(parts) == 1 {
-		// Alias-only format
+	// Fast path: find first colon using IndexByte (faster than strings.SplitN)
+	if idx := strings.IndexByte(s, ':'); idx != -1 {
+		// Has colon - parse as ns:name
 		return ID{
-			NS:   "",
-			Name: parts[0],
+			NS:   s[:idx],
+			Name: s[idx+1:],
 		}
 	}
-	// Has colon - parse as ns:name
+
+	// Name-only format
 	return ID{
-		NS:   parts[0],
-		Name: parts[1],
+		NS:   "",
+		Name: s,
 	}
 }
 
@@ -59,17 +69,17 @@ func (t *ID) UnmarshalJSON(data []byte) error {
 			return err
 		}
 
-		// Handle string format - split on first colon
-		parts := strings.SplitN(s, ":", 2)
-		if len(parts) == 1 {
-			// Alias-only format
-			t.NS = ""
-			t.Name = parts[0]
+		// Fast path: find first colon using IndexByte
+		if idx := strings.IndexByte(s, ':'); idx != -1 {
+			// Has colon - parse as ns:name
+			t.NS = s[:idx]
+			t.Name = s[idx+1:]
 			return nil
 		}
-		// Has colon - parse as ns:name
-		t.NS = parts[0]
-		t.Name = parts[1]
+
+		// Name-only format
+		t.NS = ""
+		t.Name = s
 		return nil
 	}
 
