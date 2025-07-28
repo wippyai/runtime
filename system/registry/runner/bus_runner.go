@@ -63,7 +63,7 @@ func (br *BusRunner) Transition(
 		newState, err := br.applyOperation(ctx, currentState, op)
 		if err != nil {
 			if ctx.Err() != nil {
-				br.log.Error("context cancelled during operation",
+				br.log.Error("context canceled during operation",
 					zap.Int("operation_index", i),
 					zap.String("operation_kind", op.Kind),
 					zap.String("entry_id", op.Entry.ID.String()),

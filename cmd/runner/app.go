@@ -401,16 +401,6 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	appCtx = apiinterceptor.WithInterceptor(appCtx, a.interceptor)
 	appCtx = contract.WithServices(appCtx, a.contractRegistry, a.contractInstantiator)
 
-	// Add environment context
-	envCtx := ctxapi.NewContexter[string]()
-	for _, en := range os.Environ() {
-		pair := strings.SplitN(en, "=", 2)
-		if len(pair) == 2 {
-			envCtx.SetValue(pair[0], pair[1])
-		}
-	}
-	appCtx = context.WithValue(appCtx, ctxapi.EnvCtx, envCtx)
-
 	// Start service router FIRST - before core services
 	// This ensures event handlers are registered before services start processing events
 	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
