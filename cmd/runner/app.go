@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/api/cluster"
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/contract"
 	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
@@ -31,6 +30,7 @@ import (
 	topapi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/cluster/internode"
 	"github.com/ponyruntime/pony/cluster/membership"
+	"github.com/ponyruntime/pony/dependsadjuster"
 	"github.com/ponyruntime/pony/embed"
 	"github.com/ponyruntime/pony/moduleloader"
 	"github.com/ponyruntime/pony/requirementresolver"
@@ -695,17 +695,10 @@ func loadApplicationState(
 	mainLogger *zap.Logger,
 ) (regapi.ChangeSet, func(), error) {
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
-		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
 	))
 
-	vars := interpolate.Variables{}
-	for _, en := range os.Environ() {
-		pair := strings.SplitN(en, "=", 2)
-		vars[pair[0]] = pair[1]
-	}
-
-	// Initialize OpenTelemetry
+	// Initialize OpenTelemetry from ENV variables
 	cleanup, err := initOpenTelemetry(
 		context.Background(),
 		os.Getenv("OTEL_ENDPOINT"),
@@ -717,7 +710,7 @@ func loadApplicationState(
 		mainLogger.Error("failed to initialize OpenTelemetry", zap.Error(err))
 	}
 
-	entries, err := folderLoader.LoadFS(fs, vars)
+	entries, err := folderLoader.LoadFS(ctx, fs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load entries: %w", err)
 	}
@@ -738,7 +731,7 @@ func loadApplicationState(
 			return nil, nil, fmt.Errorf("open vendor folder: %w", err)
 		}
 
-		dependencyEntries, err := folderLoader.LoadFS(vendorDir.FS(), vars)
+		dependencyEntries, err := folderLoader.LoadFS(ctx, vendorDir.FS())
 		if err != nil {
 			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}
@@ -747,6 +740,13 @@ func loadApplicationState(
 
 	resolver := requirementresolver.NewResolver(mainLogger.Named("requirement-resolver"))
 	entries, err = resolver.ResolveModuleDefinitions(entries)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// update here
+	dependsOnAdjuster := dependsadjuster.NewAdjuster(mainLogger.Named("dependson-adjuster"))
+	entries, err = dependsOnAdjuster.Adjust(entries)
 	if err != nil {
 		return nil, nil, err
 	}

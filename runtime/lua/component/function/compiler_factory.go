@@ -65,17 +65,20 @@ func (f *Factory) CreateVM() (api.VM, error) {
 	}
 
 	// Create and return VM using the factory
-	// FIXME somewhy err ignored
-	//nolint:staticcheck // ok for now
 	vm, err := realFactory.CreateVM()
-	if err := realFactory.Close(); err != nil {
-		// FIXME always true
-		//nolint:staticcheck // ok for now
-		if vm != nil {
-			vm.Close()
+	if err != nil {
+		// Close the factory even if VM creation failed
+		if closeErr := realFactory.Close(); closeErr != nil {
+			f.log.Warn("failed to close runner after VM creation error", zap.Error(closeErr))
 		}
+		return nil, fmt.Errorf("failed to create VM: %w", err)
+	}
+
+	// Close the factory after successful VM creation
+	if err := realFactory.Close(); err != nil {
+		vm.Close()
 		return nil, fmt.Errorf("failed to close runner: %w", err)
 	}
 
-	return vm, err
+	return vm, nil
 }

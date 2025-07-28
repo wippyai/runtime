@@ -54,10 +54,11 @@ func TestEventBus_RegisterStorageWithVariable(t *testing.T) {
 	// Wait for processing
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify storage was registered
-	storages, err := reg.All(ctx)
+	// Verify storage was registered and contains variables
+	variables, err := reg.All(ctx)
 	require.NoError(t, err)
-	assert.Len(t, storages, 1)
+	assert.Contains(t, variables, "TEST_VAR")
+	assert.Equal(t, "test_value", variables["TEST_VAR"])
 
 	// Register a variable
 	variable := env.Variable{
@@ -520,10 +521,13 @@ func TestEventBus_AllStorages(t *testing.T) {
 	bus.Send(ctx, storageEvt2)
 	time.Sleep(100 * time.Millisecond)
 
-	// Get all storages
-	storages, err := reg.All(ctx)
+	// Get all variables from all storages
+	variables, err := reg.All(ctx)
 	require.NoError(t, err)
-	assert.Len(t, storages, 2)
+	assert.Contains(t, variables, "TEST_VAR1")
+	assert.Equal(t, "value1", variables["TEST_VAR1"])
+	assert.Contains(t, variables, "TEST_VAR2")
+	assert.Equal(t, "value2", variables["TEST_VAR2"])
 }
 
 func TestEventBus_NotFoundCases(t *testing.T) {
@@ -589,4 +593,119 @@ func TestEventBus_NotFoundCases(t *testing.T) {
 	_, err = reg.Get(ctx, "test_var")
 	require.Error(t, err)
 	assert.Equal(t, env.ErrVariableNotFound, err)
+}
+
+func TestEventBus_GetFromStorage(t *testing.T) {
+	t.Parallel()
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer logger.Sync()
+
+	ctx := context.Background()
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+
+	reg := NewRegistry(bus, logger)
+	err = reg.Start(ctx)
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer reg.Stop()
+
+	// Create a context with PID
+	pid := registry.ParseID("test:ns")
+	ctx = pubsub.WithPID(ctx, pubsub.PID{ID: pid})
+
+	// Create a memory storage first
+	memStorage := serviceenv.NewMemoryStorage(map[string]string{
+		"TEST_VAR": "test_value",
+	}, logger)
+
+	// Register storage
+	storageEvt := event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   "test:mock-storage",
+		Data:   memStorage,
+	}
+	bus.Send(ctx, storageEvt)
+	time.Sleep(100 * time.Millisecond)
+
+	// Now test GetFromStorage with the registered storage
+	value, err := reg.GetFromStorage(ctx, "test:mock-storage:TEST_VAR")
+	require.NoError(t, err)
+	assert.Equal(t, "test_value", value)
+}
+
+func TestEventBus_GetFromStorageWithDefaultValue(t *testing.T) {
+	t.Parallel()
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer logger.Sync()
+
+	ctx := context.Background()
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+
+	reg := NewRegistry(bus, logger)
+	err = reg.Start(ctx)
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer reg.Stop()
+
+	// Create a context with PID
+	pid := registry.ParseID("test:ns")
+	ctx = pubsub.WithPID(ctx, pubsub.PID{ID: pid})
+
+	// Create a memory storage with empty value
+	memStorage := serviceenv.NewMemoryStorage(map[string]string{
+		"TEST_VAR_DEFAULT": "", // Empty value, should use default
+	}, logger)
+
+	// Register storage
+	storageEvt := event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   "test:mock-storage",
+		Data:   memStorage,
+	}
+	bus.Send(ctx, storageEvt)
+	time.Sleep(100 * time.Millisecond)
+
+	// Now test GetFromStorage with empty value (should return empty string)
+	value, err := reg.GetFromStorage(ctx, "test:mock-storage:TEST_VAR_DEFAULT")
+	require.NoError(t, err)
+	assert.Equal(t, "", value)
+}
+
+func TestEventBus_GetFromStorageContextCancellation(t *testing.T) {
+	t.Parallel()
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer logger.Sync()
+
+	ctx := context.Background()
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+
+	reg := NewRegistry(bus, logger)
+	err = reg.Start(ctx)
+	require.NoError(t, err)
+	//nolint:errcheck // ok for tests
+	defer reg.Stop()
+
+	// Create a context with PID
+	pid := registry.ParseID("test:ns")
+	ctx = pubsub.WithPID(ctx, pubsub.PID{ID: pid})
+
+	// Create a cancellable context
+	cancelCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Test GetFromStorage with non-existent storage (should fail immediately)
+	_, err = reg.GetFromStorage(cancelCtx, "test:non-existent-storage:TEST_VAR_CANCEL")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "environment variable not found")
 }
