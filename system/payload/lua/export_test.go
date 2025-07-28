@@ -76,8 +76,14 @@ func TestExportLuaValue(t *testing.T) {
 		resultTable, ok := result.Data().(*lua.LTable)
 		assert.True(t, ok, "Result data is not a *lua.LTable")
 
-		// Verify that it's a deep copy, not the same table
-		assert.NotSame(t, tbl, resultTable, "Table should be copied, not referenced")
+		// Verify that the table is mutable (deep copy creates new mutable table)
+		assert.False(t, resultTable.Immutable, "Deep copied table should be mutable")
+
+		// Original table should remain unchanged and mutable
+		assert.False(t, tbl.Immutable, "Original table should remain mutable")
+
+		// Result should be a different object (deep copy)
+		assert.NotSame(t, tbl, resultTable, "Result should be a deep copy, not the same object")
 
 		// Verify array part
 		assert.Equal(t, lua.LString("one"), resultTable.RawGetInt(1))
@@ -87,15 +93,11 @@ func TestExportLuaValue(t *testing.T) {
 		// Verify hash part
 		assert.Equal(t, lua.LString("test"), resultTable.RawGetString("name"))
 
-		// Verify nested table (deep copy)
+		// Verify nested table is also mutable
 		nestedResult, ok := resultTable.RawGetString("nested").(*lua.LTable)
-		assert.True(t, ok, "Nested table not copied correctly")
+		assert.True(t, ok, "Nested table should exist")
+		assert.False(t, nestedResult.Immutable, "Nested table should be mutable")
 		assert.Equal(t, lua.LString("value"), nestedResult.RawGetString("key"))
-
-		// Verify that modifying the original doesn't affect the copy
-		l.SetTable(tbl, lua.LString("name"), lua.LString("modified"))
-		assert.Equal(t, lua.LString("test"), resultTable.RawGetString("name"),
-			"Modifying original should not affect the copy")
 	})
 
 	t.Run("Mixed table with sparse array", func(t *testing.T) {
@@ -116,6 +118,12 @@ func TestExportLuaValue(t *testing.T) {
 		assert.Equal(t, lua.LString("three"), resultTable.RawGetInt(3))
 		assert.Equal(t, lua.LString("ten"), resultTable.RawGetInt(10))
 		assert.Equal(t, lua.LString("value"), resultTable.RawGetString("key"))
+
+		// Verify mutability of the copy
+		assert.False(t, resultTable.Immutable, "Deep copied table should be mutable")
+
+		// Original should remain mutable
+		assert.False(t, tbl.Immutable, "Original table should remain mutable")
 	})
 
 	t.Run("Deeply nested tables", func(t *testing.T) {
@@ -123,9 +131,10 @@ func TestExportLuaValue(t *testing.T) {
 		result := ExportPayload(original)
 		resultTable, _ := result.Data().(*lua.LTable)
 
-		// Check the deep nesting
+		// Check the deep nesting and mutability
 		current := resultTable
 		for depth := 5; depth > 0; depth-- {
+			assert.False(t, current.Immutable, "Deep copied table at depth %d should be mutable", depth)
 			assert.Equal(t, lua.LNumber(depth), current.RawGetString("value"))
 
 			if depth > 1 {
@@ -134,6 +143,9 @@ func TestExportLuaValue(t *testing.T) {
 				current = next
 			}
 		}
+
+		// Original should remain mutable
+		assert.False(t, original.Immutable, "Original table should remain mutable")
 	})
 
 	t.Run("Userdata handling", func(t *testing.T) {
@@ -162,6 +174,9 @@ func TestExportLuaValue(t *testing.T) {
 
 		// Userdata should be replaced with nil
 		assert.Equal(t, lua.LNil, resultTable.RawGetString("userdata"))
+
+		// Deep copied table should be mutable
+		assert.False(t, resultTable.Immutable, "Deep copied table should be mutable")
 	})
 
 	t.Run("Large table performance", func(t *testing.T) {
@@ -186,7 +201,120 @@ func TestExportLuaValue(t *testing.T) {
 		assert.Equal(t, lua.LNumber(500), resultTable.RawGetInt(500))
 		assert.Equal(t, lua.LNumber(1000), resultTable.RawGetInt(1000))
 		assert.Equal(t, lua.LNumber(750), resultTable.RawGetString("key_750"))
+
+		// Verify mutability
+		assert.False(t, resultTable.Immutable, "Deep copied large table should be mutable")
 	})
 
-	// Removed circular reference test as it was causing issues
+	t.Run("Immutability enforcement", func(t *testing.T) {
+		// Create a table and export it
+		tbl := l.NewTable()
+		l.SetTable(tbl, lua.LString("key"), lua.LString("value"))
+
+		result := ExportPayload(tbl)
+		resultTable, _ := result.Data().(*lua.LTable)
+
+		// Verify the table is mutable (deep copy)
+		assert.False(t, resultTable.Immutable, "Deep copied table should be mutable")
+
+		// Verify that we can modify the deep copied table
+		success := resultTable.RawSetString("new_key", lua.LString("new_value"))
+		assert.True(t, success, "Setting new value on mutable table should succeed")
+
+		// New value should be accessible
+		assert.Equal(t, lua.LString("new_value"), resultTable.RawGetString("new_key"))
+
+		// Original value should be unchanged
+		assert.Equal(t, lua.LString("value"), resultTable.RawGetString("key"))
+	})
+
+	t.Run("Nested userdata cleanup", func(t *testing.T) {
+		// Create a deeply nested structure with userdata at various levels
+		tbl := l.NewTable()
+		l.SetTable(tbl, lua.LString("normal"), lua.LString("value"))
+		l.SetTable(tbl, lua.LString("userdata"), l.NewUserData())
+
+		nested := l.NewTable()
+		l.SetTable(nested, lua.LString("nested_normal"), lua.LNumber(42))
+		l.SetTable(nested, lua.LString("nested_userdata"), l.NewUserData())
+		l.SetTable(tbl, lua.LString("nested"), nested)
+
+		result := ExportPayload(tbl)
+		resultTable, _ := result.Data().(*lua.LTable)
+
+		// Check that userdata was cleared at all levels
+		assert.Equal(t, lua.LString("value"), resultTable.RawGetString("normal"))
+		assert.Equal(t, lua.LNil, resultTable.RawGetString("userdata"))
+
+		nestedResult, _ := resultTable.RawGetString("nested").(*lua.LTable)
+		assert.Equal(t, lua.LNumber(42), nestedResult.RawGetString("nested_normal"))
+		assert.Equal(t, lua.LNil, nestedResult.RawGetString("nested_userdata"))
+
+		// All deep copied tables should be mutable
+		assert.False(t, resultTable.Immutable)
+		assert.False(t, nestedResult.Immutable)
+	})
+
+	// --- NEW TEST CASES TO PROVE THE RECURSION BUG ---
+
+	t.Run("Circular reference (self)", func(t *testing.T) {
+		// This test will hang and crash on the original buggy code.
+		// It will pass on the fixed code.
+		tbl := l.NewTable()
+		l.SetTable(tbl, lua.LString("name"), lua.LString("self_referential"))
+		l.SetTable(tbl, lua.LString("self"), tbl) // Circular reference
+
+		// The ExportPayload function should not panic or hang
+		var result payload.Payload
+		assert.NotPanics(t, func() {
+			result = ExportPayload(tbl)
+		}, "Exporting a self-referential table should not panic")
+
+		// Verify the structure of the copied table
+		resultTable, ok := result.Data().(*lua.LTable)
+		assert.True(t, ok, "Result should be a table")
+		assert.NotSame(t, tbl, resultTable, "The copy should be a new object")
+
+		assert.Equal(t, lua.LString("self_referential"), resultTable.RawGetString("name"))
+
+		// Check that the circular reference was correctly recreated in the copy
+		selfRef, ok := resultTable.RawGetString("self").(*lua.LTable)
+		assert.True(t, ok, "The 'self' reference in the copy should be a table")
+		assert.Same(t, resultTable, selfRef, "The 'self' reference should point to the new copied table, not the original")
+	})
+
+	t.Run("Circular reference (mutual)", func(t *testing.T) {
+		// This test will also hang and crash on the original buggy code.
+		// It will pass on the fixed code.
+		tableA := l.NewTable()
+		tableB := l.NewTable()
+
+		l.SetTable(tableA, lua.LString("name"), lua.LString("A"))
+		l.SetTable(tableA, lua.LString("link"), tableB)
+
+		l.SetTable(tableB, lua.LString("name"), lua.LString("B"))
+		l.SetTable(tableB, lua.LString("link"), tableA)
+
+		// The ExportPayload function should not panic or hang
+		var resultA payload.Payload
+		assert.NotPanics(t, func() {
+			resultA = ExportPayload(tableA)
+		}, "Exporting a mutually-referential table should not panic")
+
+		// Verify the structure of the copied tables
+		copiedA, ok := resultA.Data().(*lua.LTable)
+		assert.True(t, ok, "Result should be a table")
+		assert.NotSame(t, tableA, copiedA, "Copied table A should be a new object")
+		assert.Equal(t, lua.LString("A"), copiedA.RawGetString("name"))
+
+		copiedB, ok := copiedA.RawGetString("link").(*lua.LTable)
+		assert.True(t, ok, "Link from copied A should point to a table")
+		assert.NotSame(t, tableB, copiedB, "Copied table B should be a new object")
+		assert.Equal(t, lua.LString("B"), copiedB.RawGetString("name"))
+
+		// Check that the cycle is correctly closed in the new objects
+		linkBackToA, ok := copiedB.RawGetString("link").(*lua.LTable)
+		assert.True(t, ok, "Link from copied B should point to a table")
+		assert.Same(t, copiedA, linkBackToA, "The link from B should point back to the new copied A")
+	})
 }

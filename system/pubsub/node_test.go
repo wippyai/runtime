@@ -32,21 +32,11 @@ func (d *dummyHost) Detach(_ api.PID) {
 	// No-op for testing
 }
 
-// dummyUpstream is a stub that implements the Receiver interface.
-type dummyUpstream struct {
-	sendCalled int32
-}
-
-func (d *dummyUpstream) Send(_ *api.Package) error {
-	atomic.AddInt32(&d.sendCalled, 1)
-	return nil
-}
-
 func TestNodeSendLocal(t *testing.T) {
 	// Create a dummy host and register it with the node.
 	dhost := &dummyHost{}
 	nodeID := "node1"
-	node := NewNode(nodeID, nil)
+	node := NewNode(nodeID)
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Case 1: Local message with empty pid.Node.
@@ -80,7 +70,7 @@ func TestNodeSendLocal(t *testing.T) {
 }
 
 func TestNodeSendHostNotFound(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	pid := api.PID{
 		Node:   "",
 		Host:   "nonexistent",
@@ -99,7 +89,7 @@ func TestNodeSendHostNotFound(t *testing.T) {
 }
 
 func TestNodeSendInvalidHostType(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	// Store an invalid type under a host id.
 	node.hosts.Store("host1", "not a host")
 	pid := api.PID{
@@ -120,7 +110,7 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 }
 
 func TestNodeSendNonLocalNoUpstream(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	pid := api.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
@@ -135,35 +125,13 @@ func TestNodeSendNonLocalNoUpstream(t *testing.T) {
 	}
 	err := node.Send(pkg)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no upstream available")
-}
-
-func TestNodeSendNonLocalWithUpstream(t *testing.T) {
-	dUp := &dummyUpstream{}
-	// Receiver is provided via a pointer to a Receiver interface.
-	var up api.Receiver = dUp
-	node := NewNode("node1", &up)
-	pid := api.PID{
-		Node:   "remoteNode",
-		Host:   "host1",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
-		UniqID: "uniq",
-	}
-	pkg := &api.Package{
-		Target: pid,
-		Messages: []*api.Message{
-			{Topic: "nonlocal"},
-		},
-	}
-	err := node.Send(pkg)
-	assert.NoError(t, err)
-	assert.Equal(t, int32(1), dUp.sendCalled)
+	assert.Contains(t, err.Error(), "cannot route to external node remoteNode")
 }
 
 func TestNodeAttachLocal(t *testing.T) {
 	dhost := &dummyHost{}
 	nodeID := "node1"
-	node := NewNode(nodeID, nil)
+	node := NewNode(nodeID)
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Use a local pid.
@@ -181,7 +149,7 @@ func TestNodeAttachLocal(t *testing.T) {
 }
 
 func TestNodeAttachNonLocal(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	pid := api.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
@@ -192,11 +160,11 @@ func TestNodeAttachNonLocal(t *testing.T) {
 	cancel, err := node.Attach(pid, ch)
 	assert.Error(t, err)
 	assert.Nil(t, cancel)
-	assert.Contains(t, err.Error(), "no upstream available")
+	assert.Contains(t, err.Error(), "cannot attach to external node remoteNode")
 }
 
 func TestNodeAttachInvalidHostType(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	// Store an invalid type under a host id.
 	node.hosts.Store("host1", "not a host")
 	pid := api.PID{
@@ -215,7 +183,7 @@ func TestNodeAttachInvalidHostType(t *testing.T) {
 func TestNodeDetach(t *testing.T) {
 	dhost := &dummyHost{}
 	nodeID := "node1"
-	node := NewNode(nodeID, nil)
+	node := NewNode(nodeID)
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Test detach with local pid
@@ -247,7 +215,7 @@ func TestNodeDetach(t *testing.T) {
 }
 
 func TestNodeRegisterHostDuplicate(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 	dhost := &dummyHost{}
 
 	// First registration should succeed
@@ -261,7 +229,7 @@ func TestNodeRegisterHostDuplicate(t *testing.T) {
 }
 
 func TestNodeRegisterHostInvalidType(t *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 
 	// Store an invalid type directly in the hosts map
 	node.hosts.Store("host1", "not a host")
@@ -293,14 +261,14 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 }
 
 func TestNodeUnregisterHostNonExistent(_ *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 
 	// Unregister a non-existent host should not panic
 	node.UnregisterHost("nonexistent")
 }
 
 func TestNodeUnregisterHostInvalidType(_ *testing.T) {
-	node := NewNode("node1", nil)
+	node := NewNode("node1")
 
 	// Store an invalid type
 	node.hosts.Store("host1", "not a host")

@@ -108,7 +108,7 @@ func (t *Topology) Link(from, to pubsub.PID) error {
 		return nil
 	}
 
-	// Create bidirectional links
+	// Create bidirectional links atomically
 	fromLinks.Store(to.String(), true)
 	toLinks.Store(from.String(), true)
 
@@ -118,7 +118,7 @@ func (t *Topology) Link(from, to pubsub.PID) error {
 // Unlink removes a bidirectional link between two processes.
 // Returns nil if the operation is successful or if the processes are not linked.
 func (t *Topology) Unlink(from, to pubsub.PID) error {
-	// Check if links exist
+	// Check if links exist for 'from'
 	fromLinksValue, fromOk := t.links.Load(from.String())
 	if !fromOk {
 		return nil // No links for 'from'
@@ -127,12 +127,13 @@ func (t *Topology) Unlink(from, to pubsub.PID) error {
 	fromLinks := fromLinksValue.(*sync.Map)
 	_, linked := fromLinks.Load(to.String())
 	if !linked {
-		return nil // Not linked
+		return nil // Not linked from 'from' to 'to'
 	}
 
-	// Done bidirectional links
+	// Remove bidirectional links atomically
 	fromLinks.Delete(to.String())
 
+	// Also remove the reverse link if it exists
 	if toLinksValue, ok := t.links.Load(to.String()); ok {
 		toLinks := toLinksValue.(*sync.Map)
 		toLinks.Delete(from.String())

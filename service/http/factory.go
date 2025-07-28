@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/function"
@@ -14,6 +15,37 @@ import (
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/service/http"
 )
+
+// RequestContext pool to reduce allocations
+var requestContextPool = sync.Pool{
+	New: func() interface{} {
+		return &config.RequestContext{}
+	},
+}
+
+// getRequestContext gets a RequestContext from pool and initializes it
+func getRequestContext(r *http.Request, w http.ResponseWriter) *config.RequestContext {
+	ctx := requestContextPool.Get().(*config.RequestContext)
+
+	// Initialize with new request/response
+	ctx.SetRequest(r)
+	ctx.SetResponseWriter(w)
+	ctx.ResetHandled()
+
+	return ctx
+}
+
+// putRequestContext returns RequestContext to pool
+func putRequestContext(ctx *config.RequestContext) {
+	if ctx != nil {
+		// Clear references for GC
+		ctx.SetRequest(nil)
+		ctx.SetResponseWriter(nil)
+		ctx.ResetHandled()
+
+		requestContextPool.Put(ctx)
+	}
+}
 
 // EndpointFactory creates HTTP handlers for function endpoints
 type EndpointFactory struct {
@@ -40,7 +72,12 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rCtx := config.NewRequestContext(r, w)
+		// Get pooled RequestContext
+		rCtx := getRequestContext(r, w)
+
+		// CRITICAL: Return to pool when request is done
+		defer putRequestContext(rCtx)
+
 		execCtx := context.WithValue(r.Context(), config.RequestCtx, rCtx)
 
 		// Get the interceptor registry from the parent context

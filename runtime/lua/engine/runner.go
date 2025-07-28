@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -141,6 +142,19 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan *Update) (lua.LValue, er
 				if stuck > 0 {
 					// soft-error, we let pcallFrom to decide
 					return result.Result[0], &CoroutineLeak{Count: stuck}
+				}
+
+				if len(result.Result) == 2 {
+					sRet := result.Result[1]
+					if sRet.Type() == lua.LTString {
+						return result.Result[0], fmt.Errorf("error: %s", sRet.String())
+					}
+
+					if sRet.Type() != lua.LTUserData {
+						return result.Result[0], nil
+					}
+
+					return result.Result[0], errors.Unwrap(sRet)
 				}
 
 				return result.Result[0], nil

@@ -154,15 +154,3 @@ func tickerChannel(l *lua.LState) int {
 	l.Push(t.chValue)
 	return 1
 }
-
-// Register Ticker
-func registerTicker(l *lua.LState, mod *lua.LTable) {
-	mt := l.NewTypeMetatable("time.Ticker")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"stop":    tickerStop,
-		"channel": tickerChannel,
-	}))
-
-	// Register ticker constructor
-	l.SetField(mod, "ticker", l.NewFunction(ticker))
-}

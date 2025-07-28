@@ -3,6 +3,8 @@ package fs
 import (
 	"io/fs"
 
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+
 	"github.com/ponyruntime/pony/runtime/lua/security"
 
 	fsapi "github.com/ponyruntime/pony/api/fs"
@@ -102,7 +104,7 @@ func CheckFS(l *lua.LState, n int) *FS {
 func WrapFS(l *lua.LState, fs fsapi.FS) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = NewFS(fs, ".")
-	l.SetMetatable(ud, l.GetTypeMetatable("fs.FS"))
+	ud.Metatable = value.GetTypeMetatable(nil, "fs.FS")
 	return ud
 }
 
@@ -127,7 +129,8 @@ func WrapFile(l *lua.LState, file fsapi.File) *lua.LUserData {
 	// Create a new File with UoW integration
 	ud := l.NewUserData()
 	ud.Value = NewFile(uw, file)
-	l.SetMetatable(ud, l.GetTypeMetatable("fs.File"))
+	ud.Metatable = value.GetTypeMetatable(nil, "fs.File")
+
 	return ud
 }
 

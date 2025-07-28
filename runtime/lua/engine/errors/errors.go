@@ -169,7 +169,7 @@ func RaiseError(l *lua.LState, err error) {
 
 	ud := l.NewUserData()
 	ud.Value = wrapped
-	ud.Metatable = l.GetTypeMetatable("error")
+	ud.Metatable = value.GetTypeMetatable(nil, "error")
 	l.Error(ud, 1)
 }
 
@@ -179,7 +179,7 @@ func ToValue(l *lua.LState, err error) lua.LValue {
 	if errors.As(err, &w) {
 		ud := l.NewUserData()
 		ud.Value = w
-		ud.Metatable = l.GetTypeMetatable("error")
+		ud.Metatable = value.GetTypeMetatable(nil, "error")
 		return ud
 	}
 
@@ -187,7 +187,7 @@ func ToValue(l *lua.LState, err error) lua.LValue {
 
 	ud := l.NewUserData()
 	ud.Value = wrapped
-	ud.Metatable = l.GetTypeMetatable("error")
+	ud.Metatable = value.GetTypeMetatable(nil, "error")
 	return ud
 }
 
@@ -248,9 +248,6 @@ func (e *WrappedError) Format(s fmt.State, verb rune) {
 // RegisterErrorsModule registers the errors module in Lua.
 // RegisterErrorsModule registers the errors module in Lua.
 func RegisterErrorsModule(l *lua.LState) {
-	// Create errors module table with exact size
-	mod := l.CreateTable(0, 3) // pre-allocate for 3 functions
-
 	// Register error type with just metamethods
 	value.RegisterMetamethods(l, "error", map[string]lua.LGFunction{
 		"__tostring": func(L *lua.LState) int {
@@ -263,6 +260,9 @@ func RegisterErrorsModule(l *lua.LState) {
 			return 0
 		},
 	})
+
+	// Create errors module table with exact size
+	mod := l.CreateTable(0, 3) // pre-allocate for 3 functions
 
 	// Add functions to module with direct access
 	mod.RawSetString("new", l.NewFunction(newError))
@@ -325,7 +325,7 @@ func newError(l *lua.LState) int {
 	// Return as userdata with error metatable
 	ud := l.NewUserData()
 	ud.Value = wrappedErr
-	ud.Metatable = l.GetTypeMetatable("error")
+	ud.Metatable = value.GetTypeMetatable(nil, "error")
 	l.Push(ud)
 
 	return 1
@@ -377,7 +377,7 @@ func wrapError(l *lua.LState) int {
 	// Return as userdata with error metatable
 	ud := l.NewUserData()
 	ud.Value = wrappedErr
-	ud.Metatable = l.GetTypeMetatable("error")
+	ud.Metatable = value.GetTypeMetatable(nil, "error")
 	l.Push(ud)
 
 	return 1

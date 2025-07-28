@@ -122,10 +122,10 @@ func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
 	var command *exec.Cmd
 	if len(cmdParts) > 1 {
 		//nolint:gosec //G204: Subprocess launched with a potential tainted input or cmd arguments
-		command = exec.Command(cmdParts[0], cmdParts[1:]...)
+		command = exec.Command(cmdParts[0], cmdParts[1:]...) // todo: commandContext
 	} else {
 		//nolint:gosec //G204: Subprocess launched with a potential tainted input or cmd arguments
-		command = exec.Command(cmdParts[0])
+		command = exec.Command(cmdParts[0]) // todo: commandContext
 	}
 
 	if e.envs != nil {

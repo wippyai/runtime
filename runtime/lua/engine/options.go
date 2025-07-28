@@ -50,10 +50,8 @@ func WithLibrary(name string, source interface{}) Option {
 			return
 		}
 
-		// AddCleanup library to preload
 		vm.state.PreloadModule(name, func(l *lua.LState) int {
 			var fn *lua.LFunction
-
 			switch s := source.(type) {
 			case string:
 				var err error
@@ -92,8 +90,6 @@ func WithLibrary(name string, source interface{}) Option {
 		})
 	}
 }
-
-// todo: add with Module, see api
 
 // WithLoader adds a library with a custom loader function to the VM.
 // The loader function should return a table that will be used as the module.

@@ -27,7 +27,7 @@ type Manager struct {
 	bus      event.Bus
 	mu       sync.RWMutex
 	storages map[registry.ID]env.Storage
-	factory  EnvStorageFactoryAPI
+	factory  StorageFactoryAPI
 }
 
 // NewManager creates a new environment storage manager instance
@@ -48,6 +48,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return m.handleMemoryStorageAdd(ctx, entry)
 	case env.KindStorageFile:
 		return m.handleFileStorageAdd(ctx, entry)
+	case env.KindStorageOS:
+		return m.handleOSStorageAdd(ctx, entry)
 	case env.KindVariable:
 		return m.handleVariableAdd(ctx, entry)
 	default:
@@ -87,6 +89,22 @@ func (m *Manager) handleFileStorageAdd(ctx context.Context, entry registry.Entry
 	return m.registerService(ctx, entry, storage, cfg.Lifecycle)
 }
 
+func (m *Manager) handleOSStorageAdd(ctx context.Context, entry registry.Entry) error {
+	cfg, err := internalconfig.DecodeAndInitConfig[serviceenv.CreateOSEnvStorageConfig](m.dtt, entry)
+	if err != nil {
+		return err
+	}
+
+	storage, err := m.factory.CreateOSEnvStorage(entry.Kind, cfg, m.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create env storage: %w", err)
+	}
+
+	m.storages[entry.ID] = storage
+
+	return m.registerService(ctx, entry, storage, cfg.Lifecycle)
+}
+
 func (m *Manager) handleVariableAdd(ctx context.Context, entry registry.Entry) error {
 	var variable env.Variable
 	if err := m.dtt.Unmarshal(entry.Data, &variable); err != nil {
@@ -112,7 +130,7 @@ func (m *Manager) handleVariableAdd(ctx context.Context, entry registry.Entry) e
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case env.KindStorageMemory, env.KindStorageFile:
+	case env.KindStorageMemory, env.KindStorageFile, env.KindStorageOS:
 		storage, ok := entry.Data.(env.Storage)
 		if !ok {
 			return fmt.Errorf("invalid storage type")
@@ -154,7 +172,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case env.KindStorageMemory, env.KindStorageFile:
+	case env.KindStorageMemory, env.KindStorageFile, env.KindStorageOS:
 		m.mu.Lock()
 		delete(m.storages, entry.ID)
 		m.mu.Unlock()

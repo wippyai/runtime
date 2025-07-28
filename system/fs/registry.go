@@ -76,7 +76,7 @@ func (r *Registry) registerFS(e event.Event) {
 	}
 
 	r.filesystems.Store(e.Path, fs)
-	r.log.Debug("filesystem registered", zap.String("fs", e.Path))
+	r.log.Debug("filesystem registered successfully", zap.String("fs", e.Path))
 	r.sendAccept(e.Path)
 }
 
@@ -87,7 +87,7 @@ func (r *Registry) deleteFS(e event.Event) {
 		return
 	}
 
-	r.log.Debug("filesystem removed", zap.String("fs", e.Path))
+	r.log.Debug("filesystem removed successfully", zap.String("fs", e.Path))
 	r.sendAccept(e.Path)
 }
 

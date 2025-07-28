@@ -68,14 +68,6 @@ type (
 	// Name represents a unique identifier for a registry entry within a single namespace
 	Name = string
 
-	// ID uniquely identifies a registry entry by namespace and name
-	ID struct {
-		// NS is the namespace of the entry
-		NS Namespace `json:"ns"`
-		// Name is the unique identifier within the namespace
-		Name Name `json:"name"`
-	}
-
 	// Version represents a specific version of the registry's state
 	Version interface {
 		// ID returns the unique identifier of the version

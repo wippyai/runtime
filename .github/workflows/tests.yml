@@ -34,7 +34,7 @@ jobs:
           install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-sqlite3
           path-type: inherit
 
-      - name: Setup Go
+      - name: Set up Go ${{ matrix.go }}
         uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}

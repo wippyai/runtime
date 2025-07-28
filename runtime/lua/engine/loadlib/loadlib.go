@@ -9,8 +9,9 @@ func OpenRestrictedPackage(l *lua.LState) int {
 	// Spawn the package table
 	packagemod := l.RegisterModule(lua.LoadLibName, packageFuncs)
 
-	// Set up the preload table
-	l.SetField(packagemod, "preload", l.NewTable())
+	// Set up the preload table with optimized size
+	// Most apps have few preloaded modules, start small
+	l.SetField(packagemod, "preload", l.CreateTable(0, 8))
 
 	// Set up the single preload loader
 	loaders := l.CreateTable(1, 0)
@@ -18,8 +19,7 @@ func OpenRestrictedPackage(l *lua.LState) int {
 	l.SetField(packagemod, "loaders", loaders)
 	l.SetField(l.Get(lua.RegistryIndex), "_LOADERS", loaders)
 
-	// Set up the loaded table
-	loaded := l.NewTable()
+	loaded := l.CreateTable(0, 32)
 	l.SetField(packagemod, "loaded", loaded)
 	l.SetField(l.Get(lua.RegistryIndex), "_LOADED", loaded)
 
@@ -50,6 +50,7 @@ func restrictedLoadLib(l *lua.LState) int {
 func preloadLoader(l *lua.LState) int {
 	name := l.CheckString(1)
 	preload := l.GetField(l.GetField(l.Get(lua.EnvironIndex), "package"), "preload")
+
 	if _, ok := preload.(*lua.LTable); !ok {
 		l.RaiseError("package.preload must be a table")
 	}
@@ -62,11 +63,12 @@ func preloadLoader(l *lua.LState) int {
 	return 1
 }
 
-// seeall implements package.seeall
+// seeAll implements package.seeall
 func seeAll(l *lua.LState) int {
 	mod := l.CheckTable(1)
 	mt := l.GetMetatable(mod)
 	if mt == lua.LNil {
+		// Create metatable with exact capacity (just __index)
 		mt = l.CreateTable(0, 1)
 		l.SetMetatable(mod, mt)
 	}

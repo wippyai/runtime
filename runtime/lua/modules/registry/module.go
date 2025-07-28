@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"errors"
+	"sync"
 
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -26,7 +27,9 @@ const (
 
 // Module represents the registry module
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // NewRegistryModule creates a new registry module
@@ -44,20 +47,30 @@ func (m *Module) Name() string {
 
 // Loader loads the module into the Lua state
 func (m *Module) Loader(l *lua.LState) int {
+	m.once.Do(func() {
+		m.initModuleTable(l)
+	})
+
+	l.Push(m.moduleTable)
+	return 1
+}
+
+// initModuleTable creates and initializes the module table once
+func (m *Module) initModuleTable(l *lua.LState) {
 	// Create module table
-	mod := l.CreateTable(0, 10) // Increase size to accommodate new functions
+	t := l.CreateTable(0, 10) // Increase size to accommodate new functions
 
 	// Register module-level functions directly
-	mod.RawSetString("snapshot", l.NewFunction(m.snapshotCreate))
-	mod.RawSetString("snapshot_at", l.NewFunction(m.snapshotAt))
-	mod.RawSetString("current_version", l.NewFunction(m.currentVersion))
-	mod.RawSetString("versions", l.NewFunction(m.versions))
-	mod.RawSetString("apply_version", l.NewFunction(m.applyVersion))
-	mod.RawSetString("parse_id", l.NewFunction(parseID))
-	mod.RawSetString("history", l.NewFunction(m.historyCreate))
-	mod.RawSetString("find", l.NewFunction(m.registryFind))
-	mod.RawSetString("get", l.NewFunction(m.registryGet))
-	mod.RawSetString("build_delta", l.NewFunction(m.buildDelta)) // Add our new function
+	t.RawSetString("snapshot", l.NewFunction(m.snapshotCreate))
+	t.RawSetString("snapshot_at", l.NewFunction(m.snapshotAt))
+	t.RawSetString("current_version", l.NewFunction(m.currentVersion))
+	t.RawSetString("versions", l.NewFunction(m.versions))
+	t.RawSetString("apply_version", l.NewFunction(m.applyVersion))
+	t.RawSetString("parse_id", l.NewFunction(parseID))
+	t.RawSetString("history", l.NewFunction(m.historyCreate))
+	t.RawSetString("find", l.NewFunction(m.registryFind))
+	t.RawSetString("get", l.NewFunction(m.registryGet))
+	t.RawSetString("build_delta", l.NewFunction(m.buildDelta)) // Add our new function
 
 	// Register types with their methods using the util helper functions
 	m.registerSnapshotType(l)
@@ -69,9 +82,10 @@ func (m *Module) Loader(l *lua.LState) int {
 	loaderMod := NewLoaderModule(m.log)
 	l.PreloadModule(moduleName+"."+loaderModuleName, loaderMod.Loader)
 
-	// Push the module
-	l.Push(mod)
-	return 1
+	// Make the table immutable so it can be safely reused
+	t.Immutable = true
+
+	m.moduleTable = t
 }
 
 // Helper function to convert an ID table to a registry ID

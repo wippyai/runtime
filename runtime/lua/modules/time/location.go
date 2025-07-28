@@ -43,7 +43,7 @@ func loadLocation(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Location{location: loc}
-	l.SetMetatable(ud, l.GetTypeMetatable("time.Location"))
+	ud.Metatable = value.GetTypeMetatable(nil, "time.Location")
 	l.Push(ud)
 	return 1
 }
@@ -57,40 +57,8 @@ func fixedZone(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Location{location: loc}
-	l.SetMetatable(ud, l.GetTypeMetatable("time.Location"))
+	ud.Metatable = value.GetTypeMetatable(nil, "time.Location")
+
 	l.Push(ud)
 	return 1
-}
-
-// Register the Location methods and create UTC/Local constants
-func registerLocation(l *lua.LState, mod *lua.LTable) {
-	// Use the efficient registration method
-	value.RegisterTypeMethods(
-		l,
-		"time.Location",
-		map[string]lua.LGFunction{
-			"__tostring": locationString,
-		},
-		map[string]lua.LGFunction{
-			"string": locationString,
-		},
-	)
-
-	// Register location-related functions
-	mod.RawSetString("load_location", l.NewFunction(loadLocation))
-	mod.RawSetString("fixed_zone", l.NewFunction(fixedZone))
-
-	// Create and set UTC constant
-	utcUD := l.NewUserData()
-	utcUD.Value = &Location{location: time.UTC}
-	utcUD.Metatable = value.GetTypeMetatable(l, "time.Location")
-
-	mod.RawSetString("utc", utcUD)
-
-	// Create and set Local constant
-	localUD := l.NewUserData()
-	localUD.Value = &Location{location: time.Local}
-	localUD.Metatable = value.GetTypeMetatable(l, "time.Location")
-
-	mod.RawSetString("localtz", localUD)
 }

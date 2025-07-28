@@ -88,7 +88,7 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 	resultChan := make(chan *runtime.Result, 1)
 
 	// Ensure context has a logger
-	ctx = logs.WithLogger(ctx, p.logger.With(zap.String("func", task.ID.String())))
+	ctx = logs.WithLogger(ctx, p.logger)
 
 	// Get transcoder from context
 	dtt := payload.GetTranscoder(ctx)

@@ -45,6 +45,7 @@ local function run()
             print("Created new session:", session_pid)
 
             if msg.reply_to then
+
                 process.send(msg.reply_to, "response", {
                     status = "ok",
                     session_pid = session_pid

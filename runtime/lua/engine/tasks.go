@@ -15,29 +15,31 @@ import (
 // taskCoordinator implements the Tasks interface for coroutine coordination
 type taskCoordinator struct {
 	updates   chan *Update  // Channel for task updates
-	wakeup    chan struct{} // Signal channel for wake-up notifications
+	wakeCh    chan struct{} // Channel for context-aware wake-up signals
 	taskCount atomic.Int32  // Counter for external activities, usually counting blocked channels
-	wakeCount atomic.Int32  // Counter for wake-up signals
 	updCount  atomic.Int32  // Counter for sent updates and internal updates
+	wakeCount atomic.Int32  // Counter for wake-up signals
 	awaken    atomic.Bool   // Flag indicating if wake-up has been signaled
 
 	wmu        sync.Mutex // Mutex for scheduled functions
 	wakeupFunc func()     // Function to call on wake-up
 
 	// For scheduling arbitrary functions to execute during Wait
-	smu         sync.Mutex // Mutex for scheduled functions
-	scheduled   *list.List // List of scheduled functions
-	undelivered atomic.Bool
+	smu             sync.Mutex // Mutex for scheduled functions
+	scheduled       *list.List // Active list where Schedule() adds functions
+	scheduledBackup *list.List // Backup list for swapping (always empty when swapped to)
+	undelivered     atomic.Bool
 }
 
 // newTaskCoordinator creates a new task coordinator with specified buffer size
 // and optional wakeup function
 func newTaskCoordinator(bufferSize int, wakeupFunc func()) *taskCoordinator {
 	return &taskCoordinator{
-		updates:    make(chan *Update, bufferSize),
-		wakeup:     make(chan struct{}, bufferSize),
-		wakeupFunc: wakeupFunc,
-		scheduled:  list.New(),
+		updates:         make(chan *Update, bufferSize),
+		wakeCh:          make(chan struct{}, 1),
+		wakeupFunc:      wakeupFunc,
+		scheduled:       list.New(),
+		scheduledBackup: list.New(),
 	}
 }
 
@@ -87,9 +89,9 @@ func (t *taskCoordinator) executeScheduled() {
 			return
 		}
 
-		// Take the current list and replace with a new one
-		funcs := t.scheduled
-		t.scheduled = list.New()
+		// Swap lists instead of creating new one - avoid 1.85GB allocation
+		t.scheduled, t.scheduledBackup = t.scheduledBackup, t.scheduled // scheduledBackup is always empty when we swap to it
+		funcs := t.scheduledBackup                                      // Will be cleared after execution
 		t.smu.Unlock()
 
 		// Execute all scheduled functions
@@ -98,18 +100,22 @@ func (t *taskCoordinator) executeScheduled() {
 				fn()
 			}
 		}
+
+		// Clear the backup list for next iteration (maintains invariant: scheduledBackup is always empty)
+		t.scheduledBackup.Init()
 	}
 }
 
 // WakeUp signals that threads may be ready to process
 // This is thread-safe and can be called from any goroutine
 func (t *taskCoordinator) WakeUp() {
+	t.wakeCount.Add(1)
 	if t.awaken.CompareAndSwap(false, true) {
-		t.wakeCount.Add(1)
+		// Signal the wake channel for context-aware waiting
 		select {
-		case t.wakeup <- struct{}{}:
+		case t.wakeCh <- struct{}{}:
 		default:
-			t.wakeCount.Add(^int32(0))
+			// Channel is full, which means someone is already waiting
 		}
 	}
 
@@ -141,7 +147,7 @@ func (t *taskCoordinator) Blocked() int {
 
 // Ready returns the number of tasks that are currently ready to be processed
 func (t *taskCoordinator) Ready() int {
-	ready := int(t.updCount.Load() + t.wakeCount.Load())
+	ready := int(t.updCount.Load()) + int(t.wakeCount.Load())
 	if t.undelivered.Load() {
 		// this flag is true until executeScheduled is called with empty list
 		ready++
@@ -170,29 +176,37 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 				block = false
 				continue
 
-			case <-t.wakeup:
-				t.wakeCount.Add(^int32(0))
-				t.awaken.Store(false)
-				block = false
-				continue
-
 			case <-ctx.Done():
 				return nil, ctx.Err()
+
+			default:
+				// No updates available, wait for signal with context awareness
+				// Use the wakeCh channel for context-aware waiting
+				select {
+				case <-t.wakeCh:
+					// Consume the wake-up signal
+					t.awaken.Store(false)
+					block = false
+					continue
+
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
 			}
 		}
 
-		// Non-blocking check for more updates or threads
+		// Non-blocking check for more updates
 		select {
 		case upd := <-t.updates:
 			t.updCount.Add(^int32(0))
 			if upd != nil {
 				updates = append(updates, upd)
 			}
-
-		case <-t.wakeup:
-			t.wakeCount.Add(^int32(0))
-			t.awaken.Store(false)
 		default:
+			// Consume any pending wake-up signals
+			if t.wakeCount.Load() > 0 {
+				t.wakeCount.Store(0)
+			}
 			return updates, nil
 		}
 	}
@@ -202,30 +216,26 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 
 // clean resets the task coordinator to its initial state
 func (t *taskCoordinator) clean() {
+	clean := false
+	for !clean {
+		select {
+		case <-t.updates:
+		default:
+			clean = true
+		}
+	}
+
 	if t.taskCount.Load() == 0 {
 		return
 	}
 
 	t.taskCount.Store(0)
-	t.wakeCount.Store(0)
 
 	// Clean up scheduled functions
 	t.smu.Lock()
-	t.scheduled.Init() // Reinitialize the list
+	t.scheduled.Init()       // Reinitialize the active list
+	t.scheduledBackup.Init() // Reinitialize the backup list
 	t.smu.Unlock()
-
-	// Drain channels
-	for {
-		select {
-		case <-t.updates:
-			// Drain updates channel
-		case <-t.wakeup:
-			// Drain wakeup channel
-		default:
-			// Both channels empty, exit loop
-			return
-		}
-	}
 }
 
 func (t *taskCoordinator) reset() {
@@ -237,19 +247,22 @@ func (t *taskCoordinator) reset() {
 
 	// Reset all atomic counters
 	t.taskCount.Store(0)
-	t.wakeCount.Store(0)
 	t.updCount.Store(0)
+	t.wakeCount.Store(0)
 	t.awaken.Store(false)
 	t.undelivered.Store(false)
 
-	// Recreate channels
-	t.updates = make(chan *Update, cap(t.updates))
-	t.wakeup = make(chan struct{}, cap(t.wakeup))
-
-	// Reset scheduled functions and wake up list
+	// Reset scheduled functions lists
 	t.smu.Lock()
 	t.scheduled.Init()
+	t.scheduledBackup.Init()
 	t.smu.Unlock()
+
+	// Drain wake channel
+	select {
+	case <-t.wakeCh:
+	default:
+	}
 }
 
 // Interface implementation verification

@@ -3,6 +3,7 @@ package channel
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -112,7 +113,10 @@ func (m *onNext) Type() lua.LValueType {
 }
 
 // Module represents a channel Lua module
-type Module struct{}
+type Module struct {
+	moduleTable *lua.LTable
+	once        sync.Once
+}
 
 // NewChannelModule creates a new channel module instance
 func NewChannelModule() *Module {
@@ -126,10 +130,14 @@ func (m *Module) Name() string {
 
 // Loader registers the module functions
 func (m *Module) Loader(l *lua.LState) int {
-	// Create module table with exact size
-	mod := l.CreateTable(0, 2)
-	mod.RawSetString("new", l.NewFunction(newChannelLua))
-	mod.RawSetString("select", l.NewFunction(selectLua))
+	// Create module table once and cache it
+	m.once.Do(func() {
+		mod := l.CreateTable(0, 2)
+		mod.RawSetString("new", l.NewFunction(newChannelLua))
+		mod.RawSetString("select", l.NewFunction(selectLua))
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
 
 	// Register all channel methods at once with the helper function
 	value.RegisterMethods(l, "channel", map[string]lua.LGFunction{
@@ -144,7 +152,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	})
 
 	// Push module table to stack
-	l.Push(mod)
+	l.Push(m.moduleTable)
 	return 1
 }
 

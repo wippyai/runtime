@@ -9,9 +9,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Module represents a time Lua module
-type Module struct{}
-
 // Duration represents a Lua userdata object wrapping time.Duration
 type Duration struct {
 	duration time.Duration
@@ -100,7 +97,8 @@ func parseDuration(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Duration{duration: duration}
-	l.SetMetatable(ud, l.GetTypeMetatable("time.Duration"))
+	ud.Metatable = value.GetTypeMetatable(l, "time.Duration")
+
 	l.Push(ud)
 	return 1
 }
@@ -122,31 +120,4 @@ func parseDurationValue(value lua.LValue) (time.Duration, error) {
 	}
 
 	return 0, fmt.Errorf("duration, string, or number expected, got %T", value)
-}
-
-func registerDuration(l *lua.LState, mod *lua.LTable) {
-	// Use the efficient registration method
-	value.RegisterTypeMethods(l, "time.Duration",
-		map[string]lua.LGFunction{
-			"__tostring": durationToString,
-		}, map[string]lua.LGFunction{
-			"nanoseconds":  durationNanoseconds,
-			"microseconds": durationMicroseconds,
-			"milliseconds": durationMilliseconds,
-			"seconds":      durationSeconds,
-			"minutes":      durationMinutes,
-			"hours":        durationHours,
-		},
-	)
-
-	// Register duration constants
-	mod.RawSetString("NANOSECOND", lua.LNumber(Nanosecond))
-	mod.RawSetString("MICROSECOND", lua.LNumber(Microsecond))
-	mod.RawSetString("MILLISECOND", lua.LNumber(Millisecond))
-	mod.RawSetString("SECOND", lua.LNumber(Second))
-	mod.RawSetString("MINUTE", lua.LNumber(Minute))
-	mod.RawSetString("HOUR", lua.LNumber(Hour))
-
-	// Register duration function
-	mod.RawSetString("parse_duration", l.NewFunction(parseDuration))
 }

@@ -94,7 +94,7 @@ func NewConnection(
 		Host:   serverID.String(),
 		ID:     registry.ParseID("ws:conn"),
 		UniqID: idGen.Generate(), // Use the passed idGen
-	}
+	}.Precomputed()
 
 	// Parse heartbeat interval
 	heartbeatInterval := DefaultHeartbeatInterval
@@ -216,7 +216,8 @@ func (c *Connection) handleWebSocketRead() {
 						zap.Int("closeCode", int(closeStatus)),
 						zap.String("error", err.Error()))
 				} else {
-					c.logger.Error("error reading from WebSocket", zap.Error(err))
+					// this is DEBUG level simply because modern browsers and proxies love to close connection without close status
+					c.logger.Debug("error reading from WebSocket", zap.Error(err))
 				}
 				return
 			}

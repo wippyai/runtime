@@ -1,6 +1,8 @@
 package payload
 
 import (
+	"sync"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -14,6 +16,8 @@ const (
 
 // Module provides payload operations with lazy transcoding
 type Module struct {
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // NewPayloadModule creates a new payload module for Lua
@@ -28,6 +32,27 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
+	// Create module table once and cache it
+	m.once.Do(func() {
+		mod := l.CreateTable(0, 2)
+		mod.RawSetString("new", l.NewFunction(m.newPayload))
+
+		formats := l.CreateTable(0, 7)
+		formats.RawSetString("JSON", lua.LString(payload.JSON))
+		formats.RawSetString("YAML", lua.LString(payload.YAML))
+		formats.RawSetString("STRING", lua.LString(payload.String))
+		formats.RawSetString("GOLANG", lua.LString(payload.Golang))
+		formats.RawSetString("LUA", lua.LString(payload.Lua))
+		formats.RawSetString("BYTES", lua.LString(payload.Bytes))
+		formats.RawSetString("ERROR", lua.LString(payload.Error))
+		formats.Immutable = true
+		mod.RawSetString("format", formats)
+
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+
+	// Register payload methods (per LState)
 	value.RegisterTypeMethods(l, TypeName, nil, map[string]lua.LGFunction{
 		"get_format": m.payloadFormat,
 		"data":       m.payloadData,
@@ -35,20 +60,7 @@ func (m *Module) Loader(l *lua.LState) int {
 		"unmarshal":  m.payloadUnmarshal,
 	})
 
-	mod := l.CreateTable(0, 2)
-	mod.RawSetString("new", l.NewFunction(m.newPayload))
-
-	formats := l.CreateTable(0, 7)
-	formats.RawSetString("JSON", lua.LString(payload.JSON))
-	formats.RawSetString("YAML", lua.LString(payload.YAML))
-	formats.RawSetString("STRING", lua.LString(payload.String))
-	formats.RawSetString("GOLANG", lua.LString(payload.Golang))
-	formats.RawSetString("LUA", lua.LString(payload.Lua))
-	formats.RawSetString("BYTES", lua.LString(payload.Bytes))
-	formats.RawSetString("ERROR", lua.LString(payload.Error))
-	mod.RawSetString("format", formats)
-
-	l.Push(mod)
+	l.Push(m.moduleTable)
 	return 1
 }
 

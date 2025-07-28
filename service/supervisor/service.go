@@ -46,7 +46,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 		Host:   topology.ControlHost,
 		ID:     registry.ID{Name: "supervisor"},
 		UniqID: supID.Generate(),
-	}
+	}.Precomputed()
 
 	// Create monitoring channel
 	monitorCh := make(chan *pubsub.Package, 1)

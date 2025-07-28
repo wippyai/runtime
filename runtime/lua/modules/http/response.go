@@ -4,6 +4,8 @@ import (
 	"fmt"
 	basehttp "net/http"
 
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+
 	"github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
 	lua "github.com/yuin/gopher-lua"
@@ -314,27 +316,8 @@ func newResponse(l *lua.LState) int {
 		headersSent:  false,
 		transferMode: "",
 	}
+	ud.Metatable = value.GetTypeMetatable(l, "Response")
 
-	l.SetMetatable(ud, l.GetTypeMetatable("Response"))
 	l.Push(ud)
 	return 1
-}
-
-// registerResponse registers the Response type and its methods
-func registerResponse(l *lua.LState, mod *lua.LTable) {
-	mt := l.NewTypeMetatable("Response")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"set_status":       responseSetStatus,
-		"set_header":       responseSetHeader,
-		"write":            responseWrite,
-		"flush":            responseFlush,
-		"write_json":       responseWriteJSON,
-		"set_content_type": responseSetContentType,
-		"write_event":      responseWriteEvent,
-		"set_transfer":     responseSetTransfer,
-	}))
-	l.SetField(mt, "__tostring", l.NewFunction(responseToString))
-
-	// Register constructor
-	l.SetField(mod, "response", l.NewFunction(newResponse))
 }

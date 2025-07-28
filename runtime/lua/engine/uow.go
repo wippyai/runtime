@@ -9,12 +9,14 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+const scheduleSize = 32
+
 var unitOfWorkPool = sync.Pool{
 	New: func() interface{} {
 		return &unitOfWork{
 			valueStore:      newValueStore(),
 			resourceManager: newResourceManager(),
-			tasks:           newTaskCoordinator(256, nil),
+			tasks:           newTaskCoordinator(scheduleSize, nil),
 		}
 	},
 }
@@ -131,7 +133,6 @@ func (u *unitOfWork) Run(fn func(uw UnitOfWork)) {
 	go func() {
 		defer u.wg.Done()
 		defer u.tasks.Done()
-
 		fn(u)
 	}()
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
@@ -19,18 +20,16 @@ import (
 
 // Channel context keys for UoW storage
 var (
-	// subscribedKey is used to track whether we've already set up subscriptions
-
 	subscribedKey = &ctxapi.Key{Name: "function.subscribed"}
-
-	inboxChannel = &ctxapi.Key{Name: "function.channel.inbox"}
-
+	inboxChannel  = &ctxapi.Key{Name: "function.channel.inbox"}
 	eventsChannel = &ctxapi.Key{Name: "function.channel.events"}
 )
 
 // Module provides inbox handling for short-lived functions and operations
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	moduleTable *lua.LTable
+	once        sync.Once
 }
 
 // NewFunctionAPIModule creates an overlay that starts listening on demand, perfect for lightweight functions
@@ -47,24 +46,25 @@ func (e *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (e *Module) Loader(l *lua.LState) int {
-	// Register message type
-	process.RegisterMessageType(l)
+	e.once.Do(func() {
+		// Get the process module to create base table
+		processModule := process.NewProcessAPIModule(e.log)
 
-	// Find the process table
-	v := l.GetGlobal("process")
-	if v.Type() == lua.LTTable {
-		// Get process table
-		processTable := v.(*lua.LTable)
+		// Create fresh mutable base table with all core process functions
+		mod := processModule.NewProcessTable(l)
 
-		// Add our methods to the process table
-		processTable.RawSetString("inbox", l.NewFunction(e.lazyInbox))
-		processTable.RawSetString("events", l.NewFunction(e.lazyEvents))
-		processTable.RawSetString("listen", l.NewFunction(e.lazyListen))
-	} else {
-		e.log.Error("process table not found")
-	}
+		// Add function-specific methods to the base table
+		mod.RawSetString("inbox", l.NewFunction(e.lazyInbox))
+		mod.RawSetString("events", l.NewFunction(e.lazyEvents))
+		mod.RawSetString("listen", l.NewFunction(e.lazyListen))
 
-	return 0
+		// Make immutable for reuse across all functions
+		mod.Immutable = true
+		e.moduleTable = mod
+	})
+
+	l.Push(e.moduleTable)
+	return 1
 }
 
 // ensureSubscriptions sets up message handling for the process
@@ -174,8 +174,8 @@ func (e *Module) processPackage(uw engine.UnitOfWork, pkg *pubsub.Package) {
 		// has internal queue, but must be drained
 		if err := subscribe.Publish(uw.Context(), topology.TopicInbox, inboxValues...); err != nil {
 			e.log.Error("failed to publish to inbox",
+				zap.String("pid", pkg.Target.String()),
 				zap.String("topic", topology.TopicInbox),
-				zap.Any("v", inboxValues),
 				zap.Error(err))
 		}
 	}
@@ -282,13 +282,6 @@ func (e *Module) lazyEvents(l *lua.LState) int {
 
 // lazyListen handles topic-specific channel initialization on demand
 func (e *Module) lazyListen(l *lua.LState) int {
-	// Ensure subscriptions are set up
-	if !e.ensureSubscriptions(l) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to set up message handling"))
-		return 2
-	}
-
 	topic := l.CheckString(1)
 	if topic == "" {
 		l.Push(lua.LNil)
@@ -300,6 +293,13 @@ func (e *Module) lazyListen(l *lua.LState) int {
 	if strings.HasPrefix(topic, "@") {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("cannot use @ topics"))
+		return 2
+	}
+
+	// Ensure subscriptions are set up
+	if !e.ensureSubscriptions(l) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("failed to set up message handling"))
 		return 2
 	}
 

@@ -20,7 +20,7 @@ local function run()
         pid = process.pid(),
         count = 0
     }
-    print("Message listener process started with PID:", state.pid)
+    print("Message listener process started with PID>>>>>>>>>>>>>>>>>>>>>>>:", state.pid)
     process.registry.register("message_receiver")
 
     local fn = funcs.new()
@@ -31,7 +31,7 @@ local function run()
             state.count = state.count + 1
 
             -- Call the child module to get local time
-            local child_result, child_err = fn:call("app.demos.message_sending:child.get_local_time")
+            --local child_result, child_err = fn:call("app.demos.message_sending:child.get_local_time")
             local response_message = ""
 
             if child_err then
@@ -41,9 +41,9 @@ local function run()
             end
 
             if type(msg) == "table" and msg.from then
-                process.send(msg.from, "response", {
+                process.send(msg.from, "response",
                     response_message .. " (Original message: " .. inspect_table(msg.payload) .. ")"
-                })
+                )
             end
         end,
 
@@ -55,10 +55,10 @@ local function run()
         -- Default handler for any other topics via inbox
         __default = function(state, msg, topic)
             if msg.from then
-                process.send(msg.from, "response", {
+                process.send(msg.from, "response",
                     " (Original inbox message with topic '" ..
                     topic .. "'): " .. inspect_table(msg.payload)
-                })
+                )
             end
         end
     })

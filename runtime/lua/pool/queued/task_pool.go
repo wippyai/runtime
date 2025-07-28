@@ -151,7 +151,7 @@ func (p *TaskPool) worker() {
 			return
 		}
 
-		ctx := logs.WithLogger(t.ctx, p.logger.With(zap.String("func", t.task.ID.String())))
+		ctx := logs.WithLogger(t.ctx, p.logger)
 
 		// Get transcoder from context
 		dtt := payload.GetTranscoder(ctx)

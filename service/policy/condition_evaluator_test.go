@@ -8,32 +8,15 @@ import (
 	"github.com/ponyruntime/pony/api/service/policy"
 )
 
-// mockActor implements the security.Actor interface for testing
-//
-//nolint:unused // to be used in tests
-type mockActor struct {
-	id   string
-	meta registry.Metadata
-}
-
-//nolint:unused // to be used in tests
-func (m *mockActor) ID() string {
-	return m.id
-}
-
-//nolint:unused // to be used in tests
-func (m *mockActor) Meta() registry.Metadata {
-	return m.meta
-}
-
-// newMockActor creates a new mock actor for testing
 func newMockActor(id string, meta registry.Metadata) security.Actor {
 	return security.Actor{ID: id, Meta: meta}
 }
 
-// Test cases for EvaluateCondition
 func TestEvaluateCondition(t *testing.T) {
-	evaluator := NewConditionEvaluator()
+	evaluator, err := NewConditionEvaluator([]policy.Condition{})
+	if err != nil {
+		t.Fatalf("Failed to create evaluator: %v", err)
+	}
 
 	tests := []struct {
 		name      string
@@ -340,34 +323,6 @@ func TestEvaluateCondition(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name: "matches operator",
-			condition: policy.Condition{
-				Field:    "resource",
-				Operator: "matches",
-				Value:    "^doc.*$",
-			},
-			actor:    newMockActor("user123", nil),
-			action:   "read",
-			resource: "document",
-			meta:     nil,
-			want:     true,
-			wantErr:  false,
-		},
-		{
-			name: "matches operator with complex regex",
-			condition: policy.Condition{
-				Field:    "resource",
-				Operator: "matches",
-				Value:    "^doc[a-z]+(ent)?$",
-			},
-			actor:    newMockActor("user123", nil),
-			action:   "read",
-			resource: "document",
-			meta:     nil,
-			want:     true,
-			wantErr:  false,
-		},
-		{
 			name: "invalid field path",
 			condition: policy.Condition{
 				Field:    "",
@@ -379,7 +334,7 @@ func TestEvaluateCondition(t *testing.T) {
 			resource: "document",
 			meta:     nil,
 			want:     false,
-			wantErr:  false, // The implementation doesn't return an error for empty field path
+			wantErr:  false,
 		},
 		{
 			name: "invalid operator",
@@ -411,9 +366,131 @@ func TestEvaluateCondition(t *testing.T) {
 	}
 }
 
-// Tests for extractField
+func TestRegexPrecompilation(t *testing.T) {
+	conditions := []policy.Condition{
+		{
+			Field:    "resource",
+			Operator: "matches",
+			Value:    "^doc.*$",
+		},
+		{
+			Field:    "resource",
+			Operator: "matches",
+			Value:    "^doc[a-z]+(ent)?$",
+		},
+		{
+			Field:    "action",
+			Operator: "eq",
+			Value:    "read",
+		},
+	}
+
+	evaluator, err := NewConditionEvaluator(conditions)
+	if err != nil {
+		t.Fatalf("Failed to create evaluator: %v", err)
+	}
+
+	if len(evaluator.compiledPatterns) != 2 {
+		t.Errorf("Expected 2 compiled patterns, got %d", len(evaluator.compiledPatterns))
+	}
+
+	if _, exists := evaluator.compiledPatterns["^doc.*$"]; !exists {
+		t.Error("Pattern '^doc.*$' should be pre-compiled")
+	}
+
+	if _, exists := evaluator.compiledPatterns["^doc[a-z]+(ent)?$"]; !exists {
+		t.Error("Pattern '^doc[a-z]+(ent)?$' should be pre-compiled")
+	}
+
+	tests := []struct {
+		name      string
+		condition policy.Condition
+		actor     security.Actor
+		action    string
+		resource  string
+		meta      registry.Metadata
+		want      bool
+		wantErr   bool
+	}{
+		{
+			name: "matches operator with pre-compiled pattern",
+			condition: policy.Condition{
+				Field:    "resource",
+				Operator: "matches",
+				Value:    "^doc.*$",
+			},
+			actor:    newMockActor("user123", nil),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     true,
+			wantErr:  false,
+		},
+		{
+			name: "matches operator with complex pre-compiled pattern",
+			condition: policy.Condition{
+				Field:    "resource",
+				Operator: "matches",
+				Value:    "^doc[a-z]+(ent)?$",
+			},
+			actor:    newMockActor("user123", nil),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     true,
+			wantErr:  false,
+		},
+		{
+			name: "matches operator with non-pre-compiled pattern should fail",
+			condition: policy.Condition{
+				Field:    "resource",
+				Operator: "matches",
+				Value:    "^new.*$",
+			},
+			actor:    newMockActor("user123", nil),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     false,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := evaluator.EvaluateCondition(tt.condition, tt.actor, tt.action, tt.resource, tt.meta)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("EvaluateCondition() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("EvaluateCondition() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRegexPrecompilationErrors(t *testing.T) {
+	conditions := []policy.Condition{
+		{
+			Field:    "resource",
+			Operator: "matches",
+			Value:    "[invalid regex",
+		},
+	}
+
+	_, err := NewConditionEvaluator(conditions)
+	if err == nil {
+		t.Error("Expected error for invalid regex pattern")
+	}
+}
+
 func TestExtractField(t *testing.T) {
-	evaluator := NewConditionEvaluator()
+	evaluator, err := NewConditionEvaluator([]policy.Condition{})
+	if err != nil {
+		t.Fatalf("Failed to create evaluator: %v", err)
+	}
+
 	actor := newMockActor("user123", registry.Metadata{
 		"role":    "admin",
 		"profile": map[string]any{"name": "John", "email": "john@example.com"},
@@ -447,7 +524,7 @@ func TestExtractField(t *testing.T) {
 			resource:  "document",
 			meta:      meta,
 			want:      nil,
-			wantErr:   false, // The implementation doesn't return an error for empty field path
+			wantErr:   false,
 		},
 		{
 			name:      "direct actor field",
@@ -585,9 +662,11 @@ func TestExtractField(t *testing.T) {
 	}
 }
 
-// Tests for compare method
 func TestCompare(t *testing.T) {
-	evaluator := NewConditionEvaluator()
+	evaluator, err := NewConditionEvaluator([]policy.Condition{})
+	if err != nil {
+		t.Fatalf("Failed to create evaluator: %v", err)
+	}
 
 	tests := []struct {
 		name         string
@@ -774,22 +853,6 @@ func TestCompare(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name:         "matches - regex match",
-			fieldValue:   "testing123",
-			compareValue: "^test.*\\d+$",
-			operator:     "matches",
-			want:         true,
-			wantErr:      false,
-		},
-		{
-			name:         "matches - regex no match",
-			fieldValue:   "test",
-			compareValue: "^\\d+$",
-			operator:     "matches",
-			want:         false,
-			wantErr:      false,
-		},
-		{
 			name:         "exists - field exists",
 			fieldValue:   "value",
 			compareValue: true,
@@ -829,11 +892,12 @@ func TestCompare(t *testing.T) {
 	}
 }
 
-// Tests for type conversion helpers
 func TestTypeConversions(t *testing.T) {
-	evaluator := NewConditionEvaluator()
+	evaluator, err := NewConditionEvaluator([]policy.Condition{})
+	if err != nil {
+		t.Fatalf("Failed to create evaluator: %v", err)
+	}
 
-	// Test toFloat64
 	floatTests := []struct {
 		name  string
 		value any
@@ -855,7 +919,7 @@ func TestTypeConversions(t *testing.T) {
 		{
 			name:  "float32 conversion",
 			value: float32(3.14),
-			want:  3.140000104904175, // Account for float32 to float64 precision issues
+			want:  3.140000104904175,
 			ok:    true,
 		},
 		{
@@ -903,13 +967,11 @@ func TestTypeConversions(t *testing.T) {
 		})
 	}
 
-	// Test edge cases for extractNestedMap
 	t.Run("extractNestedMap nil map", func(t *testing.T) {
 		result, err := evaluator.extractNestedMap(nil, []string{"key"})
 		if err != nil {
 			t.Errorf("extractNestedMap() error = %v, want no error", err)
 		}
-		// The function may return nil or an empty map for nil input, either is acceptable
 		if result != nil {
 			if m, ok := result.(map[string]any); ok && len(m) > 0 {
 				t.Errorf("extractNestedMap() result should be nil or empty map, got %v", result)
@@ -923,11 +985,9 @@ func TestTypeConversions(t *testing.T) {
 		if err != nil {
 			t.Errorf("extractNestedMap() error = %v, want no error", err)
 		}
-		// Check if both are nil or non-nil
 		if (result == nil) != (m == nil) {
 			t.Errorf("extractNestedMap() result = %v, want similar nil status as %v", result, m)
 		}
-		// If non-nil, check if the key exists in the result
 		if result != nil {
 			if _, ok := result.(map[string]any)["key"]; !ok {
 				t.Errorf("extractNestedMap() result missing expected key")
@@ -935,7 +995,6 @@ func TestTypeConversions(t *testing.T) {
 		}
 	})
 
-	// Test edge cases for extractActorField
 	t.Run("extractActorField nil actor", func(t *testing.T) {
 		_, err := evaluator.extractActorField(security.Actor{}, []string{"id"})
 		if err == nil {
@@ -951,7 +1010,6 @@ func TestTypeConversions(t *testing.T) {
 		}
 	})
 
-	// Test edge cases for extractMetaField
 	t.Run("extractMetaField nil meta", func(t *testing.T) {
 		result, err := evaluator.extractMetaField(nil, []string{"key"})
 		if err != nil {
@@ -972,9 +1030,19 @@ func TestTypeConversions(t *testing.T) {
 }
 
 func TestComplexNestedConditions(t *testing.T) {
-	evaluator := NewConditionEvaluator()
+	conditions := []policy.Condition{
+		{
+			Field:    "actor.meta.profile.contact.email",
+			Operator: "matches",
+			Value:    "^[a-z]+@example\\.com$",
+		},
+	}
 
-	// Create a complex nested actor
+	evaluator, err := NewConditionEvaluator(conditions)
+	if err != nil {
+		t.Fatalf("Failed to create evaluator: %v", err)
+	}
+
 	actor := newMockActor("user123", registry.Metadata{
 		"role": "admin",
 		"permissions": map[string]any{
@@ -996,7 +1064,6 @@ func TestComplexNestedConditions(t *testing.T) {
 		},
 	})
 
-	// Create complex nested metadata
 	meta := registry.Metadata{
 		"document": map[string]any{
 			"id":      "doc123",
