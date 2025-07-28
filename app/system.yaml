@@ -131,13 +131,13 @@ entries:
       auto_start: true
 
   - name: envmemory
-    kind: env.storagememory
+    kind: env.storage.memory
     meta:
       type: envstorage
       comment: Memory storage for environment variables
 
   - name: envfile
-    kind: env.storagefile
+    kind: env.storage.file
     meta:
       type: envstorage
       comment: Memory storage for environment variables
