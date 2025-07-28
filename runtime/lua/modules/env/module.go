@@ -154,7 +154,8 @@ func (m *Module) getAll(l *lua.LState) int {
 	for key, value := range variables {
 		// Only include variables that the user has permission to access
 		if security.IsAllowed(l.Context(), "env.get", key, nil) {
-			result.RawSetString(key, lua.LString(value))
+			// Direct map access instead of RawSetString for performance
+			result.Strdict[key] = lua.LString(value)
 		}
 	}
 
