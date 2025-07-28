@@ -32,6 +32,7 @@ import (
 	"github.com/ponyruntime/pony/cluster/internode"
 	"github.com/ponyruntime/pony/cluster/membership"
 	"github.com/ponyruntime/pony/embed"
+	"github.com/ponyruntime/pony/moduleloader"
 	"github.com/ponyruntime/pony/requirementresolver"
 	contractsys "github.com/ponyruntime/pony/system/contract"
 	"github.com/ponyruntime/pony/system/env"
@@ -410,6 +411,19 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	}
 	appCtx = context.WithValue(appCtx, ctxapi.EnvCtx, envCtx)
 
+	// Start service router FIRST - before core services
+	// This ensures event handlers are registered before services start processing events
+	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
+	if err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to create event router: %w", err)
+	}
+	a.eventRouter = router
+
+	// Give event handlers time to register
+	// FIXME fixes race condition of event-bus
+	time.Sleep(500 * time.Millisecond)
+
 	// Start core services IN ORDER
 	if err := a.fsRegistry.Start(appCtx); err != nil {
 		a.cancel()
@@ -481,14 +495,6 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		a.cancel()
 		return fmt.Errorf("failed to start supervisor: %w", err)
 	}
-
-	// Start service router
-	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
-	if err != nil {
-		a.cancel()
-		return fmt.Errorf("failed to create event router: %w", err)
-	}
-	a.eventRouter = router
 
 	// Load filesystem
 	var fSys iofs.FS
@@ -727,7 +733,7 @@ func loadApplicationState(
 	if err := registryLoader.Load(ctx); err != nil {
 		mainLogger.Error("load modules from registry", zap.Error(err))
 	} else {
-		vendorDir, err := os.OpenRoot("vendor")
+		vendorDir, err := os.OpenRoot(moduleloader.VendorFolder)
 		if err != nil {
 			return nil, nil, fmt.Errorf("open vendor folder: %w", err)
 		}

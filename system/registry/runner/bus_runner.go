@@ -59,14 +59,27 @@ func (br *BusRunner) Transition(
 		Kind:   registry.Begin,
 	})
 
-	for _, op := range cs {
+	for i, op := range cs {
 		newState, err := br.applyOperation(ctx, currentState, op)
 		if err != nil {
 			if ctx.Err() != nil {
+				br.log.Error("context cancelled during operation",
+					zap.Int("operation_index", i),
+					zap.String("operation_kind", op.Kind),
+					zap.String("entry_id", op.Entry.ID.String()),
+					zap.Error(err))
 				return nil, err
 			}
 
-			br.log.Warn("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
+			br.log.Warn("operation failed, initiating rollback",
+				zap.Int("operation_index", i),
+				zap.Int("total_operations", len(cs)),
+				zap.String("operation_kind", op.Kind),
+				zap.String("entry_id", op.Entry.ID.String()),
+				zap.String("entry_kind", op.Entry.Kind),
+				zap.Any("operation", op),
+				zap.Error(err))
+
 			newState = br.rollback(ctx, originalState, newState)
 
 			// Only send Discard if there was an error, and rollback already happened
@@ -115,11 +128,8 @@ func (br *BusRunner) applyOperation(
 		registry.KindNamespaceDependency,
 		registry.KindNamespaceRequirement,
 	}
-	if slices.Contains(allowProcess, op.Entry.Kind) {
-		br.log.Debug("processing entry",
-			zap.String("id", op.Entry.ID.String()),
-			zap.Any("meta", op.Entry.Meta))
 
+	if slices.Contains(allowProcess, op.Entry.Kind) {
 		// with entry events we dont propagate any events and handle them internally
 		// use registry.entry for dynamic configs
 		newState, err := br.builder.ApplyOperation(state, op)
@@ -130,12 +140,9 @@ func (br *BusRunner) applyOperation(
 		return newState, nil
 	}
 
-	br.log.Debug("starting operation",
-		zap.String("kind", op.Kind),
-		zap.String("id", op.Entry.ID.String()),
-		zap.Any("meta", op.Entry.Meta))
+	// Clear any pending events from previous operations
+	br.clearPendingEvents()
 
-	// send the operation event
 	br.bus.Send(ctx, event.Event{
 		System: registry.System,
 		Kind:   op.Kind,
@@ -143,47 +150,69 @@ func (br *BusRunner) applyOperation(
 		Data:   op.Entry,
 	})
 
+	// Wait for the specific event for this operation
 	for {
 		select {
 		case confirmation := <-br.acceptChan:
 			id := registry.ParseID(confirmation.Path)
-			br.log.Debug("received accept event",
-				zap.String("id", id.String()),
-				zap.String("expected", op.Entry.ID.String()))
-
-			if id != op.Entry.ID {
-				return state, errors.New("unrelated accept event")
+			if id == op.Entry.ID {
+				// Apply the change to the state
+				newState, err := br.builder.ApplyOperation(state, op)
+				if err != nil {
+					return state, fmt.Errorf("applying change to state: %w", err)
+				}
+				return newState, nil
 			}
-
-			// Apply the change to the state
-			newState, err := br.builder.ApplyOperation(state, op)
-			if err != nil {
-				return state, fmt.Errorf("applying change to state: %w", err)
-			}
-
-			return newState, nil
+			// Ignore events for other operations - they might be from previous operations
+			br.log.Debug("ignoring accept event for different operation",
+				zap.String("received_id", id.String()),
+				zap.String("expected_id", op.Entry.ID.String()))
 
 		case rejection := <-br.rejectChan:
 			id := registry.ParseID(rejection.Path)
-			br.log.Debug("received reject event",
-				zap.String("id", id.String()),
-				zap.String("expected", op.Entry.ID.String()),
-				zap.Any("data", rejection.Data))
-
-			if id != op.Entry.ID {
-				return state, errors.New("unrelated reject event")
+			if id == op.Entry.ID {
+				err, ok := rejection.Data.(error)
+				if !ok {
+					return state, errors.New("operation rejected, no details")
+				}
+				return state, err
 			}
-
-			err, ok := rejection.Data.(error)
-			if !ok {
-				return state, errors.New("operation rejected, no details")
-			}
-			return state, err
+			// Ignore events for other operations - they might be from previous operations
+			br.log.Debug("ignoring reject event for different operation",
+				zap.String("received_id", id.String()),
+				zap.String("expected_id", op.Entry.ID.String()))
 
 		case <-ctx.Done():
 			return state, fmt.Errorf("failed to apply operation %s (%s): %w", op.Entry.ID, op.Entry.Kind, ctx.Err())
 		}
 	}
+}
+
+// clearPendingEvents clears any pending events from the accept and reject channels
+func (br *BusRunner) clearPendingEvents() {
+	// Drain accept channel
+	for {
+		select {
+		case <-br.acceptChan:
+			// Continue draining
+		default:
+			// Channel is empty
+			goto acceptDone
+		}
+	}
+acceptDone:
+
+	// Drain reject channel
+	for {
+		select {
+		case <-br.rejectChan:
+			// Continue draining
+		default:
+			// Channel is empty
+			goto rejectDone
+		}
+	}
+rejectDone:
 }
 
 func (br *BusRunner) rollback(
@@ -230,11 +259,13 @@ func (br *BusRunner) subscribeToEvents(ctx context.Context) error {
 	var err error
 	br.acceptSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Accept, br.acceptChan)
 	if err != nil {
+		br.log.Error("failed to subscribe to accept events", zap.Error(err))
 		return fmt.Errorf("listening events: %w", err)
 	}
 
 	br.rejectSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Reject, br.rejectChan)
 	if err != nil {
+		br.log.Error("failed to subscribe to reject events, cleaning up accept subscription", zap.Error(err))
 		br.bus.Unsubscribe(ctx, br.acceptSubID) // Clean up accept subscription if reject subscription fails
 		return fmt.Errorf("listening events: %w", err)
 	}

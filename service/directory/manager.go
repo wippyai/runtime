@@ -122,25 +122,39 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Co
 		AutoInit: cfg.AutoInit,
 	})
 	if err != nil {
+		m.log.Error("failed to create filesystem instance",
+			zap.String("id", id.String()),
+			zap.String("directory", cfg.Directory),
+			zap.Error(err))
 		return fmt.Errorf("failed to create filesystem: %w", err)
 	}
 
 	// Store in directories map
 	m.directories.Store(id.String(), fs)
 
-	// Register regular filesystem
+	// Register with filesystem registry
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
 		Kind:   fsapi.Register,
 		Path:   id.String(),
-		Data:   fs, // Now passing the actual FS implementation
+		Data:   fs,
 	})
+
+	m.log.Info("directory filesystem created",
+		zap.String("id", id.String()),
+		zap.String("path", cfg.Directory))
 
 	return nil
 }
 
 // removeFS removes the filesystem from the fs system
 func (m *Manager) removeFS(ctx context.Context, id registry.ID) {
+	m.log.Debug("sending filesystem deletion event",
+		zap.String("id", id.String()),
+		zap.String("system", string(fsapi.System)),
+		zap.String("kind", string(fsapi.Delete)),
+		zap.String("path", id.String()))
+
 	// Done regular registration
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
