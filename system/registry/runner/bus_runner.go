@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"slices"
 
 	"github.com/ponyruntime/pony/api/event"
@@ -144,20 +143,15 @@ func (br *BusRunner) applyOperation(
 		Data:   op.Entry,
 	})
 
-	log.Printf("SENDING OPERATION: %s (%s)", op.Entry.ID, op.Kind)
-
 	for {
 		select {
 		case confirmation := <-br.acceptChan:
-			log.Println("GOT ACCEPT EVENT", confirmation.Path, confirmation.Data)
-
 			id := registry.ParseID(confirmation.Path)
 			br.log.Debug("received accept event",
 				zap.String("id", id.String()),
 				zap.String("expected", op.Entry.ID.String()))
 
 			if id != op.Entry.ID {
-				log.Printf("unrelated accept event: %+v", confirmation)
 				return state, errors.New("unrelated accept event")
 			}
 
@@ -170,7 +164,6 @@ func (br *BusRunner) applyOperation(
 			return newState, nil
 
 		case rejection := <-br.rejectChan:
-			log.Printf("GOT REJECT EVENT: %s (%s)", rejection.Path, rejection.Data)
 			id := registry.ParseID(rejection.Path)
 			br.log.Debug("received reject event",
 				zap.String("id", id.String()),
