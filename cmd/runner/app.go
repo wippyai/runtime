@@ -410,10 +410,6 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	}
 	a.eventRouter = router
 
-	// Give event handlers time to register
-	// FIXME fixes race condition of event-bus
-	time.Sleep(500 * time.Millisecond)
-
 	// Start core services IN ORDER
 	if err := a.fsRegistry.Start(appCtx); err != nil {
 		a.cancel()
