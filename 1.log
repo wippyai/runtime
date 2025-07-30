@@ -1,0 +1,1435 @@
+2025-07-30 16:20:34	INFO	.env file loaded successfully from default location
+2025-07-30 16:20:34	INFO	logs	logging service started	{"propagate": true, "stream": false, "min_level": "debug"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "env"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "os"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "channel"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "time"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "logger"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "base64"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "json"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "fs"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "uuid"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "upstream"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "subscribe"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "crypto"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "funcs"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "payload"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "task"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "hash"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "command.Command"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "yaml"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "text"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "loader"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "events"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "exec"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "ctx"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "store"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "templates"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "security"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "registry"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "process"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "http"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "process_api"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "function_api"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "http_client"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "websocket"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "treesitter"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "btea"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "sql"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "excel"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "cloudstorage"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "system"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "contract"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "otel"}
+2025-07-30 16:20:34	DEBUG	lua	adding built-in module	{"name": "html"}
+2025-07-30 16:20:35	INFO	core	supervisor started
+2025-07-30 16:20:35	INFO	No OpenTelemetry endpoint specified, using no-op tracer
+2025-07-30 16:20:35	DEBUG	interceptor	interceptor registered	{"interceptor": "interceptor:timeout"}
+2025-07-30 16:20:35	DEBUG	interceptor	interceptor registered	{"interceptor": "interceptor:otel"}
+2025-07-30 16:20:35	DEBUG	interceptor	interceptor registered	{"interceptor": "interceptor:ratelimit"}
+2025-07-30 16:20:35	DEBUG	interceptor	interceptor registered	{"interceptor": "interceptor:retry"}
+2025-07-30 16:20:35	WARN	process file	{"path": "src/demos/terminal_examples/_index.yaml", "error": "extract entries: validation failed: entry[0].namespace: namespace is required"}
+2025-07-30 16:20:35	WARN	process file	{"path": "src/demos/todo_app/_index.yaml", "error": "extract entries: validation failed: entry[0].namespace: namespace is required"}
+2025-07-30 16:20:35	WARN	process file	{"path": "src/demos/todo_app/api/_index.yaml", "error": "extract entries: validation failed: entry[0].namespace: namespace is required"}
+2025-07-30 16:20:46	WARN	process file	{"path": "igor-test-3/test-2@0197e51e-b4c2-7460-a321-372aae3f6ae4/module-hello-1.0.9/.github/workflows/release.yml", "error": "extract entries: validation failed: entry[0].namespace: namespace is required"}
+2025-07-30 16:20:46	INFO	requirement-resolver	requirement resolver debug info	{"available_requirements": ["NAMESPACE", "API_ROUTER", "application_host"], "available_definitions": ["application_host", "NAMESPACE", "API_ROUTER"], "available_dependencies": ["__dependency.wippy.security", "__dependency.wippy.terminal", "__dependency.wippy.test", "hello_world_dependency", "__dependency.wippy.llm", "__dependency.wippy.migration"]}
+2025-07-30 16:20:46	INFO	requirement-resolver	processing definition	{"definition_name": "application_host", "definition_namespace": "app.llm_debug.demo"}
+2025-07-30 16:20:46	INFO	requirement-resolver	found dependency for definition	{"definition": "application_host", "dependency": "__dependency.wippy.llm", "path": ".parameters[] | select(.name == \"host\") | .value"}
+2025-07-30 16:20:46	INFO	requirement-resolver	extracted value from dependency	{"definition": "application_host", "value": "system:processes"}
+2025-07-30 16:20:46	INFO	requirement-resolver	found requirement for definition	{"definition": "application_host", "requirement": "application_host", "requirement_namespace": "wippy.llm.google.vertex"}
+2025-07-30 16:20:46	INFO	requirement-resolver	found requirement targets	{"requirement": "application_host", "targets": [{"entry":"token_refresh","path":".meta.default_host"},{"entry":"token_refresh.service","path":".host"},{"entry":"token_refresh.service","path":".lifecycle.depends_on +="}]}
+2025-07-30 16:20:46	INFO	requirement-resolver	found target entries for requirement	{"requirement": "application_host", "target_entry": "token_refresh", "target_path": ".meta.default_host", "target_count": 1, "target_entry_ids": ["wippy.llm.google.vertex:token_refresh"]}
+2025-07-30 16:20:46	INFO	requirement-resolver	injection verification successful	{"entry_id": "wippy.llm.google.vertex:token_refresh", "path": ".meta.default_host", "value": "system:processes"}
+2025-07-30 16:20:46	INFO	requirement-resolver	found target entries for requirement	{"requirement": "application_host", "target_entry": "token_refresh.service", "target_path": ".host", "target_count": 1, "target_entry_ids": ["wippy.llm.google.vertex:token_refresh.service"]}
+2025-07-30 16:20:46	INFO	requirement-resolver	modified entry	{"data": {"host":"system:processes","kind":"process.service","lifecycle":{"auto_start":true,"depends_on":[],"security":{"groups":["wippy.security:process"]}},"meta":{"comment":"Token Refresh Service","provider":"vertex"},"name":"token_refresh.service","process":"token_refresh"}}
+2025-07-30 16:20:46	INFO	requirement-resolver	injection verification successful	{"entry_id": "wippy.llm.google.vertex:token_refresh.service", "path": ".host", "value": "system:processes"}
+2025-07-30 16:20:46	INFO	requirement-resolver	found target entries for requirement	{"requirement": "application_host", "target_entry": "token_refresh.service", "target_path": ".lifecycle.depends_on +=", "target_count": 1, "target_entry_ids": ["wippy.llm.google.vertex:token_refresh.service"]}
+2025-07-30 16:20:46	INFO	requirement-resolver	modified entry	{"data": {"host":"system:processes","kind":"process.service","lifecycle":{"auto_start":true,"depends_on":["system:processes"],"security":{"groups":["wippy.security:process"]}},"meta":{"comment":"Token Refresh Service","provider":"vertex"},"name":"token_refresh.service","process":"token_refresh"}}
+2025-07-30 16:20:46	INFO	requirement-resolver	injection verification successful	{"entry_id": "wippy.llm.google.vertex:token_refresh.service", "path": ".lifecycle.depends_on", "value": "[system:processes]"}
+2025-07-30 16:20:46	INFO	requirement-resolver	processing definition	{"definition_name": "NAMESPACE", "definition_namespace": "app.requirements.demo"}
+2025-07-30 16:20:46	INFO	requirement-resolver	found dependency for definition	{"definition": "NAMESPACE", "dependency": "hello_world_dependency", "path": ".parameters[] | select(.name == \"namespace\") | .value"}
+2025-07-30 16:20:46	INFO	requirement-resolver	extracted value from dependency	{"definition": "NAMESPACE", "value": "ns:system"}
+2025-07-30 16:20:46	INFO	requirement-resolver	found requirement for definition	{"definition": "NAMESPACE", "requirement": "NAMESPACE", "requirement_namespace": "localspace"}
+2025-07-30 16:20:46	INFO	requirement-resolver	found requirement targets	{"requirement": "NAMESPACE", "targets": [{"entry":"","path":".meta.depends_on +="}]}
+2025-07-30 16:20:46	INFO	requirement-resolver	found target entries for requirement	{"requirement": "NAMESPACE", "target_entry": "", "target_path": ".meta.depends_on +=", "target_count": 4, "target_entry_ids": ["localspace:NAMESPACE", "localspace:API_ROUTER", "localspace:hello_handler", "localspace:hello_endpoint"]}
+2025-07-30 16:20:46	INFO	requirement-resolver	injection verification successful	{"entry_id": "localspace:NAMESPACE", "path": ".meta.depends_on", "value": "[ns:system]"}
+2025-07-30 16:20:46	INFO	requirement-resolver	injection verification successful	{"entry_id": "localspace:API_ROUTER", "path": ".meta.depends_on", "value": "[ns:system]"}
+2025-07-30 16:20:46	INFO	requirement-resolver	injection verification successful	{"entry_id": "localspace:hello_handler", "path": ".meta.depends_on", "value": "[ns:system]"}
+2025-07-30 16:20:46	INFO	requirement-resolver	injection verification successful	{"entry_id": "localspace:hello_endpoint", "path": ".meta.depends_on", "value": "[ns:system]"}
+2025-07-30 16:20:46	INFO	requirement-resolver	processing definition	{"definition_name": "API_ROUTER", "definition_namespace": "app.requirements.demo"}
+2025-07-30 16:20:46	INFO	requirement-resolver	found dependency for definition	{"definition": "API_ROUTER", "dependency": "hello_world_dependency", "path": ".parameters[] | select(.name == \"api_router\") | .value"}
+2025-07-30 16:20:46	INFO	requirement-resolver	extracted value from dependency	{"definition": "API_ROUTER", "value": "system:api"}
+2025-07-30 16:20:46	INFO	requirement-resolver	found requirement for definition	{"definition": "API_ROUTER", "requirement": "API_ROUTER", "requirement_namespace": "localspace"}
+2025-07-30 16:20:46	INFO	requirement-resolver	found requirement targets	{"requirement": "API_ROUTER", "targets": [{"entry":"hello_endpoint","path":".meta.router"}]}
+2025-07-30 16:20:46	INFO	requirement-resolver	found target entries for requirement	{"requirement": "API_ROUTER", "target_entry": "hello_endpoint", "target_path": ".meta.router", "target_count": 1, "target_entry_ids": ["localspace:hello_endpoint"]}
+2025-07-30 16:20:46	INFO	requirement-resolver	injection verification successful	{"entry_id": "localspace:hello_endpoint", "path": ".meta.router", "value": "system:api"}
+2025-07-30 16:20:46	INFO	env	added env storage	{"id": "system:envfile", "kind": "env.storage.file"}
+2025-07-30 16:20:46	DEBUG	resources	resource registered	{"id": "system:envfile", "meta": {"type":"env.storage.file"}}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "system:envfile"}
+2025-07-30 16:20:46	INFO	env	added env storage	{"id": "system:envmemory", "kind": "env.storage.memory"}
+2025-07-30 16:20:46	DEBUG	resources	resource registered	{"id": "system:envmemory", "meta": {"type":"env.storage.memory"}}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "system:envmemory"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.llm_debug.demo:bapp", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.llm_debug.demo:bapp"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.llm_debug.demo:processes", "kind": "process.host"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.llm_debug.demo:processes"}
+2025-07-30 16:20:46	INFO	hosts	process host created	{"id": "app.llm_debug.demo:processes"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.llm_debug.demo:processes", "expected_id": "app.llm_debug.demo:terminal"}
+2025-07-30 16:20:46	INFO	pubsub	host registered successfully	{"host": "app.llm_debug.demo:processes", "node_id": "nb2", "type": "*host.Host"}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "app.llm_debug.demo:processes"}
+2025-07-30 16:20:46	DEBUG	hosts	host registered	{"host": "app.llm_debug.demo:processes", "managed": true}
+2025-07-30 16:20:46	INFO	terminal	terminal service created	{"id": "app.llm_debug.demo:terminal"}
+2025-07-30 16:20:46	INFO	pubsub	host registered successfully	{"host": "app.llm_debug.demo:terminal", "node_id": "nb2", "type": "*terminal.Terminal"}
+2025-07-30 16:20:46	DEBUG	hosts	host registered	{"host": "app.llm_debug.demo:terminal", "managed": true}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "app.llm_debug.demo:terminal"}
+2025-07-30 16:20:46	INFO	memory	added memory store	{"id": "app:cache", "max_size": 10000}
+2025-07-30 16:20:46	DEBUG	resources	resource registered	{"id": "app:cache", "meta": {"comment":"Application cache storage"}}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "app:cache"}
+2025-07-30 16:20:46	INFO	memory	added memory store	{"id": "system.security:session", "max_size": 5000}
+2025-07-30 16:20:46	DEBUG	resources	resource registered	{"id": "system.security:session", "meta": {"comment":"User session storage","depends_on":["gateway"]}}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "system.security:session"}
+2025-07-30 16:20:46	INFO	config.aws	added aws config	{"id": "system:aws_config", "region": "us-east-1"}
+2025-07-30 16:20:46	DEBUG	resources	resource registered	{"id": "system:aws_config", "meta": {"region":"us-east-1"}}
+2025-07-30 16:20:46	INFO	config.aws	added aws config	{"id": "system:aws_config2", "region": "us-east-1"}
+2025-07-30 16:20:46	DEBUG	resources	resource registered	{"id": "system:aws_config2", "meta": {"region":"us-east-1"}}
+2025-07-30 16:20:46	INFO	sql	added database service	{"id": "system:db", "kind": "db.sql.sqlite"}
+2025-07-30 16:20:46	DEBUG	resources	resource registered	{"id": "system:db", "meta": {"type":"db.sql.sqlite"}}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "system:db"}
+2025-07-30 16:20:46	INFO	pubsub	host registered successfully	{"host": "system:gateway", "node_id": "nb2", "type": "*http.ServerService"}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "system:gateway"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "system:processes", "kind": "process.host"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "system:processes"}
+2025-07-30 16:20:46	INFO	hosts	process host created	{"id": "system:processes"}
+2025-07-30 16:20:46	DEBUG	hosts	host registered	{"host": "system:processes", "managed": true}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "system:processes"}
+2025-07-30 16:20:46	INFO	pubsub	host registered successfully	{"host": "system:processes", "node_id": "nb2", "type": "*host.Host"}
+2025-07-30 16:20:46	INFO	fs.dir	directory filesystem created	{"id": "system:root", "path": "./"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "system:processes", "expected_id": "system:root"}
+2025-07-30 16:20:46	INFO	fs.dir	directory filesystem created	{"id": "system:root", "path": "./"}
+2025-07-30 16:20:46	DEBUG	fs	filesystem registered successfully	{"fs": "system:root"}
+2025-07-30 16:20:46	INFO	terminal	terminal service created	{"id": "system:terminal"}
+2025-07-30 16:20:46	INFO	pubsub	host registered successfully	{"host": "system:terminal", "node_id": "nb2", "type": "*terminal.Terminal"}
+2025-07-30 16:20:46	DEBUG	hosts	host registered	{"host": "system:terminal", "managed": true}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "system:terminal"}
+2025-07-30 16:20:46	INFO	fs.dir	directory filesystem created	{"id": "system:uploads", "path": "./app/uploads/"}
+2025-07-30 16:20:46	INFO	fs.dir	directory filesystem created	{"id": "system:uploads", "path": "./app/uploads/"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.actor:actor", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	fs	filesystem registered successfully	{"fs": "system:uploads"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.actor:actor"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.lib:bapp", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.lib:bapp"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.lib:bapp", "expected_id": "wippy.llm.google.vertex:token_refresh"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.google.vertex:token_refresh", "kind": "process.lua"}
+2025-07-30 16:20:46	INFO	pfunc	registered process function handler	{"id": "wippy.llm.google.vertex:token_refresh", "host": "system:processes"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:token_refresh"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:token_refresh"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.migration:core", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	lua.proc	added process	{"id": "wippy.llm.google.vertex:token_refresh"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration:core"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm.google.vertex:token_refresh", "expected_id": "wippy.migration:registry"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "wippy.llm.google.vertex:token_refresh"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.migration:registry", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration:registry"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.migration:repository", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration:repository"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.migration:repository", "expected_id": "wippy.security:general"}
+2025-07-30 16:20:46	INFO	policy	security policy registered	{"id": "wippy.security:general", "groups": 1}
+2025-07-30 16:20:46	DEBUG	security	policy registered	{"policy": "wippy.security:general", "groups": 1}
+2025-07-30 16:20:46	INFO	policy	security policy registered	{"id": "wippy.security:registry.no_write", "groups": 1}
+2025-07-30 16:20:46	DEBUG	security	policy registered	{"policy": "wippy.security:registry.no_write", "groups": 1}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.terminal:bapp", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.terminal:bapp"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.test:registry", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.test:registry"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.test:registry", "expected_id": "wippy.test:test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.test:test", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.test:test"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.test:test", "expected_id": "app.env.demo:file_test_env"}
+2025-07-30 16:20:46	INFO	env	registered environment variable	{"id": "app.env.demo:file_test_env", "name": "file_test_env", "env_name": "FILE_TEST_ENV"}
+2025-07-30 16:20:46	INFO	env	registered environment variable	{"id": "app.env.demo:file_test_env_readonly", "name": "file_test_env_readonly", "env_name": "FILE_TEST_ENV_READONLY"}
+2025-07-30 16:20:46	INFO	env	registered environment variable	{"id": "app.env.demo:memory_test_env", "name": "memory_test_env", "env_name": "MEMORY_TEST_ENV"}
+2025-07-30 16:20:46	INFO	env	registered environment variable	{"id": "app.env.demo:memory_test_env_readonly", "name": "memory_test_env_readonly", "env_name": "MEMORY_TEST_ENV_READONLY"}
+2025-07-30 16:20:46	INFO	env	registered environment variable	{"id": "app.llm_debug.demo:VERTEX_AI_CLIENT_EMAIL", "name": "VERTEX_AI_CLIENT_EMAIL", "env_name": "VERTEX_AI_CLIENT_EMAIL"}
+2025-07-30 16:20:46	INFO	env	registered environment variable	{"id": "app.llm_debug.demo:VERTEX_AI_LOCATION", "name": "VERTEX_AI_LOCATION", "env_name": "VERTEX_AI_LOCATION"}
+2025-07-30 16:20:46	INFO	env	registered environment variable	{"id": "app.llm_debug.demo:VERTEX_AI_PRIVATE_KEY", "name": "VERTEX_AI_PRIVATE_KEY", "env_name": "VERTEX_AI_PRIVATE_KEY"}
+2025-07-30 16:20:46	INFO	env	registered environment variable	{"id": "app.llm_debug.demo:VERTEX_AI_PRIVATE_KEY_ID", "name": "VERTEX_AI_PRIVATE_KEY_ID", "env_name": "VERTEX_AI_PRIVATE_KEY_ID"}
+2025-07-30 16:20:46	INFO	env	registered environment variable	{"id": "app.llm_debug.demo:VERTEX_AI_PROJECT", "name": "VERTEX_AI_PROJECT", "env_name": "VERTEX_AI_PROJECT"}
+2025-07-30 16:20:46	INFO	env	registered environment variable	{"id": "system:file_test_env2", "name": "file_test_env2", "env_name": "FILE_TEST_ENV2"}
+2025-07-30 16:20:46	INFO	tstore	registered token store configuration	{"id": "system.security:auth.tokens", "store": "system.security:session"}
+2025-07-30 16:20:46	DEBUG	resources	resource registered	{"id": "system.security:auth.tokens", "meta": {"comment":"Authentication token storage","depends_on":["session"]}}
+2025-07-30 16:20:46	DEBUG	http	added router	{"router": "system:api", "prefix": "/api/v1", "server": "system:gateway"}
+2025-07-30 16:20:46	INFO	fs.dir	directory filesystem created	{"id": "system:public", "path": "./app/public/"}
+2025-07-30 16:20:46	INFO	fs.dir	directory filesystem created	{"id": "system:public", "path": "./app/public/"}
+2025-07-30 16:20:46	DEBUG	fs	filesystem registered successfully	{"fs": "system:public"}
+2025-07-30 16:20:46	INFO	cloudstorage.s3	added S3 storage	{"id": "system:test_s3", "bucket": ""}
+2025-07-30 16:20:46	DEBUG	resources	resource registered	{"id": "system:test_s3", "meta": {"bucket":"mybucket"}}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.actor:actor_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.actor:actor_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.agents:traits", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.actor:actor_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.actor:actor_test"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.actor:actor_test", "expected_id": "wippy.agents:traits"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.agents:traits"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.google.vertex:token_refresh.service", "kind": "process.service"}
+2025-07-30 16:20:46	INFO	super	process supervisor add - entry details	{"id": "wippy.llm.google.vertex:token_refresh.service", "kind": "process.service", "meta": {"comment":"Token Refresh Service","provider":"vertex"}, "has_data": true}
+2025-07-30 16:20:46	INFO	super	process supervisor add - payload details	{"id": "wippy.llm.google.vertex:token_refresh.service", "format": "golang/any", "data_type": "map[string]interface {}", "data_preview": {"count":6,"keys":["process","kind","lifecycle","meta","name","host"]}}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:models", "kind": "library.lua"}
+2025-07-30 16:20:46	INFO	super	process supervisor add - transcoder available	{"id": "wippy.llm.google.vertex:token_refresh.service", "transcoder_type": "*payload.Transcoder", "entry": {"id":"wippy.llm.google.vertex:token_refresh.service","kind":"process.service","meta":{"comment":"Token Refresh Service","provider":"vertex"},"data":{}}}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:token_refresh.service"}
+2025-07-30 16:20:46	INFO	super	process supervisor add - config decoded successfully	{"id": "wippy.llm.google.vertex:token_refresh.service", "process": ":token_refresh", "host_id": "system:processes", "input_count": 0, "lifecycle": {"auto_start":true,"start_timeout":0,"stop_timeout":0,"stable_threshold":0,"restart":{"initial_delay":0,"max_delay":0,"backoff_factor":0,"jitter":0,"max_attempts":0},"depends_on":["system:processes"],"security":{"actor":{"ID":"","Meta":null},"groups":["wippy.security:process"]}}}
+2025-07-30 16:20:46	INFO	super	process supervisor added	{"id": "wippy.llm.google.vertex:token_refresh.service"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:models"}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "wippy.llm.google.vertex:token_refresh.service"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:output", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm.google.vertex:token_refresh.service", "expected_id": "wippy.llm:output"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:output"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:prompt", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:prompt"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:tools", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:tools"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm:prompt", "expected_id": "wippy.llm:tools"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.migration:migration", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration:migration"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.migration:runner", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration:runner"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.migration:migration", "expected_id": "app.funcs.openai:openai_api_key"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.migration:runner", "expected_id": "app.funcs.openai:openai_api_key"}
+2025-07-30 16:20:46	INFO	env	registered environment variable	{"id": "app.funcs.openai:openai_api_key", "name": "openai_api_key", "env_name": "OPENAI_API_KEY"}
+2025-07-30 16:20:46	DEBUG	http	added router	{"router": "demo.security:secure.router", "prefix": "/api/secure", "server": "system:gateway"}
+2025-07-30 16:20:46	DEBUG	http	upserted static file handler	{"static": "system:public.static", "server": "system:gateway", "path": "/"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.agents:traits_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.agents:traits_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.google.vertex:client", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.agents:traits_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.agents:traits_test"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.agents:traits_test", "expected_id": "wippy.llm.google.vertex:client"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:client"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.google.vertex:prompt_mapper", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:prompt_mapper"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm.google.vertex:prompt_mapper", "expected_id": "wippy.llm:llm"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:llm", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:llm"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:models_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:models_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:output_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:output_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:models_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm:models_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:output_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm:output_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:prompt_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm:output_test", "expected_id": "wippy.llm:prompt_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:prompt_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:prompt_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm:prompt_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:tools_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:tools_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:tools_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.message_sending:child.get_local_time", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm:tools_test"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm:tools_test", "expected_id": "app.demos.message_sending:child.get_local_time"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.message_sending:child.get_local_time"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.message_sending:message.process", "kind": "process.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.message_sending:message.process"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.message_sending:child.get_local_time"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.message_sending:message.sender", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demos.message_sending:child.get_local_time", "expected_id": "app.demos.message_sending:message.sender"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.demos.message_sending:child.get_local_time"}
+2025-07-30 16:20:46	DEBUG	lua.proc	added process	{"id": "app.demos.message_sending:message.process"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.message_sending:message.sender"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.message_sending:message.sender"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.demos.message_sending:message.process"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.demos.message_sending:message.sender"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demos.message_sending:message.sender", "expected_id": "app.demos.process_lifecycle:cancel.endpoint"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demos.message_sending:message.process", "expected_id": "app.demos.process_lifecycle:cancel.endpoint"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.process_lifecycle:cancel.endpoint", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:cancel.endpoint"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.process_lifecycle:child", "kind": "process.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:cancel.endpoint"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.demos.process_lifecycle:cancel.endpoint"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:child"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demos.process_lifecycle:cancel.endpoint", "expected_id": "app.demos.process_lifecycle:child"}
+2025-07-30 16:20:46	DEBUG	lua.proc	added process	{"id": "app.demos.process_lifecycle:child"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.process_lifecycle:manager", "kind": "process.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demos.process_lifecycle:child", "expected_id": "app.demos.process_lifecycle:manager"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.demos.process_lifecycle:child"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:manager"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.process_lifecycle:parent", "kind": "process.lua"}
+2025-07-30 16:20:46	DEBUG	lua.proc	added process	{"id": "app.demos.process_lifecycle:manager"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.demos.process_lifecycle:manager"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:parent"}
+2025-07-30 16:20:46	DEBUG	lua.proc	added process	{"id": "app.demos.process_lifecycle:parent"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.process_lifecycle:start.endpoint", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demos.process_lifecycle:parent", "expected_id": "app.demos.process_lifecycle:start.endpoint"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.demos.process_lifecycle:parent"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:start.endpoint"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.process_lifecycle:status.endpoint", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:status.endpoint"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:start.endpoint"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.demos.process_lifecycle:start.endpoint"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:status.endpoint"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.demos.process_lifecycle:status.endpoint"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demos.process_lifecycle:start.endpoint", "expected_id": "app.demos.process_lifecycle:terminate.endpoint"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demos.process_lifecycle:status.endpoint", "expected_id": "app.demos.process_lifecycle:terminate.endpoint"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.process_lifecycle:terminate.endpoint", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:terminate.endpoint"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:terminate.endpoint"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.demos.process_lifecycle:terminate.endpoint"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demos.process_lifecycle:terminate.endpoint", "expected_id": "app.demos.snake:game"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	added btea app	{"id": "app.demos.snake:game"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.demos.snake:game"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.env.demo:env_demo", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.env.demo:env_demo"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.funcs.openai:llm_query", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.funcs.openai:llm_query"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.env.demo:env_demo"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.funcs.static_analysis:go_overview", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.env.demo:env_demo"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.env.demo:env_demo", "expected_id": "app.funcs.static_analysis:go_overview"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.funcs.static_analysis:go_overview"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.funcs.openai:llm_query"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.funcs.openai:llm_query"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.funcs.static_analysis:go_overview"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.funcs.static_analysis:go_overview"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.funcs.static_analysis:go_overview", "expected_id": "app.funcs.static_analysis:html_overview"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.funcs.static_analysis:html_overview", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.funcs.static_analysis:html_overview"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.funcs.static_analysis:html_overview"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.funcs.static_analysis:html_overview"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.funcs.static_analysis:lua_overview", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.funcs.static_analysis:html_overview", "expected_id": "app.funcs.static_analysis:lua_overview"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.funcs.static_analysis:lua_overview"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.funcs.static_analysis:lua_overview"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.funcs.static_analysis:lua_overview"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.funcs.static_analysis:markdown_overview", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.funcs.static_analysis:markdown_overview"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.funcs.static_analysis:lua_overview", "expected_id": "app.funcs.static_analysis:markdown_overview"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.funcs.static_analysis:markdown_overview"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.funcs.static_analysis:markdown_overview"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.funcs.static_analysis:markdown_overview", "expected_id": "app.http.handlers:demo_pid"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.http.handlers:demo_pid", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:demo_pid"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:demo_pid"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.http.handlers:demo_pid"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.http.handlers:fs_listdir", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:fs_listdir"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.http.handlers:hello_world", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:hello_world"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:fs_listdir"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.http.handlers:fs_listdir"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:hello_world"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.http.handlers:hello_world"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.http.handlers:list_models", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.http.handlers:hello_world", "expected_id": "app.http.handlers:list_models"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:list_models"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:list_models"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.http.handlers:list_models"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.http.handlers:list_tools", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:list_tools"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.http.handlers:local_time", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:list_tools"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.http.handlers:list_tools"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:local_time"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.http.handlers:list_tools", "expected_id": "app.http.handlers:local_time"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.http.handlers:registry_dump", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:registry_dump"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:local_time"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.http.handlers:local_time"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:registry_dump"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.http.handlers:system_env", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.http.handlers:registry_dump"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.http.handlers:registry_dump", "expected_id": "app.http.handlers:system_env"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:system_env"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.http.handlers:system_env"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:system_env"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.http.handlers:time_ticker", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:time_ticker"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.http.handlers:time_ticker"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.http.handlers:time_ticker"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.http.handlers:time_ticker", "expected_id": "app.interceptor.demo:child_spans"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.interceptor.demo:child_spans", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:child_spans"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.interceptor.demo:interceptor_demo_child_spans", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:interceptor_demo_child_spans"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.interceptor.demo:interceptor_demo_child_spans", "expected_id": "app.interceptor.demo:interceptor_demo_ratelimit"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.interceptor.demo:interceptor_demo_ratelimit", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:interceptor_demo_ratelimit"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:interceptor_demo_ratelimit"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.interceptor.demo:interceptor_demo_ratelimit"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.interceptor.demo:interceptor_demo_ratelimit", "expected_id": "app.interceptor.demo:interceptor_demo_retry"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.interceptor.demo:interceptor_demo_retry", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:interceptor_demo_retry"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.interceptor.demo:interceptor_demo_timeout", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:interceptor_demo_retry"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.interceptor.demo:interceptor_demo_retry"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.interceptor.demo:interceptor_demo_retry", "expected_id": "app.interceptor.demo:interceptor_demo_timeout"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:interceptor_demo_timeout"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.interceptor.demo:interceptor_demo_with_options", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:interceptor_demo_with_options"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:interceptor_demo_timeout"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.interceptor.demo:interceptor_demo_timeout"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.service.chat:encryption_utils", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.service.chat:encryption_utils"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:interceptor_demo_with_options"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.interceptor.demo:interceptor_demo_with_options"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.service.chat:session", "kind": "process.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.interceptor.demo:interceptor_demo_with_options", "expected_id": "app.service.chat:session"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.service.chat:session"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.service.chat:session_manager", "kind": "process.lua"}
+2025-07-30 16:20:46	DEBUG	lua.proc	added process	{"id": "app.service.chat:session"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.service.chat:session_manager"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.service.chat:session"}
+2025-07-30 16:20:46	DEBUG	lua.proc	added process	{"id": "app.service.chat:session_manager"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.test.cases:system_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.test.cases:system_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.test.cases:system_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.service.chat:session_manager"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.tools:list", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.test.cases:system_test"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.test.cases:system_test", "expected_id": "app.tools:list"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:list"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:list"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.tools:list"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.tools:read", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:read"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.tools:read"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.tools:list", "expected_id": "app.tools:read"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.tools:read", "expected_id": "app.tools:read_multi"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:read"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.tools:read_multi", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:read_multi"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.tools:search", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:search"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:read_multi"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.tools:read_multi"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:search"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.tools:search"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.tools:tree", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:tree"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.tools:search", "expected_id": "app.tools:tree"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.tools:write", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:tree"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.tools:tree"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:write"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.tools:tree", "expected_id": "app.tools:write"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.tools:write"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.tools:write"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.tools:write", "expected_id": "app.upload.handlers:fs_upload"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.upload.handlers:fs_upload", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.upload.handlers:fs_upload"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.upload.handlers:fs_upload"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.upload.handlers:fs_upload"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.websocket.demo:ws_auth", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.upload.handlers:fs_upload", "expected_id": "app.websocket.demo:ws_auth"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.websocket.demo:ws_auth"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.websocket.demo:ws_auth"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.websocket.demo:ws_auth"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.websocket.demo:ws_hub.process", "kind": "process.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.websocket.demo:ws_auth", "expected_id": "app.websocket.demo:ws_hub.process"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.websocket.demo:ws_hub.process"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "demo.security:api", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	lua.proc	added process	{"id": "app.websocket.demo:ws_hub.process"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "demo.security:api"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "demo.security:api"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "demo.security:api"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.websocket.demo:ws_hub.process"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.websocket.demo:ws_hub.process", "expected_id": "demo.security:protected"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "demo.security:protected", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "demo.security:protected"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "demo.security:protected"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "demo.security:protected"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "demo.security:protected", "expected_id": "demo.security:secure_endpoint"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "demo.security:secure_endpoint", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "demo.security:secure_endpoint"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "demo.security:secure_endpoint"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "demo.security:secure_endpoint"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "localspace:hello_handler", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "localspace:hello_handler"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "localspace:hello_handler"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "localspace:hello_handler"}
+2025-07-30 16:20:46	INFO	policy	security policy registered	{"id": "system.security:admin_policy", "groups": 1}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "localspace:hello_handler", "expected_id": "system.security:admin_policy"}
+2025-07-30 16:20:46	DEBUG	security	policy registered	{"policy": "system.security:admin_policy", "groups": 1}
+2025-07-30 16:20:46	INFO	policy	security policy registered	{"id": "system.security:otel_policy", "groups": 1}
+2025-07-30 16:20:46	DEBUG	security	policy registered	{"policy": "system.security:otel_policy", "groups": 1}
+2025-07-30 16:20:46	INFO	policy	security policy registered	{"id": "system.security:process_env_policy", "groups": 1}
+2025-07-30 16:20:46	DEBUG	security	policy registered	{"policy": "system.security:process_env_policy", "groups": 1}
+2025-07-30 16:20:46	INFO	policy	security policy registered	{"id": "system.security:process_store_policy", "groups": 1}
+2025-07-30 16:20:46	DEBUG	security	policy registered	{"policy": "system.security:process_store_policy", "groups": 1}
+2025-07-30 16:20:46	INFO	policy	security policy registered	{"id": "system.security:user_api_policy", "groups": 1}
+2025-07-30 16:20:46	DEBUG	security	policy registered	{"policy": "system.security:user_api_policy", "groups": 1}
+2025-07-30 16:20:46	INFO	policy	security policy registered	{"id": "system.security:user_demo_policy", "groups": 1}
+2025-07-30 16:20:46	DEBUG	security	policy registered	{"policy": "system.security:user_demo_policy", "groups": 1}
+2025-07-30 16:20:46	INFO	policy	security policy registered	{"id": "system.security:user_policy", "groups": 1}
+2025-07-30 16:20:46	DEBUG	security	policy registered	{"policy": "system.security:user_policy", "groups": 1}
+2025-07-30 16:20:46	INFO	policy	security policy registered	{"id": "system.security:wippy_env_policy", "groups": 1}
+2025-07-30 16:20:46	DEBUG	security	policy registered	{"policy": "system.security:wippy_env_policy", "groups": 1}
+2025-07-30 16:20:46	INFO	policy	security policy registered	{"id": "system.security:wippy_process_policy", "groups": 1}
+2025-07-30 16:20:46	DEBUG	security	policy registered	{"policy": "system.security:wippy_process_policy", "groups": 1}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "system.specs:get_specs", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "system.specs:get_specs"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "system.specs:get_specs"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "system.specs:get_specs"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "system.specs:get_specs", "expected_id": "wippy.llm.google.vertex:structured_output"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.google.vertex:structured_output", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:structured_output"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.google.vertex:tool_calling", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:tool_calling"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:structured_output"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.google.vertex:structured_output"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:compress", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:compress"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:tool_calling"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.google.vertex:tool_calling"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:llm_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:llm_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.migration.http:check_tables", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:llm_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm:llm_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration.http:check_tables"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.migration.http:check_tables"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm:llm_test", "expected_id": "wippy.migration.http:check_tables"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.migration.http:check_tables", "expected_id": "wippy.migration.http:dbs"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration.http:check_tables"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.migration.http:dbs", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration.http:dbs"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration.http:dbs"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.migration.http:dbs"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.migration.http:rollback", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.migration.http:dbs", "expected_id": "wippy.migration.http:rollback"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration.http:rollback"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.migration.http:run", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration.http:run"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration.http:rollback"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.migration.http:rollback"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration.http:run"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.migration.http:run"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.migration.http:run", "expected_id": "wippy.migration.http:status"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.migration.http:status", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration.http:status"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.migration.http:status"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.migration.http:status"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.test.http:discovery", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.migration.http:status", "expected_id": "wippy.test.http:discovery"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.test.http:discovery"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.test.http:discovery"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.test.http:discovery"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.test.http:run_specific", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.test.http:discovery", "expected_id": "wippy.test.http:run_specific"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.test.http:run_specific"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.test.http:run_specific"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.test.http:test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.test.http:run_specific"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.test.http:run_specific", "expected_id": "wippy.test.http:test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.test.http:test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.message_sending:message.service", "kind": "process.service"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.message_sending:message.service"}
+2025-07-30 16:20:46	INFO	super	process supervisor add - entry details	{"id": "app.demos.message_sending:message.service", "kind": "process.service", "meta": {"comment":"Message Listener Service","depends_on":["ns:system","ns:wippy.actor"]}, "has_data": true}
+2025-07-30 16:20:46	INFO	super	process supervisor add - payload details	{"id": "app.demos.message_sending:message.service", "format": "golang/any", "data_type": "map[string]interface {}", "data_preview": {"count":6,"keys":["host","kind","lifecycle","meta","name","process"]}}
+2025-07-30 16:20:46	INFO	super	process supervisor add - transcoder available	{"id": "app.demos.message_sending:message.service", "transcoder_type": "*payload.Transcoder", "entry": {"id":"app.demos.message_sending:message.service","kind":"process.service","meta":{"comment":"Message Listener Service","depends_on":["ns:system","ns:wippy.actor"]},"data":{}}}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.test.http:test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.test.http:test"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.test.http:test", "expected_id": "app.demos.message_sending:sender.endpoint"}
+2025-07-30 16:20:46	INFO	super	process supervisor add - config decoded successfully	{"id": "app.demos.message_sending:message.service", "process": ":message.process", "host_id": "system:processes", "input_count": 0, "lifecycle": {"auto_start":true,"start_timeout":0,"stop_timeout":0,"stable_threshold":0,"restart":{"initial_delay":5000000000,"max_delay":0,"backoff_factor":0,"jitter":0,"max_attempts":3},"depends_on":["system:processes"]}}
+2025-07-30 16:20:46	INFO	super	process supervisor added	{"id": "app.demos.message_sending:message.service"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demos.message_sending:message.service", "expected_id": "app.demos.message_sending:sender.endpoint"}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "app.demos.message_sending:message.service"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.demos.message_sending:sender.endpoint", "router": "system:api", "server": "system:gateway", "path": "/send", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.demos.process_lifecycle:cancel.http", "router": "system:api", "server": "system:gateway", "path": "/process/cancel", "method": "GET"}
+2025-07-30 16:20:46	INFO	super	process supervisor add - entry details	{"id": "app.demos.process_lifecycle:manager.service", "kind": "process.service", "meta": {"comment":"Process Lifecycle Manager Service","depends_on":["ns:system","ns:wippy.actor"]}, "has_data": true}
+2025-07-30 16:20:46	INFO	super	process supervisor add - payload details	{"id": "app.demos.process_lifecycle:manager.service", "format": "golang/any", "data_type": "map[string]interface {}", "data_preview": {"count":6,"keys":["kind","lifecycle","meta","name","process","host"]}}
+2025-07-30 16:20:46	INFO	super	process supervisor add - transcoder available	{"id": "app.demos.process_lifecycle:manager.service", "transcoder_type": "*payload.Transcoder", "entry": {"id":"app.demos.process_lifecycle:manager.service","kind":"process.service","meta":{"comment":"Process Lifecycle Manager Service","depends_on":["ns:system","ns:wippy.actor"]},"data":{}}}
+2025-07-30 16:20:46	INFO	super	process supervisor add - config decoded successfully	{"id": "app.demos.process_lifecycle:manager.service", "process": ":manager", "host_id": "system:processes", "input_count": 0, "lifecycle": {"auto_start":true,"start_timeout":0,"stop_timeout":0,"stable_threshold":0,"restart":{"initial_delay":0,"max_delay":0,"backoff_factor":0,"jitter":0,"max_attempts":3},"depends_on":["system:processes"]}}
+2025-07-30 16:20:46	INFO	super	process supervisor added	{"id": "app.demos.process_lifecycle:manager.service"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demos.process_lifecycle:manager.service", "kind": "process.service"}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "app.demos.process_lifecycle:manager.service"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demos.process_lifecycle:manager.service", "expected_id": "app.demos.process_lifecycle:start.http"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demos.process_lifecycle:manager.service"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.demos.process_lifecycle:start.http", "router": "system:api", "server": "system:gateway", "path": "/process/start", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.demos.process_lifecycle:status.http", "router": "system:api", "server": "system:gateway", "path": "/process/status", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.demos.process_lifecycle:terminate.http", "router": "system:api", "server": "system:gateway", "path": "/process/terminate", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.env.demo:env_demo.endpoint", "router": "system:api", "server": "system:gateway", "path": "/env/demo", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.http.handlers:demo_pid.endpoint", "router": "system:api", "server": "system:gateway", "path": "/pid", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.http.handlers:fs_listdir.endpoint", "router": "system:api", "server": "system:gateway", "path": "/fs/browse", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.http.handlers:hello_world.endpoint", "router": "system:api", "server": "system:gateway", "path": "/hello", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.http.handlers:list_models.endpoint", "router": "system:api", "server": "system:gateway", "path": "/models/list", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.http.handlers:list_tools.endpoint", "router": "system:api", "server": "system:gateway", "path": "/tools/list", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.http.handlers:local_time.endpoint", "router": "system:api", "server": "system:gateway", "path": "/time/local", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.http.handlers:registry_dump.endpoint", "router": "system:api", "server": "system:gateway", "path": "/registry/dump", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.http.handlers:system_env.endpoint", "router": "system:api", "server": "system:gateway", "path": "/system/env", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.http.handlers:time_ticker.endpoint", "router": "system:api", "server": "system:gateway", "path": "/time/ticker", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.interceptor.demo:interceptor_demo_otel", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:interceptor_demo_otel"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.interceptor.demo:interceptor_demo_ratelimit.endpoint", "router": "system:api", "server": "system:gateway", "path": "/interceptor/demo/ratelimit", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.interceptor.demo:interceptor_demo_otel"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.interceptor.demo:interceptor_demo_otel"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.interceptor.demo:interceptor_demo_retry.endpoint", "router": "system:api", "server": "system:gateway", "path": "/interceptor/demo/retry", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.interceptor.demo:interceptor_demo_timeout.endpoint", "router": "system:api", "server": "system:gateway", "path": "/interceptor/demo/timeout", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.interceptor.demo:interceptor_demo_with_options.endpoint", "router": "system:api", "server": "system:gateway", "path": "/interceptor/demo/with_options", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.service.chat:session.send", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.service.chat:session.send"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.service.chat:session.start", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.service.chat:session.start"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.service.chat:session.send"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.service.chat:session.send"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.service.chat:session_manager.service", "kind": "process.service"}
+2025-07-30 16:20:46	INFO	super	process supervisor add - entry details	{"id": "app.service.chat:session_manager.service", "kind": "process.service", "meta": {"comment":"Chat Sessions Manager Service","depends_on":["ns:system","ns:wippy.actor"],"router":"system:api"}, "has_data": true}
+2025-07-30 16:20:46	INFO	super	process supervisor add - payload details	{"id": "app.service.chat:session_manager.service", "format": "golang/any", "data_type": "map[string]interface {}", "data_preview": {"count":6,"keys":["lifecycle","meta","name","process","host","kind"]}}
+2025-07-30 16:20:46	INFO	super	process supervisor add - transcoder available	{"id": "app.service.chat:session_manager.service", "transcoder_type": "*payload.Transcoder", "entry": {"id":"app.service.chat:session_manager.service","kind":"process.service","meta":{"comment":"Chat Sessions Manager Service","depends_on":["ns:system","ns:wippy.actor"],"router":"system:api"},"data":{}}}
+2025-07-30 16:20:46	INFO	super	process supervisor add - config decoded successfully	{"id": "app.service.chat:session_manager.service", "process": ":session_manager", "host_id": "system:processes", "input_count": 0, "lifecycle": {"auto_start":true,"start_timeout":0,"stop_timeout":0,"stable_threshold":0,"restart":{"initial_delay":5000000000,"max_delay":0,"backoff_factor":0,"jitter":0,"max_attempts":3},"depends_on":["system:processes"]}}
+2025-07-30 16:20:46	INFO	super	process supervisor added	{"id": "app.service.chat:session_manager.service"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.service.chat:session_manager.service"}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "app.service.chat:session_manager.service"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.service.chat:session.start"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.service.chat:session.start"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.service.chat:session.start", "expected_id": "app.upload.handlers:fs_upload.endpoint"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.upload.handlers:fs_upload.endpoint", "router": "system:api", "server": "system:gateway", "path": "/fs/upload", "method": "POST"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.websocket.demo:ws_auth.endpoint", "router": "system:api", "server": "system:gateway", "path": "/ws/connect", "method": "GET"}
+2025-07-30 16:20:46	INFO	super	process supervisor add - entry details	{"id": "app.websocket.demo:ws_hub.service", "kind": "process.service", "meta": {"comment":"WebSocket Hub Service","depends_on":["ns:system"]}, "has_data": true}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.websocket.demo:ws_hub.service", "kind": "process.service"}
+2025-07-30 16:20:46	INFO	super	process supervisor add - payload details	{"id": "app.websocket.demo:ws_hub.service", "format": "golang/any", "data_type": "map[string]interface {}", "data_preview": {"count":6,"keys":["process","host","kind","lifecycle","meta","name"]}}
+2025-07-30 16:20:46	INFO	super	process supervisor add - transcoder available	{"id": "app.websocket.demo:ws_hub.service", "transcoder_type": "*payload.Transcoder", "entry": {"id":"app.websocket.demo:ws_hub.service","kind":"process.service","meta":{"comment":"WebSocket Hub Service","depends_on":["ns:system"]},"data":{}}}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.websocket.demo:ws_hub.service"}
+2025-07-30 16:20:46	INFO	super	process supervisor add - config decoded successfully	{"id": "app.websocket.demo:ws_hub.service", "process": ":ws_hub.process", "host_id": "system:processes", "input_count": 0, "lifecycle": {"auto_start":true,"start_timeout":0,"stop_timeout":0,"stable_threshold":0,"restart":{"initial_delay":5000000000,"max_delay":0,"backoff_factor":0,"jitter":0,"max_attempts":3},"depends_on":["system:processes"]}}
+2025-07-30 16:20:46	INFO	super	process supervisor added	{"id": "app.websocket.demo:ws_hub.service"}
+2025-07-30 16:20:46	INFO	core	service registered	{"serviceID": "app.websocket.demo:ws_hub.service"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "demo.security:api.endpoint", "router": "system:api", "server": "system:gateway", "path": "/security", "method": "POST"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "demo.security:protected.endpoint", "router": "system:api", "server": "system:gateway", "path": "/protected", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "demo.security:secure.admin", "router": "demo.security:secure.router", "server": "system:gateway", "path": "/admin", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "demo.security:secure.endpoint", "router": "demo.security:secure.router", "server": "system:gateway", "path": "/profile", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "localspace:hello_endpoint", "router": "system:api", "server": "system:gateway", "path": "/local/hello", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "system.specs:specs.endpoint", "router": "system:api", "server": "system:gateway", "path": "/specs", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.google.vertex:structured_output_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.google.vertex:tool_calling_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.google.vertex:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.google.vertex:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm:compress_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm.google.vertex:tool_calling_test", "expected_id": "wippy.llm:compress_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:compress_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm:compress_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm:compress_test"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm:compress_test", "expected_id": "wippy.migration.http:check_tables.endpoint"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "wippy.migration.http:check_tables.endpoint", "router": "system:api", "server": "system:gateway", "path": "/migrations/check-tables", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "wippy.migration.http:dbs.endpoint", "router": "system:api", "server": "system:gateway", "path": "/migrations/databases", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "wippy.migration.http:rollback.endpoint", "router": "system:api", "server": "system:gateway", "path": "/migrations/rollback", "method": "POST"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "wippy.migration.http:run.endpoint", "router": "system:api", "server": "system:gateway", "path": "/migrations/run", "method": "POST"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "wippy.migration.http:status.endpoint", "router": "system:api", "server": "system:gateway", "path": "/migrations/status", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "wippy.test.http:discover.endpoint", "router": "system:api", "server": "system:gateway", "path": "/test/discover", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "wippy.test.http:run_specific.endpoint", "router": "system:api", "server": "system:gateway", "path": "/test/run", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "wippy.test.http:test.endpoint", "router": "system:api", "server": "system:gateway", "path": "/test", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demo.document_search:document_repo", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demo.document_search:document_repo"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demo.document_search:documents_table", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demo.document_search:documents_table"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demo.document_search:document_repo", "expected_id": "app.demo.document_search:documents_table"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demo.document_search:documents_table"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.demo.document_search:documents_table"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demo.document_search:documents_table", "expected_id": "app.interceptor.demo:interceptor_demo.endpoint"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.interceptor.demo:interceptor_demo.endpoint", "router": "system:api", "server": "system:gateway", "path": "/interceptor/demo/otel", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.service.chat:session.send.endpoint", "router": "system:api", "server": "system:gateway", "path": "/chat/message", "method": "POST"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.service.chat:session.start.endpoint", "router": "system:api", "server": "system:gateway", "path": "/chat/session", "method": "POST"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.agents.gen1:agent", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.agents.gen1:agent"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.agents.gen1:registry", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.agents.gen1:registry"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.agents.gen1:agent", "expected_id": "wippy.agents.gen1:registry"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.claude:client", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:client"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.claude:mapper", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:mapper"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.google.vertex:text_generation", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:text_generation"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:text_generation"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.google.vertex:text_generation"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm.google.vertex:text_generation", "expected_id": "wippy.llm.openai:client"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.openai:client", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:client"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.openai:prompt_mapper", "kind": "library.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:prompt_mapper"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm.openai:prompt_mapper", "expected_id": "app.demo.document_search:add_document"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demo.document_search:add_document", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demo.document_search:add_document"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demo.document_search:add_document"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.demo.document_search:add_document"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demo.document_search:list_documents", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demo.document_search:add_document", "expected_id": "app.demo.document_search:list_documents"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demo.document_search:list_documents"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "app.demo.document_search:search_documents", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demo.document_search:list_documents"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.demo.document_search:list_documents"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demo.document_search:search_documents"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demo.document_search:list_documents", "expected_id": "app.demo.document_search:search_documents"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "app.demo.document_search:search_documents"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "app.demo.document_search:search_documents"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.agents.gen1:agent_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "app.demo.document_search:search_documents", "expected_id": "wippy.agents.gen1:agent_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.agents.gen1:agent_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.agents.gen1:registry_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.agents.gen1:registry_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.agents.gen1:agent_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.agents.gen1:agent_test"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.agents.gen1:agent_test", "expected_id": "wippy.llm.claude:structured_output"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.claude:structured_output", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.agents.gen1:registry_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.agents.gen1:registry_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:structured_output"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.agents.gen1:registry_test", "expected_id": "wippy.llm.claude:structured_output"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:structured_output"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.claude:structured_output"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.claude:text_generation", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:text_generation"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.claude:tool_calling", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:tool_calling"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:text_generation"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.claude:text_generation"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.google.vertex:text_generation_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:tool_calling"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.claude:tool_calling"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.google.vertex:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.google.vertex:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:embeddings"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm.google.vertex:text_generation_test", "expected_id": "wippy.llm.openai:embeddings"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.openai:embeddings", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.openai:embeddings"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:embeddings"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.openai:structured_output", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:structured_output"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:structured_output"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.openai:structured_output"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm.openai:structured_output", "expected_id": "wippy.llm.openai:text_generation"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.openai:text_generation", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:text_generation"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.openai:text_generation"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:text_generation"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.openai:tool_calling", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:tool_calling"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.demo.document_search:add_document.endpoint", "router": "system:api", "server": "system:gateway", "path": "/documents", "method": "POST"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:tool_calling"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.openai:tool_calling"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.demo.document_search:list_documents.endpoint", "router": "system:api", "server": "system:gateway", "path": "/documents", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	http	upserted endpoint	{"endpoint": "app.demo.document_search:search_documents.endpoint", "router": "system:api", "server": "system:gateway", "path": "/documents/search", "method": "GET"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.claude:structured_output_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.claude:text_generation_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.claude:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.claude:tool_calling_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.claude:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.openai:embeddings_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:embeddings_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.claude:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.claude:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:embeddings_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.openai:embeddings_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.openai:structured_output_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm.openai:embeddings_test", "expected_id": "wippy.llm.openai:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.openai:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm.openai:structured_output_test", "expected_id": "wippy.llm.openai:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.openai:text_generation_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.openai:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	noop	noop runtime: add called	{"id": "wippy.llm.openai:tool_calling_test", "kind": "function.lua"}
+2025-07-30 16:20:46	DEBUG	runner	ignoring accept event for different operation	{"received_id": "wippy.llm.openai:text_generation_test", "expected_id": "wippy.llm.openai:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	registry	saving new version	{"new_version": "v0"}
+2025-07-30 16:20:46	INFO	wippy	application started successfully
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "system:terminal", "level": 0}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "system:db", "level": 0}
+2025-07-30 16:20:46	INFO	core	service system:terminal is starting	{"serviceID": "system:terminal", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	INFO	core	service system:db is starting	{"serviceID": "system:db", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "system:gateway", "level": 0}
+2025-07-30 16:20:46	INFO	core	service system:db is running	{"serviceID": "system:db", "status": "running", "details": "database connection established"}
+2025-07-30 16:20:46	INFO	core	service system:terminal is running	{"serviceID": "system:terminal", "status": "running", "details": "started"}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "app:cache", "level": 0}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "system.security:session", "level": 0}
+2025-07-30 16:20:46	INFO	core	service app:cache is starting	{"serviceID": "app:cache", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	INFO	memory	started cleanup routine	{"component": "memstore", "id": "app:cache", "interval": "30m0s", "max_size": 10000}
+2025-07-30 16:20:46	INFO	core	service system.security:session is starting	{"serviceID": "system.security:session", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	INFO	memory	started cleanup routine	{"component": "memstore", "id": "system.security:session", "interval": "10m0s", "max_size": 5000}
+2025-07-30 16:20:46	INFO	core	service app:cache is running	{"serviceID": "app:cache", "status": "running", "details": "memory store started"}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "app.llm_debug.demo:processes", "level": 0}
+2025-07-30 16:20:46	INFO	core	service system.security:session is running	{"serviceID": "system.security:session", "status": "running", "details": "memory store started"}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "system:processes", "level": 0}
+2025-07-30 16:20:46	INFO	core	service system:gateway is starting	{"serviceID": "system:gateway", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "app.llm_debug.demo:terminal", "level": 0}
+2025-07-30 16:20:46	INFO	core	service app.llm_debug.demo:terminal is starting	{"serviceID": "app.llm_debug.demo:terminal", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	INFO	core	service app.llm_debug.demo:processes is starting	{"serviceID": "app.llm_debug.demo:processes", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	INFO	core	service app.llm_debug.demo:terminal is running	{"serviceID": "app.llm_debug.demo:terminal", "status": "running", "details": "started"}
+2025-07-30 16:20:46	INFO	core	service system:processes is starting	{"serviceID": "system:processes", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	DEBUG	funcs	function registered	{"function": "wippy.llm.openai:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	funcs	options registered	{"options": "wippy.llm.openai:tool_calling_test"}
+2025-07-30 16:20:46	INFO	core	service app.llm_debug.demo:processes is running	{"serviceID": "app.llm_debug.demo:processes", "status": "running", "details": "host started and accepting processes"}
+2025-07-30 16:20:46	INFO	core	service system:processes is running	{"serviceID": "system:processes", "status": "running", "details": "host started and accepting processes"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.google.vertex:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.google.vertex:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.claude:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demos.process_lifecycle:child"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.migration.http:rollback"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:llm"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.funcs.static_analysis:go_overview"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.openai:embeddings"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.google.vertex:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.claude:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demos.process_lifecycle:child"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.migration.http:rollback"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:llm"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.funcs.static_analysis:go_overview"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.openai:embeddings"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.google.vertex:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.service.chat:encryption_utils"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.http.handlers:registry_dump"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.http.handlers:hello_world"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.agents:traits_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.agents:traits"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.claude:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demos.process_lifecycle:child"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.google.vertex:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.claude:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demos.process_lifecycle:child"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.google.vertex:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.service.chat:encryption_utils"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.http.handlers:registry_dump"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:prompt"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "localspace:hello_handler"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.tools:list"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demos.snake:game"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.migration.http:rollback"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:llm"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.funcs.static_analysis:go_overview"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.openai:embeddings"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.google.vertex:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.service.chat:encryption_utils"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.migration.http:rollback"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:llm"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.funcs.static_analysis:go_overview"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.demos.process_lifecycle:child"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.http.handlers:registry_dump"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.http.handlers:hello_world"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.agents:traits_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.agents:traits"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:prompt"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "localspace:hello_handler"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.tools:list"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demos.snake:game"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.http.handlers:fs_listdir"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.lib:bapp"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.terminal:bapp"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "demo.security:api"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:llm_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.service.chat:session.start"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.google.vertex:client"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.openai:embeddings"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.google.vertex:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.service.chat:encryption_utils"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.http.handlers:registry_dump"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.http.handlers:hello_world"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.agents:traits_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.agents:traits"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:prompt"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.http.handlers:fs_listdir"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.lib:bapp"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.demos.snake:game"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.terminal:bapp"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "demo.security:api"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:llm_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.service.chat:session.start"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.google.vertex:client"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.test.http:run_specific"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demos.process_lifecycle:terminate.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.test.http:discovery"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.test:test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.agents.gen1:agent"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.service.chat:session.send"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.llm_debug.demo:bapp"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.openai:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.openai:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.claude:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.google.vertex:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.interceptor.demo:interceptor_demo_with_options"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.migration.http:status"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.test.cases:system_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.migration.http:run"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demo.document_search:add_document"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.openai:client"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:prompt_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.test.http:run_specific"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demos.process_lifecycle:terminate.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "localspace:hello_handler"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.tools:list"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demos.process_lifecycle:manager"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.migration:migration"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "demo.security:protected"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.http.handlers:demo_pid"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.websocket.demo:ws_hub.process"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.openai:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.service.chat:session"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.tools:read"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.interceptor.demo:interceptor_demo_ratelimit"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.interceptor.demo:child_spans"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:compress"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.funcs.static_analysis:markdown_overview"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.http.handlers:hello_world"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.agents:traits_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.agents:traits"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:prompt"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "localspace:hello_handler"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.test.http:discovery"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.test:test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demos.snake:game"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.http.handlers:fs_listdir"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.lib:bapp"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.claude:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.google.vertex:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.migration:runner"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.google.vertex:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:models_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "demo.security:secure_endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.openai:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:tools"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.agents.gen1:agent"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.service.chat:session.send"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.llm_debug.demo:bapp"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.openai:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.openai:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.claude:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.google.vertex:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.terminal:bapp"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "demo.security:api"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:llm_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.service.chat:session.start"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.tools:list"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demos.snake:game"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.http.handlers:fs_listdir"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.lib:bapp"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.terminal:bapp"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.tools:write"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.openai:prompt_mapper"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demos.message_sending:message.process"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.upload.handlers:fs_upload"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.claude:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.claude:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demo.document_search:list_documents"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.tools:search"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "system.specs:get_specs"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.claude:mapper"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.service.chat:session_manager"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.migration:repository"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.interceptor.demo:interceptor_demo_timeout"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:output_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:tools_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.http.handlers:time_ticker"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.websocket.demo:ws_auth"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:models"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demo.document_search:search_documents"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.interceptor.demo:interceptor_demo_child_spans"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demos.process_lifecycle:cancel.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.http.handlers:list_models"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.interceptor.demo:interceptor_demo_otel"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demos.process_lifecycle:start.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.tools:tree"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.http.handlers:list_tools"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.interceptor.demo:interceptor_demo_retry"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.test.http:test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.google.vertex:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demo.document_search:documents_table"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demos.process_lifecycle:status.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.interceptor.demo:interceptor_demo_with_options"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.migration.http:status"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.google.vertex:client"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.test.http:run_specific"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "demo.security:api"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:llm_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.service.chat:session.start"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.openai:embeddings_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.test.cases:system_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demos.process_lifecycle:terminate.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.migration.http:run"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.funcs.static_analysis:html_overview"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.claude:client"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.openai:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demos.message_sending:message.sender"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.migration:core"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.migration:registry"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.actor:actor_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.google.vertex:prompt_mapper"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:output"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demo.document_search:add_document"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.openai:client"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:prompt_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demos.process_lifecycle:manager"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.migration.http:dbs"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.demos.process_lifecycle:manager"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.agents.gen1:agent_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demo.document_search:document_repo"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.http.handlers:local_time"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.funcs.static_analysis:lua_overview"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.agents.gen1:registry_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.migration.http:check_tables"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.actor:actor"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.migration:migration"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "demo.security:protected"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.http.handlers:demo_pid"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.websocket.demo:ws_hub.process"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.test.http:discovery"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.test:test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.agents.gen1:agent"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.service.chat:session.send"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.llm_debug.demo:bapp"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.openai:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.openai:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.claude:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.google.vertex:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.interceptor.demo:interceptor_demo_with_options"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.migration.http:status"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.test.cases:system_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.migration.http:run"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demo.document_search:add_document"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.openai:client"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:prompt_test"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.websocket.demo:ws_hub.process"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.openai:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.service.chat:session"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.google.vertex:client"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.test.http:run_specific"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.tools:read"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.interceptor.demo:interceptor_demo_ratelimit"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.interceptor.demo:child_spans"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:compress"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.funcs.static_analysis:markdown_overview"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.claude:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.google.vertex:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.migration:runner"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.google.vertex:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:models_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "demo.security:secure_endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.openai:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demos.process_lifecycle:manager"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.service.chat:session"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.migration:migration"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "demo.security:protected"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.test:registry"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:tools"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demos.process_lifecycle:parent"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.tools:read_multi"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.openai:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.demos.message_sending:child.get_local_time"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.claude:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.tools:write"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.openai:prompt_mapper"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demos.message_sending:message.process"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.http.handlers:demo_pid"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm:compress_test"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.agents.gen1:registry"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.funcs.openai:llm_query"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.env.demo:env_demo"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "wippy.llm.google.vertex:token_refresh"}
+2025-07-30 16:20:46	DEBUG	lua.bteaapp	invalidating btea app	{"id": "app.http.handlers:system_env"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demos.process_lifecycle:terminate.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.test.http:discovery"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.upload.handlers:fs_upload"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.demos.message_sending:message.process"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.claude:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.test:test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.claude:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demo.document_search:list_documents"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.tools:search"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "system.specs:get_specs"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.claude:mapper"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.service.chat:session_manager"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.websocket.demo:ws_hub.process"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.openai:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.service.chat:session"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.agents.gen1:agent"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.service.chat:session.send"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.migration:repository"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.interceptor.demo:interceptor_demo_timeout"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:output_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.tools:read"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.interceptor.demo:interceptor_demo_ratelimit"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.interceptor.demo:child_spans"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.service.chat:session_manager"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:compress"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.funcs.static_analysis:markdown_overview"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.llm_debug.demo:bapp"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.openai:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.openai:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.claude:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.google.vertex:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.interceptor.demo:interceptor_demo_with_options"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.claude:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.google.vertex:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.migration:runner"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.google.vertex:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:models_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "demo.security:secure_endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.openai:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:tools"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.tools:write"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.openai:prompt_mapper"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:tools_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.http.handlers:time_ticker"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.websocket.demo:ws_auth"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:models"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demo.document_search:search_documents"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.interceptor.demo:interceptor_demo_child_spans"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.migration.http:status"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.test.cases:system_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.migration.http:run"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demo.document_search:add_document"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demos.message_sending:message.process"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.upload.handlers:fs_upload"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.claude:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.claude:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demo.document_search:list_documents"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.tools:search"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "system.specs:get_specs"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.claude:mapper"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.service.chat:session_manager"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.migration:repository"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.interceptor.demo:interceptor_demo_timeout"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:output_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:tools_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.http.handlers:time_ticker"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.websocket.demo:ws_auth"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.openai:client"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:prompt_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demos.process_lifecycle:manager"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.migration:migration"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "demo.security:protected"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.http.handlers:demo_pid"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.websocket.demo:ws_hub.process"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.openai:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.service.chat:session"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.tools:read"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.interceptor.demo:interceptor_demo_ratelimit"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:models"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demo.document_search:search_documents"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.interceptor.demo:interceptor_demo_child_spans"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demos.process_lifecycle:cancel.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.http.handlers:list_models"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.interceptor.demo:interceptor_demo_otel"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demos.process_lifecycle:start.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.tools:tree"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.http.handlers:list_tools"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.interceptor.demo:interceptor_demo_retry"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.test.http:test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.google.vertex:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demos.process_lifecycle:cancel.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.http.handlers:list_models"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.interceptor.demo:interceptor_demo_otel"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demos.process_lifecycle:start.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.interceptor.demo:child_spans"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:compress"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demo.document_search:documents_table"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demos.process_lifecycle:status.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.openai:embeddings_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.funcs.static_analysis:html_overview"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.claude:client"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.openai:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demos.message_sending:message.sender"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.migration:core"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.migration:registry"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.tools:tree"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.actor:actor_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.google.vertex:prompt_mapper"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.funcs.static_analysis:markdown_overview"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.claude:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.google.vertex:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.migration:runner"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.google.vertex:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:models_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "demo.security:secure_endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.openai:tool_calling_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:tools"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.tools:write"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.http.handlers:list_tools"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.interceptor.demo:interceptor_demo_retry"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.test.http:test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.google.vertex:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demo.document_search:documents_table"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demos.process_lifecycle:status.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.openai:embeddings_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.funcs.static_analysis:html_overview"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:output"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.claude:client"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.openai:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.openai:prompt_mapper"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demos.message_sending:message.sender"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.migration:core"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.migration:registry"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.actor:actor_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.google.vertex:prompt_mapper"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:output"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.migration.http:dbs"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.agents.gen1:agent_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demo.document_search:document_repo"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.migration.http:dbs"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.http.handlers:local_time"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.funcs.static_analysis:lua_overview"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.agents.gen1:registry_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.migration.http:check_tables"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.actor:actor"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.test:registry"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demos.process_lifecycle:parent"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demos.message_sending:message.process"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.upload.handlers:fs_upload"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.tools:read_multi"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.openai:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.demos.message_sending:child.get_local_time"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.claude:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm:compress_test"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.agents.gen1:registry"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.funcs.openai:llm_query"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.env.demo:env_demo"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "wippy.llm.google.vertex:token_refresh"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.agents.gen1:agent_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demo.document_search:document_repo"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.http.handlers:local_time"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.funcs.static_analysis:lua_overview"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.agents.gen1:registry_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.migration.http:check_tables"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.claude:tool_calling"}
+2025-07-30 16:20:46	DEBUG	lua.proc	invalidating process	{"id": "app.http.handlers:system_env"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.claude:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demo.document_search:list_documents"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.actor:actor"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.test:registry"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demos.process_lifecycle:parent"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.tools:read_multi"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.openai:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.demos.message_sending:child.get_local_time"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.claude:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm:compress_test"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "app.demos.process_lifecycle:parent"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.agents.gen1:registry"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.funcs.openai:llm_query"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.env.demo:env_demo"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "wippy.llm.google.vertex:token_refresh"}
+2025-07-30 16:20:46	DEBUG	lua.libs	invalidating library	{"id": "app.http.handlers:system_env"}
+2025-07-30 16:20:46	DEBUG	prototypes	prototype registered	{"process": "wippy.llm.google.vertex:token_refresh"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.tools:search"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "system.specs:get_specs"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.claude:mapper"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.service.chat:session_manager"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.migration:repository"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.interceptor.demo:interceptor_demo_timeout"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:output_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:tools_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.http.handlers:time_ticker"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.websocket.demo:ws_auth"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:models"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demo.document_search:search_documents"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.interceptor.demo:interceptor_demo_child_spans"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demos.process_lifecycle:cancel.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.http.handlers:list_models"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.interceptor.demo:interceptor_demo_otel"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demos.process_lifecycle:start.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.tools:tree"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.http.handlers:list_tools"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.interceptor.demo:interceptor_demo_retry"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.test.http:test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.google.vertex:structured_output_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demo.document_search:documents_table"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demos.process_lifecycle:status.endpoint"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.openai:embeddings_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.funcs.static_analysis:html_overview"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.claude:client"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.openai:structured_output"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demos.message_sending:message.sender"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.migration:core"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.migration:registry"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.actor:actor_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.google.vertex:prompt_mapper"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:output"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.migration.http:dbs"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.agents.gen1:agent_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demo.document_search:document_repo"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.http.handlers:local_time"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.funcs.static_analysis:lua_overview"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.agents.gen1:registry_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.migration.http:check_tables"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.actor:actor"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.test:registry"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demos.process_lifecycle:parent"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.tools:read_multi"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.openai:text_generation"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.demos.message_sending:child.get_local_time"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.claude:text_generation_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm:compress_test"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.agents.gen1:registry"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.funcs.openai:llm_query"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.env.demo:env_demo"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "wippy.llm.google.vertex:token_refresh"}
+2025-07-30 16:20:46	DEBUG	lua.funcs	invalidating function	{"id": "app.http.handlers:system_env"}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "wippy.llm.google.vertex:token_refresh.service", "level": 1}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "app.demos.message_sending:message.service", "level": 1}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "app.websocket.demo:ws_hub.service", "level": 1}
+2025-07-30 16:20:46	INFO	core	service app.websocket.demo:ws_hub.service is starting	{"serviceID": "app.websocket.demo:ws_hub.service", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	INFO	core	service wippy.llm.google.vertex:token_refresh.service is starting	{"serviceID": "wippy.llm.google.vertex:token_refresh.service", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	DEBUG	control	Package receiver attached	{"pid": "{nb2@node:control|:supervisor|0x00001}"}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "app.service.chat:session_manager.service", "level": 1}
+2025-07-30 16:20:46	DEBUG	control	Package receiver attached	{"pid": "{nb2@node:control|:supervisor|0x00002}"}
+2025-07-30 16:20:46	INFO	core	service app.service.chat:session_manager.service is starting	{"serviceID": "app.service.chat:session_manager.service", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	DEBUG	processes	launching process	{"host": "system:processes", "pid": "{nb2@system:processes|wippy.llm.google.vertex:token_refresh|0x00002}"}
+2025-07-30 16:20:46	INFO	core	service system:gateway is running	{"serviceID": "system:gateway", "status": "running", "details": "service listening on :8082"}
+2025-07-30 16:20:46	INFO	core	starting service	{"service_id": "app.demos.process_lifecycle:manager.service", "level": 1}
+2025-07-30 16:20:46	INFO	core	service app.demos.process_lifecycle:manager.service is starting	{"serviceID": "app.demos.process_lifecycle:manager.service", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	DEBUG	control	Package receiver attached	{"pid": "{nb2@node:control|:supervisor|0x00004}"}
+2025-07-30 16:20:46	DEBUG	processes	launching process	{"host": "system:processes", "pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}"}
+2025-07-30 16:20:46	INFO	core	service app.demos.message_sending:message.service is starting	{"serviceID": "app.demos.message_sending:message.service", "status": "starting", "details": "attempt 1"}
+2025-07-30 16:20:46	DEBUG	processes	launching process	{"host": "system:processes", "pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:20:46	DEBUG	control	Package receiver attached	{"pid": "{nb2@node:control|:supervisor|0x00005}"}
+2025-07-30 16:20:46	DEBUG	processes	launching process	{"host": "system:processes", "pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:20:46	DEBUG	prototypes	process created	{"ns": "wippy.llm.google.vertex", "name": "token_refresh"}
+2025-07-30 16:20:46	DEBUG	prototypes	process created	{"ns": "app.demos.process_lifecycle", "name": "manager"}
+2025-07-30 16:20:46	DEBUG	prototypes	process created	{"ns": "app.websocket.demo", "name": "ws_hub.process"}
+2025-07-30 16:20:46	DEBUG	processes	process started	{"pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}"}
+2025-07-30 16:20:46	DEBUG	hosts	Package receiver attached	{"pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}"}
+2025-07-30 16:20:46	DEBUG	processes	process started	{"pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:20:46	DEBUG	hosts	Package receiver attached	{"pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:20:46	DEBUG	hosts	process launched	{"pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:20:46	DEBUG	control	Package receiver attached	{"pid": "{nb2@node:control|:supervisor|0x00003}"}
+2025-07-30 16:20:46	DEBUG	processes	launching process	{"host": "system:processes", "pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:20:46	INFO	hosts	Process lifecycle manager started with PID: {nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}	{"pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}"}
+2025-07-30 16:20:46	DEBUG	pid	registered name to Target mapping	{"name": "process_lifecycle_manager", "pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}"}
+2025-07-30 16:20:46	DEBUG	inbox	registered process name	{"from": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}", "name": "process_lifecycle_manager", "pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}"}
+2025-07-30 16:20:46	DEBUG	prototypes	process created	{"ns": "app.service.chat", "name": "session_manager"}
+2025-07-30 16:20:46	DEBUG	pid	registered name to Target mapping	{"name": "ws_hub", "pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:20:46	DEBUG	inbox	registered process name	{"from": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}", "name": "ws_hub", "pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:20:46	INFO	hosts	Blob Game Hub started with PID: {nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}	{"pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:20:46	DEBUG	inbox	trap_links setting changed	{"enable": true}
+2025-07-30 16:20:46	DEBUG	hosts	process launched	{"pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}"}
+2025-07-30 16:20:46	DEBUG	processes	process started	{"pid": "{nb2@system:processes|wippy.llm.google.vertex:token_refresh|0x00002}"}
+2025-07-30 16:20:46	DEBUG	hosts	Package receiver attached	{"pid": "{nb2@system:processes|wippy.llm.google.vertex:token_refresh|0x00002}"}
+2025-07-30 16:20:46	DEBUG	hosts	process launched	{"pid": "{nb2@system:processes|wippy.llm.google.vertex:token_refresh|0x00002}"}
+2025-07-30 16:20:46	DEBUG	prototypes	process created	{"ns": "app.demos.message_sending", "name": "message.process"}
+2025-07-30 16:20:46	DEBUG	processes	process started	{"pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:20:46	DEBUG	hosts	Package receiver attached	{"pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:20:46	DEBUG	hosts	process launched	{"pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:20:46	DEBUG	processes	process started	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:20:46	DEBUG	hosts	Package receiver attached	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:20:46	DEBUG	hosts	process launched	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:20:46	INFO	hosts	Message listener process started with PID>>>>>>>>>>>>>>>>>>>>>>>: {nb2@system:processes|app.demos.message_sending:message.process|0x00004}	{"pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:20:46	INFO	hosts	Missing required environment variables	{"pid": "{nb2@system:processes|wippy.llm.google.vertex:token_refresh|0x00002}"}
+2025-07-30 16:20:46	INFO	hosts	Token refreshed, next refresh in 50 minutes	{"pid": "{nb2@system:processes|wippy.llm.google.vertex:token_refresh|0x00002}"}
+2025-07-30 16:20:46	DEBUG	pid	registered name to Target mapping	{"name": "chat_session_manager", "pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:20:46	DEBUG	inbox	registered process name	{"from": "{nb2@system:processes|app.service.chat:session_manager|0x00005}", "name": "chat_session_manager", "pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:20:46	INFO	hosts	Chat session manager started with PID: {nb2@system:processes|app.service.chat:session_manager|0x00005}	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:20:46	DEBUG	pid	registered name to Target mapping	{"name": "message_receiver", "pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:20:46	DEBUG	inbox	registered process name	{"from": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}", "name": "message_receiver", "pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:22:17	DEBUG	functions	Package receiver attached	{"pid": "{nb2@node:functions|app.service.chat:session.start|0x00001}"}
+2025-07-30 16:22:17	INFO	hosts	Creating new session, request from: {nb2@node:functions|app.service.chat:session.start|0x00001}	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:22:17	DEBUG	processes	launching process	{"host": "system:processes", "pid": "{nb2@system:processes|app.service.chat:session|0x00006}"}
+2025-07-30 16:22:17	DEBUG	prototypes	process created	{"ns": "app.service.chat", "name": "session"}
+2025-07-30 16:22:17	DEBUG	processes	process started	{"pid": "{nb2@system:processes|app.service.chat:session|0x00006}"}
+2025-07-30 16:22:17	DEBUG	hosts	Package receiver attached	{"pid": "{nb2@system:processes|app.service.chat:session|0x00006}"}
+2025-07-30 16:22:17	DEBUG	hosts	process launched	{"pid": "{nb2@system:processes|app.service.chat:session|0x00006}"}
+2025-07-30 16:22:17	DEBUG	inbox	process spawned with monitoring	{"from": "{nb2@system:processes|app.service.chat:session_manager|0x00005}", "pid": "{nb2@system:processes|app.service.chat:session|0x00006}", "host": "system:processes", "process": "app.service.chat:session", "num_args": 1}
+2025-07-30 16:22:17	INFO	hosts	Created new session: {nb2@system:processes|app.service.chat:session|0x00006}	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:22:17	DEBUG	functions	Package receiver detached	{"pid": "{nb2@node:functions|app.service.chat:session.start|0x00001}"}
+2025-07-30 16:22:17	INFO	hosts	Chat session initiated: {nb2@system:processes|app.service.chat:session|0x00006} 2025-07-30 16:22:17.271240919 +0700 +07 m=+102.327370706	{"pid": "{nb2@system:processes|app.service.chat:session|0x00006}"}
+2025-07-30 16:36:27	INFO	received shutdown signal, starting graceful shutdown	{"signal": "interrupt"}
+2025-07-30 16:36:27	INFO	core	stopping supervisor
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "wippy.llm.google.vertex:token_refresh.service", "level": 0}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "app.demos.process_lifecycle:manager.service", "level": 0}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "system:db", "level": 0}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "system:terminal", "level": 0}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "system:envfile", "level": 0}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "system:envmemory", "level": 0}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "system.security:session", "level": 0}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "app.llm_debug.demo:terminal", "level": 0}
+2025-07-30 16:36:27	INFO	hosts	Received cancellation, shutting down	{"pid": "{nb2@system:processes|wippy.llm.google.vertex:token_refresh|0x00002}"}
+2025-07-30 16:36:27	DEBUG	memory	cleanup routine stopped	{"component": "memstore", "id": "system.security:session"}
+2025-07-30 16:36:27	INFO	memory	memory store stopped cleanly	{"component": "memstore", "id": "system.security:session"}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "app:cache", "level": 0}
+2025-07-30 16:36:27	DEBUG	hosts	process execution completed	{"pid": "{nb2@system:processes|wippy.llm.google.vertex:token_refresh|0x00002}"}
+2025-07-30 16:36:27	DEBUG	hosts	receiver detached	{"pid": "{nb2@system:processes|wippy.llm.google.vertex:token_refresh|0x00002}"}
+2025-07-30 16:36:27	DEBUG	memory	cleanup routine stopped	{"component": "memstore", "id": "app:cache"}
+2025-07-30 16:36:27	DEBUG	processes	process completed	{"pid": "{nb2@system:processes|wippy.llm.google.vertex:token_refresh|0x00002}", "result": {}}
+2025-07-30 16:36:27	DEBUG	hosts	process step completed with error	{"pid": "{nb2@system:processes|wippy.llm.google.vertex:token_refresh|0x00002}", "error": "service exited"}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "app.service.chat:session_manager.service", "level": 0}
+2025-07-30 16:36:27	DEBUG	control	Package receiver detached	{"pid": "{nb2@node:control|:supervisor|0x00002}"}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "app.websocket.demo:ws_hub.service", "level": 0}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "app.demos.message_sending:message.service", "level": 0}
+2025-07-30 16:36:27	INFO	hosts	Session manager received cancel signal	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:36:27	INFO	hosts	Blob Game Hub received cancel request	{"pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:36:27	INFO	hosts	Blob Game Hub shutting down	{"pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:36:27	DEBUG	hosts	process execution completed	{"pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:36:27	DEBUG	hosts	receiver detached	{"pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:36:27	DEBUG	processes	process completed	{"pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}", "result": {}}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "app.llm_debug.demo:processes", "level": 0}
+2025-07-30 16:36:27	DEBUG	hosts	process execution completed	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:36:27	DEBUG	hosts	receiver detached	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:36:27	DEBUG	processes	process completed	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}", "result": {}}
+2025-07-30 16:36:27	INFO	hosts	Process manager received cancel signal	{"pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}"}
+2025-07-30 16:36:27	DEBUG	control	Package receiver detached	{"pid": "{nb2@node:control|:supervisor|0x00003}"}
+2025-07-30 16:36:27	INFO	core	service app.llm_debug.demo:processes is stopping	{"serviceID": "app.llm_debug.demo:processes", "status": "stopping", "details": "host shutting down"}
+2025-07-30 16:36:27	DEBUG	control	Package receiver detached	{"pid": "{nb2@node:control|:supervisor|0x00001}"}
+2025-07-30 16:36:27	DEBUG	hosts	process execution completed	{"pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}"}
+2025-07-30 16:36:27	DEBUG	hosts	receiver detached	{"pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}"}
+2025-07-30 16:36:27	DEBUG	processes	process completed	{"pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}", "result": {}}
+2025-07-30 16:36:27	DEBUG	pid	removed name during Target removal	{"name": "process_lifecycle_manager", "pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}"}
+2025-07-30 16:36:27	DEBUG	pid	removed Target from registry	{"pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}", "names_removed": 1}
+2025-07-30 16:36:27	DEBUG	hosts	process step completed with error	{"pid": "{nb2@system:processes|app.demos.process_lifecycle:manager|0x00003}", "error": "service exited"}
+2025-07-30 16:36:27	DEBUG	pid	removed name during Target removal	{"name": "ws_hub", "pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}"}
+2025-07-30 16:36:27	DEBUG	pid	removed Target from registry	{"pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}", "names_removed": 1}
+2025-07-30 16:36:27	DEBUG	hosts	process step completed with error	{"pid": "{nb2@system:processes|app.websocket.demo:ws_hub.process|0x00001}", "error": "service exited"}
+2025-07-30 16:36:27	INFO	core	service app.llm_debug.demo:processes is stopped	{"serviceID": "app.llm_debug.demo:processes", "status": "stopped", "details": "host shutdown complete"}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "system:gateway", "level": 0}
+2025-07-30 16:36:27	INFO	memory	memory store stopped cleanly	{"component": "memstore", "id": "app:cache"}
+2025-07-30 16:36:27	INFO	hosts	Process received cancel signal	{"pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:36:27	INFO	hosts	Message listener process shutting down: {nb2@system:processes|app.demos.message_sending:message.process|0x00004}	{"pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:36:27	DEBUG	pid	removed name during Target removal	{"name": "chat_session_manager", "pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}"}
+2025-07-30 16:36:27	DEBUG	hosts	process execution completed	{"pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:36:27	DEBUG	hosts	receiver detached	{"pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:36:27	DEBUG	processes	process completed	{"pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}", "result": {}}
+2025-07-30 16:36:27	DEBUG	pid	removed Target from registry	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}", "names_removed": 1}
+2025-07-30 16:36:27	DEBUG	hosts	process step completed with error	{"pid": "{nb2@system:processes|app.service.chat:session_manager|0x00005}", "error": "service exited"}
+2025-07-30 16:36:27	DEBUG	control	Package receiver detached	{"pid": "{nb2@node:control|:supervisor|0x00005}"}
+2025-07-30 16:36:27	DEBUG	pid	removed name during Target removal	{"name": "message_receiver", "pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}"}
+2025-07-30 16:36:27	DEBUG	pid	removed Target from registry	{"pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}", "names_removed": 1}
+2025-07-30 16:36:27	DEBUG	hosts	process step completed with error	{"pid": "{nb2@system:processes|app.demos.message_sending:message.process|0x00004}", "error": "service exited"}
+2025-07-30 16:36:27	DEBUG	control	Package receiver detached	{"pid": "{nb2@node:control|:supervisor|0x00004}"}
+2025-07-30 16:36:27	INFO	core	stopping service	{"service_id": "system:processes", "level": 1}
+2025-07-30 16:36:27	INFO	core	service system:processes is stopping	{"serviceID": "system:processes", "status": "stopping", "details": "host shutting down"}
+2025-07-30 16:36:27	INFO	hosts	Session received cancel signal	{"pid": "{nb2@system:processes|app.service.chat:session|0x00006}"}
+2025-07-30 16:36:27	DEBUG	hosts	process execution completed	{"pid": "{nb2@system:processes|app.service.chat:session|0x00006}"}
+2025-07-30 16:36:27	DEBUG	hosts	receiver detached	{"pid": "{nb2@system:processes|app.service.chat:session|0x00006}"}
+2025-07-30 16:36:27	DEBUG	processes	process completed	{"pid": "{nb2@system:processes|app.service.chat:session|0x00006}", "result": {}}
+2025-07-30 16:36:27	DEBUG	hosts	process step completed with error	{"pid": "{nb2@system:processes|app.service.chat:session|0x00006}", "error": "service exited"}
+2025-07-30 16:36:27	INFO	core	service system:processes is stopped	{"serviceID": "system:processes", "status": "stopped", "details": "host shutdown complete"}
+2025-07-30 16:36:27	INFO	core	supervisor control loop stopped
+2025-07-30 16:36:27	INFO	core	supervisor stopped
+2025-07-30 16:36:27	INFO	logs	logging service stopped
+2025-07-30 16:36:27	INFO	graceful shutdown completed

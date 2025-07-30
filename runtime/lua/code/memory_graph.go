@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -75,6 +76,7 @@ func HashNode(node *Node) string {
 // Dependency edges (of type runtime.Edge) carry an alias, which is later propagated into
 // the final runtime configuration as part of the runtime.Dependency wrapper.
 type MemoryGraph struct {
+	mu    sync.RWMutex // Protect concurrent access to graph and maps
 	graph *graph.Graph[registry.ID, Edge]
 	nodes map[registry.ID]*Node
 
@@ -98,6 +100,19 @@ func NewMemoryGraph() *MemoryGraph {
 
 // invalidateCache marks all caches as invalid
 func (m *MemoryGraph) invalidateCache() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.cacheValid = false
+	// Clear dependents cache since it's most likely to be stale
+	for k := range m.dependentsCache {
+		delete(m.dependentsCache, k)
+	}
+}
+
+// invalidateCacheInternal is the internal version that doesn't acquire the lock
+// It should only be called from methods that already hold the lock
+func (m *MemoryGraph) invalidateCacheInternal() {
 	m.cacheValid = false
 	// Clear dependents cache since it's most likely to be stale
 	for k := range m.dependentsCache {
@@ -107,9 +122,33 @@ func (m *MemoryGraph) invalidateCache() {
 
 // getIDString returns a cached string representation of the ID
 func (m *MemoryGraph) getIDString(id registry.ID) string {
+	m.mu.RLock()
+	if str, exists := m.stringCache[id]; exists {
+		m.mu.RUnlock()
+		return str
+	}
+	m.mu.RUnlock()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Double-check after acquiring write lock
 	if str, exists := m.stringCache[id]; exists {
 		return str
 	}
+
+	str := id.String()
+	m.stringCache[id] = str
+	return str
+}
+
+// getIDStringInternal gets the string representation of an ID without acquiring locks
+// This method assumes the caller already holds the appropriate lock
+func (m *MemoryGraph) getIDStringInternal(id registry.ID) string {
+	if str, exists := m.stringCache[id]; exists {
+		return str
+	}
+
 	str := id.String()
 	m.stringCache[id] = str
 	return str
@@ -117,24 +156,33 @@ func (m *MemoryGraph) getIDString(id registry.ID) string {
 
 // hasCycle performs DFS-based cycle detection without cloning the graph
 func (m *MemoryGraph) hasCycle(from, to registry.ID) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.hasCycleInternal(from, to)
+}
+
+// hasCycleInternal performs DFS-based cycle detection without acquiring locks
+// This method assumes the caller already holds the appropriate lock
+func (m *MemoryGraph) hasCycleInternal(from, to registry.ID) bool {
 	if from == to {
 		return true
 	}
 
+	// Check if there's already a path from 'to' to 'from'
+	// If there is, then adding 'from' -> 'to' would create a cycle
 	visited := make(map[registry.ID]bool)
-	inStack := make(map[registry.ID]bool)
 
 	var dfs func(registry.ID) bool
 	dfs = func(current registry.ID) bool {
-		if inStack[current] {
-			return true // Found cycle
+		if current == from {
+			return true // Found path from 'to' to 'from'
 		}
 		if visited[current] {
 			return false // Already explored this path
 		}
 
 		visited[current] = true
-		inStack[current] = true
 
 		// Check if we can reach 'from' through any neighbor
 		neighbors, err := m.graph.GetNeighbors(current)
@@ -143,12 +191,11 @@ func (m *MemoryGraph) hasCycle(from, to registry.ID) bool {
 		}
 
 		for _, neighbor := range neighbors {
-			if neighbor == from || dfs(neighbor) {
+			if dfs(neighbor) {
 				return true
 			}
 		}
 
-		inStack[current] = false
 		return false
 	}
 
@@ -160,19 +207,26 @@ func (m *MemoryGraph) AddNode(n *Node) error {
 	if n == nil {
 		return fmt.Errorf("node cannot be nil")
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, exists := m.nodes[n.ID]; exists {
 		return fmt.Errorf("node with Process %v already exists", n.ID)
 	}
 
 	m.graph.AddNode(n.ID)
 	m.nodes[n.ID] = n
-	m.invalidateCache()
+	m.invalidateCacheInternal()
 	return nil
 }
 
 // RemoveNode deletes a node and its associated edges from the graph.
 // It returns an error if the node has any direct outgoing dependencies or incoming dependents.
 func (m *MemoryGraph) RemoveNode(id registry.ID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, exists := m.nodes[id]; !exists {
 		return fmt.Errorf("node with Process %v not found", id)
 	}
@@ -190,12 +244,35 @@ func (m *MemoryGraph) RemoveNode(id registry.ID) error {
 
 	delete(m.nodes, id)
 	delete(m.stringCache, id)
-	m.invalidateCache()
+	m.invalidateCacheInternal()
+	return nil
+}
+
+// ReplaceNode atomically replaces an existing node with a new one.
+// This method ensures thread-safe node updates without race conditions.
+func (m *MemoryGraph) ReplaceNode(newNode *Node) error {
+	if newNode == nil {
+		return fmt.Errorf("node cannot be nil")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.nodes[newNode.ID]; !exists {
+		return fmt.Errorf("node with Process %v not found", newNode.ID)
+	}
+
+	// Atomically replace the node
+	m.nodes[newNode.ID] = newNode
+	m.invalidateCacheInternal()
 	return nil
 }
 
 // AddDependency creates a dependency edge from the node with Process 'from' to the node with Process 'to'.
 func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, exists := m.nodes[from]; !exists {
 		return fmt.Errorf("from node %v not found", from)
 	}
@@ -224,26 +301,32 @@ func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 	}
 
 	// Efficient cycle detection without graph cloning
-	if m.hasCycle(from, to) {
+	if m.hasCycleInternal(from, to) {
 		return fmt.Errorf("adding dependency would create a cycle")
 	}
 
 	m.graph.AddEdge(from, to, 1, Edge{As: alias})
-	m.invalidateCache()
+	m.invalidateCacheInternal()
 	return nil
 }
 
 // RemoveDependency removes the dependency edge from 'from' to 'to'.
 func (m *MemoryGraph) RemoveDependency(from, to registry.ID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if !m.graph.HasEdge(from, to) {
 		return fmt.Errorf("dependency from %v to %v not found", from, to)
 	}
-	m.invalidateCache()
+	m.invalidateCacheInternal()
 	return m.graph.RemoveEdge(from, to)
 }
 
 // GetNode retrieves the node with the specified Process.
 func (m *MemoryGraph) GetNode(id registry.ID) (*Node, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	n, exists := m.nodes[id]
 	if !exists {
 		return nil, fmt.Errorf("node with Process %v not found", id)
@@ -251,45 +334,56 @@ func (m *MemoryGraph) GetNode(id registry.ID) (*Node, error) {
 	return n, nil
 }
 
-// GetDirectDependencies returns all nodes that the node with the given Process depends on. Only direct dependencies are returned.
+// GetDirectDependencies returns all direct dependencies of the specified node.
 func (m *MemoryGraph) GetDirectDependencies(id registry.ID) ([]*Node, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if _, exists := m.nodes[id]; !exists {
 		return nil, fmt.Errorf("node with Process %v not found", id)
 	}
 
-	neighborIDs, err := m.graph.GetNeighbors(id)
+	neighbors, err := m.graph.GetNeighbors(id)
 	if err != nil {
 		return nil, err
 	}
 
-	// Pre-allocate slice with known capacity
-	deps := make([]*Node, 0, len(neighborIDs))
-	for _, nid := range neighborIDs {
-		if node, ok := m.nodes[nid]; ok {
+	deps := make([]*Node, 0, len(neighbors))
+	for _, neighbor := range neighbors {
+		if node, exists := m.nodes[neighbor]; exists {
 			deps = append(deps, node)
 		}
 	}
+
 	return deps, nil
 }
 
-// GetDirectDependents returns all nodes that depend on the node with the specified Process. Only direct dependents are returned.
+// GetDirectDependents returns all nodes that directly depend on the specified node.
 func (m *MemoryGraph) GetDirectDependents(id registry.ID) ([]*Node, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if _, exists := m.nodes[id]; !exists {
 		return nil, fmt.Errorf("node with Process %v not found", id)
 	}
 
-	// Pre-allocate with estimated capacity
-	dependents := make([]*Node, 0, len(m.nodes)/10) // Reasonable estimate
+	dependents := make([]*Node, 0)
 	for nid, node := range m.nodes {
-		if m.graph.HasEdge(nid, id) {
-			dependents = append(dependents, node)
+		if nid != id {
+			if m.graph.HasEdge(nid, id) {
+				dependents = append(dependents, node)
+			}
 		}
 	}
+
 	return dependents, nil
 }
 
-// GetAllDependents returns all nodes that depend on the node with the specified Process, including transitive dependents.
+// GetAllDependents returns all nodes that depend on the specified node (directly or indirectly).
 func (m *MemoryGraph) GetAllDependents(id registry.ID) ([]*Node, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if _, exists := m.nodes[id]; !exists {
 		return nil, fmt.Errorf("node with Process %v not found", id)
 	}
@@ -301,10 +395,11 @@ func (m *MemoryGraph) GetAllDependents(id registry.ID) ([]*Node, error) {
 		}
 	}
 
-	// Track visited nodes and results efficiently
-	visited := make(map[registry.ID]bool, len(m.nodes))
-	resultSet := make(map[registry.ID]*Node) // Use map for O(1) deduplication
+	// Use BFS to find all dependents
+	visited := make(map[registry.ID]bool)
+	addedToResult := make(map[registry.ID]bool) // Track which nodes have been added to result
 	queue := []registry.ID{id}
+	dependents := make([]*Node, 0)
 
 	for len(queue) > 0 {
 		current := queue[0]
@@ -315,19 +410,19 @@ func (m *MemoryGraph) GetAllDependents(id registry.ID) ([]*Node, error) {
 		}
 		visited[current] = true
 
-		// Find all direct dependents of current node
+		// Find all nodes that depend on current
 		for nid, node := range m.nodes {
-			if !visited[nid] && m.graph.HasEdge(nid, current) {
-				resultSet[nid] = node
-				queue = append(queue, nid)
+			if nid != current && !visited[nid] {
+				if m.graph.HasEdge(nid, current) {
+					// Only add to result if not already added
+					if !addedToResult[nid] {
+						dependents = append(dependents, node)
+						addedToResult[nid] = true
+					}
+					queue = append(queue, nid)
+				}
 			}
 		}
-	}
-
-	// Convert map to slice
-	dependents := make([]*Node, 0, len(resultSet))
-	for _, node := range resultSet {
-		dependents = append(dependents, node)
 	}
 
 	// Cache the result
@@ -338,39 +433,78 @@ func (m *MemoryGraph) GetAllDependents(id registry.ID) ([]*Node, error) {
 	return dependents, nil
 }
 
-// DependencyLevels returns the nodes grouped in topological order (levels).
+// DependencyLevels returns all nodes organized by their dependency levels.
+// Level 0 contains nodes with no dependencies, level 1 contains nodes that depend only on level 0 nodes, etc.
 func (m *MemoryGraph) DependencyLevels() ([][]*Node, error) {
-	// Check cache first
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if m.cacheValid && m.dependencyLevelsCache != nil {
 		return m.dependencyLevelsCache, nil
 	}
 
-	gl, err := m.graph.DependencyLevels()
-	if err != nil {
-		return nil, err
+	// Calculate in-degrees for all nodes
+	inDegree := make(map[registry.ID]int)
+	for nid := range m.nodes {
+		inDegree[nid] = 0
 	}
 
-	levels := make([][]*Node, 0, gl.LevelCount())
-	for i := 0; i < gl.LevelCount(); i++ {
-		levelIDs, err := gl.GetLevel(i)
+	// Count incoming edges for each node
+	for nid := range m.nodes {
+		neighbors, err := m.graph.GetNeighbors(nid)
 		if err != nil {
 			return nil, err
 		}
+		for _, neighbor := range neighbors {
+			inDegree[neighbor]++
+		}
+	}
 
-		// Pre-allocate level slice
-		level := make([]*Node, 0, len(levelIDs))
-		for _, id := range levelIDs {
-			if node, ok := m.nodes[id]; ok {
-				level = append(level, node)
+	// Topological sort using Kahn's algorithm
+	var levels [][]*Node
+	queue := make([]registry.ID, 0)
+
+	// Start with nodes that have no dependencies
+	for nid, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, nid)
+		}
+	}
+
+	level := 0
+	for len(queue) > 0 {
+		levelSize := len(queue)
+		currentLevel := make([]*Node, 0, levelSize)
+
+		for i := 0; i < levelSize; i++ {
+			current := queue[i]
+			if node, exists := m.nodes[current]; exists {
+				currentLevel = append(currentLevel, node)
+			}
+
+			// Decrease in-degree for all neighbors
+			neighbors, err := m.graph.GetNeighbors(current)
+			if err != nil {
+				return nil, err
+			}
+			for _, neighbor := range neighbors {
+				inDegree[neighbor]--
+				if inDegree[neighbor] == 0 {
+					queue = append(queue, neighbor)
+				}
 			}
 		}
 
-		// Sort using cached strings to avoid fmt.Sprintf in hot path
-		sort.Slice(level, func(i, j int) bool {
-			return m.getIDString(level[i].ID) < m.getIDString(level[j].ID)
-		})
+		levels = append(levels, currentLevel)
+		queue = queue[levelSize:]
+		level++
+	}
 
-		levels = append(levels, level)
+	// Check for cycles (nodes with remaining in-degree)
+	for _, degree := range inDegree {
+		if degree > 0 {
+			return nil, fmt.Errorf("dependency cycle detected")
+		}
 	}
 
 	// Cache the result
@@ -381,141 +515,301 @@ func (m *MemoryGraph) DependencyLevels() ([][]*Node, error) {
 	return levels, nil
 }
 
-// Build resolves dependencies starting from the entrypoint node and builds a Main configuration.
-// The entrypoint becomes the main node, and all other reachable nodes are wrapped as dependency prototypes.
-// If an incoming dependency edge carries a non‑empty alias, that alias is used.
+// Build creates a Main struct for the given entrypoint, including all its dependencies.
 func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
-	entryNode, err := m.GetNode(entrypoint)
-	if err != nil {
-		return nil, err
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if _, exists := m.nodes[entrypoint]; !exists {
+		return nil, fmt.Errorf("entrypoint node %v not found", entrypoint)
 	}
 
-	levels, err := m.DependencyLevels()
-	if err != nil {
-		return nil, err
-	}
-
-	// Determine reachable nodes from the entrypoint
+	// Get all reachable nodes from entrypoint
 	reachable := m.reachableFrom(entrypoint)
 
-	// Process levels in reverse order (deepest dependencies first)
-	// Pre-allocate with estimated capacity
-	ordered := make([]*Node, 0, len(reachable))
-	for i := len(levels) - 1; i >= 0; i-- {
-		level := levels[i]
-		for _, node := range level {
-			if reachable[node.ID] {
-				ordered = append(ordered, node)
+	// Build dependency list with proper aliases, including multiple entries for nodes
+	// reached through different paths
+	dependencies := make([]Dependency, 0)
+	seenAliases := make(map[string]bool) // Track unique alias+node combinations
+
+	for id := range reachable {
+		if id != entrypoint {
+			node, exists := m.nodes[id]
+			if !exists {
+				continue
 			}
-		}
-	}
 
-	// Assemble the runtime
-	rt := Main{
-		Main: entryNode,
-	}
+			// Find all aliases for this dependency by tracing all dependency paths
+			aliases := m.findAllDependencyAliases(entrypoint, id)
 
-	// Pre-build edge map for efficient alias lookup (O(1) instead of O(n²))
-	edgeMap := make(map[registry.ID]map[registry.ID]string) // from -> to -> alias
-	for _, node := range ordered {
-		neighbors, err := m.graph.GetNeighbors(node.ID)
-		if err != nil {
-			continue
-		}
-		edgeMap[node.ID] = make(map[registry.ID]string, len(neighbors))
-		for _, neighbor := range neighbors {
-			if edge, ok := m.graph.GetEdge(node.ID, neighbor); ok {
-				edgeMap[node.ID][neighbor] = edge.Data.As
-			}
-		}
-	}
-
-	// Build alias map efficiently using pre-built edge map
-	aliasMap := make(map[registry.ID]map[string]bool)
-	for _, node := range ordered {
-		if node.ID == entrypoint {
-			continue
-		}
-		aliasMap[node.ID] = make(map[string]bool)
-
-		// Use edge map instead of scanning all nodes
-		for _, edgeTargets := range edgeMap {
-			if alias, hasEdge := edgeTargets[node.ID]; hasEdge && alias != "" {
-				aliasMap[node.ID][alias] = true
-			}
-		}
-	}
-
-	// Track modules we've already processed to avoid duplicates
-	processedModules := make(map[string]bool)
-
-	// Build dependency nodes in correct order
-	depNodes := make([]Dependency, 0, len(ordered)) // Pre-allocate capacity
-	for _, node := range ordered {
-		if node.ID == entrypoint {
-			continue
-		}
-
-		// Get all aliases for this node
-		aliases := make([]string, 0, len(aliasMap[node.ID]))
-		for alias := range aliasMap[node.ID] {
-			aliases = append(aliases, alias)
-		}
-		sort.Strings(aliases) // Sort for consistent ordering
-
-		// Process explicit aliases
-		if len(aliases) > 0 {
-			// Add node once for each unique alias
 			for _, alias := range aliases {
-				depNodes = append(depNodes, Dependency{
-					Name: alias,
-					Node: node,
-				})
+				// Create unique key for this alias+node combination
+				key := fmt.Sprintf("%s:%s", alias, id.String())
+				if !seenAliases[key] {
+					seenAliases[key] = true
+					dependencies = append(dependencies, Dependency{
+						Name: alias,
+						ID:   id,
+						Node: node,
+					})
+				}
 			}
-			// Mark module as processed if present
-			if node.Module != nil {
-				processedModules[node.Module.Name()] = true
-			}
-		} else {
-			// No aliases found and no module, add node with default name
-			depNodes = append(depNodes, Dependency{
-				Name: node.ID.Name,
-				Node: node,
-			})
 		}
 	}
 
-	rt.Dependencies = depNodes
-	return &rt, nil
+	// Sort dependencies by dependency level (deeper dependencies first)
+	sort.Slice(dependencies, func(i, j int) bool {
+		levelI := m.getDependencyLevel(entrypoint, dependencies[i].ID)
+		levelJ := m.getDependencyLevel(entrypoint, dependencies[j].ID)
+		if levelI != levelJ {
+			return levelI > levelJ // Deeper levels first
+		}
+		// If same level, sort by ID for consistent ordering
+		return m.getIDStringInternal(dependencies[i].ID) < m.getIDStringInternal(dependencies[j].ID)
+	})
+
+	mainNode := m.nodes[entrypoint]
+	return &Main{
+		Main:         mainNode,
+		Dependencies: dependencies,
+	}, nil
 }
 
-// reachableFrom performs a DFS starting from the given entrypoint and returns a map of reachable node IDs.
-func (m *MemoryGraph) reachableFrom(entrypoint registry.ID) map[registry.ID]bool {
-	visited := make(map[registry.ID]bool, len(m.nodes)) // Pre-allocate with capacity
+// getDependencyLevel calculates the dependency level of a node relative to the entrypoint
+// This method assumes the caller holds the appropriate lock.
+func (m *MemoryGraph) getDependencyLevel(entrypoint, target registry.ID) int {
+	if entrypoint == target {
+		return 0
+	}
+
+	visited := make(map[registry.ID]bool)
+	levels := make(map[registry.ID]int)
 	queue := []registry.ID{entrypoint}
+	levels[entrypoint] = 0
+	visited[entrypoint] = true
 
-	// Use iterative DFS to avoid stack overflow and improve performance
 	for len(queue) > 0 {
-		current := queue[len(queue)-1]
-		queue = queue[:len(queue)-1]
-
-		if visited[current] {
-			continue
-		}
-		visited[current] = true
+		current := queue[0]
+		queue = queue[1:]
 
 		neighbors, err := m.graph.GetNeighbors(current)
 		if err != nil {
 			continue
 		}
 
-		// Add unvisited neighbors to queue
 		for _, neighbor := range neighbors {
 			if !visited[neighbor] {
+				visited[neighbor] = true
+				levels[neighbor] = levels[current] + 1
 				queue = append(queue, neighbor)
+
+				if neighbor == target {
+					return levels[neighbor]
+				}
 			}
 		}
 	}
 
+	return -1 // Not reachable
+}
+
+// findAllDependencyAliases finds all aliases for a dependency by tracing all dependency paths
+// from the entrypoint to the target node. This method assumes the caller holds the appropriate lock.
+func (m *MemoryGraph) findAllDependencyAliases(entrypoint, target registry.ID) []string {
+	aliases := make([]string, 0)
+	seenAliases := make(map[string]bool)
+
+	// If it's a direct dependency, add the direct alias
+	if edge, ok := m.graph.GetEdge(entrypoint, target); ok {
+		alias := edge.Data.As
+		if alias == "" {
+			// Fallback to node name if alias is empty
+			if node, exists := m.nodes[target]; exists {
+				alias = node.ID.Name
+			}
+		}
+		aliases = append(aliases, alias)
+		seenAliases[alias] = true
+	}
+
+	// Find all paths to the target and collect unique aliases
+	paths := m.findAllDependencyPaths(entrypoint, target)
+	for _, path := range paths {
+		if len(path) >= 2 {
+			// Get the alias of the last edge in the path
+			if edge, ok := m.graph.GetEdge(path[len(path)-2], path[len(path)-1]); ok {
+				alias := edge.Data.As
+				if alias == "" {
+					// Fallback to node name if alias is empty
+					if node, exists := m.nodes[target]; exists {
+						alias = node.ID.Name
+					}
+				}
+				if !seenAliases[alias] {
+					aliases = append(aliases, alias)
+					seenAliases[alias] = true
+				}
+			}
+		}
+	}
+
+	// If no aliases found, fallback to node name
+	if len(aliases) == 0 {
+		if node, exists := m.nodes[target]; exists {
+			aliases = append(aliases, node.ID.Name)
+		}
+	}
+
+	return aliases
+}
+
+// findAllDependencyPaths finds all paths from entrypoint to target using BFS
+// This method assumes the caller holds the appropriate lock.
+func (m *MemoryGraph) findAllDependencyPaths(entrypoint, target registry.ID) [][]registry.ID {
+	if entrypoint == target {
+		return [][]registry.ID{{entrypoint}}
+	}
+
+	paths := make([][]registry.ID, 0)
+	visited := make(map[registry.ID]bool)
+	queue := []struct {
+		node registry.ID
+		path []registry.ID
+	}{{entrypoint, []registry.ID{entrypoint}}}
+	visited[entrypoint] = true
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		neighbors, err := m.graph.GetNeighbors(current.node)
+		if err != nil {
+			continue
+		}
+
+		for _, neighbor := range neighbors {
+			if neighbor == target {
+				// Found a path to target
+				newPath := make([]registry.ID, len(current.path))
+				copy(newPath, current.path)
+				newPath = append(newPath, neighbor)
+				paths = append(paths, newPath)
+			} else if !visited[neighbor] {
+				visited[neighbor] = true
+				newPath := make([]registry.ID, len(current.path))
+				copy(newPath, current.path)
+				newPath = append(newPath, neighbor)
+				queue = append(queue, struct {
+					node registry.ID
+					path []registry.ID
+				}{neighbor, newPath})
+			}
+		}
+	}
+
+	return paths
+}
+
+// findDependencyAlias finds the alias for a dependency by tracing the dependency path
+// from the entrypoint to the target node. This method assumes the caller holds the appropriate lock.
+func (m *MemoryGraph) findDependencyAlias(entrypoint, target registry.ID) string {
+	// If it's a direct dependency, return the edge alias
+	if edge, ok := m.graph.GetEdge(entrypoint, target); ok {
+		return edge.Data.As
+	}
+
+	// For transitive dependencies, find the path and use the last alias in the path
+	path := m.findDependencyPath(entrypoint, target)
+	if len(path) >= 2 {
+		// Return the alias of the last edge in the path
+		if edge, ok := m.graph.GetEdge(path[len(path)-2], path[len(path)-1]); ok {
+			return edge.Data.As
+		}
+	}
+
+	// Fallback to node name if no alias found
+	if node, exists := m.nodes[target]; exists {
+		return node.ID.Name
+	}
+
+	return ""
+}
+
+// findDependencyPath finds a path from entrypoint to target using BFS
+// This method assumes the caller holds the appropriate lock.
+func (m *MemoryGraph) findDependencyPath(entrypoint, target registry.ID) []registry.ID {
+	if entrypoint == target {
+		return []registry.ID{entrypoint}
+	}
+
+	visited := make(map[registry.ID]bool)
+	parent := make(map[registry.ID]registry.ID)
+	queue := []registry.ID{entrypoint}
+	visited[entrypoint] = true
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		neighbors, err := m.graph.GetNeighbors(current)
+		if err != nil {
+			continue
+		}
+
+		for _, neighbor := range neighbors {
+			if !visited[neighbor] {
+				visited[neighbor] = true
+				parent[neighbor] = current
+				queue = append(queue, neighbor)
+
+				if neighbor == target {
+					// Reconstruct path
+					path := []registry.ID{target}
+					current := target
+					for current != entrypoint {
+						current = parent[current]
+						path = append([]registry.ID{current}, path...)
+					}
+					return path
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// reachableFrom returns a set of all nodes reachable from the given entrypoint.
+// This method assumes the caller already holds the appropriate lock.
+func (m *MemoryGraph) reachableFrom(entrypoint registry.ID) map[registry.ID]bool {
+	visited := make(map[registry.ID]bool)
+	inStack := make(map[registry.ID]bool) // Track nodes in current recursion stack
+
+	var dfs func(registry.ID) bool
+	dfs = func(current registry.ID) bool {
+		if inStack[current] {
+			// Found a cycle, but we'll continue to avoid infinite recursion
+			return false
+		}
+		if visited[current] {
+			return false
+		}
+
+		visited[current] = true
+		inStack[current] = true
+		defer func() { inStack[current] = false }()
+
+		neighbors, err := m.graph.GetNeighbors(current)
+		if err != nil {
+			return false
+		}
+
+		for _, neighbor := range neighbors {
+			dfs(neighbor)
+		}
+		return false
+	}
+
+	dfs(entrypoint)
 	return visited
 }

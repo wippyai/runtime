@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ponyruntime/pony/api/event"
@@ -24,6 +25,7 @@ type (
 
 		// Transaction tracking
 		txNodes map[registry.ID]bool
+		txMutex sync.RWMutex // Protect txNodes from concurrent access
 	}
 
 	// Config defines initialization parameters
@@ -88,6 +90,8 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 
 // Begin implements TransactionListener
 func (cm *Manager) Begin(_ context.Context) {
+	cm.txMutex.Lock()
+	defer cm.txMutex.Unlock()
 	cm.txNodes = make(map[registry.ID]bool)
 }
 
@@ -95,7 +99,16 @@ func (cm *Manager) Begin(_ context.Context) {
 func (cm *Manager) Commit(ctx context.Context) {
 	// Get all affected nodes
 	affected := make(map[registry.ID]bool)
+
+	// Lock for reading txNodes
+	cm.txMutex.RLock()
+	txNodesCopy := make(map[registry.ID]bool)
 	for id := range cm.txNodes {
+		txNodesCopy[id] = true
+	}
+	cm.txMutex.RUnlock()
+
+	for id := range txNodesCopy {
 		// Get node and its dependencies
 		_, err := cm.memGraph.GetNode(id)
 		if err != nil {
@@ -120,7 +133,9 @@ func (cm *Manager) Commit(ctx context.Context) {
 	}
 
 	// Clear transaction nodes
+	cm.txMutex.Lock()
 	cm.txNodes = make(map[registry.ID]bool)
+	cm.txMutex.Unlock()
 
 	// to slice of []registry.Process
 	affectedSlice := make([]registry.ID, 0, len(affected))
@@ -138,6 +153,8 @@ func (cm *Manager) Commit(ctx context.Context) {
 
 // Discard implements TransactionListener
 func (cm *Manager) Discard(_ context.Context) {
+	cm.txMutex.Lock()
+	defer cm.txMutex.Unlock()
 	cm.txNodes = make(map[registry.ID]bool)
 }
 
@@ -177,7 +194,9 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 	}
 
 	// Mark node for transaction
+	cm.txMutex.Lock()
 	cm.txNodes[node.ID] = true
+	cm.txMutex.Unlock()
 
 	return nil
 }
@@ -190,12 +209,22 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 		return fmt.Errorf("node not found: %w", err)
 	}
 
-	// Update fields
-	existing.Source = node.Source
-	existing.Method = node.Method
-	existing.Version = Version{
-		Hash:    HashNode(&node),
-		Created: time.Now(),
+	// Create a new node with updated fields to avoid race conditions
+	updatedNode := &Node{
+		ID:     existing.ID,
+		Kind:   existing.Kind,
+		Source: node.Source,
+		Method: node.Method,
+		Module: existing.Module,
+		Version: Version{
+			Hash:    HashNode(&node),
+			Created: time.Now(),
+		},
+	}
+
+	// Replace the node in the graph atomically
+	if err := cm.memGraph.ReplaceNode(updatedNode); err != nil {
+		return fmt.Errorf("failed to replace node: %w", err)
 	}
 
 	// Done old dependencies
@@ -218,7 +247,9 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	}
 
 	// Mark node for transaction
+	cm.txMutex.Lock()
 	cm.txNodes[node.ID] = true
+	cm.txMutex.Unlock()
 
 	// calculate all dependents
 	//nolint:ineffassign,staticcheck // ok for now
@@ -251,7 +282,9 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 	}
 
 	// Mark node for transaction
+	cm.txMutex.Lock()
 	cm.txNodes[id] = true
+	cm.txMutex.Unlock()
 
 	return nil
 }

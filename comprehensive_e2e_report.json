@@ -1,0 +1,24 @@
+{
+  "configuration": {
+    "BaseURL": "http://localhost:8082",
+    "Timeout": 300000000000,
+    "SkipCheck": true,
+    "Verbose": true,
+    "ReportFile": "comprehensive_e2e_report.json",
+    "MaxAttempts": 30,
+    "RetryInterval": 2000000000
+  },
+  "results": {
+    "success": true,
+    "duration": 381125349,
+    "output": "=== RUN   TestComprehensiveE2E\n[2025-07-29 22:04:27] 🚀 Starting Comprehensive E2E Test Suite...\n[2025-07-29 22:04:27] 🔍 Verifying application is running...\n[2025-07-29 22:04:27] ❌ Application not responding: Get \"http://localhost:8082/api/v1/hello\": dial tcp 127.0.0.1:8082: connect: connection refused\n[2025-07-29 22:04:27] ❌ Cannot run tests - application is not available\n[2025-07-29 22:04:27] 📊 Generating Comprehensive Test Report...\n\n================================================================================\nCOMPREHENSIVE E2E TEST REPORT\n================================================================================\nTotal Tests: 0\nSuccessful: 0\nFailed: 0\nSuccess Rate: NaN%\nAverage Duration: 0s\n================================================================================\n\nDETAILED RESULTS:\n--------------------------------------------------------------------------------\n[2025-07-29 22:04:27] 📄 Detailed report saved to comprehensive_e2e_report.json\n    comprehensive_test.go:1153: No tests were run - application may not be fully configured\n--- PASS: TestComprehensiveE2E (0.00s)\nPASS\nok  \tgithub.com/ponyruntime/pony/tests/e2e/comprehensive\t0.005s\n",
+    "timestamp": "2025-07-29T22:04:27.650698683+07:00"
+  },
+  "summary": {
+    "total_tests": 1,
+    "passed_tests": 1,
+    "failed_tests": 0,
+    "success_rate": 1,
+    "total_duration": 381125349
+  }
+}

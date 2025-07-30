@@ -38,6 +38,11 @@ test-cluster:
 debug_vm:
 	dlv test --build-flags "--tags=fts5,sqlite_vec" -- test.v -test.run="^TestVM\$"
 
+# E2E Test Commands
+test-e2e:
+	@echo "🚀 Running comprehensive e2e tests..."
+	go run tests/e2e/main.go -skip-check -verbose
+
 # Build runner for all platforms where cross-compilation is possible
 build-runner-all: build-runner-local build-runner-cross
 
