@@ -102,6 +102,10 @@ type dependencyInformation struct {
 
 // processRemoteDependencies handles fetching and storing remote dependencies
 func (m *Manager) processRemoteDependencies(ctx context.Context, manifestDependencies []ManifestDependency) error {
+	if len(manifestDependencies) == 0 {
+		return nil
+	}
+
 	deps, err := m.fetchRemoteDependencyInformation(ctx, manifestDependencies)
 	if err != nil {
 		return fmt.Errorf("fetch remote dependencies: %w", err)
