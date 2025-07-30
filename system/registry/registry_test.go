@@ -646,12 +646,12 @@ data:
 	runner := &CustomizableMockRunner{}
 	stateBuilder := topology.NewStateBuilder(zap.NewNop())
 	dtt := createTestTranscoder()
-	folderLoader := loader.NewLoader(dtt, zap.NewNop(), interpolate.NewEntryInterpolator(dtt, interpolate.WithInterpolator(interpolate.LoadVars)))
+	folderLoader := loader.NewLoader(dtt, zap.NewNop(), interpolate.NewEntryInterpolator(dtt))
 
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
 
 	// 3. Load entries from the folder
-	entries, err := folderLoader.LoadFS(mapFS, interpolate.Variables{})
+	entries, err := folderLoader.LoadFS(context.Background(), mapFS)
 	if err != nil {
 		t.Fatalf("failed to load entries from folder: %v", err)
 	}

@@ -2,22 +2,6 @@ version: "1.0"
 namespace: system
 
 entries:
-  - name: aws_config
-    kind: config.aws
-    meta:
-      comment: "Aws Config"
-    region: us-east-1
-    access_key_id_env: ACCESS_KEY_ID_CUSTOM
-
-  - name: test_s3
-    kind: cloudstorage.s3
-    meta:
-      comment: "Cloud Storage S3"
-      depends_on:
-        - aws_config
-    bucket: mybucket
-    config: system:aws_config
-
   - name: root
     kind: fs.directory
     meta:
@@ -136,9 +120,56 @@ entries:
       type: envstorage
       comment: Memory storage for environment variables
 
+  - name: file_test_env2
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envfile
+    variable: FILE_TEST_ENV2
+    storage: system:envfile
+    default:
+
+  - name: aws_config
+    kind: config.aws
+    meta:
+      comment: "Aws Config"
+    region: us-east-1
+    access_key_id_env: system:envfile:ACCESS_KEY_ID_CUSTOM
+
+  - name: aws_config2
+    kind: config.aws
+    meta:
+      comment: "Aws Config"
+    region: us-east-1
+    access_key_id_env: ACCESS_KEY_ID_CUSTOM
+
   - name: envfile
     kind: env.storage.file
     meta:
       type: envstorage
-      comment: Memory storage for environment variables
+      comment: File storage for environment variables
     file_path: "./app/env/.env.sample"
+
+  - name: test_s3
+    kind: cloudstorage.s3
+    meta:
+      comment: "Cloud Storage S3"
+      depends_on:
+        - aws_config
+    bucket: mybucket
+    config: system:aws_config
+
+#  - name: db_postgres
+#    kind: db.sql.postgres
+#    meta:
+#      comment: Application Postgres database
+#      depends_on:
+#        - aws_config
+#    host_env: system:envfile:POSTGRESQL_DEFAULT_HOST
+#    port_env: system:envfile:POSTGRESQL_DEFAULT_PORT
+#    database_env: system:envfile:POSTGRESQL_DEFAULT_DATABASE
+#    username_env: system:envfile:POSTGRESQL_DEFAULT_USERNAME
+#    password_env: system:envfile:POSTGRESQL_DEFAULT_PASSWORD
+#    lifecycle:
+#      auto_start: true

@@ -2,7 +2,7 @@ version: "1.0"
 namespace: app.env.demo
 
 meta:
-  depends_on: [ "ns:system" ]
+  depends_on: ["ns:system"]
   comment: "ENV Demo Application"
 
 entries:
@@ -12,7 +12,7 @@ entries:
       comment: "ENV demo"
     source: file://env.lua
     method: handler
-    modules: [ http, env ]
+    modules: [http, env]
     pool:
       size: 2
       workers: 4

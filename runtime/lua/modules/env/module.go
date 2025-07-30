@@ -3,7 +3,6 @@ package env
 import (
 	"sync"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
@@ -56,12 +55,6 @@ func (m *Module) get(l *lua.LState) int {
 		return 0
 	}
 
-	// todo: fix duplicate
-	if _, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); !ok {
-		l.RaiseError("invalid environment context")
-		return 0
-	}
-
 	key := l.CheckString(1)
 	if key == "" {
 		l.ArgError(1, "empty key")
@@ -96,11 +89,6 @@ func (m *Module) set(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.RaiseError("no context found")
-		return 0
-	}
-
-	if _, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); !ok {
-		l.RaiseError("invalid environment context")
 		return 0
 	}
 
@@ -147,32 +135,29 @@ func (m *Module) getAll(l *lua.LState) int {
 		return 0
 	}
 
-	envCtx, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string])
-	if !ok {
-		l.RaiseError("invalid environment context")
-		return 0
-	}
-
 	envRegistry := env.GetRegistry(l.Context())
 	if envRegistry == nil {
 		l.RaiseError("environment registry not found")
 		return 0
 	}
 
-	result := l.CreateTable(0, envCtx.Len())
-
-	// Optimize by working with table internals directly
-	if result.Strdict == nil {
-		result.Strdict = make(map[string]lua.LValue, envCtx.Len())
+	variables, err := envRegistry.All(l.Context())
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
-	envCtx.Iterate(func(key string, value string) {
+	result := l.CreateTable(0, len(variables))
+
+	// Add variables to the result table, filtering by permissions
+	for key, value := range variables {
 		// Only include variables that the user has permission to access
 		if security.IsAllowed(l.Context(), "env.get", key, nil) {
 			// Direct map access instead of RawSetString for performance
 			result.Strdict[key] = lua.LString(value)
 		}
-	})
+	}
 
 	l.Push(result)
 	l.Push(lua.LNil)

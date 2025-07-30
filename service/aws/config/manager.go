@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	envapi "github.com/ponyruntime/pony/api/env"
+
 	serviceaws "github.com/ponyruntime/pony/api/service/aws/config"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -20,11 +21,12 @@ import (
 
 // Manager handles S3 storage lifecycle and functions as a resource provider
 type Manager struct {
-	log     *zap.Logger
-	dtt     payload.Transcoder
-	bus     event.Bus
-	mu      sync.RWMutex
-	configs map[registry.ID]aws.Config
+	log         *zap.Logger
+	dtt         payload.Transcoder
+	bus         event.Bus
+	mu          sync.RWMutex
+	configs     map[registry.ID]aws.Config
+	envRegistry envapi.Registry
 }
 
 // NewManager creates a new S3 storage manager
@@ -32,12 +34,14 @@ func NewManager(
 	bus event.Bus,
 	dtt payload.Transcoder,
 	log *zap.Logger,
+	envRegistry envapi.Registry,
 ) *Manager {
 	return &Manager{
-		log:     log,
-		dtt:     dtt,
-		bus:     bus,
-		configs: make(map[registry.ID]aws.Config),
+		log:         log,
+		dtt:         dtt,
+		bus:         bus,
+		configs:     make(map[registry.ID]aws.Config),
+		envRegistry: envRegistry,
 	}
 }
 
@@ -240,18 +244,16 @@ func (m *Manager) createAWSConfig(ctx context.Context, cfg *serviceaws.Config) (
 		config.WithRegion(cfg.Region),
 	}
 
-	envCtx, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string])
-	if !ok {
-		return aws.Config{}, fmt.Errorf("cannot access env ctx")
+	var accessKey, secretKey string
+
+	// Only try to get credentials if environment variable names are provided
+	if cfg.AccessKeyIDEnv != "" {
+		accessKey, _ = m.envRegistry.GetFromStorage(ctx, cfg.AccessKeyIDEnv)
 	}
 
-	var (
-		accessKey string
-		secretKey string
-	)
-
-	accessKey, _ = envCtx.Value(cfg.AccessKeyIDEnv)
-	secretKey, _ = envCtx.Value(cfg.SecretAccessKeyEnv)
+	if cfg.SecretAccessKeyEnv != "" {
+		secretKey, _ = m.envRegistry.GetFromStorage(ctx, cfg.SecretAccessKeyEnv)
+	}
 
 	// Add credentials if provided
 	if accessKey != "" && secretKey != "" {

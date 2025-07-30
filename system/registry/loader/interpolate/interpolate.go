@@ -1,22 +1,19 @@
 package interpolate
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 
 	"github.com/ponyruntime/pony/api/payload"
 )
 
-// Variables is a map of key-value pairs for variable interpolation
-type Variables map[string]string
-
 // EntryContext holds the context for loading and interpolating configuration entries.
-// It contains variables for interpolation, root directory for file resolution,
-// and the current configuration filename being processed.
+// It contains the current configuration filename being processed, and a context for accessing services.
 type EntryContext struct {
-	Vars     Variables
 	Filename string
 	FS       fs.FS
+	Context  context.Context
 }
 
 // InterpolatorFunc defines the signature for interpolation functions

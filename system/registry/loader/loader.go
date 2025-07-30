@@ -1,6 +1,7 @@
 package loader
 
 import (
+	"context"
 	"fmt"
 	iofs "io/fs"
 
@@ -35,7 +36,7 @@ func NewLoader(dtt payload.Transcoder, log *zap.Logger, interpolator *interpolat
 }
 
 // LoadFS loads all entries from FS.
-func (l *Loader) LoadFS(fs iofs.FS, vars interpolate.Variables) ([]registry.Entry, error) {
+func (l *Loader) LoadFS(ctx context.Context, fs iofs.FS) ([]registry.Entry, error) {
 	payloads, err := l.fileLoader.LoadFS(fs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load files: %w", err)
@@ -43,7 +44,7 @@ func (l *Loader) LoadFS(fs iofs.FS, vars interpolate.Variables) ([]registry.Entr
 
 	var entries []registry.Entry
 	for _, p := range payloads {
-		fileEntries, err := l.processFile(fs, p, vars)
+		fileEntries, err := l.processFile(ctx, fs, p)
 		if err != nil {
 			// Log warning instead of returning error
 			l.log.Warn("process file", zap.String("path", p.Source()), zap.Error(err))
@@ -56,7 +57,7 @@ func (l *Loader) LoadFS(fs iofs.FS, vars interpolate.Variables) ([]registry.Entr
 }
 
 // LoadDir loads all entries from a directory
-func (l *Loader) LoadDir(fs iofs.FS, dirPath string, vars interpolate.Variables) ([]registry.Entry, error) {
+func (l *Loader) LoadDir(ctx context.Context, fs iofs.FS, dirPath string) ([]registry.Entry, error) {
 	payloads, err := l.fileLoader.LoadDir(fs, dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load files from directory %s: %w", dirPath, err)
@@ -64,7 +65,7 @@ func (l *Loader) LoadDir(fs iofs.FS, dirPath string, vars interpolate.Variables)
 
 	var entries []registry.Entry
 	for _, p := range payloads {
-		fileEntries, err := l.processFile(fs, p, vars)
+		fileEntries, err := l.processFile(ctx, fs, p)
 		if err != nil {
 			// Log warning instead of returning error
 			l.log.Warn("process file", zap.String("path", p.Source()), zap.Error(err))
@@ -77,13 +78,13 @@ func (l *Loader) LoadDir(fs iofs.FS, dirPath string, vars interpolate.Variables)
 }
 
 // LoadFile loads entries from a single file
-func (l *Loader) LoadFile(fs iofs.FS, filePath string, vars interpolate.Variables) ([]registry.Entry, error) {
+func (l *Loader) LoadFile(ctx context.Context, fs iofs.FS, filePath string) ([]registry.Entry, error) {
 	filePayload, err := l.fileLoader.LoadFile(fs, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load file %s: %w", filePath, err)
 	}
 
-	entries, err := l.processFile(fs, filePayload, vars)
+	entries, err := l.processFile(ctx, fs, filePayload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process file %s: %w", filePath, err)
 	}
@@ -92,12 +93,12 @@ func (l *Loader) LoadFile(fs iofs.FS, filePath string, vars interpolate.Variable
 }
 
 // processFile processes a single file and returns registry entries
-func (l *Loader) processFile(fSys iofs.FS, p *FilePayload, vars interpolate.Variables) ([]registry.Entry, error) {
+func (l *Loader) processFile(ctx context.Context, fSys iofs.FS, p *FilePayload) ([]registry.Entry, error) {
 	// Interpolate values
 	interpolated, err := l.interpolator.Interpolate(p, interpolate.EntryContext{
-		Vars:     vars,
 		Filename: p.Source(),
 		FS:       fSys,
+		Context:  ctx,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("interpolation failed: %w", err)
