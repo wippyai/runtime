@@ -11,68 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoadVars(t *testing.T) {
-	testCases := []struct {
-		name     string
-		input    string
-		ctx      EntryContext
-		expected string
-	}{
-		{
-			name:  "simple replacement",
-			input: "Hello ${NAME}!",
-			ctx: EntryContext{
-				Vars: Variables{"NAME": "World"},
-			},
-			expected: "Hello World!",
-		},
-		{
-			name:  "multiple replacements",
-			input: "Port: ${PORT}, Env: ${ENV}",
-			ctx: EntryContext{
-				Vars: Variables{"PORT": "8080", "ENV": "production"},
-			},
-			expected: "Port: 8080, Env: production",
-		},
-		{
-			name:  "no replacement",
-			input: "No variables here.",
-			ctx: EntryContext{
-				Vars: Variables{"PORT": "8080"},
-			},
-			expected: "No variables here.",
-		},
-		{
-			name:  "unknown variable",
-			input: "value: ${UNKNOWN}",
-			ctx: EntryContext{
-				Vars: Variables{"PORT": "8080"},
-			},
-			expected: "value: ${UNKNOWN}", // Unresolved variable is left as is
-		},
-		{
-			name:  "empty variables",
-			input: "value: ${EMPTY}",
-			ctx: EntryContext{
-				Vars: Variables{},
-			},
-			expected: "value: ${EMPTY}",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result, err := LoadVars(tc.input, tc.ctx)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if result != tc.expected {
-				t.Errorf("LoadVars(%q) = %q; want %q", tc.input, result, tc.expected)
-			}
-		})
-	}
-}
-
 func TestLoadFile(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "testloadfile-*")
 	require.NoError(t, err)

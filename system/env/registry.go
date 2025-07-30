@@ -3,6 +3,7 @@ package env
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/env"
@@ -131,6 +132,7 @@ func (s *Registry) registerVariable(e event.Event) {
 		return
 	}
 
+	//
 	variableValue, err := storage.Get(s.ctx, variableName)
 	if err != nil {
 		s.log.Error("failed to get variable value",
@@ -188,6 +190,7 @@ func (s *Registry) updateVariable(e event.Event) {
 		return
 	}
 
+	//
 	variableValue, err := storage.Get(s.ctx, variableName)
 	if err != nil {
 		s.log.Error("failed to get variable value",
@@ -228,16 +231,29 @@ func (s *Registry) sendReject(path event.Path, reason string) {
 	})
 }
 
-// All returns all env storages
-func (s *Registry) All(_ context.Context) ([]env.Storage, error) {
-	var storages []env.Storage
+// All returns all available variables from all storages
+func (s *Registry) All(ctx context.Context) (map[string]string, error) {
+	result := make(map[string]string)
+
+	// Iterate through all storages
 	s.storages.Range(func(_ interface{}, value interface{}) bool {
 		if storage, ok := value.(env.Storage); ok {
-			storages = append(storages, storage)
+			// Get all variables from this storage
+			variables, err := storage.List(ctx)
+			if err != nil {
+				s.log.Error("failed to list variables from storage", zap.Error(err))
+				return true // continue with other storages
+			}
+
+			// Add variables to result map
+			for name, val := range variables {
+				result[name] = val
+			}
 		}
 		return true
 	})
-	return storages, nil
+
+	return result, nil
 }
 
 func (s *Registry) getEnvValue(ctx context.Context, name string) (*EnvValue, error) {
@@ -263,7 +279,7 @@ func (s *Registry) getEnvValueByName(ctx context.Context, name string) (*EnvValu
 	if ns == "" {
 		pid, pidFound := pubsub.GetPID(ctx)
 		if !pidFound {
-			s.log.Error("pubsub context not found")
+			s.log.Error("PID not found")
 			return nil, env.ErrVariableNotFound
 		}
 
@@ -289,6 +305,7 @@ func (s *Registry) getEnvValueByName(ctx context.Context, name string) (*EnvValu
 func (s *Registry) getEnvValueByEnvName(_ context.Context, envName string) (*EnvValue, error) {
 	var variable EnvValue
 	var found bool
+
 	// todo: this is hot path btw, need secondary map
 	s.values.Range(func(_ interface{}, value interface{}) bool {
 		v := value.(EnvValue)
@@ -301,7 +318,8 @@ func (s *Registry) getEnvValueByEnvName(_ context.Context, envName string) (*Env
 	})
 
 	if !found {
-		s.log.Error("variable not found", zap.String("name", envName))
+		s.log.Warn("variable not found", zap.String("name", envName))
+
 		return nil, env.ErrVariableNotFound
 	}
 
@@ -340,6 +358,101 @@ func (s *Registry) Get(ctx context.Context, name string) (string, error) {
 	}
 
 	return value.DefaultValue, nil
+}
+
+func (s *Registry) GetFromStorage(ctx context.Context, name string) (string, error) {
+	// Find the last colon to separate storage ID from environment variable name
+	lastColonIndex := strings.LastIndex(name, ":")
+	if lastColonIndex == -1 {
+		return "", fmt.Errorf("invalid name format: expected 'storage:envvar' but got '%s'", name)
+	}
+
+	storageIDStr := name[:lastColonIndex]
+	envVarName := name[lastColonIndex+1:]
+
+	if envVarName == "" {
+		return "", fmt.Errorf("invalid name format: environment variable name cannot be empty")
+	}
+
+	// if storage ID is empty, iterate over all storages
+	if storageIDStr == "" {
+		return s.getFromAnyStorage(ctx, envVarName)
+	}
+
+	// get from specific storage
+	return s.getFromSpecificStorage(ctx, storageIDStr, envVarName, name)
+}
+
+func (s *Registry) getFromAnyStorage(ctx context.Context, envVarName string) (string, error) {
+	// Iterate through all storages to find the variable
+	var foundVariable string
+	var foundStorageKey interface{}
+
+	s.storages.Range(func(key interface{}, value interface{}) bool {
+		storage, ok := value.(env.Storage)
+		if !ok {
+			s.log.Error("invalid storage type",
+				zap.String("storage", fmt.Sprintf("%v", key)),
+				zap.String("type", fmt.Sprintf("%T", value)))
+			return true // continue with other storages
+		}
+
+		// Try to get the variable from this storage
+		variable, err := storage.Get(ctx, envVarName)
+		if err == nil {
+			foundVariable = variable
+			foundStorageKey = key
+			return false // stop iteration
+		}
+
+		return true // continue with other storages
+	})
+
+	if foundVariable != "" {
+		s.log.Info("got variable from storage",
+			zap.String("storage", fmt.Sprintf("%v", foundStorageKey)),
+			zap.String("variable", envVarName),
+			zap.String("value", foundVariable))
+		return foundVariable, nil
+	}
+
+	// If we reach here, the variable was not found in any storage
+	s.log.Error("variable not found in any storage", zap.String("variable", envVarName))
+	return "", env.ErrVariableNotFound
+}
+
+func (s *Registry) getFromSpecificStorage(ctx context.Context, storageIDStr, envVarName, originalName string) (string, error) {
+	// Parse the storage ID
+	storageID := registry.ParseID(storageIDStr)
+
+	// Look up the specific storage
+	storedStorage, found := s.storages.Load(storageID.String())
+	if !found {
+		s.log.Error("storage not found",
+			zap.String("storage", storageID.String()),
+			zap.String("name", originalName))
+		return "", env.ErrVariableNotFound
+	}
+
+	storage, ok := storedStorage.(env.Storage)
+	if !ok {
+		s.log.Error("invalid storage type",
+			zap.String("storage", storageID.String()),
+			zap.String("type", fmt.Sprintf("%T", storedStorage)))
+		return "", env.ErrVariableNotFound
+	}
+
+	// Get the environment variable from the specific storage
+	variable, err := storage.Get(ctx, envVarName)
+	if err != nil {
+		s.log.Error("failed to get variable from storage",
+			zap.String("storage", storageID.String()),
+			zap.String("variable", envVarName),
+			zap.Error(err))
+		return "", err
+	}
+
+	return variable, nil
 }
 
 func (s *Registry) Set(ctx context.Context, name string, value string) error {

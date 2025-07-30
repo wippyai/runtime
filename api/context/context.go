@@ -13,8 +13,6 @@ func (ck *Key) String() string {
 
 // todo: move to individual packages and make proper accessor funcs
 var (
-	// EnvCtx represents the environment variables context key
-	EnvCtx = &Key{Name: "env"}
 	// ValuesCtx represents the values storage context key
 	ValuesCtx = &Key{Name: "values"}
 	// WakeUpKey represents a callback that can be used to notify process host about async process activity

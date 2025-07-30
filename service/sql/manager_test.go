@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/internal/config"
 
 	_ "github.com/mattn/go-sqlite3" // Import SQLite driver
@@ -190,14 +190,50 @@ func (f *TestPoolFactory) CreateSQLitePool(cfg *apiconfig.SQLiteConfig) (*ConnPo
 	return NewMockConnPool(apiconfig.KindSQLite), nil
 }
 
+// MockEnvRegistry implements envapi.Registry for testing
+type MockEnvRegistry struct {
+	variables map[string]string
+}
+
+func NewMockEnvRegistry() *MockEnvRegistry {
+	return &MockEnvRegistry{
+		variables: make(map[string]string),
+	}
+}
+
+func (m *MockEnvRegistry) Get(_ context.Context, name string) (string, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (m *MockEnvRegistry) GetFromStorage(_ context.Context, name string) (string, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (m *MockEnvRegistry) Set(_ context.Context, name string, value string) error {
+	m.variables[name] = value
+	return nil
+}
+
+func (m *MockEnvRegistry) All(_ context.Context) (map[string]string, error) {
+	// For testing purposes, we return the variables map
+	return m.variables, nil
+}
+
 // Helper to create a test manager with mock components
 func newTestManager(t *testing.T) (*Manager, event.Bus, *TestPoolFactory) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	transcoder := &TestTranscoder{}
 	factory := NewTestPoolFactory()
+	envRegistry := NewMockEnvRegistry()
 
-	manager, err := NewManagerWithFactory(transcoder, bus, logger, factory)
+	manager, err := NewManagerWithFactory(transcoder, bus, logger, envRegistry, factory)
 	require.NoError(t, err)
 	return manager, bus, factory
 }
@@ -207,9 +243,10 @@ func TestNewManagerWithFactory(t *testing.T) {
 	bus := eventbus.NewBus()
 	transcoder := &TestTranscoder{}
 	factory := NewTestPoolFactory()
+	envRegistry := NewMockEnvRegistry()
 
 	t.Run("Valid initialization", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, bus, logger, factory)
+		manager, err := NewManagerWithFactory(transcoder, bus, logger, envRegistry, factory)
 		assert.NoError(t, err)
 		assert.NotNil(t, manager)
 		assert.Equal(t, logger, manager.log)
@@ -220,21 +257,21 @@ func TestNewManagerWithFactory(t *testing.T) {
 	})
 
 	t.Run("Nil transcoder", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(nil, bus, logger, factory)
+		manager, err := NewManagerWithFactory(nil, bus, logger, envRegistry, factory)
 		assert.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "transcoder is required")
 	})
 
 	t.Run("Nil event bus", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, nil, logger, factory)
+		manager, err := NewManagerWithFactory(transcoder, nil, logger, envRegistry, factory)
 		assert.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "event bus is required")
 	})
 
 	t.Run("Nil factory", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, bus, logger, nil)
+		manager, err := NewManagerWithFactory(transcoder, bus, logger, envRegistry, nil)
 		assert.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "pool factory is required")
@@ -355,16 +392,16 @@ func TestManager_Add(t *testing.T) {
 func TestManager_Update(t *testing.T) {
 	manager, bus, _ := newTestManager(t)
 
-	envContexter := ctxapi.NewContexter[string]()
-	envContexter.SetValue("POSTGRESQL_DEFAULT_HOST", "test-host")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_PORT", "1234")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_DATABASE", "test-db")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_USERNAME", "test-user")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_PASSWORD", "test-pwd")
+	envRegistry := NewMockEnvRegistry()
+	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_HOST", "test-host"))
+	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_PORT", "1234"))
+	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_DATABASE", "test-db"))
+	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_USERNAME", "test-user"))
+	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_PASSWORD", "test-pwd"))
 
 	rootCtx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()
-	ctx := context.WithValue(rootCtx, ctxapi.EnvCtx, envContexter)
+	ctx := rootCtx
 
 	// Setup event listener for supervisor events
 	supervisorEvents := make(chan event.Event, 2)
@@ -466,16 +503,16 @@ func TestManager_Update(t *testing.T) {
 func TestManager_Delete(t *testing.T) {
 	manager, bus, _ := newTestManager(t)
 
-	envContexter := ctxapi.NewContexter[string]()
-	envContexter.SetValue("POSTGRESQL_DEFAULT_HOST", "test-host")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_PORT", "1234")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_DATABASE", "test-db")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_USERNAME", "test-user")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_PASSWORD", "test-pwd")
+	envRegistry := NewMockEnvRegistry()
+	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_HOST", "test-host"))
+	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_PORT", "1234"))
+	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_DATABASE", "test-db"))
+	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_USERNAME", "test-user"))
+	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_PASSWORD", "test-pwd"))
 
 	rootCtx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()
-	ctx := context.WithValue(rootCtx, ctxapi.EnvCtx, envContexter)
+	ctx := rootCtx
 
 	// Setup event listeners
 	supervisorEvents := make(chan event.Event, 2)

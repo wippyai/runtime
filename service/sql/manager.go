@@ -6,7 +6,8 @@ import (
 	"strconv"
 	"sync"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	envapi "github.com/ponyruntime/pony/api/env"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -24,8 +25,9 @@ type Manager struct {
 	bus     event.Bus
 	factory PoolFactoryAPI
 
-	mu       sync.RWMutex
-	services map[registry.ID]*ConnPool
+	mu          sync.RWMutex
+	services    map[registry.ID]*ConnPool
+	envRegistry envapi.Registry
 }
 
 // NewManager creates a new SQL service manager
@@ -33,8 +35,9 @@ func NewManager(
 	dtt payload.Transcoder,
 	bus event.Bus,
 	log *zap.Logger,
+	envRegistry envapi.Registry,
 ) (*Manager, error) {
-	return NewManagerWithFactory(dtt, bus, log, NewDefaultPoolFactory())
+	return NewManagerWithFactory(dtt, bus, log, envRegistry, NewDefaultPoolFactory())
 }
 
 // NewManagerWithFactory creates a new SQL service manager with the specified pool factory
@@ -42,6 +45,7 @@ func NewManagerWithFactory(
 	dtt payload.Transcoder,
 	bus event.Bus,
 	log *zap.Logger,
+	envRegistry envapi.Registry,
 	factory PoolFactoryAPI,
 ) (*Manager, error) {
 	if dtt == nil {
@@ -55,11 +59,12 @@ func NewManagerWithFactory(
 	}
 
 	return &Manager{
-		log:      log,
-		dtt:      dtt,
-		bus:      bus,
-		factory:  factory,
-		services: make(map[registry.ID]*ConnPool),
+		log:         log,
+		dtt:         dtt,
+		bus:         bus,
+		factory:     factory,
+		services:    make(map[registry.ID]*ConnPool),
+		envRegistry: envRegistry,
 	}, nil
 }
 
@@ -111,29 +116,24 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 		return err
 	}
 
-	envCtx, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string])
-	if !ok {
-		return fmt.Errorf("cannot access env ctx")
-	}
-
 	if cfg.HostEnv != "" {
-		cfg.Host, _ = envCtx.Value(cfg.HostEnv)
+		cfg.Host, _ = m.envRegistry.GetFromStorage(ctx, cfg.HostEnv)
 	}
 	if cfg.PortEnv != "" {
-		val, _ := envCtx.Value(cfg.PortEnv)
+		val, _ := m.envRegistry.GetFromStorage(ctx, cfg.PortEnv)
 		cfg.Port, err = strconv.Atoi(val)
 		if err != nil {
 			return fmt.Errorf("invalid port value: %w", err)
 		}
 	}
 	if cfg.DatabaseEnv != "" {
-		cfg.Database, _ = envCtx.Value(cfg.DatabaseEnv)
+		cfg.Database, _ = m.envRegistry.GetFromStorage(ctx, cfg.DatabaseEnv)
 	}
 	if cfg.UsernameEnv != "" {
-		cfg.Username, _ = envCtx.Value(cfg.UsernameEnv)
+		cfg.Username, _ = m.envRegistry.GetFromStorage(ctx, cfg.UsernameEnv)
 	}
 	if cfg.PasswordEnv != "" {
-		cfg.Password, _ = envCtx.Value(cfg.PasswordEnv)
+		cfg.Password, _ = m.envRegistry.GetFromStorage(ctx, cfg.PasswordEnv)
 	}
 
 	pool, err := m.factory.CreateStandardPool(entry.Kind, cfg)
