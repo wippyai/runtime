@@ -116,7 +116,6 @@ func createServiceHandlers(a *App) eventbus.RouterOption {
 		withNativeExecutor(a),
 		withJetTemplates(a),
 		withContractSystem(a),
-		withNoopRuntime(a),
 	)...)
 }
 
