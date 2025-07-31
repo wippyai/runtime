@@ -709,15 +709,19 @@ func loadApplicationState(
 
 	registryLoader := newModuleloaderManager(baseURL, entries, mainLogger.Named("registry-loader"))
 
-	if err := registryLoader.Load(ctx); err != nil {
+	loadResult, err := registryLoader.Load(ctx)
+	if err != nil {
 		mainLogger.Error("load modules from registry", zap.Error(err))
 	} else {
-		vendorDir, err := os.OpenRoot(moduleloader.VendorFolder)
-		if err != nil {
-			return nil, nil, fmt.Errorf("open vendor folder: %w", err)
+		// Log the loaded modules for debugging
+		if loadResult != nil && len(loadResult.Modules) > 0 {
+			mainLogger.Debug("loaded modules from registry",
+				zap.Int("count", len(loadResult.Modules)),
+				zap.Any("modules", loadResult.Modules))
 		}
 
-		dependencyEntries, err := folderLoader.LoadFS(ctx, vendorDir.FS())
+		// Load entries only from the specific modules that were loaded
+		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult)
 		if err != nil {
 			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}
@@ -743,4 +747,37 @@ func loadApplicationState(
 	}
 
 	return boot, cleanup, nil
+}
+
+// loadEntriesFromLoadedModules loads entries only from the specific modules that were loaded by the registry loader
+func loadEntriesFromLoadedModules(
+	ctx context.Context,
+	folderLoader *loader.Loader,
+	loadResult *moduleloader.LoadResult,
+) ([]regapi.Entry, error) {
+	if loadResult == nil || len(loadResult.Modules) == 0 {
+		return nil, nil
+	}
+
+	var allEntries []regapi.Entry
+
+	for _, module := range loadResult.Modules {
+		// Open the specific module directory
+		moduleDir, err := os.OpenRoot(module.Path)
+		if err != nil {
+			return nil, fmt.Errorf("open module directory %s: %w", module.Path, err)
+		}
+
+		// Load entries from this specific module
+		moduleEntries, err := folderLoader.LoadFS(ctx, moduleDir.FS())
+		if err != nil {
+			return nil, fmt.Errorf("load entries from module %s: %w", module.Path, err)
+		}
+
+		// Note: moduleEntries contains the entries loaded from this specific module
+
+		allEntries = append(allEntries, moduleEntries...)
+	}
+
+	return allEntries, nil
 }

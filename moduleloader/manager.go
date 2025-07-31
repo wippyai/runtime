@@ -62,10 +62,10 @@ func NewManager(
 }
 
 // Load resolves and downloads dependencies based on the manifest
-func (m *Manager) Load(ctx context.Context) error {
+func (m *Manager) Load(ctx context.Context) (*LoadResult, error) {
 	manifest, err := m.loader.LoadManifest(ctx)
 	if err != nil {
-		return fmt.Errorf("load manifest: %w", err)
+		return nil, fmt.Errorf("load manifest: %w", err)
 	}
 
 	// Separate local and remote dependencies
@@ -81,16 +81,25 @@ func (m *Manager) Load(ctx context.Context) error {
 	}
 
 	// Process remote dependencies
-	if err := m.processRemoteDependencies(ctx, remoteDeps); err != nil {
-		return fmt.Errorf("process remote dependencies: %w", err)
+	remoteModules, err := m.processRemoteDependencies(ctx, remoteDeps)
+	if err != nil {
+		return nil, fmt.Errorf("process remote dependencies: %w", err)
 	}
 
 	// Process local modules
-	if err := m.processLocalModules(localModules); err != nil {
-		return fmt.Errorf("process local modules: %w", err)
+	localLoadedModules, err := m.processLocalModules(localModules)
+	if err != nil {
+		return nil, fmt.Errorf("process local modules: %w", err)
 	}
 
-	return nil
+	// Combine all loaded modules
+	allModules := make([]LoadedModule, 0, len(remoteModules)+len(localLoadedModules))
+	allModules = append(allModules, remoteModules...)
+	allModules = append(allModules, localLoadedModules...)
+
+	return &LoadResult{
+		Modules: allModules,
+	}, nil
 }
 
 type dependencyInformation struct {
@@ -101,49 +110,50 @@ type dependencyInformation struct {
 }
 
 // processRemoteDependencies handles fetching and storing remote dependencies
-func (m *Manager) processRemoteDependencies(ctx context.Context, manifestDependencies []ManifestDependency) error {
+func (m *Manager) processRemoteDependencies(ctx context.Context, manifestDependencies []ManifestDependency) ([]LoadedModule, error) {
 	if len(manifestDependencies) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	deps, err := m.fetchRemoteDependencyInformation(ctx, manifestDependencies)
 	if err != nil {
-		return fmt.Errorf("fetch remote dependencies: %w", err)
+		return nil, fmt.Errorf("fetch remote dependencies: %w", err)
 	}
 
 	for md, info := range deps {
 		li, err := findHighestMatchingVersion(md.Version, info.labels)
 		if err != nil {
-			return fmt.Errorf("find %s highest matching version: %w", md, err)
+			return nil, fmt.Errorf("find %s highest matching version: %w", md, err)
 		}
 		info.matchingLabelIndex = li
 	}
 
-	if err := m.downloadAndStoreModules(ctx, deps); err != nil {
-		return fmt.Errorf("download and store modules: %w", err)
+	loadedModules, err := m.downloadAndStoreModules(ctx, deps)
+	if err != nil {
+		return nil, fmt.Errorf("download and store modules: %w", err)
 	}
 
-	return nil
+	return loadedModules, nil
 }
 
 // downloadAndStoreModules downloads and stores modules by their commit IDs
-func (m *Manager) downloadAndStoreModules(ctx context.Context, deps map[ManifestDependency]*dependencyInformation) error {
+func (m *Manager) downloadAndStoreModules(ctx context.Context, deps map[ManifestDependency]*dependencyInformation) ([]LoadedModule, error) {
 	// Ensure .wippy directory exists
 	if err := os.MkdirAll(m.vendorFolder, os.ModePerm); err != nil {
-		return fmt.Errorf("create vendor folder: %w", err)
+		return nil, fmt.Errorf("create vendor folder: %w", err)
 	}
 
 	requiredCommits := make([]string, 0, len(deps))
 	for md, info := range deps {
 		if len(info.labels) == 0 {
-			return fmt.Errorf("no labels found for %s", md)
+			return nil, fmt.Errorf("no labels found for %s", md)
 		}
 		requiredCommits = append(requiredCommits, info.labels[info.matchingLabelIndex].GetCommitId())
 	}
 	// todo: add pagination or streaming to avoid downloading all at once
 	resp, err := m.downloadClient.Download(ctx, connect.NewRequest(&modulev1.DownloadRequest{CommitIds: requiredCommits}))
 	if err != nil {
-		return fmt.Errorf("download required commits: %w", err)
+		return nil, fmt.Errorf("download required commits: %w", err)
 	}
 	downloadedContents := resp.Msg.GetContents()
 
@@ -156,11 +166,12 @@ func (m *Manager) downloadAndStoreModules(ctx context.Context, deps map[Manifest
 		}
 		i := slices.IndexFunc(downloadedContents, matchesCommit)
 		if i == -1 {
-			return fmt.Errorf("downloaded content for %s missing label commit %s", md, labelCommit)
+			return nil, fmt.Errorf("downloaded content for %s missing label commit %s", md, labelCommit)
 		}
 		downloadedDependencies[md] = downloadedContents[i]
 	}
 
+	loadedModules := make([]LoadedModule, 0, len(downloadedDependencies))
 	for md, content := range downloadedDependencies {
 		orgName := md.Name.Organization
 		moduleName := md.Name.Module
@@ -169,10 +180,23 @@ func (m *Manager) downloadAndStoreModules(ctx context.Context, deps map[Manifest
 		// Store module files
 		err := m.storeModuleFiles(moduleDir, content.GetFiles())
 		if err != nil {
-			return fmt.Errorf("store module files for %s: %w", md, err)
+			return nil, fmt.Errorf("store module files for %s: %w", md, err)
 		}
+
+		// Get the dependency info to access the label information
+		info := deps[md]
+
+		// Create LoadedModule entry
+		loadedModule := LoadedModule{
+			Name:         md.Name,
+			Version:      info.labels[info.matchingLabelIndex].GetName(),
+			Path:         moduleDir,
+			Organization: orgName,
+			Module:       moduleName,
+		}
+		loadedModules = append(loadedModules, loadedModule)
 	}
-	return nil
+	return loadedModules, nil
 }
 
 func (m *Manager) fetchRemoteDependencyInformation(ctx context.Context, manifestDependencies []ManifestDependency) (
@@ -313,18 +337,32 @@ func (m *Manager) storeModuleFiles(moduleDir string, files []*modulev1.File) err
 }
 
 // processLocalModules processes local modules
-func (m *Manager) processLocalModules(localModules map[Name]string) error {
+func (m *Manager) processLocalModules(localModules map[Name]string) ([]LoadedModule, error) {
+	loadedModules := make([]LoadedModule, 0, len(localModules))
+
 	for name, path := range localModules {
 		localOS, err := os.OpenRoot(path)
 		if err != nil {
-			return fmt.Errorf("open local module: %w", err)
+			return nil, fmt.Errorf("open local module: %w", err)
 		}
-		if err := os.CopyFS(filepath.Join(m.vendorFolder, name.Organization, name.Module+"@local"), localOS.FS()); err != nil {
-			return fmt.Errorf("copy %s: %w", name, err)
+
+		modulePath := filepath.Join(m.vendorFolder, name.Organization, name.Module+"@local")
+		if err := os.CopyFS(modulePath, localOS.FS()); err != nil {
+			return nil, fmt.Errorf("copy %s: %w", name, err)
 		}
+
+		// Create LoadedModule entry for local module
+		loadedModule := LoadedModule{
+			Name:         name,
+			Version:      "local",
+			Path:         modulePath,
+			Organization: name.Organization,
+			Module:       name.Module,
+		}
+		loadedModules = append(loadedModules, loadedModule)
 	}
 
-	return nil
+	return loadedModules, nil
 }
 
 func findHighestMatchingVersion(version string, availableLabels []*modulev1.Label) (int, error) {
