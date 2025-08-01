@@ -1,0 +1,14 @@
+directory: .wippy
+modules:
+- name: igor-test-3/test-2
+  version: v1.0.10
+- name: wippy/llm
+  version: v0.0.11
+- name: wippy/migration
+  version: v0.0.10
+- name: wippy/security
+  version: v0.0.7
+- name: wippy/terminal
+  version: v0.0.7
+- name: wippy/test
+  version: v0.0.8

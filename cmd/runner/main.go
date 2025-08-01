@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -46,6 +47,11 @@ type Config struct {
 	ClusterSecret     string // Secret as string
 	ClusterSecretFile string // Secret from file
 	ClusterAdvertise  string // Advertise IP
+
+	// Dependency management
+	InstallDeps bool
+	UpdateDeps  bool
+	LockFile    string
 }
 
 // loadDotEnv loads environment variables from .env files
@@ -94,6 +100,11 @@ func parseFlags() *Config {
 	flag.StringVar(&config.ClusterSecret, "cluster-secret", "", "cluster secret key (base64 encoded string)")
 	flag.StringVar(&config.ClusterSecretFile, "cluster-secret-file", "", "path to file containing cluster secret key")
 	flag.StringVar(&config.ClusterAdvertise, "cluster-advertise", "", "cluster advertise IP address")
+
+	// Dependency management flags
+	flag.BoolVar(&config.InstallDeps, "install", false, "install dependencies from lock file")
+	flag.BoolVar(&config.UpdateDeps, "update", false, "update dependencies and regenerate lock file")
+	flag.StringVar(&config.LockFile, "lock-file", "", "path to lock file (default: wippy.lock)")
 
 	flag.Parse()
 
@@ -155,6 +166,16 @@ func main() {
 	// Start profiler if enabled
 	if config.EnableProfiling {
 		app.StartProfiler()
+	}
+
+	// Check if we need to run dependency commands
+	if config.InstallDeps || config.UpdateDeps {
+		depsManager := NewDependencyManager(config, app.logger)
+		if err := depsManager.RunDependencyCommand(context.Background()); err != nil {
+			app.logger.Fatal("failed to run dependency command", zap.Error(err))
+		}
+		// Exit after dependency command
+		os.Exit(0)
 	}
 
 	// Start application

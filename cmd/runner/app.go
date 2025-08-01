@@ -709,16 +709,32 @@ func loadApplicationState(
 
 	registryLoader := newModuleloaderManager(baseURL, entries, mainLogger.Named("registry-loader"))
 
-	loadResult, err := registryLoader.Load(ctx)
-	if err != nil {
-		mainLogger.Error("load modules from registry", zap.Error(err))
-	} else {
-		// Log the loaded modules for debugging
-		if loadResult != nil && len(loadResult.Modules) > 0 {
-			mainLogger.Debug("loaded modules from registry",
-				zap.Int("count", len(loadResult.Modules)),
-				zap.Any("modules", loadResult.Modules))
+	var loadResult *moduleloader.LoadResult
+
+	// Check for lock file first - we need to get the folder path from fs
+	// For now, we'll try to find lock file in current directory
+	lockPath, err := moduleloader.FindLockFile(".")
+	if err == nil {
+		// Lock file exists, use it
+		lockFile, err := moduleloader.LoadLockFile(lockPath)
+		if err != nil {
+			mainLogger.Error("load lock file", zap.Error(err))
+		} else {
+			loadResult = moduleloader.ConvertFromLockFile(lockFile)
+			mainLogger.Info("Using dependencies from lock file", zap.String("lock_file", lockPath))
 		}
+	} else {
+		// No lock file, load from registry
+		loadResult, err = registryLoader.Load(ctx)
+		if err != nil {
+			mainLogger.Error("load modules from registry", zap.Error(err))
+		}
+	}
+
+	if loadResult != nil && len(loadResult.Modules) > 0 {
+		mainLogger.Debug("loaded modules",
+			zap.Int("count", len(loadResult.Modules)),
+			zap.Any("modules", loadResult.Modules))
 
 		// Load entries only from the specific modules that were loaded
 		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult)
