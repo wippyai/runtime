@@ -68,3 +68,58 @@ entries:
     storage: system:envfile
     default:
     readonly: true
+
+  - name: path_env
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envos
+    variable: PATH
+    storage: system:envos
+    default:
+    readonly: true
+
+  - name: home_env
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envos
+    variable: HOME
+    storage: system:envos
+    default:
+    readonly: true
+
+  - name: user_env
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envos
+    variable: USER
+    storage: system:envos
+    default:
+    readonly: true
+
+  - name: pwd_env
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envos
+    variable: PWD
+    storage: system:envos
+    default:
+    readonly: true
+
+  - name: shell_env
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:envos
+    variable: SHELL
+    storage: system:envos
+    default:
+    readonly: true
