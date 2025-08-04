@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -19,6 +20,7 @@ type LockFile struct {
 type LockedModule struct {
 	Name    string `yaml:"name"`
 	Version string `yaml:"version"`
+	Hash    string `yaml:"hash,omitempty"`
 }
 
 // LoadLockFile loads the lock file from the given path
@@ -55,31 +57,33 @@ func (lf *LockFile) SaveLockFile(path string) error {
 	return nil
 }
 
-// FindLockFile searches for wippy.lock file in the given directory and its parents
-func FindLockFile(dir string) (string, error) {
-	current := dir
-	for {
-		lockPath := filepath.Join(current, "wippy.lock")
-		if _, err := os.Stat(lockPath); err == nil {
-			return lockPath, nil
-		}
-
-		parent := filepath.Dir(current)
-		if parent == current {
-			// Reached root directory
-			return "", fmt.Errorf("wippy.lock not found in %s or any parent directory", dir)
-		}
-		current = parent
+// FindLockFile searches for wippy.lock file in the project directory
+func FindLockFile(dir string, file string) (string, error) {
+	lockPath := filepath.Join(dir, file)
+	if _, err := os.Stat(lockPath); err == nil {
+		return lockPath, nil
 	}
+
+	return "", fmt.Errorf("%s not found in project directory: %s", file, dir)
 }
 
 // ConvertToLockFile converts LoadResult to LockFile
 func ConvertToLockFile(loadResult *LoadResult) *LockFile {
 	modules := make([]LockedModule, 0, len(loadResult.Modules))
 	for _, module := range loadResult.Modules {
+		// Extract hash from the path if it contains "@"
+		var hash string
+		if strings.Contains(module.Path, "@") {
+			parts := strings.Split(filepath.Base(module.Path), "@")
+			if len(parts) == 2 {
+				hash = parts[1]
+			}
+		}
+
 		modules = append(modules, LockedModule{
 			Name:    module.Name.String(),
 			Version: module.Version,
+			Hash:    hash,
 		})
 	}
 
@@ -111,10 +115,17 @@ func ConvertFromLockFile(lockFile *LockFile) *LoadResult {
 			// Skip invalid names
 			continue
 		}
+
+		// Use the full organization structure for the path
+		modulePath := filepath.Join(name.Organization, name.Module)
+		if module.Hash != "" {
+			modulePath = filepath.Join(name.Organization, name.Module+"@"+module.Hash)
+		}
+
 		modules = append(modules, LoadedModule{
 			Name:    name,
 			Version: module.Version,
-			Path:    filepath.Join(lockFile.Directory, module.Name),
+			Path:    filepath.Join(lockFile.Directory, modulePath),
 		})
 	}
 

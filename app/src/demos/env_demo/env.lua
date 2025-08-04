@@ -139,6 +139,64 @@ local function handler()
                 result = (not env.set('FILE_TEST_ENV_READONLY', 'new_value') and env.get('FILE_TEST_ENV_READONLY') == "file_value_readonly") and "success" or "failed",
                 stored_value = env.get('FILE_TEST_ENV_READONLY')
             },
+        },
+        os_variables = {
+            {
+                operation = "Get PATH Environment Variable",
+                variable = "path_env",
+                expected_value = "exists",
+                result = (env.get('path_env') ~= nil and env.get('path_env') ~= "") and "success" or "failed",
+                stored_value = env.get('path_env')
+            },
+            {
+                operation = "Get PATH by Full Name",
+                variable = "app.env.demo:path_env",
+                expected_value = "exists",
+                result = (env.get('app.env.demo:path_env') ~= nil and env.get('app.env.demo:path_env') ~= "") and "success" or "failed",
+                stored_value = env.get('app.env.demo:path_env')
+            },
+            {
+                operation = "Get HOME Environment Variable",
+                variable = "home_env",
+                expected_value = "exists",
+                result = (env.get('home_env') ~= nil and env.get('home_env') ~= "") and "success" or "failed",
+                stored_value = env.get('home_env')
+            },
+            {
+                operation = "Get USER Environment Variable",
+                variable = "user_env",
+                expected_value = "exists",
+                result = (env.get('user_env') ~= nil and env.get('user_env') ~= "") and "success" or "failed",
+                stored_value = env.get('user_env')
+            },
+            {
+                operation = "Get PWD Environment Variable",
+                variable = "pwd_env",
+                expected_value = "exists",
+                result = (env.get('pwd_env') ~= nil and env.get('pwd_env') ~= "") and "success" or "failed",
+                stored_value = env.get('pwd_env')
+            },
+            {
+                operation = "Get SHELL Environment Variable",
+                variable = "shell_env",
+                expected_value = "exists",
+                result = (env.get('shell_env') ~= nil and env.get('shell_env') ~= "") and "success" or "failed",
+                stored_value = env.get('shell_env')
+            },
+            {
+                operation = "Set PATH Variable (Should Fail)",
+                variable = "path_env",
+                expected_value = "readonly",
+                result = (not env.set('path_env', 'new_path')) and "success" or "failed",
+                stored_value = env.get('path_env')
+            },
+            {
+                operation = "Get Non-existent OS Variable",
+                variable = "NON_EXISTENT_VAR",
+                expected_value = "nil",
+                result = (env.get('NON_EXISTENT_VAR') == nil) and "success" or "failed",
+                stored_value = env.get('NON_EXISTENT_VAR')
+            },
         }
     }
 
@@ -178,6 +236,13 @@ local function handler()
     -- Add file variables section
     ascii_response = ascii_response .. create_header("FILE VARIABLES")
     for _, test in ipairs(test_results.file_variables) do
+        ascii_response = ascii_response .. create_row(test.operation, test.variable, test.expected_value, test.stored_value, test.result)
+    end
+    ascii_response = ascii_response .. create_separator()
+
+    -- Add OS variables section
+    ascii_response = ascii_response .. create_header("OS VARIABLES (env.storage.os)")
+    for _, test in ipairs(test_results.os_variables) do
         ascii_response = ascii_response .. create_row(test.operation, test.variable, test.expected_value, test.stored_value, test.result)
     end
     ascii_response = ascii_response .. create_separator()

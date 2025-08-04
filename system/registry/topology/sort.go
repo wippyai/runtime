@@ -42,40 +42,7 @@ func resolveDependencyID(sourceNS string, depStr string) registry.ID {
 	}
 }
 
-// getEntryPriority returns a priority value for sorting entries.
-// Lower values have higher priority (processed first).
-func getEntryPriority(entry registry.Entry) int {
-	kind := entry.Kind
-
-	// Highest priority: env storage and variables
-	if strings.HasPrefix(kind, "env.storage.") {
-		return 0
-	}
-	if kind == "env.variable" {
-		return 1
-	}
-
-	//// Medium priority: config and core services
-	// if strings.HasPrefix(kind, "config.") {
-	//	return 10
-	//}
-	// if strings.HasPrefix(kind, "db.") {
-	//	return 15
-	//}
-	//
-	//// Lower priority: other services
-	// if strings.HasPrefix(kind, "http.") {
-	//	return 20
-	//}
-	// if strings.HasPrefix(kind, "cloudstorage.") {
-	//	return 25
-	//}
-	//
-	// Default priority for everything else
-	return 50
-}
-
-// SortEntriesByDependency sorts entries based on dependencies and priorities.
+// SortEntriesByDependency sorts entries based on dependencies.
 // Dependencies can be specified in depends_on using:
 // - Direct references: "service.database" (uses source namespace) or "other-ns:service.database"
 // - Group references: "group:backend-services"
@@ -151,33 +118,21 @@ func SortEntriesByDependency(entries []registry.Entry) ([]registry.Entry, error)
 	// Compute dependency levels
 	levels, err := g.DependencyLevels()
 	if err != nil {
-		// On cycle detection, fall back to priority-based sort
+		// On cycle detection, fall back to lexicographical sort
 		sorted := make([]registry.Entry, 0, len(entries))
 		sorted = append(sorted, entries...)
 		sort.Slice(sorted, func(i, j int) bool {
-			priI := getEntryPriority(sorted[i])
-			priJ := getEntryPriority(sorted[j])
-			if priI != priJ {
-				return priI < priJ // Lower priority value = higher priority
-			}
 			return sorted[i].ID.String() < sorted[j].ID.String()
 		})
 		return sorted, err
 	}
 
-	// Build sorted list based on dependency levels and priorities
+	// Build sorted list based on dependency levels
 	result := make([]registry.Entry, 0, len(entries))
 	allLevels := levels.AllLevels()
 	for _, levelNodes := range allLevels {
-		// Sort nodes within the level by priority first, then lexicographically
+		// Sort nodes within the level lexicographically
 		sort.Slice(levelNodes, func(i, j int) bool {
-			entryI := entryMap[levelNodes[i]]
-			entryJ := entryMap[levelNodes[j]]
-			priI := getEntryPriority(entryI)
-			priJ := getEntryPriority(entryJ)
-			if priI != priJ {
-				return priI < priJ // Lower priority value = higher priority
-			}
 			return levelNodes[i].String() < levelNodes[j].String()
 		})
 		for _, node := range levelNodes {

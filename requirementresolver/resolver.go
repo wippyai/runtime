@@ -43,13 +43,13 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 	}
 
 	// Log available requirements and definitions for debugging
-	r.logger.Info("requirement resolver debug info",
+	r.logger.Debug("requirement resolver debug info",
 		zap.Any("available_requirements", getEntryNames(nsRequirements)),
 		zap.Any("available_definitions", getEntryNames(nsDefinitions)),
 		zap.Any("available_dependencies", getEntryNames(nsDependencies)))
 
 	for _, nsDefinition := range nsDefinitions {
-		r.logger.Info("processing definition",
+		r.logger.Debug("processing definition",
 			zap.String("definition_name", nsDefinition.ID.Name),
 			zap.String("definition_namespace", nsDefinition.ID.NS))
 
@@ -61,7 +61,7 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 			continue
 		}
 
-		r.logger.Info("found dependency for definition",
+		r.logger.Debug("found dependency for definition",
 			zap.String("definition", nsDefinition.ID.Name),
 			zap.String("dependency", nsDependency.ID.Name),
 			zap.String("path", path))
@@ -75,7 +75,7 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 			continue
 		}
 
-		r.logger.Info("extracted value from dependency",
+		r.logger.Debug("extracted value from dependency",
 			zap.String("definition", nsDefinition.ID.Name),
 			zap.String("value", value))
 
@@ -88,7 +88,7 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 			continue
 		}
 
-		r.logger.Info("found requirement for definition",
+		r.logger.Debug("found requirement for definition",
 			zap.String("definition", nsDefinition.ID.Name),
 			zap.String("requirement", nsRequirement.ID.Name),
 			zap.String("requirement_namespace", nsRequirement.ID.NS))
@@ -101,14 +101,14 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 			continue
 		}
 
-		r.logger.Info("found requirement targets",
+		r.logger.Debug("found requirement targets",
 			zap.String("requirement", nsRequirement.ID.Name),
 			zap.Any("targets", requirementTargets))
 
 		for _, requirementTarget := range requirementTargets {
 			targetEntries := findRequirementTargetEntries(requirementTarget, nsRequirement.ID.NS, entries)
 
-			r.logger.Info("found target entries for requirement",
+			r.logger.Debug("found target entries for requirement",
 				zap.String("requirement", nsRequirement.ID.Name),
 				zap.String("target_entry", requirementTarget.Entry),
 				zap.String("target_path", requirementTarget.Path),
@@ -118,7 +118,7 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 			// Apply the value to target entries
 			err = ApplyPathValueToEntriesWithGojq(requirementTarget.Path, value, targetEntries)
 			if err != nil {
-				r.logger.Info("failed to apply value to target entries",
+				r.logger.Debug("failed to apply value to target entries",
 					zap.String("requirement", nsRequirement.ID.Name),
 					zap.String("path", requirementTarget.Path),
 					zap.String("value", value),
@@ -552,7 +552,7 @@ func (r *Resolver) verifyInjection(entries []registry.Entry, path string, expect
 			// For kind and meta paths, verify against the entire entry object
 			entryMap, err := entryToRawJSONMap(&entry)
 			if err != nil {
-				r.logger.Info("failed to convert entry for verification",
+				r.logger.Debug("failed to convert entry for verification",
 					zap.String("entry_id", entry.ID.String()),
 					zap.Error(err))
 				continue
@@ -564,20 +564,20 @@ func (r *Resolver) verifyInjection(entries []registry.Entry, path string, expect
 			// For data paths, verify against the Data field only
 			data := entry.Data.Data()
 			if data == nil {
-				r.logger.Info("entry data is nil for verification",
+				r.logger.Debug("entry data is nil for verification",
 					zap.String("entry_id", entry.ID.String()),
 					zap.String("path", path))
 				continue
 			}
 
-			r.logger.Info("modified entry", zap.Any("data", data))
+			r.logger.Debug("modified entry", zap.Any("data", data))
 
 			// Extract the actual value from the data
 			actualValue, err = getValueFromEntryWithGojq(data, path)
 		}
 
 		if err != nil {
-			r.logger.Info("failed to extract value for verification",
+			r.logger.Debug("failed to extract value for verification",
 				zap.String("entry_id", entry.ID.String()),
 				zap.String("path", path),
 				zap.Error(err))
@@ -585,13 +585,13 @@ func (r *Resolver) verifyInjection(entries []registry.Entry, path string, expect
 		}
 
 		if !strings.Contains(actualValue, expectedValue) {
-			r.logger.Info("injection verification failed",
+			r.logger.Debug("injection verification failed",
 				zap.String("entry_id", entry.ID.String()),
 				zap.String("path", path),
 				zap.String("expected_value", expectedValue),
 				zap.String("actual_value", actualValue))
 		} else {
-			r.logger.Info("injection verification successful",
+			r.logger.Debug("injection verification successful",
 				zap.String("entry_id", entry.ID.String()),
 				zap.String("path", path),
 				zap.String("value", actualValue))

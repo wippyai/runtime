@@ -39,13 +39,9 @@ func NewDependencyManager(config *Config, logger *zap.Logger) *DependencyManager
 // InstallDependencies installs dependencies from lock file
 func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
 	// Determine lock file path
-	lockPath := dm.config.LockFile
-	if lockPath == "" {
-		var err error
-		lockPath, err = moduleloader.FindLockFile(dm.config.FolderPath)
-		if err != nil {
-			return fmt.Errorf("find lock file: %w", err)
-		}
+	lockPath, err := moduleloader.FindLockFile(dm.config.FolderPath, dm.config.LockFile)
+	if err != nil {
+		return fmt.Errorf("find lock file: %w", err)
 	}
 
 	// Load lock file
@@ -125,10 +121,7 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 			zap.String("version", module.Version))
 	}
 
-	lockPath := dm.config.LockFile
-	if lockPath == "" {
-		lockPath = filepath.Join(dm.config.FolderPath, "wippy.lock")
-	}
+	lockPath := filepath.Join(dm.config.FolderPath, dm.config.LockFile)
 
 	if err := lockFile.SaveLockFile(lockPath); err != nil {
 		return fmt.Errorf("save lock file: %w", err)
