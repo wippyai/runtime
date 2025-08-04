@@ -306,8 +306,10 @@ func TestManager_Load(t *testing.T) {
 			)
 
 			// Call the Load method
-			err = manager.Load(context.Background())
+			loadResult, err := manager.Load(context.Background())
 			require.NoError(t, err)
+			require.NotNil(t, loadResult)
+			require.Len(t, loadResult.Modules, 1)
 
 			// Verify the vendor folder was created
 			_, err = os.Stat(vendorFolderPath)
