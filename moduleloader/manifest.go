@@ -53,3 +53,17 @@ type ManifestDependency struct {
 	Version string `yaml:"version"`
 	Path    string `yaml:"path"`
 }
+
+// LoadedModule represents a module that has been loaded with its selected version and path.
+type LoadedModule struct {
+	Name         Name   `json:"name"`
+	Version      string `json:"version"`
+	Path         string `json:"path"`
+	Organization string `json:"organization"`
+	Module       string `json:"module"`
+}
+
+// LoadResult represents the result of loading modules from the registry.
+type LoadResult struct {
+	Modules []LoadedModule `json:"modules"`
+}
