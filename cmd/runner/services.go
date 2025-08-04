@@ -219,6 +219,7 @@ func withEphemeralHost(a *App) eventbus.EventHandler {
 	))
 }
 
+//nolint:unused // it breaks runtime. use only for dev purpose
 func withNoopRuntime(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("(function|workflow|process|library).*", noop.NewNoopRuntime(
 		a.eventBus,
