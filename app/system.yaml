@@ -120,6 +120,19 @@ entries:
       type: envstorage
       comment: Memory storage for environment variables
 
+  - name: envos
+    kind: env.storage.os
+    meta:
+      type: envstorage
+      comment: OS storage for environment variables (read-only)
+
+  - name: envfile
+    kind: env.storage.file
+    meta:
+      type: envstorage
+      comment: File storage for environment variables
+    file_path: "./app/env/.env.sample"
+
   - name: file_test_env2
     kind: env.variable
     meta:
@@ -144,13 +157,6 @@ entries:
     region: us-east-1
     access_key_id_env: ACCESS_KEY_ID_CUSTOM
 
-  - name: envfile
-    kind: env.storage.file
-    meta:
-      type: envstorage
-      comment: File storage for environment variables
-    file_path: "./app/env/.env.sample"
-
   - name: test_s3
     kind: cloudstorage.s3
     meta:
@@ -159,7 +165,6 @@ entries:
         - aws_config
     bucket: mybucket
     config: system:aws_config
-
 #  - name: db_postgres
 #    kind: db.sql.postgres
 #    meta:
