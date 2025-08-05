@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ponyruntime/pony/api/payload"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/moduleloader"
 	transcoder "github.com/ponyruntime/pony/system/payload"
@@ -156,44 +155,7 @@ func (dm *DependencyManager) loadRegistryEntries(ctx context.Context) ([]regapi.
 		zap.String("directory", dm.config.FolderPath),
 		zap.Int("count", len(entries)))
 
-	// If no entries were loaded, create mock entries for testing
-	if len(entries) == 0 {
-		dm.logger.Info("No entries loaded, creating mock entries for testing")
-		entries = dm.createMockEntries()
-	}
-
 	return entries, nil
-}
-
-// createMockEntries creates mock dependency entries for testing
-func (dm *DependencyManager) createMockEntries() []regapi.Entry {
-	// Create mock dependency entries
-	dependencies := []struct {
-		name    string
-		version string
-	}{
-		{"wippy/llm", "0.0.10"},
-		{"wippy/test", "0.0.10"},
-		{"wippy/agent", "0.0.10"},
-		{"wippy/actor", "0.0.10"},
-	}
-
-	entries := make([]regapi.Entry, 0, len(dependencies))
-
-	for i, dep := range dependencies {
-		entry := regapi.Entry{
-			Kind: regapi.KindNamespaceDependency,
-			ID:   regapi.ID{Name: fmt.Sprintf("dependency_%d", i)},
-			Data: payload.NewPayload(map[string]any{
-				"component": dep.name,
-				"version":   dep.version,
-			}, payload.Golang),
-		}
-		entries = append(entries, entry)
-	}
-
-	dm.logger.Info("Created mock entries", zap.Int("count", len(entries)))
-	return entries
 }
 
 // createModuleLoaderManagerWithEntries creates a module loader manager with provided entries
