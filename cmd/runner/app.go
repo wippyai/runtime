@@ -684,27 +684,24 @@ func loadApplicationState(
 
 	var loadResult *moduleloader.LoadResult
 
-	// Check for lock file - use config.LockFile (which now defaults to "wippy.lock")
-	var lockPath string
-
-	foundLockPath, findErr := moduleloader.FindLockFile(config.FolderPath, config.LockFile)
+	// Check for a lock file
+	lockPath, findErr := moduleloader.FindLockFile(config.FolderPath, config.LockFile)
 	if findErr != nil {
-		mainLogger.Debug("No lock file found", zap.Error(findErr))
-	} else {
-		lockPath = foundLockPath
-		mainLogger.Info("Using lock file", zap.String("lock_file", lockPath))
+		return nil, nil, findErr
 	}
 
 	if lockPath != "" {
+		mainLogger.Info("loading modules using lock file", zap.String("lock_file", lockPath))
 		// Lock file exists, use it
 		lockFile, loadErr := moduleloader.LoadLockFile(lockPath)
 		if loadErr != nil {
 			mainLogger.Error("load lock file", zap.Error(loadErr))
 		} else {
 			loadResult = moduleloader.ConvertFromLockFile(lockFile)
-			mainLogger.Info("Using dependencies from lock file", zap.String("lock_file", lockPath))
 		}
 	} else {
+		mainLogger.Info("loading modules from registry")
+
 		// No lock file, load from registry
 		loadResult, err = registryLoader.Load(ctx)
 		if err != nil {

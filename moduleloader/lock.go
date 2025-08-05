@@ -10,6 +10,8 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+const DefaultLockFile = "wippy.lock"
+
 // LockFile represents the structure of wippy.lock file
 type LockFile struct {
 	Directory string         `yaml:"directory"`
@@ -57,11 +59,16 @@ func (lf *LockFile) SaveLockFile(path string) error {
 	return nil
 }
 
-// FindLockFile searches for wippy.lock file in the project directory
+// FindLockFile searches for lock file in the project directory
 func FindLockFile(dir string, file string) (string, error) {
 	lockPath := filepath.Join(dir, file)
 	if _, err := os.Stat(lockPath); err == nil {
 		return lockPath, nil
+	}
+
+	// when default file not found - start wippy without lock file
+	if file == DefaultLockFile {
+		return "", nil
 	}
 
 	return "", fmt.Errorf("%s not found in project directory: %s", file, dir)

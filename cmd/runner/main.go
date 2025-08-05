@@ -14,6 +14,7 @@ import (
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/joho/godotenv"
 	"github.com/pkg/errors"
+	"github.com/ponyruntime/pony/moduleloader"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -131,7 +132,7 @@ func parseFlags() *Config {
 	// Dependency management flags
 	flag.BoolVar(&config.InstallDeps, "install", false, "install dependencies from lock file")
 	flag.BoolVar(&config.UpdateDeps, "update", false, "update dependencies and regenerate lock file")
-	flag.StringVar(&config.LockFile, "lock-file", "wippy.lock", "path to lock file (default: wippy.lock)")
+	flag.StringVar(&config.LockFile, "lock-file", moduleloader.DefaultLockFile, "path to lock file")
 
 	flag.Parse()
 
