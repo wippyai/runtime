@@ -83,7 +83,5 @@ func (f *DefaultEnvStorageFactory) CreateRouterEnvStorage(_ registry.Kind, cfg *
 		selectedStorages = append(selectedStorages, storage)
 	}
 
-	// Create an empty router storage for now
-	// In the real implementation, we would resolve the storage references here
 	return NewRouterStorage(selectedStorages, log)
 }

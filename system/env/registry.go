@@ -78,12 +78,6 @@ func (s *Registry) handleEvent(e event.Event) {
 }
 
 func (s *Registry) registerStorage(e event.Event) {
-	s.log.Info("registering storage",
-		zap.String("path", e.Path),
-		zap.String("kind", e.Kind),
-		zap.String("data_type", fmt.Sprintf("%T", e.Data)),
-		zap.Any("data", e.Data))
-
 	storage, ok := e.Data.(env.Storage)
 	if !ok {
 		s.log.Error("invalid storage payload",
@@ -94,14 +88,8 @@ func (s *Registry) registerStorage(e event.Event) {
 		return
 	}
 
-	s.log.Info("storage type assertion successful",
-		zap.String("path", e.Path),
-		zap.String("storage_type", fmt.Sprintf("%T", storage)))
-
 	storageID := registry.ParseID(e.Path)
 	s.storages.Store(storageID, storage)
-	s.log.Info("storage registered successfully",
-		zap.String("path", e.Path))
 	s.sendAccept(e.Path)
 }
 
@@ -118,12 +106,6 @@ func (s *Registry) registerVariable(e event.Event) {
 		s.sendReject(e.Path, "invalid variable data type")
 		return
 	}
-
-	s.log.Debug("variable decoded successfully",
-		zap.String("path", e.Path),
-		zap.String("name", variable.Name),
-		zap.String("env_name", variable.EnvName),
-		zap.String("storage_id", variable.StorageID))
 
 	variableID := registry.ParseID(e.Path)
 	storageID := registry.ParseID(variable.StorageID)
@@ -197,10 +179,6 @@ func (s *Registry) registerVariable(e event.Event) {
 			return
 		}
 	}
-
-	s.log.Info("variable value retrieved successfully",
-		zap.String("variable_name", variableName),
-		zap.String("value", variableValue))
 
 	value := EnvValue{
 		ID:           variableID,

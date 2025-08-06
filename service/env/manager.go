@@ -43,10 +43,6 @@ func NewManager(bus event.Bus, dtt payload.Transcoder, logger *zap.Logger) *Mana
 
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	m.logger.Info("env manager received entry",
-		zap.String("id", entry.ID.String()),
-		zap.String("kind", entry.Kind))
-
 	switch entry.Kind {
 	case env.KindStorageMemory:
 		return m.handleMemoryStorageAdd(ctx, entry)
@@ -55,8 +51,6 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	case env.KindStorageOS:
 		return m.handleOSStorageAdd(ctx, entry)
 	case env.KindStorageRouter:
-		m.logger.Info("handling router storage add",
-			zap.String("id", entry.ID.String()))
 		return m.handleRouterStorageAdd(ctx, entry)
 	case env.KindVariable:
 		return m.handleVariableAdd(ctx, entry)
@@ -114,18 +108,11 @@ func (m *Manager) handleOSStorageAdd(ctx context.Context, entry registry.Entry) 
 }
 
 func (m *Manager) handleRouterStorageAdd(ctx context.Context, entry registry.Entry) error {
-	m.logger.Info("starting router storage add",
-		zap.String("id", entry.ID.String()))
-
 	cfg, err := internalconfig.DecodeAndInitConfig[serviceenv.CreateRouterEnvStorageConfig](m.dtt, entry)
 	if err != nil {
 		m.logger.Error("failed to decode router config", zap.Error(err))
 		return err
 	}
-
-	m.logger.Info("router config decoded",
-		zap.String("id", entry.ID.String()),
-		zap.Strings("storages", cfg.Storages))
 
 	// Create router storage
 	routerStorage, err := m.factory.CreateRouterEnvStorage(entry.Kind, cfg, m.storages, m.logger)
@@ -138,17 +125,17 @@ func (m *Manager) handleRouterStorageAdd(ctx context.Context, entry registry.Ent
 	var storages []env.Storage
 	for _, storageName := range cfg.Storages {
 		storageID := registry.ParseID(storageName)
-		m.logger.Info("resolving storage reference",
+		m.logger.Debug("resolving storage reference",
 			zap.String("storage_name", storageName),
 			zap.String("storage_id", storageID.String()))
 
 		if storage, exists := m.storages[storageID]; exists {
-			m.logger.Info("storage found",
+			m.logger.Debug("storage found",
 				zap.String("storage_name", storageName),
 				zap.String("storage_id", storageID.String()))
 			storages = append(storages, storage)
 		} else {
-			m.logger.Warn("referenced storage not found",
+			m.logger.Debug("referenced storage not found",
 				zap.String("storage_name", storageName),
 				zap.String("storage_id", storageID.String()),
 				zap.String("router_id", entry.ID.String()))
@@ -157,10 +144,6 @@ func (m *Manager) handleRouterStorageAdd(ctx context.Context, entry registry.Ent
 
 	// Create a new router storage with the resolved storages
 	if len(storages) > 0 {
-		m.logger.Info("creating router storage with resolved storages",
-			zap.String("id", entry.ID.String()),
-			zap.Int("num_storages", len(storages)))
-
 		routerStorage, err = NewRouterStorage(storages, m.logger)
 		if err != nil {
 			m.logger.Error("failed to create router storage with resolved storages", zap.Error(err))
@@ -172,10 +155,6 @@ func (m *Manager) handleRouterStorageAdd(ctx context.Context, entry registry.Ent
 	}
 
 	m.storages[entry.ID] = routerStorage
-
-	m.logger.Info("router storage created successfully",
-		zap.String("id", entry.ID.String()),
-		zap.Int("num_storages", len(storages)))
 
 	return m.registerService(ctx, entry, routerStorage, cfg.Lifecycle)
 }
@@ -320,12 +299,6 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, sto
 			Meta:     map[string]interface{}{"type": entry.Kind},
 		},
 	})
-
-	// Register as registry storage
-	m.logger.Info("sending StorageRegister event",
-		zap.String("id", entry.ID.String()),
-		zap.String("kind", entry.Kind),
-		zap.String("storage_type", fmt.Sprintf("%T", storage)))
 
 	m.bus.Send(ctx, event.Event{
 		System: env.System,
