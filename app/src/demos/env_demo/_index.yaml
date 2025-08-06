@@ -132,5 +132,5 @@ entries:
         - system:app_envs
     variable: HOME
     storage: system:app_envs
-    default: 
+    default:
     readonly: false

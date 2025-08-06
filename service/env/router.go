@@ -21,6 +21,12 @@ type RouterStorage struct {
 	mu       sync.RWMutex
 }
 
+// IsRouterStorage checks if a storage is a router storage
+func IsRouterStorage(storage env.Storage) bool {
+	_, ok := storage.(*RouterStorage)
+	return ok
+}
+
 // NewRouterStorage creates a new router storage with the specified storages
 func NewRouterStorage(storages []env.Storage, log *zap.Logger) (*RouterStorage, error) {
 	if len(storages) == 0 {
@@ -38,40 +44,17 @@ func (r *RouterStorage) Get(ctx context.Context, name string) (string, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	r.log.Info("router storage Get called",
-		zap.String("name", name),
-		zap.Int("num_storages", len(r.storages)))
-
 	var lastErr error
-	for i, storage := range r.storages {
-		r.log.Info("trying storage",
-			zap.Int("storage_index", i))
-
+	for _, storage := range r.storages {
 		value, err := storage.Get(ctx, name)
-		r.log.Info("storage Get result",
-			zap.Int("storage_index", i),
-			zap.String("value", value),
-			zap.Error(err))
-
 		if err == nil && value != "" {
-			r.log.Info("router storage Get found value",
-				zap.String("name", name),
-				zap.String("value", value),
-				zap.Int("storage_index", i))
 			return value, nil
 		}
 		if err != nil {
 			lastErr = err
-			r.log.Info("router storage Get error from storage",
-				zap.String("name", name),
-				zap.Error(err),
-				zap.Int("storage_index", i))
 		}
 	}
 
-	r.log.Info("router storage Get not found",
-		zap.String("name", name),
-		zap.Error(lastErr))
 	return "", lastErr
 }
 
