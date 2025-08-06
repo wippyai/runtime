@@ -24,6 +24,28 @@ This demo showcases different types of environment variable storage backends ava
 - **Persistence**: Depends on underlying storages
 - **Use case**: Combining multiple storages with fallback mechanism
 
+## Three Access Modes
+
+The environment variable system supports **three different ways** to access variables:
+
+### 1. By Name (e.g., "file_test_env")
+- **Behavior**: Automatically adds current namespace to the variable name
+- **Example**: `env.get('file_test_env')` → looks for `app.env.demo:file_test_env`
+- **Use case**: Simple variable access within current context
+
+### 2. By Full Name (e.g., "app.env.demo:file_test_env")
+- **Behavior**: Explicit namespace specification
+- **Example**: `env.get('app.env.demo:file_test_env')` → direct lookup
+- **Use case**: Cross-namespace variable access
+
+### 3. By ENV Name (e.g., "FILE_TEST_ENV")
+- **Behavior**: Direct environment variable name lookup
+- **Example**: `env.get('FILE_TEST_ENV')` → searches for variable with this ENV name
+- **Use case**: Direct access to environment variables
+
+### Cross-Verification
+All three access modes return **identical values** for the same variable, ensuring consistency across different access patterns.
+
 ## Router Storage Feature
 
 The new `env.storage.router` feature provides a composite storage that combines multiple storage backends with a fallback mechanism:
@@ -44,13 +66,15 @@ The router storage is configured in `system.yaml`:
     comment: Composite storage with fallback mechanism
   storages:
     - system:envmemory
+    - system:envfile
     - system:envos
 ```
 
 This configuration creates a router that:
 1. First tries to read from `envmemory` (memory storage)
-2. If not found, falls back to `envos` (OS environment variables)
-3. Writes always go to `envmemory` (the primary storage)
+2. If not found, falls back to `envfile` (file storage)
+3. If not found, falls back to `envos` (OS environment variables)
+4. Writes always go to `envmemory` (the primary storage)
 
 ### Router Storage Usage Examples
 
@@ -186,6 +210,65 @@ local user = env.get('user_env')        -- Gets USER
 local success = env.set('path_env', 'new_path')  -- Returns false
 ```
 
+## Comprehensive Testing
+
+The environment variable system includes **comprehensive test coverage** for all storage types and access modes:
+
+### Test Coverage Matrix
+
+| Storage Type | By Name | By Full Name | By ENV Name | Read/Write | Default Values |
+|--------------|---------|--------------|-------------|------------|----------------|
+| **Memory**   | ✅      | ✅           | ✅          | ✅         | ✅             |
+| **File**     | ✅      | ✅           | ✅          | ✅         | ✅             |
+| **OS**       | ✅      | ✅           | ✅          | Read-only  | ✅             |
+| **Router**   | ✅      | ✅           | ✅          | ✅         | ✅             |
+
+### Test Categories
+
+#### 1. **Three Access Modes Tests**
+- **By Name**: `env.get('file_test_env')` → `app.env.demo:file_test_env`
+- **By Full Name**: `env.get('app.env.demo:file_test_env')` → direct lookup
+- **By ENV Name**: `env.get('FILE_TEST_ENV')` → environment variable lookup
+
+#### 2. **Storage Type Tests**
+- **Memory Storage**: In-memory operations with all access modes
+- **File Storage**: File-based persistence with all access modes
+- **OS Storage**: Read-only system environment variable access
+- **Router Storage**: Fallback mechanism across multiple storages
+
+#### 3. **Advanced Router Tests**
+- **Complex Router**: Testing with all 3 underlying storage types
+- **Fallback Mechanism**: Variables not in primary storage fall back to secondary
+- **Write Behavior**: All writes go to primary storage only
+- **Cross-Verification**: All access modes return identical values
+
+#### 4. **Edge Case Tests**
+- **Default Values**: Empty storage values fall back to defaults
+- **Read-Only Enforcement**: OS storage prevents write operations
+- **Missing Variables**: Proper error handling for non-existent variables
+- **Namespace Isolation**: Variables in different namespaces don't interfere
+
+### Test Examples
+
+```lua
+-- All three access modes return the same value
+local value1 = env.get('file_test_env')           -- By name
+local value2 = env.get('app.env.demo:file_test_env') -- By full name  
+local value3 = env.get('FILE_TEST_ENV')           -- By ENV name
+assert(value1 == value2 and value2 == value3)     -- All identical
+
+-- Router storage fallback
+local router_var = env.get('router_memory_var')   -- Gets from memory
+local fallback_var = env.get('router_fallback_var') -- Gets from OS (fallback)
+
+-- Cross-verification
+env.set('router_memory_var', 'new_value')         -- Sets in primary storage
+local v1 = env.get('router_memory_var')           -- By name
+local v2 = env.get('app.env.demo:router_memory_var') -- By full name
+local v3 = env.get('ROUTER_MEMORY_VAR')           -- By ENV name
+assert(v1 == v2 and v2 == v3)                     -- All identical
+```
+
 ## Practical Use Cases
 
 ### 1. Application Configuration with Fallbacks
@@ -235,7 +318,9 @@ local system_path = env.get('system:app_envs:PATH')         -- System PATH
    - Memory storage operations
    - File storage operations
    - OS storage operations
-   - Router storage operations (new!)
+   - Router storage operations
+   - All three access modes
+   - Cross-verification tests
 
 ## Key Features
 
@@ -253,16 +338,24 @@ local system_path = env.get('system:app_envs:PATH')         -- System PATH
 - **Containerization**: Supports Docker and other container environments
 - **Cross-platform**: Works across different operating systems
 
+### Three Access Modes Benefits
+- **Flexibility**: Multiple ways to access the same variables
+- **Consistency**: All access modes return identical values
+- **Namespace Support**: Automatic namespace handling
+- **Direct Access**: Environment variable name lookup
+- **Cross-Context**: Full namespace specification for cross-context access
+
 ## Test Cases
 
-The demo includes tests for:
+The demo includes comprehensive tests for:
 
-1. **Basic OS variable access**: Reading system environment variables
-2. **Full name access**: Using namespace-qualified variable names
-3. **ENV_NAME access**: Using environment variable names directly
-4. **Read-only enforcement**: Attempting to set OS variables (should fail)
-5. **Common system variables**: PATH, HOME, USER
-6. **Non-existent variables**: Handling missing environment variables
-7. **Router fallback mechanism**: Testing fallback between storages
-8. **Router write behavior**: Ensuring writes go to primary storage
-9. **Router list operation**: Combining variables from all storages 
+1. **All 4 Storage Types**: Memory, File, OS, and Router storage
+2. **All 3 Access Modes**: By name, by full name, and by ENV name
+3. **Cross-Verification**: Ensuring all access modes return identical values
+4. **Default Values**: Proper fallback to default values when storage is empty
+5. **Read-Only Enforcement**: OS storage correctly prevents write operations
+6. **Router Fallback**: Variables not found in primary storage fall back to secondary storages
+7. **Router Write Behavior**: Ensuring writes go to primary storage only
+8. **Complex Router Scenarios**: Testing with all underlying storage types
+9. **Namespace Isolation**: Variables in different namespaces don't interfere
+10. **Error Handling**: Proper handling of missing variables and read-only violations 
