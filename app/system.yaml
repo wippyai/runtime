@@ -126,6 +126,18 @@ entries:
       type: envstorage
       comment: OS storage for environment variables (read-only)
 
+  - name: app_envs
+    kind: env.storage.router
+    meta:
+      type: envstorage
+      comment: Composite storage with fallback mechanism
+      depends_on:
+        - system:envfile
+        - system:envos
+    storages:
+      - system:envfile
+      - system:envos
+
   - name: envfile
     kind: env.storage.file
     meta:
@@ -148,7 +160,7 @@ entries:
     meta:
       comment: "Aws Config"
     region: us-east-1
-    access_key_id_env: system:envfile:ACCESS_KEY_ID_CUSTOM
+    access_key_id_env: ACCESS_KEY_ID_CUSTOM
 
   - name: aws_config2
     kind: config.aws

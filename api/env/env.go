@@ -30,6 +30,7 @@ const (
 	KindStorageMemory registry.Kind = "env.storage.memory"
 	KindStorageFile   registry.Kind = "env.storage.file"
 	KindStorageOS     registry.Kind = "env.storage.os"
+	KindStorageRouter registry.Kind = "env.storage.router"
 
 	// Variable registry kind
 	KindVariable registry.Kind = "env.variable"

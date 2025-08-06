@@ -197,17 +197,42 @@ local function handler()
                 result = (env.get('NON_EXISTENT_VAR') == nil) and "success" or "failed",
                 stored_value = env.get('NON_EXISTENT_VAR')
             },
+        },
+        app_env_variables = {
+            {
+                operation = "Get App HOME Environment Variable",
+                variable = "app.env.demo:app_home_env",
+                expected_value = "exists",
+                result = (env.get('app.env.demo:app_home_env') ~= nil and env.get('app.env.demo:app_home_env') ~= "") and "success" or "failed",
+                stored_value = env.get('app.env.demo:app_home_env')
+            },
+            {
+                operation = "Set App HOME Variable (Should Succeed)",
+                variable = "app.env.demo:app_home_env",
+                expected_value = "writable",
+                result = (env.set('app.env.demo:app_home_env', '/new/app/home/path') and env.get('app.env.demo:app_home_env') == "/new/app/home/path") and "success" or "failed",
+                stored_value = env.get('app.env.demo:app_home_env')
+            },
+            {
+                operation = "Get by Name",
+                variable = "HOME",
+                expected_value = "/new/app/home/path",
+                result = (env.get('HOME') == "/new/app/home/path") and "success" or "failed",
+                stored_value = env.get('HOME')
+            },
         }
     }
 
     -- Calculate overall test statistics
     local total_tests = 0
     local passed_tests = 0
-    for _, category in pairs(test_results) do
-        for _, test in ipairs(category) do
-            total_tests = total_tests + 1
-            if test.result == "success" then
-                passed_tests = passed_tests + 1
+    for category_name, category in pairs(test_results) do
+        if type(category) == "table" then
+            for _, test in ipairs(category) do
+                total_tests = total_tests + 1
+                if test.result == "success" then
+                    passed_tests = passed_tests + 1
+                end
             end
         end
     end
@@ -218,13 +243,6 @@ local function handler()
     -- Add column headers
     ascii_response = ascii_response .. create_row("OPERATION", "VARIABLE", "EXPECTED", "STORED", "RESULT")
     ascii_response = ascii_response .. create_separator()
-
-    ---- Add environment variables section
-    --ascii_response = ascii_response .. create_header("ENVIRONMENT VARIABLES")
-    --for _, test in ipairs(test_results.environment_variables) do
-    --    ascii_response = ascii_response .. create_row(test.operation, test.variable, test.expected_value, test.stored_value, test.result)
-    --end
-    --ascii_response = ascii_response .. create_separator()
 
     -- Add memory variables section
     ascii_response = ascii_response .. create_header("MEMORY VARIABLES")
@@ -243,6 +261,13 @@ local function handler()
     -- Add OS variables section
     ascii_response = ascii_response .. create_header("OS VARIABLES (env.storage.os)")
     for _, test in ipairs(test_results.os_variables) do
+        ascii_response = ascii_response .. create_row(test.operation, test.variable, test.expected_value, test.stored_value, test.result)
+    end
+    ascii_response = ascii_response .. create_separator()
+
+    -- add app_env_variables section
+    ascii_response = ascii_response .. create_header("APP ENV VARIABLES")
+    for _, test in ipairs(test_results.app_env_variables) do
         ascii_response = ascii_response .. create_row(test.operation, test.variable, test.expected_value, test.stored_value, test.result)
     end
     ascii_response = ascii_response .. create_separator()
