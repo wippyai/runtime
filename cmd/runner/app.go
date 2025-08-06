@@ -8,6 +8,7 @@ import (
 	httpbase "net/http"
 	"net/http/pprof"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -110,7 +111,7 @@ type App struct {
 	otelCleanup   func()
 }
 
-func NewApp(config *Config) (*App, error) {
+func NewApp(config *Config, logger *zap.Logger) (*App, error) {
 	// Set memory limit only if GOMEMLIMIT is not already set
 	if os.Getenv("GOMEMLIMIT") == "" {
 		debug.SetMemoryLimit(1 * 1024 * 1024 * 1024) // 1GB
@@ -121,13 +122,9 @@ func NewApp(config *Config) (*App, error) {
 	// Initialize event bus
 	bus := eventbus.NewBus()
 
-	// Initialize logger
-	l, core := initLogger(config.Verbose, config.VeryVerbose, bus)
-	if l == nil {
-		cancel()
-		return nil, fmt.Errorf("failed to initialize logger")
-	}
-	appLogger := l.Named("")
+	// Use the provided logger and create a core for it
+	appLogger := logger.Named("")
+	core := logs.NewCore(logger.Core(), bus)
 
 	level := zapcore.InfoLevel
 	if config.Verbose || config.VeryVerbose {
@@ -135,7 +132,7 @@ func NewApp(config *Config) (*App, error) {
 	}
 
 	// Initialize log manager
-	logManager := logs.NewManager(bus, core, l.Named("logs"), level)
+	logManager := logs.NewManager(bus, core, logger.Named("logs"), level)
 
 	// Initialize transcoder
 	dtt := transcoder.GlobalTranscoder()
@@ -510,7 +507,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to initialize interceptors: %w", err)
 	}
 
-	appState, cleanup, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger)
+	appState, cleanup, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger, a.config)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("load application state: %w", err)
@@ -648,37 +645,12 @@ func (a *App) StartProfiler() {
 	}()
 }
 
-func initLogger(verbose, veryVerbose bool, bus event.Bus) (*zap.Logger, logapi.Core) {
-	cfg := zap.NewDevelopmentConfig()
-
-	switch {
-	case veryVerbose:
-		cfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
-	case verbose:
-		cfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
-		cfg.DisableStacktrace = true
-	default:
-		cfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
-		cfg.DisableStacktrace = true
-	}
-
-	cfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
-
-	log, err := cfg.Build()
-	if err != nil {
-		fmt.Printf("Failed to build logger: %v\n", err)
-		return nil, nil
-	}
-
-	core := logs.NewCore(log.Core(), bus)
-	return zap.New(core), core
-}
-
 func loadApplicationState(
 	ctx context.Context,
-	fs iofs.FS,
+	appFS iofs.FS,
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
+	config *Config,
 ) (regapi.ChangeSet, func(), error) {
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadFile),
@@ -696,7 +668,8 @@ func loadApplicationState(
 		mainLogger.Error("failed to initialize OpenTelemetry", zap.Error(err))
 	}
 
-	entries, err := folderLoader.LoadFS(ctx, fs)
+	// Load app entries from the app filesystem
+	entries, err := folderLoader.LoadFS(ctx, appFS)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load entries: %w", err)
 	}
@@ -709,19 +682,46 @@ func loadApplicationState(
 
 	registryLoader := newModuleloaderManager(baseURL, entries, mainLogger.Named("registry-loader"))
 
-	loadResult, err := registryLoader.Load(ctx)
-	if err != nil {
-		mainLogger.Error("load modules from registry", zap.Error(err))
+	var loadResult *moduleloader.LoadResult
+
+	// Check for a lock file
+	lockPath, findErr := moduleloader.FindLockFile(config.FolderPath, config.LockFile)
+	if findErr != nil {
+		return nil, nil, findErr
+	}
+
+	if lockPath != "" {
+		mainLogger.Info("loading modules using lock file", zap.String("lock_file", lockPath))
+		// Lock file exists, use it
+		lockFile, loadErr := moduleloader.LoadLockFile(lockPath)
+		if loadErr != nil {
+			mainLogger.Error("load lock file", zap.Error(loadErr))
+		} else {
+			loadResult = moduleloader.ConvertFromLockFile(lockFile)
+		}
 	} else {
-		// Log the loaded modules for debugging
-		if loadResult != nil && len(loadResult.Modules) > 0 {
-			mainLogger.Debug("loaded modules from registry",
-				zap.Int("count", len(loadResult.Modules)),
-				zap.Any("modules", loadResult.Modules))
+		mainLogger.Info("loading modules from registry")
+
+		// No lock file, load from registry
+		loadResult, err = registryLoader.Load(ctx)
+		if err != nil {
+			mainLogger.Error("load modules from registry", zap.Error(err))
+		}
+	}
+
+	if loadResult != nil && len(loadResult.Modules) > 0 {
+		mainLogger.Debug("loaded modules",
+			zap.Int("count", len(loadResult.Modules)),
+			zap.Any("modules", loadResult.Modules))
+
+		// Create a project root filesystem for loading modules
+		projectRootFS, err := createProjectRootFS(config.FolderPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create project root filesystem: %w", err)
 		}
 
 		// Load entries only from the specific modules that were loaded
-		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult)
+		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS)
 		if err != nil {
 			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}
@@ -749,11 +749,39 @@ func loadApplicationState(
 	return boot, cleanup, nil
 }
 
+// createProjectRootFS creates a filesystem from the project root (parent of the app directory)
+func createProjectRootFS(appPath string) (iofs.FS, error) {
+	// Clean the path to remove trailing slashes and normalize
+	cleanPath := filepath.Clean(appPath)
+
+	// Get the project root by going up one level from the app directory
+	projectRoot := filepath.Dir(cleanPath)
+
+	// If the project root is the same as the app path (e.g., when appPath is "." or current directory),
+	// we need to go up one more level
+	if projectRoot == cleanPath || projectRoot == "." {
+		// Get the absolute path of the current directory
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("get current directory: %w", err)
+		}
+		projectRoot = currentDir
+	}
+
+	osRoot, err := os.OpenRoot(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("open project root %s: %w", projectRoot, err)
+	}
+
+	return osRoot.FS(), nil
+}
+
 // loadEntriesFromLoadedModules loads entries only from the specific modules that were loaded by the registry loader
 func loadEntriesFromLoadedModules(
 	ctx context.Context,
 	folderLoader *loader.Loader,
 	loadResult *moduleloader.LoadResult,
+	rootFS iofs.FS,
 ) ([]regapi.Entry, error) {
 	if loadResult == nil || len(loadResult.Modules) == 0 {
 		return nil, nil
@@ -762,14 +790,15 @@ func loadEntriesFromLoadedModules(
 	var allEntries []regapi.Entry
 
 	for _, module := range loadResult.Modules {
-		// Open the specific module directory
-		moduleDir, err := os.OpenRoot(module.Path)
+		// Create a sub-filesystem for this specific module from the root filesystem
+
+		moduleFS, err := iofs.Sub(rootFS, module.Path)
 		if err != nil {
-			return nil, fmt.Errorf("open module directory %s: %w", module.Path, err)
+			return nil, fmt.Errorf("create sub-filesystem for module %s: %w", module.Path, err)
 		}
 
-		// Load entries from this specific module
-		moduleEntries, err := folderLoader.LoadFS(ctx, moduleDir.FS())
+		// Load entries from this specific module using the sub-filesystem
+		moduleEntries, err := folderLoader.LoadFS(ctx, moduleFS)
 		if err != nil {
 			return nil, fmt.Errorf("load entries from module %s: %w", module.Path, err)
 		}
