@@ -43,6 +43,11 @@ func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
 		return fmt.Errorf("find lock file: %w", err)
 	}
 
+	// Check if lock file exists
+	if lockPath == "" {
+		return fmt.Errorf("no lock file found in project directory: %s", dm.config.FolderPath)
+	}
+
 	// Load lock file
 	lockFile, err := moduleloader.LoadLockFile(lockPath)
 	if err != nil {
