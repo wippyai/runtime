@@ -43,3 +43,18 @@ type CreateOSEnvStorageConfig struct {
 func (c *CreateOSEnvStorageConfig) Validate() error {
 	return nil
 }
+
+type CreateRouterEnvStorageConfig struct {
+	Name      string                     `json:"name"`
+	Kind      registry.Kind              `json:"kind"`
+	Meta      registry.Metadata          `json:"meta"`
+	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
+	Storages  []string                   `json:"storages"`
+}
+
+func (c *CreateRouterEnvStorageConfig) Validate() error {
+	if len(c.Storages) == 0 {
+		return fmt.Errorf("at least one storage must be specified")
+	}
+	return nil
+}
