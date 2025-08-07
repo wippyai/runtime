@@ -21,6 +21,20 @@ entries:
       comment: File storage for environment variables
     file_path: "./app/env/.env.sample"
 
+  - name: app_envs
+    kind: env.storage.router
+    meta:
+      type: envstorage
+      comment: Composite storage with fallback mechanism
+      depends_on:
+        - system:envmemory
+        - system:envfile
+        - system:envos
+    storages:
+      - system:envmemory
+      - system:envfile
+      - system:envos
+
   - name: root
     kind: fs.directory
     meta:

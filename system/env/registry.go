@@ -10,6 +10,7 @@ import (
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	serviceenv "github.com/ponyruntime/pony/service/env"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -87,11 +88,16 @@ func (s *Registry) registerStorage(e event.Event) {
 		return
 	}
 
-	s.storages.Store(e.Path, storage)
+	storageID := registry.ParseID(e.Path)
+	s.storages.Store(storageID, storage)
 	s.sendAccept(e.Path)
 }
 
 func (s *Registry) registerVariable(e event.Event) {
+	s.log.Debug("registering variable",
+		zap.String("path", e.Path),
+		zap.String("kind", e.Kind))
+
 	variable, ok := e.Data.(env.Variable)
 	if !ok {
 		s.log.Error("invalid variable payload",
@@ -108,17 +114,41 @@ func (s *Registry) registerVariable(e event.Event) {
 	// Only reject if the variable exists in a different storage
 	storedEnvValue, _ := s.getEnvDeclarationByEnvName(s.ctx, variable.EnvName)
 	if storedEnvValue != nil && storedEnvValue.StorageID != variable.StorageID {
-		s.sendReject(e.Path, fmt.Sprintf("variable with the name %s already stored in a different storage", variable.EnvName))
-		return
+		// Check if the new storage is a router storage that includes the existing storage
+		storageID := registry.ParseID(variable.StorageID)
+		storedStorage, found := s.storages.Load(storageID)
+		if found {
+			if storage, ok := storedStorage.(env.Storage); ok && serviceenv.IsRouterStorage(storage) {
+				s.log.Debug("allowing router storage variable to coexist with underlying storage",
+					zap.String("env_name", variable.EnvName),
+					zap.String("existing_storage", storedEnvValue.StorageID),
+					zap.String("new_storage", variable.StorageID))
+			} else {
+				s.log.Debug("variable already exists in different storage",
+					zap.String("env_name", variable.EnvName),
+					zap.String("existing_storage", storedEnvValue.StorageID),
+					zap.String("new_storage", variable.StorageID))
+				s.sendReject(e.Path, fmt.Sprintf("variable with the name %s already stored in a different storage", variable.EnvName))
+				return
+			}
+		} else {
+			s.log.Debug("storage not found during variable registration check",
+				zap.String("storage_id", storageID.String()))
+			s.sendReject(e.Path, "storage not found during variable registration")
+			return
+		}
 	}
+	s.log.Debug("no existing variable declaration found or same storage",
+		zap.String("env_name", variable.EnvName))
 
 	// Store variable by its name
 	s.variables.Store(variable.Name, variable)
 
-	storedStorage, found := s.storages.Load(storageID.String())
+	storedStorage, found := s.storages.Load(storageID)
 	if !found {
 		s.log.Error("storage not found",
-			zap.String("storage", storageID.String()))
+			zap.String("storage", storageID.String()),
+			zap.String("variable", variableName))
 		s.sendReject(e.Path, "storage not found")
 		return
 	}
@@ -135,11 +165,19 @@ func (s *Registry) registerVariable(e event.Event) {
 	//
 	variableValue, err := storage.Get(s.ctx, variableName)
 	if err != nil {
-		s.log.Error("failed to get variable value",
-			zap.String("variable", variableName),
-			zap.Error(err))
-		s.sendReject(e.Path, "variable not found in storage")
-		return
+		// If the variable has a default value, allow registration with empty value
+		if variable.DefaultValue != "" {
+			s.log.Info("variable not found in storage but has default value, allowing registration",
+				zap.String("variable", variableName),
+				zap.String("default_value", variable.DefaultValue))
+			variableValue = ""
+		} else {
+			s.log.Error("failed to get variable value",
+				zap.String("variable", variableName),
+				zap.Error(err))
+			s.sendReject(e.Path, "variable not found in storage")
+			return
+		}
 	}
 
 	value := EnvValue{
@@ -153,6 +191,11 @@ func (s *Registry) registerVariable(e event.Event) {
 	}
 
 	s.values.Store(variableID, value)
+	s.log.Info("variable registered successfully",
+		zap.String("path", e.Path),
+		zap.String("name", variable.Name),
+		zap.String("env_name", variable.EnvName),
+		zap.String("default_value", variable.DefaultValue))
 	s.sendAccept(e.Path)
 }
 
@@ -173,7 +216,7 @@ func (s *Registry) updateVariable(e event.Event) {
 	// Overwrite variable by its name
 	s.variables.Store(variable.Name, variable)
 
-	storedStorage, found := s.storages.Load(storageID.String())
+	storedStorage, found := s.storages.Load(storageID)
 	if !found {
 		s.log.Error("storage not found",
 			zap.String("storage", storageID.String()))
@@ -257,35 +300,51 @@ func (s *Registry) All(ctx context.Context) (map[string]string, error) {
 }
 
 func (s *Registry) getEnvValue(ctx context.Context, name string) (*EnvValue, error) {
+	s.log.Info("getEnvValue called",
+		zap.String("name", name))
+
 	// First try to get value by name
 	value, err := s.getEnvValueByName(ctx, name)
 	if err == nil {
+		s.log.Info("variable found by name",
+			zap.String("name", name))
 		return value, nil
 	}
+
+	s.log.Info("variable not found by name, trying by env name",
+		zap.String("name", name))
 
 	// If not found by name, try to get by env name
 	value, err = s.getEnvValueByEnvName(ctx, name)
 	if err == nil {
+		s.log.Info("variable found by env name",
+			zap.String("name", name))
 		return value, nil
 	}
 
+	s.log.Info("variable not found by either method",
+		zap.String("name", name))
 	return nil, env.ErrVariableNotFound
 }
 
 func (s *Registry) getEnvValueByName(ctx context.Context, name string) (*EnvValue, error) {
 	nameID := registry.ParseID(name)
 
+	s.log.Debug("getEnvValueByName. getting env value", zap.String("name", name))
+
 	ns := nameID.NS
 	if ns == "" {
 		pid, pidFound := pubsub.GetPID(ctx)
+		// s.log.Debug("getEnvValueByName. getting env value", zap.String("name", name), zap.Any("pid", pid), zap.Any("pidFound", pidFound))
+
 		if !pidFound {
-			s.log.Error("PID not found")
 			return nil, env.ErrVariableNotFound
 		}
 
 		ns = pid.ID.NS
 	}
 	fullNameID := nameID.WithDefaultNS(ns)
+	s.log.Debug("getEnvValueByName. getting env value", zap.String("name", name), zap.Any("fullName", fullNameID))
 
 	// try to locate a value by id(ns:name)
 	valueStored, valueFound := s.values.Load(fullNameID)
@@ -305,25 +364,53 @@ func (s *Registry) getEnvValueByName(ctx context.Context, name string) (*EnvValu
 func (s *Registry) getEnvValueByEnvName(_ context.Context, envName string) (*EnvValue, error) {
 	var variable EnvValue
 	var found bool
+	var routerVariable EnvValue
+	var routerFound bool
 
 	// todo: this is hot path btw, need secondary map
 	s.values.Range(func(_ interface{}, value interface{}) bool {
 		v := value.(EnvValue)
 		if v.EnvName == envName {
-			variable = v
-			found = true
-			return false
+			// Check if this variable uses a router storage
+			storageID := registry.ParseID(v.StorageID)
+			storedStorage, storageFound := s.storages.Load(storageID)
+			if storageFound {
+				if storage, ok := storedStorage.(env.Storage); ok && serviceenv.IsRouterStorage(storage) {
+					// Prioritize router storage variables over regular storage variables
+					routerVariable = v
+					routerFound = true
+					return false // Found router variable, stop searching
+				}
+
+				// Only store the first non-router variable as fallback
+				variable = v
+				found = true
+			} else {
+				// If storage not found, treat as regular variable
+				variable = v
+				found = true
+			}
 		}
 		return true
 	})
 
-	if !found {
-		s.log.Warn("variable not found", zap.String("name", envName))
-
-		return nil, env.ErrVariableNotFound
+	// Return router variable if found, otherwise return the first found variable
+	if routerFound {
+		s.log.Debug("found router variable by env name",
+			zap.String("env_name", envName),
+			zap.String("storage_id", routerVariable.StorageID))
+		return &routerVariable, nil
 	}
 
-	return &variable, nil
+	if found {
+		s.log.Debug("found regular variable by env name",
+			zap.String("env_name", envName),
+			zap.String("storage_id", variable.StorageID))
+		return &variable, nil
+	}
+
+	s.log.Warn("variable not found", zap.String("name", envName))
+	return nil, env.ErrVariableNotFound
 }
 
 func (s *Registry) getEnvDeclarationByEnvName(_ context.Context, envName string) (*env.Variable, error) {
@@ -384,6 +471,8 @@ func (s *Registry) GetFromStorage(ctx context.Context, name string) (string, err
 }
 
 func (s *Registry) getFromAnyStorage(ctx context.Context, envVarName string) (string, error) {
+	s.log.Debug("getFromAnyStorage called")
+
 	// Iterate through all storages to find the variable
 	var foundVariable string
 	var foundStorageKey interface{}
@@ -426,11 +515,12 @@ func (s *Registry) getFromSpecificStorage(ctx context.Context, storageIDStr, env
 	storageID := registry.ParseID(storageIDStr)
 
 	// Look up the specific storage
-	storedStorage, found := s.storages.Load(storageID.String())
+	storedStorage, found := s.storages.Load(storageID)
 	if !found {
 		s.log.Error("storage not found",
 			zap.String("storage", storageID.String()),
-			zap.String("name", originalName))
+			zap.String("name", originalName),
+		)
 		return "", env.ErrVariableNotFound
 	}
 
@@ -467,9 +557,10 @@ func (s *Registry) Set(ctx context.Context, name string, value string) error {
 	}
 
 	// Try to get the storage
-	storedStorage, found := s.storages.Load(envValue.StorageID)
+	storageID := registry.ParseID(envValue.StorageID)
+	storedStorage, found := s.storages.Load(storageID)
 	if !found {
-		s.log.Error("storage not found", zap.String("storage", envValue.StorageID))
+		s.log.Error("storage not found", zap.String("storage", storageID.String()))
 		return env.ErrVariableNotFound
 	}
 

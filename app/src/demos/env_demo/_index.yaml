@@ -123,3 +123,14 @@ entries:
     storage: system:envos
     default:
     readonly: true
+
+  - name: app_home_env
+    kind: env.variable
+    meta:
+      type: secret_key
+      depends_on:
+        - system:app_envs
+    variable: HOME
+    storage: system:app_envs
+    default:
+    readonly: false
