@@ -791,8 +791,10 @@ func loadEntriesFromLoadedModules(
 
 	for _, module := range loadResult.Modules {
 		// Create a sub-filesystem for this specific module from the root filesystem
+		// Convert Windows backslashes to forward slashes for cross-platform compatibility
+		modulePath := filepath.ToSlash(module.Path)
 
-		moduleFS, err := iofs.Sub(rootFS, module.Path)
+		moduleFS, err := iofs.Sub(rootFS, modulePath)
 		if err != nil {
 			return nil, fmt.Errorf("create sub-filesystem for module %s: %w", module.Path, err)
 		}
