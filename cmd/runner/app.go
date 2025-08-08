@@ -750,7 +750,7 @@ func loadApplicationState(
 }
 
 // createProjectRootFS creates a filesystem from the project root (current working directory)
-func createProjectRootFS(appPath string) (iofs.FS, error) {
+func createProjectRootFS(_ string) (iofs.FS, error) {
 	// Always use current working directory as project root
 	// This ensures that .wippy/ modules are accessible
 	currentDir, err := os.Getwd()
