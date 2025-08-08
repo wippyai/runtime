@@ -749,24 +749,15 @@ func loadApplicationState(
 	return boot, cleanup, nil
 }
 
-// createProjectRootFS creates a filesystem from the project root (parent of the app directory)
+// createProjectRootFS creates a filesystem from the project root (current working directory)
 func createProjectRootFS(appPath string) (iofs.FS, error) {
-	// Clean the path to remove trailing slashes and normalize
-	cleanPath := filepath.Clean(appPath)
-
-	// Get the project root by going up one level from the app directory
-	projectRoot := filepath.Dir(cleanPath)
-
-	// If the project root is the same as the app path (e.g., when appPath is "." or current directory),
-	// we need to go up one more level
-	if projectRoot == cleanPath || projectRoot == "." {
-		// Get the absolute path of the current directory
-		currentDir, err := os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("get current directory: %w", err)
-		}
-		projectRoot = currentDir
+	// Always use current working directory as project root
+	// This ensures that .wippy/ modules are accessible
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("get current directory: %w", err)
 	}
+	projectRoot := currentDir
 
 	osRoot, err := os.OpenRoot(projectRoot)
 	if err != nil {
