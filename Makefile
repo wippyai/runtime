@@ -15,7 +15,7 @@ test-unit:
 	go test ./cluster/... -v -race
 	go test --tags "fts5 sqlite_vec" ./runtime/... -v -race
 
-test: test-unit test-integration
+test: test-integration test-unit
 
 test-system:
 	go test ./internal/... -v -race

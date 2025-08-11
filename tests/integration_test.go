@@ -183,6 +183,7 @@ func waitForServerStart(ctx context.Context, t *testing.T, stderr io.Reader) err
 	logOutput := make(chan string, 100) // Buffered channel for log lines
 	scannerDone := make(chan bool, 1)
 	logAnalyzer := NewLogAnalyzer()
+	var collectedLogs []string // Collect all logs for timeout debugging
 
 	t.Logf("Waiting for server to start (timeout: %v) with real-time log analysis", testTimeout)
 
@@ -241,7 +242,11 @@ func waitForServerStart(ctx context.Context, t *testing.T, stderr io.Reader) err
 		case <-ctx.Done():
 			return fmt.Errorf("context canceled while waiting for server to start")
 		case <-timeout:
-			return fmt.Errorf("timeout waiting for server to start - no critical errors detected but server didn't become ready")
+			logOutput := ""
+			if len(collectedLogs) > 0 {
+				logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ===\n"
+			}
+			return fmt.Errorf("timeout waiting for server to start - no critical errors detected but server didn't become ready%s", logOutput)
 		case <-serverReady:
 			t.Log("Server is ready and responding to HTTP requests")
 			// Shorter wait time since we have real-time analysis
@@ -249,6 +254,7 @@ func waitForServerStart(ctx context.Context, t *testing.T, stderr io.Reader) err
 			return nil
 		case line := <-logOutput:
 			t.Logf("Server log: %s", line)
+			collectedLogs = append(collectedLogs, line) // Collect logs for potential timeout debugging
 
 			// Real-time log analysis for immediate failure detection
 			isFailure, isSuccess, message := logAnalyzer.AnalyzeLine(line)
@@ -268,7 +274,11 @@ func waitForServerStart(ctx context.Context, t *testing.T, stderr io.Reader) err
 				time.Sleep(1 * time.Second)
 				return nil
 			case <-time.After(3 * time.Second): // Shorter wait
-				return fmt.Errorf("server logs ended but server is not responding to HTTP requests")
+				logOutput := ""
+				if len(collectedLogs) > 0 {
+					logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ===\n"
+				}
+				return fmt.Errorf("server logs ended but server is not responding to HTTP requests%s", logOutput)
 			case <-ctx.Done():
 				return fmt.Errorf("context canceled while waiting for server response")
 			}
