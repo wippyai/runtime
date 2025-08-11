@@ -30,9 +30,9 @@ var (
 func getTestTimeout() time.Duration {
 	// Check for CI environment
 	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
-		return 60 * time.Second // Longer timeout for CI
+		return 30 * time.Second // Reasonable timeout for CI with fail-fast log analysis
 	}
-	return 15 * time.Second // Faster timeout for local development
+	return 10 * time.Second // Fast timeout for local development
 }
 
 // ExpectedModule represents expected module structure
@@ -114,8 +114,67 @@ func runCommand(t *testing.T, command string, args []string, logFile string) (cm
 	return cmd, stderr, nil
 }
 
+// LogAnalyzer performs real-time log analysis for immediate failure detection
+type LogAnalyzer struct {
+	failurePatterns []string
+	successPatterns []string
+}
+
+// NewLogAnalyzer creates a new log analyzer with common failure and success patterns
+func NewLogAnalyzer() *LogAnalyzer {
+	return &LogAnalyzer{
+		failurePatterns: []string{
+			"panic:",
+			"fatal error:",
+			"failed to start",
+			"error loading",
+			"connection refused",
+			"bind: address already in use",
+			"port already in use",
+			"listen tcp",
+			"failed to bind",
+			"startup error",
+			"initialization failed",
+			"module load error",
+			"dependency error",
+			"configuration error",
+			"database connection failed",
+			"redis connection failed",
+		},
+		successPatterns: []string{
+			"application started successfully",
+			"server started",
+			"service started",
+			"ready to serve",
+			"listening on",
+			"server is ready",
+		},
+	}
+}
+
+// AnalyzeLine analyzes a log line and returns analysis result
+func (la *LogAnalyzer) AnalyzeLine(line string) (isFailure bool, isSuccess bool, message string) {
+	lowerLine := strings.ToLower(line)
+
+	// Check for failure patterns first (higher priority)
+	for _, pattern := range la.failurePatterns {
+		if strings.Contains(lowerLine, pattern) {
+			return true, false, fmt.Sprintf("Detected failure pattern '%s' in: %s", pattern, line)
+		}
+	}
+
+	// Check for success patterns
+	for _, pattern := range la.successPatterns {
+		if strings.Contains(lowerLine, pattern) {
+			return false, true, fmt.Sprintf("Detected success pattern '%s'", pattern)
+		}
+	}
+
+	return false, false, ""
+}
+
 // waitForServerStart waits for the server to start by checking logs and HTTP endpoint
-func waitForServerStart(t *testing.T, stderr io.Reader) {
+func waitForServerStart(ctx context.Context, t *testing.T, stderr io.Reader) error {
 	t.Helper()
 
 	scanner := bufio.NewScanner(stderr)
@@ -123,10 +182,11 @@ func waitForServerStart(t *testing.T, stderr io.Reader) {
 	serverReady := make(chan bool, 1)
 	logOutput := make(chan string, 100) // Buffered channel for log lines
 	scannerDone := make(chan bool, 1)
+	logAnalyzer := NewLogAnalyzer()
 
-	t.Logf("Waiting for server to start (timeout: %v)", testTimeout)
+	t.Logf("Waiting for server to start (timeout: %v) with real-time log analysis", testTimeout)
 
-	// Read logs in separate goroutine to prevent blocking
+	// Read logs in separate goroutine with immediate analysis
 	go func() {
 		defer close(scannerDone)
 		for scanner.Scan() {
@@ -135,6 +195,8 @@ func waitForServerStart(t *testing.T, stderr io.Reader) {
 			case logOutput <- line:
 			case <-timeout:
 				return
+			case <-ctx.Done():
+				return
 			}
 		}
 		if err := scanner.Err(); err != nil {
@@ -142,18 +204,20 @@ func waitForServerStart(t *testing.T, stderr io.Reader) {
 		}
 	}()
 
-	// Check server readiness via HTTP in parallel
+	// Check server readiness via HTTP in parallel (more frequent checks)
 	go func() {
-		httpCheckInterval := time.NewTicker(500 * time.Millisecond)
+		httpCheckInterval := time.NewTicker(200 * time.Millisecond) // More frequent checks
 		defer httpCheckInterval.Stop()
 
 		for {
 			select {
 			case <-timeout:
 				return
+			case <-ctx.Done():
+				return
 			case <-httpCheckInterval.C:
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				req, err := http.NewRequestWithContext(ctx, "GET", serverURL, nil)
+				reqCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second) // Shorter timeout
+				req, err := http.NewRequestWithContext(reqCtx, "GET", serverURL, nil)
 				if err != nil {
 					cancel()
 					continue
@@ -172,40 +236,42 @@ func waitForServerStart(t *testing.T, stderr io.Reader) {
 		}
 	}()
 
-	logCheckTicker := time.NewTicker(50 * time.Millisecond)
-	defer logCheckTicker.Stop()
-
 	for {
 		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context canceled while waiting for server to start")
 		case <-timeout:
-			t.Fatal("Timeout waiting for server to start - server may have failed to start properly")
+			return fmt.Errorf("timeout waiting for server to start - no critical errors detected but server didn't become ready")
 		case <-serverReady:
 			t.Log("Server is ready and responding to HTTP requests")
-			// Give more time for modules to be fully loaded
-			time.Sleep(2 * time.Second)
-			return
+			// Shorter wait time since we have real-time analysis
+			time.Sleep(1 * time.Second)
+			return nil
 		case line := <-logOutput:
 			t.Logf("Server log: %s", line)
-			if strings.Contains(line, "application started successfully") {
-				t.Log("Server started successfully")
+
+			// Real-time log analysis for immediate failure detection
+			isFailure, isSuccess, message := logAnalyzer.AnalyzeLine(line)
+			if isFailure {
+				return fmt.Errorf("server startup failed: %s", message)
 			}
-			// Check if we see error patterns that indicate server won't start
-			if strings.Contains(line, "panic:") || strings.Contains(line, "fatal error:") {
-				t.Fatalf("Server failed to start with error: %s", line)
+			if isSuccess {
+				t.Logf("Success indicator detected: %s", message)
 			}
+
 		case <-scannerDone:
 			t.Log("Log scanner finished - checking if server is responsive")
 			// Scanner is done, give HTTP check a bit more time
 			select {
 			case <-serverReady:
 				t.Log("Server is ready and responding to HTTP requests")
-				time.Sleep(2 * time.Second)
-				return
-			case <-time.After(5 * time.Second):
-				t.Fatal("Server logs ended but server is not responding to HTTP requests")
+				time.Sleep(1 * time.Second)
+				return nil
+			case <-time.After(3 * time.Second): // Shorter wait
+				return fmt.Errorf("server logs ended but server is not responding to HTTP requests")
+			case <-ctx.Done():
+				return fmt.Errorf("context canceled while waiting for server response")
 			}
-		case <-logCheckTicker.C:
-			// Just continue the loop - this prevents busy waiting
 		}
 	}
 }
@@ -255,8 +321,11 @@ func waitForServerStartWithProcessMonitoring(t *testing.T, cmd *exec.Cmd, stderr
 	procMon := NewProcessMonitor(cmd)
 	procMon.Start()
 
-	// Start normal server waiting in background
-	serverReady := make(chan bool, 1)
+	// Create context with timeout for proper cancellation (shorter since we have fail-fast analysis)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout+10*time.Second)
+	defer cancel()
+
+	// Start server waiting in background with context
 	waitErr := make(chan error, 1)
 
 	go func() {
@@ -266,33 +335,29 @@ func waitForServerStartWithProcessMonitoring(t *testing.T, cmd *exec.Cmd, stderr
 			}
 		}()
 
-		// This will call t.Fatal internally if it times out
-		// We need to catch that and convert to channel message
-		done := make(chan bool)
-		go func() {
-			waitForServerStart(t, stderr)
-			done <- true
-		}()
-
-		<-done
-		serverReady <- true
+		// Use context-aware waitForServerStart
+		err := waitForServerStart(ctx, t, stderr)
+		waitErr <- err
 	}()
 
-	// Wait for either server ready or process exit
+	// Wait for either server ready, process exit, or timeout
 	select {
 	case err := <-procMon.Done():
+		cancel() // Cancel waiting goroutines
 		if err != nil {
 			t.Fatalf("Server process exited with error before starting: %v", err)
 		} else {
 			t.Fatal("Server process exited successfully before server was ready")
 		}
-	case <-serverReady:
+	case err := <-waitErr:
+		if err != nil {
+			t.Fatalf("Error waiting for server: %v", err)
+		}
 		t.Log("Server started successfully")
 		return procMon
-	case err := <-waitErr:
-		t.Fatalf("Error waiting for server: %v", err)
-	case <-time.After(testTimeout + 10*time.Second):
-		t.Fatal("Test timeout exceeded - killing process")
+	case <-ctx.Done():
+		// Context timeout - this shouldn't happen since waitForServerStart should return first
+		t.Fatal("Context timeout exceeded - killing process")
 	}
 	return nil
 }
