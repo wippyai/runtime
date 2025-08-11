@@ -505,6 +505,20 @@ func removeWippyDir(t *testing.T) {
 	t.Log("Removed .wippy directory")
 }
 
+// removeLockFile removes the wippy.lock file for clean test starts
+func removeLockFile(t *testing.T, lockFilePath string) {
+	t.Helper()
+
+	projectRoot := getProjectRoot(t)
+	fullLockPath := filepath.Join(projectRoot, lockFilePath)
+	err := os.Remove(fullLockPath)
+	if err != nil && !os.IsNotExist(err) {
+		t.Logf("Warning: Failed to remove lock file %s: %v", fullLockPath, err)
+	} else if err == nil {
+		t.Logf("Removed lock file: %s", fullLockPath)
+	}
+}
+
 // checkLogContains checks if the log file contains the expected string
 func checkLogContains(t *testing.T, logFile string, expectedText string) {
 	t.Helper()
@@ -539,11 +553,12 @@ func checkWippyLockExists(t *testing.T) {
 func TestFirstScenario(t *testing.T) {
 	t.Log("Starting Test 1: Clean start and module verification")
 
-	// Step 0: Remove .wippy directory
+	// Step 0: Remove .wippy directory and lock file for truly clean start
 	removeWippyDir(t)
+	removeLockFile(t, "app/wippy.lock")
 
 	// Step 1: Run the application
-	cmd, stderr, err := runCommand(t, "go", []string{"run", "./cmd/runner", "-v", "tests/tree-deps-src/"}, "test.log")
+	cmd, stderr, err := runCommand(t, "go", []string{"run", "./cmd/runner", "-v", "app/"}, "test.log")
 	if err != nil {
 		t.Fatalf("Failed to setup command: %v", err)
 	}
@@ -575,7 +590,7 @@ func TestUpdateScenario(t *testing.T) {
 	projectRoot := getProjectRoot(t)
 
 	// Step 1: Run update command
-	cmd := exec.Command("go", "run", "./cmd/runner", "-v", "-update", "app/")
+	cmd := exec.Command("go", "run", "./cmd/runner", "-v", "--update", "app/")
 	cmd.Dir = projectRoot
 
 	// Capture stderr to file
@@ -607,11 +622,11 @@ func TestInstallScenario(t *testing.T) {
 
 	projectRoot := getProjectRoot(t)
 
-	// Step 0: Remove .wippy directory
+	// Step 0: Remove .wippy directory (but keep lock file for install command)
 	removeWippyDir(t)
 
 	// Step 1: Run install command
-	cmd := exec.Command("go", "run", "./cmd/runner", "-v", "-install", "app/")
+	cmd := exec.Command("go", "run", "./cmd/runner", "-v", "--install", "app/")
 	cmd.Dir = projectRoot
 
 	// Capture stderr to file
@@ -642,7 +657,7 @@ func TestLockFileScenario(t *testing.T) {
 	t.Log("Starting Test 4: Running with fresh modules and checking server startup")
 
 	// Step 1: Run the application
-	cmd, stderr, err := runCommand(t, "go", []string{"run", "./cmd/runner", "-v", "tests/tree-deps-src/"}, "test4.log")
+	cmd, stderr, err := runCommand(t, "go", []string{"run", "./cmd/runner", "-v", "app/"}, "test4.log")
 	if err != nil {
 		t.Fatalf("Failed to setup command: %v", err)
 	}
