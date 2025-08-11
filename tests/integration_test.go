@@ -20,7 +20,6 @@ const (
 	serverURL   = "http://localhost:8082"
 	testTimeout = 15 * time.Second
 	wippyDir    = ".wippy"
-	projectRoot = "/home/igor_dolgov_spiralscout/dev/runtime"
 )
 
 // ExpectedModule represents expected module structure
@@ -35,9 +34,45 @@ var expectedModules = []ExpectedModule{
 	{Name: "wippy/test", Path: "wippy/test@0197e530-927f-75f5-995c-b6f5e0dd32f9"},
 }
 
+// getProjectRoot dynamically determines the project root directory
+func getProjectRoot(t *testing.T) string {
+	t.Helper()
+
+	// Start from current working directory
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	// Look for go.mod file to identify project root
+	dir := wd
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached filesystem root without finding go.mod
+			break
+		}
+		dir = parent
+	}
+
+	// Fallback: assume the parent directory of tests/ is the project root
+	if strings.HasSuffix(wd, "tests") {
+		return filepath.Dir(wd)
+	}
+
+	// Another fallback: assume current directory is project root
+	return wd
+}
+
 // runCommand executes a command and returns its output and error
 func runCommand(t *testing.T, command string, args []string, logFile string) (cmd *exec.Cmd, stderr io.Reader, err error) {
 	t.Helper()
+
+	projectRoot := getProjectRoot(t)
 
 	// Change to project root directory
 	if err := os.Chdir(projectRoot); err != nil {
@@ -133,6 +168,7 @@ func waitForServerStart(t *testing.T, stderr io.Reader) {
 func checkModulesExist(t *testing.T) {
 	t.Helper()
 
+	projectRoot := getProjectRoot(t)
 	wippyPath := filepath.Join(projectRoot, wippyDir)
 
 	// Check if .wippy directory exists with retries
@@ -262,6 +298,7 @@ func stopProcess(t *testing.T, cmd *exec.Cmd) {
 func removeWippyDir(t *testing.T) {
 	t.Helper()
 
+	projectRoot := getProjectRoot(t)
 	wippyPath := filepath.Join(projectRoot, wippyDir)
 	if err := os.RemoveAll(wippyPath); err != nil {
 		t.Fatalf("Failed to remove .wippy directory: %v", err)
@@ -290,6 +327,7 @@ func checkLogContains(t *testing.T, logFile string, expectedText string) {
 func checkWippyLockExists(t *testing.T) {
 	t.Helper()
 
+	projectRoot := getProjectRoot(t)
 	lockPath := filepath.Join(projectRoot, "app", "wippy.lock")
 	if _, err := os.Stat(lockPath); os.IsNotExist(err) {
 		t.Fatal("wippy.lock file does not exist")
@@ -335,6 +373,8 @@ func TestFirstScenario(t *testing.T) {
 func TestUpdateScenario(t *testing.T) {
 	t.Log("Starting Test 2: Module updates")
 
+	projectRoot := getProjectRoot(t)
+
 	// Step 1: Run update command
 	cmd := exec.Command("go", "run", "./cmd/runner", "-v", "-update", "app/")
 	cmd.Dir = projectRoot
@@ -365,6 +405,8 @@ func TestUpdateScenario(t *testing.T) {
 // TestInstallScenario tests the third scenario: clean install
 func TestInstallScenario(t *testing.T) {
 	t.Log("Starting Test 3: Clean install")
+
+	projectRoot := getProjectRoot(t)
 
 	// Step 0: Remove .wippy directory
 	removeWippyDir(t)
