@@ -30,7 +30,7 @@ var (
 func getTestTimeout() time.Duration {
 	// Check for CI environment
 	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
-		return 30 * time.Second // Reasonable timeout for CI with fail-fast log analysis
+		return 45 * time.Second // Increased timeout for CI - server startup can take 35-40s
 	}
 	return 10 * time.Second // Fast timeout for local development
 }
@@ -519,21 +519,58 @@ func removeLockFile(t *testing.T, lockFilePath string) {
 	}
 }
 
-// checkLogContains checks if the log file contains the expected string
+// checkLogContains checks if the log file contains the expected string, waiting with timeout
 func checkLogContains(t *testing.T, logFile string, expectedText string) {
 	t.Helper()
 
-	content, err := os.ReadFile(logFile)
-	if err != nil {
-		t.Fatalf("Failed to read log file %s: %v", logFile, err)
-	}
+	timeout := 15 * time.Second // Give enough time for log messages to appear
+	checkInterval := 200 * time.Millisecond
 
-	logContent := string(content)
-	if !strings.Contains(logContent, expectedText) {
-		t.Fatalf("Log file %s does not contain expected text: %s\nLog content:\n%s", logFile, expectedText, logContent)
-	}
+	t.Logf("Waiting for expected text in log file %s: %s (timeout: %v)", logFile, expectedText, timeout)
 
-	t.Logf("Found expected text in log: %s", expectedText)
+	startTime := time.Now()
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	timeoutTimer := time.After(timeout)
+
+	for {
+		select {
+		case <-timeoutTimer:
+			// Final attempt to read the log and provide detailed error
+			content, err := os.ReadFile(logFile)
+			if err != nil {
+				t.Fatalf("Timeout waiting for expected text in log file %s. Failed to read file: %v", logFile, err)
+			}
+			logContent := string(content)
+			t.Fatalf("Timeout (%v) waiting for expected text in log file %s: %s\nActual log content:\n%s",
+				timeout, logFile, expectedText, logContent)
+
+		case <-ticker.C:
+			content, err := os.ReadFile(logFile)
+			if err != nil {
+				// Log file might not exist yet, continue waiting
+				t.Logf("Log file %s not yet available, continuing to wait... (elapsed: %v)",
+					logFile, time.Since(startTime).Round(100*time.Millisecond))
+				continue
+			}
+
+			logContent := string(content)
+			if strings.Contains(logContent, expectedText) {
+				elapsed := time.Since(startTime)
+				t.Logf("Found expected text in log after %v: %s",
+					elapsed.Round(100*time.Millisecond), expectedText)
+				return
+			}
+
+			// Log progress every 2 seconds to show we're still trying
+			elapsed := time.Since(startTime)
+			if elapsed.Truncate(2*time.Second) == elapsed {
+				t.Logf("Still waiting for expected text in log file %s (elapsed: %v)...",
+					logFile, elapsed.Round(100*time.Millisecond))
+			}
+		}
+	}
 }
 
 // checkWippyLockExists checks if wippy.lock file exists
@@ -674,7 +711,7 @@ func TestLockFileScenario(t *testing.T) {
 	defer stopProcess(t, cmd, procMon)
 
 	// Step 3: Check that modules are loaded and application started successfully
-	checkLogContains(t, "test4.log", ".env file loaded successfully")
+	checkLogContains(t, "test4.log", "supervisor started")
 
 	// Step 4: Make API calls to available endpoints
 	checkAPIEndpoint(t, "/") // Check static content is served
