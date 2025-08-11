@@ -11,16 +11,29 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 )
 
 const (
-	serverURL   = "http://localhost:8082"
-	testTimeout = 15 * time.Second
-	wippyDir    = ".wippy"
+	serverURL = "http://localhost:8082"
+	wippyDir  = ".wippy"
 )
+
+var (
+	testTimeout = getTestTimeout()
+)
+
+// getTestTimeout returns appropriate timeout based on environment
+func getTestTimeout() time.Duration {
+	// Check for CI environment
+	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
+		return 60 * time.Second // Longer timeout for CI
+	}
+	return 15 * time.Second // Faster timeout for local development
+}
 
 // ExpectedModule represents expected module structure
 type ExpectedModule struct {
@@ -108,19 +121,41 @@ func waitForServerStart(t *testing.T, stderr io.Reader) {
 	scanner := bufio.NewScanner(stderr)
 	timeout := time.After(testTimeout)
 	serverReady := make(chan bool, 1)
+	logOutput := make(chan string, 100) // Buffered channel for log lines
+	scannerDone := make(chan bool, 1)
+
+	t.Logf("Waiting for server to start (timeout: %v)", testTimeout)
+
+	// Read logs in separate goroutine to prevent blocking
+	go func() {
+		defer close(scannerDone)
+		for scanner.Scan() {
+			line := scanner.Text()
+			select {
+			case logOutput <- line:
+			case <-timeout:
+				return
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			t.Logf("Error reading stderr: %v", err)
+		}
+	}()
 
 	// Check server readiness via HTTP in parallel
 	go func() {
+		httpCheckInterval := time.NewTicker(500 * time.Millisecond)
+		defer httpCheckInterval.Stop()
+
 		for {
 			select {
 			case <-timeout:
 				return
-			default:
-				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			case <-httpCheckInterval.C:
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				req, err := http.NewRequestWithContext(ctx, "GET", serverURL, nil)
 				if err != nil {
 					cancel()
-					time.Sleep(100 * time.Millisecond)
 					continue
 				}
 				resp, err := http.DefaultClient.Do(req)
@@ -133,35 +168,133 @@ func waitForServerStart(t *testing.T, stderr io.Reader) {
 					}
 					return
 				}
-				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	}()
 
+	logCheckTicker := time.NewTicker(50 * time.Millisecond)
+	defer logCheckTicker.Stop()
+
 	for {
 		select {
 		case <-timeout:
-			t.Fatal("Timeout waiting for server to start")
+			t.Fatal("Timeout waiting for server to start - server may have failed to start properly")
 		case <-serverReady:
 			t.Log("Server is ready and responding to HTTP requests")
 			// Give more time for modules to be fully loaded
 			time.Sleep(2 * time.Second)
 			return
-		default:
-			if scanner.Scan() {
-				line := scanner.Text()
-				t.Logf("Server log: %s", line)
-				if strings.Contains(line, "application started successfully") {
-					t.Log("Server started successfully")
-					// Continue waiting for HTTP readiness as well
-				}
+		case line := <-logOutput:
+			t.Logf("Server log: %s", line)
+			if strings.Contains(line, "application started successfully") {
+				t.Log("Server started successfully")
 			}
-			if err := scanner.Err(); err != nil {
-				t.Logf("Error reading stderr: %v", err)
+			// Check if we see error patterns that indicate server won't start
+			if strings.Contains(line, "panic:") || strings.Contains(line, "fatal error:") {
+				t.Fatalf("Server failed to start with error: %s", line)
 			}
-			time.Sleep(50 * time.Millisecond)
+		case <-scannerDone:
+			t.Log("Log scanner finished - checking if server is responsive")
+			// Scanner is done, give HTTP check a bit more time
+			select {
+			case <-serverReady:
+				t.Log("Server is ready and responding to HTTP requests")
+				time.Sleep(2 * time.Second)
+				return
+			case <-time.After(5 * time.Second):
+				t.Fatal("Server logs ended but server is not responding to HTTP requests")
+			}
+		case <-logCheckTicker.C:
+			// Just continue the loop - this prevents busy waiting
 		}
 	}
+}
+
+// ProcessMonitor manages a single cmd.Wait() call to avoid race conditions
+type ProcessMonitor struct {
+	cmd     *exec.Cmd
+	done    chan error
+	started bool
+	mu      sync.Mutex
+}
+
+// NewProcessMonitor creates a new process monitor for the given command
+func NewProcessMonitor(cmd *exec.Cmd) *ProcessMonitor {
+	return &ProcessMonitor{
+		cmd:  cmd,
+		done: make(chan error, 1),
+	}
+}
+
+// Start begins monitoring the process (can only be called once)
+func (pm *ProcessMonitor) Start() {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if pm.started {
+		return // Already started
+	}
+	pm.started = true
+
+	go func() {
+		err := pm.cmd.Wait()
+		pm.done <- err
+	}()
+}
+
+// Done returns a channel that will receive the process exit error
+func (pm *ProcessMonitor) Done() <-chan error {
+	return pm.done
+}
+
+// waitForServerStartWithProcessMonitoring waits for server start while monitoring process health
+func waitForServerStartWithProcessMonitoring(t *testing.T, cmd *exec.Cmd, stderr io.Reader) *ProcessMonitor {
+	t.Helper()
+
+	// Create and start process monitor
+	procMon := NewProcessMonitor(cmd)
+	procMon.Start()
+
+	// Start normal server waiting in background
+	serverReady := make(chan bool, 1)
+	waitErr := make(chan error, 1)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				waitErr <- fmt.Errorf("panic in waitForServerStart: %v", r)
+			}
+		}()
+
+		// This will call t.Fatal internally if it times out
+		// We need to catch that and convert to channel message
+		done := make(chan bool)
+		go func() {
+			waitForServerStart(t, stderr)
+			done <- true
+		}()
+
+		<-done
+		serverReady <- true
+	}()
+
+	// Wait for either server ready or process exit
+	select {
+	case err := <-procMon.Done():
+		if err != nil {
+			t.Fatalf("Server process exited with error before starting: %v", err)
+		} else {
+			t.Fatal("Server process exited successfully before server was ready")
+		}
+	case <-serverReady:
+		t.Log("Server started successfully")
+		return procMon
+	case err := <-waitErr:
+		t.Fatalf("Error waiting for server: %v", err)
+	case <-time.After(testTimeout + 10*time.Second):
+		t.Fatal("Test timeout exceeded - killing process")
+	}
+	return nil
 }
 
 // checkModulesExist verifies that expected modules exist in .wippy directory
@@ -255,8 +388,8 @@ func checkAPIEndpoint(t *testing.T, endpoint string) {
 	t.Logf("Successfully called endpoint %s", endpoint)
 }
 
-// stopProcess stops the given process gracefully
-func stopProcess(t *testing.T, cmd *exec.Cmd) {
+// stopProcess stops the given process gracefully using the process monitor
+func stopProcess(t *testing.T, cmd *exec.Cmd, procMon *ProcessMonitor) {
 	t.Helper()
 
 	if cmd == nil || cmd.Process == nil {
@@ -272,14 +405,9 @@ func stopProcess(t *testing.T, cmd *exec.Cmd) {
 		}
 	}
 
-	// Wait for process to exit
-	done := make(chan error)
-	go func() {
-		done <- cmd.Wait()
-	}()
-
+	// Wait for process to exit using the shared process monitor
 	select {
-	case err := <-done:
+	case err := <-procMon.Done():
 		if err != nil {
 			t.Logf("Process exited with error: %v", err)
 		} else {
@@ -290,7 +418,13 @@ func stopProcess(t *testing.T, cmd *exec.Cmd) {
 		if killErr := cmd.Process.Kill(); killErr != nil {
 			t.Logf("Failed to force kill process: %v", killErr)
 		}
-		<-done // Wait for process to actually exit
+		// Wait a bit more for the process to actually exit after kill
+		select {
+		case err := <-procMon.Done():
+			t.Logf("Process killed, exit error: %v", err)
+		case <-time.After(1 * time.Second):
+			t.Log("Process kill completed")
+		}
 	}
 }
 
@@ -354,11 +488,11 @@ func TestFirstScenario(t *testing.T) {
 		t.Fatalf("Failed to start command: %v", err)
 	}
 
-	// Ensure we stop the process at the end
-	defer stopProcess(t, cmd)
+	// Step 2: Wait for server to start and get process monitor
+	procMon := waitForServerStartWithProcessMonitoring(t, cmd, stderr)
 
-	// Step 2: Wait for server to start
-	waitForServerStart(t, stderr)
+	// Ensure we stop the process at the end
+	defer stopProcess(t, cmd, procMon)
 
 	// Step 3: Check that .wippy contains expected modules
 	checkModulesExist(t)
@@ -453,11 +587,11 @@ func TestLockFileScenario(t *testing.T) {
 		t.Fatalf("Failed to start command: %v", err)
 	}
 
-	// Ensure we stop the process at the end
-	defer stopProcess(t, cmd)
+	// Step 2: Wait for server to start and get process monitor
+	procMon := waitForServerStartWithProcessMonitoring(t, cmd, stderr)
 
-	// Step 2: Wait for server to start
-	waitForServerStart(t, stderr)
+	// Ensure we stop the process at the end
+	defer stopProcess(t, cmd, procMon)
 
 	// Step 3: Check that modules are loaded and application started successfully
 	checkLogContains(t, "test4.log", ".env file loaded successfully")
