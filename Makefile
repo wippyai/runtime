@@ -7,13 +7,15 @@ debug:
 test-clean:
 	go clean -testcache
 
-test:
+test-unit:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race
 	go test ./system/... -v -race
 	go test ./service/... -v -race
 	go test ./cluster/... -v -race
 	go test --tags "fts5 sqlite_vec" ./runtime/... -v -race
+
+test: test-unit test-integration
 
 test-system:
 	go test ./internal/... -v -race
@@ -34,6 +36,9 @@ test-cluster:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race
 	go test ./cluster/... -v -race
+
+test-integration:
+	go test ./tests/... -v -timeout 120s
 
 debug_vm:
 	dlv test --build-flags "--tags=fts5,sqlite_vec" -- test.v -test.run="^TestVM\$"
