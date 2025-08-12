@@ -225,6 +225,7 @@ func waitForServerStartWithStderrPipe(t *testing.T, cmd *exec.Cmd) *ProcessMonit
 
 	analyzer := NewLogAnalyzer()
 	var collectedLogs []string
+	var logsMutex sync.Mutex
 
 	t.Logf("Waiting for server to start (timeout: %v) by reading stderr directly", testTimeout)
 
@@ -252,8 +253,10 @@ func waitForServerStartWithStderrPipe(t *testing.T, cmd *exec.Cmd) *ProcessMonit
 			default:
 				line := scanner.Text()
 
-				// Collect for potential error reporting
+				// Collect for potential error reporting (thread-safe)
+				logsMutex.Lock()
 				collectedLogs = append(collectedLogs, line)
+				logsMutex.Unlock()
 
 				// Log the line
 				t.Logf("Server log: %s", line)
@@ -296,9 +299,11 @@ func waitForServerStartWithStderrPipe(t *testing.T, cmd *exec.Cmd) *ProcessMonit
 			}
 		} else if !serverReadySignaled {
 			logOutput := ""
+			logsMutex.Lock()
 			if len(collectedLogs) > 0 {
 				logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ==="
 			}
+			logsMutex.Unlock()
 			readerDone <- fmt.Errorf("server logs ended but server is not responding to HTTP requests%s", logOutput)
 		}
 	}()
@@ -330,20 +335,21 @@ func waitForServerStartWithStderrPipe(t *testing.T, cmd *exec.Cmd) *ProcessMonit
 					// Server was ready but reader encountered error - probably normal shutdown
 					t.Logf("Log reader finished with error (may be normal): %v", err)
 					return procMon
-				} else {
-					t.Fatalf("Error waiting for server: %v", err)
 				}
+				t.Fatalf("Error waiting for server: %v", err)
 			}
 			t.Log("Log reader finished successfully")
 			return procMon
 		case <-ctx.Done():
 			// Timeout
 			logOutput := ""
+			logsMutex.Lock()
 			if len(collectedLogs) > 0 {
 				logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ==="
 			} else {
 				logOutput = "\n=== NO LOGS COLLECTED ===\nNo stderr output was captured from the process\n=== END STATUS ==="
 			}
+			logsMutex.Unlock()
 			if serverIsReady {
 				t.Log("Server was ready, returning successfully")
 				return procMon
