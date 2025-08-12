@@ -190,14 +190,14 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 				return true
 			}
 
-			callerPID, err := pubsub.ParsePID(watcherPID)
+			wPID, err := pubsub.ParsePID(watcherPID)
 			if err != nil {
 				return true
 			}
 
 			pkg := pubsub.NewPackage(
-				pubsub.PID{UniqID: "topology"},
-				callerPID,
+				pid,
+				wPID,
 				topology.TopicEvents,
 				resultPayload,
 			)
