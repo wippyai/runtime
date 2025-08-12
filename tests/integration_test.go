@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -25,6 +26,31 @@ const (
 var (
 	testTimeout = getTestTimeout()
 )
+
+// TestContext holds test-specific state including completion flag
+type TestContext struct {
+	completed *int64
+}
+
+// NewTestContext creates a new test context
+func NewTestContext() *TestContext {
+	return &TestContext{
+		completed: new(int64),
+	}
+}
+
+// conditionalLogf logs only if this specific test has not completed successfully yet
+func (tc *TestContext) conditionalLogf(t *testing.T, format string, args ...interface{}) {
+	t.Helper()
+	if atomic.LoadInt64(tc.completed) == 0 {
+		t.Logf(format, args...)
+	}
+}
+
+// markTestCompleted sets the flag indicating this specific test completed successfully
+func (tc *TestContext) markTestCompleted() {
+	atomic.StoreInt64(tc.completed, 1)
+}
 
 // getTestTimeout returns appropriate timeout based on environment
 func getTestTimeout() time.Duration {
@@ -201,8 +227,11 @@ func waitForServerStart(ctx context.Context, t *testing.T, stderr io.Reader) err
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			// Ignore expected errors during process cleanup
-			if !strings.Contains(err.Error(), "file already closed") {
+			// Only log if context is not canceled (avoids cleanup error noise)
+			select {
+			case <-ctx.Done():
+				// Context canceled, don't log cleanup errors
+			default:
 				t.Logf("Error reading stderr: %v", err)
 			}
 		}
@@ -467,7 +496,7 @@ func checkAPIEndpoint(t *testing.T, endpoint string) {
 }
 
 // stopProcess stops the given process gracefully using the process monitor
-func stopProcess(t *testing.T, cmd *exec.Cmd, procMon *ProcessMonitor) {
+func stopProcess(t *testing.T, cmd *exec.Cmd, procMon *ProcessMonitor, tc *TestContext) {
 	t.Helper()
 
 	if cmd == nil || cmd.Process == nil {
@@ -476,10 +505,10 @@ func stopProcess(t *testing.T, cmd *exec.Cmd, procMon *ProcessMonitor) {
 
 	// Send SIGINT for graceful shutdown
 	if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
-		t.Logf("Failed to send SIGINT: %v", err)
+		tc.conditionalLogf(t, "Failed to send SIGINT: %v", err)
 		// Force kill if graceful shutdown fails
 		if killErr := cmd.Process.Kill(); killErr != nil {
-			t.Logf("Failed to force kill process: %v", killErr)
+			tc.conditionalLogf(t, "Failed to force kill process: %v", killErr)
 		}
 	}
 
@@ -487,29 +516,21 @@ func stopProcess(t *testing.T, cmd *exec.Cmd, procMon *ProcessMonitor) {
 	select {
 	case err := <-procMon.Done():
 		if err != nil {
-			// Only log unexpected errors (not the expected "signal: killed")
-			if !strings.Contains(err.Error(), "signal: killed") {
-				t.Logf("Process exited with error: %v", err)
-			}
+			tc.conditionalLogf(t, "Process exited with error: %v", err)
 		} else {
-			t.Log("Process stopped gracefully")
+			tc.conditionalLogf(t, "Process stopped gracefully")
 		}
 	case <-time.After(3 * time.Second):
-		t.Log("Process did not stop gracefully, forcing kill")
+		tc.conditionalLogf(t, "Process did not stop gracefully, forcing kill")
 		if killErr := cmd.Process.Kill(); killErr != nil {
-			t.Logf("Failed to force kill process: %v", killErr)
+			tc.conditionalLogf(t, "Failed to force kill process: %v", killErr)
 		}
 		// Wait a bit more for the process to actually exit after kill
 		select {
 		case err := <-procMon.Done():
-			// Expected error when process is killed - don't log it
-			if err != nil && !strings.Contains(err.Error(), "signal: killed") {
-				t.Logf("Process killed, unexpected error: %v", err)
-			} else {
-				t.Log("Process kill completed")
-			}
+			tc.conditionalLogf(t, "Process killed, exit error: %v", err)
 		case <-time.After(1 * time.Second):
-			t.Log("Process kill completed")
+			tc.conditionalLogf(t, "Process kill completed")
 		}
 	}
 }
@@ -609,6 +630,7 @@ func checkWippyLockExists(t *testing.T) {
 
 // TestFirstScenario tests the first scenario: clean start, module loading, and API calls
 func TestFirstScenario(t *testing.T) {
+	tc := NewTestContext()
 	t.Log("Starting Test 1: Clean start and module verification")
 
 	// Step 0: Remove .wippy directory and lock file for truly clean start
@@ -630,7 +652,7 @@ func TestFirstScenario(t *testing.T) {
 	procMon := waitForServerStartWithProcessMonitoring(t, cmd, stderr)
 
 	// Ensure we stop the process at the end
-	defer stopProcess(t, cmd, procMon)
+	defer stopProcess(t, cmd, procMon, tc)
 
 	// Step 3: Check that .wippy contains expected modules
 	checkModulesExist(t)
@@ -638,11 +660,13 @@ func TestFirstScenario(t *testing.T) {
 	// Step 4 & 5: Make API calls to available endpoints
 	checkAPIEndpoint(t, "/") // Check static content is served
 
+	tc.markTestCompleted()
 	t.Log("Test 1 completed successfully")
 }
 
 // TestUpdateScenario tests the second scenario: module updates
 func TestUpdateScenario(t *testing.T) {
+	tc := NewTestContext()
 	t.Log("Starting Test 2: Module updates")
 
 	projectRoot := getProjectRoot(t)
@@ -671,11 +695,13 @@ func TestUpdateScenario(t *testing.T) {
 	// Step 3: Check that wippy.lock was created
 	checkWippyLockExists(t)
 
+	tc.markTestCompleted()
 	t.Log("Test 2 completed successfully")
 }
 
 // TestInstallScenario tests the third scenario: clean install
 func TestInstallScenario(t *testing.T) {
+	tc := NewTestContext()
 	t.Log("Starting Test 3: Clean install")
 
 	projectRoot := getProjectRoot(t)
@@ -707,11 +733,13 @@ func TestInstallScenario(t *testing.T) {
 	// Step 3: Check that .wippy contains expected modules
 	checkModulesExist(t)
 
+	tc.markTestCompleted()
 	t.Log("Test 3 completed successfully")
 }
 
 // TestLockFileScenario tests the fourth scenario: running with clean modules and checking server startup
 func TestLockFileScenario(t *testing.T) {
+	tc := NewTestContext()
 	t.Log("Starting Test 4: Running with fresh modules and checking server startup")
 
 	// Step 1: Run the application
@@ -729,7 +757,7 @@ func TestLockFileScenario(t *testing.T) {
 	procMon := waitForServerStartWithProcessMonitoring(t, cmd, stderr)
 
 	// Ensure we stop the process at the end
-	defer stopProcess(t, cmd, procMon)
+	defer stopProcess(t, cmd, procMon, tc)
 
 	// Step 3: Check that modules are loaded and application started successfully
 	checkLogContains(t, "test4.log", "application started successfully")
@@ -737,5 +765,6 @@ func TestLockFileScenario(t *testing.T) {
 	// Step 4: Make API calls to available endpoints
 	checkAPIEndpoint(t, "/") // Check static content is served
 
+	tc.markTestCompleted()
 	t.Log("Test 4 completed successfully")
 }
