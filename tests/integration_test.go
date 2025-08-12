@@ -201,7 +201,10 @@ func waitForServerStart(ctx context.Context, t *testing.T, stderr io.Reader) err
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			t.Logf("Error reading stderr: %v", err)
+			// Ignore expected errors during process cleanup
+			if !strings.Contains(err.Error(), "file already closed") {
+				t.Logf("Error reading stderr: %v", err)
+			}
 		}
 	}()
 
@@ -484,7 +487,10 @@ func stopProcess(t *testing.T, cmd *exec.Cmd, procMon *ProcessMonitor) {
 	select {
 	case err := <-procMon.Done():
 		if err != nil {
-			t.Logf("Process exited with error: %v", err)
+			// Only log unexpected errors (not the expected "signal: killed")
+			if !strings.Contains(err.Error(), "signal: killed") {
+				t.Logf("Process exited with error: %v", err)
+			}
 		} else {
 			t.Log("Process stopped gracefully")
 		}
@@ -496,7 +502,12 @@ func stopProcess(t *testing.T, cmd *exec.Cmd, procMon *ProcessMonitor) {
 		// Wait a bit more for the process to actually exit after kill
 		select {
 		case err := <-procMon.Done():
-			t.Logf("Process killed, exit error: %v", err)
+			// Expected error when process is killed - don't log it
+			if err != nil && !strings.Contains(err.Error(), "signal: killed") {
+				t.Logf("Process killed, unexpected error: %v", err)
+			} else {
+				t.Log("Process kill completed")
+			}
 		case <-time.After(1 * time.Second):
 			t.Log("Process kill completed")
 		}
