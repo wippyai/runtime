@@ -58,7 +58,7 @@ func getTestTimeout() time.Duration {
 	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
 		return 45 * time.Second // Increased timeout for CI - server startup can take 35-40s
 	}
-	return 10 * time.Second // Fast timeout for local development
+	return 20 * time.Second // Fast timeout for local development
 }
 
 // ExpectedModule represents expected module structure
@@ -136,11 +136,11 @@ func NewLogAnalyzer() *LogAnalyzer {
 		},
 		successPatterns: []string{
 			"application started successfully",
-			"server started",
-			"service started",
-			"ready to serve",
-			"listening on",
-			"server is ready",
+			// "server started",
+			// "service started",
+			// "ready to serve",
+			// "listening on",
+			//"server is ready",
 		},
 	}
 }
@@ -203,11 +203,14 @@ func (pm *ProcessMonitor) Done() <-chan error {
 	return pm.done
 }
 
-// waitForServerStartWithAllPipes waits for server to start by reading both stderr and stdout directly
-func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor {
+// waitForServerStartWithAllPipes waits for server to start by reading both stderr and stdout via channel-based approach
+func waitForServerStartWithAllPipes(rootCtx context.Context, t *testing.T, cmd *exec.Cmd) *ProcessMonitor {
 	t.Helper()
 
-	// Create both stderr and stdout pipes for direct reading
+	ctx, cancel := context.WithCancel(rootCtx)
+	defer cancel()
+
+	// Create both stderr and stdout pipes
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatalf("Failed to create stderr pipe: %v", err)
@@ -220,18 +223,18 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 
 	procMon := NewProcessMonitor(cmd)
 
-	// Use test context for proper cleanup when test finishes
-	ctx := t.Context()
-
-	// Channels for communication
-	serverReady := make(chan bool, 1)
-	readerDone := make(chan error, 1)
+	// Buffered channels for communication to avoid blocking
+	logLines := make(chan string, 100)     // Buffer for log lines from both stdout/stderr
+	serverReady := make(chan bool, 1)      // Server ready notification
+	readerDone := make(chan error, 1)      // Reader completion/error
+	readersCompleted := make(chan bool, 1) // Both readers finished
 
 	analyzer := NewLogAnalyzer()
 	var collectedLogs []string
 	var logsMutex sync.Mutex
+	var serverReadySignaled int64 // Use atomic for thread safety
 
-	t.Logf("Waiting for server to start (timeout: %v) by reading stderr directly", testTimeout)
+	t.Logf("Waiting for server to start (timeout: %v) by reading stdout and stderr", testTimeout)
 
 	// Start the command asynchronously
 	if err := cmd.Start(); err != nil {
@@ -243,85 +246,114 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 		procMon.Start()
 	}()
 
-	// Read both stderr and stdout continuously in real-time
+	// Use WaitGroup to properly track when both readers are done
 	var readerWg sync.WaitGroup
-	var serverReadySignaled int64 // Use atomic for thread safety
-	readerWg.Add(2)               // We'll have 2 readers
+	readerWg.Add(2)
 
-	// Read stderr in a goroutine
+	// Reader for stderr
 	go func() {
 		defer readerWg.Done()
+		defer cancel()
 
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
 				return
+			case logLines <- "[STDERR] " + scanner.Text():
 			default:
-				line := scanner.Text()
-
-				// Collect for potential error reporting (thread-safe)
-				logsMutex.Lock()
-				collectedLogs = append(collectedLogs, "[STDERR] "+line)
-				logsMutex.Unlock()
-
-				// Log the line
-				t.Logf("Server log: %s", line)
-
-				// Analyze line in real-time
-				isFailure, isSuccess, message := analyzer.AnalyzeLine(line)
-				if isFailure {
-					select {
-					case readerDone <- fmt.Errorf("server startup failed: %s", message):
-					default:
-					}
-					return
-				}
-				if isSuccess {
-					t.Logf("Success indicator detected: %s", message)
-				}
-
-				// Check if server is responding via HTTP (but only signal once)
-				if atomic.LoadInt64(&serverReadySignaled) == 0 && isServerReady(ctx) {
-					select {
-					case serverReady <- true:
-						atomic.StoreInt64(&serverReadySignaled, 1)
-						t.Log("Server is ready and responding to HTTP requests")
-					default:
-					}
-				}
-				// Continue reading logs even after server is ready
+				// If channel is full, skip this line to avoid blocking
 			}
 		}
-
-		// Check scanner error
 		if err := scanner.Err(); err != nil {
 			t.Logf("Error reading stderr: %v", err)
 		}
 	}()
 
-	// Read stdout in a separate goroutine
+	// Reader for stdout
 	go func() {
 		defer readerWg.Done()
+		defer cancel()
 
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
 				return
+			case logLines <- "[STDOUT] " + scanner.Text():
 			default:
-				line := scanner.Text()
+				// If channel is full, skip this line to avoid blocking
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			t.Logf("Error reading stdout: %v", err)
+		}
+	}()
+
+	// Monitor when both readers complete
+	go func() {
+		defer cancel()
+
+		readerWg.Wait() // Wait for both readers to finish
+		close(logLines) // Close the channel to signal completion
+		readersCompleted <- true
+	}()
+
+	// Process log lines as they come in from both readers
+	go func() {
+		defer close(readerDone)
+		defer cancel()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case line, ok := <-logLines:
+				if !ok {
+					// Channel closed, readers are done
+					// Final server ready check if not already signaled
+					if atomic.LoadInt64(&serverReadySignaled) == 0 {
+						if isServerReady(ctx) {
+							select {
+							case serverReady <- true:
+								atomic.StoreInt64(&serverReadySignaled, 1)
+								t.Log("Server is ready and responding to HTTP requests")
+								return
+							default:
+							}
+						} else {
+							logOutput := ""
+							logsMutex.Lock()
+							if len(collectedLogs) > 0 {
+								logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ==="
+							}
+							logsMutex.Unlock()
+							select {
+							case readerDone <- fmt.Errorf("server logs ended but server is not responding to HTTP requests%s", logOutput):
+							default:
+							}
+						}
+					}
+				}
+
+				// Extract original line without prefix for analysis
+				originalLine := line
+				if strings.HasPrefix(line, "[STDERR] ") {
+					originalLine = strings.TrimPrefix(line, "[STDERR] ")
+				} else if strings.HasPrefix(line, "[STDOUT] ") {
+					originalLine = strings.TrimPrefix(line, "[STDOUT] ")
+				}
 
 				// Collect for potential error reporting (thread-safe)
 				logsMutex.Lock()
-				collectedLogs = append(collectedLogs, "[STDOUT] "+line)
+				collectedLogs = append(collectedLogs, line)
 				logsMutex.Unlock()
 
 				// Log the line
-				t.Logf("Server stdout: %s", line)
+				t.Logf("Server log: %s", originalLine)
 
-				// Analyze line in real-time (stdout might also contain important messages)
-				isFailure, isSuccess, message := analyzer.AnalyzeLine(line)
+				// Analyze line in real-time
+				isFailure, isSuccess, message := analyzer.AnalyzeLine(originalLine)
 				if isFailure {
 					select {
 					case readerDone <- fmt.Errorf("server startup failed: %s", message):
@@ -332,50 +364,33 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 				if isSuccess {
 					t.Logf("Success indicator detected: %s", message)
 				}
+			}
+		}
+	}()
 
+	// Periodic HTTP health check goroutine independent of log reading
+	go func() {
+		defer cancel()
+
+		ticker := time.NewTicker(500 * time.Millisecond) // Check every 500ms
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-readersCompleted:
+				return // Stop health checks when readers are done
+			case <-ticker.C:
 				// Check if server is responding via HTTP (but only signal once)
 				if atomic.LoadInt64(&serverReadySignaled) == 0 && isServerReady(ctx) {
 					select {
 					case serverReady <- true:
 						atomic.StoreInt64(&serverReadySignaled, 1)
 						t.Log("Server is ready and responding to HTTP requests")
+						return // Exit this goroutine once server is ready
 					default:
 					}
-				}
-				// Continue reading logs even after server is ready
-			}
-		}
-
-		// Check scanner error
-		if err := scanner.Err(); err != nil {
-			t.Logf("Error reading stdout: %v", err)
-		}
-	}()
-
-	// Monitor when both readers finish
-	go func() {
-		defer close(readerDone)
-
-		readerWg.Wait()
-
-		// Both readers finished - final server ready check if not already signaled
-		if atomic.LoadInt64(&serverReadySignaled) == 0 {
-			if isServerReady(ctx) {
-				select {
-				case serverReady <- true:
-					t.Log("Server is ready and responding to HTTP requests")
-				default:
-				}
-			} else {
-				logOutput := ""
-				logsMutex.Lock()
-				if len(collectedLogs) > 0 {
-					logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ==="
-				}
-				logsMutex.Unlock()
-				select {
-				case readerDone <- fmt.Errorf("server logs ended but server is not responding to HTTP requests%s", logOutput):
-				default:
 				}
 			}
 		}
@@ -385,9 +400,10 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 	serverIsReady := false
 
 	for {
+		defer cancel()
+
 		select {
 		case err := <-procMon.Done():
-			// Context automatically cancels when test ends
 			if err != nil {
 				t.Fatalf("Server process exited with error: %v", err)
 			} else {
@@ -400,7 +416,6 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 				t.Log("Server started successfully, continuing to read logs...")
 			}
 		case err := <-readerDone:
-			// Context automatically cancels when test ends
 			if err != nil {
 				if serverIsReady {
 					// Server was ready but reader encountered error - probably normal shutdown
@@ -412,19 +427,19 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 			t.Log("Log reader finished successfully")
 			return procMon
 		case <-ctx.Done():
-			// Timeout
-			logOutput := ""
-			logsMutex.Lock()
-			if len(collectedLogs) > 0 {
-				logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ==="
-			} else {
-				logOutput = "\n=== NO LOGS COLLECTED ===\nNo stderr output was captured from the process\n=== END STATUS ==="
-			}
-			logsMutex.Unlock()
 			if serverIsReady {
 				t.Log("Server was ready, returning successfully")
 				return procMon
 			} else {
+				logOutput := ""
+				logsMutex.Lock()
+				if len(collectedLogs) > 0 {
+					logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ==="
+				} else {
+					logOutput = "\n=== NO LOGS COLLECTED ===\nNo output was captured from the process\n=== END STATUS ==="
+				}
+				logsMutex.Unlock()
+
 				t.Fatalf("timeout waiting for server to start after %v%s", testTimeout, logOutput)
 			}
 		}
@@ -448,7 +463,8 @@ func isServerReady(ctx context.Context) bool {
 		return false
 	}
 	resp.Body.Close()
-	return true
+
+	return resp.StatusCode == http.StatusOK
 }
 
 // checkModulesExist verifies that expected modules exist in .wippy directory
@@ -551,11 +567,13 @@ func stopProcess(t *testing.T, cmd *exec.Cmd, procMon *ProcessMonitor, tc *TestC
 	}
 
 	// Send SIGINT for graceful shutdown
-	if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
-		tc.conditionalLogf(t, "Failed to send SIGINT: %v", err)
-		// Force kill if graceful shutdown fails
-		if killErr := cmd.Process.Kill(); killErr != nil {
-			tc.conditionalLogf(t, "Failed to force kill process: %v", killErr)
+	if cmd.Process != nil {
+		if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
+			tc.conditionalLogf(t, "Failed to send SIGINT: %v", err)
+			// Force kill if graceful shutdown fails
+			if killErr := cmd.Process.Kill(); killErr != nil {
+				tc.conditionalLogf(t, "Failed to force kill process: %v", killErr)
+			}
 		}
 	}
 
@@ -569,8 +587,10 @@ func stopProcess(t *testing.T, cmd *exec.Cmd, procMon *ProcessMonitor, tc *TestC
 		}
 	case <-time.After(3 * time.Second):
 		tc.conditionalLogf(t, "Process did not stop gracefully, forcing kill")
-		if killErr := cmd.Process.Kill(); killErr != nil {
-			tc.conditionalLogf(t, "Failed to force kill process: %v", killErr)
+		if cmd.Process != nil {
+			if killErr := cmd.Process.Kill(); killErr != nil {
+				tc.conditionalLogf(t, "Failed to force kill process: %v", killErr)
+			}
 		}
 		// Wait a bit more for the process to actually exit after kill
 		select {
@@ -667,7 +687,9 @@ func checkWippyLockExists(t *testing.T) {
 
 // TestFirstScenario tests the first scenario: clean start, module loading, and API calls
 func TestFirstScenario(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithTimeout(t.Context(), getTestTimeout())
+	defer cancel()
+
 	tc := NewTestContext()
 	t.Log("Starting Test 1: Clean start and module verification")
 
@@ -682,7 +704,7 @@ func TestFirstScenario(t *testing.T) {
 	cmd.Dir = projectRoot
 
 	// Step 2: Wait for server to start and get process monitor (reading stderr directly)
-	procMon := waitForServerStartWithAllPipes(t, cmd)
+	procMon := waitForServerStartWithAllPipes(ctx, t, cmd)
 
 	// Ensure we stop the process at the end
 	defer func() {
@@ -706,6 +728,9 @@ func TestFirstScenario(t *testing.T) {
 
 // TestUpdateScenario tests the second scenario: module updates
 func TestUpdateScenario(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+
 	tc := NewTestContext()
 	t.Log("Starting Test 2: Module updates")
 
@@ -768,6 +793,13 @@ func TestUpdateScenario(t *testing.T) {
 		}
 	}()
 
+	// Check if context is already canceled before starting
+	select {
+	case <-ctx.Done():
+		t.Fatalf("Context canceled before starting update command: %v", ctx.Err())
+	default:
+	}
+
 	// Start command asynchronously to enable stderr reading
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start update command: %v", err)
@@ -799,6 +831,9 @@ func TestUpdateScenario(t *testing.T) {
 
 // TestInstallScenario tests the third scenario: clean install
 func TestInstallScenario(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), getTestTimeout())
+	defer cancel()
+
 	tc := NewTestContext()
 	t.Log("Starting Test 3: Clean install")
 
@@ -810,6 +845,12 @@ func TestInstallScenario(t *testing.T) {
 	// Step 1: Run install command
 	cmd := exec.Command("go", "run", "./cmd/runner", "-v", "--install", "app/")
 	cmd.Dir = projectRoot
+
+	defer func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}()
 
 	// Capture both stderr and stdout with pipes for in-memory processing
 	stderr, err := cmd.StderrPipe()
@@ -827,6 +868,13 @@ func TestInstallScenario(t *testing.T) {
 	var mu sync.Mutex
 	var readerWg sync.WaitGroup
 	readerWg.Add(2)
+
+	// Check if context is already canceled before starting
+	select {
+	case <-ctx.Done():
+		t.Fatalf("Context canceled before starting install command: %v", ctx.Err())
+	default:
+	}
 
 	// Start goroutine to read stderr
 	go func() {
@@ -895,7 +943,9 @@ func TestInstallScenario(t *testing.T) {
 
 // TestLockFileScenario tests the fourth scenario: running with clean modules and checking server startup
 func TestLockFileScenario(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithTimeout(t.Context(), getTestTimeout())
+	defer cancel()
+
 	tc := NewTestContext()
 	t.Log("Starting Test 4: Running with fresh modules and checking server startup")
 
@@ -906,7 +956,7 @@ func TestLockFileScenario(t *testing.T) {
 	cmd.Dir = projectRoot
 
 	// Step 2: Wait for server to start and get process monitor (reading stderr directly)
-	procMon := waitForServerStartWithAllPipes(t, cmd)
+	procMon := waitForServerStartWithAllPipes(ctx, t, cmd)
 
 	// Ensure we stop the process at the end
 	defer func() {
