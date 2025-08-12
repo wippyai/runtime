@@ -260,6 +260,8 @@ func waitForServerStartWithLogFile(t *testing.T, cmd *exec.Cmd, logFile string) 
 	select {
 	case err := <-procMon.Done():
 		cancel() // Cancel waiting goroutines
+		// Give background goroutines time to cleanup to avoid data races
+		time.Sleep(100 * time.Millisecond)
 		if err != nil {
 			t.Fatalf("Server process exited with error before starting: %v", err)
 		} else {
@@ -267,12 +269,18 @@ func waitForServerStartWithLogFile(t *testing.T, cmd *exec.Cmd, logFile string) 
 		}
 	case err := <-waitErr:
 		if err != nil {
+			cancel() // Cancel background goroutines
+			// Give background goroutines time to cleanup to avoid data races
+			time.Sleep(100 * time.Millisecond)
 			t.Fatalf("Error waiting for server: %v", err)
 		}
 		t.Log("Server started successfully")
 		return procMon
 	case <-ctx.Done():
 		// Context timeout - this shouldn't happen since waitForServerStartFromFile should return first
+		cancel() // Cancel background goroutines
+		// Give background goroutines time to cleanup to avoid data races
+		time.Sleep(100 * time.Millisecond)
 		t.Fatal("Context timeout exceeded - killing process")
 	}
 	return nil
@@ -688,13 +696,13 @@ func TestFirstScenario(t *testing.T) {
 	removeWippyDir(t)
 	removeLockFile(t, "app/wippy.lock")
 
-	// Step 1: Run the application
+	// Step 1: Run the application (start long-running server)
 	cmd, logFile, err := runCommand(t, "go", []string{"run", "./cmd/runner", "-v", "app/"}, "test.log")
 	if err != nil {
 		t.Fatalf("Failed to setup command: %v", err)
 	}
 
-	// Start the command
+	// Start the command asynchronously (this is a long-running server)
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
 		t.Fatalf("Failed to start command: %v", err)
