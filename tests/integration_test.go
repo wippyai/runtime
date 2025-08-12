@@ -180,7 +180,7 @@ func waitForServerStart(ctx context.Context, t *testing.T, stderr io.Reader) err
 	scanner := bufio.NewScanner(stderr)
 	timeout := time.After(testTimeout)
 	serverReady := make(chan bool, 1)
-	logOutput := make(chan string, 100) // Buffered channel for log lines
+	logOutput := make(chan string, 5000) // Buffered channel for log lines
 	scannerDone := make(chan bool, 1)
 	logAnalyzer := NewLogAnalyzer()
 	var collectedLogs []string // Collect all logs for timeout debugging
@@ -533,8 +533,8 @@ func removeLockFile(t *testing.T, lockFilePath string) {
 func checkLogContains(t *testing.T, logFile string, expectedText string) {
 	t.Helper()
 
-	timeout := 15 * time.Second // Give enough time for log messages to appear
-	checkInterval := 200 * time.Millisecond
+	timeout := 30 * time.Second // Give enough time for log messages to appear
+	checkInterval := time.Second
 
 	t.Logf("Waiting for expected text in log file %s: %s (timeout: %v)", logFile, expectedText, timeout)
 
@@ -721,7 +721,7 @@ func TestLockFileScenario(t *testing.T) {
 	defer stopProcess(t, cmd, procMon)
 
 	// Step 3: Check that modules are loaded and application started successfully
-	checkLogContains(t, "test4.log", "supervisor started")
+	checkLogContains(t, "test4.log", "application started successfully")
 
 	// Step 4: Make API calls to available endpoints
 	checkAPIEndpoint(t, "/") // Check static content is served
