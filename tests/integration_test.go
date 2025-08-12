@@ -192,127 +192,6 @@ func (la *LogAnalyzer) AnalyzeLine(line string) (isFailure bool, isSuccess bool,
 	return false, false, ""
 }
 
-// waitForServerStart waits for the server to start by checking logs and HTTP endpoint
-//
-//nolint:unused // keeping for potential future use
-func waitForServerStart(ctx context.Context, t *testing.T, stderr io.Reader) error {
-	t.Helper()
-
-	scanner := bufio.NewScanner(stderr)
-	timeout := time.After(testTimeout)
-	serverReady := make(chan bool, 1)
-	logOutput := make(chan string, 5000) // Buffered channel for log lines
-	scannerDone := make(chan bool, 1)
-	logAnalyzer := NewLogAnalyzer()
-	var collectedLogs []string // Collect all logs for timeout debugging
-
-	t.Logf("Waiting for server to start (timeout: %v) with real-time log analysis", testTimeout)
-
-	// Read logs in separate goroutine with immediate analysis
-	go func() {
-		defer close(scannerDone)
-		for scanner.Scan() {
-			line := scanner.Text()
-			select {
-			case logOutput <- line:
-			case <-timeout:
-				return
-			case <-ctx.Done():
-				return
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			// Only log if context is not canceled (avoids cleanup error noise)
-			select {
-			case <-ctx.Done():
-				// Context canceled, don't log cleanup errors
-			default:
-				t.Logf("Error reading stderr: %v", err)
-			}
-		}
-	}()
-
-	// Check server readiness via HTTP in parallel (more frequent checks)
-	go func() {
-		httpCheckInterval := time.NewTicker(200 * time.Millisecond) // More frequent checks
-		defer httpCheckInterval.Stop()
-
-		for {
-			select {
-			case <-timeout:
-				return
-			case <-ctx.Done():
-				return
-			case <-httpCheckInterval.C:
-				reqCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second) // Shorter timeout
-				req, err := http.NewRequestWithContext(reqCtx, "GET", serverURL, nil)
-				if err != nil {
-					cancel()
-					continue
-				}
-				resp, err := http.DefaultClient.Do(req)
-				cancel()
-				if err == nil {
-					resp.Body.Close()
-					select {
-					case serverReady <- true:
-					default:
-					}
-					return
-				}
-			}
-		}
-	}()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("context canceled while waiting for server to start")
-		case <-timeout:
-			logOutput := ""
-			if len(collectedLogs) > 0 {
-				logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ===\n"
-			}
-			return fmt.Errorf("timeout waiting for server to start - no critical errors detected but server didn't become ready%s", logOutput)
-		case <-serverReady:
-			t.Log("Server is ready and responding to HTTP requests")
-			// Shorter wait time since we have real-time analysis
-			time.Sleep(1 * time.Second)
-			return nil
-		case line := <-logOutput:
-			t.Logf("Server log: %s", line)
-			collectedLogs = append(collectedLogs, line) // Collect logs for potential timeout debugging
-
-			// Real-time log analysis for immediate failure detection
-			isFailure, isSuccess, message := logAnalyzer.AnalyzeLine(line)
-			if isFailure {
-				return fmt.Errorf("server startup failed: %s", message)
-			}
-			if isSuccess {
-				t.Logf("Success indicator detected: %s", message)
-			}
-
-		case <-scannerDone:
-			t.Log("Log scanner finished - checking if server is responsive")
-			// Scanner is done, give HTTP check a bit more time
-			select {
-			case <-serverReady:
-				t.Log("Server is ready and responding to HTTP requests")
-				time.Sleep(1 * time.Second)
-				return nil
-			case <-time.After(3 * time.Second): // Shorter wait
-				logOutput := ""
-				if len(collectedLogs) > 0 {
-					logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ===\n"
-				}
-				return fmt.Errorf("server logs ended but server is not responding to HTTP requests%s", logOutput)
-			case <-ctx.Done():
-				return fmt.Errorf("context canceled while waiting for server response")
-			}
-		}
-	}
-}
-
 // ProcessMonitor manages a single cmd.Wait() call to avoid race conditions
 type ProcessMonitor struct {
 	cmd     *exec.Cmd
@@ -523,6 +402,13 @@ func waitForServerStartFromFile(ctx context.Context, t *testing.T, logFile strin
 			logOutput := ""
 			if len(collectedLogs) > 0 {
 				logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ===\n"
+			} else {
+				// Try to read the log file directly if we didn't collect any logs
+				if content, err := os.ReadFile(logFile); err == nil && len(content) > 0 {
+					logOutput = "\n=== LOG FILE CONTENTS ===\n" + string(content) + "\n=== END LOG FILE ===\n"
+				} else {
+					logOutput = fmt.Sprintf("\n=== LOG FILE STATUS ===\nLog file: %s, Error: %v, Size: %d bytes\n=== END STATUS ===\n", logFile, err, len(content))
+				}
 			}
 			return fmt.Errorf("timeout waiting for server to start after %v%s", testTimeout, logOutput)
 		case <-serverReady:
@@ -553,6 +439,13 @@ func waitForServerStartFromFile(ctx context.Context, t *testing.T, logFile strin
 				logOutput := ""
 				if len(collectedLogs) > 0 {
 					logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ===\n"
+				} else {
+					// Try to read the log file directly if we didn't collect any logs
+					if content, err := os.ReadFile(logFile); err == nil && len(content) > 0 {
+						logOutput = "\n=== LOG FILE CONTENTS ===\n" + string(content) + "\n=== END LOG FILE ===\n"
+					} else {
+						logOutput = fmt.Sprintf("\n=== LOG FILE STATUS ===\nLog file: %s, Error: %v, Size: %d bytes\n=== END STATUS ===\n", logFile, err, len(content))
+					}
 				}
 				return fmt.Errorf("log file ended but server is not responding to HTTP requests%s", logOutput)
 			case <-ctx.Done():
