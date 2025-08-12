@@ -203,14 +203,19 @@ func (pm *ProcessMonitor) Done() <-chan error {
 	return pm.done
 }
 
-// waitForServerStartWithStderrPipe waits for server to start by reading stderr directly
-func waitForServerStartWithStderrPipe(t *testing.T, cmd *exec.Cmd) *ProcessMonitor {
+// waitForServerStartWithAllPipes waits for server to start by reading both stderr and stdout directly
+func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor {
 	t.Helper()
 
-	// Create stderr pipe for direct reading
+	// Create both stderr and stdout pipes for direct reading
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatalf("Failed to create stderr pipe: %v", err)
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("Failed to create stdout pipe: %v", err)
 	}
 
 	procMon := NewProcessMonitor(cmd)
@@ -239,11 +244,14 @@ func waitForServerStartWithStderrPipe(t *testing.T, cmd *exec.Cmd) *ProcessMonit
 		procMon.Start()
 	}()
 
-	// Read stderr continuously in real-time
-	go func() {
-		defer close(readerDone)
+	// Read both stderr and stdout continuously in real-time
+	var readerWg sync.WaitGroup
+	var serverReadySignaled int64 // Use atomic for thread safety
+	readerWg.Add(2)               // We'll have 2 readers
 
-		serverReadySignaled := false
+	// Read stderr in a goroutine
+	go func() {
+		defer readerWg.Done()
 
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
@@ -255,7 +263,7 @@ func waitForServerStartWithStderrPipe(t *testing.T, cmd *exec.Cmd) *ProcessMonit
 
 				// Collect for potential error reporting (thread-safe)
 				logsMutex.Lock()
-				collectedLogs = append(collectedLogs, line)
+				collectedLogs = append(collectedLogs, "[STDERR] "+line)
 				logsMutex.Unlock()
 
 				// Log the line
@@ -264,7 +272,10 @@ func waitForServerStartWithStderrPipe(t *testing.T, cmd *exec.Cmd) *ProcessMonit
 				// Analyze line in real-time
 				isFailure, isSuccess, message := analyzer.AnalyzeLine(line)
 				if isFailure {
-					readerDone <- fmt.Errorf("server startup failed: %s", message)
+					select {
+					case readerDone <- fmt.Errorf("server startup failed: %s", message):
+					default:
+					}
 					return
 				}
 				if isSuccess {
@@ -272,10 +283,10 @@ func waitForServerStartWithStderrPipe(t *testing.T, cmd *exec.Cmd) *ProcessMonit
 				}
 
 				// Check if server is responding via HTTP (but only signal once)
-				if !serverReadySignaled && isServerReady() {
+				if atomic.LoadInt64(&serverReadySignaled) == 0 && isServerReady() {
 					select {
 					case serverReady <- true:
-						serverReadySignaled = true
+						atomic.StoreInt64(&serverReadySignaled, 1)
 						t.Log("Server is ready and responding to HTTP requests")
 					default:
 					}
@@ -286,25 +297,88 @@ func waitForServerStartWithStderrPipe(t *testing.T, cmd *exec.Cmd) *ProcessMonit
 
 		// Check scanner error
 		if err := scanner.Err(); err != nil {
-			readerDone <- fmt.Errorf("error reading stderr: %w", err)
-			return
+			t.Logf("Error reading stderr: %v", err)
+		}
+	}()
+
+	// Read stdout in a separate goroutine
+	go func() {
+		defer readerWg.Done()
+
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				line := scanner.Text()
+
+				// Collect for potential error reporting (thread-safe)
+				logsMutex.Lock()
+				collectedLogs = append(collectedLogs, "[STDOUT] "+line)
+				logsMutex.Unlock()
+
+				// Log the line
+				t.Logf("Server stdout: %s", line)
+
+				// Analyze line in real-time (stdout might also contain important messages)
+				isFailure, isSuccess, message := analyzer.AnalyzeLine(line)
+				if isFailure {
+					select {
+					case readerDone <- fmt.Errorf("server startup failed: %s", message):
+					default:
+					}
+					return
+				}
+				if isSuccess {
+					t.Logf("Success indicator detected: %s", message)
+				}
+
+				// Check if server is responding via HTTP (but only signal once)
+				if atomic.LoadInt64(&serverReadySignaled) == 0 && isServerReady() {
+					select {
+					case serverReady <- true:
+						atomic.StoreInt64(&serverReadySignaled, 1)
+						t.Log("Server is ready and responding to HTTP requests")
+					default:
+					}
+				}
+				// Continue reading logs even after server is ready
+			}
 		}
 
-		// Scanner finished normally - check if server is ready (if not already signaled)
-		if !serverReadySignaled && isServerReady() {
-			select {
-			case serverReady <- true:
-				t.Log("Server is ready and responding to HTTP requests")
-			default:
+		// Check scanner error
+		if err := scanner.Err(); err != nil {
+			t.Logf("Error reading stdout: %v", err)
+		}
+	}()
+
+	// Monitor when both readers finish
+	go func() {
+		defer close(readerDone)
+
+		readerWg.Wait()
+
+		// Both readers finished - final server ready check if not already signaled
+		if atomic.LoadInt64(&serverReadySignaled) == 0 {
+			if isServerReady() {
+				select {
+				case serverReady <- true:
+					t.Log("Server is ready and responding to HTTP requests")
+				default:
+				}
+			} else {
+				logOutput := ""
+				logsMutex.Lock()
+				if len(collectedLogs) > 0 {
+					logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ==="
+				}
+				logsMutex.Unlock()
+				select {
+				case readerDone <- fmt.Errorf("server logs ended but server is not responding to HTTP requests%s", logOutput):
+				default:
+				}
 			}
-		} else if !serverReadySignaled {
-			logOutput := ""
-			logsMutex.Lock()
-			if len(collectedLogs) > 0 {
-				logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ==="
-			}
-			logsMutex.Unlock()
-			readerDone <- fmt.Errorf("server logs ended but server is not responding to HTTP requests%s", logOutput)
 		}
 	}()
 
@@ -595,6 +669,7 @@ func checkWippyLockExists(t *testing.T) {
 
 // TestFirstScenario tests the first scenario: clean start, module loading, and API calls
 func TestFirstScenario(t *testing.T) {
+	t.Context()
 	tc := NewTestContext()
 	t.Log("Starting Test 1: Clean start and module verification")
 
@@ -609,7 +684,7 @@ func TestFirstScenario(t *testing.T) {
 	cmd.Dir = projectRoot
 
 	// Step 2: Wait for server to start and get process monitor (reading stderr directly)
-	procMon := waitForServerStartWithStderrPipe(t, cmd)
+	procMon := waitForServerStartWithAllPipes(t, cmd)
 
 	// Ensure we stop the process at the end
 	defer func() {
@@ -618,7 +693,7 @@ func TestFirstScenario(t *testing.T) {
 
 	// Step 3: Check that modules are loaded and application started successfully
 	// Check collected logs for application started message
-	// Note: For TestFirstScenario, logs are collected by waitForServerStartWithStderrPipe
+	// Note: For TestFirstScenario, logs are collected by waitForServerStartWithAllPipes
 	t.Log("Server successfully completed startup - logs were processed in real-time")
 
 	// Step 4: Check that .wippy contains expected modules
@@ -642,18 +717,26 @@ func TestUpdateScenario(t *testing.T) {
 	cmd := exec.Command("go", "run", "./cmd/runner", "-v", "--update", "app/")
 	cmd.Dir = projectRoot
 
-	// Capture stderr with pipe for in-memory processing
+	// Capture both stderr and stdout with pipes for in-memory processing
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatalf("Failed to create stderr pipe: %v", err)
 	}
 
-	// Channel to collect stderr output
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("Failed to create stdout pipe: %v", err)
+	}
+
+	// Channel to collect all output
 	var collectedLogs []string
 	var mu sync.Mutex
+	var readerWg sync.WaitGroup
+	readerWg.Add(2)
 
 	// Start goroutine to read stderr
 	go func() {
+		defer readerWg.Done()
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -661,11 +744,29 @@ func TestUpdateScenario(t *testing.T) {
 
 			// Thread-safe append to logs
 			mu.Lock()
-			collectedLogs = append(collectedLogs, line)
+			collectedLogs = append(collectedLogs, "[STDERR] "+line)
 			mu.Unlock()
 		}
 		if err := scanner.Err(); err != nil {
 			t.Logf("Error reading stderr: %v", err)
+		}
+	}()
+
+	// Start goroutine to read stdout
+	go func() {
+		defer readerWg.Done()
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			t.Logf("Update stdout: %s", line)
+
+			// Thread-safe append to logs
+			mu.Lock()
+			collectedLogs = append(collectedLogs, "[STDOUT] "+line)
+			mu.Unlock()
+		}
+		if err := scanner.Err(); err != nil {
+			t.Logf("Error reading stdout: %v", err)
 		}
 	}()
 
@@ -680,8 +781,8 @@ func TestUpdateScenario(t *testing.T) {
 		// Don't fail here - command might exit with error but still produce useful output
 	}
 
-	// Give a moment for stderr reading to complete
-	time.Sleep(100 * time.Millisecond)
+	// Wait for both readers to complete
+	readerWg.Wait()
 
 	// Step 2: Check collected logs for module updates (thread-safe read)
 	mu.Lock()
@@ -712,18 +813,26 @@ func TestInstallScenario(t *testing.T) {
 	cmd := exec.Command("go", "run", "./cmd/runner", "-v", "--install", "app/")
 	cmd.Dir = projectRoot
 
-	// Capture stderr with pipe for in-memory processing
+	// Capture both stderr and stdout with pipes for in-memory processing
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatalf("Failed to create stderr pipe: %v", err)
 	}
 
-	// Channel to collect stderr output
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("Failed to create stdout pipe: %v", err)
+	}
+
+	// Channel to collect all output
 	var collectedLogs []string
 	var mu sync.Mutex
+	var readerWg sync.WaitGroup
+	readerWg.Add(2)
 
 	// Start goroutine to read stderr
 	go func() {
+		defer readerWg.Done()
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -731,11 +840,29 @@ func TestInstallScenario(t *testing.T) {
 
 			// Thread-safe append to logs
 			mu.Lock()
-			collectedLogs = append(collectedLogs, line)
+			collectedLogs = append(collectedLogs, "[STDERR] "+line)
 			mu.Unlock()
 		}
 		if err := scanner.Err(); err != nil {
 			t.Logf("Error reading stderr: %v", err)
+		}
+	}()
+
+	// Start goroutine to read stdout
+	go func() {
+		defer readerWg.Done()
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			t.Logf("Install stdout: %s", line)
+
+			// Thread-safe append to logs
+			mu.Lock()
+			collectedLogs = append(collectedLogs, "[STDOUT] "+line)
+			mu.Unlock()
+		}
+		if err := scanner.Err(); err != nil {
+			t.Logf("Error reading stdout: %v", err)
 		}
 	}()
 
@@ -750,8 +877,8 @@ func TestInstallScenario(t *testing.T) {
 		// Don't fail here - command might exit with error but still produce useful output
 	}
 
-	// Give a moment for stderr reading to complete
-	time.Sleep(100 * time.Millisecond)
+	// Wait for both readers to complete
+	readerWg.Wait()
 
 	// Step 2: Check collected logs for module installation (thread-safe read)
 	mu.Lock()
@@ -780,7 +907,7 @@ func TestLockFileScenario(t *testing.T) {
 	cmd.Dir = projectRoot
 
 	// Step 2: Wait for server to start and get process monitor (reading stderr directly)
-	procMon := waitForServerStartWithStderrPipe(t, cmd)
+	procMon := waitForServerStartWithAllPipes(t, cmd)
 
 	// Ensure we stop the process at the end
 	defer func() {
@@ -789,7 +916,7 @@ func TestLockFileScenario(t *testing.T) {
 
 	// Step 3: Check that modules are loaded and application started successfully
 	// Check collected logs for application started message
-	// Note: For TestLockFileScenario, logs are collected by waitForServerStartWithStderrPipe
+	// Note: For TestLockFileScenario, logs are collected by waitForServerStartWithAllPipes
 	t.Log("Server successfully completed startup - logs were processed in real-time")
 
 	// Step 4: Make API calls to available endpoints
