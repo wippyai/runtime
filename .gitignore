@@ -32,3 +32,4 @@ dist/
 /bin/
 /.wippy/
 *.log
+/.cursor/

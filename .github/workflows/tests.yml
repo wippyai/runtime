@@ -76,19 +76,32 @@ jobs:
         shell: msys2 {0}
         run: go mod download
 
-      - name: Run tests
+      - name: Run integration tests
         if: matrix.os != 'windows-latest'
         env:
           CGO_ENABLED: 1
           GORACE: "halt_on_error=1"
-        run: |
-          go test --tags "fts5 sqlite_vec" -race -timeout=10m -parallel=4 ./...
+        run: make test-integration-ci
 
-      - name: Run tests (Windows)
+      - name: Run integration tests (Windows)
         if: matrix.os == 'windows-latest'
         shell: msys2 {0}
         env:
           CGO_ENABLED: 1
           GORACE: "halt_on_error=1"
-        run: |
-          go test --tags "fts5 sqlite_vec" -race -timeout=10m -parallel=4 ./...
+        run: make test-integration-ci
+
+      - name: Run unit tests
+        if: matrix.os != 'windows-latest'
+        env:
+          CGO_ENABLED: 1
+          GORACE: "halt_on_error=1"
+        run: make test-unit-ci
+
+      - name: Run unit tests (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        env:
+          CGO_ENABLED: 1
+          GORACE: "halt_on_error=1"
+        run: make test-unit-ci
