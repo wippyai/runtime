@@ -136,11 +136,11 @@ func NewLogAnalyzer() *LogAnalyzer {
 		},
 		successPatterns: []string{
 			"application started successfully",
-			// "server started",
-			// "service started",
-			// "ready to serve",
-			// "listening on",
-			//"server is ready",
+			"server started",
+			"service started",
+			"ready to serve",
+			"listening on",
+			"server is ready",
 		},
 	}
 }
@@ -400,8 +400,6 @@ func waitForServerStartWithAllPipes(rootCtx context.Context, t *testing.T, cmd *
 	serverIsReady := false
 
 	for {
-		defer cancel()
-
 		select {
 		case err := <-procMon.Done():
 			if err != nil {
@@ -426,7 +424,7 @@ func waitForServerStartWithAllPipes(rootCtx context.Context, t *testing.T, cmd *
 			}
 			t.Log("Log reader finished successfully")
 			return procMon
-		case <-ctx.Done():
+		case <-rootCtx.Done():
 			if serverIsReady {
 				t.Log("Server was ready, returning successfully")
 				return procMon
