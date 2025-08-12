@@ -107,8 +107,8 @@ func getProjectRoot(t *testing.T) string {
 	return wd
 }
 
-// runCommand executes a command and returns its output and error
-func runCommand(t *testing.T, command string, args []string, logFile string) (cmd *exec.Cmd, stderr io.Reader, err error) {
+// runCommand executes a command and redirects stderr to logFile (like shell 2> redirection)
+func runCommand(t *testing.T, command string, args []string, logFile string) (cmd *exec.Cmd, logFileHandle *os.File, err error) {
 	t.Helper()
 
 	projectRoot := getProjectRoot(t)
@@ -121,23 +121,16 @@ func runCommand(t *testing.T, command string, args []string, logFile string) (cm
 	cmd = exec.Command(command, args...)
 	cmd.Dir = projectRoot
 
-	// Create log file for stderr
-	logFileHandle, err := os.Create(logFile)
+	// Create log file for stderr and redirect all stderr to it (like 2> redirection)
+	logFileHandle, err = os.Create(logFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create log file %s: %w", logFile, err)
 	}
 
-	// Create a pipe to read stderr while also writing to file
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		logFileHandle.Close()
-		return nil, nil, fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
+	// Redirect stderr directly to file
+	cmd.Stderr = logFileHandle
 
-	// Use a MultiWriter to write stderr to both file and our reader
-	stderr = io.TeeReader(stderrPipe, logFileHandle)
-
-	return cmd, stderr, nil
+	return cmd, logFileHandle, nil
 }
 
 // LogAnalyzer performs real-time log analysis for immediate failure detection
@@ -200,6 +193,8 @@ func (la *LogAnalyzer) AnalyzeLine(line string) (isFailure bool, isSuccess bool,
 }
 
 // waitForServerStart waits for the server to start by checking logs and HTTP endpoint
+//
+//nolint:unused // keeping for potential future use
 func waitForServerStart(ctx context.Context, t *testing.T, stderr io.Reader) error {
 	t.Helper()
 
@@ -355,15 +350,15 @@ func (pm *ProcessMonitor) Done() <-chan error {
 	return pm.done
 }
 
-// waitForServerStartWithProcessMonitoring waits for server start while monitoring process health
-func waitForServerStartWithProcessMonitoring(t *testing.T, cmd *exec.Cmd, stderr io.Reader) *ProcessMonitor {
+// waitForServerStartWithLogFile waits for server start while monitoring process health, reading from log file
+func waitForServerStartWithLogFile(t *testing.T, cmd *exec.Cmd, logFile string) *ProcessMonitor {
 	t.Helper()
 
 	// Create and start process monitor
 	procMon := NewProcessMonitor(cmd)
 	procMon.Start()
 
-	// Create context with timeout for proper cancellation (shorter since we have fail-fast analysis)
+	// Create context with timeout for proper cancellation
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout+10*time.Second)
 	defer cancel()
 
@@ -373,12 +368,12 @@ func waitForServerStartWithProcessMonitoring(t *testing.T, cmd *exec.Cmd, stderr
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				waitErr <- fmt.Errorf("panic in waitForServerStart: %v", r)
+				waitErr <- fmt.Errorf("panic in waitForServerStartFromFile: %v", r)
 			}
 		}()
 
-		// Use context-aware waitForServerStart
-		err := waitForServerStart(ctx, t, stderr)
+		// Use context-aware waitForServerStartFromFile
+		err := waitForServerStartFromFile(ctx, t, logFile)
 		waitErr <- err
 	}()
 
@@ -398,10 +393,173 @@ func waitForServerStartWithProcessMonitoring(t *testing.T, cmd *exec.Cmd, stderr
 		t.Log("Server started successfully")
 		return procMon
 	case <-ctx.Done():
-		// Context timeout - this shouldn't happen since waitForServerStart should return first
+		// Context timeout - this shouldn't happen since waitForServerStartFromFile should return first
 		t.Fatal("Context timeout exceeded - killing process")
 	}
 	return nil
+}
+
+// waitForServerStartWithProcessMonitoring waits for server start while monitoring process health
+
+// waitForServerStartFromFile waits for server start by tailing the log file
+func waitForServerStartFromFile(ctx context.Context, t *testing.T, logFile string) error {
+	t.Helper()
+
+	timeout := time.After(testTimeout)
+	serverReady := make(chan bool, 1)
+	scannerDone := make(chan bool, 1)
+	logOutput := make(chan string, 100)
+
+	analyzer := NewLogAnalyzer()
+	var collectedLogs []string
+
+	t.Logf("Waiting for server to start (timeout: %v) by tailing log file: %s", testTimeout, logFile)
+
+	// Tail the log file
+	go func() {
+		defer close(scannerDone)
+
+		var file *os.File
+		var scanner *bufio.Scanner
+		var lastSize int64
+
+		ticker := time.NewTicker(100 * time.Millisecond) // Check file every 100ms
+		defer ticker.Stop()
+		defer func() {
+			if file != nil {
+				file.Close()
+			}
+		}()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Check if file exists and has new content
+				info, err := os.Stat(logFile)
+				if err != nil {
+					continue // File doesn't exist yet, keep waiting
+				}
+
+				if info.Size() == lastSize {
+					continue // No new content
+				}
+
+				// Open file for reading if not already open, or reopen if it was recreated
+				if file == nil {
+					file, err = os.Open(logFile)
+					if err != nil {
+						continue
+					}
+					scanner = bufio.NewScanner(file)
+					// Seek to the last position
+					if lastSize > 0 {
+						if _, err := file.Seek(lastSize, 0); err != nil {
+							// If seek fails, continue from beginning
+							t.Logf("Failed to seek to position %d in log file: %v", lastSize, err)
+						}
+					}
+				}
+
+				// Read new lines
+				for scanner.Scan() {
+					line := scanner.Text()
+					select {
+					case logOutput <- line:
+					case <-ctx.Done():
+						return
+					}
+				}
+
+				// Check for scanner errors
+				if err := scanner.Err(); err != nil {
+					// File might have been rotated or closed, reopen on next iteration
+					file.Close()
+					file = nil
+					scanner = nil
+					continue
+				}
+
+				lastSize = info.Size()
+			}
+		}
+	}()
+
+	// Check server readiness via HTTP in parallel
+	go func() {
+		httpCheckInterval := time.NewTicker(200 * time.Millisecond)
+		defer httpCheckInterval.Stop()
+
+		client := &http.Client{Timeout: 1 * time.Second}
+
+		for {
+			select {
+			case <-httpCheckInterval.C:
+				req, err := http.NewRequestWithContext(ctx, "GET", serverURL, nil)
+				if err != nil {
+					continue
+				}
+				if resp, err := client.Do(req); err == nil {
+					resp.Body.Close()
+					if resp.StatusCode < 500 {
+						select {
+						case serverReady <- true:
+						default:
+						}
+						return
+					}
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Main wait loop
+	for {
+		select {
+		case <-timeout:
+			logOutput := ""
+			if len(collectedLogs) > 0 {
+				logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ===\n"
+			}
+			return fmt.Errorf("timeout waiting for server to start after %v%s", testTimeout, logOutput)
+		case <-serverReady:
+			t.Log("Server is ready and responding to HTTP requests")
+			time.Sleep(1 * time.Second)
+			return nil
+		case line := <-logOutput:
+			t.Logf("Server log: %s", line)
+			collectedLogs = append(collectedLogs, line)
+
+			// Analyze log for immediate failure detection
+			isFailure, isSuccess, message := analyzer.AnalyzeLine(line)
+			if isFailure {
+				return fmt.Errorf("server startup failed: %s", message)
+			}
+			if isSuccess {
+				t.Logf("Success indicator detected: %s", message)
+			}
+
+		case <-scannerDone:
+			t.Log("Log file scanning finished - checking if server is responsive")
+			select {
+			case <-serverReady:
+				t.Log("Server is ready and responding to HTTP requests")
+				time.Sleep(1 * time.Second)
+				return nil
+			case <-time.After(3 * time.Second):
+				logOutput := ""
+				if len(collectedLogs) > 0 {
+					logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ===\n"
+				}
+				return fmt.Errorf("log file ended but server is not responding to HTTP requests%s", logOutput)
+			case <-ctx.Done():
+				return fmt.Errorf("context canceled while waiting for server response")
+			}
+		}
+	}
 }
 
 // checkModulesExist verifies that expected modules exist in .wippy directory
@@ -638,26 +796,36 @@ func TestFirstScenario(t *testing.T) {
 	removeLockFile(t, "app/wippy.lock")
 
 	// Step 1: Run the application
-	cmd, stderr, err := runCommand(t, "go", []string{"run", "./cmd/runner", "-v", "app/"}, "test.log")
+	cmd, logFile, err := runCommand(t, "go", []string{"run", "./cmd/runner", "-v", "app/"}, "test.log")
 	if err != nil {
 		t.Fatalf("Failed to setup command: %v", err)
 	}
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
+		logFile.Close()
 		t.Fatalf("Failed to start command: %v", err)
 	}
 
-	// Step 2: Wait for server to start and get process monitor
-	procMon := waitForServerStartWithProcessMonitoring(t, cmd, stderr)
+	// Give the process a moment to start and create the log file
+	time.Sleep(100 * time.Millisecond)
 
-	// Ensure we stop the process at the end
-	defer stopProcess(t, cmd, procMon, tc)
+	// Step 2: Wait for server to start and get process monitor (reading from log file)
+	procMon := waitForServerStartWithLogFile(t, cmd, "test.log")
 
-	// Step 3: Check that .wippy contains expected modules
+	// Ensure we stop the process at the end and close the log file
+	defer func() {
+		stopProcess(t, cmd, procMon, tc)
+		logFile.Close()
+	}()
+
+	// Step 3: Check that modules are loaded and application started successfully
+	checkLogContains(t, "test.log", "application started successfully")
+
+	// Step 4: Check that .wippy contains expected modules
 	checkModulesExist(t)
 
-	// Step 4 & 5: Make API calls to available endpoints
+	// Step 5: Make API calls to available endpoints
 	checkAPIEndpoint(t, "/") // Check static content is served
 
 	tc.markTestCompleted()
@@ -743,21 +911,28 @@ func TestLockFileScenario(t *testing.T) {
 	t.Log("Starting Test 4: Running with fresh modules and checking server startup")
 
 	// Step 1: Run the application
-	cmd, stderr, err := runCommand(t, "go", []string{"run", "./cmd/runner", "-v", "app/"}, "test4.log")
+	cmd, logFile, err := runCommand(t, "go", []string{"run", "./cmd/runner", "-v", "app/"}, "test4.log")
 	if err != nil {
 		t.Fatalf("Failed to setup command: %v", err)
 	}
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
+		logFile.Close()
 		t.Fatalf("Failed to start command: %v", err)
 	}
 
-	// Step 2: Wait for server to start and get process monitor
-	procMon := waitForServerStartWithProcessMonitoring(t, cmd, stderr)
+	// Give the process a moment to start and create the log file
+	time.Sleep(100 * time.Millisecond)
 
-	// Ensure we stop the process at the end
-	defer stopProcess(t, cmd, procMon, tc)
+	// Step 2: Wait for server to start and get process monitor (reading from log file)
+	procMon := waitForServerStartWithLogFile(t, cmd, "test4.log")
+
+	// Ensure we stop the process at the end and close the log file
+	defer func() {
+		stopProcess(t, cmd, procMon, tc)
+		logFile.Close()
+	}()
 
 	// Step 3: Check that modules are loaded and application started successfully
 	checkLogContains(t, "test4.log", "application started successfully")
