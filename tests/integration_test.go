@@ -107,32 +107,6 @@ func getProjectRoot(t *testing.T) string {
 	return wd
 }
 
-// runCommand executes a command and redirects stderr to logFile (like shell 2> redirection)
-func runCommand(t *testing.T, command string, args []string, logFile string) (cmd *exec.Cmd, logFileHandle *os.File, err error) {
-	t.Helper()
-
-	projectRoot := getProjectRoot(t)
-
-	// Change to project root directory
-	if err := os.Chdir(projectRoot); err != nil {
-		return nil, nil, fmt.Errorf("failed to change directory: %w", err)
-	}
-
-	cmd = exec.Command(command, args...)
-	cmd.Dir = projectRoot
-
-	// Create log file for stderr and redirect all stderr to it (like 2> redirection)
-	logFileHandle, err = os.Create(logFile)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create log file %s: %w", logFile, err)
-	}
-
-	// Redirect stderr directly to file
-	cmd.Stderr = logFileHandle
-
-	return cmd, logFileHandle, nil
-}
-
 // LogAnalyzer performs real-time log analysis for immediate failure detection
 type LogAnalyzer struct {
 	failurePatterns []string
@@ -697,10 +671,18 @@ func TestFirstScenario(t *testing.T) {
 	removeLockFile(t, "app/wippy.lock")
 
 	// Step 1: Run the application (start long-running server)
-	cmd, logFile, err := runCommand(t, "go", []string{"run", "./cmd/runner", "-v", "app/"}, "test.log")
+	projectRoot := getProjectRoot(t)
+
+	cmd := exec.Command("go", "run", "./cmd/runner", "-v", "app/")
+	cmd.Dir = projectRoot
+
+	// Capture stderr to file
+	logFile, err := os.Create("test.log")
 	if err != nil {
-		t.Fatalf("Failed to setup command: %v", err)
+		t.Fatalf("Failed to create log file: %v", err)
 	}
+
+	cmd.Stderr = logFile
 
 	// Start the command asynchronously (this is a long-running server)
 	if err := cmd.Start(); err != nil {
@@ -812,10 +794,18 @@ func TestLockFileScenario(t *testing.T) {
 	t.Log("Starting Test 4: Running with fresh modules and checking server startup")
 
 	// Step 1: Run the application
-	cmd, logFile, err := runCommand(t, "go", []string{"run", "./cmd/runner", "-v", "app/"}, "test4.log")
+	projectRoot := getProjectRoot(t)
+
+	cmd := exec.Command("go", "run", "./cmd/runner", "-v", "app/")
+	cmd.Dir = projectRoot
+
+	// Capture stderr to file
+	logFile, err := os.Create("test4.log")
 	if err != nil {
-		t.Fatalf("Failed to setup command: %v", err)
+		t.Fatalf("Failed to create log file: %v", err)
 	}
+
+	cmd.Stderr = logFile
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
