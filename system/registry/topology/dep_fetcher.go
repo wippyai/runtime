@@ -45,6 +45,9 @@ var DependencyPaths = []PathConfig{
 	// Contract binding dependencies - automatically detect contract and method references
 	{Path: "data.contracts.*.contract", Description: "Contract definition references in bindings", AllowWildcard: true},
 	{Path: "data.contracts.*.methods.*", Description: "Method implementation function references in bindings", AllowWildcard: true},
+	// Environment variable dependencies - extract from fields ending with _env
+	{Path: "data.*_env", Description: "Environment variable dependencies", AllowWildcard: true},
+	{Path: "meta.*_env", Description: "Environment variable dependencies in metadata", AllowWildcard: true},
 }
 
 func extractDependenciesInternal(data any) []string {
@@ -78,6 +81,30 @@ func extractFromPath(data map[string]any, path string, allowWildcard bool) []str
 	return navigatePath(data, segments, 0, allowWildcard)
 }
 
+// matchPattern checks if a key matches a pattern with wildcards
+func matchPattern(key, pattern string) bool {
+	// Handle *_env pattern specifically
+	if pattern == "*_env" {
+		return strings.HasSuffix(key, "_env")
+	}
+
+	// Handle other wildcard patterns
+	if strings.Contains(pattern, "*") {
+		// Simple wildcard matching: replace * with any characters
+		// For now, just check if the key ends with the suffix after *
+		if strings.HasPrefix(pattern, "*") {
+			suffix := strings.TrimPrefix(pattern, "*")
+			return strings.HasSuffix(key, suffix)
+		}
+		if strings.HasSuffix(pattern, "*") {
+			prefix := strings.TrimSuffix(pattern, "*")
+			return strings.HasPrefix(key, prefix)
+		}
+	}
+
+	return key == pattern
+}
+
 func navigatePath(currentData any, segments []string, index int, allowWildcard bool) []string {
 	if index >= len(segments) {
 		return processLeafValue(currentData)
@@ -85,17 +112,23 @@ func navigatePath(currentData any, segments []string, index int, allowWildcard b
 
 	segment := segments[index]
 
-	if segment == "*" && allowWildcard {
+	if allowWildcard && (segment == "*" || strings.Contains(segment, "*")) {
 		var deps []string
 		if currentMap, ok := currentData.(map[string]any); ok {
 			if index >= len(segments)-1 {
-				for _, value := range currentMap {
-					deps = append(deps, processLeafValue(value)...)
+				// Process all matching keys at the leaf level
+				for key, value := range currentMap {
+					if segment == "*" || matchPattern(key, segment) {
+						deps = append(deps, processLeafValue(value)...)
+					}
 				}
 			} else {
-				for _, value := range currentMap {
-					valueDeps := navigatePath(value, segments, index+1, allowWildcard)
-					deps = append(deps, valueDeps...)
+				// Continue navigation for matching keys
+				for key, value := range currentMap {
+					if segment == "*" || matchPattern(key, segment) {
+						valueDeps := navigatePath(value, segments, index+1, allowWildcard)
+						deps = append(deps, valueDeps...)
+					}
 				}
 			}
 		} else if currentArray, ok := currentData.([]any); ok {

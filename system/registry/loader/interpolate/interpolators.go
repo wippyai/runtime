@@ -7,28 +7,6 @@ import (
 	"strings"
 )
 
-// LoadVars replaces placeholders of the form "${variable}" in the input string with
-// their corresponding values from the provided context. If no such placeholders are found,
-// the string is returned unchanged.
-func LoadVars(s string, ctx interface{}) (string, error) {
-	rctx, ok := ctx.(EntryContext)
-	if !ok {
-		return s, nil // Invalid context, skip
-	}
-
-	if !strings.Contains(s, "${") {
-		return s, nil // No variable placeholders, skip
-	}
-
-	result := s
-	for k, v := range rctx.Vars {
-		placeholder := "${" + k + "}"
-		result = strings.ReplaceAll(result, placeholder, v)
-	}
-
-	return result, nil
-}
-
 // LoadFile attempts to load the content of a file specified by a "file://" protocol.
 // If the input string does not start with "file://", it returns the string unchanged.
 // It resolves file paths relative to the provided context, ensuring the resolved path

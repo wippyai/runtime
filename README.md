@@ -69,14 +69,414 @@ Wippy addresses common challenges in modern software development, especially whe
 
 ## Getting Started
 
-*(Placeholder: Add instructions on installation, basic configuration, and running a simple example)*
+### Prerequisites
+
+- Go 1.21 or later
+- Git
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/wippyai/runtime.git
+cd runtime
+```
+
+2. Build the Wippy runtime:
+```bash
+go build -o wippy ./cmd/runner/
+```
+
+### Dependency Management
+
+Wippy uses a lock file system similar to `go mod` or `npm` for managing dependencies. The system supports installing, updating, and managing module dependencies with version control.
+
+#### Basic Commands
+
+**Install dependencies from lock file:**
+```bash
+# Install dependencies from wippy.lock file
+./wippy --install app/
+
+# Install with custom lock file
+./wippy --install --lock-file=custom.lock app/
+
+# Install with verbose logging
+./wippy -v --install app/
+```
+
+**Update dependencies to latest versions:**
+```bash
+# Update all dependencies and regenerate lock file
+./wippy --update app/
+
+# Update with custom lock file
+./wippy --update --lock-file=custom.lock app/
+
+# Update with verbose logging
+./wippy -v --update app/
+```
+
+**Run application with dependency management:**
+```bash
+# Run application (will install dependencies if needed)
+./wippy app/
+
+# Run with custom lock file
+./wippy --lock-file=custom.lock app/
+
+# Run with verbose logging
+./wippy -v app/
+```
+
+#### Lock File Format
+
+The `wippy.lock` file contains dependency information in YAML format:
+
+```yaml
+directory: .wippy
+modules:
+- name: wippy/llm
+  version: v0.0.11
+- name: wippy/security
+  version: v0.0.7
+- name: wippy/terminal
+  version: v0.0.7
+- name: wippy/test
+  version: v0.0.8
+```
+
+#### Application Structure
+
+Create your Wippy application with the following structure:
+
+```
+app/
+├── app.yaml          # Main application configuration
+├── wippy.lock        # Dependency lock file (auto-generated)
+├── src/              # Application source code
+│   ├── chat/
+│   ├── http/
+│   ├── tools/
+│   └── ...
+└── public/           # Static assets
+    ├── index.html
+    └── ...
+```
+
+#### Example Application Configuration
+
+Create `app/app.yaml`:
+
+```yaml
+name: my-wippy-app
+version: 1.0.0
+
+# Declare dependencies
+dependencies:
+  - name: wippy/llm
+    version: v0.0.11
+  - name: wippy/security
+    version: v0.0.7
+  - name: wippy/terminal
+    version: v0.0.7
+
+# Application services
+services:
+  - name: http
+    type: http
+    config:
+      port: 8080
+      routes:
+        - path: /
+          handler: src/http/main.lua
+
+  - name: chat
+    type: process
+    config:
+      entry: src/chat/manager.lua
+```
+
+#### Usage Scenarios
+
+**Scenario 1: New Project Setup**
+```bash
+# 1. Create application directory
+mkdir my-app && cd my-app
+
+# 2. Create app.yaml with dependencies
+# (see example above)
+
+# 3. Install dependencies
+./wippy --install .
+
+# 4. Run application
+./wippy .
+```
+
+**Scenario 2: Updating Dependencies**
+```bash
+# 1. Update to latest versions
+./wippy --update app/
+
+# 2. Review changes in wippy.lock
+cat app/wippy.lock
+
+# 3. Test with updated dependencies
+./wippy app/
+```
+
+**Scenario 3: Using Custom Lock File**
+```bash
+# 1. Create production lock file
+./wippy --update --lock-file=production.lock app/
+
+# 2. Deploy with production lock file
+./wippy --lock-file=production.lock app/
+```
+
+**Scenario 4: Development with Multiple Lock Files**
+```bash
+# Development environment
+./wippy --update --lock-file=dev.lock app/
+
+# Staging environment  
+./wippy --update --lock-file=staging.lock app/
+
+# Production environment
+./wippy --update --lock-file=prod.lock app/
+```
+
+**Scenario 5: CI/CD Pipeline**
+```bash
+# Install dependencies in CI
+./wippy --install app/
+
+# Run tests
+./wippy app/ --test
+
+# Deploy with specific lock file
+./wippy --lock-file=ci.lock app/
+```
+
+#### Command Line Options
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--install` | Install dependencies from lock file | `./wippy --install app/` |
+| `--update` | Update dependencies and regenerate lock file | `./wippy --update app/` |
+| `--lock-file` | Specify custom lock file path | `./wippy --lock-file=custom.lock app/` |
+| `-v, --verbose` | Enable verbose logging | `./wippy -v --install app/` |
+| `--help` | Show help information | `./wippy --help` |
+
+#### Dependency Resolution
+
+- **Install**: Reads `wippy.lock` and installs exact versions
+- **Update**: Resolves latest versions and updates lock file
+- **Run**: Automatically installs dependencies if `.wippy` folder is missing
+
+#### Module Installation
+
+Modules are installed in the `.wippy` directory with the following structure:
+
+```
+.wippy/
+├── wippy/
+│   ├── llm@01984154-6ac5-7325-8b52-27edecfe60f4/
+│   │   └── module-llm-0.0.11/
+│   │       ├── llm.lua
+│   │       ├── models.lua
+│   │       └── ...
+│   ├── security@01978c92-7d02-7b4a-95df-55b57cfe80b7/
+│   └── ...
+└── other-org/
+    └── module@commit-hash/
+```
+
+#### Troubleshooting
+
+**Dependencies not installing:**
+```bash
+# Check if .wippy directory exists
+ls -la .wippy/
+
+# Reinstall dependencies
+rm -rf .wippy
+./wippy --install app/
+```
+
+**Lock file issues:**
+```bash
+# Remove lock file and regenerate
+rm app/wippy.lock
+./wippy --update app/
+```
+
+**Module not found:**
+```bash
+# Check module registry
+./wippy --update app/ 2>&1 | grep "module not found"
+
+# Verify module name and version in app.yaml
+cat app/app.yaml
+```
+
+### Running Your First Application
+
+1. **Create a simple application:**
+```bash
+mkdir hello-wippy
+cd hello-wippy
+```
+
+2. **Create `app.yaml`:**
+```yaml
+name: hello-wippy
+version: 1.0.0
+
+dependencies:
+  - name: wippy/http
+    version: v0.0.7
+
+services:
+  - name: hello
+    type: http
+    config:
+      port: 8080
+      routes:
+        - path: /
+          handler: src/hello.lua
+```
+
+3. **Create `src/hello.lua`:**
+```lua
+local http = require("http")
+
+return function(req, res)
+    res:send("Hello, Wippy!")
+end
+```
+
+4. **Install and run:**
+```bash
+./wippy --install .
+./wippy .
+```
+
+5. **Test the application:**
+```bash
+curl http://localhost:8080
+# Output: Hello, Wippy!
+```
+
+### Next Steps
+
+- Explore the [Wippy documentation](https://docs.wippy.ai)
+- Check out [example applications](https://github.com/wippyai/examples)
+- Join the [community discussions](https://github.com/wippyai/runtime/discussions)
 
 ## Contributing
 
-*(Placeholder: Add guidelines for contributing to the Wippy Runtime project)*
+We welcome contributions to Wippy Runtime! Here's how you can get started:
+
+### Development Setup
+
+1. **Fork and clone the repository:**
+```bash
+git clone https://github.com/your-username/runtime.git
+cd runtime
+```
+
+2. **Build the development version:**
+```bash
+go build -o wippy ./cmd/runner/
+```
+
+3. **Run tests:**
+```bash
+go test ./...
+```
+
+### Working with Dependencies
+
+When developing Wippy Runtime itself, you may need to work with the dependency management system:
+
+**Testing dependency commands:**
+```bash
+# Test install command
+./wippy --install app/
+
+# Test update command  
+./wippy --update app/
+
+# Test with custom lock file
+./wippy --lock-file=test.lock app/
+```
+
+**Debugging dependency issues:**
+```bash
+# Enable verbose logging
+./wippy -v --install app/ 2> debug.log
+
+# Check lock file format
+cat app/wippy.lock
+
+# Verify module installation
+ls -la .wippy/
+```
+
+### Code Style
+
+- Follow Go conventions and use `gofmt`
+- Add tests for new functionality
+- Update documentation for new features
+- Use meaningful commit messages
+
+### Testing
+
+Run the test suite:
+```bash
+# Run all tests
+go test ./...
+
+# Run specific test
+go test ./moduleloader
+
+# Run with coverage
+go test -cover ./...
+```
+
+### Submitting Changes
+
+1. Create a feature branch: `git checkout -b feature/your-feature`
+2. Make your changes and add tests
+3. Commit with clear messages: `git commit -m "Add dependency management system"`
+4. Push and create a pull request
+5. Ensure all tests pass and documentation is updated
+
+### Areas for Contribution
+
+- **Dependency Management**: Enhance the lock file system, add new commands
+- **Module Registry**: Improve module discovery and version resolution
+- **Documentation**: Add examples, improve guides, fix typos
+- **Testing**: Add more test cases, improve coverage
+- **Performance**: Optimize module loading and installation
+- **Security**: Enhance dependency verification and validation
+
+### Questions or Issues?
+
+- [Open an issue](https://github.com/wippyai/runtime/issues) for bugs or feature requests
+- [Join discussions](https://github.com/wippyai/runtime/discussions) for questions
+- Check existing issues before creating new ones
 
 ## License
 
-*(Placeholder: Specify the project's license, e.g., Apache 2.0, MIT)*
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- Thanks to all contributors who have helped build Wippy Runtime
+- Inspired by modern dependency management systems like `go mod` and `npm`
+- Built with Go and Lua for performance and flexibility
 
 [documentation]: https://docs.wippy.ai

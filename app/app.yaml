@@ -1,0 +1,12 @@
+version: "1.0"
+namespace: app
+
+entries:
+  - name: cache
+    kind: store.memory
+    meta:
+      comment: "Application cache storage"
+    max_size: 10000
+    cleanup_interval: 30m
+    lifecycle:
+      auto_start: true

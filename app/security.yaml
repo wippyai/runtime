@@ -59,6 +59,56 @@ entries:
       resources: "*"
       effect: "allow"
 
+  - name: wippy_process_policy
+    kind: security.policy
+    meta:
+      comment: "Wippy process access policy"
+    groups: [ "wippy.security:process" ]
+    policy:
+      actions: 
+        - "store.get"
+        - "store.set"
+        - "store.delete"
+      resources: "app:*"
+      effect: "allow"
+
+  - name: process_store_policy
+    kind: security.policy
+    meta:
+      comment: "Process store access policy"
+    groups: [ "global:user" ]
+    policy:
+      actions: 
+        - "store.get"
+        - "store.set"
+        - "store.delete"
+      resources: "app:*"
+      effect: "allow"
+
+  - name: process_env_policy
+    kind: security.policy
+    meta:
+      comment: "Process environment variable access policy"
+    groups: [ "global:user" ]
+    policy:
+      actions: 
+        - "env.get"
+        - "env.set"
+      resources: "*"
+      effect: "allow"
+
+  - name: wippy_env_policy
+    kind: security.policy
+    meta:
+      comment: "Wippy process environment variable access policy"
+    groups: [ "wippy.security:process" ]
+    policy:
+      actions: 
+        - "env.get"
+        - "env.set"
+      resources: "*"
+      effect: "allow"
+
   - name: auth.tokens
     kind: security.token_store
     meta:
@@ -67,9 +117,8 @@ entries:
         - session
     store: session
     token_length: 32
-    token_key: "${ENV_TOKEN_KEY:-secretkey123}"
+    token_env: ENV_TOKEN_KEY
     default_expiration: 24h
-
   - name: session
     kind: store.memory
     meta:

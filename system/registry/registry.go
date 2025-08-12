@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"go.uber.org/zap"
 
@@ -11,13 +12,14 @@ import (
 	"github.com/ponyruntime/pony/internal/version"
 )
 
-type reg struct {
+type Reg struct {
 	history        registry.History
 	runner         registry.Runner
 	builder        registry.StateBuilder
 	state          registry.State
 	mu             sync.RWMutex
 	currentVersion registry.Version
+	versionNum     atomic.Uint64
 	log            *zap.Logger
 }
 
@@ -27,8 +29,8 @@ func NewRegistry(
 	runner registry.Runner,
 	builder registry.StateBuilder,
 	log *zap.Logger,
-) registry.Registry {
-	return &reg{
+) *Reg {
+	return &Reg{
 		history: history,
 		runner:  runner,
 		builder: builder,
@@ -39,13 +41,13 @@ func NewRegistry(
 
 // --- EntryReader Interface Implementation ---
 
-func (r *reg) GetAllEntries() ([]registry.Entry, error) {
+func (r *Reg) GetAllEntries() ([]registry.Entry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.state, nil
 }
 
-func (r *reg) GetEntry(path registry.ID) (registry.Entry, error) {
+func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -60,11 +62,11 @@ func (r *reg) GetEntry(path registry.ID) (registry.Entry, error) {
 
 // --- StateWriter Interface Implementation ---
 
-func (r *reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
+func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	newVersion := version.FromParent(r.currentVersion, nextVersionID(r.currentVersion))
+	newVersion := version.FromParent(r.currentVersion, r.nextVersionID(r.currentVersion))
 
 	newState, err := r.runner.Transition(ctx, r.state, changes)
 	if err != nil {
@@ -96,9 +98,13 @@ func (r *reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	return newVersion, nil
 }
 
-func (r *reg) ApplyVersion(ctx context.Context, v registry.Version) error {
+func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.currentVersion.ID() == v.ID() {
+		return nil
+	}
 
 	target, err := r.builder.BuildState(r.history, v)
 	if err != nil {
@@ -118,6 +124,10 @@ func (r *reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		return fmt.Errorf("failed transition to version %s: %w", v, err)
 	}
 
+	if err := r.history.SetHead(v); err != nil {
+		return fmt.Errorf("history set head to %d: %w", v.ID(), err)
+	}
+
 	r.state = newState
 	r.currentVersion = v
 
@@ -125,7 +135,7 @@ func (r *reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 }
 
 // rollback state desync between actual state in system and state in history
-func (r *reg) rollback(ctx context.Context, from, to registry.State) error {
+func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	r.log.Debug("attempting to rollback", zap.Any("from", from), zap.Any("to", to))
 
 	partial, err := r.transitionState(ctx, from, to)
@@ -138,7 +148,7 @@ func (r *reg) rollback(ctx context.Context, from, to registry.State) error {
 	return err
 }
 
-func (r *reg) transitionState(ctx context.Context, from, to registry.State) (registry.State, error) {
+func (r *Reg) transitionState(ctx context.Context, from, to registry.State) (registry.State, error) {
 	r.log.Debug("transitioning state", zap.Any("from", from), zap.Any("to", to))
 
 	cs, terr := r.builder.BuildDelta(from, to)
@@ -153,7 +163,7 @@ func (r *reg) transitionState(ctx context.Context, from, to registry.State) (reg
 	return r.runner.Transition(ctx, from, cs)
 }
 
-func (r *reg) Current() (registry.Version, error) {
+func (r *Reg) Current() (registry.Version, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -164,15 +174,15 @@ func (r *reg) Current() (registry.Version, error) {
 	return r.currentVersion, nil
 }
 
-func (r *reg) History() registry.History {
+func (r *Reg) History() registry.History {
 	return r.history
 }
 
 // --- Helper Functions ---
 
-func nextVersionID(head registry.Version) uint {
+func (r *Reg) nextVersionID(head registry.Version) uint {
 	if head == nil {
-		return 1
+		return 0
 	}
-	return head.ID() + 1
+	return uint(r.versionNum.Add(1))
 }

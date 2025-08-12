@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -8,10 +9,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"time"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/joho/godotenv"
+	"github.com/pkg/errors"
+	"github.com/ponyruntime/pony/moduleloader"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	// supported dbs
 	_ "github.com/go-sql-driver/mysql"
@@ -46,6 +51,35 @@ type Config struct {
 	ClusterSecret     string // Secret as string
 	ClusterSecretFile string // Secret from file
 	ClusterAdvertise  string // Advertise IP
+
+	// Dependency management
+	InstallDeps bool
+	UpdateDeps  bool
+	LockFile    string
+}
+
+func initMainLogger(verbose, veryVerbose bool) (*zap.Logger, error) {
+	cfg := zap.NewDevelopmentConfig()
+
+	switch {
+	case veryVerbose:
+		cfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+	case verbose:
+		cfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+		cfg.DisableStacktrace = true
+	default:
+		cfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+		cfg.DisableStacktrace = true
+	}
+
+	cfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
+
+	log, err := cfg.Build()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to build logger")
+	}
+
+	return log, nil
 }
 
 // loadDotEnv loads environment variables from .env files
@@ -95,6 +129,11 @@ func parseFlags() *Config {
 	flag.StringVar(&config.ClusterSecretFile, "cluster-secret-file", "", "path to file containing cluster secret key")
 	flag.StringVar(&config.ClusterAdvertise, "cluster-advertise", "", "cluster advertise IP address")
 
+	// Dependency management flags
+	flag.BoolVar(&config.InstallDeps, "install", false, "install dependencies from lock file")
+	flag.BoolVar(&config.UpdateDeps, "update", false, "update dependencies and regenerate lock file")
+	flag.StringVar(&config.LockFile, "lock-file", moduleloader.DefaultLockFile, "path to lock file")
+
 	flag.Parse()
 
 	// Get folder path from args
@@ -133,19 +172,34 @@ func main() {
 
 	config := parseFlags()
 
-	// Create and initialize application
-	app, err := NewApp(config)
+	// Initialize logger at the top level
+	logger, err := initMainLogger(config.Verbose, config.VeryVerbose)
 	if err != nil {
 		fmt.Printf("Failed to create application: %v\n", err)
 		os.Exit(1)
 	}
 
+	// Check if we need to run dependency commands
+	if config.InstallDeps || config.UpdateDeps {
+		depsManager := NewDependencyManager(config, logger)
+		if err := depsManager.RunDependencyCommand(context.Background()); err != nil {
+			logger.Fatal("failed to run dependency command", zap.Error(err))
+		}
+
+		return
+	}
+
+	// Create and initialize application
+	app, err := NewApp(config, logger)
+	if err != nil {
+		logger.Fatal("Failed to create application", zap.Error(err))
+	}
+
 	// Load environment variables
-	loadDotEnv(app.logger)
+	loadDotEnv(logger)
 
 	if err := app.Initialize(); err != nil {
-		fmt.Printf("Failed to initialize application: %v\n", err)
-		os.Exit(1)
+		logger.Fatal("Failed to initialize application", zap.Error(err))
 	}
 
 	// Configure services

@@ -30,6 +30,7 @@ const (
 	KindStorageMemory registry.Kind = "env.storage.memory"
 	KindStorageFile   registry.Kind = "env.storage.file"
 	KindStorageOS     registry.Kind = "env.storage.os"
+	KindStorageRouter registry.Kind = "env.storage.router"
 
 	// Variable registry kind
 	KindVariable registry.Kind = "env.variable"
@@ -55,8 +56,9 @@ type (
 
 	Registry interface {
 		Get(ctx context.Context, name string) (string, error)
+		GetFromStorage(ctx context.Context, name string) (string, error)
 		Set(ctx context.Context, name string, value string) error
-		All(ctx context.Context) ([]Storage, error)
+		All(ctx context.Context) (map[string]string, error)
 	}
 
 	Variable struct {

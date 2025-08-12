@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/ponyruntime/pony/runtime/noop"
+
 	"github.com/ponyruntime/pony/runtime/lua/modules/html"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -217,6 +219,14 @@ func withEphemeralHost(a *App) eventbus.EventHandler {
 	))
 }
 
+//nolint:unused // it breaks runtime. use only for dev purpose
+func withNoopRuntime(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("(function|workflow|process|library).*", noop.NewNoopRuntime(
+		a.eventBus,
+		a.logger.Named("noop"),
+	))
+}
+
 func withDirectoryManager(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("fs.directory", fsdir.NewDirectoryManager(
 		a.eventBus,
@@ -231,6 +241,7 @@ func withAWSConfigManager(a *App) eventbus.EventHandler {
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("config.aws"),
+		a.envRegistry,
 	))
 }
 
@@ -256,6 +267,7 @@ func withSQLManager(a *App) eventbus.EventHandler {
 		a.dtt,
 		a.eventBus,
 		a.logger.Named("sql"),
+		a.envRegistry,
 	)
 	if err != nil {
 		panic(fmt.Errorf("failed to create sql manager: %w", err))

@@ -3,7 +3,6 @@ package registry
 import (
 	"fmt"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/system/registry/loader"
@@ -105,7 +104,6 @@ func (m *LoaderModule) createLoader(l *lua.LState) int {
 
 	// Create interpolator with FS support
 	interpolators := interpolate.NewEntryInterpolator(dtt,
-		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
 	)
 
@@ -146,19 +144,8 @@ func loaderLoadDirectory(l *lua.LState) int {
 		return 2
 	}
 
-	// Get variables table (optional)
-	varsTable := l.OptTable(3, l.CreateTable(0, 8))
-
-	// Convert Lua variables table to Go map todo: remove
-	vars := makeVariables(varsTable)
-	if envCtx, ok := l.Context().Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); ok && envCtx != nil {
-		envCtx.Iterate(func(key string, value string) {
-			vars[key] = value
-		})
-	}
-
 	// Load entries
-	entries, err := fl.folderLoader.LoadDir(fl.fs, dirPath, vars)
+	entries, err := fl.folderLoader.LoadDir(l.Context(), fl.fs, dirPath)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to load entries: %v", err)))
@@ -198,19 +185,8 @@ func loaderLoadFile(l *lua.LState) int {
 		return 2
 	}
 
-	// Get variables table (optional)
-	varsTable := l.OptTable(3, l.CreateTable(0, 8))
-
-	// Convert Lua variables table to Go map
-	vars := makeVariables(varsTable)
-	if envCtx, ok := l.Context().Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); ok && envCtx != nil {
-		envCtx.Iterate(func(key string, value string) {
-			vars[key] = value
-		})
-	}
-
 	// Load entries from file
-	entries, err := fl.folderLoader.LoadFile(fl.fs, filePath, vars)
+	entries, err := fl.folderLoader.LoadFile(l.Context(), fl.fs, filePath)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to load entries: %v", err)))
@@ -232,17 +208,6 @@ func loaderLoadFile(l *lua.LState) int {
 	l.Push(entriesTable)
 	l.Push(lua.LNil)
 	return 2
-}
-
-// Helper function to convert variables table to Go map
-func makeVariables(varsTable *lua.LTable) interpolate.Variables {
-	vars := make(interpolate.Variables)
-	varsTable.ForEach(func(k, v lua.LValue) {
-		if kStr, ok := k.(lua.LString); ok && v.Type() == lua.LTString {
-			vars[string(kStr)] = v.String()
-		}
-	})
-	return vars
 }
 
 // Helper function to check if the first argument is a LoaderInstance and return it

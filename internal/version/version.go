@@ -6,42 +6,64 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 )
 
-// version represents a version with major and minor components.
+// version represents a version with simple double-linked list structure
 type version struct {
-	id         uint
-	previousID *uint
+	id       uint
+	previous *version
+	next     *version
 }
 
-// ID returns the formatted version ID string (e.g., "v00001.001").
-func (v version) ID() uint {
+// ID returns the version ID.
+func (v *version) ID() uint {
 	return v.id
 }
 
-// String returns the formatted version string (e.g., "v00001").
-func (v version) String() string {
+// String returns the formatted version string.
+func (v *version) String() string {
 	return fmt.Sprintf("v%d", v.id)
 }
 
-// Previous returns the ID of the previous version.
-func (v version) Previous() registry.Version {
-	if v.previousID == nil {
+// Previous returns the previous version.
+func (v *version) Previous() registry.Version {
+	if v.previous == nil {
 		return nil
 	}
+	return v.previous
+}
 
-	return version{id: *v.previousID}
+// Next returns the next version if available.
+func (v *version) Next() (registry.Version, bool) {
+	if v.next == nil {
+		return nil, false
+	}
+	return v.next, true
 }
 
 // New creates a new version struct.
 func New(id uint) registry.Version {
-	return version{id: id}
+	return &version{
+		id: id,
+	}
 }
 
 // FromParent creates a new version struct from a parent version.
 func FromParent(parent registry.Version, id uint) registry.Version {
 	if parent == nil {
-		return version{id: id}
+		return New(id)
 	}
 
-	parentID := parent.ID()
-	return version{id: id, previousID: &parentID}
+	parentVersion, ok := parent.(*version)
+	if !ok {
+		// Fallback: create new isolated version
+		return New(id)
+	}
+
+	child := &version{
+		id:       id,
+		previous: parentVersion,
+	}
+
+	// Link the parent to this child as its next
+	parentVersion.next = child
+	return child
 }

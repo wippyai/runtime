@@ -112,8 +112,6 @@ func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
 		opt(e)
 	}
 
-	e.log.Debug("initializing command", zap.String("command", e.command))
-
 	// Split command into executable and arguments
 	cmdParts := parseCommand(e.command)
 	if len(cmdParts) == 0 {

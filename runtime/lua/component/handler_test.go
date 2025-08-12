@@ -2,6 +2,7 @@ package component
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/event"
@@ -332,10 +333,67 @@ func TestBuildImports(t *testing.T) {
 			result := BuildImports(tt.imports, tt.modules)
 
 			assert.Len(t, result, len(tt.expected))
+
+			// Sort both result and expected by alias for order-independent comparison
+			sort.Slice(result, func(i, j int) bool {
+				return result[i].Alias < result[j].Alias
+			})
+			sort.Slice(tt.expected, func(i, j int) bool {
+				return tt.expected[i].Alias < tt.expected[j].Alias
+			})
+
 			for i, expected := range tt.expected {
 				assert.Equal(t, expected.ID, result[i].ID)
 				assert.Equal(t, expected.Alias, result[i].Alias)
 			}
 		})
 	}
+}
+
+func TestBuildImports_OrderIndependence(t *testing.T) {
+	// This test demonstrates that BuildImports can produce different orders
+	// but our test handles it correctly by sorting
+
+	imports := map[string]registry.ID{
+		"alias1": {Name: "module1"},
+		"alias2": {Name: "module2"},
+	}
+
+	// Run multiple times to show different orders can be produced
+	results := make([][]code.Import, 10)
+	for i := 0; i < 10; i++ {
+		results[i] = BuildImports(imports, []string{})
+	}
+
+	// All results should have the same length
+	for i := 1; i < len(results); i++ {
+		assert.Len(t, results[i], len(results[0]))
+	}
+
+	// Sort all results and verify they're identical
+	sortedResults := make([][]code.Import, len(results))
+	for i, result := range results {
+		sorted := make([]code.Import, len(result))
+		copy(sorted, result)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].Alias < sorted[j].Alias
+		})
+		sortedResults[i] = sorted
+	}
+
+	// All sorted results should be identical
+	for i := 1; i < len(sortedResults); i++ {
+		assert.Equal(t, sortedResults[0], sortedResults[i])
+	}
+
+	// Verify the sorted result contains the expected imports
+	expected := []code.Import{
+		{ID: registry.ID{Name: "module1"}, Alias: "alias1"},
+		{ID: registry.ID{Name: "module2"}, Alias: "alias2"},
+	}
+	sort.Slice(expected, func(i, j int) bool {
+		return expected[i].Alias < expected[j].Alias
+	})
+
+	assert.Equal(t, expected, sortedResults[0])
 }

@@ -2,28 +2,38 @@ version: "1.0"
 namespace: system
 
 entries:
-  - name: helloworld_dependency
-    kind: "dependency.component"
+  - name: envmemory
+    kind: env.storage.memory
     meta:
-      description: "Component dependency management demo example"
-    component: "wippyai-test/helloworld"
-    version: ">=v0.0.1"
+      type: envstorage
+      comment: Memory storage for environment variables
 
-  - name: aws_config
-    kind: config.aws
+  - name: envos
+    kind: env.storage.os
     meta:
-      comment: "Aws Config"
-    region: us-east-1
-    access_key_id_env: ACCESS_KEY_ID_CUSTOM
+      type: envstorage
+      comment: OS storage for environment variables (read-only)
 
-  - name: test_s3
-    kind: cloudstorage.s3
+  - name: envfile
+    kind: env.storage.file
     meta:
-      comment: "Cloud Storage S3"
+      type: envstorage
+      comment: File storage for environment variables
+    file_path: "./app/env/.env.sample"
+
+  - name: app_envs
+    kind: env.storage.router
+    meta:
+      type: envstorage
+      comment: Composite storage with fallback mechanism
       depends_on:
-        - aws_config
-    bucket: mybucket
-    config: system:aws_config
+        - system:envmemory
+        - system:envfile
+        - system:envos
+    storages:
+      - system:envmemory
+      - system:envfile
+      - system:envos
 
   - name: root
     kind: fs.directory
@@ -137,15 +147,48 @@ entries:
     lifecycle:
       auto_start: true
 
-  - name: envmemory
-    kind: env.storagememory
+  - name: file_test_env2
+    kind: env.variable
     meta:
-      type: envstorage
-      comment: Memory storage for environment variables
+      type: secret_key
+      depends_on:
+        - system:envfile
+    variable: FILE_TEST_ENV2
+    storage: system:envfile
+    default:
 
-  - name: envfile
-    kind: env.storagefile
+  - name: aws_config
+    kind: config.aws
     meta:
-      type: envstorage
-      comment: Memory storage for environment variables
-    file_path: "./app/env/.env.sample"
+      comment: "Aws Config"
+    region: us-east-1
+    access_key_id_env: ACCESS_KEY_ID_CUSTOM
+
+  - name: aws_config2
+    kind: config.aws
+    meta:
+      comment: "Aws Config"
+    region: us-east-1
+    access_key_id_env: ACCESS_KEY_ID_CUSTOM
+
+  - name: test_s3
+    kind: cloudstorage.s3
+    meta:
+      comment: "Cloud Storage S3"
+      depends_on:
+        - aws_config
+    bucket: mybucket
+    config: system:aws_config
+#  - name: db_postgres
+#    kind: db.sql.postgres
+#    meta:
+#      comment: Application Postgres database
+#      depends_on:
+#        - aws_config
+#    host_env: system:envfile:POSTGRESQL_DEFAULT_HOST
+#    port_env: system:envfile:POSTGRESQL_DEFAULT_PORT
+#    database_env: system:envfile:POSTGRESQL_DEFAULT_DATABASE
+#    username_env: system:envfile:POSTGRESQL_DEFAULT_USERNAME
+#    password_env: system:envfile:POSTGRESQL_DEFAULT_PASSWORD
+#    lifecycle:
+#      auto_start: true
