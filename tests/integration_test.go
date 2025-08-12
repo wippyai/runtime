@@ -220,9 +220,8 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 
 	procMon := NewProcessMonitor(cmd)
 
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
+	// Use test context for proper cleanup when test finishes
+	ctx := t.Context()
 
 	// Channels for communication
 	serverReady := make(chan bool, 1)
@@ -283,7 +282,7 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 				}
 
 				// Check if server is responding via HTTP (but only signal once)
-				if atomic.LoadInt64(&serverReadySignaled) == 0 && isServerReady() {
+				if atomic.LoadInt64(&serverReadySignaled) == 0 && isServerReady(ctx) {
 					select {
 					case serverReady <- true:
 						atomic.StoreInt64(&serverReadySignaled, 1)
@@ -335,7 +334,7 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 				}
 
 				// Check if server is responding via HTTP (but only signal once)
-				if atomic.LoadInt64(&serverReadySignaled) == 0 && isServerReady() {
+				if atomic.LoadInt64(&serverReadySignaled) == 0 && isServerReady(ctx) {
 					select {
 					case serverReady <- true:
 						atomic.StoreInt64(&serverReadySignaled, 1)
@@ -361,7 +360,7 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 
 		// Both readers finished - final server ready check if not already signaled
 		if atomic.LoadInt64(&serverReadySignaled) == 0 {
-			if isServerReady() {
+			if isServerReady(ctx) {
 				select {
 				case serverReady <- true:
 					t.Log("Server is ready and responding to HTTP requests")
@@ -388,8 +387,7 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 	for {
 		select {
 		case err := <-procMon.Done():
-			cancel()                           // Cancel background goroutines
-			time.Sleep(100 * time.Millisecond) // Allow cleanup
+			// Context automatically cancels when test ends
 			if err != nil {
 				t.Fatalf("Server process exited with error: %v", err)
 			} else {
@@ -402,8 +400,7 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 				t.Log("Server started successfully, continuing to read logs...")
 			}
 		case err := <-readerDone:
-			cancel()                           // Cancel background goroutines
-			time.Sleep(100 * time.Millisecond) // Allow cleanup
+			// Context automatically cancels when test ends
 			if err != nil {
 				if serverIsReady {
 					// Server was ready but reader encountered error - probably normal shutdown
@@ -435,11 +432,12 @@ func waitForServerStartWithAllPipes(t *testing.T, cmd *exec.Cmd) *ProcessMonitor
 }
 
 // isServerReady checks if the server is responding to HTTP requests
-func isServerReady() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+func isServerReady(ctx context.Context) bool {
+	// Create a short timeout context from the parent context
+	timeoutCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", serverURL, nil)
+	req, err := http.NewRequestWithContext(timeoutCtx, "GET", serverURL, nil)
 	if err != nil {
 		return false
 	}
@@ -492,7 +490,7 @@ func checkModulesExist(t *testing.T) {
 }
 
 // checkAPIEndpoint makes a request to the specified endpoint
-func checkAPIEndpoint(t *testing.T, endpoint string) {
+func checkAPIEndpoint(ctx context.Context, t *testing.T, endpoint string) {
 	t.Helper()
 
 	// Validate and construct URL safely
@@ -508,11 +506,11 @@ func checkAPIEndpoint(t *testing.T, endpoint string) {
 
 	fullURL := baseURL.ResolveReference(endpointURL).String()
 
-	// Create request with context
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Create request with timeout from test context
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	req, err := http.NewRequestWithContext(timeoutCtx, "GET", fullURL, nil)
 	if err != nil {
 		t.Fatalf("Failed to create request to %s: %v", fullURL, err)
 	}
@@ -669,7 +667,7 @@ func checkWippyLockExists(t *testing.T) {
 
 // TestFirstScenario tests the first scenario: clean start, module loading, and API calls
 func TestFirstScenario(t *testing.T) {
-	t.Context()
+	ctx := t.Context()
 	tc := NewTestContext()
 	t.Log("Starting Test 1: Clean start and module verification")
 
@@ -700,7 +698,7 @@ func TestFirstScenario(t *testing.T) {
 	checkModulesExist(t)
 
 	// Step 5: Make API calls to available endpoints
-	checkAPIEndpoint(t, "/") // Check static content is served
+	checkAPIEndpoint(ctx, t, "/") // Check static content is served
 
 	tc.markTestCompleted()
 	t.Log("Test 1 completed successfully")
@@ -897,6 +895,7 @@ func TestInstallScenario(t *testing.T) {
 
 // TestLockFileScenario tests the fourth scenario: running with clean modules and checking server startup
 func TestLockFileScenario(t *testing.T) {
+	ctx := t.Context()
 	tc := NewTestContext()
 	t.Log("Starting Test 4: Running with fresh modules and checking server startup")
 
@@ -920,7 +919,7 @@ func TestLockFileScenario(t *testing.T) {
 	t.Log("Server successfully completed startup - logs were processed in real-time")
 
 	// Step 4: Make API calls to available endpoints
-	checkAPIEndpoint(t, "/") // Check static content is served
+	checkAPIEndpoint(ctx, t, "/") // Check static content is served
 
 	tc.markTestCompleted()
 	t.Log("Test 4 completed successfully")
