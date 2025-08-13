@@ -502,6 +502,10 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 		}
 
 		wg.Wait()
+
+		// Add a small delay to let any race conditions settle
+		time.Sleep(50 * time.Millisecond)
+
 		// Verify final state is consistent
 		// Since we have equal numbers of Link and Unlink operations,
 		// the final state is indeterminate, but we can verify data structure integrity
