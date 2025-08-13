@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -583,21 +584,52 @@ func stopProcess(t *testing.T, cmd *exec.Cmd, procMon *ProcessMonitor, tc *TestC
 		} else {
 			tc.conditionalLogf(t, "Process stopped gracefully")
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		tc.conditionalLogf(t, "Process did not stop gracefully, forcing kill")
 		if cmd.Process != nil {
 			if killErr := cmd.Process.Kill(); killErr != nil {
 				tc.conditionalLogf(t, "Failed to force kill process: %v", killErr)
 			}
 		}
-		// Wait a bit more for the process to actually exit after kill
+		// Wait longer for the process to actually exit after kill
 		select {
 		case err := <-procMon.Done():
 			tc.conditionalLogf(t, "Process killed, exit error: %v", err)
-		case <-time.After(1 * time.Second):
+		case <-time.After(3 * time.Second):
 			tc.conditionalLogf(t, "Process kill completed")
 		}
 	}
+
+	// Give extra time for the port to be released by the OS
+	// This ensures the port 8082 is available for the next test
+	time.Sleep(1 * time.Second)
+
+	// Verify the port is actually released
+	waitForPortRelease(t, tc)
+}
+
+// waitForPortRelease waits until port 8082 is no longer in use
+func waitForPortRelease(t *testing.T, tc *TestContext) {
+	t.Helper()
+
+	maxAttempts := 10
+	for i := 0; i < maxAttempts; i++ {
+		// Try to connect to the port - if it fails, port is released
+		conn, err := net.DialTimeout("tcp", "localhost:8082", 100*time.Millisecond)
+		if err != nil {
+			// Port is not in use anymore
+			tc.conditionalLogf(t, "Port 8082 is available (attempt %d/%d)", i+1, maxAttempts)
+			return
+		}
+		conn.Close()
+
+		// Port is still in use, wait and retry
+		tc.conditionalLogf(t, "Port 8082 still in use, waiting... (attempt %d/%d)", i+1, maxAttempts)
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// If we get here, port is still busy after all attempts
+	tc.conditionalLogf(t, "Warning: Port 8082 may still be in use after %d attempts", maxAttempts)
 }
 
 // removeWippyDir removes the .wippy directory if it exists
