@@ -7,7 +7,7 @@ debug:
 test-clean:
 	go clean -testcache
 
-test-unit:
+test:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race
 	go test ./system/... -v -race
@@ -16,29 +16,6 @@ test-unit:
 	go test --tags "fts5 sqlite_vec" ./runtime/... -v -race
 	go test ./moduleloader/... -v -race
 	go test ./requirementresolver/... -v -race
-
-test: test-unit test-integration
-
-# Run tests like CI does - separate unit and integration
-test-ci: test-unit-ci test-integration-ci
-
-# Run tests in the same order as the new CI pipeline: integration first, then unit
-test-ci-split: test-integration-ci test-unit-ci
-
-test-unit-ci:
-	CGO_ENABLED=1 GORACE="halt_on_error=1" go test --tags "fts5 sqlite_vec" -race -timeout=8m -parallel=4 \
-		./internal/... \
-		./api/... \
-		./system/... \
-		./service/... \
-		./cluster/... \
-		./runtime/... \
-		./moduleloader/... \
-		./requirementresolver/...
-
-test-integration-ci:
-	CGO_ENABLED=1 GORACE="halt_on_error=1" CI=true GITHUB_ACTIONS=true \
-	go test --tags "fts5 sqlite_vec" -v -race -timeout=10m ./tests/...
 
 test-system:
 	go test ./internal/... -v -race

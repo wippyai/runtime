@@ -76,28 +76,12 @@ jobs:
         shell: msys2 {0}
         run: go mod download
 
-#      disable for now, will be re-enabled at https://jira.spiralscout.com/browse/EE2-1871
-#      - name: Run integration tests
-#        if: matrix.os != 'windows-latest'
-#        env:
-#          CGO_ENABLED: 1
-#          GORACE: "halt_on_error=1"
-#        run: make test-integration-ci
-#
-#      - name: Run integration tests (Windows)
-#        if: matrix.os == 'windows-latest'
-#        shell: msys2 {0}
-#        env:
-#          CGO_ENABLED: 1
-#          GORACE: "halt_on_error=1"
-#        run: make test-integration-ci
-
       - name: Run unit tests
         if: matrix.os != 'windows-latest'
         env:
           CGO_ENABLED: 1
           GORACE: "halt_on_error=1"
-        run: make test-unit-ci
+        run: make test
 
       - name: Run unit tests (Windows)
         if: matrix.os == 'windows-latest'
@@ -105,4 +89,4 @@ jobs:
         env:
           CGO_ENABLED: 1
           GORACE: "halt_on_error=1"
-        run: make test-unit-ci
+        run: make test
