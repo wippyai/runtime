@@ -141,6 +141,7 @@ func TestExecutor_Stdout(t *testing.T) {
 	var output strings.Builder
 	var readErr error
 	readDone := make(chan struct{})
+	readingStarted := make(chan struct{})
 
 	// Start the process first
 	err = process.Start()
@@ -150,7 +151,10 @@ func TestExecutor_Stdout(t *testing.T) {
 	go func() {
 		defer close(readDone)
 
+		// Signal that reading goroutine has started and reader is established
 		scanner := bufio.NewScanner(process.Stdout())
+		close(readingStarted)
+
 		for scanner.Scan() {
 			line := scanner.Text()
 			t.Logf("Read line: %q", line)
@@ -163,6 +167,9 @@ func TestExecutor_Stdout(t *testing.T) {
 			t.Logf("Scanner error: %v", readErr)
 		}
 	}()
+
+	// Wait for reading goroutine to establish scanner before proceeding
+	<-readingStarted
 
 	// Wait for the process to complete
 	waitErr := process.Wait()
