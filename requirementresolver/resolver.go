@@ -24,17 +24,14 @@ func NewResolver(logger *zap.Logger) *Resolver {
 	}
 }
 
-// ResolveModuleDefinitions resolves module Definitions and injects parameters
+// ResolveModuleDefinitions resolves module requirements and injects parameters with direct name matching
 func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registry.Entry, error) {
 	nsRequirements := make(map[string]registry.Entry)
 	nsDependencies := make(map[string]registry.Entry)
-	nsDefinitions := make(map[string]registry.Entry)
 
 	// Collect all entries by kind
 	for _, entry := range entries {
 		switch entry.Kind {
-		case registry.KindNamespaceDefinition:
-			nsDefinitions[entry.ID.Name] = entry
 		case registry.KindNamespaceDependency:
 			nsDependencies[entry.ID.Name] = entry
 		case registry.KindNamespaceRequirement:
@@ -42,57 +39,32 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 		}
 	}
 
-	// Log available requirements and definitions for debugging
+	// Log available requirements and dependencies for debugging
 	r.logger.Debug("requirement resolver debug info",
 		zap.Any("available_requirements", getEntryNames(nsRequirements)),
-		zap.Any("available_definitions", getEntryNames(nsDefinitions)),
 		zap.Any("available_dependencies", getEntryNames(nsDependencies)))
 
-	for _, nsDefinition := range nsDefinitions {
-		r.logger.Debug("processing definition",
-			zap.String("definition_name", nsDefinition.ID.Name),
-			zap.String("definition_namespace", nsDefinition.ID.NS))
-
-		nsDependency, path, err := findDefinitionDependency(nsDefinition, nsDependencies)
-		if err != nil {
-			r.logger.Warn("failed to find definition dependency",
-				zap.String("definition", nsDefinition.ID.Name),
-				zap.Error(err))
-			continue
-		}
-
-		r.logger.Debug("found dependency for definition",
-			zap.String("definition", nsDefinition.ID.Name),
-			zap.String("dependency", nsDependency.ID.Name),
-			zap.String("path", path))
-
-		value, err := getValueFromEntry(nsDependency, path)
-		if err != nil {
-			r.logger.Warn("failed to get value from entry",
-				zap.String("dependency", nsDependency.ID.Name),
-				zap.String("path", path),
-				zap.Error(err))
-			continue
-		}
-
-		r.logger.Debug("extracted value from dependency",
-			zap.String("definition", nsDefinition.ID.Name),
-			zap.String("value", value))
-
-		nsRequirement, err := findDefinitionRequirement(nsDefinition, nsRequirements)
-		if err != nil {
-			r.logger.Warn("failed to find Definition Requirement",
-				zap.String("Definition", nsDefinition.ID.Name),
-				zap.String("available_requirements", fmt.Sprintf("%v", getEntryNames(nsRequirements))),
-				zap.Error(err))
-			continue
-		}
-
-		r.logger.Debug("found requirement for definition",
-			zap.String("definition", nsDefinition.ID.Name),
-			zap.String("requirement", nsRequirement.ID.Name),
+	// Process each requirement and find matching dependency parameters
+	for _, nsRequirement := range nsRequirements {
+		r.logger.Debug("processing requirement",
+			zap.String("requirement_name", nsRequirement.ID.Name),
 			zap.String("requirement_namespace", nsRequirement.ID.NS))
 
+		// Find dependency with parameter matching the requirement name
+		nsDependency, paramValue, err := findDependencyByParameterName(nsRequirement.ID.Name, nsDependencies)
+		if err != nil {
+			r.logger.Warn("failed to find dependency parameter for requirement",
+				zap.String("requirement", nsRequirement.ID.Name),
+				zap.Error(err))
+			continue
+		}
+
+		r.logger.Debug("found dependency parameter for requirement",
+			zap.String("requirement", nsRequirement.ID.Name),
+			zap.String("dependency", nsDependency.ID.Name),
+			zap.String("parameter_value", paramValue))
+
+		// Get requirement targets for value injection
 		requirementTargets, err := getRequirementTargets(nsRequirement)
 		if err != nil {
 			r.logger.Warn("failed to get requirement targets",
@@ -105,6 +77,7 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 			zap.String("requirement", nsRequirement.ID.Name),
 			zap.Any("targets", requirementTargets))
 
+		// Apply the parameter value to target entries
 		for _, requirementTarget := range requirementTargets {
 			targetEntries := findRequirementTargetEntries(requirementTarget, nsRequirement.ID.NS, entries)
 
@@ -115,13 +88,13 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 				zap.Int("target_count", len(targetEntries)),
 				zap.Any("target_entry_ids", getEntryIDs(targetEntries)))
 
-			// Apply the value to target entries
-			err = ApplyPathValueToEntriesWithGojq(requirementTarget.Path, value, targetEntries)
+			// Apply the value to target entries using JSONPath (keeping this part for backward compatibility)
+			err = ApplyPathValueToEntriesWithGojq(requirementTarget.Path, paramValue, targetEntries)
 			if err != nil {
 				r.logger.Debug("failed to apply value to target entries",
 					zap.String("requirement", nsRequirement.ID.Name),
 					zap.String("path", requirementTarget.Path),
-					zap.String("value", value),
+					zap.String("value", paramValue),
 					zap.Error(err))
 				continue
 			}
@@ -130,7 +103,7 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 			updateEntriesWithTargetEntries(entries, targetEntries)
 
 			// Verify that the value was actually injected
-			r.verifyInjection(targetEntries, requirementTarget.Path, value)
+			r.verifyInjection(targetEntries, requirementTarget.Path, paramValue)
 		}
 	}
 
@@ -364,56 +337,25 @@ func joinErrors(errs []error) error {
 	return errors.Join(errs...)
 }
 
-func findDefinitionDependency(nsDefinition registry.Entry, nsDependencies map[string]registry.Entry) (registry.Entry, string, error) {
-	reqData := nsDefinition.Data.Data()
-	reqMap, ok := reqData.(map[string]interface{})
-	if !ok {
-		return registry.Entry{}, "", fmt.Errorf("invalid definition data in requirement %s", nsDefinition.ID.Name)
-	}
-
-	targetsRaw, ok := reqMap["targets"].([]interface{})
-	if !ok {
-		return registry.Entry{}, "", fmt.Errorf("invalid definition data in requirement %s", nsDefinition.ID.Name)
-	}
-
-	// Iterate through all targets to find one that matches a dependency
-	for _, targetRaw := range targetsRaw {
-		if targetMap, ok := targetRaw.(map[string]interface{}); ok {
-			// Check if the target entry matches any dependency name
-			if entryName, ok := targetMap["entry"].(string); ok {
-				for _, nsDependency := range nsDependencies {
-					if entryName == nsDependency.ID.Name &&
-						nsDefinition.ID.NS == nsDependency.ID.NS {
-						if path, ok := targetMap["path"].(string); ok {
-							return nsDependency, path, nil
+// findDependencyByParameterName finds a dependency with a parameter matching the given requirement name
+func findDependencyByParameterName(requirementName string, nsDependencies map[string]registry.Entry) (registry.Entry, string, error) {
+	for _, nsDependency := range nsDependencies {
+		data := nsDependency.Data.Data()
+		if depMap, ok := data.(map[string]interface{}); ok {
+			if paramsRaw, ok := depMap["parameters"].([]interface{}); ok {
+				for _, paramRaw := range paramsRaw {
+					if paramMap, ok := paramRaw.(map[string]interface{}); ok {
+						if paramName, ok := paramMap["name"].(string); ok && paramName == requirementName {
+							if paramValue, ok := paramMap["value"].(string); ok {
+								return nsDependency, paramValue, nil
+							}
 						}
 					}
 				}
 			}
 		}
 	}
-
-	return registry.Entry{}, "", fmt.Errorf("dependency for definition %s not found", nsDefinition.ID.Name)
-}
-
-func getValueFromEntry(entry registry.Entry, path string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("path cannot be empty")
-	}
-
-	// Get the data from the entry
-	data := entry.Data.Data()
-	if data == nil {
-		return "", fmt.Errorf("entry data is nil")
-	}
-
-	// Use gojq to extract the value
-	value, err := getValueFromEntryWithGojq(data, path)
-	if err != nil {
-		return "", fmt.Errorf("failed to extract value with gojq from path '%s': %w", path, err)
-	}
-
-	return value, nil
+	return registry.Entry{}, "", fmt.Errorf("no dependency parameter found for requirement %s", requirementName)
 }
 
 // getValueFromEntryWithGojq uses gojq to extract values from data using jq-style queries
@@ -509,15 +451,6 @@ func getRequirementTargets(requirement registry.Entry) ([]DefinitionTarget, erro
 	}
 
 	return nil, fmt.Errorf("invalid Definition data in Requirement %s", requirement.ID.Name)
-}
-
-func findDefinitionRequirement(definition registry.Entry, nsRequirements map[string]registry.Entry) (registry.Entry, error) {
-	requirement, ok := nsRequirements[definition.ID.Name]
-	if !ok {
-		return registry.Entry{}, fmt.Errorf("requirement for Definition %s not found", definition.ID.Name)
-	}
-
-	return requirement, nil
 }
 
 // getEntryNames returns a slice of entry names for debugging

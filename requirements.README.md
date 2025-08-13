@@ -5,24 +5,23 @@ system in our runtime engine configuration to manage dependencies between module
 
 ## Overview
 
-The requirements and dependencies system has been completely redesigned to provide a more flexible and powerful way to manage module dependencies. The new system replaces the old `exports` approach with a parameter-based injection mechanism using `ns.requirement` and `ns.dependency` entries.
+The requirements and dependencies system provides a simple and powerful way to manage module dependencies. The system uses direct parameter name matching between `ns.requirement` and `ns.dependency` entries.
 
 ## Key Components
 
 ### 1. Registry Entry Types
 
-The system introduces three new registry entry types:
+The system uses two registry entry types:
 
-- **`ns.definition`**: Represents namespace definition variables that can be declared by exports or other sources
 - **`ns.dependency`**: Represents a module dependency entry with configurable parameters
-- **`ns.requirement`**: Represents a module requirement entry that provides values for dependencies
+- **`ns.requirement`**: Represents a module requirement entry that specifies where dependency values should be injected
 
 ### 2. Parameter Injection System
 
-The new system uses a parameter-based approach where:
-- Dependencies declare parameters with default values
-- Requirements specify which dependency parameters to inject values into
-- The system uses JSONPath-like syntax for precise parameter targeting
+The system uses a simple parameter-based approach where:
+- Dependencies declare parameters with names that directly match requirement entry names
+- Requirements specify target locations where dependency parameter values should be injected
+- The system uses direct name matching instead of complex path expressions
 
 ## External Module Declaration
 

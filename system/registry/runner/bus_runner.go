@@ -111,7 +111,6 @@ func (br *BusRunner) applyOperation(
 
 	allowProcess := []registry.Kind{
 		registry.KindEntry,
-		registry.KindNamespaceDefinition,
 		registry.KindNamespaceDependency,
 		registry.KindNamespaceRequirement,
 	}
