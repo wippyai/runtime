@@ -1,6 +1,7 @@
 package native
 
 import (
+	"bufio"
 	"errors"
 	"io"
 	"io/fs"
@@ -136,79 +137,57 @@ func TestExecutor_Stdout(t *testing.T) {
 	process, err := nativeExecutor.NewProcess(command, exec.ProcessOptions{})
 	assert.NoError(t, err)
 
-	// Start reading BEFORE starting the process
-	sb := new(strings.Builder)
+	// Use buffered approach similar to integration tests
+	var output strings.Builder
+	var readErr error
 	readDone := make(chan struct{})
-	processDone := make(chan struct{})
-	readStarted := make(chan struct{})
 
-	go func() {
-		defer close(readDone)
-		close(readStarted) // Signal that reading has started
-		timeout := time.After(5 * time.Second)
-
-		for {
-			select {
-			case <-timeout:
-				t.Logf("Timeout reached, stdout output: %q", sb.String())
-				return
-			default:
-				buf := make([]byte, 1024)
-				n, err := process.Stdout().Read(buf)
-				if err != nil {
-					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
-						// Process has finished, but we might have read some data
-						return
-					}
-					t.Errorf("Error reading stdout: %v", err)
-					return
-				}
-				if n > 0 {
-					sb.Write(buf[:n])
-				}
-			}
-		}
-	}()
-
-	// Wait for reading goroutine to start
-	<-readStarted
-
-	// Give a moment for the reading goroutine to start
-	time.Sleep(10 * time.Millisecond)
-
-	// Now start the process
+	// Start the process first
 	err = process.Start()
 	assert.NoError(t, err)
 
-	// Wait for the process to complete in a separate goroutine
+	// Start reading in goroutine using buffered scanner
 	go func() {
-		defer close(processDone)
-		err := process.Wait()
-		if err != nil {
-			t.Logf("Process completed with error: %v", err)
+		defer close(readDone)
+
+		scanner := bufio.NewScanner(process.Stdout())
+		for scanner.Scan() {
+			line := scanner.Text()
+			t.Logf("Read line: %q", line)
+			output.WriteString(line)
+			output.WriteString("\n")
+		}
+
+		readErr = scanner.Err()
+		if readErr != nil {
+			t.Logf("Scanner error: %v", readErr)
 		}
 	}()
 
-	// Wait for both the process to complete and reading to finish
+	// Wait for the process to complete
+	waitErr := process.Wait()
+
+	// Wait for reading to complete with timeout
 	select {
-	case <-processDone:
-		// Process completed, give a little time for reading to finish
-		select {
-		case <-readDone:
-			// Reading completed
-		case <-time.After(1 * time.Second):
-			// Reading timed out, but process is done
-		}
 	case <-readDone:
-		// Reading completed, wait for process
-		<-processDone
+		// Reading completed successfully
 	case <-time.After(5 * time.Second):
-		t.Fatal("Test timed out")
+		t.Fatal("Test timed out waiting for stdout reading to complete")
 	}
 
-	output := sb.String()
-	if !strings.Contains(output, "hello world") {
-		t.Errorf("Expected stdout to contain 'hello world', got: %q", output)
+	// Check for any errors
+	if waitErr != nil {
+		t.Logf("Process wait error: %v", waitErr)
+	}
+	if readErr != nil {
+		t.Logf("Read error: %v", readErr)
+	}
+
+	finalOutput := output.String()
+	t.Logf("Final output: %q", finalOutput)
+
+	if !strings.Contains(finalOutput, "hello world") {
+		t.Errorf("Expected stdout to contain 'hello world', got: %q", finalOutput)
 	}
 }
 
