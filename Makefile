@@ -61,7 +61,7 @@ test-cluster:
 	go test ./cluster/... -v -race
 
 test-integration:
-	go test ./tests/... -v -timeout 120s
+	CGO_ENABLED=1 go test ./tests/... -v -race -timeout 120s
 
 debug_vm:
 	dlv test --build-flags "--tags=fts5,sqlite_vec" -- test.v -test.run="^TestVM\$"
