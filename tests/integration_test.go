@@ -431,10 +431,55 @@ func waitForServerStartWithAllPipes(rootCtx context.Context, t *testing.T, cmd *
 				t.Log("Server was ready, returning successfully")
 				return procMon
 			} else {
+				// Before printing logs, drain any remaining logs from the channel
+				t.Log("Context canceled, draining remaining logs...")
+
+				// Give goroutines a brief moment to finish current operations
+				time.Sleep(100 * time.Millisecond)
+
+				// Drain remaining logs from the channel
+				drainedCount := 0
+				for {
+					select {
+					case line, ok := <-logLines:
+						if !ok {
+							// Channel is closed
+							break
+						}
+
+						// Process the line same as in the main log processing goroutine
+						originalLine := line
+						if strings.HasPrefix(line, "[STDERR] ") {
+							originalLine = strings.TrimPrefix(line, "[STDERR] ")
+						} else if strings.HasPrefix(line, "[STDOUT] ") {
+							originalLine = strings.TrimPrefix(line, "[STDOUT] ")
+						}
+
+						// Add to collected logs
+						logsMutex.Lock()
+						collectedLogs = append(collectedLogs, line)
+						logsMutex.Unlock()
+
+						// Log the line
+						t.Logf("Server log: %s", originalLine)
+						drainedCount++
+
+					default:
+						// No more logs available in channel
+						goto drainComplete
+					}
+				}
+
+			drainComplete:
+				if drainedCount > 0 {
+					t.Logf("Drained %d additional log lines from channel", drainedCount)
+				}
+
+				// Now print the final collected logs
 				logOutput := ""
 				logsMutex.Lock()
 				if len(collectedLogs) > 0 {
-					logOutput = "\n=== SERVER LOGS ===\n" + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ==="
+					logOutput = fmt.Sprintf("\n=== SERVER LOGS (%d lines) ===\n", len(collectedLogs)) + strings.Join(collectedLogs, "\n") + "\n=== END LOGS ==="
 				} else {
 					logOutput = "\n=== NO LOGS COLLECTED ===\nNo output was captured from the process\n=== END STATUS ==="
 				}
