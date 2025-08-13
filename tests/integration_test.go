@@ -22,6 +22,7 @@ import (
 const (
 	serverURL = "http://localhost:8082"
 	wippyDir  = ".wippy"
+	testPort  = 8082
 )
 
 var (
@@ -632,6 +633,113 @@ func waitForPortRelease(t *testing.T, tc *TestContext) {
 	tc.conditionalLogf(t, "Warning: Port 8082 may still be in use after %d attempts", maxAttempts)
 }
 
+// ensurePortIsAvailable waits for port to be available, and force kills any process using it if needed
+func ensurePortIsAvailable(t *testing.T) {
+	t.Helper()
+
+	maxWaitAttempts := 20
+	maxForceKillAttempts := 3
+
+	for killAttempt := 0; killAttempt < maxForceKillAttempts; killAttempt++ {
+		// First, wait for the port to become available naturally
+		for waitAttempt := 0; waitAttempt < maxWaitAttempts; waitAttempt++ {
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", testPort), 100*time.Millisecond)
+			if err != nil {
+				// Port is available
+				t.Logf("Port %d is available (wait attempt %d/%d, kill attempt %d/%d)", testPort, waitAttempt+1, maxWaitAttempts, killAttempt+1, maxForceKillAttempts)
+				return
+			}
+			conn.Close()
+
+			t.Logf("Port %d still busy, waiting... (wait attempt %d/%d, kill attempt %d/%d)", testPort, waitAttempt+1, maxWaitAttempts, killAttempt+1, maxForceKillAttempts)
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		// Port is still busy after waiting, try to force kill processes
+		t.Logf("Port %d still busy after %d attempts, attempting to kill processes using this port...", testPort, maxWaitAttempts)
+
+		if err := forceKillProcessOnPort(t, testPort); err != nil {
+			t.Logf("Warning: Failed to kill process on port %d: %v", testPort, err)
+		}
+
+		// Give some time for the process to die and the port to be released
+		time.Sleep(2 * time.Second)
+	}
+
+	// Final check - if still busy, this is a fatal error
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", testPort), 100*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		t.Fatalf("Port %d is still busy after %d attempts to kill processes. Cannot proceed with test.", testPort, maxForceKillAttempts)
+	}
+
+	t.Logf("Port %d is now available after force kill attempts", testPort)
+}
+
+// forceKillProcessOnPort attempts to kill any process using the specified port
+func forceKillProcessOnPort(t *testing.T, port int) error {
+	t.Helper()
+
+	// Validate port range for security (gosec G204)
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("invalid port number: %d", port)
+	}
+
+	// Try multiple approaches to find and kill the process
+
+	// Approach 1: Use fuser (if available on Linux)
+	// #nosec G204 - port is validated to be within safe range 1-65535
+	if cmd := exec.Command("fuser", "-k", fmt.Sprintf("%d/tcp", port)); cmd != nil {
+		if err := cmd.Run(); err == nil {
+			t.Logf("Successfully used fuser to kill process on port %d", port)
+			return nil
+		}
+	}
+
+	// Approach 2: Use lsof + kill (if available)
+	// #nosec G204 - port is validated to be within safe range 1-65535
+	cmd := exec.Command("lsof", "-ti", fmt.Sprintf(":%d", port))
+	output, err := cmd.Output()
+	if err == nil && len(output) > 0 {
+		pids := strings.Fields(strings.TrimSpace(string(output)))
+		for _, pid := range pids {
+			killCmd := exec.Command("kill", "-9", pid)
+			if err := killCmd.Run(); err == nil {
+				t.Logf("Successfully killed process %s using port %d", pid, port)
+				return nil
+			}
+		}
+	}
+
+	// Approach 3: Use netstat + kill (cross-platform fallback)
+	cmd = exec.Command("netstat", "-tulnp")
+	output, err = cmd.Output()
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, fmt.Sprintf(":%d ", port)) && strings.Contains(line, "LISTEN") {
+				// Extract PID from netstat output (varies by OS)
+				fields := strings.Fields(line)
+				if len(fields) > 6 {
+					pidInfo := fields[len(fields)-1] // Last field usually contains PID/program
+					if strings.Contains(pidInfo, "/") {
+						pid := strings.Split(pidInfo, "/")[0]
+						if pid != "" && pid != "-" {
+							killCmd := exec.Command("kill", "-9", pid)
+							if err := killCmd.Run(); err == nil {
+								t.Logf("Successfully killed process %s using port %d (netstat)", pid, port)
+								return nil
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return fmt.Errorf("could not find or kill process using port %d", port)
+}
+
 // removeWippyDir removes the .wippy directory if it exists
 func removeWippyDir(t *testing.T) {
 	t.Helper()
@@ -723,6 +831,9 @@ func TestFirstScenario(t *testing.T) {
 	tc := NewTestContext()
 	t.Log("Starting Test 1: Clean start and module verification")
 
+	// Step -1: Ensure port 8082 is available, force kill any existing applications if needed
+	ensurePortIsAvailable(t)
+
 	// Step 0: Remove .wippy directory and lock file for truly clean start
 	removeWippyDir(t)
 	removeLockFile(t, "app/wippy.lock")
@@ -763,6 +874,9 @@ func TestUpdateScenario(t *testing.T) {
 
 	tc := NewTestContext()
 	t.Log("Starting Test 2: Module updates")
+
+	// Step -1: Ensure port 8082 is available, force kill any existing applications if needed
+	ensurePortIsAvailable(t)
 
 	projectRoot := getProjectRoot(t)
 
@@ -866,6 +980,9 @@ func TestInstallScenario(t *testing.T) {
 
 	tc := NewTestContext()
 	t.Log("Starting Test 3: Clean install")
+
+	// Step -1: Ensure port 8082 is available, force kill any existing applications if needed
+	ensurePortIsAvailable(t)
 
 	projectRoot := getProjectRoot(t)
 
@@ -978,6 +1095,9 @@ func TestLockFileScenario(t *testing.T) {
 
 	tc := NewTestContext()
 	t.Log("Starting Test 4: Running with fresh modules and checking server startup")
+
+	// Step -1: Ensure port 8082 is available, force kill any existing applications if needed
+	ensurePortIsAvailable(t)
 
 	// Step 1: Run the application
 	projectRoot := getProjectRoot(t)
