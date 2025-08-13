@@ -43,6 +43,11 @@ func (ls *LuaStream) Close() error {
 	return nil
 }
 
+// LuaScanner wraps Scanner for Lua integration
+type LuaScanner struct {
+	*Scanner
+}
+
 // Module represents the Stream Lua module
 type Module struct {
 }
@@ -59,43 +64,53 @@ func (m *Module) Name() string {
 
 // Loader registers the module functions and constants
 func (m *Module) Loader(l *lua.LState) int {
-	// Spawn module table
 	mod := l.NewTable()
-
 	RegisterStream(l)
-
 	l.Push(mod)
 	return 1
 }
 
-// RegisterStream registers the Stream type in Lua
+// RegisterStream registers the Stream and Scanner types in Lua
 func RegisterStream(l *lua.LState) {
-	// Check if type is already registered by directly accessing registry
 	registry := l.Get(lua.RegistryIndex)
 	if regTable, ok := registry.(*lua.LTable); ok {
 		if mt := regTable.RawGetString("Stream"); mt != lua.LNil {
-			return // Already registered
+			return
 		}
 	}
 
-	// Determine which read function to use based on VM type
 	readFunc := streamRead
+	scanFunc := scannerScan
 	if engine.IsCoroutineVM(l) {
 		readFunc = streamReadAsync
+		scanFunc = scannerScanAsync
 	}
 
-	// Register both method sets at once
 	value.RegisterTypeMethods(
 		l,
 		"Stream",
 		map[string]lua.LGFunction{
 			"__call":  streamIter,
-			"__index": nil, // The RegisterTypeMethods function will handle this
+			"__index": nil,
 		},
 		map[string]lua.LGFunction{
 			"read":       readFunc,
 			"close":      streamClose,
 			"bytes_read": streamBytesRead,
+			"scanner":    streamScanner,
+		},
+	)
+
+	value.RegisterTypeMethods(
+		l,
+		"Scanner",
+		map[string]lua.LGFunction{
+			"__index": nil,
+		},
+		map[string]lua.LGFunction{
+			"scan": scanFunc,
+			"text": scannerText,
+			"err":  scannerErr,
 		},
 	)
 }
@@ -108,7 +123,6 @@ func NewLuaStream(uw engine.UnitOfWork, stream *Stream, onComplete context.Cance
 		closed:     false,
 	}
 
-	// Register unconditional cleanup in UoW
 	luaStream.release = uw.AddCleanup(func() error {
 		if luaStream.onComplete != nil {
 			luaStream.onComplete()
@@ -120,6 +134,13 @@ func NewLuaStream(uw engine.UnitOfWork, stream *Stream, onComplete context.Cance
 	return luaStream
 }
 
+// NewLuaScanner creates a new LuaScanner
+func NewLuaScanner(scanner *Scanner) *LuaScanner {
+	return &LuaScanner{
+		Scanner: scanner,
+	}
+}
+
 // checkStream verifies and returns the Stream from Lua userdata
 func checkStream(l *lua.LState) (*LuaStream, error) {
 	ud := l.CheckUserData(1)
@@ -127,6 +148,15 @@ func checkStream(l *lua.LState) (*LuaStream, error) {
 		return v, nil
 	}
 	return nil, fmt.Errorf("expected Stream, got %T", ud.Value)
+}
+
+// checkScanner verifies and returns the Scanner from Lua userdata
+func checkScanner(l *lua.LState) (*LuaScanner, error) {
+	ud := l.CheckUserData(1)
+	if v, ok := ud.Value.(*LuaScanner); ok {
+		return v, nil
+	}
+	return nil, fmt.Errorf("expected Scanner, got %T", ud.Value)
 }
 
 func streamReadAsync(l *lua.LState) int {
@@ -137,7 +167,6 @@ func streamReadAsync(l *lua.LState) int {
 		return 2
 	}
 
-	// Get chunk size from argument or use default
 	var chunkSize = DefaultChunkSize
 	if l.GetTop() >= 2 {
 		size := l.CheckNumber(2)
@@ -162,7 +191,6 @@ func streamReadAsync(l *lua.LState) int {
 	return -1
 }
 
-// streamRead implements the read() method in Lua
 func streamRead(l *lua.LState) int {
 	stream, err := checkStream(l)
 	if err != nil {
@@ -171,7 +199,6 @@ func streamRead(l *lua.LState) int {
 		return 2
 	}
 
-	// Get chunk size from argument or use default
 	var chunkSize = DefaultChunkSize
 	if l.GetTop() >= 2 {
 		size := l.CheckNumber(2)
@@ -181,14 +208,12 @@ func streamRead(l *lua.LState) int {
 	chunk, err := stream.ReadChunk(chunkSize)
 	if errors.Is(err, io.EOF) {
 		_ = stream.Close()
-
 		l.Push(lua.LNil)
 		return 1
 	}
 
 	if err != nil {
 		_ = stream.Close()
-
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
@@ -198,7 +223,6 @@ func streamRead(l *lua.LState) int {
 	return 1
 }
 
-// streamClose implements the close() method in Lua
 func streamClose(l *lua.LState) int {
 	stream, err := checkStream(l)
 	if err != nil {
@@ -217,7 +241,6 @@ func streamClose(l *lua.LState) int {
 	return 1
 }
 
-// streamBytesRead implements the bytes_read() method in Lua
 func streamBytesRead(l *lua.LState) int {
 	stream, err := checkStream(l)
 	if err != nil {
@@ -229,7 +252,6 @@ func streamBytesRead(l *lua.LState) int {
 	return 1
 }
 
-// streamIter implements the __call metamethod for iteration in Lua
 func streamIter(l *lua.LState) int {
 	stream, err := checkStream(l)
 	if err != nil {
@@ -237,14 +259,12 @@ func streamIter(l *lua.LState) int {
 		return 0
 	}
 
-	// Get optional chunk size for iteration
 	var chunkSize = DefaultChunkSize
 	if l.GetTop() >= 2 {
 		size := l.CheckNumber(2)
 		chunkSize = int64(size)
 	}
 
-	// Capture chunk size in closure
 	iterSize := chunkSize
 
 	l.Push(l.NewFunction(func(l *lua.LState) int {
@@ -258,5 +278,100 @@ func streamIter(l *lua.LState) int {
 		return 1
 	}))
 
+	return 1
+}
+
+func streamScanner(l *lua.LState) int {
+	stream, err := checkStream(l)
+	if err != nil {
+		l.RaiseError("scanner creation error: %v", err)
+		return 0
+	}
+
+	splitType := SplitLines
+	if l.GetTop() >= 2 {
+		splitStr := l.CheckString(2)
+		switch splitStr {
+		case "lines":
+			splitType = SplitLines
+		case "words":
+			splitType = SplitWords
+		case "bytes":
+			splitType = SplitBytes
+		case "runes":
+			splitType = SplitRunes
+		default:
+			l.RaiseError("unsupported split type: %s", splitStr)
+			return 0
+		}
+	}
+
+	scanner, err := NewScanner(stream.Stream, splitType)
+	if err != nil {
+		l.RaiseError("failed to create scanner: %v", err)
+		return 0
+	}
+
+	luaScanner := NewLuaScanner(scanner)
+
+	ud := l.NewUserData()
+	ud.Value = luaScanner
+	ud.Metatable = value.GetTypeMetatable(l, "Scanner")
+	l.Push(ud)
+	return 1
+}
+
+func scannerScanAsync(l *lua.LState) int {
+	scanner, err := checkScanner(l)
+	if err != nil {
+		l.Push(lua.LBool(false))
+		return 1
+	}
+
+	coroutine.Wrap(l, func() *engine.Update {
+		result := scanner.Scan()
+		return engine.NewUpdate(nil, []lua.LValue{lua.LBool(result)}, nil)
+	})
+
+	return -1
+}
+
+func scannerScan(l *lua.LState) int {
+	scanner, err := checkScanner(l)
+	if err != nil {
+		l.Push(lua.LBool(false))
+		return 1
+	}
+
+	result := scanner.Scan()
+	l.Push(lua.LBool(result))
+	return 1
+}
+
+func scannerText(l *lua.LState) int {
+	scanner, err := checkScanner(l)
+	if err != nil {
+		l.Push(lua.LString(""))
+		return 1
+	}
+
+	text := scanner.Text()
+	l.Push(lua.LString(text))
+	return 1
+}
+
+func scannerErr(l *lua.LState) int {
+	scanner, err := checkScanner(l)
+	if err != nil {
+		l.Push(lua.LString(err.Error()))
+		return 1
+	}
+
+	scanErr := scanner.Err()
+	if scanErr != nil {
+		l.Push(lua.LString(scanErr.Error()))
+	} else {
+		l.Push(lua.LNil)
+	}
 	return 1
 }

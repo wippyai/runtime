@@ -132,7 +132,7 @@ func (f *RunnerFactory) prepare() error {
 			if dep.Node.Module != nil {
 				opts = append(opts, engine.WithLoader(dep.Name, dep.Node.Module.Loader))
 			}
-		case api.KindLibrary, api.KindFunction:
+		case api.KindLibrary, api.KindFunction, api.KindProcess:
 			if dep.Proto != nil {
 				opts = append(opts, engine.WithLibrary(dep.Name, dep.Proto))
 			} else if dep.Node.Source != "" {
