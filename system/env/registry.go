@@ -300,29 +300,19 @@ func (s *Registry) All(ctx context.Context) (map[string]string, error) {
 }
 
 func (s *Registry) getEnvValue(ctx context.Context, name string) (*EnvValue, error) {
-	s.log.Info("getEnvValue called",
-		zap.String("name", name))
-
 	// First try to get value by name
 	value, err := s.getEnvValueByName(ctx, name)
 	if err == nil {
-		s.log.Info("variable found by name",
-			zap.String("name", name))
 		return value, nil
 	}
-
-	s.log.Info("variable not found by name, trying by env name",
-		zap.String("name", name))
 
 	// If not found by name, try to get by env name
 	value, err = s.getEnvValueByEnvName(ctx, name)
 	if err == nil {
-		s.log.Info("variable found by env name",
-			zap.String("name", name))
 		return value, nil
 	}
 
-	s.log.Info("variable not found by either method",
+	s.log.Debug("variable not found by either method",
 		zap.String("name", name))
 	return nil, env.ErrVariableNotFound
 }
@@ -330,10 +320,9 @@ func (s *Registry) getEnvValue(ctx context.Context, name string) (*EnvValue, err
 func (s *Registry) getEnvValueByName(ctx context.Context, name string) (*EnvValue, error) {
 	nameID := registry.ParseID(name)
 
-	s.log.Debug("getEnvValueByName. getting env value", zap.String("name", name))
-
 	ns := nameID.NS
 	if ns == "" {
+		// todo: isolale and remove, we no longer promise pids
 		pid, pidFound := pubsub.GetPID(ctx)
 		// s.log.Debug("getEnvValueByName. getting env value", zap.String("name", name), zap.Any("pid", pid), zap.Any("pidFound", pidFound))
 
@@ -344,7 +333,6 @@ func (s *Registry) getEnvValueByName(ctx context.Context, name string) (*EnvValu
 		ns = pid.ID.NS
 	}
 	fullNameID := nameID.WithDefaultNS(ns)
-	s.log.Debug("getEnvValueByName. getting env value", zap.String("name", name), zap.Any("fullName", fullNameID))
 
 	// try to locate a value by id(ns:name)
 	valueStored, valueFound := s.values.Load(fullNameID)
@@ -409,7 +397,6 @@ func (s *Registry) getEnvValueByEnvName(_ context.Context, envName string) (*Env
 		return &variable, nil
 	}
 
-	s.log.Warn("variable not found", zap.String("name", envName))
 	return nil, env.ErrVariableNotFound
 }
 
