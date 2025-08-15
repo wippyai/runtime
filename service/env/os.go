@@ -5,10 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
-	"sync"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
 )
@@ -20,9 +17,7 @@ type OSStorage struct {
 }
 
 func NewOSStorage(log *zap.Logger) *OSStorage {
-	return &OSStorage{
-		log: log.With(zap.String("component", "osstorage")),
-	}
+	return &OSStorage{log: log}
 }
 
 func (s *OSStorage) Get(_ context.Context, key string) (string, error) {
@@ -59,46 +54,4 @@ func (s *OSStorage) Start(_ context.Context) (<-chan any, error) {
 
 func (s *OSStorage) Stop(_ context.Context) error {
 	return nil
-}
-
-func (s *OSStorage) Acquire(_ context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
-	if mode != resource.ModeNormal {
-		return nil, resource.ErrResourceLocked
-	}
-
-	return &osResource{
-		storage: s,
-		id:      id,
-		closed:  false,
-		mu:      sync.Mutex{},
-	}, nil
-}
-
-type osResource struct {
-	storage *OSStorage
-	id      registry.ID
-	closed  bool
-	mu      sync.Mutex
-}
-
-func (r *osResource) Get() (any, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.closed {
-		return nil, resource.ErrResourceClosed
-	}
-
-	return r.storage, nil
-}
-
-func (r *osResource) Release() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.closed {
-		return
-	}
-
-	r.closed = true
 }

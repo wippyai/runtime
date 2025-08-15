@@ -25,9 +25,9 @@ type Manager struct {
 	bus     event.Bus
 	factory PoolFactoryAPI
 
-	mu          sync.RWMutex
-	services    map[registry.ID]*ConnPool
-	envRegistry envapi.Registry
+	mu       sync.RWMutex
+	services map[registry.ID]*ConnPool
+	env      envapi.Registry
 }
 
 // NewManager creates a new SQL service manager
@@ -59,12 +59,12 @@ func NewManagerWithFactory(
 	}
 
 	return &Manager{
-		log:         log,
-		dtt:         dtt,
-		bus:         bus,
-		factory:     factory,
-		services:    make(map[registry.ID]*ConnPool),
-		envRegistry: envRegistry,
+		log:      log,
+		dtt:      dtt,
+		bus:      bus,
+		factory:  factory,
+		services: make(map[registry.ID]*ConnPool),
+		env:      envRegistry,
 	}, nil
 }
 
@@ -117,23 +117,23 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 	}
 
 	if cfg.HostEnv != "" {
-		cfg.Host, _ = m.envRegistry.GetFromStorage(ctx, cfg.HostEnv)
+		cfg.Host, _ = m.env.Get(ctx, cfg.HostEnv)
 	}
 	if cfg.PortEnv != "" {
-		val, _ := m.envRegistry.GetFromStorage(ctx, cfg.PortEnv)
+		val, _ := m.env.Get(ctx, cfg.PortEnv)
 		cfg.Port, err = strconv.Atoi(val)
 		if err != nil {
 			return fmt.Errorf("invalid port value: %w", err)
 		}
 	}
 	if cfg.DatabaseEnv != "" {
-		cfg.Database, _ = m.envRegistry.GetFromStorage(ctx, cfg.DatabaseEnv)
+		cfg.Database, _ = m.env.Get(ctx, cfg.DatabaseEnv)
 	}
 	if cfg.UsernameEnv != "" {
-		cfg.Username, _ = m.envRegistry.GetFromStorage(ctx, cfg.UsernameEnv)
+		cfg.Username, _ = m.env.Get(ctx, cfg.UsernameEnv)
 	}
 	if cfg.PasswordEnv != "" {
-		cfg.Password, _ = m.envRegistry.GetFromStorage(ctx, cfg.PasswordEnv)
+		cfg.Password, _ = m.env.Get(ctx, cfg.PasswordEnv)
 	}
 
 	pool, err := m.factory.CreateStandardPool(entry.Kind, cfg)
