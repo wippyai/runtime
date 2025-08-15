@@ -5,7 +5,7 @@ system in our runtime engine configuration to manage dependencies between module
 
 ## Overview
 
-The requirements and dependencies system provides a simple and powerful way to manage module dependencies. The system uses direct parameter name matching between `ns.requirement` and `ns.dependency` entries.
+The requirements and dependencies system provides a simple and powerful way to manage module dependencies. The system uses **direct parameter name matching** between `ns.requirement` and `ns.dependency` entries, making it much simpler and more intuitive than the previous approach.
 
 ## Key Components
 
@@ -16,12 +16,15 @@ The system uses two registry entry types:
 - **`ns.dependency`**: Represents a module dependency entry with configurable parameters
 - **`ns.requirement`**: Represents a module requirement entry that specifies where dependency values should be injected
 
-### 2. Parameter Injection System
+> **Note**: The `ns.definition` entry type has been **completely deprecated and removed** from the system.
 
-The system uses a simple parameter-based approach where:
+### 2. Simplified Parameter Injection System
+
+The system now uses a **direct parameter name matching** approach where:
 - Dependencies declare parameters with names that directly match requirement entry names
-- Requirements specify target locations where dependency parameter values should be injected
-- The system uses direct name matching instead of complex path expressions
+- Requirements automatically find and use dependency parameters with matching names
+- No complex path expressions or JSONPath syntax is required for basic parameter injection
+- The system is much simpler and more predictable
 
 ## External Module Declaration
 
@@ -75,7 +78,7 @@ Each requirement item declares public parameters that might be modified when the
 
 ## New Application Requirements System
 
-The new system replaces the old `exports` section with a more flexible approach using `ns.requirement` and `ns.dependency` entries:
+The new system replaces the old `exports` section and the deprecated `ns.definition` approach with a more flexible and simpler approach using `ns.requirement` and `ns.dependency` entries:
 
 ### Old Approach (Deprecated)
 ```yaml
@@ -89,30 +92,17 @@ exports:
     value: "system:api"
 ```
 
-### New Approach
+### New Simplified Approach
 ```yaml
 version: "1.0"
 namespace: app.requirements.demo
 
 meta:
-  depends_on: [ "ns:system" ]
+  depends_on: ["ns:system"]
   comment: "Requirements and Dependencies Demo Application"
 
 entries:
-  # Requirements - what this demo needs from the system
-  - name: NAMESPACE
-    kind: ns.requirement
-    targets:
-      - entry: hello_world_dependency
-        path: parameters[name=namespace].value
-
-  - name: API_ROUTER
-    kind: ns.requirement
-    targets:
-      - entry: hello_world_dependency
-        path: parameters[name=api_router].value
-
-  # Dependency
+  # Dependencies - external components this demo needs
   - name: hello_world_dependency
     kind: "ns.dependency"
     meta:
@@ -121,54 +111,41 @@ entries:
     version: ">=v0.0.1"
     namespace: "app.requirements.demo"
     parameters:
-      - name: api_router
+      - name: API_ROUTER
         value: "system:api"
-      - name: namespace
+      - name: NAMESPACE
         value: "ns:system"
 ```
 
-## Parameter Injection Mechanism
+## Simplified Parameter Injection Mechanism
 
-The declaration below means that we need to extract the value of `hello_world_dependency.namespace` and pass it as parameter `NAMESPACE` to the `hello_handler` dependency:
+The new system automatically handles parameter injection based on **direct name matching**:
 
-```yaml
-  - name: NAMESPACE
-    kind: ns.requirement
-    targets:
-      - entry: hello_world_dependency
-        path: namespace
-```
-
-## JSONPath-Like Targeting Syntax
-
-The system uses JSONPath-like syntax for precise parameter targeting:
-
-### Targeting Dependency Parameters
-- `parameters[name=namespace].value` - Targets the `value` field of the parameter named `namespace`
-- `parameters[name=api_router].value` - Targets the `value` field of the parameter named `api_router`
-
-### Targeting Module Configuration
-- `meta.depends_on[]` - Targets the `depends_on` array in the module's meta section
-- `meta.router` - Targets the `router` field in the module's meta section
+- **Requirement names** (like `NAMESPACE`, `API_ROUTER`) automatically match **dependency parameter names**
+- **No complex targeting syntax** is required for basic parameter injection
+- **Automatic discovery** of matching parameters between requirements and dependencies
+- **Simplified configuration** with fewer moving parts
 
 ## Implementation Details
 
 ### Core Components
 
 1. **Registry API** (`api/registry/registry.go`):
-   - Defines the new entry kinds: `KindNamespaceDefinition`, `KindNamespaceDependency`, `KindNamespaceRequirement`
+   - Defines the entry kinds: `KindNamespaceDependency`, `KindNamespaceRequirement`
+   - **Removed**: `KindNamespaceDefinition` (deprecated)
    - Provides the foundation for the new system
 
 2. **Requirement Resolver** (`requirementresolver/resolver.go`):
    - Implements `Resolver` struct with `NewResolver()` constructor
-   - Provides `ResolveModuleRequirements()` method for parameter injection
-   - Handles parameter injection using JSONPath-like syntax
-   - Supports complex parameter targeting with array filters
+   - Provides `ResolveModuleDefinitions()` method for parameter injection
+   - **New**: Uses direct parameter name matching instead of complex path resolution
+   - **Simplified**: Automatically finds dependency parameters that match requirement names
    - Provides extensive structured logging for debugging
 
-3. **Module Loader** (`moduleloader/registry_loader.go`):
+3. **Module Loader** (`moduleloader/manager.go`):
    - `EntryLoader` implements `ManifestLoader` using registry entries
    - Converts `ns.dependency` entries to `ManifestDependency` format
+   - **Enhanced**: Added module queue management and duplicate prevention
    - Handles component name parsing and validation
 
 4. **Entry Loader** (`system/registry/loader/entry_loader.go`):
@@ -178,6 +155,7 @@ The system uses JSONPath-like syntax for precise parameter targeting:
 
 5. **Bus Runner** (`system/registry/runner/bus_runner.go`):
    - Processes the new entry kinds during registry operations
+   - **Updated**: Removed support for deprecated `ns.definition` entries
    - Handles state transitions for requirements and dependencies
 
 ### Key Functions
@@ -185,12 +163,12 @@ The system uses JSONPath-like syntax for precise parameter targeting:
 #### `NewResolver(logger *zap.Logger) *Resolver`
 Creates a new Resolver instance with the given logger.
 
-#### `(r *Resolver) ResolveModuleRequirements(entries []registry.Entry) error`
-This function orchestrates the parameter injection process:
+#### `(r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) error`
+This function orchestrates the simplified parameter injection process:
 
-1. **Builds maps** of `ns.definition`, `ns.dependency`, and `ns.requirement` entries
-2. **Finds requirement-dependency relationships** using target specifications
-3. **Extracts values** from dependency entries using JSONPath-like paths
+1. **Builds maps** of `ns.dependency` and `ns.requirement` entries
+2. **Automatically finds matching parameters** using direct name matching between requirements and dependency parameters
+3. **Extracts values** from dependency parameters with matching names
 4. **Applies values** to target entries using the specified paths
 5. **Handles complex scenarios** like array appending and nested field access
 
@@ -198,40 +176,37 @@ This function orchestrates the parameter injection process:
 This function processes YAML configuration files:
 
 1. **Unmarshals** YAML content into `FileContent` structure
-2. **Processes requirements** and converts them to `ns.definition` entries
+2. **Processes requirements** and converts them to `ns.requirement` entries
 3. **Processes raw entries** and applies metadata merging
 4. **Validates** required fields and structure
 5. **Returns** a slice of registry entries ready for processing
 
-### Parameter Path Processing
+### Simplified Parameter Processing
 
-The system supports sophisticated parameter path processing:
+The new system eliminates the need for complex parameter path processing in most cases:
 
-#### Simple Paths
-- `namespace` - Direct field access
-- `meta.description` - Nested field access
+#### Automatic Parameter Matching
+- **Requirement name**: `NAMESPACE` automatically matches **dependency parameter**: `name: NAMESPACE`
+- **Requirement name**: `API_ROUTER` automatically matches **dependency parameter**: `name: API_ROUTER`
 
-#### Array Targeting
+#### Legacy Path Support (Backward Compatibility)
+- Complex JSONPath expressions are still supported for advanced use cases
 - `parameters[name=api_router].value` - Array filtering with field access
 - `meta.depends_on[]` - Array appending
-
-#### Complex Scenarios
-- `parameters[name=text].value` - Parameter lookup with value extraction
-- `config.auth.key` - Deep nested configuration access
 
 ## Demo Application
 
 A complete demo application is provided in `app/src/demos/requirements_demo/`:
 
 ### Files
-- `_index.yaml`: Main configuration with requirements and dependencies
+- `_index.yaml`: Main configuration with simplified requirements and dependencies
 - `demo_handler.lua`: Lua function demonstrating the parameter injection system
 - `README.md`: Detailed documentation of the demo
 
 ### Demo Features
-- **Multiple Requirements**: Demonstrates different types of requirements
-- **Parameter Injection**: Shows how values flow from requirements to dependencies
-- **JSONPath Targeting**: Examples of complex parameter targeting
+- **Simplified Configuration**: No more complex `ns.definition` entries
+- **Direct Parameter Matching**: Automatic parameter injection based on name matching
+- **Cleaner Syntax**: Reduced configuration complexity
 - **HTTP Integration**: Endpoint that displays the injection flow
 - **Lua Integration**: Handler function that accesses and displays the system
 
@@ -245,31 +220,31 @@ Access the demo endpoint at `GET /api/v1/demo/requirements` to see:
 ## Migration from Old System
 
 ### What Changed
-1. **Exports Section**: Removed in favor of `ns.requirement` entries
-2. **Parameter Injection**: New JSONPath-like targeting system
-3. **Dependency Management**: More flexible parameter-based approach
-4. **Registry Integration**: Direct integration with registry system
+1. **`ns.definition` Entries**: **Completely removed** - no longer supported
+2. **Complex Path Expressions**: Replaced with direct parameter name matching
+3. **Simplified Configuration**: Much cleaner and more intuitive
+4. **Automatic Parameter Discovery**: System automatically finds matching parameters
 
 ### Migration Steps
-1. **Replace exports** with `ns.requirement` entries
-2. **Add `ns.dependency`** entries for external components
-3. **Update parameter targeting** using JSONPath-like syntax
-4. **Test parameter injection** flow
+1. **Remove all `ns.definition` entries** - they are no longer supported
+2. **Simplify parameter targeting** - use direct name matching instead of complex paths
+3. **Update dependency parameters** - ensure parameter names match requirement names exactly
+4. **Test parameter injection** flow with the simplified system
 
 ## Benefits of New System
 
-1. **Flexibility**: More granular control over parameter injection
-2. **Precision**: JSONPath-like syntax for exact targeting
-3. **Extensibility**: Easy to add new parameter types and targeting methods
-4. **Debugging**: Extensive logging for troubleshooting
-5. **Integration**: Direct integration with registry system
-6. **Validation**: Built-in validation and error handling
+1. **Simplicity**: Much easier to understand and configure
+2. **Reliability**: Fewer moving parts means fewer failure points
+3. **Maintainability**: Cleaner code and configuration
+4. **Performance**: Faster parameter resolution with direct name matching
+5. **Debugging**: Easier to troubleshoot parameter injection issues
+6. **Integration**: Direct integration with registry system
 
 ## Future Enhancements
 
 The system is designed to be extensible for future enhancements:
 - Additional parameter types
-- More complex targeting scenarios
+- More complex targeting scenarios (when needed)
 - Dynamic parameter resolution
 - Cross-namespace dependencies
 - Parameter validation and constraints

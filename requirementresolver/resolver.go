@@ -405,21 +405,33 @@ func findRequirementTargetEntries(requirementTarget DefinitionTarget, ns string,
 	results := make([]registry.Entry, 0)
 
 	for _, entry := range entries {
-		// Check if the entry ID matches the requirement target entry
-		if entry.ID.NS == ns {
-			if requirementTarget.Entry == "" {
-				// When Entry is empty, match by Path field which contains path like "meta.depends_on[]"
-				if requirementTarget.Path != "" {
-					// For now, just add all entries in the namespace when Path is specified
+		if requirementTarget.Entry == "" {
+			// Add all entries in the namespace when Path is specified
+			if requirementTarget.Path != "" {
+				if entry.ID.NS == ns {
 					results = append(results, entry)
 				}
-				continue
 			}
+			continue
+		}
 
-			// When Entry is specified, match by exact name
-			if entry.ID.Name == requirementTarget.Entry {
-				results = append(results, entry)
+		// Check if the entry reference contains a namespace prefix
+		if strings.Contains(requirementTarget.Entry, ":") {
+			// Cross-namespace entry reference (namespace:entry)
+			// Parse the namespace:entry format
+			parts := strings.SplitN(requirementTarget.Entry, ":", 2)
+			if len(parts) == 2 {
+				targetNS := parts[0]
+				targetName := parts[1]
+				// Add entry from target namespace
+				if entry.ID.NS == targetNS && entry.ID.Name == targetName {
+					results = append(results, entry)
+				}
 			}
+		} else if entry.ID.NS == ns && entry.ID.Name == requirementTarget.Entry {
+			// Local namespace entry reference
+			// Add entry when entry.ID.Name == requirementTarget.Entry
+			results = append(results, entry)
 		}
 	}
 
