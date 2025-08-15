@@ -54,10 +54,6 @@ type Registry interface {
 }
 
 func (v *Variable) Validate() error {
-	if v.Name == "" {
-		return errors.New("env variable name cannot be empty")
-	}
-
 	for _, c := range v.Name {
 		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
 			return fmt.Errorf("env variable name must only contain alphanumeric characters (a-z, A-Z, 0-9) and underscores, but received %s", v.Name)

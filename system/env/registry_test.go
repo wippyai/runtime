@@ -18,9 +18,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// mockStorage implements env.Storage for testing
+// mockStorage implements env.Storage for testing with thread safety
 type mockStorage struct {
-	data map[string]string
+	data  map[string]string
+	mutex sync.RWMutex
 }
 
 func newMockStorage(data map[string]string) *mockStorage {
@@ -31,6 +32,9 @@ func newMockStorage(data map[string]string) *mockStorage {
 }
 
 func (m *mockStorage) Get(ctx context.Context, name string) (string, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
 	if value, exists := m.data[name]; exists {
 		return value, nil
 	}
@@ -38,16 +42,25 @@ func (m *mockStorage) Get(ctx context.Context, name string) (string, error) {
 }
 
 func (m *mockStorage) Set(ctx context.Context, name, value string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	m.data[name] = value
 	return nil
 }
 
 func (m *mockStorage) Delete(ctx context.Context, name string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	delete(m.data, name)
 	return nil
 }
 
 func (m *mockStorage) List(ctx context.Context) (map[string]string, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
 	result := make(map[string]string)
 	for k, v := range m.data {
 		result[k] = v
@@ -90,10 +103,10 @@ func TestRegistry_Get_VariableWithName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "test_value", value)
 
-	// Cannot access by ID string (current limitation)
-	_, err = reg.Get(ctx, "app:my_var")
-	require.Error(t, err)
-	assert.Equal(t, env.ErrVariableNotFound, err)
+	// Can also access by ID string (fallback behavior)
+	value, err = reg.Get(ctx, "app:my_var")
+	require.NoError(t, err)
+	assert.Equal(t, "test_value", value)
 }
 
 func TestRegistry_Get_VariableWithoutName(t *testing.T) {
@@ -122,7 +135,7 @@ func TestRegistry_Get_VariableWithoutName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "id_value", value)
 
-	// Cannot access by short name (current limitation)
+	// Cannot access by short name (not registered)
 	_, err = reg.Get(ctx, "my_var")
 	require.Error(t, err)
 	assert.Equal(t, env.ErrVariableNotFound, err)
@@ -159,10 +172,14 @@ func TestRegistry_Set_VariableWithName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "new_value", value)
 
-	// Cannot set by ID string (current limitation)
+	// Can also set by ID string (fallback behavior)
 	err = reg.Set(ctx, "app:my_var", "id_value")
-	require.Error(t, err)
-	assert.Equal(t, env.ErrVariableNotFound, err)
+	require.NoError(t, err)
+
+	// Verify change
+	value, err = reg.Get(ctx, "test_var")
+	require.NoError(t, err)
+	assert.Equal(t, "id_value", value)
 }
 
 func TestRegistry_Set_VariableWithoutName(t *testing.T) {
@@ -961,7 +978,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 	require.NoError(t, reg.Start(ctx))
 	defer reg.Stop()
 
-	// Setup storage
+	// Setup storage with thread-safe implementation
 	storage := newMockStorage(map[string]string{
 		"concurrent_var": "initial_value",
 	})
