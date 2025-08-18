@@ -33,16 +33,11 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 	for _, entry := range entries {
 		switch entry.Kind {
 		case registry.KindNamespaceDependency:
-			nsDependencies[entry.ID.Name] = entry
+			nsDependencies[entry.ID.String()] = entry
 		case registry.KindNamespaceRequirement:
-			nsRequirements[entry.ID.Name] = entry
+			nsRequirements[entry.ID.String()] = entry
 		}
 	}
-
-	// Log available requirements and dependencies for debugging
-	r.logger.Debug("requirement resolver debug info",
-		zap.Any("available_requirements", getEntryNames(nsRequirements)),
-		zap.Any("available_dependencies", getEntryNames(nsDependencies)))
 
 	// Process each requirement and find matching dependency parameters
 	for _, nsRequirement := range nsRequirements {
@@ -60,7 +55,7 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 		}
 
 		r.logger.Debug("found dependency parameter for requirement",
-			zap.String("requirement", nsRequirement.ID.Name),
+			zap.String("requirement", nsRequirement.ID.String()),
 			zap.String("dependency", nsDependency.ID.Name),
 			zap.String("parameter_value", paramValue))
 
@@ -463,15 +458,6 @@ func getRequirementTargets(requirement registry.Entry) ([]DefinitionTarget, erro
 	}
 
 	return nil, fmt.Errorf("invalid Definition data in Requirement %s", requirement.ID.Name)
-}
-
-// getEntryNames returns a slice of entry names for debugging
-func getEntryNames(entries map[string]registry.Entry) []string {
-	names := make([]string, 0, len(entries))
-	for name := range entries {
-		names = append(names, name)
-	}
-	return names
 }
 
 // getEntryIDs returns a slice of entry IDs for debugging
