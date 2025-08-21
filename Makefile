@@ -14,6 +14,8 @@ test:
 	go test ./service/... -v -race
 	go test ./cluster/... -v -race
 	go test --tags "fts5 sqlite_vec" ./runtime/... -v -race
+	go test ./moduleloader/... -v -race
+	go test ./requirementresolver/... -v -race
 
 test-system:
 	go test ./internal/... -v -race
@@ -34,6 +36,9 @@ test-cluster:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race
 	go test ./cluster/... -v -race
+
+test-integration:
+	CGO_ENABLED=1 go test ./tests/... -v -race -timeout 120s
 
 debug_vm:
 	dlv test --build-flags "--tags=fts5,sqlite_vec" -- test.v -test.run="^TestVM\$"

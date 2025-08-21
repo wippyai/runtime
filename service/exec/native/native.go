@@ -1,6 +1,7 @@
 package native
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -93,6 +94,7 @@ type ProcessExecutor struct {
 	stopped atomic.Pointer[bool]
 
 	cmd *exec.Cmd
+	ctx context.Context // Added context for cancellation support
 
 	stderrp   io.ReadCloser
 	stdoutp   io.ReadCloser
@@ -104,6 +106,7 @@ func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
 	e := &ProcessExecutor{
 		state: notStarted,
 		log:   log,
+		ctx:   context.Background(), // Default to background context
 	}
 
 	e.stopped.Store(p(false))
@@ -119,13 +122,14 @@ func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
 	}
 
 	// Create command with first part as executable and rest as arguments
+	// Use CommandContext for proper cancellation support
 	var command *exec.Cmd
 	if len(cmdParts) > 1 {
 		//nolint:gosec //G204: Subprocess launched with a potential tainted input or cmd arguments
-		command = exec.Command(cmdParts[0], cmdParts[1:]...) // todo: commandContext
+		command = exec.CommandContext(e.ctx, cmdParts[0], cmdParts[1:]...)
 	} else {
 		//nolint:gosec //G204: Subprocess launched with a potential tainted input or cmd arguments
-		command = exec.Command(cmdParts[0]) // todo: commandContext
+		command = exec.CommandContext(e.ctx, cmdParts[0])
 	}
 
 	if e.envs != nil {

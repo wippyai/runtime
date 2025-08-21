@@ -31,3 +31,5 @@ app/data
 dist/
 /bin/
 /.wippy/
+*.log
+/.cursor/

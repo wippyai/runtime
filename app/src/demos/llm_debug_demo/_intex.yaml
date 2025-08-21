@@ -111,12 +111,12 @@ entries:
     storage: system:envfile
     default:
 
-  - name: __dependency.wippy.migration
-    kind: "ns.dependency"
-    meta:
-     description: "Migration component"
-    component: "wippy/migration"
-    version: ">=v0.0.7"
+#  - name: __dependency.wippy.migration
+#    kind: "ns.dependency"
+#    meta:
+#     description: "Migration component"
+#    component: "wippy/migration"
+#    version: ">=v0.0.7"
 
   - name: __dependency.wippy.security
     kind: "ns.dependency"
@@ -125,19 +125,19 @@ entries:
     component: "wippy/security"
     version: ">=v0.0.7"
 
-  - name: __dependency.wippy.terminal
-    kind: "ns.dependency"
-    meta:
-      description: "Terminal component"
-    component: "wippy/terminal"
-    version: ">=v0.0.7"
+#  - name: __dependency.wippy.terminal
+#    kind: "ns.dependency"
+#    meta:
+#      description: "Terminal component"
+#    component: "wippy/terminal"
+#    version: ">=v0.0.7"
 
-  - name: __dependency.wippy.test
-    kind: "ns.dependency"
-    meta:
-      description: "Testing component"
-    component: "wippy/test"
-    version: ">=v0.0.7"
+#  - name: __dependency.wippy.test
+#    kind: "ns.dependency"
+#    meta:
+#      description: "Testing component"
+#    component: "wippy/test"
+#    version: ">=v0.0.7"
 
 #  - name: __dependency.wippy.usage
 #    kind: "ns.dependency"
