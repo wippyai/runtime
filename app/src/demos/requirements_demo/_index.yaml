@@ -2,22 +2,10 @@ version: "1.0"
 namespace: app.requirements.demo
 
 meta:
-  depends_on: [ "ns:system" ]
+  depends_on: ["ns:system"]
   comment: "Definitions and Dependencies Demo Application"
 
 entries:
-  - name: NAMESPACE
-    kind: ns.definition
-    targets:
-      - entry: hello_world_dependency
-        path: .parameters[] | select(.name == "namespace") | .value
-
-  - name: API_ROUTER
-    kind: ns.definition
-    targets:
-      - entry: hello_world_dependency
-        path: .parameters[] | select(.name == "api_router") | .value
-
   - name: hello_world_dependency
     kind: "ns.dependency"
     meta:
@@ -25,8 +13,7 @@ entries:
     component: "igor-test-3/test-2"
     version: ">=v0.0.1"
     parameters:
-      - name: api_router
+      - name: API_ROUTER
         value: "system:api"
-      - name: namespace
+      - name: NAMESPACE
         value: "ns:system"
-

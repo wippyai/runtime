@@ -13,25 +13,19 @@ entries:
     component: "wippy/llm"
     version: ">=v0.0.7"
     parameters:
-      - name: "host"
+      - name: "application_host"
         value: "system:processes"
-
-  - name: application_host
-    kind: ns.definition
-    targets:
-      - entry: __dependency.wippy.llm
-        path: .parameters[] | select(.name == "host") | .value
-#
-#  ###########################
-#  #   Local components      #
-#  ###########################
+  #
+  #  ###########################
+  #  #   Local components      #
+  #  ###########################
 
   - name: bapp
     kind: library.lua
     meta:
       comment: "Bubble Tea app wrapper library"
     source: file://bapp.lua
-    modules: [ btea, channel, upstream ]
+    modules: [btea, channel, upstream]
 
   # app:terminal
   - name: terminal
@@ -121,7 +115,7 @@ entries:
   - name: __dependency.wippy.security
     kind: "ns.dependency"
     meta:
-     description: "Security component"
+      description: "Security component"
     component: "wippy/security"
     version: ">=v0.0.7"
 
