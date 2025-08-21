@@ -118,6 +118,7 @@ entries:
       description: "Security component"
     component: "wippy/security"
     version: ">=v0.0.7"
+
 #  - name: __dependency.wippy.terminal
 #    kind: "ns.dependency"
 #    meta:
