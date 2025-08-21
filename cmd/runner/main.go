@@ -71,6 +71,8 @@ func initMainLogger(verbose, veryVerbose bool) (*zap.Logger, error) {
 		cfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
 		cfg.DisableStacktrace = true
 	}
+	// Remove file and line number from logs
+	cfg.DisableCaller = true
 
 	cfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
 	// Remove file and line number from logs

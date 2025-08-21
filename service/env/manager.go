@@ -173,7 +173,7 @@ func (m *Manager) handleVariableAdd(ctx context.Context, entry registry.Entry) e
 		Data:   variable,
 	})
 
-	m.logger.Info("registered environment variable",
+	m.logger.Debug("registered environment variable",
 		zap.String("id", entry.ID.String()),
 		zap.String("name", variable.Name),
 		zap.String("env_name", variable.EnvName))
@@ -307,7 +307,7 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, sto
 		Data:   storage,
 	})
 
-	m.logger.Info("added env storage",
+	m.logger.Debug("added env storage",
 		zap.String("id", entry.ID.String()),
 		zap.String("kind", entry.Kind))
 

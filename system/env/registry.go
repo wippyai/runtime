@@ -167,7 +167,7 @@ func (s *Registry) registerVariable(e event.Event) {
 	if err != nil {
 		// If the variable has a default value, allow registration with empty value
 		if variable.DefaultValue != "" {
-			s.log.Info("variable not found in storage but has default value, allowing registration",
+			s.log.Debug("variable not found in storage but has default value, allowing registration",
 				zap.String("variable", variableName),
 				zap.String("default_value", variable.DefaultValue))
 			variableValue = ""
@@ -191,7 +191,7 @@ func (s *Registry) registerVariable(e event.Event) {
 	}
 
 	s.values.Store(variableID, value)
-	s.log.Info("variable registered successfully",
+	s.log.Debug("variable registered successfully",
 		zap.String("path", e.Path),
 		zap.String("name", variable.Name),
 		zap.String("env_name", variable.EnvName),
@@ -300,29 +300,29 @@ func (s *Registry) All(ctx context.Context) (map[string]string, error) {
 }
 
 func (s *Registry) getEnvValue(ctx context.Context, name string) (*EnvValue, error) {
-	s.log.Info("getEnvValue called",
+	s.log.Debug("getEnvValue called",
 		zap.String("name", name))
 
 	// First try to get value by name
 	value, err := s.getEnvValueByName(ctx, name)
 	if err == nil {
-		s.log.Info("variable found by name",
+		s.log.Debug("variable found by name",
 			zap.String("name", name))
 		return value, nil
 	}
 
-	s.log.Info("variable not found by name, trying by env name",
+	s.log.Debug("variable not found by name, trying by env name",
 		zap.String("name", name))
 
 	// If not found by name, try to get by env name
 	value, err = s.getEnvValueByEnvName(ctx, name)
 	if err == nil {
-		s.log.Info("variable found by env name",
+		s.log.Debug("variable found by env name",
 			zap.String("name", name))
 		return value, nil
 	}
 
-	s.log.Info("variable not found by either method",
+	s.log.Debug("variable not found by either method",
 		zap.String("name", name))
 	return nil, env.ErrVariableNotFound
 }
@@ -498,7 +498,7 @@ func (s *Registry) getFromAnyStorage(ctx context.Context, envVarName string) (st
 	})
 
 	if foundVariable != "" {
-		s.log.Info("got variable from storage",
+		s.log.Debug("got variable from storage",
 			zap.String("storage", fmt.Sprintf("%v", foundStorageKey)),
 			zap.String("variable", envVarName),
 			zap.String("value", foundVariable))
