@@ -5,14 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
-	"path/filepath"
-	"runtime"
-	"syscall"
+	"strings"
 	"time"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-	"github.com/joho/godotenv"
 	"github.com/pkg/errors"
 	"github.com/ponyruntime/pony/moduleloader"
 	"go.uber.org/zap"
@@ -52,10 +48,8 @@ type Config struct {
 	ClusterSecretFile string // Secret from file
 	ClusterAdvertise  string // Advertise IP
 
-	// Dependency management
-	InstallDeps bool
-	UpdateDeps  bool
-	LockFile    string
+	// Lock file path
+	LockFile string
 }
 
 func initMainLogger(verbose, veryVerbose bool) (*zap.Logger, error) {
@@ -86,33 +80,6 @@ func initMainLogger(verbose, veryVerbose bool) (*zap.Logger, error) {
 	return log, nil
 }
 
-// loadDotEnv loads environment variables from .env files
-func loadDotEnv(logger *zap.Logger, paths ...string) {
-	// First try explicitly provided paths
-	for _, path := range paths {
-		envPath := filepath.Join(path, ".env")
-		err := godotenv.Load(envPath)
-		if err == nil {
-			if logger != nil {
-				logger.Info(".env file loaded successfully", zap.String("path", envPath))
-			} else {
-				fmt.Printf(".env file loaded successfully from: %s\n", envPath)
-			}
-			return
-		}
-	}
-
-	// Try default location
-	err := godotenv.Load()
-	if err != nil {
-		if logger != nil {
-			logger.Debug("Could not load .env file from default location", zap.Error(err))
-		}
-	} else if logger != nil {
-		logger.Info(".env file loaded successfully from default location")
-	}
-}
-
 // parseFlags parses command line flags into Config
 func parseFlags() *Config {
 	config := &Config{}
@@ -133,9 +100,6 @@ func parseFlags() *Config {
 	flag.StringVar(&config.ClusterSecretFile, "cluster-secret-file", "", "path to file containing cluster secret key")
 	flag.StringVar(&config.ClusterAdvertise, "cluster-advertise", "", "cluster advertise IP address")
 
-	// Dependency management flags
-	flag.BoolVar(&config.InstallDeps, "install", false, "install dependencies from lock file")
-	flag.BoolVar(&config.UpdateDeps, "update", false, "update dependencies and regenerate lock file")
 	flag.StringVar(&config.LockFile, "lock-file", moduleloader.DefaultLockFile, "path to lock file")
 
 	flag.Parse()
@@ -183,69 +147,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Check if we need to run dependency commands
-	if config.InstallDeps || config.UpdateDeps {
-		depsManager := NewDependencyManager(config, logger)
-		if err := depsManager.RunDependencyCommand(context.Background()); err != nil {
-			logger.Fatal("failed to run dependency command", zap.Error(err))
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
+		// CLI format
+		cliRunner := NewCLIRunner(config, logger)
+		if err := cliRunner.Run(context.Background()); err != nil {
+			logger.Fatal("failed to run CLI command", zap.Error(err))
 		}
-
 		return
 	}
 
-	// Create and initialize application
-	app, err := NewApp(config, logger)
-	if err != nil {
-		logger.Fatal("Failed to create application", zap.Error(err))
-	}
+	// All dependency management must use the new command format:
+	//   wippy install --lock-file=<path> --
+	//   wippy update --lock-file=<path> --
+	//   wippy init --lock-file=<path> --src-dir=<path> --modules-dir=<path> --
+	//   wippy run --lock-file=<path> --
+	//   wippy replace --lock-file=<path> -- <command> [args]
 
-	// Load environment variables
-	loadDotEnv(logger)
-
-	if err := app.Initialize(); err != nil {
-		logger.Fatal("Failed to initialize application", zap.Error(err))
-	}
-
-	// Configure services
-	app.services = createServiceHandlers(app)
-	runtime.GC()
-
-	// Start profiler if enabled
-	if config.EnableProfiling {
-		app.StartProfiler()
-	}
-
-	// Start application
-	if err := app.Start(config.FolderPath, config.UseEmbed); err != nil {
-		app.logger.Fatal("failed to start application", zap.Error(err))
-	}
-
-	app.logger.Named("wippy").Info("application started successfully")
-
-	// Handle shutdown signals
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Wait for first shutdown signal
-	sig := <-sigChan
-	app.logger.Info("received shutdown signal, starting graceful shutdown", zap.String("signal", sig.String()))
-
-	// Handle second signal for force shutdown
-	go func() {
-		sig := <-sigChan
-		app.logger.Warn("received second shutdown signal, forcing immediate shutdown", zap.String("signal", sig.String()))
-		close(app.forceShutdown)
-	}()
-
-	// Graceful shutdown
-	if err := app.Stop(); err != nil {
-		app.logger.Error("error during shutdown", zap.Error(err))
-		os.Exit(1)
-	}
-
-	if app.shuttingDown {
-		app.logger.Info("graceful shutdown completed")
-	} else {
-		app.logger.Info("force shutdown completed")
-	}
+	fmt.Println("Error: Legacy flag-based dependency management is no longer supported.")
+	fmt.Println("Please use the new command format:")
+	fmt.Println("  wippy install --lock-file=<path> --")
+	fmt.Println("  wippy update --lock-file=<path> --")
+	fmt.Println("  wippy init --lock-file=<path> --src-dir=<path> --modules-dir=<path> --")
+	fmt.Println("  wippy run --lock-file=<path> --")
+	fmt.Println("  wippy replace --lock-file=<path> -- <command> [args]")
+	fmt.Println("")
+	fmt.Println("Use 'wippy help' for more information.")
+	os.Exit(1)
 }
