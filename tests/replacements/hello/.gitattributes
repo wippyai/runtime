@@ -1,0 +1,43 @@
+# Exclude directories from release archives
+.github/ export-ignore
+.idea/ export-ignore
+.vscode/ export-ignore
+*.log export-ignore
+*.tmp export-ignore
+*.temp export-ignore
+.DS_Store export-ignore
+Thumbs.db export-ignore
+
+# Exclude development configuration files
+.editorconfig export-ignore
+.eslintrc* export-ignore
+.prettierrc* export-ignore
+tsconfig.json export-ignore
+webpack.config.js export-ignore
+
+# Exclude test files and development documentation
+test/ export-ignore
+tests/ export-ignore
+__tests__/ export-ignore
+*.test.* export-ignore
+*.spec.* export-ignore
+docs/dev/ export-ignore
+
+# Exclude build files and dependencies
+node_modules/ export-ignore
+dist/ export-ignore
+build/ export-ignore
+coverage/ export-ignore
+.nyc_output/ export-ignore
+
+# Exclude CI/CD files (if not needed in release)
+.github/workflows/ export-ignore
+.gitlab-ci.yml export-ignore
+.travis.yml export-ignore
+.circleci/ export-ignore
+
+# Exclude IDE and editor files
+*.swp export-ignore
+*.swo export-ignore
+*~ export-ignore
+*.sublime-* export-ignore 
