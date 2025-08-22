@@ -444,6 +444,16 @@ func (ic *RunCommand) Execute(_ context.Context, flags []string, args []string) 
 			return fmt.Errorf("failed to resolve absolute modules directory path: %w", err)
 		}
 
+		// Create Modules Directory if it does not exist
+		if _, err := os.Stat(absModulesDir); os.IsNotExist(err) {
+			if err := os.MkdirAll(absModulesDir, 0o755); err != nil {
+				return fmt.Errorf("failed to create modules directory: %w", err)
+			}
+			ic.runner.logger.Info("Created modules directory", zap.String("modules_dir", absModulesDir))
+		} else if err != nil {
+			return fmt.Errorf("failed to stat modules directory: %w", err)
+		}
+
 		absLockDir, err := filepath.Abs(lockDir)
 		if err != nil {
 			return fmt.Errorf("failed to resolve absolute lock file directory path: %w", err)
