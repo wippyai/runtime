@@ -31,7 +31,7 @@ func newMockStorage(data map[string]string) *mockStorage {
 	return &mockStorage{data: data}
 }
 
-func (m *mockStorage) Get(ctx context.Context, name string) (string, error) {
+func (m *mockStorage) Get(_ context.Context, name string) (string, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -41,7 +41,7 @@ func (m *mockStorage) Get(ctx context.Context, name string) (string, error) {
 	return "", env.ErrVariableNotFound
 }
 
-func (m *mockStorage) Set(ctx context.Context, name, value string) error {
+func (m *mockStorage) Set(_ context.Context, name, value string) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -49,7 +49,7 @@ func (m *mockStorage) Set(ctx context.Context, name, value string) error {
 	return nil
 }
 
-func (m *mockStorage) Delete(ctx context.Context, name string) error {
+func (m *mockStorage) Delete(_ context.Context, name string) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -57,7 +57,7 @@ func (m *mockStorage) Delete(ctx context.Context, name string) error {
 	return nil
 }
 
-func (m *mockStorage) List(ctx context.Context) (map[string]string, error) {
+func (m *mockStorage) List(_ context.Context) (map[string]string, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -77,10 +77,21 @@ func setupTestRegistry() (*Registry, event.Bus, context.Context) {
 	return reg, bus, ctx
 }
 
+// safeStop safely stops the registry and logs any errors
+func safeStop(t *testing.T, reg *Registry) {
+	if err := reg.Stop(); err != nil {
+		t.Logf("failed to stop registry: %v", err)
+	}
+}
+
 func TestRegistry_Get_VariableWithName(t *testing.T) {
 	reg, _, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer func() {
+		if err := reg.Stop(); err != nil {
+			t.Logf("failed to stop registry: %v", err)
+		}
+	}()
 
 	// Setup storage
 	storage := newMockStorage(map[string]string{
@@ -112,7 +123,11 @@ func TestRegistry_Get_VariableWithName(t *testing.T) {
 func TestRegistry_Get_VariableWithoutName(t *testing.T) {
 	reg, _, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer func() {
+		if err := reg.Stop(); err != nil {
+			t.Logf("failed to stop registry: %v", err)
+		}
+	}()
 
 	// Setup storage
 	storage := newMockStorage(map[string]string{
@@ -144,7 +159,11 @@ func TestRegistry_Get_VariableWithoutName(t *testing.T) {
 func TestRegistry_Set_VariableWithName(t *testing.T) {
 	reg, _, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer func() {
+		if err := reg.Stop(); err != nil {
+			t.Logf("failed to stop registry: %v", err)
+		}
+	}()
 
 	// Setup storage
 	storage := newMockStorage(map[string]string{
@@ -185,7 +204,7 @@ func TestRegistry_Set_VariableWithName(t *testing.T) {
 func TestRegistry_Set_VariableWithoutName(t *testing.T) {
 	reg, _, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer safeStop(t, reg)
 
 	// Setup storage
 	storage := newMockStorage(map[string]string{
@@ -217,7 +236,7 @@ func TestRegistry_Set_VariableWithoutName(t *testing.T) {
 func TestRegistry_ReadOnlyVariable(t *testing.T) {
 	reg, _, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer safeStop(t, reg)
 
 	// Setup storage
 	storage := newMockStorage(map[string]string{
@@ -250,7 +269,7 @@ func TestRegistry_ReadOnlyVariable(t *testing.T) {
 func TestRegistry_DefaultValue(t *testing.T) {
 	reg, _, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer safeStop(t, reg)
 
 	// Setup storage without the variable
 	storage := newMockStorage(map[string]string{})
@@ -273,7 +292,8 @@ func TestRegistry_DefaultValue(t *testing.T) {
 	assert.Equal(t, "default_value", value)
 
 	// Should return storage value when present
-	storage.Set(ctx, "default_var", "storage_value")
+	err = storage.Set(ctx, "default_var", "storage_value")
+	require.NoError(t, err)
 	value, err = reg.Get(ctx, "default_var")
 	require.NoError(t, err)
 	assert.Equal(t, "storage_value", value)
@@ -282,7 +302,7 @@ func TestRegistry_DefaultValue(t *testing.T) {
 func TestRegistry_ErrorCases(t *testing.T) {
 	reg, _, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer safeStop(t, reg)
 
 	t.Run("VariableNotFound", func(t *testing.T) {
 		_, err := reg.Get(ctx, "nonexistent")
@@ -317,7 +337,7 @@ func TestRegistry_ErrorCases(t *testing.T) {
 func TestRegistry_All(t *testing.T) {
 	reg, _, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer safeStop(t, reg)
 
 	// Setup multiple storages
 	storage1 := newMockStorage(map[string]string{
@@ -430,7 +450,7 @@ func TestRegistry_Variable_Validation(t *testing.T) {
 func TestRegistry_EventHandling_StorageRegister(t *testing.T) {
 	reg, bus, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer safeStop(t, reg)
 
 	// Setup event listener for responses
 	var responses []event.Event
@@ -531,7 +551,7 @@ func TestRegistry_EventHandling_StorageRegister(t *testing.T) {
 func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 	reg, bus, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer safeStop(t, reg)
 
 	// Setup event listener for responses
 	var responses []event.Event
@@ -744,7 +764,7 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 func TestRegistry_EventHandling_VariableUpdate(t *testing.T) {
 	reg, bus, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer safeStop(t, reg)
 
 	// Setup event listener for responses
 	var responses []event.Event
@@ -825,7 +845,7 @@ func TestRegistry_EventHandling_VariableUpdate(t *testing.T) {
 func TestRegistry_EventHandling_VariableDelete(t *testing.T) {
 	reg, bus, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer safeStop(t, reg)
 
 	// Setup event listener for responses
 	var responses []event.Event
@@ -893,7 +913,7 @@ func TestRegistry_EventHandling_VariableDelete(t *testing.T) {
 func TestRegistry_EventHandling_StorageDelete(t *testing.T) {
 	reg, bus, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer safeStop(t, reg)
 
 	// Setup event listener for responses
 	var responses []event.Event
@@ -976,7 +996,7 @@ func TestRegistry_GetBaseName(t *testing.T) {
 func TestRegistry_ConcurrentAccess(t *testing.T) {
 	reg, _, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))
-	defer reg.Stop()
+	defer safeStop(t, reg)
 
 	// Setup storage with thread-safe implementation
 	storage := newMockStorage(map[string]string{
@@ -1001,7 +1021,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent reads and writes
 	for i := 0; i < numGoroutines; i++ {
-		go func(idx int) {
+		go func(_ int) {
 			defer wg.Done()
 			// Read operation
 			_, err := reg.Get(ctx, "concurrent_var")

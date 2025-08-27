@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,7 +37,7 @@ KEY3=value3`
 func TestNewFileStorage(t *testing.T) {
 	logger := zap.NewNop()
 	filepath := "test.env"
-	storage := NewFileStorage(filepath, logger)
+	storage := NewFileStorage(filepath, true, 0644, 0755, logger)
 
 	assert.NotNil(t, storage)
 	assert.Equal(t, filepath, storage.filepath)
@@ -51,7 +49,7 @@ func TestFileStorage_Get(t *testing.T) {
 	defer cleanup()
 
 	logger := zap.NewNop()
-	storage := NewFileStorage(testFile, logger)
+	storage := NewFileStorage(testFile, true, 0644, 0755, logger)
 
 	tests := []struct {
 		name     string
@@ -98,7 +96,7 @@ func TestFileStorage_Set(t *testing.T) {
 	defer cleanup()
 
 	logger := zap.NewNop()
-	storage := NewFileStorage(testFile, logger)
+	storage := NewFileStorage(testFile, true, 0644, 0755, logger)
 
 	tests := []struct {
 		name     string
@@ -138,7 +136,7 @@ func TestFileStorage_Delete(t *testing.T) {
 	defer cleanup()
 
 	logger := zap.NewNop()
-	storage := NewFileStorage(testFile, logger)
+	storage := NewFileStorage(testFile, true, 0644, 0755, logger)
 
 	// Delete an existing key
 	err := storage.Delete(context.Background(), "KEY1")
@@ -154,7 +152,7 @@ func TestFileStorage_List(t *testing.T) {
 	defer cleanup()
 
 	logger := zap.NewNop()
-	storage := NewFileStorage(testFile, logger)
+	storage := NewFileStorage(testFile, true, 0644, 0755, logger)
 
 	values, err := storage.List(context.Background())
 	assert.NoError(t, err)
@@ -167,7 +165,7 @@ func TestFileStorage_StartStop(t *testing.T) {
 	defer cleanup()
 
 	logger := zap.NewNop()
-	storage := NewFileStorage(testFile, logger)
+	storage := NewFileStorage(testFile, true, 0644, 0755, logger)
 
 	// Test Start
 	statusCh, err := storage.Start(context.Background())
@@ -181,30 +179,4 @@ func TestFileStorage_StartStop(t *testing.T) {
 	// Test Stop
 	err = storage.Stop(context.Background())
 	assert.NoError(t, err)
-}
-
-func TestFileStorage_Acquire(t *testing.T) {
-	testFile, cleanup := setupTestFile(t)
-	defer cleanup()
-
-	logger := zap.NewNop()
-	storage := NewFileStorage(testFile, logger)
-
-	// Test normal mode acquisition
-	res, err := storage.Acquire(context.Background(), registry.ID{NS: "test", Name: "test"}, resource.ModeNormal)
-	assert.NoError(t, err)
-	assert.NotNil(t, res)
-
-	// Test exclusive mode (should fail)
-	_, err = storage.Acquire(context.Background(), registry.ID{NS: "test", Name: "test"}, resource.ModeExclusive)
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, resource.ErrResourceLocked)
-
-	// Test res operations
-	value, err := res.Get()
-	assert.NoError(t, err)
-	assert.NotNil(t, value)
-
-	// Test res release
-	res.Release()
 }

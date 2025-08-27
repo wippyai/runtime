@@ -1,7 +1,7 @@
 package render
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	bubbletea "github.com/charmbracelet/bubbletea"
 	zone "github.com/lrstanley/bubblezone"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
@@ -142,7 +142,7 @@ func zoneInfoInBounds(l *lua.LState) int {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
 	}
-	mouseMsg, ok := msg.(tea.MouseMsg)
+	mouseMsg, ok := msg.(bubbletea.MouseMsg)
 	if !ok {
 		l.ArgError(2, "mouse message expected")
 		return 0
@@ -159,7 +159,7 @@ func zoneInfoPos(l *lua.LState) int {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
 	}
-	mouseMsg, ok := msg.(tea.MouseMsg)
+	mouseMsg, ok := msg.(bubbletea.MouseMsg)
 	if !ok {
 		l.ArgError(2, "mouse message expected")
 		return 0

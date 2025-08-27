@@ -138,7 +138,7 @@ func (s *FileStorage) readAllLines() ([]string, error) {
 	}
 	defer s.closeFile(file)
 
-	var lines []string
+	lines := make([]string, 0, 100) // Pre-allocate with reasonable capacity
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
@@ -148,7 +148,7 @@ func (s *FileStorage) readAllLines() ([]string, error) {
 }
 
 func (s *FileStorage) processLines(lines []string, key, value string, isDelete bool) []string {
-	var result []string
+	result := make([]string, 0, len(lines))
 	updated := false
 
 	for _, line := range lines {
