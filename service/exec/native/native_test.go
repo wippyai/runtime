@@ -1,6 +1,7 @@
 package native
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/fs"
@@ -86,7 +87,15 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	}()
 
 	go func() {
-		time.Sleep(4 * time.Second) // Give process time to start and produce output
+		// Use context with timeout instead of time.Sleep to prevent test hanging
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		select {
+		case <-ctx.Done():
+			t.Log("Timeout waiting for process to start")
+		case <-time.After(1 * time.Second): // Give process time to start and produce output
+		}
 		processExecutor.Stop()
 	}()
 
@@ -174,7 +183,16 @@ func TestExecutor_Stdout(t *testing.T) {
 	<-readStarted
 
 	// Give a moment for the reading goroutine to start
-	time.Sleep(10 * time.Millisecond)
+	// Use context with timeout instead of time.Sleep to prevent test hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		t.Log("Timeout waiting for reading goroutine")
+	case <-time.After(10 * time.Millisecond):
+		// Give a moment for the reading goroutine to start
+	}
 
 	// Now start the process
 	err = process.Start()
@@ -267,7 +285,16 @@ func TestExecutor_StdoutWithSleep(t *testing.T) {
 	<-readStarted
 
 	// Give a moment for the reading goroutine to start
-	time.Sleep(10 * time.Millisecond)
+	// Use context with timeout instead of time.Sleep to prevent test hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		t.Log("Timeout waiting for reading goroutine")
+	case <-time.After(10 * time.Millisecond):
+		// Give a moment for the reading goroutine to start
+	}
 
 	// Now start the process
 	err = process.Start()

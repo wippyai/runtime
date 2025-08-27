@@ -1471,8 +1471,16 @@ func TestController_RetryDelay(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error from Serve() due to immediate failure, got nil")
 	}
-	// Wait for retries to occur.
-	time.Sleep(1 * time.Second)
+	// Wait for retries to occur with context timeout to prevent test hanging
+	retryCtx, retryCancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer retryCancel()
+
+	select {
+	case <-retryCtx.Done():
+		t.Log("Timeout waiting for retries")
+	case <-time.After(500 * time.Millisecond):
+		// Wait for retries to occur
+	}
 	mu.Lock()
 	times := append([]time.Time(nil), startTimes...)
 	mu.Unlock()

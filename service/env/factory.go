@@ -2,8 +2,9 @@ package env
 
 import (
 	"fmt"
-	envsvc "github.com/ponyruntime/pony/api/service/env"
 	"os"
+
+	envsvc "github.com/ponyruntime/pony/api/service/env"
 
 	"github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/registry"
@@ -44,14 +45,14 @@ func (f *DefaultEnvStorageFactory) CreateFileEnvStorage(cfg *envsvc.FileStorageC
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	fileMode := os.FileMode(cfg.FileMode)
-	if fileMode == 0 {
-		fileMode = 0644
+	fileMode := os.FileMode(0644)
+	if cfg.FileMode > 0 {
+		fileMode = os.FileMode(cfg.FileMode)
 	}
 
-	dirMode := os.FileMode(cfg.DirMode)
-	if dirMode == 0 {
-		dirMode = 0755
+	dirMode := os.FileMode(0755)
+	if cfg.DirMode > 0 {
+		dirMode = os.FileMode(cfg.DirMode)
 	}
 
 	return NewFileStorage(cfg.FilePath, cfg.AutoCreate, fileMode, dirMode, log), nil
@@ -78,7 +79,7 @@ func (f *DefaultEnvStorageFactory) CreateRouterEnvStorage(cfg *envsvc.RouterStor
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	var selectedStorages []env.Storage
+	selectedStorages := make([]env.Storage, 0, len(cfg.Storages))
 	for _, storageName := range cfg.Storages {
 		storageID := registry.ParseID(storageName)
 		storage, ok := allStorages[storageID]

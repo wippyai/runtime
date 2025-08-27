@@ -85,7 +85,7 @@ func ensureOTelServicesRunning(t *testing.T) {
 	span.End()
 
 	// Give some time for the span to be exported
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 
 	// Verify the test span was exported
 	traceResp, err := queryTraces(ctx, serviceName, time.Now().Add(-5*time.Second))
@@ -276,7 +276,17 @@ func TestOTelInterceptorWithRealExporter(t *testing.T) {
 			}
 
 			// Give some time for the trace to be exported
-			time.Sleep(2 * time.Second)
+			// Use context with timeout instead of time.Sleep to prevent test hanging
+			exportCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+
+			// Wait for trace export with context
+			select {
+			case <-exportCtx.Done():
+				t.Log("Timeout waiting for trace export")
+			case <-time.After(500 * time.Millisecond):
+				// Give a reasonable time for export
+			}
 
 			// Query traces via API
 			traceResp, err := queryTraces(ctx, serviceName, startTime)

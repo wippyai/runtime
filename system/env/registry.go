@@ -208,7 +208,7 @@ func (r *Registry) findVariable(name string) (*env.Variable, error) {
 	return r.findVariableByID(registry.ParseID(name))
 }
 
-func (r *Registry) getStorage(ctx context.Context, id registry.ID) (env.Storage, error) {
+func (r *Registry) getStorage(_ context.Context, id registry.ID) (env.Storage, error) {
 	if stored, exists := r.storages.Load(id); exists {
 		if storage, ok := stored.(env.Storage); ok {
 			return storage, nil

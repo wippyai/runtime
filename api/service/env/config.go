@@ -3,6 +3,7 @@ package env
 import (
 	"context"
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/env"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -24,8 +25,8 @@ type FileStorageConfig struct {
 	Meta       registry.Metadata `json:"meta"`
 	FilePath   string            `json:"file_path"`
 	AutoCreate bool              `json:"auto_create"`
-	FileMode   int               `json:"file_mode,omitempty"`
-	DirMode    int               `json:"dir_mode,omitempty"`
+	FileMode   uint32            `json:"file_mode,omitempty"`
+	DirMode    uint32            `json:"dir_mode,omitempty"`
 }
 
 type OSStorageConfig struct {

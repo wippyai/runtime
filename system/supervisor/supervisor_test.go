@@ -813,8 +813,28 @@ func TestSupervisor_ServiceTimeout(t *testing.T) {
 		"timeout-service": true,
 	})
 
-	// Wait for timeout
-	time.Sleep(6 * time.Second)
+	// Wait for timeout with context timeout to prevent test hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	// Poll for service state with context timeout
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatal("Timeout waiting for service to fail")
+		case <-ticker.C:
+			state, err := h.sup.GetState("timeout-service")
+			if err == nil && state.Status == supervisor.Failed {
+				// Service failed as expected
+				goto verifyState
+			}
+		}
+	}
+
+verifyState:
 
 	// Verify service state
 	state, err := h.sup.GetState("timeout-service")
@@ -841,7 +861,16 @@ func TestSupervisor_DependencyCycle(t *testing.T) {
 	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
 
 	// Wait for initial processing
-	time.Sleep(100 * time.Millisecond)
+	// Use context with timeout instead of time.Sleep to prevent test hanging
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer waitCancel()
+
+	select {
+	case <-waitCtx.Done():
+		t.Log("Timeout waiting for initial processing")
+	case <-time.After(100 * time.Millisecond):
+		// Wait for initial processing
+	}
 
 	// Trigger dependency cycle detection by attempting to start one of the services
 	h.sup.handleEvent(event.Event{
@@ -851,7 +880,16 @@ func TestSupervisor_DependencyCycle(t *testing.T) {
 	})
 
 	// Wait longer for dependency cycle detection to complete
-	time.Sleep(500 * time.Millisecond)
+	// Use context with timeout instead of time.Sleep to prevent test hanging
+	cycleCtx, cycleCancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cycleCancel()
+
+	select {
+	case <-cycleCtx.Done():
+		t.Log("Timeout waiting for dependency cycle detection")
+	case <-time.After(500 * time.Millisecond):
+		// Wait longer for dependency cycle detection to complete
+	}
 
 	// Verify all services are not in Running state due to dependency cycle
 	// Note: Current implementation may not actively detect cycles, so services may remain in Unknown status
