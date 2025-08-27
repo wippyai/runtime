@@ -1,39 +1,20 @@
 # Requirements and Dependencies Demo
 
-This demo showcases the `ns.definition`, `ns.dependency`, and `ns.requirement` system in the Wippy Runtime with parameter injection capabilities.
+This demo showcases the simplified `ns.dependency` and `ns.requirement` system in the Wippy Runtime with direct parameter name matching.
 
 ## Overview
 
 The demo demonstrates:
-- Declaring definitions using `ns.definition` entries in the application
-- Defining dependencies using `ns.dependency` entries with parameters
+- Defining dependencies using `ns.dependency` entries with parameters that match requirement names
 - Creating requirements using `ns.requirement` entries in modules to specify where values should be injected
-- Injecting definition values into target entries via jq syntax paths
-- Complete end-to-end flow from application definitions to module requirements
+- Direct parameter name matching between dependencies and requirements
+- Complete end-to-end flow from application dependencies to module requirements
 
 ## How It Works
 
-### 1. Application Definitions (`_index.yaml`)
+### 1. Dependency Configuration (`_index.yaml`)
 
-The application declares definitions that provide values for dependency parameters:
-
-```yaml
-- name: NAMESPACE
-  kind: ns.definition
-  targets:
-    - entry: hello_world_dependency
-      path: ".parameters[] | select(.name == \"namespace\") | .value"
-
-- name: API_ROUTER
-  kind: ns.definition
-  targets:
-    - entry: hello_world_dependency
-      path: ".parameters[] | select(.name == \"api_router\") | .value"
-```
-
-### 2. Dependency Configuration (`_index.yaml`)
-
-Dependencies define external components with their parameters:
+Dependencies define external components with parameters that directly match requirement names:
 
 ```yaml
 - name: hello_world_dependency
@@ -43,9 +24,9 @@ Dependencies define external components with their parameters:
   component: "igor-test-3/test-2"
   version: ">=v0.0.1"
   parameters:
-    - name: api_router
+    - name: API_ROUTER    # Direct match with requirement name
       value: "system:api"
-    - name: namespace
+    - name: NAMESPACE     # Direct match with requirement name
       value: "ns:system"
 ```
 

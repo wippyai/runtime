@@ -7,7 +7,6 @@
 *.dll
 *.so
 *.dylib
-.idea
 
 # Test binary, built with `go test -c`
 *.test
@@ -24,12 +23,5 @@ go.work.sum
 
 # env file
 .env
-.DS_Store
-app/data
-/dist/
-
-dist/
-/bin/
-/.wippy/
-*.log
-/.cursor/
+.secrets
+/bin/act

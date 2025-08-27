@@ -94,6 +94,11 @@ type App struct {
 	contractRegistry     *contractsys.Registry
 	contractInstantiator *contractsys.Instantiator
 
+	// lock file configuration - all paths are absolute
+	lockFilePath   string
+	modulesDirPath string
+	lockFileDir    string
+
 	// mesh layer
 	node       *pubsub.NodeManager
 	router     pubsubapi.Receiver // The main message router for the application
@@ -111,7 +116,13 @@ type App struct {
 	otelCleanup   func()
 }
 
-func NewApp(config *Config, logger *zap.Logger) (*App, error) {
+func NewApp(
+	config *Config,
+	logger *zap.Logger,
+	lockFile string,
+	modulesDir string,
+	lockFileDir string,
+) (*App, error) {
 	// Set memory limit only if GOMEMLIMIT is not already set
 	if os.Getenv("GOMEMLIMIT") == "" {
 		debug.SetMemoryLimit(1 * 1024 * 1024 * 1024) // 1GB
@@ -141,16 +152,19 @@ func NewApp(config *Config, logger *zap.Logger) (*App, error) {
 	lua.Register(dtt)
 
 	app := &App{
-		ctx:           appCtx,
-		cancel:        cancel,
-		config:        config,
-		logger:        appLogger,
-		logCore:       core,
-		logManager:    logManager,
-		eventBus:      bus,
-		services:      nil,
-		dtt:           dtt,
-		forceShutdown: make(chan struct{}),
+		ctx:            appCtx,
+		cancel:         cancel,
+		config:         config,
+		logger:         appLogger,
+		logCore:        core,
+		logManager:     logManager,
+		eventBus:       bus,
+		services:       nil,
+		dtt:            dtt,
+		forceShutdown:  make(chan struct{}),
+		lockFilePath:   lockFile,
+		modulesDirPath: modulesDir,
+		lockFileDir:    lockFileDir,
 	}
 
 	// Initialize mesh layer based on cluster mode
@@ -507,7 +521,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to initialize interceptors: %w", err)
 	}
 
-	appState, cleanup, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger, a.config)
+	appState, cleanup, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger, a.config, a.lockFilePath)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("load application state: %w", err)
@@ -651,6 +665,7 @@ func loadApplicationState(
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
 	config *Config,
+	lockFile string,
 ) (regapi.ChangeSet, func(), error) {
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadFile),
@@ -684,10 +699,14 @@ func loadApplicationState(
 
 	var loadResult *moduleloader.LoadResult
 
-	// Check for a lock file
-	lockPath, findErr := moduleloader.FindLockFile(config.FolderPath, config.LockFile)
-	if findErr != nil {
-		return nil, nil, findErr
+	// Find the lock file using intelligent path resolution
+	lockPath, err := moduleloader.FindLockFile(config.FolderPath, lockFile)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if lockPath != "" {
+		mainLogger.Info("using lock file", zap.String("lock_file", lockPath))
 	}
 
 	if lockPath != "" {
@@ -697,7 +716,7 @@ func loadApplicationState(
 		if loadErr != nil {
 			mainLogger.Error("load lock file", zap.Error(loadErr))
 		} else {
-			loadResult = moduleloader.ConvertFromLockFile(lockFile)
+			loadResult = moduleloader.ConvertFromLockFile(lockFile, lockPath)
 		}
 	} else {
 		mainLogger.Info("loading modules from registry")
@@ -721,7 +740,7 @@ func loadApplicationState(
 		}
 
 		// Load entries only from the specific modules that were loaded
-		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS)
+		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS, mainLogger)
 		if err != nil {
 			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}
@@ -749,24 +768,15 @@ func loadApplicationState(
 	return boot, cleanup, nil
 }
 
-// createProjectRootFS creates a filesystem from the project root (parent of the app directory)
-func createProjectRootFS(appPath string) (iofs.FS, error) {
-	// Clean the path to remove trailing slashes and normalize
-	cleanPath := filepath.Clean(appPath)
-
-	// Get the project root by going up one level from the app directory
-	projectRoot := filepath.Dir(cleanPath)
-
-	// If the project root is the same as the app path (e.g., when appPath is "." or current directory),
-	// we need to go up one more level
-	if projectRoot == cleanPath || projectRoot == "." {
-		// Get the absolute path of the current directory
-		currentDir, err := os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("get current directory: %w", err)
-		}
-		projectRoot = currentDir
+// createProjectRootFS creates a filesystem from the project root (current working directory)
+func createProjectRootFS(_ string) (iofs.FS, error) {
+	// Always use current working directory as project root
+	// This ensures that .wippy/ modules are accessible
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("get current directory: %w", err)
 	}
+	projectRoot := currentDir
 
 	osRoot, err := os.OpenRoot(projectRoot)
 	if err != nil {
@@ -776,12 +786,62 @@ func createProjectRootFS(appPath string) (iofs.FS, error) {
 	return osRoot.FS(), nil
 }
 
+// resolveModulePath converts a module path to a relative path suitable for the rootFS
+// It handles Windows backslashes to forward slashes conversion for cross-platform compatibility
+func resolveModulePath(modulePath string, mainLogger *zap.Logger) (string, error) {
+	switch {
+	case strings.HasPrefix(modulePath, "/"):
+		// This is an absolute path (likely a replacement)
+		// We need to make it relative to the current working directory
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get current working directory: %w", err)
+		}
+
+		// Check if the absolute path is within the current working directory
+		if strings.HasPrefix(modulePath, currentDir) {
+			// Extract the relative part
+			relativePath := strings.TrimPrefix(modulePath, currentDir)
+			resolvedPath := strings.TrimPrefix(relativePath, "/")
+			resolvedPath = filepath.ToSlash(resolvedPath)
+
+			mainLogger.Debug("resolved absolute replacement path",
+				zap.String("originalPath", modulePath),
+				zap.String("currentDir", currentDir),
+				zap.String("relativePath", relativePath),
+				zap.String("finalModulePath", resolvedPath))
+
+			return resolvedPath, nil
+		}
+		// The path is outside the current working directory, which is not supported
+		return "", fmt.Errorf("replacement path %s is outside the current working directory %s", modulePath, currentDir)
+	case strings.HasPrefix(modulePath, "./") || strings.HasPrefix(modulePath, "../"):
+		// This is a relative path (likely a replacement)
+		// Remove the leading "./" or "../" and use the path directly
+		// since the rootFS is created from the current working directory
+		cleanPath := strings.TrimPrefix(modulePath, "./")
+		cleanPath = strings.TrimPrefix(cleanPath, "../")
+		resolvedPath := filepath.ToSlash(cleanPath)
+
+		mainLogger.Debug("resolved relative replacement path",
+			zap.String("originalPath", modulePath),
+			zap.String("cleanPath", cleanPath),
+			zap.String("finalModulePath", resolvedPath))
+
+		return resolvedPath, nil
+	default:
+		// This is a path relative to the modules directory
+		return filepath.ToSlash(modulePath), nil
+	}
+}
+
 // loadEntriesFromLoadedModules loads entries only from the specific modules that were loaded by the registry loader
 func loadEntriesFromLoadedModules(
 	ctx context.Context,
 	folderLoader *loader.Loader,
 	loadResult *moduleloader.LoadResult,
 	rootFS iofs.FS,
+	mainLogger *zap.Logger,
 ) ([]regapi.Entry, error) {
 	if loadResult == nil || len(loadResult.Modules) == 0 {
 		return nil, nil
@@ -790,10 +850,12 @@ func loadEntriesFromLoadedModules(
 	var allEntries []regapi.Entry
 
 	for _, module := range loadResult.Modules {
-		// Create a sub-filesystem for this specific module from the root filesystem
-		// Convert Windows backslashes to forward slashes for cross-platform compatibility
-		modulePath := filepath.ToSlash(module.Path)
+		modulePath, err := resolveModulePath(module.Path, mainLogger)
+		if err != nil {
+			return nil, err
+		}
 
+		// Create a sub-filesystem for this specific module from the root filesystem
 		moduleFS, err := iofs.Sub(rootFS, modulePath)
 		if err != nil {
 			return nil, fmt.Errorf("create sub-filesystem for module %s: %w", module.Path, err)

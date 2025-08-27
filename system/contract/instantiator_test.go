@@ -248,13 +248,24 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	}()
 
 	var wg sync.WaitGroup
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
+
+	// Subscribe to contract events
+	contractSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
 		if evt.Kind == contract.Accept {
 			wg.Done()
 		}
 	})
 	require.NoError(t, err)
-	defer sub.Close()
+	defer contractSub.Close()
+
+	// Subscribe to function events
+	functionSub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
+		if evt.Kind == function.Accept {
+			wg.Done()
+		}
+	})
+	require.NoError(t, err)
+	defer functionSub.Close()
 
 	// Register function
 	funcID := registry.ID{NS: "test", Name: "test_func"}
@@ -265,12 +276,14 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 		return resultChan, nil
 	})
 
+	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Register,
 		Path:   funcID.String(),
 		Data:   testFunc,
 	})
+	wg.Wait()
 
 	// Register contract
 	contractID := registry.ID{NS: "test", Name: "my_contract"}
