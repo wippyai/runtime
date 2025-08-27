@@ -15,10 +15,11 @@ import (
 // capabilities for the Wippy runtime. It maintains process relationships
 // including registrations, monitors, and links between processes.
 type Topology struct {
-	monitors sync.Map // map[string]*sync.Map - watchers for each pid
-	registry sync.Map // map[string]bool - registered PIDs
-	links    sync.Map // map[string]*sync.Map - bidirectional links between PIDs
-	upstream pubsub.Receiver
+	monitors  sync.Map // map[string]*sync.Map - watchers for each pid
+	registry  sync.Map // map[string]bool - registered PIDs
+	links     sync.Map // map[string]*sync.Map - bidirectional links between PIDs
+	upstream  pubsub.Receiver
+	linkMutex sync.Mutex // Mutex for atomic link/unlink operations
 }
 
 // NewTopology creates a new Topology instance with the given context and upstream receiver.
@@ -95,6 +96,10 @@ func (t *Topology) Link(from, to pubsub.PID) error {
 		return fmt.Errorf("cannot link unregistered pid: %s", to)
 	}
 
+	// Use a global lock to ensure atomic bidirectional linking
+	t.linkMutex.Lock()
+	defer t.linkMutex.Unlock()
+
 	// Create or get links maps for both processes
 	fromLinksValue, _ := t.links.LoadOrStore(from.String(), &sync.Map{})
 	fromLinks := fromLinksValue.(*sync.Map)
@@ -118,6 +123,10 @@ func (t *Topology) Link(from, to pubsub.PID) error {
 // Unlink removes a bidirectional link between two processes.
 // Returns nil if the operation is successful or if the processes are not linked.
 func (t *Topology) Unlink(from, to pubsub.PID) error {
+	// Use a global lock to ensure atomic bidirectional unlinking
+	t.linkMutex.Lock()
+	defer t.linkMutex.Unlock()
+
 	// Check if links exist for 'from'
 	fromLinksValue, fromOk := t.links.Load(from.String())
 	if !fromOk {
