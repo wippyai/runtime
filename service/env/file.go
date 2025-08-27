@@ -183,7 +183,6 @@ func (s *FileStorage) writeAllLines(lines []string) error {
 
 	success := false
 	defer func() {
-		s.closeFile(file)
 		if !success {
 			if err := os.Remove(tempPath); err != nil {
 				s.log.Warn("failed to remove temp file", zap.String("path", tempPath), zap.Error(err))
@@ -206,9 +205,12 @@ func (s *FileStorage) writeAllLines(lines []string) error {
 		return err
 	}
 
+	// Close the file before rename to avoid Windows file locking issues
+	if err := file.Close(); err != nil {
+		return err
+	}
+
 	success = true
-	// Fixed: Removed the explicit close here - let defer handle it
-	// This was causing the "file already closed" warning
 
 	return os.Rename(tempPath, s.filepath)
 }
