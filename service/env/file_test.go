@@ -66,39 +66,38 @@ func TestNewFileStorage(t *testing.T) {
 	assert.Equal(t, os.FileMode(0644), storage.fileMode)
 	assert.Equal(t, os.FileMode(0755), storage.dirMode)
 
-	// Test that the storage can be started and stopped
-	statusCh, err := storage.Start(context.Background())
-	assert.NoError(t, err)
-	assert.NotNil(t, statusCh)
-
-	status := <-statusCh
-	assert.Equal(t, supervisor.Running, status)
-
-	err = storage.Stop(context.Background())
-	assert.NoError(t, err)
-
 	// Test that the storage can handle operations without a real file
 	// (since we're just testing the constructor)
-	_, err = storage.Get(context.Background(), "test")
+	_, err := storage.Get(context.Background(), "test")
 	assert.Error(t, err) // Should fail because file doesn't exist
 
 	// Test that the storage can handle List operation without a real file
 	values, err := storage.List(context.Background())
-	assert.Error(t, err) // Should fail because file doesn't exist
-	assert.Nil(t, values)
+	assert.NoError(t, err) // List returns empty map for non-existent file
+	assert.NotNil(t, values)
+	assert.Equal(t, 0, len(values))
 
 	// Test that the storage can handle Set operation without a real file
+	// Set with autoCreate should create the file
 	err = storage.Set(context.Background(), "test", "value")
-	assert.Error(t, err) // Should fail because file doesn't exist
+	assert.NoError(t, err) // Should succeed because autoCreate is true
 
-	// Test that the storage can handle Delete operation without a real file
+	// Test that the storage can handle Delete operation after Set
+	// Delete should succeed because file now exists
 	err = storage.Delete(context.Background(), "test")
-	assert.Error(t, err) // Should fail because file doesn't exist
+	assert.NoError(t, err) // Should succeed because file exists after Set
 
 	// Test that the storage can handle operations with autoCreate disabled
 	storageNoAuto := NewFileStorage(filePath, false, 0644, 0755, logger)
 	assert.NotNil(t, storageNoAuto)
 	assert.Equal(t, false, storageNoAuto.autoCreate)
+
+	// Test that Delete fails when file doesn't exist and autoCreate is false
+	// Use a different filepath that definitely doesn't exist
+	nonExistentPath := "/tmp/non-existent-file.env"
+	storageNonExistent := NewFileStorage(nonExistentPath, false, 0644, 0755, logger)
+	err = storageNonExistent.Delete(context.Background(), "test")
+	assert.Error(t, err) // Should fail because file doesn't exist and autoCreate is false
 
 	// Test that the storage can handle operations with custom modes
 	storageCustom := NewFileStorage(filePath, true, 0600, 0700, logger)
@@ -151,6 +150,17 @@ func TestNewFileStorage(t *testing.T) {
 	storageDotPath := NewFileStorage(dotPath, true, 0644, 0755, logger)
 	assert.NotNil(t, storageDotPath)
 	assert.Equal(t, dotPath, storageDotPath.filepath)
+
+	// Test that the storage can be started and stopped
+	statusCh, err := storage.Start(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, statusCh)
+
+	status := <-statusCh
+	assert.Equal(t, supervisor.Running, status)
+
+	err = storage.Stop(context.Background())
+	assert.NoError(t, err)
 }
 
 func TestFileStorage_Get(t *testing.T) {
