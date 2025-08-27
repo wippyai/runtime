@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
@@ -56,6 +58,11 @@ func (s *FileStorage) Get(_ context.Context, key string) (string, error) {
 		}
 	}
 
+	// Check for scanner errors
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+
 	return "", os.ErrNotExist
 }
 
@@ -100,7 +107,12 @@ func (s *FileStorage) List(_ context.Context) (map[string]string, error) {
 		}
 	}
 
-	return result, scanner.Err()
+	// Check for scanner errors
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func parseLine(text string) (key, value string) {
@@ -144,7 +156,12 @@ func (s *FileStorage) readAllLines() ([]string, error) {
 		lines = append(lines, scanner.Text())
 	}
 
-	return lines, scanner.Err()
+	// Ensure scanner is done and file is fully read
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return lines, nil
 }
 
 func (s *FileStorage) processLines(lines []string, key, value string, isDelete bool) []string {
@@ -212,7 +229,39 @@ func (s *FileStorage) writeAllLines(lines []string) error {
 
 	success = true
 
-	return os.Rename(tempPath, s.filepath)
+	// On Windows, we need to ensure the file handle is fully released
+	// before attempting to rename. This is especially important for tests.
+	maxRetries := 1
+	if runtime.GOOS == "windows" {
+		maxRetries = 3
+	}
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if err := os.Rename(tempPath, s.filepath); err != nil {
+			if attempt < maxRetries && (os.IsExist(err) || strings.Contains(err.Error(), "being used by another process")) {
+				// Wait a bit before retrying on Windows
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+
+			// If rename fails due to file being in use, try to remove the target first
+			if os.IsExist(err) || strings.Contains(err.Error(), "being used by another process") {
+				// Try to remove the target file first
+				if removeErr := os.Remove(s.filepath); removeErr != nil {
+					s.log.Warn("failed to remove target file before rename", zap.String("path", s.filepath), zap.Error(removeErr))
+				}
+				// Try rename again
+				if renameErr := os.Rename(tempPath, s.filepath); renameErr != nil {
+					return fmt.Errorf("failed to rename temp file after removing target: %w", renameErr)
+				}
+				return nil
+			}
+			return fmt.Errorf("failed to rename temp file: %w", err)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("failed to rename temp file after %d attempts", maxRetries+1)
 }
 
 func (s *FileStorage) ensureFile() error {
@@ -233,12 +282,22 @@ func (s *FileStorage) ensureFile() error {
 		return err
 	}
 
-	return file.Close()
+	// Ensure the file is properly closed
+	if err := file.Close(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *FileStorage) closeFile(file *os.File) {
 	if err := file.Close(); err != nil {
 		s.log.Warn("failed to close file", zap.Error(err))
+		// On Windows, try to force close if normal close fails
+		if runtime.GOOS == "windows" {
+			// Give the OS a moment to release the handle
+			time.Sleep(5 * time.Millisecond)
+		}
 	}
 }
 
