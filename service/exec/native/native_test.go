@@ -3,12 +3,10 @@ package native
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -175,40 +173,8 @@ func TestExecutor_Stdout(t *testing.T) {
 	// Log important environment variables for CI/CD debugging
 	t.Logf("Environment: CI=%s, GITHUB_ACTIONS=%s, TRAVIS=%s, CIRCLECI=%s",
 		os.Getenv("CI"), os.Getenv("GITHUB_ACTIONS"), os.Getenv("TRAVIS"), os.Getenv("CIRCLECI"))
-	t.Logf("Working directory: %s", getCurrentDir())
 
-	// Log system resource limits (Linux only)
-	if runtime.GOOS == "linux" {
-		logSystemLimits(t)
-	}
-
-	// Log initial memory stats
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	t.Logf("Initial memory: Alloc=%d KB, Sys=%d KB, NumGC=%d", m.Alloc/1024, m.Sys/1024, m.NumGC)
-
-	// Log initial goroutine count
-	initialGoroutines := runtime.NumGoroutine()
-	t.Logf("Initial goroutines: %d", initialGoroutines)
-
-	// Log initial file descriptor count (Linux only)
-	if runtime.GOOS == "linux" {
-		initialFDs := getFileDescriptorCount()
-		t.Logf("Initial file descriptors: %d", initialFDs)
-
-		// Log initial network connections (Linux only)
-		initialConnections := getNetworkConnectionCount()
-		t.Logf("Initial network connections: %d", initialConnections)
-
-		// Log initial system call count (Linux only)
-		initialSyscalls := getSystemCallCount()
-		t.Logf("Initial system calls: %d", initialSyscalls)
-
-		// Log initial process count (Linux only)
-		initia
-	}
-	
-
+	startTime := time.Now()
 	logger := zap.NewNop()
 
 	// Create the process with platform-compatible echo command
@@ -244,16 +210,16 @@ func TestExecutor_Stdout(t *testing.T) {
 		for {
 			select {
 			case <-timeout:
-				t.Logf("Reading timeout reached after %v, total bytes read: %d, stdout output: %q", 
 				t.Logf("Reading timeout reached after %v, total bytes read: %d, stdout output: %q",
+					time.Since(readStartTime), bytesRead, sb.String())
 				return
 			default:
 				buf := make([]byte, 1024)
 				n, err := process.Stdout().Read(buf)
 				if err != nil {
 					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
-						t.Logf("Reading completed (EOF/closed pipe) after %v, total bytes read: %d, final output: %q", 
 						t.Logf("Reading completed (EOF/closed pipe) after %v, total bytes read: %d, final output: %q",
+							time.Since(readStartTime), bytesRead, sb.String())
 						// Process has finished, but we might have read some data
 						return
 					}
@@ -317,39 +283,21 @@ func TestExecutor_Stdout(t *testing.T) {
 
 	output := sb.String()
 	t.Logf("Final stdout output: %q (length: %d)", output, len(output))
-	
 
+	if !strings.Contains(output, "hello world") {
 		t.Errorf("Expected stdout to contain 'hello world', got: %q", output)
 	} else {
 		t.Log("Test passed: 'hello world' found in output")
 	}
-	
 
-	runtime.ReadMemStats(&m)
-	t.Logf("Final memory: Alloc=%d KB, Sys=%d KB, NumGC=%d", m.Alloc/1024, m.Sys/1024, m.NumGC)
-	
-
-	t.Logf("Final goroutines: %d (change: %+d)", finalGoroutines, finalGoroutines-initialGoroutines)
-	
-
-	if runtime.GOOS == "linux" {
-		finalFDs := getFileDescriptorCount()
-		t.Logf("Final file descriptors: %d", finalFDs)
-		
-
-		finalConnections := getNetworkConnectionCount()
-		t.Logf("Final network connections: %d", finalConnections)
-		
-
-		finalSyscalls := getSystemCallCount()
-		t.Logf("Final system calls: %d", finalSyscalls)
-	}
-final network connections (Linux only)
-		finalConnections := getNetworkConnectionCount()
-		t.Logf("Final network 
-	
 	totalDuration := time.Since(startTime)
+	t.Logf("=== TestExecutor_Stdout completed in %v ===", totalDuration)
 
+	// Log timing breakdown
+	t.Logf("Timing breakdown:")
+	t.Logf("  - Total test time: %v", totalDuration)
+	t.Logf("  - Process startup: %v", time.Since(processStartTime))
+	t.Logf("  - Process execution: %v", totalDuration-time.Since(processStartTime))
 }
 
 func TestExecutor_StdoutWithSleep(t *testing.T) {
@@ -993,148 +941,5 @@ func TestParseCommand(t *testing.T) {
 			result := parseCommand(tt.command)
 			assert.Equal(t, tt.expected, result, "Parsed command doesn't match expected result")
 		})
-	}
-}
-
-// getCurrentDir returns the current working directory, handling errors gracefully
-func getCurrentDir() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		return fmt.Sprintf("error getting working directory: %v", err)
-	}
-	return dir
-}
-
-// getFileDescriptorCount returns the number of open file descriptors for the current process (Linux only)
-func getFileDescriptorCount() int {
-	if runtime.GOOS != "linux" {
-		return -1
-	}
-	
-	// Read /proc/self/fd to count open file descriptors
-
-	if err != nil {
-		return -1
-	}
-	
-	return len(entries)
-
-
-// getNetworkConnectionCount returns the number of network connections for the current process (Linux only)
-func getNetworkConnectionCount() int {
-	if runtime.GOOS != "linux" {
-		return -1
-	}
-	
-	// Read /proc/net/tcp and /proc/net/udp to count connections
-
-	if err != nil {
-		return -1
-	}
-	
-	udpData, err := os.ReadFile("/proc/net/udp")
-
-		return -1
-	}
-	
-	// Count lines (excluding header) for both TCP and UDP
-
-	udpLines := strings.Split(string(udpData), "\n")
-	
-	// Subtract 1 from each to exclude header line
-
-	udpCount := len(udpLines) - 1
-	
-	return tcpCount + udpCount
-
-
-// getSystemCallCount returns the number of system calls made by the current process (Linux only)
-func getSystemCallCount() int {
-	if runtime.GOOS != "linux" {
-		return -1
-	}
-	
-	// Read /proc/self/stat to get system call count
-
-	if err != nil {
-		return -1
-	}
-	
-	// Parse the stat file to extract system call count
-
-	fields := strings.Fields(string(data))
-	if len(fields) < 14 {
-		return -1
-	}
-	
-	// The 14th field (0-indexed) is the number of voluntary context switches
-
-	voluntarySwitches := fields[13]
-	if voluntarySwitches == "" {
-		return -1
-	}
-	
-	// Convert to int
-
-	_, err = fmt.Sscanf(voluntarySwitches, "%d", &count)
-	if err != nil {
-		return -1
-	}
-	
-	return count
-
-	return count
-}
-
-// getProcessCount returns the number of processes in the system (Linux only)
-func getProcessCount() int {
-	if runtime.GOOS != "linux" {
-		return -1
-	}
-
-	// Read /proc directory to count processes
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return -1
-	}
-
-	count := 0
-	for _, entry := range entries {
-		// Check if the entry name is a number (PID)
-		if entry.IsDir() {
-			if _, err := strconv.Atoi(entry.Name()); err == nil {
-				count++
-			}
-		}
-	}
-
-
-// logSystemLimits logs system resource limits for debugging CI/CD issues (Linux only)
-func logSystemLimits(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		return
-	}
-	
-	// Try to read some common system limits
-
-		"RLIMIT_NOFILE": "/proc/self/limits",
-		"RLIMIT_NPROC":  "/proc/self/limits",
-	}
-	
-	for name, path := range limits {
-
-		if err != nil {
-			t.Logf("Could not read %s: %v", name, err)
-			continue
-		}
-		
-		// Extract the limit value from the file content
-
-		for _, line := range lines {
-			if strings.Contains(line, "open files") || strings.Contains(line, "processes") {
-				t.Logf("System limit %s: %s", name, strings.TrimSpace(line))
-				break
-			}
-		}
 	}
 }
