@@ -79,13 +79,51 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	processExecutor, ok := process.(*ProcessExecutor)
 	assert.True(t, ok)
 
+	// Start reading stdout BEFORE starting the process to avoid race conditions
+	sb := new(strings.Builder)
+	readDone := make(chan struct{})
+	processDone := make(chan struct{})
+
+	go func() {
+		defer close(readDone)
+		timeout := time.After(3 * time.Second) // Give more time to read output
+
+		for {
+			select {
+			case <-timeout:
+				t.Logf("Timeout reached, collected %d bytes of output", sb.Len())
+				return
+			default:
+				buf := make([]byte, 65536) // Smaller buffer for faster reading
+				n, err := process.Stdout().Read(buf)
+				if err != nil {
+					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+						return
+					}
+					t.Errorf("Error reading stdout: %v", err)
+					return
+				}
+				if n > 0 {
+					sb.Write(buf[:n])
+				}
+			}
+		}
+	}()
+
+	// Now start the process
 	err = process.Start()
 	assert.NoError(t, err)
 
+	// Wait for the process to complete in a separate goroutine
 	go func() {
-		_ = process.Wait()
+		defer close(processDone)
+		err := process.Wait()
+		if err != nil {
+			t.Logf("Process completed with error: %v", err)
+		}
 	}()
 
+	// Stop the process after a short delay to ensure we get some output
 	go func() {
 		// Use context with timeout instead of time.Sleep to prevent test hanging
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -99,30 +137,26 @@ func TestExecutor_MegaCommand(t *testing.T) {
 		processExecutor.Stop()
 	}()
 
-	sb := new(strings.Builder)
-	timeout := time.After(3 * time.Second) // Give more time to read output
-
-	for {
+	// Wait for both the process to complete and reading to finish
+	select {
+	case <-processDone:
+		// Process completed, give a little time for reading to finish
 		select {
-		case <-timeout:
-			t.Logf("Timeout reached, collected %d bytes of output", sb.Len())
-			goto readComplete
-		default:
-			buf := make([]byte, 65536) // Smaller buffer for faster reading
-			n, err := process.Stdout().Read(buf)
-			if err != nil {
-				if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
-					goto readComplete
-				}
-				t.Fatal(err)
-			}
-			if n > 0 {
-				sb.Write(buf[:n])
-			}
+		case <-readDone:
+			// Reading completed
+		case <-time.After(1 * time.Second):
+			// Reading timed out, but process is done
+		}
+	case <-readDone:
+		// Reading completed, give a little time for process to finish
+		select {
+		case <-processDone:
+			// Process completed
+		case <-time.After(1 * time.Second):
+			// Process timed out, but reading is done
 		}
 	}
 
-readComplete:
 	if sb.Len() == 0 {
 		t.Fatal("no output")
 	}
