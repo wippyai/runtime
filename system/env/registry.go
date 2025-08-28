@@ -7,6 +7,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
@@ -51,6 +52,17 @@ func (r *Registry) getEnvName(variable *env.Variable) string {
 		return variable.Name
 	}
 	return variable.ID.String()
+}
+
+// getCurrentNamespaceFromContext returns the current namespace from the provided context
+func (r *Registry) getCurrentNamespaceFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+
+	// Try to get namespace from PID in context
+	pid, _ := pubsub.GetPID(ctx)
+	return pid.ID.NS
 }
 
 func (r *Registry) handleEvent(e event.Event) {
@@ -121,6 +133,12 @@ func (r *Registry) registerVariable(e event.Event) {
 		return
 	}
 
+	// rquired to pass
+	//	// Allow overriding variables with the same envName (e.g., router storage can override OS storage)
+	//	if existingID, exists := r.variablesByName.Load(envName); exists {
+	//		r.log.Info("overriding existing variable", zap.String("env_name", envName), zap.String("old_id", fmt.Sprintf("%v", existingID)), zap.String("new_id", variable.ID.String()))
+	//	}
+
 	r.variablesByID.Store(variable.ID, variable)
 	r.variablesByName.Store(envName, variable.ID)
 	r.sendAccept(e.Path)
@@ -157,6 +175,7 @@ func (r *Registry) updateVariable(e event.Event) {
 		}
 	}
 
+	// Clean up old name mappings if variable exists
 	if storedVar, exists := r.variablesByID.Load(variable.ID); exists {
 		if oldVariable, ok := storedVar.(env.Variable); ok {
 			oldBaseName := r.getEnvName(&oldVariable)
@@ -198,14 +217,34 @@ func (r *Registry) findVariableByID(id registry.ID) (*env.Variable, error) {
 	return nil, env.ErrVariableNotFound
 }
 
-func (r *Registry) findVariable(name string) (*env.Variable, error) {
+func (r *Registry) findVariable(ctx context.Context, name string) (*env.Variable, error) {
+	// First try to find by exact name
 	if storedID, exists := r.variablesByName.Load(name); exists {
 		if varID, ok := storedID.(registry.ID); ok {
 			return r.findVariableByID(varID)
 		}
 	}
 
-	return r.findVariableByID(registry.ParseID(name))
+	// Parse the name as an ID
+	nameID := registry.ParseID(name)
+
+	// If no namespace provided, try to add current namespace from context
+	if nameID.NS == "" {
+		currentNS := r.getCurrentNamespaceFromContext(ctx)
+		if currentNS != "" {
+			// Try with current namespace
+			fullNameID := nameID.WithDefaultNS(currentNS)
+			r.log.Debug("trying with current namespace", zap.String("original_name", name), zap.String("full_name", fullNameID.String()))
+
+			// Try to find directly by ID in variablesByID
+			if variable, err := r.findVariableByID(fullNameID); err == nil {
+				r.log.Debug("found variable with current namespace", zap.String("search_name", name), zap.String("found_id", fullNameID.String()))
+				return variable, nil
+			}
+		}
+	}
+
+	return r.findVariableByID(nameID)
 }
 
 func (r *Registry) getStorage(_ context.Context, id registry.ID) (env.Storage, error) {
@@ -219,7 +258,7 @@ func (r *Registry) getStorage(_ context.Context, id registry.ID) (env.Storage, e
 }
 
 func (r *Registry) Get(ctx context.Context, name string) (string, error) {
-	variable, err := r.findVariable(name)
+	variable, err := r.findVariable(ctx, name)
 	if err != nil {
 		return "", err
 	}
@@ -227,7 +266,7 @@ func (r *Registry) Get(ctx context.Context, name string) (string, error) {
 }
 
 func (r *Registry) Set(ctx context.Context, name string, value string) error {
-	variable, err := r.findVariable(name)
+	variable, err := r.findVariable(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -243,10 +282,8 @@ func (r *Registry) getValue(ctx context.Context, variable *env.Variable) (string
 	envName := r.getEnvName(variable)
 	value, err := storage.Get(ctx, envName)
 	if err != nil {
-		if variable.DefaultValue != "" {
-			return variable.DefaultValue, nil
-		}
-		return "", err
+		// Always return default value (even if empty) for variables
+		return variable.DefaultValue, nil
 	}
 	return value, nil
 }
