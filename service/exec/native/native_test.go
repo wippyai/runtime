@@ -153,8 +153,8 @@ func TestExecutor_Stdout(t *testing.T) {
 
 	go func() {
 		defer close(readDone)
-		close(readStarted) // Signal that reading has started
-		timeout := time.After(5 * time.Second)
+		close(readStarted)                     // Signal that reading has started
+		timeout := time.After(2 * time.Second) // Reduced timeout - command executes in milliseconds
 
 		for {
 			select {
@@ -255,8 +255,8 @@ func TestExecutor_StdoutWithSleep(t *testing.T) {
 
 	go func() {
 		defer close(readDone)
-		close(readStarted) // Signal that reading has started
-		timeout := time.After(5 * time.Second)
+		close(readStarted)                     // Signal that reading has started
+		timeout := time.After(2 * time.Second) // Reduced timeout - command executes in milliseconds
 
 		for {
 			select {
