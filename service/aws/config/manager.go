@@ -21,12 +21,12 @@ import (
 
 // Manager handles S3 storage lifecycle and functions as a resource provider
 type Manager struct {
-	log         *zap.Logger
-	dtt         payload.Transcoder
-	bus         event.Bus
-	mu          sync.RWMutex
-	configs     map[registry.ID]aws.Config
-	envRegistry envapi.Registry
+	log     *zap.Logger
+	dtt     payload.Transcoder
+	bus     event.Bus
+	mu      sync.RWMutex
+	configs map[registry.ID]aws.Config
+	env     envapi.Registry
 }
 
 // NewManager creates a new S3 storage manager
@@ -37,11 +37,11 @@ func NewManager(
 	envRegistry envapi.Registry,
 ) *Manager {
 	return &Manager{
-		log:         log,
-		dtt:         dtt,
-		bus:         bus,
-		configs:     make(map[registry.ID]aws.Config),
-		envRegistry: envRegistry,
+		log:     log,
+		dtt:     dtt,
+		bus:     bus,
+		configs: make(map[registry.ID]aws.Config),
+		env:     envRegistry,
 	}
 }
 
@@ -248,11 +248,11 @@ func (m *Manager) createAWSConfig(ctx context.Context, cfg *serviceaws.Config) (
 
 	// Only try to get credentials if environment variable names are provided
 	if cfg.AccessKeyIDEnv != "" {
-		accessKey, _ = m.envRegistry.GetFromStorage(ctx, cfg.AccessKeyIDEnv)
+		accessKey, _ = m.env.Get(ctx, cfg.AccessKeyIDEnv)
 	}
 
 	if cfg.SecretAccessKeyEnv != "" {
-		secretKey, _ = m.envRegistry.GetFromStorage(ctx, cfg.SecretAccessKeyEnv)
+		secretKey, _ = m.env.Get(ctx, cfg.SecretAccessKeyEnv)
 	}
 
 	// Add credentials if provided

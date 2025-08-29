@@ -1,6 +1,7 @@
 package topology
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -489,6 +490,10 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 		var wg sync.WaitGroup
 		iterations := 100
 
+		// Use context with timeout to prevent test hanging
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
 		for i := 0; i < iterations; i++ {
 			wg.Add(2)
 			go func() {
@@ -501,10 +506,31 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 			}()
 		}
 
-		wg.Wait()
+		// Wait for all operations to complete with context timeout
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
 
-		// Add a small delay to let any race conditions settle
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-done:
+			// All operations completed
+		case <-ctx.Done():
+			t.Fatal("test timed out waiting for operations to complete")
+		}
+
+		// Add a small delay to ensure all operations are processed
+		// Use context with timeout instead of time.Sleep to prevent test hanging
+		waitCtx, waitCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer waitCancel()
+
+		select {
+		case <-waitCtx.Done():
+			t.Log("Timeout waiting for operations to settle")
+		case <-time.After(100 * time.Millisecond):
+			// Wait for operations to settle
+		}
 
 		// Verify final state is consistent
 		// Since we have equal numbers of Link and Unlink operations,
@@ -577,7 +603,16 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 		}
 
 		// Add a small delay to ensure all operations are processed
-		time.Sleep(100 * time.Millisecond)
+		// Use context with timeout instead of time.Sleep to prevent test hanging
+		waitCtx, waitCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer waitCancel()
+
+		select {
+		case <-waitCtx.Done():
+			t.Log("Timeout waiting for operations to settle")
+		case <-time.After(100 * time.Millisecond):
+			// Wait for operations to settle
+		}
 
 		// Verify that the final state is consistent
 		// Since we have equal numbers of Wait and Release operations,

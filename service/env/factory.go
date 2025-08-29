@@ -2,19 +2,20 @@ package env
 
 import (
 	"fmt"
+	"os"
+
+	envsvc "github.com/ponyruntime/pony/api/service/env"
 
 	"github.com/ponyruntime/pony/api/env"
-
 	"github.com/ponyruntime/pony/api/registry"
-	envservice "github.com/ponyruntime/pony/api/service/env"
 	"go.uber.org/zap"
 )
 
-type StorageFactoryAPI interface {
-	CreateMemoryEnvStorage(kind registry.Kind, cfg *envservice.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error)
-	CreateFileEnvStorage(kind registry.Kind, cfg *envservice.CreateFileEnvStorageConfig, log *zap.Logger) (*FileStorage, error)
-	CreateOSEnvStorage(kind registry.Kind, cfg *envservice.CreateOSEnvStorageConfig, log *zap.Logger) (*OSStorage, error)
-	CreateRouterEnvStorage(kind registry.Kind, cfg *envservice.CreateRouterEnvStorageConfig, storages map[registry.ID]env.Storage, log *zap.Logger) (*RouterStorage, error)
+type StorageFactory interface {
+	CreateMemoryEnvStorage(cfg *envsvc.MemoryStorageConfig, log *zap.Logger) (*MemoryStorage, error)
+	CreateFileEnvStorage(cfg *envsvc.FileStorageConfig, log *zap.Logger) (*FileStorage, error)
+	CreateOSEnvStorage(cfg *envsvc.OSStorageConfig, log *zap.Logger) (*OSStorage, error)
+	CreateRouterEnvStorage(cfg *envsvc.RouterStorageConfig, storages map[registry.ID]env.Storage, log *zap.Logger) (*RouterStorage, error)
 }
 
 type DefaultEnvStorageFactory struct{}
@@ -23,7 +24,7 @@ func NewDefaultEnvStorageFactory() *DefaultEnvStorageFactory {
 	return &DefaultEnvStorageFactory{}
 }
 
-func (f *DefaultEnvStorageFactory) CreateMemoryEnvStorage(_ registry.Kind, cfg *envservice.CreateMemoryEnvStorageConfig, log *zap.Logger) (*MemoryStorage, error) {
+func (f *DefaultEnvStorageFactory) CreateMemoryEnvStorage(cfg *envsvc.MemoryStorageConfig, log *zap.Logger) (*MemoryStorage, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration cannot be nil")
 	}
@@ -32,12 +33,10 @@ func (f *DefaultEnvStorageFactory) CreateMemoryEnvStorage(_ registry.Kind, cfg *
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	storage := NewMemoryStorage(nil, log)
-
-	return storage, nil
+	return NewMemoryStorage(nil, log), nil
 }
 
-func (f *DefaultEnvStorageFactory) CreateFileEnvStorage(_ registry.Kind, cfg *envservice.CreateFileEnvStorageConfig, log *zap.Logger) (*FileStorage, error) {
+func (f *DefaultEnvStorageFactory) CreateFileEnvStorage(cfg *envsvc.FileStorageConfig, log *zap.Logger) (*FileStorage, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration cannot be nil")
 	}
@@ -46,12 +45,20 @@ func (f *DefaultEnvStorageFactory) CreateFileEnvStorage(_ registry.Kind, cfg *en
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	storage := NewFileStorage(cfg.FilePath, log)
+	fileMode := os.FileMode(0644)
+	if cfg.FileMode > 0 {
+		fileMode = os.FileMode(cfg.FileMode)
+	}
 
-	return storage, nil
+	dirMode := os.FileMode(0755)
+	if cfg.DirMode > 0 {
+		dirMode = os.FileMode(cfg.DirMode)
+	}
+
+	return NewFileStorage(cfg.FilePath, cfg.AutoCreate, fileMode, dirMode, log), nil
 }
 
-func (f *DefaultEnvStorageFactory) CreateOSEnvStorage(_ registry.Kind, cfg *envservice.CreateOSEnvStorageConfig, log *zap.Logger) (*OSStorage, error) {
+func (f *DefaultEnvStorageFactory) CreateOSEnvStorage(cfg *envsvc.OSStorageConfig, log *zap.Logger) (*OSStorage, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration cannot be nil")
 	}
@@ -63,7 +70,7 @@ func (f *DefaultEnvStorageFactory) CreateOSEnvStorage(_ registry.Kind, cfg *envs
 	return NewOSStorage(log), nil
 }
 
-func (f *DefaultEnvStorageFactory) CreateRouterEnvStorage(_ registry.Kind, cfg *envservice.CreateRouterEnvStorageConfig, allStorages map[registry.ID]env.Storage, log *zap.Logger) (*RouterStorage, error) {
+func (f *DefaultEnvStorageFactory) CreateRouterEnvStorage(cfg *envsvc.RouterStorageConfig, allStorages map[registry.ID]env.Storage, log *zap.Logger) (*RouterStorage, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration cannot be nil")
 	}
@@ -72,8 +79,7 @@ func (f *DefaultEnvStorageFactory) CreateRouterEnvStorage(_ registry.Kind, cfg *
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	selectedStorages := make([]env.Storage, 0)
-
+	selectedStorages := make([]env.Storage, 0, len(cfg.Storages))
 	for _, storageName := range cfg.Storages {
 		storageID := registry.ParseID(storageName)
 		storage, ok := allStorages[storageID]

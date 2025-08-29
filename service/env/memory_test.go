@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -34,7 +32,7 @@ func TestMemoryStorage_Get(t *testing.T) {
 
 	// Test getting non-existent key
 	value, err := storage.Get(context.Background(), "nonexistent")
-	assert.NoError(t, err)
+	assert.Error(t, err)
 	assert.Empty(t, value)
 
 	// Test getting existing key
@@ -78,7 +76,7 @@ func TestMemoryStorage_Delete(t *testing.T) {
 	assert.NoError(t, err)
 
 	value, err := storage.Get(context.Background(), "key")
-	assert.NoError(t, err)
+	assert.Error(t, err)
 	assert.Empty(t, value)
 
 	// Test deleting non-existent key
@@ -119,32 +117,4 @@ func TestMemoryStorage_ServiceLifecycle(t *testing.T) {
 	// Test Stop
 	err = storage.Stop(context.Background())
 	assert.NoError(t, err)
-}
-
-func TestMemoryStorage_ResourceManagement(t *testing.T) {
-	storage := NewMemoryStorage(nil, zap.NewNop())
-	id := registry.ID{NS: "test", Name: "id"}
-
-	// Test acquiring resource
-	res, err := storage.Acquire(context.Background(), id, resource.ModeNormal)
-	assert.NoError(t, err)
-	assert.NotNil(t, res)
-
-	// Test getting resource
-	storageValue, err := res.Get()
-	assert.NoError(t, err)
-	assert.Equal(t, storage, storageValue)
-
-	// Test releasing resource
-	res.Release()
-
-	// Test operations after release
-	_, err = res.Get()
-	assert.Error(t, err)
-	assert.Equal(t, resource.ErrResourceClosed, err)
-
-	// Test acquiring with invalid mode
-	_, err = storage.Acquire(context.Background(), id, resource.ModeExclusive)
-	assert.Error(t, err)
-	assert.Equal(t, resource.ErrResourceLocked, err)
 }

@@ -6,65 +6,59 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
 )
 
-// FileStorage implements env.Storage interface using a JSON file
 type FileStorage struct {
-	filepath string
-	mutex    sync.RWMutex
-	log      *zap.Logger
+	filepath   string
+	autoCreate bool
+	fileMode   os.FileMode
+	dirMode    os.FileMode
+	mutex      sync.RWMutex
+	log        *zap.Logger
 }
 
-// NewFileStorage creates a new file-based storage
-func NewFileStorage(filepath string, log *zap.Logger) *FileStorage {
+func NewFileStorage(filepath string, autoCreate bool, fileMode, dirMode os.FileMode, log *zap.Logger) *FileStorage {
+	if fileMode == 0 {
+		fileMode = 0644
+	}
+	if dirMode == 0 {
+		dirMode = 0755
+	}
+
 	return &FileStorage{
-		filepath: filepath,
-		log:      log.With(zap.String("component", "filestorage"), zap.String("filepath", filepath)),
+		filepath:   filepath,
+		autoCreate: autoCreate,
+		fileMode:   fileMode,
+		dirMode:    dirMode,
+		log:        log,
 	}
 }
 
-// Get retrieves a value from storage
 func (s *FileStorage) Get(_ context.Context, key string) (string, error) {
 	s.mutex.RLock()
-	filepath := s.filepath
-	s.mutex.RUnlock()
+	defer s.mutex.RUnlock()
 
-	// Open file for reading
-	file, err := os.Open(filepath)
+	file, err := os.Open(s.filepath)
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer s.closeFile(file)
 
-	// Read file line by line
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		line := scanner.Text()
-
-		if commentIndex := strings.Index(line, "#"); commentIndex != -1 {
-			line = line[:commentIndex]
-		}
-		line = strings.TrimSpace(line)
-
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		keyParsed := strings.TrimSpace(parts[0])
-		valueParsed := strings.TrimSpace(parts[1])
-		if keyParsed == key {
-			return valueParsed, nil
+		if k, v := parseLine(scanner.Text()); k == key {
+			return v, nil
 		}
 	}
 
+	// Check for scanner errors
 	if err := scanner.Err(); err != nil {
 		return "", err
 	}
@@ -72,141 +66,31 @@ func (s *FileStorage) Get(_ context.Context, key string) (string, error) {
 	return "", os.ErrNotExist
 }
 
-// Set stores a value in storage
 func (s *FileStorage) Set(_ context.Context, key, value string) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	// Read the file line by line and update the matching key
-	tempPath := s.filepath + ".tmp"
-
-	// Open source file for reading
-	inFile, err := os.Open(s.filepath)
-	if err != nil {
-		return err
-	}
-	defer inFile.Close()
-
-	// Create a temporary file for writing
-	outFile, err := os.Create(tempPath)
-	if err != nil {
-		return err
-	}
-	defer outFile.Close()
-
-	scanner := bufio.NewScanner(inFile)
-	writer := bufio.NewWriter(outFile)
-	updated := false
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.SplitN(line, "=", 2)
-
-		if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {
-			// Found the key, update the value while preserving any comment
-			commentIndex := strings.Index(line, "#")
-			if commentIndex != -1 {
-				fmt.Fprintf(writer, "%s=%s %s\n", key, value, line[commentIndex:])
-			} else {
-				fmt.Fprintf(writer, "%s=%s\n", key, value)
-			}
-			updated = true
-		} else {
-			// Keep the original line
-			fmt.Fprintln(writer, line)
+	if s.autoCreate {
+		if err := s.ensureFile(); err != nil {
+			return err
 		}
 	}
 
-	if err = scanner.Err(); err != nil {
-		return err
-	}
-
-	// If key wasn't found, append it
-	if !updated {
-		fmt.Fprintf(writer, "%s=%s\n", key, value)
-	}
-
-	// Flush writer before closing files
-	if err := writer.Flush(); err != nil {
-		return err
-	}
-
-	// Close files before rename
-	inFile.Close()
-	outFile.Close()
-
-	// Replace the original file with a temporary file
-	if err = os.Rename(tempPath, s.filepath); err != nil {
-		return err
-	}
-
-	return nil
+	return s.updateFile(key, value, false)
 }
 
-// Delete removes a value from storage
 func (s *FileStorage) Delete(_ context.Context, key string) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	// Read the file line by line and remove the matching key
-	tempPath := s.filepath + ".tmp"
-
-	// Open source file for reading
-	inFile, err := os.Open(s.filepath)
-	if err != nil {
-		return err
-	}
-	defer inFile.Close()
-
-	// Create a temporary file for writing
-	outFile, err := os.Create(tempPath)
-	if err != nil {
-		return err
-	}
-	defer outFile.Close()
-
-	scanner := bufio.NewScanner(inFile)
-	writer := bufio.NewWriter(outFile)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.SplitN(line, "=", 2)
-
-		if len(parts) != 2 || strings.TrimSpace(parts[0]) != key {
-			// Keep lines that don't match the key
-			fmt.Fprintln(writer, line)
-		}
-	}
-
-	if err = scanner.Err(); err != nil {
-		return err
-	}
-
-	// Flush writer before closing files
-	if err := writer.Flush(); err != nil {
-		return err
-	}
-
-	// Close files before rename
-	inFile.Close()
-	outFile.Close()
-
-	// Replace the original file with a temporary file
-	if err = os.Rename(tempPath, s.filepath); err != nil {
-		return err
-	}
-
-	return nil
+	return s.updateFile(key, "", true)
 }
 
-// List returns all variable names and values in this storage
 func (s *FileStorage) List(_ context.Context) (map[string]string, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
 	result := make(map[string]string)
-
-	// Open file for reading
 	file, err := os.Open(s.filepath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -214,28 +98,16 @@ func (s *FileStorage) List(_ context.Context) (map[string]string, error) {
 		}
 		return nil, err
 	}
-	defer file.Close()
+	defer s.closeFile(file)
 
-	// Read file line by line
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		line := scanner.Text()
-
-		if commentIndex := strings.Index(line, "#"); commentIndex != -1 {
-			line = line[:commentIndex]
+		if k, v := parseLine(scanner.Text()); k != "" {
+			result[k] = v
 		}
-		line = strings.TrimSpace(line)
-
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		keyParsed := strings.TrimSpace(parts[0])
-		valueParsed := strings.TrimSpace(parts[1])
-
-		result[keyParsed] = valueParsed
 	}
 
+	// Check for scanner errors
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
@@ -243,68 +115,198 @@ func (s *FileStorage) List(_ context.Context) (map[string]string, error) {
 	return result, nil
 }
 
-// Start implements supervisor.Service interface
-func (s *FileStorage) Start(_ context.Context) (<-chan any, error) {
-	statusCh := make(chan any, 1)
+func parseLine(text string) (key, value string) {
+	line := strings.TrimSpace(text)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return "", ""
+	}
 
-	// Ensure directory exists
-	dir := filepath.Dir(s.filepath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if idx := strings.Index(line, "#"); idx != -1 {
+		line = strings.TrimSpace(line[:idx])
+	}
+
+	parts := strings.SplitN(line, "=", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+}
+
+func (s *FileStorage) updateFile(key, value string, isDelete bool) error {
+	lines, err := s.readAllLines()
+	if err != nil {
+		return err
+	}
+
+	updatedLines := s.processLines(lines, key, value, isDelete)
+	return s.writeAllLines(updatedLines)
+}
+
+func (s *FileStorage) readAllLines() ([]string, error) {
+	file, err := os.Open(s.filepath)
+	if err != nil {
+		return nil, err
+	}
+	defer s.closeFile(file)
+
+	lines := make([]string, 0, 100) // Pre-allocate with reasonable capacity
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	// Ensure scanner is done and file is fully read
+	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
 
+	return lines, nil
+}
+
+func (s *FileStorage) processLines(lines []string, key, value string, isDelete bool) []string {
+	result := make([]string, 0, len(lines))
+	updated := false
+
+	for _, line := range lines {
+		if k, _ := parseLine(line); k == key {
+			if !isDelete {
+				if idx := strings.Index(line, "#"); idx != -1 {
+					result = append(result, fmt.Sprintf("%s=%s %s", key, value, line[idx:]))
+				} else {
+					result = append(result, fmt.Sprintf("%s=%s", key, value))
+				}
+			}
+			updated = true
+		} else {
+			result = append(result, line)
+		}
+	}
+
+	if !updated && !isDelete {
+		result = append(result, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	return result
+}
+
+func (s *FileStorage) writeAllLines(lines []string) error {
+	tempPath := s.filepath + ".tmp"
+
+	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, s.fileMode)
+	if err != nil {
+		return err
+	}
+
+	success := false
+	defer func() {
+		if !success {
+			if err := os.Remove(tempPath); err != nil {
+				s.log.Warn("failed to remove temp file", zap.String("path", tempPath), zap.Error(err))
+			}
+		}
+	}()
+
+	writer := bufio.NewWriter(file)
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(writer, line); err != nil {
+			return err
+		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+
+	if err := file.Sync(); err != nil {
+		return err
+	}
+
+	// Close the file before rename to avoid Windows file locking issues
+	if err := file.Close(); err != nil {
+		return err
+	}
+
+	success = true
+
+	// On Windows, we need to ensure the file handle is fully released
+	// before attempting to rename. This is especially important for tests.
+	maxRetries := 1
+	if runtime.GOOS == "windows" {
+		maxRetries = 3
+	}
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if err := os.Rename(tempPath, s.filepath); err != nil {
+			if attempt < maxRetries && (os.IsExist(err) || strings.Contains(err.Error(), "being used by another process")) {
+				// Wait a bit before retrying on Windows
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+
+			// If rename fails due to file being in use, try to remove the target first
+			if os.IsExist(err) || strings.Contains(err.Error(), "being used by another process") {
+				// Try to remove the target file first
+				if removeErr := os.Remove(s.filepath); removeErr != nil {
+					s.log.Warn("failed to remove target file before rename", zap.String("path", s.filepath), zap.Error(removeErr))
+				}
+				// Try rename again
+				if renameErr := os.Rename(tempPath, s.filepath); renameErr != nil {
+					return fmt.Errorf("failed to rename temp file after removing target: %w", renameErr)
+				}
+				return nil
+			}
+			return fmt.Errorf("failed to rename temp file: %w", err)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("failed to rename temp file after %d attempts", maxRetries+1)
+}
+
+func (s *FileStorage) ensureFile() error {
+	if _, err := os.Stat(s.filepath); err == nil {
+		return nil
+	}
+
+	dir := filepath.Dir(s.filepath)
+	if err := os.MkdirAll(dir, s.dirMode); err != nil {
+		return err
+	}
+
+	file, err := os.OpenFile(s.filepath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, s.fileMode)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	// Ensure the file is properly closed
+	if err := file.Close(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *FileStorage) closeFile(file *os.File) {
+	if err := file.Close(); err != nil {
+		s.log.Warn("failed to close file", zap.Error(err))
+		// On Windows, try to force close if normal close fails
+		if runtime.GOOS == "windows" {
+			// Give the OS a moment to release the handle
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+func (s *FileStorage) Start(_ context.Context) (<-chan any, error) {
+	statusCh := make(chan any, 1)
 	statusCh <- supervisor.Running
 	return statusCh, nil
 }
 
-// Stop implements supervisor.Service interface
 func (s *FileStorage) Stop(_ context.Context) error {
 	return nil
-}
-
-// Acquire implements resource.Provider interface
-func (s *FileStorage) Acquire(_ context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
-	// Only support normal mode for now
-	if mode != resource.ModeNormal {
-		return nil, resource.ErrResourceLocked
-	}
-
-	return &fileResource{
-		storage: s,
-		id:      id,
-		closed:  false,
-		mu:      sync.Mutex{},
-	}, nil
-}
-
-// fileResource represents an acquired file storage resource
-type fileResource struct {
-	storage *FileStorage
-	id      registry.ID
-	closed  bool
-	mu      sync.Mutex
-}
-
-// Get implements resource.Resource interface
-func (r *fileResource) Get() (any, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.closed {
-		return nil, resource.ErrResourceClosed
-	}
-
-	return r.storage, nil
-}
-
-// Release implements resource.Resource interface
-func (r *fileResource) Release() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.closed {
-		return
-	}
-
-	r.closed = true
 }

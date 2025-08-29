@@ -1,7 +1,7 @@
 package native
 
 import (
-	"bufio"
+	"context"
 	"errors"
 	"io"
 	"io/fs"
@@ -79,123 +79,225 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	processExecutor, ok := process.(*ProcessExecutor)
 	assert.True(t, ok)
 
+	// Start reading stdout BEFORE starting the process to avoid race conditions
+	sb := new(strings.Builder)
+	readDone := make(chan struct{})
+	processDone := make(chan struct{})
+
+	go func() {
+		defer close(readDone)
+		timeout := time.After(3 * time.Second) // Give more time to read output
+
+		for {
+			select {
+			case <-timeout:
+				t.Logf("Timeout reached, collected %d bytes of output", sb.Len())
+				return
+			default:
+				buf := make([]byte, 65536) // Smaller buffer for faster reading
+				n, err := process.Stdout().Read(buf)
+				if err != nil {
+					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+						return
+					}
+					t.Errorf("Error reading stdout: %v", err)
+					return
+				}
+				if n > 0 {
+					sb.Write(buf[:n])
+				}
+			}
+		}
+	}()
+
+	// Now start the process
 	err = process.Start()
 	assert.NoError(t, err)
 
+	// Wait for the process to complete in a separate goroutine
 	go func() {
-		_ = process.Wait()
+		defer close(processDone)
+		err := process.Wait()
+		if err != nil {
+			t.Logf("Process completed with error: %v", err)
+		}
 	}()
 
+	// Stop the process after a short delay to ensure we get some output
 	go func() {
-		time.Sleep(4 * time.Second) // Give process time to start and produce output
+		// Use context with timeout instead of time.Sleep to prevent test hanging
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		select {
+		case <-ctx.Done():
+			t.Log("Timeout waiting for process to start")
+		case <-time.After(1 * time.Second): // Give process time to start and produce output
+		}
 		processExecutor.Stop()
 	}()
 
-	sb := new(strings.Builder)
-	timeout := time.After(3 * time.Second) // Give more time to read output
-
-	for {
+	// Wait for both the process to complete and reading to finish
+	select {
+	case <-processDone:
+		// Process completed, give a little time for reading to finish
 		select {
-		case <-timeout:
-			t.Logf("Timeout reached, collected %d bytes of output", sb.Len())
-			goto readComplete
-		default:
-			buf := make([]byte, 65536) // Smaller buffer for faster reading
-			n, err := process.Stdout().Read(buf)
-			if err != nil {
-				if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
-					goto readComplete
-				}
-				t.Fatal(err)
-			}
-			if n > 0 {
-				sb.Write(buf[:n])
-			}
+		case <-readDone:
+			// Reading completed
+		case <-time.After(1 * time.Second):
+			// Reading timed out, but process is done
+		}
+	case <-readDone:
+		// Reading completed, give a little time for process to finish
+		select {
+		case <-processDone:
+			// Process completed
+		case <-time.After(1 * time.Second):
+			// Process timed out, but reading is done
 		}
 	}
 
-readComplete:
 	if sb.Len() == 0 {
 		t.Fatal("no output")
 	}
 }
 
 func TestExecutor_Stdout(t *testing.T) {
+	// Log system information for debugging CI/CD issues
+	t.Logf("=== TestExecutor_Stdout started ===")
+	t.Logf("Platform: %s/%s", runtime.GOOS, runtime.GOARCH)
+	t.Logf("Go version: %s", runtime.Version())
+	t.Logf("GOMAXPROCS: %d", runtime.GOMAXPROCS(0))
+	t.Logf("NumCPU: %d", runtime.NumCPU())
+
+	// Log important environment variables for CI/CD debugging
+	t.Logf("Environment: CI=%s, GITHUB_ACTIONS=%s, TRAVIS=%s, CIRCLECI=%s",
+		os.Getenv("CI"), os.Getenv("GITHUB_ACTIONS"), os.Getenv("TRAVIS"), os.Getenv("CIRCLECI"))
+
+	startTime := time.Now()
 	logger := zap.NewNop()
 
 	// Create the process with platform-compatible echo command
 	nativeExecutor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
 
-	// Use a command that should work reliably in any environment
+	// Use a command that produces output more reliably and doesn't finish too quickly
 	var command string
 	if runtime.GOOS == "windows" {
-		command = "echo hello world"
+		command = "cmd /c echo hello world && timeout 1"
 	} else {
-		command = "echo 'hello world'"
+		command = "sh -c 'echo hello world && sleep 0.1'"
 	}
+
+	t.Logf("Using command: %q on platform: %s", command, runtime.GOOS)
 
 	process, err := nativeExecutor.NewProcess(command, exec.ProcessOptions{})
 	assert.NoError(t, err)
 
-	// Use buffered approach similar to integration tests
-	var output strings.Builder
-	var readErr error
+	// Start reading stdout BEFORE starting the process to avoid race conditions
+	sb := new(strings.Builder)
 	readDone := make(chan struct{})
-	readingStarted := make(chan struct{})
+	processDone := make(chan struct{})
+	readStarted := make(chan struct{})
 
-	// Start the process first
-	err = process.Start()
-	assert.NoError(t, err)
-
-	// Start reading in goroutine using buffered scanner
 	go func() {
 		defer close(readDone)
+		close(readStarted)
+		t.Log("Reading goroutine started")
+		timeout := time.After(3 * time.Second) // Give more time to read output
+		bytesRead := 0
+		readStartTime := time.Now()
 
-		// Signal that reading goroutine has started and reader is established
-		scanner := bufio.NewScanner(process.Stdout())
-		close(readingStarted)
-
-		for scanner.Scan() {
-			line := scanner.Text()
-			t.Logf("Read line: %q", line)
-			output.WriteString(line)
-			output.WriteString("\n")
-		}
-
-		readErr = scanner.Err()
-		if readErr != nil {
-			t.Logf("Scanner error: %v", readErr)
+		for {
+			select {
+			case <-timeout:
+				t.Logf("Reading timeout reached after %v, total bytes read: %d, stdout output: %q",
+					time.Since(readStartTime), bytesRead, sb.String())
+				return
+			default:
+				buf := make([]byte, 1024)
+				n, err := process.Stdout().Read(buf)
+				if err != nil {
+					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+						t.Logf("Reading completed (EOF/closed pipe) after %v, total bytes read: %d, final output: %q",
+							time.Since(readStartTime), bytesRead, sb.String())
+						// Process has finished, but we might have read some data
+						return
+					}
+					t.Errorf("Error reading stdout: %v", err)
+					return
+				}
+				if n > 0 {
+					sb.Write(buf[:n])
+					bytesRead += n
+					t.Logf("Read %d bytes, total: %d, current output: %q", n, bytesRead, sb.String())
+				}
+			}
 		}
 	}()
 
-	// Wait for reading goroutine to establish scanner before proceeding
-	<-readingStarted
+	// Wait for reading goroutine to start
+	<-readStarted
+	t.Log("Reading goroutine is ready")
 
-	// Wait for the process to complete
-	waitErr := process.Wait()
+	// Now start the process
+	t.Log("Starting process...")
+	processStartTime := time.Now()
+	err = process.Start()
+	assert.NoError(t, err)
+	t.Logf("Process started with PID: %d in %v", process.(*ProcessExecutor).pid, time.Since(processStartTime))
 
-	// Wait for reading to complete with timeout
+	// Wait for the process to complete in a separate goroutine
+	go func() {
+		defer close(processDone)
+		t.Log("Waiting for process to complete...")
+		waitStartTime := time.Now()
+		err := process.Wait()
+		waitDuration := time.Since(waitStartTime)
+		if err != nil {
+			t.Logf("Process completed with error after %v: %v", waitDuration, err)
+		} else {
+			t.Logf("Process completed successfully after %v", waitDuration)
+		}
+	}()
+
+	// Wait for both the process to complete and reading to finish
+	t.Log("Waiting for process and reading to complete...")
 	select {
+	case <-processDone:
+		t.Log("Process completed first, waiting for reading to finish...")
+		// Process completed, give a little time for reading to finish
+		select {
+		case <-readDone:
+			t.Log("Reading completed after process")
+		case <-time.After(1 * time.Second):
+			t.Log("Reading timed out after process completion")
+		}
 	case <-readDone:
-		// Reading completed successfully
+		t.Log("Reading completed first, waiting for process to finish...")
+		// Reading completed, wait for process
+		<-processDone
+		t.Log("Process completed after reading")
 	case <-time.After(5 * time.Second):
-		t.Fatal("Test timed out waiting for stdout reading to complete")
+		t.Fatal("Test timed out waiting for process and reading")
 	}
 
-	// Check for any errors
-	if waitErr != nil {
-		t.Logf("Process wait error: %v", waitErr)
-	}
-	if readErr != nil {
-		t.Logf("Read error: %v", readErr)
+	output := sb.String()
+	t.Logf("Final stdout output: %q (length: %d)", output, len(output))
+
+	if !strings.Contains(output, "hello world") {
+		t.Errorf("Expected stdout to contain 'hello world', got: %q", output)
+	} else {
+		t.Log("Test passed: 'hello world' found in output")
 	}
 
-	finalOutput := output.String()
-	t.Logf("Final output: %q", finalOutput)
+	totalDuration := time.Since(startTime)
+	t.Logf("=== TestExecutor_Stdout completed in %v ===", totalDuration)
 
-	if !strings.Contains(finalOutput, "hello world") {
-		t.Errorf("Expected stdout to contain 'hello world', got: %q", finalOutput)
-	}
+	// Log timing breakdown
+	t.Logf("Timing breakdown:")
+	t.Logf("  - Total test time: %v", totalDuration)
+	t.Logf("  - Process startup: %v", time.Since(processStartTime))
+	t.Logf("  - Process execution: %v", totalDuration-time.Since(processStartTime))
 }
 
 func TestExecutor_StdoutWithSleep(t *testing.T) {
@@ -223,8 +325,8 @@ func TestExecutor_StdoutWithSleep(t *testing.T) {
 
 	go func() {
 		defer close(readDone)
-		close(readStarted) // Signal that reading has started
-		timeout := time.After(5 * time.Second)
+		close(readStarted)                     // Signal that reading has started
+		timeout := time.After(2 * time.Second) // Reduced timeout - command executes in milliseconds
 
 		for {
 			select {
@@ -253,7 +355,16 @@ func TestExecutor_StdoutWithSleep(t *testing.T) {
 	<-readStarted
 
 	// Give a moment for the reading goroutine to start
-	time.Sleep(10 * time.Millisecond)
+	// Use context with timeout instead of time.Sleep to prevent test hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		t.Log("Timeout waiting for reading goroutine")
+	case <-time.After(10 * time.Millisecond):
+		// Give a moment for the reading goroutine to start
+	}
 
 	// Now start the process
 	err = process.Start()
