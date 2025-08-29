@@ -1,7 +1,7 @@
 package registry
 
 import (
-	regapi "github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -20,7 +20,7 @@ func (m *Module) registerVersionType(l *lua.LState) {
 func versionID(l *lua.LState) int {
 	// Get version - parameter check, no coroutine needed
 	ud := l.CheckUserData(1)
-	version, ok := ud.Value.(regapi.Version)
+	version, ok := ud.Value.(registry.Version)
 	if !ok {
 		l.ArgError(1, "version expected")
 		return 0
@@ -35,7 +35,7 @@ func versionID(l *lua.LState) int {
 func versionPrevious(l *lua.LState) int {
 	// Get version - parameter check, no coroutine needed
 	ud := l.CheckUserData(1)
-	version, ok := ud.Value.(regapi.Version)
+	version, ok := ud.Value.(registry.Version)
 	if !ok {
 		l.ArgError(1, "version expected")
 		return 0
@@ -58,7 +58,7 @@ func versionPrevious(l *lua.LState) int {
 func versionNext(l *lua.LState) int {
 	// Get version - parameter check, no coroutine needed
 	ud := l.CheckUserData(1)
-	version, ok := ud.Value.(regapi.Version)
+	version, ok := ud.Value.(registry.Version)
 	if !ok {
 		l.ArgError(1, "version expected")
 		return 0
@@ -81,7 +81,7 @@ func versionNext(l *lua.LState) int {
 func versionString(l *lua.LState) int {
 	// Get version - parameter check, no coroutine needed
 	ud := l.CheckUserData(1)
-	version, ok := ud.Value.(regapi.Version)
+	version, ok := ud.Value.(registry.Version)
 	if !ok {
 		l.ArgError(1, "version expected")
 		return 0
