@@ -859,8 +859,11 @@ func TestValidateParameterMatching(t *testing.T) {
 			},
 		}
 
-		// This should not panic or error
-		resolver.validateParameterMatching(nsDependencies, nsRequirements)
+		// This should not return an error
+		err := resolver.validateParameterMatching(nsDependencies, nsRequirements)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
 	})
 
 	// Test case 2: Some parameters don't have corresponding requirements
@@ -896,7 +899,16 @@ func TestValidateParameterMatching(t *testing.T) {
 			// PARAM2 and PARAM3 are missing requirements
 		}
 
-		// This should not panic or error, but should log warnings
-		resolver.validateParameterMatching(nsDependencies, nsRequirements)
+		// This should return an error with missing parameter names
+		err := resolver.validateParameterMatching(nsDependencies, nsRequirements)
+		if err == nil {
+			t.Error("Expected error for missing requirements, got nil")
+		}
+
+		// Check that the error contains the missing parameter names
+		errorMsg := err.Error()
+		if !strings.Contains(errorMsg, "PARAM2") || !strings.Contains(errorMsg, "PARAM3") {
+			t.Errorf("Expected error to contain missing parameter names, got: %s", errorMsg)
+		}
 	})
 }

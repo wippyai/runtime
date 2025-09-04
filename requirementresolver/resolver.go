@@ -98,7 +98,9 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 	}
 
 	// Validate that all dependency parameters have corresponding requirements
-	r.validateParameterMatching(nsDependencies, nsRequirements)
+	if err := r.validateParameterMatching(nsDependencies, nsRequirements); err != nil {
+		r.logger.Warn("parameter validation failed", zap.Error(err))
+	}
 
 	return entries, nil
 }
@@ -155,7 +157,7 @@ func ApplyPathValueToEntriesWithGojq(jqQuery string, value string, entries []reg
 				// If Data update failed and it's a meta query, try entire entry
 				err2 := updateEntireEntryWithGojq(entry, jqQuery, value)
 				if err2 != nil {
-					errs = append(errs, fmt.Errorf("failed to update entry with jq query '%s' for entry %s (data error: %v, entire entry error: %v)", jqQuery, entry.ID.Name, err, err2))
+					errs = append(errs, fmt.Errorf("failed to update entry with jq query '%s' for entry %s (data error: %w, entire entry error: %w)", jqQuery, entry.ID.Name, err, err2))
 				}
 			} else if err != nil {
 				errs = append(errs, fmt.Errorf("failed to update entry data with jq query '%s' for entry %s: %w", jqQuery, entry.ID.Name, err))
@@ -588,7 +590,7 @@ func getRequirementDefaultValue(requirement registry.Entry) (string, bool) {
 }
 
 // validateParameterMatching validates that dependency parameters have corresponding requirements
-func (r *Resolver) validateParameterMatching(nsDependencies map[string]registry.Entry, nsRequirements map[string]registry.Entry) {
+func (r *Resolver) validateParameterMatching(nsDependencies map[string]registry.Entry, nsRequirements map[string]registry.Entry) error {
 	// Collect all parameter names from dependencies
 	allParamNames := make(map[string]bool)
 	for _, nsDependency := range nsDependencies {
@@ -607,6 +609,7 @@ func (r *Resolver) validateParameterMatching(nsDependencies map[string]registry.
 	}
 
 	// Check if each parameter has a corresponding requirement
+	var missingRequirements []string
 	for paramName := range allParamNames {
 		found := false
 		for _, nsRequirement := range nsRequirements {
@@ -616,8 +619,13 @@ func (r *Resolver) validateParameterMatching(nsDependencies map[string]registry.
 			}
 		}
 		if !found {
-			r.logger.Warn("dependency parameter has no corresponding requirement",
-				zap.String("parameter_name", paramName))
+			missingRequirements = append(missingRequirements, paramName)
 		}
 	}
+
+	if len(missingRequirements) > 0 {
+		return fmt.Errorf("dependency parameters have no corresponding requirements: %v", missingRequirements)
+	}
+
+	return nil
 }
