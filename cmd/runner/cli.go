@@ -114,12 +114,14 @@ func (cr *CLIRunner) showHelp() error {
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  --lock-file <path>  - Path to lock file (default: wippy.lock)")
+	fmt.Println("  -v, --verbose       - Enable verbose debug logging")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  wippy init --lock-file=\"./wippy.lock\" --src-dir=\".\" --modules-dir=\".wippy\" --")
 	fmt.Println("  wippy install --lock-file=\"./wippy.lock\" --")
 	fmt.Println("  wippy update --lock-file=\"./wippy.lock\" --")
 	fmt.Println("  wippy run --lock-file=\"./wippy.lock\" --")
+	fmt.Println("  wippy update -v --lock-file=\"./wippy.lock\" --")
 	fmt.Println()
 	fmt.Println("Use 'wippy <command> --help' for command-specific help")
 	return nil
@@ -134,13 +136,27 @@ func (ic *InitCommand) Execute(_ context.Context, flags []string, _ []string) er
 	// Parse init-specific flags
 	flagSet := flag.NewFlagSet("init", flag.ExitOnError)
 	var srcDir, modulesDir, lockFilePath string
+	var verbose bool
 	flagSet.StringVar(&srcDir, "src-dir", ".", "source directory path")
 	flagSet.StringVar(&modulesDir, "modules-dir", ".wippy", "modules directory path")
 	flagSet.StringVar(&lockFilePath, "lock-file", "wippy.lock", "path to lock file")
+	flagSet.BoolVar(&verbose, "v", false, "enable verbose debug logging")
+	flagSet.BoolVar(&verbose, "verbose", false, "enable verbose debug logging")
 
 	// Parse flags (before --)
 	if err := flagSet.Parse(flags); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
+	}
+
+	// Update logger if verbose flag is set
+	if verbose {
+		ic.runner.config.Verbose = true
+		// Reinitialize logger with verbose settings
+		logger, err := initMainLogger(true, false)
+		if err != nil {
+			return fmt.Errorf("failed to initialize verbose logger: %w", err)
+		}
+		ic.runner.logger = logger
 	}
 
 	// Update config with parsed lock file
@@ -198,9 +214,23 @@ func (ic *InstallCommand) Execute(ctx context.Context, flags []string, args []st
 	// Parse common flags
 	flagSet := flag.NewFlagSet("install", flag.ExitOnError)
 	var lockFilePath string
+	var verbose bool
 	flagSet.StringVar(&lockFilePath, "lock-file", "wippy.lock", "path to lock file")
+	flagSet.BoolVar(&verbose, "v", false, "enable verbose debug logging")
+	flagSet.BoolVar(&verbose, "verbose", false, "enable verbose debug logging")
 	if err := flagSet.Parse(flags); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
+	}
+
+	// Update logger if verbose flag is set
+	if verbose {
+		ic.runner.config.Verbose = true
+		// Reinitialize logger with verbose settings
+		logger, err := initMainLogger(true, false)
+		if err != nil {
+			return fmt.Errorf("failed to initialize verbose logger: %w", err)
+		}
+		ic.runner.logger = logger
 	}
 
 	// Update config with parsed lock file
@@ -305,9 +335,23 @@ func (ic *UpdateCommand) Execute(ctx context.Context, flags []string, args []str
 	// Parse common flags
 	flagSet := flag.NewFlagSet("update", flag.ExitOnError)
 	var lockFilePath string
+	var verbose bool
 	flagSet.StringVar(&lockFilePath, "lock-file", "wippy.lock", "path to lock file")
+	flagSet.BoolVar(&verbose, "v", false, "enable verbose debug logging")
+	flagSet.BoolVar(&verbose, "verbose", false, "enable verbose debug logging")
 	if err := flagSet.Parse(flags); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
+	}
+
+	// Update logger if verbose flag is set
+	if verbose {
+		ic.runner.config.Verbose = true
+		// Reinitialize logger with verbose settings
+		logger, err := initMainLogger(true, false)
+		if err != nil {
+			return fmt.Errorf("failed to initialize verbose logger: %w", err)
+		}
+		ic.runner.logger = logger
 	}
 
 	// Update config with parsed lock file
@@ -359,9 +403,23 @@ func (ic *RunCommand) Execute(_ context.Context, flags []string, args []string) 
 	// Parse common flags
 	flagSet := flag.NewFlagSet("run", flag.ExitOnError)
 	var lockFilePath string
+	var verbose bool
 	flagSet.StringVar(&lockFilePath, "lock-file", "wippy.lock", "path to lock file")
+	flagSet.BoolVar(&verbose, "v", false, "enable verbose debug logging")
+	flagSet.BoolVar(&verbose, "verbose", false, "enable verbose debug logging")
 	if err := flagSet.Parse(flags); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
+	}
+
+	// Update logger if verbose flag is set
+	if verbose {
+		ic.runner.config.Verbose = true
+		// Reinitialize logger with verbose settings
+		logger, err := initMainLogger(true, false)
+		if err != nil {
+			return fmt.Errorf("failed to initialize verbose logger: %w", err)
+		}
+		ic.runner.logger = logger
 	}
 
 	// Update config with parsed lock file
