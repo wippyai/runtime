@@ -8,6 +8,7 @@ entries:
       description: "Target namespace for module dependency"
     targets:
       - path: ".meta.depends_on +="
+    default: "ns:system"
 
   - name: API_ROUTER
     kind: ns.requirement
