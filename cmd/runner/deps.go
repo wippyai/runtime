@@ -69,20 +69,37 @@ func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
 func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 	dm.logger.Info("Updating dependencies")
 
-	// Load entries from the application directory
-	entries, err := dm.loadRegistryEntries(ctx)
+	// First, try to load existing lock file to get src directory
+	var srcDir string
+	existingLockPath := filepath.Join(dm.config.FolderPath, dm.config.LockFile)
+	if existingLock, err := moduleloader.LoadLockFile(existingLockPath); err == nil {
+		srcDir = existingLock.Directories.Src
+		dm.logger.Debug("Using src directory from lock file", zap.String("src_dir", srcDir))
+	} else {
+		// Use default src directory if no existing lock file
+		srcDir = "."
+		dm.logger.Debug("Using default src directory", zap.String("src_dir", srcDir))
+	}
+
+	// Load entries from the src directory (not root directory)
+	entries, err := dm.loadRegistryEntries(ctx, srcDir)
 	if err != nil {
 		return fmt.Errorf("load registry entries: %w", err)
 	}
 
 	// Create module loader manager with loaded entries
+	dm.logger.Debug("Creating module loader manager with entries", zap.Int("entries_count", len(entries)))
 	registryLoader := dm.createModuleLoaderManagerWithEntries(entries)
 
 	// Load dependencies with latest versions
+	dm.logger.Debug("Loading dependencies with registry loader")
 	loadResult, err := registryLoader.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load dependencies: %w", err)
 	}
+
+	dm.logger.Debug("Registry loader completed",
+		zap.Int("modules_count", len(loadResult.Modules)))
 
 	// Display package operations
 	dm.displayPackageOperations(loadResult, "update")
@@ -105,20 +122,17 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 			zap.String("path", module.Path))
 	}
 
-	// Try to load existing lock file to get directory structure and preserve replacements
-	var modulesDir, srcDir string
+	// Get directory structure and preserve replacements from existing lock file
+	var modulesDir string
 	var existingReplacements []moduleloader.Replacement
-	existingLockPath := filepath.Join(dm.config.FolderPath, dm.config.LockFile)
 	if existingLock, err := moduleloader.LoadLockFile(existingLockPath); err == nil {
 		modulesDir = existingLock.Directories.Modules
-		srcDir = existingLock.Directories.Src
 		existingReplacements = existingLock.Replacements
 		dm.logger.Debug("Preserving existing replacements",
 			zap.Int("count", len(existingReplacements)))
 	} else {
-		// Use default directories if no existing lock file
+		// Use default modules directory if no existing lock file
 		modulesDir = ".wippy"
-		srcDir = "."
 	}
 
 	lockFile := moduleloader.ConvertToLockFile(loadResult, modulesDir, srcDir)
@@ -153,8 +167,8 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 	return nil
 }
 
-// loadRegistryEntries loads registry entries from the application directory
-func (dm *DependencyManager) loadRegistryEntries(ctx context.Context) ([]regapi.Entry, error) {
+// loadRegistryEntries loads registry entries from the specified directory
+func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir string) ([]regapi.Entry, error) {
 	// For testing purposes, create mock entries if no real entries are loaded
 	dtt := transcoder.GlobalTranscoder()
 	json.Register(dtt)
@@ -165,18 +179,32 @@ func (dm *DependencyManager) loadRegistryEntries(ctx context.Context) ([]regapi.
 		interpolate.WithInterpolator(interpolate.LoadFile),
 	))
 
-	// Create filesystem from the application directory
-	fsys := os.DirFS(dm.config.FolderPath)
+	// Resolve the full path to the src directory
+	srcPath := filepath.Join(dm.config.FolderPath, srcDir)
+
+	// Create filesystem from the src directory
+	fsys := os.DirFS(srcPath)
 
 	// Load entries from the filesystem
 	entries, err := folderLoader.LoadFS(ctx, fsys)
 	if err != nil {
-		return nil, fmt.Errorf("load entries from directory: %w", err)
+		return nil, fmt.Errorf("load entries from directory %s: %w", srcPath, err)
 	}
 
 	dm.logger.Debug("Loaded entries from directory",
-		zap.String("directory", dm.config.FolderPath),
+		zap.String("directory", srcPath),
+		zap.String("src_dir", srcDir),
 		zap.Int("count", len(entries)))
+
+	// Log some sample entries for debugging
+	for i, entry := range entries {
+		if i < 5 { // Log first 5 entries
+			dm.logger.Debug("Sample entry",
+				zap.Int("index", i),
+				zap.String("id", entry.ID.String()),
+				zap.String("kind", entry.Kind))
+		}
+	}
 
 	return entries, nil
 }
@@ -188,6 +216,10 @@ func (dm *DependencyManager) createModuleLoaderManagerWithEntries(entries []rega
 		baseURL = modulesURL
 	}
 
+	dm.logger.Debug("Creating registry loader with entries",
+		zap.String("base_url", baseURL),
+		zap.Int("entries_count", len(entries)))
+
 	client := &http.Client{}
 	organizationClient := identityv1connect.NewOrganizationServiceClient(client, baseURL)
 	moduleClient := modulev1connect.NewModuleServiceClient(client, baseURL)
@@ -196,6 +228,8 @@ func (dm *DependencyManager) createModuleLoaderManagerWithEntries(entries []rega
 	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
 
 	registryLoader := moduleloader.NewEntryLoader(entries, dm.logger)
+
+	dm.logger.Debug("Created entry loader, creating manager")
 
 	return moduleloader.NewManager(
 		organizationClient,

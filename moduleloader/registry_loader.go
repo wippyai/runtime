@@ -31,6 +31,11 @@ func (r *EntryLoader) LoadManifest(_ context.Context) (*Manifest, error) {
 		}
 	}
 
+	r.logger.Debug("Found dependency entries",
+		zap.Int("total_entries", len(r.entries)),
+		zap.Int("dependency_entries", len(entries)),
+		zap.String("dependency_kind", regapi.KindNamespaceDependency))
+
 	// Convert registry entries to ManifestDependency format
 	dependencies := make([]ManifestDependency, 0, len(entries))
 
