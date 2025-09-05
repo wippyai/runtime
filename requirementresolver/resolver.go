@@ -45,19 +45,14 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 			zap.String("requirement_name", nsRequirement.ID.Name),
 			zap.String("requirement_namespace", nsRequirement.ID.NS))
 
-		// Find dependency with parameter matching the requirement name
-		nsDependency, paramValue, err := findDependencyByParameterName(nsRequirement.ID.Name, nsDependencies)
+		// Resolve parameter value (from dependency or default)
+		paramValue, err := r.resolveParameterValue(nsRequirement, nsDependencies)
 		if err != nil {
-			r.logger.Warn("failed to find dependency parameter for requirement",
+			r.logger.Warn("failed to resolve parameter value for requirement",
 				zap.String("requirement", nsRequirement.ID.Name),
 				zap.Error(err))
 			continue
 		}
-
-		r.logger.Debug("found dependency parameter for requirement",
-			zap.String("requirement", nsRequirement.ID.String()),
-			zap.String("dependency", nsDependency.ID.Name),
-			zap.String("parameter_value", paramValue))
 
 		// Get requirement targets for value injection
 		requirementTargets, err := getRequirementTargets(nsRequirement)
@@ -102,7 +97,36 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 		}
 	}
 
+	// Validate that all dependency parameters have corresponding requirements
+	if err := r.validateParameterMatching(nsDependencies, nsRequirements); err != nil {
+		r.logger.Warn("parameter validation failed", zap.Error(err))
+	}
+
 	return entries, nil
+}
+
+// resolveParameterValue resolves a parameter value for a requirement from either dependency or default
+func (r *Resolver) resolveParameterValue(requirement registry.Entry, dependencies map[string]registry.Entry) (string, error) {
+	// Try to find parameter in dependencies first
+	_, paramValue, err := findDependencyByParameterName(requirement.ID.Name, dependencies)
+	if err == nil {
+		r.logger.Debug("found dependency parameter for requirement",
+			zap.String("requirement", requirement.ID.Name),
+			zap.String("parameter_value", paramValue))
+		return paramValue, nil
+	}
+
+	// Fall back to default value if available
+	defaultValue, hasDefault := getRequirementDefaultValue(requirement)
+	if hasDefault {
+		r.logger.Debug("using default value for requirement",
+			zap.String("requirement", requirement.ID.Name),
+			zap.String("default_value", defaultValue))
+		return defaultValue, nil
+	}
+
+	// No parameter found and no default available
+	return "", fmt.Errorf("no parameter found and no default value available for requirement %s", requirement.ID.Name)
 }
 
 // ApplyPathValueToEntriesWithGojq applies a value to entries using jq DSL queries
@@ -118,18 +142,24 @@ func ApplyPathValueToEntriesWithGojq(jqQuery string, value string, entries []reg
 			continue
 		}
 
-		// Check if the jqQuery targets kind or meta fields to determine update strategy
+		// Determine update strategy based on query path
 		trimmedQuery := strings.TrimSpace(jqQuery)
-		if trimmedQuery == ".kind" || strings.HasPrefix(trimmedQuery, ".meta") {
-			// Update entire object (including kind and meta fields)
+		if trimmedQuery == ".kind" {
+			// Update entire entry for kind field
 			err := updateEntireEntryWithGojq(entry, jqQuery, value)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("failed to update entire entry with jq query '%s' for entry %s: %w", jqQuery, entry.ID.Name, err))
 			}
 		} else {
-			// Update only the Data field (including .data queries)
+			// Try Data first, fallback to entire entry for meta fields
 			err := updateEntryDataWithGojq(entry, jqQuery, value)
-			if err != nil {
+			if err != nil && strings.HasPrefix(trimmedQuery, ".meta") {
+				// If Data update failed and it's a meta query, try entire entry
+				err2 := updateEntireEntryWithGojq(entry, jqQuery, value)
+				if err2 != nil {
+					errs = append(errs, fmt.Errorf("failed to update entry with jq query '%s' for entry %s (data error: %w, entire entry error: %w)", jqQuery, entry.ID.Name, err, err2))
+				}
+			} else if err != nil {
 				errs = append(errs, fmt.Errorf("failed to update entry data with jq query '%s' for entry %s: %w", jqQuery, entry.ID.Name, err))
 			}
 		}
@@ -336,17 +366,35 @@ func joinErrors(errs []error) error {
 func findDependencyByParameterName(requirementName string, nsDependencies map[string]registry.Entry) (registry.Entry, string, error) {
 	for _, nsDependency := range nsDependencies {
 		data := nsDependency.Data.Data()
-		if depMap, ok := data.(map[string]interface{}); ok {
-			if paramsRaw, ok := depMap["parameters"].([]interface{}); ok {
-				for _, paramRaw := range paramsRaw {
-					if paramMap, ok := paramRaw.(map[string]interface{}); ok {
-						if paramName, ok := paramMap["name"].(string); ok && paramName == requirementName {
-							if paramValue, ok := paramMap["value"].(string); ok {
-								return nsDependency, paramValue, nil
-							}
-						}
-					}
-				}
+		depMap, ok := data.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		paramsRaw, exists := depMap["parameters"]
+		if !exists || paramsRaw == nil {
+			continue
+		}
+
+		paramsArray, ok := paramsRaw.([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, paramRaw := range paramsArray {
+			paramMap, ok := paramRaw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			paramName, ok := paramMap["name"].(string)
+			if !ok || paramName != requirementName {
+				continue
+			}
+
+			paramValue, ok := paramMap["value"].(string)
+			if ok {
+				return nsDependency, paramValue, nil
 			}
 		}
 	}
@@ -528,4 +576,56 @@ func (r *Resolver) verifyInjection(entries []registry.Entry, path string, expect
 				zap.String("value", actualValue))
 		}
 	}
+}
+
+// getRequirementDefaultValue extracts the default value from a requirement entry
+func getRequirementDefaultValue(requirement registry.Entry) (string, bool) {
+	data := requirement.Data.Data()
+	if reqMap, ok := data.(map[string]interface{}); ok {
+		if defaultValue, ok := reqMap["default"].(string); ok {
+			return defaultValue, true
+		}
+	}
+	return "", false
+}
+
+// validateParameterMatching validates that dependency parameters have corresponding requirements
+func (r *Resolver) validateParameterMatching(nsDependencies map[string]registry.Entry, nsRequirements map[string]registry.Entry) error {
+	// Collect all parameter names from dependencies
+	allParamNames := make(map[string]bool)
+	for _, nsDependency := range nsDependencies {
+		data := nsDependency.Data.Data()
+		if depMap, ok := data.(map[string]interface{}); ok {
+			if paramsRaw, ok := depMap["parameters"].([]interface{}); ok {
+				for _, paramRaw := range paramsRaw {
+					if paramMap, ok := paramRaw.(map[string]interface{}); ok {
+						if paramName, ok := paramMap["name"].(string); ok {
+							allParamNames[paramName] = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Check if each parameter has a corresponding requirement
+	var missingRequirements []string
+	for paramName := range allParamNames {
+		found := false
+		for _, nsRequirement := range nsRequirements {
+			if nsRequirement.ID.Name == paramName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missingRequirements = append(missingRequirements, paramName)
+		}
+	}
+
+	if len(missingRequirements) > 0 {
+		return fmt.Errorf("dependency parameters have no corresponding requirements: %v", missingRequirements)
+	}
+
+	return nil
 }

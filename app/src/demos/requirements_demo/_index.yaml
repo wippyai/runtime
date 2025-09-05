@@ -15,5 +15,6 @@ entries:
     parameters:
       - name: API_ROUTER
         value: "system:api"
-      - name: NAMESPACE
-        value: "ns:system"
+        # used as default value
+#      - name: NAMESPACE
+#        value: "ns:system"

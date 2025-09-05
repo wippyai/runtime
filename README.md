@@ -30,6 +30,7 @@ Wippy enables systems that can understand their own structure and adapt over tim
 *   **Concurrency Model:** Utilizes coroutines and Go-inspired channels for efficient, non-blocking concurrency within and between processes.
 *   **Command-Based Interface:** Modern CLI architecture with intuitive commands for dependency management and system operations.
 *   **Module Replacements:** Local development support through module replacement system for faster iteration cycles.
+*   **Default Values for Requirements:** Module requirements can define default values, making the `parameters` section in `ns.dependency` optional and improving developer experience.
 
 ## Architecture Overview
 
@@ -80,6 +81,80 @@ Wippy addresses common challenges in modern software development, especially whe
 *   **Multi-Tenant Processing:** Run isolated, customizable data processing logic for different tenants with resource governance.
 *   **Development Workflow:** Streamlined dependency management with modern CLI commands for rapid iteration and testing.
 *   **Module Development:** Local module development and testing with replacement system for faster development cycles.
+
+## Module Requirements with Default Values
+
+Wippy introduces a powerful feature that simplifies module configuration by allowing requirements to define default values. This enhancement makes the `parameters` section in `ns.dependency` entries **optional** when modules provide sensible defaults.
+
+### Key Benefits
+
+- **Simplified Configuration**: Applications can use modules without specifying parameters when defaults are available
+- **Flexible Override**: Applications can still override defaults when custom values are needed
+- **Backward Compatibility**: Existing applications with parameters continue to work unchanged
+- **Better Developer Experience**: Less boilerplate configuration and more intuitive module usage
+
+### How It Works
+
+**Module Configuration (with defaults):**
+```yaml
+# Module (wippy/llm/_index.yaml)
+version: "1.0"
+namespace: wippy.llm
+
+entries: 
+  - name: application_host
+    kind: ns.requirement
+    meta: 
+      description: "Host ID for the application processes"
+    targets: 
+      - entry: token_refresh
+        path: .meta.default_host
+    default: "app:processes"  # Default value makes parameters optional
+```
+
+**Application Configuration (simplified):**
+```yaml
+# Application (_index.yaml) - Parameters section is now OPTIONAL
+version: "1.0"
+namespace: app.example
+
+entries:
+  - name: __dependency.wippy.llm
+    kind: "ns.dependency"
+    component: "wippy/llm"
+    version: ">=v0.0.7"
+    # No parameters section needed when module has defaults!
+```
+
+**Application Configuration (with custom values):**
+```yaml
+# Application (_index.yaml) - Override defaults when needed
+entries:
+  - name: __dependency.wippy.llm
+    kind: "ns.dependency"
+    component: "wippy/llm"
+    version: ">=v0.0.7"
+    parameters: 
+      - name: "application_host"
+        value: "system:processes"  # Overrides module default
+```
+
+### Behavior Examples
+
+1. **Application provides parameter**: Uses application value (overrides default)
+2. **Application doesn't provide parameter**: Uses module default value
+3. **Application has no parameters field**: Uses module default value
+4. **Application has malformed parameters**: Gracefully falls back to default
+5. **No parameter and no default**: Requirement is skipped (graceful degradation)
+
+### Validation Rules
+
+- Parameter matching validation with warning logs for mismatches
+- Graceful handling of missing, nil, or malformed parameter fields
+- Requirements without defaults are skipped when no parameter is provided
+- Default values are extracted from requirement entries automatically
+
+This feature significantly improves the developer experience by reducing configuration complexity while maintaining full flexibility for custom scenarios.
 
 ## Getting Started
 
