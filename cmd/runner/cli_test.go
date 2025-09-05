@@ -172,3 +172,189 @@ func TestInitCommandWithCustomPaths(t *testing.T) {
 		}
 	})
 }
+
+func TestVerboseFlag(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "wippy-test-verbose")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Change to the temporary directory for testing
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(originalDir); err != nil {
+			t.Errorf("Failed to restore original directory: %v", err)
+		}
+	}()
+
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	// Create test config
+	config := &Config{
+		FolderPath: tempDir,
+		LockFile:   "wippy.lock",
+	}
+
+	// Create logger
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+
+	// Create CLI runner
+	runner := NewCLIRunner(config, logger)
+
+	// Test verbose flag for init command
+	t.Run("InitCommandVerbose", func(t *testing.T) {
+		initCmd := &InitCommand{runner: runner}
+
+		// Test with verbose flag
+		flags := []string{"-v"}
+		err := initCmd.Execute(context.Background(), flags, []string{})
+		if err != nil {
+			t.Fatalf("Init command with verbose flag failed: %v", err)
+		}
+
+		// Verify that verbose mode was enabled
+		if !runner.config.Verbose {
+			t.Error("Expected verbose mode to be enabled")
+		}
+	})
+
+	// Test verbose flag for install command
+	t.Run("InstallCommandVerbose", func(t *testing.T) {
+		installCmd := &InstallCommand{runner: runner}
+
+		// Test with verbose flag
+		flags := []string{"-v"}
+		err := installCmd.Execute(context.Background(), flags, []string{})
+		if err != nil {
+			t.Fatalf("Install command with verbose flag failed: %v", err)
+		}
+
+		// Verify that verbose mode was enabled
+		if !runner.config.Verbose {
+			t.Error("Expected verbose mode to be enabled")
+		}
+	})
+
+	// Test verbose flag for update command
+	t.Run("UpdateCommandVerbose", func(t *testing.T) {
+		updateCmd := &UpdateCommand{runner: runner}
+
+		// Test with verbose flag
+		flags := []string{"-v"}
+		err := updateCmd.Execute(context.Background(), flags, []string{})
+		if err != nil {
+			t.Fatalf("Update command with verbose flag failed: %v", err)
+		}
+
+		// Verify that verbose mode was enabled
+		if !runner.config.Verbose {
+			t.Error("Expected verbose mode to be enabled")
+		}
+	})
+
+	// Test verbose flag for run command
+	t.Run("RunCommandVerbose", func(t *testing.T) {
+		runCmd := &RunCommand{runner: runner}
+
+		// Test with verbose flag
+		flags := []string{"-v"}
+		err := runCmd.Execute(context.Background(), flags, []string{})
+		if err != nil {
+			t.Fatalf("Run command with verbose flag failed: %v", err)
+		}
+
+		// Verify that verbose mode was enabled
+		if !runner.config.Verbose {
+			t.Error("Expected verbose mode to be enabled")
+		}
+	})
+}
+
+func TestUpdateCommandWithSrcDirectory(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "wippy-test-src")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Change to the temporary directory for testing
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(originalDir); err != nil {
+			t.Errorf("Failed to restore original directory: %v", err)
+		}
+	}()
+
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	// Create test config
+	config := &Config{
+		FolderPath: tempDir,
+		LockFile:   "wippy.lock",
+	}
+
+	// Create logger
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+
+	// Create CLI runner
+	runner := NewCLIRunner(config, logger)
+
+	// First create a lock file with src directory
+	t.Run("CreateLockFileWithSrcDir", func(t *testing.T) {
+		initCmd := &InitCommand{runner: runner}
+
+		// Create lock file with custom src directory
+		flags := []string{"--src-dir", "app", "--modules-dir", ".wippy"}
+		err := initCmd.Execute(context.Background(), flags, []string{})
+		if err != nil {
+			t.Fatalf("Init command failed: %v", err)
+		}
+
+		// Verify lock file was created with correct src directory
+		lockPath := filepath.Join(tempDir, "wippy.lock")
+		lockFile, err := moduleloader.LoadLockFile(lockPath)
+		if err != nil {
+			t.Fatalf("Failed to load lock file: %v", err)
+		}
+
+		if lockFile.Directories.Src != "app" {
+			t.Errorf("Expected src dir to be 'app', got '%s'", lockFile.Directories.Src)
+		}
+	})
+
+	// Test update command with existing lock file
+	t.Run("UpdateCommandWithExistingLockFile", func(t *testing.T) {
+		updateCmd := &UpdateCommand{runner: runner}
+
+		// Test update command - it should use src directory from lock file
+		flags := []string{"-v"}
+		err := updateCmd.Execute(context.Background(), flags, []string{})
+		if err != nil {
+			t.Fatalf("Update command failed: %v", err)
+		}
+
+		// Verify that verbose mode was enabled
+		if !runner.config.Verbose {
+			t.Error("Expected verbose mode to be enabled")
+		}
+	})
+}
