@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ponyruntime/pony/moduleloader"
 	"go.uber.org/zap"
@@ -264,13 +266,33 @@ func TestVerboseFlag(t *testing.T) {
 
 	// Test verbose flag for run command
 	t.Run("RunCommandVerbose", func(t *testing.T) {
+		// First, create a lock file using init command (if it doesn't exist)
 		runCmd := &RunCommand{runner: runner}
 
-		// Test with verbose flag
+		// Test with verbose flag - actually start the app
 		flags := []string{"-v"}
-		err := runCmd.Execute(context.Background(), flags, []string{})
-		if err != nil {
-			t.Fatalf("Run command with verbose flag failed: %v", err)
+		args := []string{} // Empty args to start the app
+
+		// Create a context with timeout to cancel the command
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		// Run the command in a goroutine
+		errChan := make(chan error, 1)
+		go func() {
+			errChan <- runCmd.Execute(ctx, flags, args)
+		}()
+
+		// Wait for either completion or timeout
+		select {
+		case err := <-errChan:
+			// Command completed (should be due to timeout/cancel)
+			if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+				t.Fatalf("Run command with verbose flag failed: %v", err)
+			}
+		case <-ctx.Done():
+			// Timeout reached, this is expected
+			t.Log("Command canceled due to timeout (expected)")
 		}
 
 		// Verify that verbose mode was enabled
@@ -320,6 +342,12 @@ func TestUpdateCommandWithSrcDirectory(t *testing.T) {
 
 	// First create a lock file with src directory
 	t.Run("CreateLockFileWithSrcDir", func(t *testing.T) {
+		// Create the app directory that will be referenced in the lock file
+		appDir := filepath.Join(tempDir, "app")
+		if err := os.MkdirAll(appDir, 0755); err != nil {
+			t.Fatalf("Failed to create app directory: %v", err)
+		}
+
 		initCmd := &InitCommand{runner: runner}
 
 		// Create lock file with custom src directory

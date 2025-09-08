@@ -6,8 +6,8 @@ modules:
   version: v1.0.10
   hash: 0198604c-3e58-7f01-904e-395a037a4e1a
 - name: wippy/llm
-  version: v0.2.3
-  hash: 01991a0d-cf24-70fc-ae81-4b4bfacaa577
+  version: v0.2.4
+  hash: 01991ad2-4164-76cf-b093-aa424412ba52
 - name: wippy/security
   version: v0.0.7
   hash: 01978c92-7d02-7b4a-95df-55b57cfe80b7

@@ -268,8 +268,6 @@ func (ic *InstallCommand) Execute(ctx context.Context, flags []string, args []st
 }
 
 func (ic *InstallCommand) cleanUnusedPackages(lockFile *moduleloader.LockFile) error {
-	ic.runner.logger.Info("Cleaning unused packages from modules directory")
-
 	// Get the modules directory path
 	modulesDir := filepath.Join(ic.runner.config.FolderPath, lockFile.Directories.Modules)
 
@@ -300,7 +298,6 @@ func (ic *InstallCommand) cleanUnusedPackages(lockFile *moduleloader.LockFile) e
 		// Check if this package is expected
 		if !expectedPackages[entry.Name()] {
 			packagePath := filepath.Join(modulesDir, entry.Name())
-			ic.runner.logger.Info("Removing unused package", zap.String("package", entry.Name()))
 
 			if err := os.RemoveAll(packagePath); err != nil {
 				ic.runner.logger.Warn("Failed to remove unused package",
@@ -376,7 +373,6 @@ func (ic *UpdateCommand) Execute(ctx context.Context, flags []string, args []str
 	}
 
 	// Run install after update
-	ic.runner.logger.Info("Running install after update")
 	installCmd := &InstallCommand{runner: ic.runner}
 	return installCmd.Execute(ctx, flags, args)
 }

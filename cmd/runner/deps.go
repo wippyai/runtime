@@ -21,6 +21,21 @@ import (
 	"go.uber.org/zap"
 )
 
+// ModuleOperation represents a single module operation
+type ModuleOperation struct {
+	Name    string
+	Version string
+	Action  string // "installed", "updated", "removed"
+}
+
+// OperationStats tracks module operations
+type OperationStats struct {
+	Installed int
+	Updated   int
+	Removed   int
+	Modules   []ModuleOperation
+}
+
 // DependencyManager handles dependency installation and updates
 type DependencyManager struct {
 	config *Config
@@ -54,14 +69,15 @@ func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
 		return fmt.Errorf("load lock file: %w", err)
 	}
 
-	dm.logger.Info("Installing dependencies from lock file")
-
 	// Install dependencies using the new method that handles replacements
-	if err := dm.installModulesFromLockFile(ctx, lockFile, lockPath); err != nil {
+	stats, err := dm.installModulesFromLockFile(ctx, lockFile, lockPath)
+	if err != nil {
 		return fmt.Errorf("install modules: %w", err)
 	}
 
-	dm.logger.Info("Dependencies installed successfully")
+	// Display final summary
+	dm.displayOperationStats(stats)
+	dm.logger.Info("Installation completed")
 	return nil
 }
 
@@ -100,9 +116,6 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 
 	dm.logger.Debug("Registry loader completed",
 		zap.Int("modules_count", len(loadResult.Modules)))
-
-	// Display package operations
-	dm.displayPackageOperations(loadResult, "update")
 
 	// Install updated dependencies
 	if err := dm.installModules(ctx, loadResult); err != nil {
@@ -163,7 +176,6 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 		return fmt.Errorf("save lock file: %w", err)
 	}
 
-	dm.logger.Info("Dependencies updated and lock file regenerated")
 	return nil
 }
 
@@ -274,8 +286,6 @@ func (dm *DependencyManager) installModules(ctx context.Context, loadResult *mod
 		return nil
 	}
 
-	dm.logger.Info("Installing modules")
-
 	// Install each module
 	for _, module := range loadResult.Modules {
 		dm.logger.Debug("Processing module for installation",
@@ -287,27 +297,15 @@ func (dm *DependencyManager) installModules(ctx context.Context, loadResult *mod
 			return fmt.Errorf("install module %s: %w", module.Name.String(), err)
 		}
 	}
-
-	dm.logger.Info("All modules installed successfully")
 	return nil
 }
 
 // installModulesFromLockFile installs modules from a lock file, handling replacements
-func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, lockFile *moduleloader.LockFile, lockPath string) error {
+func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, lockFile *moduleloader.LockFile, lockPath string) (*OperationStats, error) {
 	if len(lockFile.Modules) == 0 {
 		dm.logger.Info("No modules to install")
-		return nil
+		return &OperationStats{}, nil
 	}
-
-	// Display package operations from lock file
-	if len(lockFile.Modules) > 0 {
-		dm.logger.Info(fmt.Sprintf("Package operations: %d installs, 0 updates, 0 removals:", len(lockFile.Modules)))
-		for _, module := range lockFile.Modules {
-			dm.logger.Info(fmt.Sprintf("- %s: %s", module.Name, module.Version))
-		}
-	}
-
-	dm.logger.Info("Installing modules from lock file")
 
 	// Create a map of replacements for quick lookup
 	replacements := make(map[string]string)
@@ -315,19 +313,63 @@ func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, loc
 		replacements[replacement.From] = replacement.To
 	}
 
+	// Track operations
+	stats := &OperationStats{}
+
 	// Install each module
 	for _, module := range lockFile.Modules {
 		dm.logger.Debug("Processing module for installation",
 			zap.String("name", module.Name),
 			zap.String("version", module.Version))
 
+		// Check if module is already installed to determine if it's an update
+		wasInstalled := dm.isModuleInstalledFromLockFile(module, lockFile)
+
 		if err := dm.installModuleFromLockFile(ctx, module, replacements, lockPath); err != nil {
-			return fmt.Errorf("install module %s: %w", module.Name, err)
+			return nil, fmt.Errorf("install module %s: %w", module.Name, err)
+		}
+
+		// Record the operation
+		var action string
+		if wasInstalled {
+			stats.Updated++
+			action = "updated"
+		} else {
+			stats.Installed++
+			action = "installed"
+		}
+
+		stats.Modules = append(stats.Modules, ModuleOperation{
+			Name:    module.Name,
+			Version: module.Version,
+			Action:  action,
+		})
+	}
+
+	return stats, nil
+}
+
+// isModuleInstalledFromLockFile checks if a module is already installed based on lock file
+func (dm *DependencyManager) isModuleInstalledFromLockFile(module moduleloader.LockedModule, lockFile *moduleloader.LockFile) bool {
+	// Check if any module directory exists for this module
+	moduleBaseDir := filepath.Join(lockFile.Directories.Modules, module.Name)
+	if _, err := os.Stat(moduleBaseDir); err != nil {
+		return false
+	}
+
+	// Look for module directories with commit hash pattern
+	entries, err := os.ReadDir(moduleBaseDir)
+	if err != nil {
+		return false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), module.Name+"@") {
+			return true
 		}
 	}
 
-	dm.logger.Info("All modules installed successfully")
-	return nil
+	return false
 }
 
 // installSingleModule installs a single module using moduleloader.Manager
@@ -372,7 +414,7 @@ func (dm *DependencyManager) installSingleModule(ctx context.Context, module mod
 	}
 
 	installedModule := loadResult.Modules[0]
-	dm.logger.Info("Module installed successfully",
+	dm.logger.Debug("Module installed successfully",
 		zap.String("name", installedModule.Name.String()),
 		zap.String("version", installedModule.Version),
 		zap.String("path", installedModule.Path))
@@ -489,7 +531,7 @@ func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, modu
 	}
 
 	installedModule := loadResult.Modules[0]
-	dm.logger.Info("Module installed successfully",
+	dm.logger.Debug("Module installed successfully",
 		zap.String("name", installedModule.Name.String()),
 		zap.String("version", installedModule.Version),
 		zap.String("path", installedModule.Path))
@@ -529,23 +571,27 @@ func (dm *DependencyManager) isModuleInstalled(module moduleloader.LoadedModule)
 	return false
 }
 
-// displayPackageOperations displays package operations in the required format
-func (dm *DependencyManager) displayPackageOperations(loadResult *moduleloader.LoadResult, operationType string) {
-	if len(loadResult.Modules) == 0 {
-		dm.logger.Info("No dependencies to process")
+// displayModules displays modules with operation statistics
+func (dm *DependencyManager) displayModules(installed, updated, removed int, modules []ModuleOperation) {
+	if len(modules) == 0 {
+		dm.logger.Info("No modules processed")
 		return
 	}
 
-	switch operationType {
-	case "install":
-		dm.logger.Info(fmt.Sprintf("Package operations: %d installs, 0 updates, 0 removals:", len(loadResult.Modules)))
-	case "update":
-		dm.logger.Info(fmt.Sprintf("Lock file operations: %d installs, %d updates, 0 removals:", len(loadResult.Modules), len(loadResult.Modules)))
-	default:
-		dm.logger.Info(fmt.Sprintf("Package operations: %d installs, 0 updates, 0 removals:", len(loadResult.Modules)))
+	dm.logger.Info(fmt.Sprintf("%d installs, %d updates, %d removals:",
+		installed, updated, removed))
+
+	for _, module := range modules {
+		dm.logger.Info(fmt.Sprintf("- %s: %s", module.Name, module.Version))
+	}
+}
+
+// displayOperationStats displays operation statistics with module details
+func (dm *DependencyManager) displayOperationStats(stats *OperationStats) {
+	if stats == nil {
+		dm.logger.Info("No modules processed")
+		return
 	}
 
-	for _, module := range loadResult.Modules {
-		dm.logger.Info(fmt.Sprintf("- %s: %s", module.Name.String(), module.Version))
-	}
+	dm.displayModules(stats.Installed, stats.Updated, stats.Removed, stats.Modules)
 }
