@@ -441,6 +441,7 @@ func newModuleloaderManager(baseURL string, entries []registry.Entry, logger *za
 		labelClient,
 		downloadClient,
 		registryLoader,
+		logger,
 		moduleloader.VendorFolder,
 	)
 }

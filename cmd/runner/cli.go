@@ -277,10 +277,13 @@ func (ic *InstallCommand) cleanUnusedPackages(lockFile *moduleloader.LockFile) e
 		return nil
 	}
 
-	// Create a set of expected packages from lock file
-	expectedPackages := make(map[string]bool)
+	// Create a set of expected organization directories from lock file
+	expectedOrgs := make(map[string]bool)
 	for _, module := range lockFile.Modules {
-		expectedPackages[module.Name] = true
+		// Parse module name to get organization
+		if name, err := moduleloader.ParseName(module.Name); err == nil {
+			expectedOrgs[name.Organization] = true
+		}
 	}
 
 	// Scan the modules directory for installed packages
@@ -289,22 +292,31 @@ func (ic *InstallCommand) cleanUnusedPackages(lockFile *moduleloader.LockFile) e
 		return fmt.Errorf("failed to read modules directory: %w", err)
 	}
 
-	// Remove packages that are not in the lock file
+	// Remove organization directories that are not in the lock file
+	removedCount := 0
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 
-		// Check if this package is expected
-		if !expectedPackages[entry.Name()] {
+		// Check if this organization directory is expected
+		if !expectedOrgs[entry.Name()] {
 			packagePath := filepath.Join(modulesDir, entry.Name())
+
+			ic.runner.logger.Info(fmt.Sprintf(" - Removing %s", entry.Name()))
 
 			if err := os.RemoveAll(packagePath); err != nil {
 				ic.runner.logger.Warn("Failed to remove unused package",
 					zap.String("package", entry.Name()),
 					zap.Error(err))
+			} else {
+				removedCount++
 			}
 		}
+	}
+
+	if removedCount > 0 {
+		ic.runner.logger.Info(fmt.Sprintf("Removed %d unused packages", removedCount))
 	}
 
 	return nil
@@ -372,9 +384,7 @@ func (ic *UpdateCommand) Execute(ctx context.Context, flags []string, args []str
 		return fmt.Errorf("failed to update dependencies: %w", err)
 	}
 
-	// Run install after update
-	installCmd := &InstallCommand{runner: ic.runner}
-	return installCmd.Execute(ctx, flags, args)
+	return nil
 }
 
 func (ic *UpdateCommand) Help() string {

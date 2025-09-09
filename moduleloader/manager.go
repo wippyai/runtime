@@ -15,6 +15,7 @@ import (
 	identityv1 "github.com/wippyai/module-registry-proto-go/registry/identity/v1"
 	"github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
 	"github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
+	"go.uber.org/zap"
 
 	modulev1 "github.com/wippyai/module-registry-proto-go/registry/module/v1"
 )
@@ -35,9 +36,11 @@ type Manager struct {
 	labelClient        modulev1connect.LabelServiceClient
 	downloadClient     modulev1connect.DownloadServiceClient
 	loader             ManifestLoader
+	logger             *zap.Logger
 	vendorFolder       string                      // Custom vendor folder path
 	moduleQueue        []ManifestDependency        // Queue for processing modules
 	processedModules   map[ManifestDependency]bool // Track processed modules to avoid duplicates
+	moduleStats        []ModuleStats               // Track module operation statistics
 }
 
 func NewManager(
@@ -47,6 +50,7 @@ func NewManager(
 	labelClient modulev1connect.LabelServiceClient,
 	downloadClient modulev1connect.DownloadServiceClient,
 	loader ManifestLoader,
+	logger *zap.Logger,
 	vendorFolder string,
 ) *Manager {
 	if vendorFolder == "" {
@@ -60,9 +64,11 @@ func NewManager(
 		labelClient:        labelClient,
 		downloadClient:     downloadClient,
 		loader:             loader,
+		logger:             logger,
 		vendorFolder:       vendorFolder,
 		moduleQueue:        make([]ManifestDependency, 0),
 		processedModules:   make(map[ManifestDependency]bool),
+		moduleStats:        make([]ModuleStats, 0),
 	}
 }
 
@@ -86,11 +92,29 @@ func (m *Manager) addRemoteModuleToQueue(dep ManifestDependency) {
 	m.moduleQueue = append(m.moduleQueue, dep)
 }
 
+// isModuleInCache checks if a module with the given hash already exists in the cache
+func (m *Manager) isModuleInCache(moduleName, hash string) bool {
+	// Parse the module name to get organization and module parts
+	name, err := ParseName(moduleName)
+	if err != nil {
+		return false
+	}
+
+	// Check if the module directory exists with the correct hash
+	moduleDir := filepath.Join(m.vendorFolder, name.Organization, name.Module+"@"+hash)
+	if _, err := os.Stat(moduleDir); err == nil {
+		return true
+	}
+
+	return false
+}
+
 // Load resolves and downloads dependencies based on the manifest
 func (m *Manager) Load(ctx context.Context) (*LoadResult, error) {
 	// Reset processed modules map for clean state
 	m.processedModules = make(map[ManifestDependency]bool)
 	m.moduleQueue = make([]ManifestDependency, 0)
+	m.moduleStats = make([]ModuleStats, 0)
 
 	manifest, err := m.loader.LoadManifest(ctx)
 	if err != nil {
@@ -127,7 +151,8 @@ func (m *Manager) Load(ctx context.Context) (*LoadResult, error) {
 	allModules = append(allModules, localLoadedModules...)
 
 	return &LoadResult{
-		Modules: allModules,
+		Modules:     allModules,
+		ModuleStats: m.moduleStats,
 	}, nil
 }
 
@@ -187,6 +212,38 @@ func (m *Manager) downloadAndStoreModule(ctx context.Context, dep ManifestDepend
 		return nil, err
 	}
 
+	// Get the commit ID and version for logging
+	commitID := info.labels[info.matchingLabelIndex].GetCommitId()
+	version := info.labels[info.matchingLabelIndex].GetName()
+	moduleName := fmt.Sprintf("%s/%s", dep.Name.Organization, dep.Name.Module)
+
+	// Check if module is already in cache
+	if m.isModuleInCache(moduleName, commitID) {
+		// Record statistics for cache hit
+		m.moduleStats = append(m.moduleStats, ModuleStats{
+			Name:    moduleName,
+			Version: version,
+			Status:  "from cache",
+		})
+
+		// Return the existing module path
+		moduleDir := filepath.Join(m.vendorFolder, dep.Name.Organization, dep.Name.Module+"@"+commitID)
+		return &LoadedModule{
+			Name:         dep.Name,
+			Version:      version,
+			Path:         moduleDir,
+			Organization: dep.Name.Organization,
+			Module:       dep.Name.Module,
+		}, nil
+	}
+
+	// Record statistics for download
+	m.moduleStats = append(m.moduleStats, ModuleStats{
+		Name:    moduleName,
+		Version: version,
+		Status:  "downloaded",
+	})
+
 	// Download module
 	moduleDir, err := m.downloadModule(ctx, dep, info)
 	if err != nil {
@@ -206,7 +263,7 @@ func (m *Manager) downloadAndStoreModule(ctx context.Context, dep ManifestDepend
 
 	return &LoadedModule{
 		Name:         dep.Name,
-		Version:      info.labels[info.matchingLabelIndex].GetName(),
+		Version:      version,
 		Path:         moduleDir, // Use the parent directory - filesystem walking will find subdirectory files
 		Organization: dep.Name.Organization,
 		Module:       dep.Name.Module,
@@ -494,6 +551,14 @@ func (m *Manager) processLocalModules(localModules map[Name]string) ([]LoadedMod
 		if err := os.CopyFS(modulePath, localOS.FS()); err != nil {
 			return nil, fmt.Errorf("copy %s: %w", name, err)
 		}
+
+		// Record statistics for local module
+		moduleName := fmt.Sprintf("%s/%s", name.Organization, name.Module)
+		m.moduleStats = append(m.moduleStats, ModuleStats{
+			Name:    moduleName,
+			Version: "local",
+			Status:  "from replacement",
+		})
 
 		// Create LoadedModule entry for local module
 		loadedModule := LoadedModule{

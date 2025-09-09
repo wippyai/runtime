@@ -23,17 +23,19 @@ import (
 
 // ModuleOperation represents a single module operation
 type ModuleOperation struct {
-	Name    string
-	Version string
-	Action  string // "installed", "updated", "removed"
+	Name       string
+	Version    string
+	OldVersion string // Previous version for updates
+	Action     string // "installed", "updated", "removed"
 }
 
 // OperationStats tracks module operations
 type OperationStats struct {
-	Installed int
-	Updated   int
-	Removed   int
-	Modules   []ModuleOperation
+	Installed   int
+	Updated     int
+	Removed     int
+	Modules     []ModuleOperation
+	ModuleStats []moduleloader.ModuleStats
 }
 
 // DependencyManager handles dependency installation and updates
@@ -52,6 +54,8 @@ func NewDependencyManager(config *Config, logger *zap.Logger) *DependencyManager
 
 // InstallDependencies installs dependencies from lock file
 func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
+	dm.logger.Info("Installing dependencies from lock file")
+
 	// Determine lock file path
 	lockPath, err := moduleloader.FindLockFile(dm.config.FolderPath, dm.config.LockFile)
 	if err != nil {
@@ -69,32 +73,95 @@ func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
 		return fmt.Errorf("load lock file: %w", err)
 	}
 
-	// Install dependencies using the new method that handles replacements
-	stats, err := dm.installModulesFromLockFile(ctx, lockFile, lockPath)
+	// Show lock file operations header (like update command)
+	dm.logger.Info("Lock file operations: 0 installs, 0 updates, 0 removals:")
+
+	// Load entries from the src directory (not root directory)
+	entries, err := dm.loadRegistryEntries(ctx, lockFile.Directories.Src)
 	if err != nil {
-		return fmt.Errorf("install modules: %w", err)
+		return fmt.Errorf("load registry entries: %w", err)
 	}
 
-	// Display final summary
-	dm.displayOperationStats(stats)
+	// Create module loader manager with loaded entries
+	dm.logger.Debug("Creating module loader manager with entries", zap.Int("entries_count", len(entries)))
+	registryLoader := dm.createModuleLoaderManagerWithEntries(entries)
+
+	// Load dependencies with latest versions
+	dm.logger.Debug("Loading dependencies with registry loader")
+	loadResult, err := registryLoader.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("load dependencies: %w", err)
+	}
+
+	dm.logger.Debug("Registry loader completed",
+		zap.Int("modules_count", len(loadResult.Modules)))
+
+	// Display module statistics from Load() if available
+	if len(loadResult.ModuleStats) > 0 {
+		dm.displayModuleStatistics(loadResult.ModuleStats)
+	}
+
 	dm.logger.Info("Installation completed")
 	return nil
+}
+
+// InstallDependenciesSilent installs dependencies from lock file without detailed output
+// This is used by the update command to avoid duplicate output
+// Returns statistics about installed modules
+func (dm *DependencyManager) InstallDependenciesSilent(ctx context.Context) (*OperationStats, error) {
+	// Determine lock file path
+	lockPath, err := moduleloader.FindLockFile(dm.config.FolderPath, dm.config.LockFile)
+	if err != nil {
+		return nil, fmt.Errorf("find lock file: %w", err)
+	}
+
+	// Check if lock file exists
+	if lockPath == "" {
+		return nil, fmt.Errorf("no lock file found in project directory: %s", dm.config.FolderPath)
+	}
+
+	// Load lock file
+	lockFile, err := moduleloader.LoadLockFile(lockPath)
+	if err != nil {
+		return nil, fmt.Errorf("load lock file: %w", err)
+	}
+
+	// Install dependencies using the method that shows status
+	stats, err := dm.installModulesFromLockFileSilent(ctx, lockFile, lockPath)
+	if err != nil {
+		return nil, fmt.Errorf("install modules: %w", err)
+	}
+
+	return stats, nil
 }
 
 // UpdateDependencies updates dependencies and regenerates lock file
 func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 	dm.logger.Info("Updating dependencies")
 
-	// First, try to load existing lock file to get src directory
-	var srcDir string
+	// Load existing lock file to compare changes
 	existingLockPath := filepath.Join(dm.config.FolderPath, dm.config.LockFile)
-	if existingLock, err := moduleloader.LoadLockFile(existingLockPath); err == nil {
+	var existingLock *moduleloader.LockFile
+	var srcDir string
+	var modulesDir string
+	var existingReplacements []moduleloader.Replacement
+
+	if existingLockFile, err := moduleloader.LoadLockFile(existingLockPath); err == nil {
+		existingLock = existingLockFile
 		srcDir = existingLock.Directories.Src
-		dm.logger.Debug("Using src directory from lock file", zap.String("src_dir", srcDir))
+		modulesDir = existingLock.Directories.Modules
+		existingReplacements = existingLock.Replacements
+		dm.logger.Debug("Using existing lock file",
+			zap.String("src_dir", srcDir),
+			zap.String("modules_dir", modulesDir),
+			zap.Int("modules_count", len(existingLock.Modules)))
 	} else {
-		// Use default src directory if no existing lock file
+		// Use default directories if no existing lock file
 		srcDir = "."
-		dm.logger.Debug("Using default src directory", zap.String("src_dir", srcDir))
+		modulesDir = ".wippy"
+		dm.logger.Debug("No existing lock file, using defaults",
+			zap.String("src_dir", srcDir),
+			zap.String("modules_dir", modulesDir))
 	}
 
 	// Load entries from the src directory (not root directory)
@@ -117,66 +184,79 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 	dm.logger.Debug("Registry loader completed",
 		zap.Int("modules_count", len(loadResult.Modules)))
 
-	// Install updated dependencies
-	if err := dm.installModules(ctx, loadResult); err != nil {
-		return fmt.Errorf("install modules: %w", err)
-	}
-
-	// Save new lock file
-	dm.logger.Debug("Converting loadResult to lock file",
-		zap.Int("modules_count", len(loadResult.Modules)))
-
-	// Log each module for debugging
-	for i, module := range loadResult.Modules {
-		dm.logger.Debug("Module in loadResult",
-			zap.Int("index", i),
-			zap.String("name", module.Name.String()),
-			zap.String("version", module.Version),
-			zap.String("path", module.Path))
-	}
-
-	// Get directory structure and preserve replacements from existing lock file
-	var modulesDir string
-	var existingReplacements []moduleloader.Replacement
-	if existingLock, err := moduleloader.LoadLockFile(existingLockPath); err == nil {
-		modulesDir = existingLock.Directories.Modules
-		existingReplacements = existingLock.Replacements
-		dm.logger.Debug("Preserving existing replacements",
-			zap.Int("count", len(existingReplacements)))
-	} else {
-		// Use default modules directory if no existing lock file
-		modulesDir = ".wippy"
-	}
-
-	lockFile := moduleloader.ConvertToLockFile(loadResult, modulesDir, srcDir)
+	// Convert to new lock file
+	newLockFile := moduleloader.ConvertToLockFile(loadResult, modulesDir, srcDir)
 
 	// Preserve existing replacements
 	if len(existingReplacements) > 0 {
-		lockFile.Replacements = existingReplacements
+		newLockFile.Replacements = existingReplacements
 		dm.logger.Debug("Restored existing replacements",
-			zap.Int("count", len(lockFile.Replacements)))
+			zap.Int("count", len(newLockFile.Replacements)))
 	}
 
-	dm.logger.Debug("Lock file created",
-		zap.String("modules_dir", lockFile.Directories.Modules),
-		zap.String("src_dir", lockFile.Directories.Src),
-		zap.Int("modules_count", len(lockFile.Modules)))
-
-	// Log each module in lock file for debugging
-	for i, module := range lockFile.Modules {
-		dm.logger.Debug("Module in lock file",
-			zap.Int("index", i),
-			zap.String("name", module.Name),
-			zap.String("version", module.Version))
+	// Calculate and display changes
+	if existingLock != nil {
+		changes := dm.calculateLockFileChanges(existingLock, newLockFile)
+		dm.displayUpdateChanges(changes)
+	} else {
+		dm.logger.Info("Lock file operations: 0 installs, 0 updates, 0 removals:")
 	}
 
+	// Save new lock file
 	lockPath := filepath.Join(dm.config.FolderPath, dm.config.LockFile)
-
-	if err := lockFile.SaveLockFile(lockPath); err != nil {
+	if err := newLockFile.SaveLockFile(lockPath); err != nil {
 		return fmt.Errorf("save lock file: %w", err)
 	}
 
+	// Display module statistics from Load() if available
+	if len(loadResult.ModuleStats) > 0 {
+		dm.displayModuleStatistics(loadResult.ModuleStats)
+	}
+
 	return nil
+}
+
+// displayModuleStatistics displays module statistics in the requested format
+func (dm *DependencyManager) displayModuleStatistics(stats []moduleloader.ModuleStats) {
+	if len(stats) == 0 {
+		return
+	}
+
+	// Count operations by type
+	installs := 0
+	updates := 0
+	removals := 0
+
+	for _, stat := range stats {
+		switch stat.Status {
+		case "downloaded", "from replacement":
+			installs++
+		case "from cache", "skipped":
+			// These don't count as operations
+		}
+	}
+
+	dm.logger.Info("Installing dependencies from lock file")
+	dm.logger.Info(fmt.Sprintf("    Package operations: %d installs, %d updates, %d removals:",
+		installs, updates, removals))
+
+	// Display each module with its status
+	for _, stat := range stats {
+		var statusText string
+		switch stat.Status {
+		case "from cache":
+			statusText = fmt.Sprintf("     - Skipping %s: %s", stat.Name, stat.Version)
+		case "downloaded":
+			statusText = fmt.Sprintf("     - Downloading %s: %s", stat.Name, stat.Version)
+		case "from replacement":
+			statusText = fmt.Sprintf("     - Installing %s: %s (from replacement)", stat.Name, stat.Version)
+		case "skipped":
+			statusText = fmt.Sprintf("     - Skipping %s: %s", stat.Name, stat.Version)
+		default:
+			statusText = fmt.Sprintf("     - Installing %s: %s", stat.Name, stat.Version)
+		}
+		dm.logger.Info(statusText)
+	}
 }
 
 // loadRegistryEntries loads registry entries from the specified directory
@@ -250,60 +330,15 @@ func (dm *DependencyManager) createModuleLoaderManagerWithEntries(entries []rega
 		labelClient,
 		downloadClient,
 		registryLoader,
+		dm.logger,
 		moduleloader.VendorFolder,
 	)
 }
 
-// createModuleLoaderManagerWithLoader creates a module loader manager with provided loader
-func (dm *DependencyManager) createModuleLoaderManagerWithLoader(loader moduleloader.ManifestLoader) *moduleloader.Manager {
-	baseURL := "https://modules.wippy.ai"
-	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
-		baseURL = modulesURL
-	}
-
-	client := &http.Client{}
-	organizationClient := identityv1connect.NewOrganizationServiceClient(client, baseURL)
-	moduleClient := modulev1connect.NewModuleServiceClient(client, baseURL)
-	labelClient := modulev1connect.NewLabelServiceClient(client, baseURL)
-	commitClient := modulev1connect.NewCommitServiceClient(client, baseURL)
-	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
-
-	return moduleloader.NewManager(
-		organizationClient,
-		moduleClient,
-		commitClient,
-		labelClient,
-		downloadClient,
-		loader,
-		moduleloader.VendorFolder,
-	)
-}
-
-// installModules installs the modules from load result
-func (dm *DependencyManager) installModules(ctx context.Context, loadResult *moduleloader.LoadResult) error {
-	if len(loadResult.Modules) == 0 {
-		dm.logger.Info("No modules to install")
-		return nil
-	}
-
-	// Install each module
-	for _, module := range loadResult.Modules {
-		dm.logger.Debug("Processing module for installation",
-			zap.String("name", module.Name.String()),
-			zap.String("version", module.Version),
-			zap.String("path", module.Path))
-
-		if err := dm.installSingleModule(ctx, module); err != nil {
-			return fmt.Errorf("install module %s: %w", module.Name.String(), err)
-		}
-	}
-	return nil
-}
-
-// installModulesFromLockFile installs modules from a lock file, handling replacements
-func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, lockFile *moduleloader.LockFile, lockPath string) (*OperationStats, error) {
+// installModulesFromLockFileSilent installs modules from a lock file without detailed output
+// This is used by the update command to avoid duplicate output
+func (dm *DependencyManager) installModulesFromLockFileSilent(ctx context.Context, lockFile *moduleloader.LockFile, lockPath string) (*OperationStats, error) {
 	if len(lockFile.Modules) == 0 {
-		dm.logger.Info("No modules to install")
 		return &OperationStats{}, nil
 	}
 
@@ -316,171 +351,99 @@ func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, loc
 	// Track operations
 	stats := &OperationStats{}
 
-	// Install each module
+	// Install each module silently
 	for _, module := range lockFile.Modules {
 		dm.logger.Debug("Processing module for installation",
 			zap.String("name", module.Name),
 			zap.String("version", module.Version))
 
 		// Check if module is already installed to determine if it's an update
-		wasInstalled := dm.isModuleInstalledFromLockFile(module, lockFile)
+		wasInstalled, oldVersion := dm.isModuleInstalledFromLockFile(module, lockFile)
 
-		if err := dm.installModuleFromLockFile(ctx, module, replacements, lockPath); err != nil {
+		// Install module with status output
+		actuallyInstalled, err := dm.installModuleFromLockFileWithStatus(ctx, module, replacements, lockPath, lockFile)
+		if err != nil {
 			return nil, fmt.Errorf("install module %s: %w", module.Name, err)
 		}
 
-		// Record the operation
-		var action string
-		if wasInstalled {
-			stats.Updated++
-			action = "updated"
-		} else {
-			stats.Installed++
-			action = "installed"
-		}
+		// Only record the operation if module was actually installed
+		if actuallyInstalled {
+			// Record the operation
+			var action string
+			if wasInstalled {
+				stats.Updated++
+				action = "updated"
+			} else {
+				stats.Installed++
+				action = "installed"
+			}
 
-		stats.Modules = append(stats.Modules, ModuleOperation{
-			Name:    module.Name,
-			Version: module.Version,
-			Action:  action,
-		})
+			stats.Modules = append(stats.Modules, ModuleOperation{
+				Name:       module.Name,
+				Version:    module.Version,
+				OldVersion: oldVersion,
+				Action:     action,
+			})
+		}
 	}
 
 	return stats, nil
 }
 
 // isModuleInstalledFromLockFile checks if a module is already installed based on lock file
-func (dm *DependencyManager) isModuleInstalledFromLockFile(module moduleloader.LockedModule, lockFile *moduleloader.LockFile) bool {
+// Returns true if installed and the old version string
+func (dm *DependencyManager) isModuleInstalledFromLockFile(module moduleloader.LockedModule, lockFile *moduleloader.LockFile) (bool, string) {
 	// Check if any module directory exists for this module
 	moduleBaseDir := filepath.Join(lockFile.Directories.Modules, module.Name)
 	if _, err := os.Stat(moduleBaseDir); err != nil {
-		return false
+		return false, ""
 	}
 
 	// Look for module directories with commit hash pattern
 	entries, err := os.ReadDir(moduleBaseDir)
 	if err != nil {
-		return false
+		return false, ""
 	}
 
 	for _, entry := range entries {
 		if entry.IsDir() && strings.HasPrefix(entry.Name(), module.Name+"@") {
-			return true
+			// Extract version from directory name (format: module@version)
+			dirName := entry.Name()
+			if atIndex := strings.LastIndex(dirName, "@"); atIndex != -1 {
+				oldVersion := dirName[atIndex+1:]
+				return true, oldVersion
+			}
+			return true, "unknown"
 		}
 	}
 
-	return false
+	return false, ""
 }
 
-// installSingleModule installs a single module using moduleloader.Manager
-func (dm *DependencyManager) installSingleModule(ctx context.Context, module moduleloader.LoadedModule) error {
-	dm.logger.Debug("Installing module",
-		zap.String("name", module.Name.String()),
-		zap.String("version", module.Version),
-		zap.String("path", module.Path))
-
-	// Check if module is already installed
-	if dm.isModuleInstalled(module) {
-		dm.logger.Debug("Module already installed, skipping",
-			zap.String("name", module.Name.String()),
-			zap.String("version", module.Version))
-		return nil
-	}
-
-	// Create a manifest with just this module for installation
-	manifest := &moduleloader.Manifest{
-		Dependencies: []moduleloader.ManifestDependency{
-			{
-				Name:    module.Name,
-				Version: module.Version,
-			},
-		},
-	}
-
-	// Create a simple loader that returns our manifest
-	loader := &singleModuleLoader{manifest: manifest}
-
-	// Create module loader manager (uses default .wippy directory)
-	registryLoader := dm.createModuleLoaderManagerWithLoader(loader)
-
-	// Load (download and install) the module
-	loadResult, err := registryLoader.Load(ctx)
-	if err != nil {
-		return fmt.Errorf("install module %s: %w", module.Name.String(), err)
-	}
-
-	if len(loadResult.Modules) == 0 {
-		return fmt.Errorf("no modules loaded for %s", module.Name.String())
-	}
-
-	installedModule := loadResult.Modules[0]
-	dm.logger.Debug("Module installed successfully",
-		zap.String("name", installedModule.Name.String()),
-		zap.String("version", installedModule.Version),
-		zap.String("path", installedModule.Path))
-
-	return nil
-}
-
-// installModuleFromLockFile installs a single module from lock file, handling replacements
-func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, module moduleloader.LockedModule, replacements map[string]string, lockPath string) error {
+// installModuleFromLockFileWithStatus installs a single module from lock file with status reporting
+// Returns true if module was actually installed, false if it was skipped
+func (dm *DependencyManager) installModuleFromLockFileWithStatus(ctx context.Context, module moduleloader.LockedModule, replacements map[string]string, _ string, lockFile *moduleloader.LockFile) (bool, error) {
 	dm.logger.Debug("Installing module from lock file",
 		zap.String("name", module.Name),
 		zap.String("version", module.Version))
 
 	// Check if this module has a replacement
-	if customPath, hasReplacement := replacements[module.Name]; hasReplacement {
+	if _, hasReplacement := replacements[module.Name]; hasReplacement {
 		// Use the custom path from replacement
-		dm.logger.Info("Using replacement path for module",
-			zap.String("module", module.Name),
-			zap.String("path", customPath))
-
-		// Resolve the custom path relative to the lock file location
-		resolvedPath := filepath.Join(filepath.Dir(lockPath), customPath)
-
-		// Check if the replacement path exists
-		if _, err := os.Stat(resolvedPath); os.IsNotExist(err) {
-			return fmt.Errorf("replacement path does not exist: %s (resolved to: %s)", customPath, resolvedPath)
-		}
-
-		// For now, just log that we would use the replacement path
-		// In a full implementation, we would copy/link the module to the appropriate location
-		dm.logger.Info("Module replacement found, would use custom path",
-			zap.String("module", module.Name),
-			zap.String("custom_path", resolvedPath))
-
-		return nil
+		// dm.logger.Info(fmt.Sprintf(" - Installing %s: %s (from replacement)", module.Name, module.Version))
+		return true, nil
 	}
 
-	// No replacement, use default installation logic
 	// Parse the module name to get organization and module parts
 	name, err := moduleloader.ParseName(module.Name)
 	if err != nil {
-		return fmt.Errorf("invalid module name %s: %w", module.Name, err)
+		return false, fmt.Errorf("invalid module name %s: %w", module.Name, err)
 	}
 
-	// Load lock file to get modules directory
-	lockFile, err := moduleloader.LoadLockFile(lockPath)
-	if err != nil {
-		return fmt.Errorf("failed to load lock file to get modules directory: %w", err)
-	}
-
-	// Check if module is already installed in the modules directory from lock file
-	modulesDir := filepath.Join(filepath.Dir(lockPath), lockFile.Directories.Modules)
-	moduleBaseDir := filepath.Join(modulesDir, name.Organization)
-	if _, err := os.Stat(moduleBaseDir); err == nil {
-		// Look for module directories with commit hash pattern
-		entries, err := os.ReadDir(moduleBaseDir)
-		if err == nil {
-			for _, entry := range entries {
-				if entry.IsDir() && strings.HasPrefix(entry.Name(), name.Module+"@") {
-					dm.logger.Debug("Module already installed, skipping",
-						zap.String("name", module.Name),
-						zap.String("version", module.Version))
-					return nil
-				}
-			}
-		}
+	// Check if module is already installed but with different version (skip)
+	if wasInstalled, _ := dm.isModuleInstalledFromLockFile(module, lockFile); wasInstalled {
+		dm.logger.Info(fmt.Sprintf(" - Skipping %s: %s", module.Name, module.Version))
+		return false, nil // Already installed with different version, skip
 	}
 
 	// Create a manifest with just this module for installation
@@ -517,17 +480,18 @@ func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, modu
 		labelClient,
 		downloadClient,
 		loader,
+		dm.logger,
 		lockFile.Directories.Modules, // Use the modules directory from lock file
 	)
 
 	// Load (download and install) the module
 	loadResult, err := registryLoader.Load(ctx)
 	if err != nil {
-		return fmt.Errorf("install module from lock file %s: %w", module.Name, err)
+		return false, fmt.Errorf("install module from lock file %s: %w", module.Name, err)
 	}
 
 	if len(loadResult.Modules) == 0 {
-		return fmt.Errorf("no modules loaded for %s", module.Name)
+		return false, fmt.Errorf("no modules loaded for %s", module.Name)
 	}
 
 	installedModule := loadResult.Modules[0]
@@ -536,7 +500,7 @@ func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, modu
 		zap.String("version", installedModule.Version),
 		zap.String("path", installedModule.Path))
 
-	return nil
+	return true, nil
 }
 
 // singleModuleLoader is a simple loader that returns a predefined manifest
@@ -548,50 +512,108 @@ func (l *singleModuleLoader) LoadManifest(_ context.Context) (*moduleloader.Mani
 	return l.manifest, nil
 }
 
-// isModuleInstalled checks if a module is already installed
-func (dm *DependencyManager) isModuleInstalled(module moduleloader.LoadedModule) bool {
-	// Check if any module directory exists for this module
-	moduleBaseDir := filepath.Join(moduleloader.VendorFolder, module.Name.Organization)
-	if _, err := os.Stat(moduleBaseDir); err != nil {
-		return false
+// LockFileChanges represents changes between old and new lock files
+type LockFileChanges struct {
+	Installed []ModuleOperation
+	Updated   []ModuleOperation
+	Removed   []ModuleOperation
+}
+
+// calculateLockFileChanges calculates the differences between old and new lock files
+func (dm *DependencyManager) calculateLockFileChanges(oldLock, newLock *moduleloader.LockFile) *LockFileChanges {
+	changes := &LockFileChanges{
+		Installed: []ModuleOperation{},
+		Updated:   []ModuleOperation{},
+		Removed:   []ModuleOperation{},
 	}
 
-	// Look for module directories with commit hash pattern
-	entries, err := os.ReadDir(moduleBaseDir)
-	if err != nil {
-		return false
+	// Create maps for quick lookup
+	oldModules := make(map[string]string) // name -> version
+	newModules := make(map[string]string) // name -> version
+
+	// Populate old modules map
+	for _, module := range oldLock.Modules {
+		oldModules[module.Name] = module.Version
 	}
 
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), module.Name.Module+"@") {
-			return true
+	// Populate new modules map and find changes
+	for _, module := range newLock.Modules {
+		newModules[module.Name] = module.Version
+
+		if oldVersion, exists := oldModules[module.Name]; exists {
+			// Module exists in both, check if version changed
+			if oldVersion != module.Version {
+				changes.Updated = append(changes.Updated, ModuleOperation{
+					Name:       module.Name,
+					Version:    module.Version,
+					OldVersion: oldVersion,
+					Action:     "updated",
+				})
+			}
+		} else {
+			// Module is new
+			changes.Installed = append(changes.Installed, ModuleOperation{
+				Name:       module.Name,
+				Version:    module.Version,
+				OldVersion: "",
+				Action:     "installed",
+			})
 		}
 	}
 
-	return false
+	// Find removed modules
+	for _, module := range oldLock.Modules {
+		if _, exists := newModules[module.Name]; !exists {
+			changes.Removed = append(changes.Removed, ModuleOperation{
+				Name:       module.Name,
+				Version:    "",
+				OldVersion: module.Version,
+				Action:     "removed",
+			})
+		}
+	}
+
+	return changes
 }
 
-// displayModules displays modules with operation statistics
-func (dm *DependencyManager) displayModules(installed, updated, removed int, modules []ModuleOperation) {
-	if len(modules) == 0 {
-		dm.logger.Info("No modules processed")
+// displayUpdateChanges displays the changes in the requested format
+func (dm *DependencyManager) displayUpdateChanges(changes *LockFileChanges) {
+	if changes == nil {
+		dm.logger.Info("Lock file operations: 0 installs, 0 updates, 0 removals:")
 		return
 	}
 
-	dm.logger.Info(fmt.Sprintf("%d installs, %d updates, %d removals:",
-		installed, updated, removed))
+	totalInstalls := len(changes.Installed)
+	totalUpdates := len(changes.Updated)
+	totalRemovals := len(changes.Removed)
 
-	for _, module := range modules {
-		dm.logger.Info(fmt.Sprintf("- %s: %s", module.Name, module.Version))
+	dm.logger.Info(fmt.Sprintf("Lock file operations: %d installs, %d updates, %d removals:",
+		totalInstalls, totalUpdates, totalRemovals))
+
+	// Display updated modules first
+	for _, module := range changes.Updated {
+		// Determine if it's an upgrade or downgrade based on version comparison
+		action := "Upgrading"
+		if dm.isVersionDowngrade(module.OldVersion, module.Version) {
+			action = "Downgrading"
+		}
+		dm.logger.Info(fmt.Sprintf("     - %s %s: %s => %s", action, module.Name, module.OldVersion, module.Version))
+	}
+
+	// Display removed modules
+	for _, module := range changes.Removed {
+		dm.logger.Info(fmt.Sprintf("     - Removing %s", module.Name))
+	}
+
+	// Display installed modules
+	for _, module := range changes.Installed {
+		dm.logger.Info(fmt.Sprintf("     - Installing %s: %s", module.Name, module.Version))
 	}
 }
 
-// displayOperationStats displays operation statistics with module details
-func (dm *DependencyManager) displayOperationStats(stats *OperationStats) {
-	if stats == nil {
-		dm.logger.Info("No modules processed")
-		return
-	}
-
-	dm.displayModules(stats.Installed, stats.Updated, stats.Removed, stats.Modules)
+// isVersionDowngrade determines if going from oldVersion to newVersion is a downgrade
+func (dm *DependencyManager) isVersionDowngrade(oldVersion, newVersion string) bool {
+	// Simple version comparison - assumes semantic versioning
+	// This is a basic implementation; for production use, you might want to use a proper semver library
+	return oldVersion > newVersion
 }
