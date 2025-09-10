@@ -40,68 +40,47 @@ type OperationStats struct {
 
 // DependencyManager handles dependency installation and updates
 type DependencyManager struct {
-	config *Config
-	logger *zap.Logger
+	config         *Config
+	logger         *zap.Logger
+	registryLoader RegistryLoader
+	lockFileMgr    LockFileManager
 }
 
 // NewDependencyManager creates a new dependency manager
 func NewDependencyManager(config *Config, logger *zap.Logger) *DependencyManager {
 	return &DependencyManager{
-		config: config,
-		logger: logger,
+		config:         config,
+		logger:         logger,
+		registryLoader: &defaultRegistryLoader{config: config, logger: logger},
+		lockFileMgr:    &defaultLockFileManager{logger: logger},
 	}
 }
 
 // InstallDependencies installs dependencies from lock file
 func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
-	dm.logger.Info("Installing dependencies from lock file")
-
-	// Determine lock file path
-	lockPath, err := moduleloader.FindLockFile(dm.config.FolderPath, dm.config.LockFile)
-	if err != nil {
-		return fmt.Errorf("find lock file: %w", err)
-	}
-
-	// Check if lock file exists
-	if lockPath == "" {
-		return fmt.Errorf("no lock file found in project directory: %s", dm.config.FolderPath)
-	}
+	dm.logger.Info(LogInstallingDependencies)
 
 	// Load lock file
-	lockFile, err := moduleloader.LoadLockFile(lockPath)
+	lockFile, _, err := dm.loadLockFile()
 	if err != nil {
-		return fmt.Errorf("load lock file: %w", err)
+		return err
 	}
 
 	// Show lock file operations header (like update command)
 	dm.logger.Info("Lock file operations: 0 installs, 0 updates, 0 removals:")
 
-	// Load entries from the src directory (not root directory)
-	entries, err := dm.loadRegistryEntries(ctx, lockFile.Directories.Src)
+	// Load and process dependencies
+	loadResult, err := dm.loadAndProcessDependencies(ctx, lockFile.Directories.Src)
 	if err != nil {
-		return fmt.Errorf("load registry entries: %w", err)
+		return err
 	}
-
-	// Create module loader manager with loaded entries
-	dm.logger.Debug("Creating module loader manager with entries", zap.Int("entries_count", len(entries)))
-	registryLoader := dm.createModuleLoaderManagerWithEntries(entries)
-
-	// Load dependencies with latest versions
-	dm.logger.Debug("Loading dependencies with registry loader")
-	loadResult, err := registryLoader.Load(ctx)
-	if err != nil {
-		return fmt.Errorf("load dependencies: %w", err)
-	}
-
-	dm.logger.Debug("Registry loader completed",
-		zap.Int("modules_count", len(loadResult.Modules)))
 
 	// Display module statistics from Load() if available
 	if len(loadResult.ModuleStats) > 0 {
 		dm.displayModuleStatistics(loadResult.ModuleStats)
 	}
 
-	dm.logger.Info("Installation completed")
+	dm.logger.Info(LogInstallationCompleted)
 	return nil
 }
 
@@ -137,52 +116,16 @@ func (dm *DependencyManager) InstallDependenciesSilent(ctx context.Context) (*Op
 
 // UpdateDependencies updates dependencies and regenerates lock file
 func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
-	dm.logger.Info("Updating dependencies")
+	dm.logger.Info(LogUpdatingDependencies)
 
 	// Load existing lock file to compare changes
-	existingLockPath := filepath.Join(dm.config.FolderPath, dm.config.LockFile)
-	var existingLock *moduleloader.LockFile
-	var srcDir string
-	var modulesDir string
-	var existingReplacements []moduleloader.Replacement
+	existingLock, srcDir, modulesDir, existingReplacements := dm.loadExistingLockFile()
 
-	if existingLockFile, err := moduleloader.LoadLockFile(existingLockPath); err == nil {
-		existingLock = existingLockFile
-		srcDir = existingLock.Directories.Src
-		modulesDir = existingLock.Directories.Modules
-		existingReplacements = existingLock.Replacements
-		dm.logger.Debug("Using existing lock file",
-			zap.String("src_dir", srcDir),
-			zap.String("modules_dir", modulesDir),
-			zap.Int("modules_count", len(existingLock.Modules)))
-	} else {
-		// Use default directories if no existing lock file
-		srcDir = "."
-		modulesDir = ".wippy"
-		dm.logger.Debug("No existing lock file, using defaults",
-			zap.String("src_dir", srcDir),
-			zap.String("modules_dir", modulesDir))
-	}
-
-	// Load entries from the src directory (not root directory)
-	entries, err := dm.loadRegistryEntries(ctx, srcDir)
+	// Load and process dependencies
+	loadResult, err := dm.loadAndProcessDependencies(ctx, srcDir)
 	if err != nil {
-		return fmt.Errorf("load registry entries: %w", err)
+		return err
 	}
-
-	// Create module loader manager with loaded entries
-	dm.logger.Debug("Creating module loader manager with entries", zap.Int("entries_count", len(entries)))
-	registryLoader := dm.createModuleLoaderManagerWithEntries(entries)
-
-	// Load dependencies with latest versions
-	dm.logger.Debug("Loading dependencies with registry loader")
-	loadResult, err := registryLoader.Load(ctx)
-	if err != nil {
-		return fmt.Errorf("load dependencies: %w", err)
-	}
-
-	dm.logger.Debug("Registry loader completed",
-		zap.Int("modules_count", len(loadResult.Modules)))
 
 	// Convert to new lock file
 	newLockFile := moduleloader.ConvertToLockFile(loadResult, modulesDir, srcDir)
@@ -204,7 +147,7 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 
 	// Save new lock file
 	lockPath := filepath.Join(dm.config.FolderPath, dm.config.LockFile)
-	if err := newLockFile.SaveLockFile(lockPath); err != nil {
+	if err := dm.lockFileMgr.SaveLockFile(newLockFile, lockPath); err != nil {
 		return fmt.Errorf("save lock file: %w", err)
 	}
 
@@ -229,31 +172,31 @@ func (dm *DependencyManager) displayModuleStatistics(stats []moduleloader.Module
 
 	for _, stat := range stats {
 		switch stat.Status {
-		case "downloaded", "from replacement":
+		case StatusDownloaded, StatusFromReplacement:
 			installs++
-		case "from cache", "skipped":
+		case StatusFromCache, StatusSkipped:
 			// These don't count as operations
 		}
 	}
 
-	dm.logger.Info("Installing dependencies from lock file")
-	dm.logger.Info(fmt.Sprintf("    Package operations: %d installs, %d updates, %d removals:",
+	dm.logger.Info(LogInstallingDependencies)
+	dm.logger.Info(fmt.Sprintf(LogPackageOperations,
 		installs, updates, removals))
 
 	// Display each module with its status
 	for _, stat := range stats {
 		var statusText string
 		switch stat.Status {
-		case "from cache":
-			statusText = fmt.Sprintf("     - Skipping %s: %s", stat.Name, stat.Version)
-		case "downloaded":
-			statusText = fmt.Sprintf("     - Downloading %s: %s", stat.Name, stat.Version)
-		case "from replacement":
-			statusText = fmt.Sprintf("     - Installing %s: %s (from replacement)", stat.Name, stat.Version)
-		case "skipped":
-			statusText = fmt.Sprintf("     - Skipping %s: %s", stat.Name, stat.Version)
+		case StatusFromCache:
+			statusText = fmt.Sprintf(" - Skipping %s: %s", stat.Name, stat.Version)
+		case StatusDownloaded:
+			statusText = fmt.Sprintf(" - Downloading %s: %s", stat.Name, stat.Version)
+		case StatusFromReplacement:
+			statusText = fmt.Sprintf(" - Installing %s: %s (from replacement)", stat.Name, stat.Version)
+		case StatusSkipped:
+			statusText = fmt.Sprintf(" - Skipping %s: %s", stat.Name, stat.Version)
 		default:
-			statusText = fmt.Sprintf("     - Installing %s: %s", stat.Name, stat.Version)
+			statusText = fmt.Sprintf(" - Installing %s: %s", stat.Name, stat.Version)
 		}
 		dm.logger.Info(statusText)
 	}
@@ -616,4 +559,119 @@ func (dm *DependencyManager) isVersionDowngrade(oldVersion, newVersion string) b
 	// Simple version comparison - assumes semantic versioning
 	// This is a basic implementation; for production use, you might want to use a proper semver library
 	return oldVersion > newVersion
+}
+
+// defaultRegistryLoader implements RegistryLoader interface
+type defaultRegistryLoader struct {
+	config *Config
+	logger *zap.Logger
+}
+
+func (rl *defaultRegistryLoader) LoadEntries(ctx context.Context, srcDir string) ([]regapi.Entry, error) {
+	// Create a temporary DependencyManager to access the methods
+	dm := &DependencyManager{config: rl.config, logger: rl.logger}
+	return dm.loadRegistryEntries(ctx, srcDir)
+}
+
+func (rl *defaultRegistryLoader) CreateManager(entries []regapi.Entry) *moduleloader.Manager {
+	// Create a temporary DependencyManager to access the methods
+	dm := &DependencyManager{config: rl.config, logger: rl.logger}
+	return dm.createModuleLoaderManagerWithEntries(entries)
+}
+
+// defaultLockFileManager implements LockFileManager interface
+type defaultLockFileManager struct {
+	logger *zap.Logger
+}
+
+func (lfm *defaultLockFileManager) LoadLockFile(path string) (*moduleloader.LockFile, error) {
+	return moduleloader.LoadLockFile(path)
+}
+
+func (lfm *defaultLockFileManager) SaveLockFile(lockFile *moduleloader.LockFile, path string) error {
+	return lockFile.SaveLockFile(path)
+}
+
+func (lfm *defaultLockFileManager) CalculateChanges(_ *moduleloader.LockFile, _ *moduleloader.LockFile) *LockFileChanges {
+	return &LockFileChanges{
+		Installed: []ModuleOperation{},
+		Updated:   []ModuleOperation{},
+		Removed:   []ModuleOperation{},
+	}
+}
+
+// loadLockFile loads the lock file and returns it with the path
+func (dm *DependencyManager) loadLockFile() (*moduleloader.LockFile, string, error) {
+	// Determine lock file path
+	lockPath, err := moduleloader.FindLockFile(dm.config.FolderPath, dm.config.LockFile)
+	if err != nil {
+		return nil, "", fmt.Errorf("find lock file: %w", err)
+	}
+
+	// Check if lock file exists
+	if lockPath == "" {
+		return nil, "", fmt.Errorf("no lock file found in project directory: %s", dm.config.FolderPath)
+	}
+
+	// Load lock file
+	lockFile, err := dm.lockFileMgr.LoadLockFile(lockPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("load lock file: %w", err)
+	}
+
+	return lockFile, lockPath, nil
+}
+
+// loadAndProcessDependencies loads entries and processes dependencies
+func (dm *DependencyManager) loadAndProcessDependencies(ctx context.Context, srcDir string) (*moduleloader.LoadResult, error) {
+	// Load entries from the src directory
+	entries, err := dm.registryLoader.LoadEntries(ctx, srcDir)
+	if err != nil {
+		return nil, fmt.Errorf("load registry entries: %w", err)
+	}
+
+	// Create module loader manager with loaded entries
+	dm.logger.Debug("Creating module loader manager with entries", zap.Int("entries_count", len(entries)))
+	registryLoader := dm.registryLoader.CreateManager(entries)
+
+	// Load dependencies with latest versions
+	dm.logger.Debug("Loading dependencies with registry loader")
+	loadResult, err := registryLoader.Load(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load dependencies: %w", err)
+	}
+
+	dm.logger.Debug("Registry loader completed",
+		zap.Int("modules_count", len(loadResult.Modules)))
+
+	return loadResult, nil
+}
+
+// loadExistingLockFile loads existing lock file and returns its components
+func (dm *DependencyManager) loadExistingLockFile() (*moduleloader.LockFile, string, string, []moduleloader.Replacement) {
+	existingLockPath := filepath.Join(dm.config.FolderPath, dm.config.LockFile)
+	var existingLock *moduleloader.LockFile
+	var srcDir string
+	var modulesDir string
+	var existingReplacements []moduleloader.Replacement
+
+	if existingLockFile, err := moduleloader.LoadLockFile(existingLockPath); err == nil {
+		existingLock = existingLockFile
+		srcDir = existingLock.Directories.Src
+		modulesDir = existingLock.Directories.Modules
+		existingReplacements = existingLock.Replacements
+		dm.logger.Debug("Using existing lock file",
+			zap.String("src_dir", srcDir),
+			zap.String("modules_dir", modulesDir),
+			zap.Int("modules_count", len(existingLock.Modules)))
+	} else {
+		// Use default directories if no existing lock file
+		srcDir = "."
+		modulesDir = ".wippy"
+		dm.logger.Debug("No existing lock file, using defaults",
+			zap.String("src_dir", srcDir),
+			zap.String("modules_dir", modulesDir))
+	}
+
+	return existingLock, srcDir, modulesDir, existingReplacements
 }

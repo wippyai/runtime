@@ -211,39 +211,17 @@ type InstallCommand struct {
 }
 
 func (ic *InstallCommand) Execute(ctx context.Context, flags []string, args []string) error {
-	// Parse common flags
-	flagSet := flag.NewFlagSet("install", flag.ExitOnError)
-	var lockFilePath string
-	var verbose bool
-	flagSet.StringVar(&lockFilePath, "lock-file", "wippy.lock", "path to lock file")
-	flagSet.BoolVar(&verbose, "v", false, "enable verbose debug logging")
-	flagSet.BoolVar(&verbose, "verbose", false, "enable verbose debug logging")
-	if err := flagSet.Parse(flags); err != nil {
-		return fmt.Errorf("failed to parse flags: %w", err)
-	}
+	baseCmd := NewBaseCommand(ic.runner)
+	return baseCmd.ExecuteWithCommonFlags(ctx, "install", flags, args, ic.executeInstall)
+}
 
-	// Update logger if verbose flag is set
-	if verbose {
-		ic.runner.config.Verbose = true
-		// Reinitialize logger with verbose settings
-		logger, err := initMainLogger(true, false)
-		if err != nil {
-			return fmt.Errorf("failed to initialize verbose logger: %w", err)
-		}
-		ic.runner.logger = logger
-	}
-
-	// Update config with parsed lock file
-	if lockFilePath != "wippy.lock" {
-		ic.runner.config.LockFile = lockFilePath
-	}
-
-	// Check if lock file exists
+func (ic *InstallCommand) executeInstall(ctx context.Context, commonFlags *CommonFlags, args []string) error {
+	// Check if lock file exists and load it
 	lockPath, err := moduleloader.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
 	if err != nil {
 		ic.runner.logger.Info("Lock file not found, falling back to update behavior")
 		updateCmd := &UpdateCommand{runner: ic.runner}
-		return updateCmd.Execute(ctx, flags, args)
+		return updateCmd.Execute(ctx, []string{"--lock-file=" + commonFlags.LockFilePath}, args)
 	}
 
 	// Load lock file
@@ -341,41 +319,18 @@ type UpdateCommand struct {
 }
 
 func (ic *UpdateCommand) Execute(ctx context.Context, flags []string, args []string) error {
-	// Parse common flags
-	flagSet := flag.NewFlagSet("update", flag.ExitOnError)
-	var lockFilePath string
-	var verbose bool
-	flagSet.StringVar(&lockFilePath, "lock-file", "wippy.lock", "path to lock file")
-	flagSet.BoolVar(&verbose, "v", false, "enable verbose debug logging")
-	flagSet.BoolVar(&verbose, "verbose", false, "enable verbose debug logging")
-	if err := flagSet.Parse(flags); err != nil {
-		return fmt.Errorf("failed to parse flags: %w", err)
-	}
+	baseCmd := NewBaseCommand(ic.runner)
+	return baseCmd.ExecuteWithCommonFlags(ctx, "update", flags, args, ic.executeUpdate)
+}
 
-	// Update logger if verbose flag is set
-	if verbose {
-		ic.runner.config.Verbose = true
-		// Reinitialize logger with verbose settings
-		logger, err := initMainLogger(true, false)
-		if err != nil {
-			return fmt.Errorf("failed to initialize verbose logger: %w", err)
-		}
-		ic.runner.logger = logger
+func (ic *UpdateCommand) executeUpdate(ctx context.Context, commonFlags *CommonFlags, args []string) error {
+	// Check if lock file exists, init if missing
+	flags := []string{"--lock-file=" + commonFlags.LockFilePath}
+	if commonFlags.Verbose {
+		flags = append(flags, "-v")
 	}
-
-	// Update config with parsed lock file
-	if lockFilePath != "wippy.lock" {
-		ic.runner.config.LockFile = lockFilePath
-	}
-
-	// Check if lock file exists
-	_, err := moduleloader.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
-	if err != nil {
-		ic.runner.logger.Info("Lock file not found, running init")
-		initCmd := &InitCommand{runner: ic.runner}
-		if err := initCmd.Execute(ctx, flags, args); err != nil {
-			return fmt.Errorf("failed to initialize lock file: %w", err)
-		}
+	if err := InitLockFileIfMissing(ctx, ic.runner, flags, args); err != nil {
+		return err
 	}
 
 	// Update dependencies
