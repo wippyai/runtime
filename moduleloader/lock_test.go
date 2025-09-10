@@ -2,6 +2,7 @@ package moduleloader
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -32,7 +33,7 @@ func TestSaveLockFileDeduplication(t *testing.T) {
 	}
 
 	// Save to a temporary file
-	tempFile := "/tmp/test_dedup.lock"
+	tempFile := filepath.Join(os.TempDir(), "test_dedup.lock")
 	err := lockFile.SaveLockFile(tempFile)
 	if err != nil {
 		t.Fatalf("Failed to save lock file: %v", err)
