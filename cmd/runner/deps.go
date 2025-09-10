@@ -116,6 +116,12 @@ func (dm *DependencyManager) InstallDependenciesSilent(ctx context.Context) (*Op
 
 // UpdateDependencies updates dependencies and regenerates lock file
 func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
+	return dm.UpdateDependenciesWithRemovedModules(ctx, []string{})
+}
+
+// UpdateDependenciesWithRemovedModules updates dependencies and regenerates lock file
+// with information about modules that were removed during cleanup
+func (dm *DependencyManager) UpdateDependenciesWithRemovedModules(ctx context.Context, removedModules []string) error {
 	dm.logger.Info(LogUpdatingDependencies)
 
 	// Load existing lock file to compare changes
@@ -153,22 +159,66 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 
 	// Display module statistics from Load() if available
 	if len(loadResult.ModuleStats) > 0 {
-		dm.displayModuleStatistics(loadResult.ModuleStats)
+		// Collect information about removed modules from lock file changes
+		lockFileRemovedModules := []string{}
+		if existingLock != nil {
+			// Find modules that were in the old lock file but not in the new one
+			oldModules := make(map[string]bool)
+			newModules := make(map[string]bool)
+
+			for _, module := range existingLock.Modules {
+				oldModules[module.Name] = true
+			}
+			for _, module := range newLockFile.Modules {
+				newModules[module.Name] = true
+			}
+
+			for moduleName := range oldModules {
+				if !newModules[moduleName] {
+					lockFileRemovedModules = append(lockFileRemovedModules, moduleName)
+				}
+			}
+		}
+
+		// Combine removed modules from cleanup and lock file changes
+		allRemovedModules := make([]string, 0, len(removedModules)+len(lockFileRemovedModules))
+		allRemovedModules = append(allRemovedModules, removedModules...)
+		allRemovedModules = append(allRemovedModules, lockFileRemovedModules...)
+
+		info := ModuleStatisticsInfo{
+			ModuleStats:    loadResult.ModuleStats,
+			RemovedModules: allRemovedModules,
+		}
+		dm.displayModuleStatisticsWithInfo(info)
 	}
 
 	return nil
 }
 
+// ModuleStatisticsInfo holds both module stats and removed modules information
+type ModuleStatisticsInfo struct {
+	ModuleStats    []moduleloader.ModuleStats
+	RemovedModules []string // List of removed module names
+}
+
 // displayModuleStatistics displays module statistics in the requested format
 func (dm *DependencyManager) displayModuleStatistics(stats []moduleloader.ModuleStats) {
-	if len(stats) == 0 {
-		return
+	info := ModuleStatisticsInfo{
+		ModuleStats:    stats,
+		RemovedModules: []string{},
 	}
+	dm.displayModuleStatisticsWithInfo(info)
+}
+
+// displayModuleStatisticsWithInfo displays module statistics including removed modules
+func (dm *DependencyManager) displayModuleStatisticsWithInfo(info ModuleStatisticsInfo) {
+	stats := info.ModuleStats
+	removedModules := info.RemovedModules
 
 	// Count operations by type
 	installs := 0
 	updates := 0
-	removals := 0
+	removals := len(removedModules)
 
 	for _, stat := range stats {
 		switch stat.Status {
@@ -199,6 +249,11 @@ func (dm *DependencyManager) displayModuleStatistics(stats []moduleloader.Module
 			statusText = fmt.Sprintf(" - Installing %s: %s", stat.Name, stat.Version)
 		}
 		dm.logger.Info(statusText)
+	}
+
+	// Display removed modules
+	for _, moduleName := range removedModules {
+		dm.logger.Info(fmt.Sprintf(" - Removing %s", moduleName))
 	}
 }
 

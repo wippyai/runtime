@@ -6,6 +6,7 @@ const (
 	StatusDownloaded      = "downloaded"
 	StatusFromReplacement = "from replacement"
 	StatusSkipped         = "skipped"
+	StatusRemoved         = "removed"
 
 	// Module operation actions
 	ActionInstalled = "installed"
