@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/moduleloader"
 	transcoder "github.com/ponyruntime/pony/system/payload"
@@ -74,14 +75,14 @@ func (dm *DependencyManager) InstallDependenciesWithStats(ctx context.Context, s
 		return err
 	}
 
-	// Install modules and collect statistics
-	err = dm.installModulesFromLockFileSilent(ctx, lockFile, lockFile.Directories.Src, stats)
+	// First cleanup unused modules to remove old versions
+	err = dm.CleanupAllUnusedModules(ctx, lockFile.Directories.Src, lockFile, stats)
 	if err != nil {
 		return err
 	}
 
-	// Cleanup unused modules and collect statistics
-	err = dm.CleanupAllUnusedModules(ctx, lockFile.Directories.Src, lockFile, stats)
+	// Then install modules and collect statistics
+	err = dm.installModulesFromLockFileSilent(ctx, lockFile, lockFile.Directories.Src, stats)
 	if err != nil {
 		return err
 	}
@@ -560,25 +561,37 @@ func (dm *DependencyManager) displayUpdateChanges(changes *LockFileChanges) {
 		if dm.isVersionDowngrade(module.OldVersion, module.Version) {
 			action = "Downgrading"
 		}
-		dm.logger.Info(fmt.Sprintf("     - %s %s: %s => %s", action, module.Name, module.OldVersion, module.Version))
+		dm.logger.Info(fmt.Sprintf(" - %s %s: %s => %s", action, module.Name, module.OldVersion, module.Version))
 	}
 
 	// Display removed modules
 	for _, module := range changes.Removed {
-		dm.logger.Info(fmt.Sprintf("     - Removing %s", module.Name))
+		dm.logger.Info(fmt.Sprintf(" - Removing %s", module.Name))
 	}
 
 	// Display installed modules
 	for _, module := range changes.Installed {
-		dm.logger.Info(fmt.Sprintf("     - Installing %s: %s", module.Name, module.Version))
+		dm.logger.Info(fmt.Sprintf(" - Installing %s: %s", module.Name, module.Version))
 	}
 }
 
 // isVersionDowngrade determines if going from oldVersion to newVersion is a downgrade
 func (dm *DependencyManager) isVersionDowngrade(oldVersion, newVersion string) bool {
-	// Simple version comparison - assumes semantic versioning
-	// This is a basic implementation; for production use, you might want to use a proper semver library
-	return oldVersion > newVersion
+	// Parse the versions using semver
+	oldVer, err := semver.NewVersion(oldVersion)
+	if err != nil {
+		dm.logger.Warn(fmt.Sprintf("Failed to parse old version '%s' as semver: %v", oldVersion, err))
+		return false
+	}
+
+	newVer, err := semver.NewVersion(newVersion)
+	if err != nil {
+		dm.logger.Warn(fmt.Sprintf("Failed to parse new version '%s' as semver: %v", newVersion, err))
+		return false
+	}
+
+	// Compare versions - if old version is greater than new version, it's a downgrade
+	return oldVer.GreaterThan(newVer)
 }
 
 // defaultRegistryLoader implements RegistryLoader interface
@@ -698,7 +711,7 @@ func (dm *DependencyManager) loadExistingLockFile() (*moduleloader.LockFile, str
 
 // CleanupUnusedModules removes module directories that are not listed in the new lock file
 // Returns a list of removed module names for further use
-func (dm *DependencyManager) CleanupUnusedModules(_ context.Context, newLockFile *moduleloader.LockFile) ([]string, error) {
+func (dm *DependencyManager) CleanupUnusedModules(_ context.Context, newLockFile *moduleloader.LockFile) (map[string]string, error) {
 	// Get the modules directory from the new lock file
 	modulesDir := newLockFile.Directories.Modules
 	if modulesDir == "" {
@@ -712,7 +725,7 @@ func (dm *DependencyManager) CleanupUnusedModules(_ context.Context, newLockFile
 	if _, err := os.Stat(modulesPath); os.IsNotExist(err) {
 		dm.logger.Debug("Modules directory does not exist, nothing to clean up",
 			zap.String("path", modulesPath))
-		return []string{}, nil
+		return make(map[string]string), nil
 	}
 
 	// Create a map of modules that should exist according to the new lock file
@@ -754,7 +767,7 @@ func (dm *DependencyManager) CleanupUnusedModules(_ context.Context, newLockFile
 	}
 
 	// Scan the modules directory for existing module directories
-	removedModules := []string{}
+	removedModules := make(map[string]string) // moduleName -> relativePath
 
 	// First, get all organization directories
 	orgEntries, err := os.ReadDir(modulesPath)
@@ -788,17 +801,37 @@ func (dm *DependencyManager) CleanupUnusedModules(_ context.Context, newLockFile
 
 			// Check if this directory should exist according to the new lock file
 			if !expectedModules[relPath] {
-				// dm.logger.Info("Removing unused module directory",
-				//	zap.String("path", modulePath),
-				//	zap.String("relative_path", relPath))
+				// Check if this is a module directory with subdirectories (new format)
+				// Look for module subdirectories inside this directory
+				moduleSubEntries, err := os.ReadDir(modulePath)
+				if err == nil && len(moduleSubEntries) > 0 {
+					// This is a module directory with subdirectories
+					// Find the actual module subdirectory
+					for _, subEntry := range moduleSubEntries {
+						if subEntry.IsDir() && strings.HasPrefix(subEntry.Name(), "module-") {
+							// This is the actual module subdirectory
+							moduleSubRelPath := filepath.Join(relPath, subEntry.Name())
 
-				// Extract module name from the directory path for reporting
-				moduleName := dm.extractModuleNameFromPath(relPath)
-				if moduleName != "" {
-					removedModules = append(removedModules, moduleName)
+							// Extract module name from the subdirectory path for reporting
+							moduleName := dm.extractModuleNameFromPath(moduleSubRelPath)
+							if moduleName != "" {
+								removedModules[moduleName] = moduleSubRelPath
+							}
+							break
+						}
+					}
+				} else {
+					// This is a simple module directory (old format)
+					// Extract module name from the directory path for reporting
+					moduleName := dm.extractModuleNameFromPath(relPath)
+					if moduleName != "" {
+						removedModules[moduleName] = relPath
+					}
 				}
 
-				// Remove the directory
+				dm.logger.Info("removing: ", zap.String("module_path", modulePath))
+
+				// Remove the entire directory (including subdirectories)
 				if err := os.RemoveAll(modulePath); err != nil {
 					dm.logger.Error("Failed to remove module directory",
 						zap.String("path", modulePath),
@@ -843,6 +876,61 @@ func (dm *DependencyManager) extractModuleNameFromPath(relPath string) string {
 
 	// Return in "org/module" format
 	return fmt.Sprintf("%s/%s", org, module)
+}
+
+// extractVersionFromPath extracts the version from a module directory path
+// Path format: organization/module@hash/module-version
+// Returns the semver version from the module folder name or "unknown" if not found
+func (dm *DependencyManager) extractVersionFromPath(relPath string) string {
+	// Split by path separator
+	parts := strings.Split(relPath, string(filepath.Separator))
+	if len(parts) < 3 {
+		return "unknown"
+	}
+
+	// The module folder is the last part of the path
+	moduleFolder := parts[len(parts)-1]
+
+	// Extract version from module folder name (format: module-version)
+	// Look for the dash before the version pattern
+	// Examples: "module-security-0.0.7" -> "0.0.7"
+	//           "module-1.2.3" -> "1.2.3"
+	//           "module-test-2.0.0-beta.1" -> "2.0.0-beta.1"
+
+	var version string
+	// Find the dash before the version (look for pattern: module-name-version)
+	// We need to find the dash that separates the module name from the version
+	// The version should start with a digit
+	for i := len(moduleFolder) - 1; i >= 0; i-- {
+		if moduleFolder[i] == '-' {
+			// Check if the part after this dash looks like a version (starts with digit)
+			potentialVersion := moduleFolder[i+1:]
+			if len(potentialVersion) > 0 && potentialVersion[0] >= '0' && potentialVersion[0] <= '9' {
+				version = potentialVersion
+				break
+			}
+		}
+	}
+
+	if version == "" {
+		return "unknown"
+	}
+
+	// Basic validation: check if it looks like a semver version
+	// Should contain at least one dot and only valid semver characters
+	if version == "" || !strings.Contains(version, ".") {
+		return "unknown"
+	}
+
+	// Check if version contains only valid semver characters (digits, dots, hyphens, and letters for pre-release)
+	for _, char := range version {
+		if (char < '0' || char > '9') && char != '.' && char != '-' &&
+			(char < 'a' || char > 'z') && (char < 'A' || char > 'Z') {
+			return "unknown"
+		}
+	}
+
+	return version
 }
 
 // CleanupModuleContent removes unused content from module directories
@@ -1052,8 +1140,12 @@ func (dm *DependencyManager) CleanupAllUnusedModules(ctx context.Context, _ stri
 	}
 
 	// Add removed modules to stats
-	for _, moduleName := range removedModules {
-		stats.AddRemoved(moduleName, "unknown") // Version not available for removed modules
+	for moduleName, relPath := range removedModules {
+		version := dm.extractVersionFromPath(relPath)
+		if version != "unknown" {
+			version = "v" + version
+		}
+		stats.AddRemoved(moduleName, version)
 	}
 
 	return nil
