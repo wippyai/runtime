@@ -235,149 +235,137 @@ func (ic *InstallCommand) executeInstall(ctx context.Context, commonFlags *Commo
 		return fmt.Errorf("invalid replacement paths: %w", err)
 	}
 
-	// Clean unused packages from .wippy
-	if err := ic.cleanUnusedPackages(lockFile); err != nil {
-		return fmt.Errorf("failed to clean unused packages: %w", err)
-	}
-
 	// Install dependencies
 	depsManager := NewDependencyManager(ic.runner.config, ic.runner.logger)
+	// TODO needs to be refactored to ONLY download modules
 	return depsManager.InstallDependencies(ctx)
 }
 
-func (ic *InstallCommand) cleanUnusedPackages(lockFile *moduleloader.LockFile) error {
-	// Get the modules directory path
-	modulesDir := filepath.Join(ic.runner.config.FolderPath, lockFile.Directories.Modules)
+// func (ic *InstallCommand) cleanUnusedPackages(lockFile *moduleloader.LockFile) error {
+//	// Get the modules directory path
+//	modulesDir := filepath.Join(ic.runner.config.FolderPath, lockFile.Directories.Modules)
+//
+//	// Check if modules directory exists
+//	if _, err := os.Stat(modulesDir); os.IsNotExist(err) {
+//		ic.runner.logger.Info("Modules directory does not exist, nothing to clean")
+//		return nil
+//	}
+//
+//	// Create a set of expected organization directories from lock file
+//	expectedOrgs := make(map[string]bool)
+//	for _, module := range lockFile.Modules {
+//		// Parse module name to get organization
+//		if name, err := moduleloader.ParseName(module.Name); err == nil {
+//			expectedOrgs[name.Organization] = true
+//		}
+//	}
+//
+//	// Scan the modules directory for installed packages
+//	entries, err := os.ReadDir(modulesDir)
+//	if err != nil {
+//		return fmt.Errorf("failed to read modules directory: %w", err)
+//	}
+//
+//	// Remove organization directories that are not in the lock file
+//	removedCount := 0
+//	for _, entry := range entries {
+//		if !entry.IsDir() {
+//			continue
+//		}
+//
+//		// Check if this organization directory is expected
+//		if !expectedOrgs[entry.Name()] {
+//			packagePath := filepath.Join(modulesDir, entry.Name())
+//
+//			ic.runner.logger.Info(fmt.Sprintf(" - Removing %s", entry.Name()))
+//
+//			if err := os.RemoveAll(packagePath); err != nil {
+//				ic.runner.logger.Warn("Failed to remove unused package",
+//					zap.String("package", entry.Name()),
+//					zap.Error(err))
+//			} else {
+//				removedCount++
+//			}
+//		}
+//	}
+//
+//	return nil
+//}
 
-	// Check if modules directory exists
-	if _, err := os.Stat(modulesDir); os.IsNotExist(err) {
-		ic.runner.logger.Info("Modules directory does not exist, nothing to clean")
-		return nil
-	}
-
-	// Create a set of expected organization directories from lock file
-	expectedOrgs := make(map[string]bool)
-	for _, module := range lockFile.Modules {
-		// Parse module name to get organization
-		if name, err := moduleloader.ParseName(module.Name); err == nil {
-			expectedOrgs[name.Organization] = true
-		}
-	}
-
-	// Scan the modules directory for installed packages
-	entries, err := os.ReadDir(modulesDir)
-	if err != nil {
-		return fmt.Errorf("failed to read modules directory: %w", err)
-	}
-
-	// Remove organization directories that are not in the lock file
-	removedCount := 0
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		// Check if this organization directory is expected
-		if !expectedOrgs[entry.Name()] {
-			packagePath := filepath.Join(modulesDir, entry.Name())
-
-			ic.runner.logger.Info(fmt.Sprintf(" - Removing %s", entry.Name()))
-
-			if err := os.RemoveAll(packagePath); err != nil {
-				ic.runner.logger.Warn("Failed to remove unused package",
-					zap.String("package", entry.Name()),
-					zap.Error(err))
-			} else {
-				removedCount++
-			}
-		}
-	}
-
-	if removedCount > 0 {
-		ic.runner.logger.Info(fmt.Sprintf("Removed %d unused packages", removedCount))
-	}
-
-	return nil
-}
-
-// cleanUnusedPackagesFromLockFile cleans packages that are not in the current lock file
-// This is used by the update command to remove packages before updating
-// Returns a list of removed module names
-func (ic *UpdateCommand) cleanUnusedPackagesFromLockFile() ([]string, error) {
-	// Load the current lock file
-	lockPath, err := moduleloader.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
-	if err != nil {
-		return nil, fmt.Errorf("find lock file: %w", err)
-	}
-
-	if lockPath == "" {
-		ic.runner.logger.Info("No lock file found, nothing to clean")
-		return []string{}, nil
-	}
-
-	lockFile, err := moduleloader.LoadLockFile(lockPath)
-	if err != nil {
-		return nil, fmt.Errorf("load lock file: %w", err)
-	}
-
-	// Get the modules directory path
-	modulesDir := filepath.Join(ic.runner.config.FolderPath, lockFile.Directories.Modules)
-
-	// Check if modules directory exists
-	if _, err := os.Stat(modulesDir); os.IsNotExist(err) {
-		ic.runner.logger.Info("Modules directory does not exist, nothing to clean")
-		return []string{}, nil
-	}
-
-	// Create a set of expected module directories from lock file
-	expectedModules := make(map[string]bool)
-	for _, module := range lockFile.Modules {
-		// Create the expected directory name pattern: module@hash
-		expectedDir := fmt.Sprintf("%s@%s", module.Name, module.Hash)
-		expectedModules[expectedDir] = true
-	}
-
-	// Scan the modules directory for installed packages
-	entries, err := os.ReadDir(modulesDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read modules directory: %w", err)
-	}
-
-	// Remove module directories that are not in the lock file
-	removedCount := 0
-	removedModules := []string{}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		// Check if this module directory is expected
-		if !expectedModules[entry.Name()] {
-			packagePath := filepath.Join(modulesDir, entry.Name())
-
-			ic.runner.logger.Info(fmt.Sprintf(" - Removing %s", entry.Name()))
-
-			if err := os.RemoveAll(packagePath); err != nil {
-				ic.runner.logger.Warn("Failed to remove unused package",
-					zap.String("package", entry.Name()),
-					zap.Error(err))
-			} else {
-				removedCount++
-				// Extract module name from directory name (format: module@hash)
-				if atIndex := strings.LastIndex(entry.Name(), "@"); atIndex != -1 {
-					moduleName := entry.Name()[:atIndex]
-					removedModules = append(removedModules, moduleName)
-				}
-			}
-		}
-	}
-
-	if removedCount > 0 {
-		ic.runner.logger.Info(fmt.Sprintf("Removed %d unused packages", removedCount))
-	}
-
-	return removedModules, nil
-}
+//// cleanUnusedPackagesFromLockFile cleans packages that are not in the current lock file
+//// This is used by the update command to remove packages before updating
+//// Returns a list of removed module names
+// func (ic *UpdateCommand) cleanUnusedPackagesFromLockFile() ([]string, error) {
+//	// Load the current lock file
+//	lockPath, err := moduleloader.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
+//	if err != nil {
+//		return nil, fmt.Errorf("find lock file: %w", err)
+//	}
+//
+//	if lockPath == "" {
+//		ic.runner.logger.Info("No lock file found, nothing to clean")
+//		return []string{}, nil
+//	}
+//
+//	lockFile, err := moduleloader.LoadLockFile(lockPath)
+//	if err != nil {
+//		return nil, fmt.Errorf("load lock file: %w", err)
+//	}
+//
+//	// Get the modules directory path
+//	modulesDir := filepath.Join(ic.runner.config.FolderPath, lockFile.Directories.Modules)
+//
+//	// Check if modules directory exists
+//	if _, err := os.Stat(modulesDir); os.IsNotExist(err) {
+//		ic.runner.logger.Info("Modules directory does not exist, nothing to clean")
+//		return []string{}, nil
+//	}
+//
+//	// Create a set of expected module directories from lock file
+//	expectedModules := make(map[string]bool)
+//	for _, module := range lockFile.Modules {
+//		// Create the expected directory name pattern: module@hash
+//		expectedDir := fmt.Sprintf("%s@%s", module.Name, module.Hash)
+//		expectedModules[expectedDir] = true
+//	}
+//
+//	// Scan the modules directory for installed packages
+//	entries, err := os.ReadDir(modulesDir)
+//	if err != nil {
+//		return nil, fmt.Errorf("failed to read modules directory: %w", err)
+//	}
+//
+//	// Remove module directories that are not in the lock file
+//	removedCount := 0
+//	removedModules := []string{}
+//	for _, entry := range entries {
+//		if !entry.IsDir() {
+//			continue
+//		}
+//
+//		// Check if this module directory is expected
+//		if !expectedModules[entry.Name()] {
+//			packagePath := filepath.Join(modulesDir, entry.Name())
+//
+//			ic.runner.logger.Info(fmt.Sprintf(" - Removing %s", entry.Name()))
+//
+//			if err := os.RemoveAll(packagePath); err != nil {
+//				ic.runner.logger.Warn("Failed to remove unused package",
+//					zap.String("package", entry.Name()),
+//					zap.Error(err))
+//			} else {
+//				removedCount++
+//				// Extract module name from directory name (format: module@hash)
+//				if atIndex := strings.LastIndex(entry.Name(), "@"); atIndex != -1 {
+//					moduleName := entry.Name()[:atIndex]
+//					removedModules = append(removedModules, moduleName)
+//				}
+//			}
+//		}
+//	}
+//
+//	return removedModules, nil
+//}
 
 func (ic *InstallCommand) Help() string {
 	return `install - Install dependencies from lock file
@@ -412,15 +400,15 @@ func (ic *UpdateCommand) executeUpdate(ctx context.Context, commonFlags *CommonF
 		return err
 	}
 
-	// Clean unused packages before updating dependencies
-	removedModules, err := ic.cleanUnusedPackagesFromLockFile()
-	if err != nil {
-		return fmt.Errorf("failed to clean unused packages: %w", err)
-	}
+	//// Clean unused packages before updating dependencies
+	// removedModules, err := ic.cleanUnusedPackagesFromLockFile()
+	// if err != nil {
+	//	return fmt.Errorf("failed to clean unused packages: %w", err)
+	//}
 
 	// Update dependencies
 	depsManager := NewDependencyManager(ic.runner.config, ic.runner.logger)
-	if err := depsManager.UpdateDependenciesWithRemovedModules(ctx, removedModules); err != nil {
+	if err := depsManager.UpdateDependenciesWithRemovedModules(ctx); err != nil {
 		return fmt.Errorf("failed to update dependencies: %w", err)
 	}
 
