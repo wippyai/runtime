@@ -269,11 +269,12 @@ func TestCleanupAllUnusedModules(t *testing.T) {
 	}
 
 	// Check that content was removed
-	if len(removedContent) != 1 {
+	switch {
+	case len(removedContent) != 1:
 		t.Errorf("Expected 1 content item to be removed, got %d: %v", len(removedContent), removedContent)
-	} else if removedContent[0] != "module-security-0.0.6" {
+	case removedContent[0] != "module-security-0.0.6":
 		t.Errorf("Expected 'module-security-0.0.6' to be removed, got: %s", removedContent[0])
-	} else {
+	default:
 		t.Logf("✓ Correct content was removed: %s", removedContent[0])
 	}
 
