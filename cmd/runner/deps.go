@@ -21,15 +21,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// ModuleOperation represents a single module operation
+// ModuleOperation represents a single module operation with version tracking
 type ModuleOperation struct {
-	Name       string
-	Version    string
+	Name       string // Module name (e.g., "wippy/actor")
+	Version    string // Current version
 	OldVersion string // Previous version for updates
-	Action     string // "installed", "updated", "removed"
+	Action     string // Operation type: "installed", "updated", "removed"
 }
 
-// OperationStats tracks module operations
+// OperationStats tracks aggregated module operations (legacy structure)
 type OperationStats struct {
 	Installed   int
 	Updated     int
@@ -38,7 +38,7 @@ type OperationStats struct {
 	ModuleStats []moduleloader.ModuleStats
 }
 
-// DependencyManager handles dependency installation and updates
+// DependencyManager handles dependency installation, updates, and cleanup
 type DependencyManager struct {
 	config         *Config
 	logger         *zap.Logger
@@ -46,7 +46,7 @@ type DependencyManager struct {
 	lockFileMgr    LockFileManager
 }
 
-// NewDependencyManager creates a new dependency manager
+// NewDependencyManager creates a new dependency manager with default implementations
 func NewDependencyManager(config *Config, logger *zap.Logger) *DependencyManager {
 	return &DependencyManager{
 		config:         config,
@@ -56,105 +56,61 @@ func NewDependencyManager(config *Config, logger *zap.Logger) *DependencyManager
 	}
 }
 
-// InstallDependencies installs dependencies from lock file
+// InstallDependencies installs all dependencies from the lock file
+// Creates a statistics tracker and displays operation results
 func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
 	dm.logger.Info(LogInstallingDependencies)
 
+	// Create statistics tracker
+	stats := NewModuleOperationStats()
+	return dm.InstallDependenciesWithStats(ctx, stats)
+}
+
+// InstallDependenciesWithStats installs all dependencies from the lock file with provided statistics tracker
+func (dm *DependencyManager) InstallDependenciesWithStats(ctx context.Context, stats *ModuleOperationStats) error {
 	// Load lock file
 	lockFile, _, err := dm.loadLockFile()
 	if err != nil {
 		return err
 	}
 
-	// Show lock file operations header (like update command)
-	// dm.logger.Info("Lock file operations: 0 installs, 0 updates, 0 removals:")
-
-	// Load and process dependencies
-	// loadResult, err := dm.loadAndProcessDependencies(ctx, lockFile.Directories.Src)
-	// if err != nil {
-	//	return err
-	//}
-
-	installStats, err := dm.installModulesFromLockFileSilent(ctx, lockFile, lockFile.Directories.Src)
+	// Install modules and collect statistics
+	err = dm.installModulesFromLockFileSilent(ctx, lockFile, lockFile.Directories.Src, stats)
 	if err != nil {
 		return err
 	}
 
-	deleteStats, err := dm.CleanupAllUnusedModules(ctx, lockFile.Directories.Src, lockFile)
+	// Cleanup unused modules and collect statistics
+	err = dm.CleanupAllUnusedModules(ctx, lockFile.Directories.Src, lockFile, stats)
 	if err != nil {
 		return err
 	}
 
-	// Combine installStats and deleteStats
-	combinedStats := &OperationStats{
-		Installed: installStats.Installed,
-		Updated:   installStats.Updated,
-		Removed:   deleteStats.Removed,
-		Modules:   make([]ModuleOperation, 0, len(installStats.Modules)+len(deleteStats.Modules)),
-	}
-
-	// Add install/update operations
-	combinedStats.Modules = append(combinedStats.Modules, installStats.Modules...)
-	// Add removal operations
-	combinedStats.Modules = append(combinedStats.Modules, deleteStats.Modules...)
-
-	// Convert to ModuleStats for display
-	operationStats := make([]moduleloader.ModuleStats, 0, len(combinedStats.Modules))
-	for _, op := range combinedStats.Modules {
-		operationStats = append(operationStats, moduleloader.ModuleStats{
-			Name:    op.Name,
-			Version: op.Version,
-			Status:  op.Action, // Map action to status
-		})
-	}
-
-	// Display module statistics from Load() if available
-	if len(operationStats) > 0 {
-		dm.displayModuleStatistics(operationStats)
-	}
+	// Display combined statistics
+	dm.ShowResults(stats)
 
 	dm.logger.Info(LogInstallationCompleted)
 	return nil
 }
 
-// InstallDependenciesSilent installs dependencies from lock file without detailed output
-// This is used by the update command to avoid duplicate output
-// Returns statistics about installed modules
-// func (dm *DependencyManager) InstallDependenciesSilent(ctx context.Context, lockFile *moduleloader.LockFile) (*OperationStats, error) {
-//	//// Determine lock file path
-//	//lockPath, err := moduleloader.FindLockFile(dm.config.FolderPath, dm.config.LockFile)
-//	//if err != nil {
-//	//	return nil, fmt.Errorf("find lock file: %w", err)
-//	//}
-//	//
-//	//// Check if lock file exists
-//	//if lockPath == "" {
-//	//	return nil, fmt.Errorf("no lock file found in project directory: %s", dm.config.FolderPath)
-//	//}
-//	//
-//	//// Load lock file
-//	//lockFile, err := moduleloader.LoadLockFile(lockPath)
-//	//if err != nil {
-//	//	return nil, fmt.Errorf("load lock file: %w", err)
-//	//}
-//
-//	// Install dependencies using the method that shows status
-//	stats, err := dm.installModulesFromLockFileSilent(ctx, lockFile, lockPath)
-//	if err != nil {
-//		return nil, fmt.Errorf("install modules: %w", err)
-//	}
-//
-//	return stats, nil
-//}
-
 // UpdateDependencies updates dependencies and regenerates lock file
+// Delegates to UpdateDependenciesWithRemovedModules for full functionality
 func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
-	return dm.UpdateDependenciesWithRemovedModules(ctx)
+	stats := NewModuleOperationStats()
+	return dm.UpdateDependenciesWithStats(ctx, stats)
 }
 
-// UpdateDependenciesWithRemovedModules updates dependencies and regenerates lock file
-// with information about modules that were removed during cleanup
-func (dm *DependencyManager) UpdateDependenciesWithRemovedModules(ctx context.Context) error {
+// UpdateDependenciesWithStats updates dependencies and regenerates lock file with provided statistics tracker
+func (dm *DependencyManager) UpdateDependenciesWithStats(ctx context.Context, stats *ModuleOperationStats) error {
+	return dm.UpdateDependenciesWithRemovedModules(ctx, stats)
+}
+
+// UpdateDependenciesWithRemovedModules performs a complete dependency update:
+// 1. Loads existing lock file and processes dependencies
+// 2. Generates new lock file with latest versions
+// 3. Cleans up unused modules
+// 4. Displays comprehensive operation statistics
+func (dm *DependencyManager) UpdateDependenciesWithRemovedModules(ctx context.Context, stats *ModuleOperationStats) error {
 	dm.logger.Info(LogUpdatingDependencies)
 
 	// Load existing lock file to compare changes
@@ -165,6 +121,9 @@ func (dm *DependencyManager) UpdateDependenciesWithRemovedModules(ctx context.Co
 	if err != nil {
 		return err
 	}
+
+	// Add module statistics from load result
+	stats.AddModuleStats(loadResult.ModuleStats)
 
 	// Convert to new lock file
 	newLockFile := moduleloader.ConvertToLockFile(loadResult, modulesDir, srcDir)
@@ -190,132 +149,51 @@ func (dm *DependencyManager) UpdateDependenciesWithRemovedModules(ctx context.Co
 		return fmt.Errorf("save lock file: %w", err)
 	}
 
-	// Display module statistics from Load() if available
-	if len(loadResult.ModuleStats) > 0 {
-		// Collect information about removed modules from lock file changes
-		lockFileRemovedModules := []string{}
-		if existingLock != nil {
-			// Find modules that were in the old lock file but not in the new one
-			oldModules := make(map[string]bool)
-			newModules := make(map[string]bool)
+	// Load lock file for cleanup
+	lockFile, err := moduleloader.LoadLockFile(lockPath)
+	if err != nil {
+		return fmt.Errorf("load lock file: %w", err)
+	}
 
-			for _, module := range existingLock.Modules {
-				oldModules[module.Name] = true
-			}
-			for _, module := range newLockFile.Modules {
-				newModules[module.Name] = true
-			}
+	// Cleanup unused modules and collect statistics
+	err = dm.CleanupAllUnusedModules(ctx, lockFile.Directories.Src, lockFile, stats)
+	if err != nil {
+		return err
+	}
 
-			for moduleName := range oldModules {
-				if !newModules[moduleName] {
-					lockFileRemovedModules = append(lockFileRemovedModules, moduleName)
+	// Add removed modules from lock file changes
+	if existingLock != nil {
+		oldModules := make(map[string]bool)
+		newModules := make(map[string]bool)
+
+		for _, module := range existingLock.Modules {
+			oldModules[module.Name] = true
+		}
+		for _, module := range newLockFile.Modules {
+			newModules[module.Name] = true
+		}
+
+		for moduleName := range oldModules {
+			if !newModules[moduleName] {
+				// Find the version from the existing lock file
+				version := "unknown"
+				for _, module := range existingLock.Modules {
+					if module.Name == moduleName {
+						version = module.Version
+						break
+					}
 				}
+				stats.AddRemoved(moduleName, version)
 			}
 		}
-
-		// Load lock file
-		lockFile, err := moduleloader.LoadLockFile(lockPath)
-		if err != nil {
-			return fmt.Errorf("load lock file: %w", err)
-		}
-
-		deleteStats, err := dm.CleanupAllUnusedModules(ctx, lockFile.Directories.Src, lockFile)
-		if err != nil {
-			return err
-		}
-
-		// Extract removed modules from deleteStats
-		cleanupRemovedModules := make([]string, 0, len(deleteStats.Modules))
-		for _, module := range deleteStats.Modules {
-			if module.Action == "removed" {
-				cleanupRemovedModules = append(cleanupRemovedModules, module.Name)
-			}
-		}
-
-		// Combine removed modules from cleanup and lock file changes
-		allRemovedModules := make([]string, 0, len(cleanupRemovedModules)+len(lockFileRemovedModules))
-		allRemovedModules = append(allRemovedModules, cleanupRemovedModules...)
-		allRemovedModules = append(allRemovedModules, lockFileRemovedModules...)
-
-		info := ModuleStatisticsInfo{
-			ModuleStats:    loadResult.ModuleStats,
-			RemovedModules: allRemovedModules,
-		}
-		dm.logger.Info(LogInstallingDependencies)
-		dm.displayModuleStatisticsWithInfo(info)
 	}
 
+	// Display combined statistics
+	dm.logger.Info(LogInstallingDependencies)
+	dm.ShowResults(stats)
+
+	dm.logger.Info(LogUpdatingCompleted)
 	return nil
-}
-
-// ModuleStatisticsInfo holds both module stats and removed modules information
-type ModuleStatisticsInfo struct {
-	ModuleStats    []moduleloader.ModuleStats
-	RemovedModules []string // List of removed module names
-}
-
-// displayModuleStatistics displays module statistics in the requested format
-func (dm *DependencyManager) displayModuleStatistics(stats []moduleloader.ModuleStats) {
-	info := ModuleStatisticsInfo{
-		ModuleStats:    stats,
-		RemovedModules: []string{},
-	}
-	dm.displayModuleStatisticsWithInfo(info)
-}
-
-// displayModuleStatisticsWithInfo displays module statistics including removed modules
-func (dm *DependencyManager) displayModuleStatisticsWithInfo(info ModuleStatisticsInfo) {
-	stats := info.ModuleStats
-	removedModules := info.RemovedModules
-
-	// Count operations by type
-	installs := 0
-	updates := 0
-	removals := len(removedModules)
-
-	for _, stat := range stats {
-		switch stat.Status {
-		case StatusDownloaded, StatusFromReplacement:
-			installs++
-		case StatusRemoved:
-			removals++
-		case StatusFromCache, StatusSkipped:
-			// These don't count as operations
-		}
-	}
-
-	// dm.logger.Info(LogInstallingDependencies)
-	dm.logger.Info(fmt.Sprintf(LogPackageOperations,
-		installs, updates, removals))
-
-	// Display each module with its status
-	for _, stat := range stats {
-		var statusText string
-		switch stat.Status {
-		case StatusFromCache:
-			statusText = fmt.Sprintf(" - Skipping %s: %s", stat.Name, stat.Version)
-			dm.logger.Info(statusText)
-		case StatusDownloaded:
-			statusText = fmt.Sprintf(" - Downloading %s: %s", stat.Name, stat.Version)
-			dm.logger.Info(statusText)
-		case StatusFromReplacement:
-			statusText = fmt.Sprintf(" - Using %s: %s (from replacement)", stat.Name, stat.Version)
-			dm.logger.Info(statusText)
-		case StatusSkipped:
-			statusText = fmt.Sprintf(" - Skipping %s: %s", stat.Name, stat.Version)
-			dm.logger.Info(statusText)
-		case StatusRemoved:
-			statusText = fmt.Sprintf(" - Deleting %s: %s", stat.Name, stat.Version)
-			dm.logger.Info(statusText)
-		default:
-			// statusText = fmt.Sprintf(" - Installing %s: %s", stat.Name, stat.Version)
-		}
-	}
-
-	// Display removed modules
-	for _, moduleName := range removedModules {
-		dm.logger.Info(fmt.Sprintf(" - Removing %s", moduleName))
-	}
 }
 
 // loadRegistryEntries loads registry entries from the specified directory
@@ -394,11 +272,11 @@ func (dm *DependencyManager) createModuleLoaderManagerWithEntries(entries []rega
 	)
 }
 
-// installModulesFromLockFileSilent installs modules from a lock file without detailed output
-// This is used by the update command to avoid duplicate output
-func (dm *DependencyManager) installModulesFromLockFileSilent(ctx context.Context, lockFile *moduleloader.LockFile, lockPath string) (*OperationStats, error) {
+// installModulesFromLockFileSilent installs modules from lock file without verbose output
+// Records operations in the provided statistics tracker for later display
+func (dm *DependencyManager) installModulesFromLockFileSilent(ctx context.Context, lockFile *moduleloader.LockFile, lockPath string, stats *ModuleOperationStats) error {
 	if len(lockFile.Modules) == 0 {
-		return &OperationStats{}, nil
+		return nil
 	}
 
 	// Create a map of replacements for quick lookup
@@ -407,8 +285,7 @@ func (dm *DependencyManager) installModulesFromLockFileSilent(ctx context.Contex
 		replacements[replacement.From] = replacement.To
 	}
 
-	// Track operations
-	stats := &OperationStats{}
+	// Track operations - stats parameter is already provided
 
 	// Install each module silently
 	for _, module := range lockFile.Modules {
@@ -420,68 +297,97 @@ func (dm *DependencyManager) installModulesFromLockFileSilent(ctx context.Contex
 		wasInstalled, oldVersion := dm.isModuleInstalledFromLockFile(module, lockFile)
 
 		// Install module with status output
-		actuallyInstalled, err := dm.installModuleFromLockFileWithStatus(ctx, module, replacements, lockPath, lockFile)
+		actuallyInstalled, err := dm.installModuleFromLockFileWithStatus(ctx, module, replacements, lockPath, lockFile, stats)
 		if err != nil {
-			return nil, fmt.Errorf("install module %s: %w", module.Name, err)
+			return fmt.Errorf("install module %s: %w", module.Name, err)
 		}
 
-		// Only record the operation if module was actually installed
+		// Record the operation based on what actually happened
 		if actuallyInstalled {
-			// Record the operation
-			var action string
+			// Record the operation using the appropriate method
 			if wasInstalled {
-				stats.Updated++
-				action = "updated"
+				// Check if it's actually an update (different version) or just a reinstall (same version)
+				if oldVersion != module.Version {
+					stats.AddUpdated(module.Name, module.Version, oldVersion)
+				} else {
+					stats.AddSkipped(module.Name, module.Version)
+				}
 			} else {
-				stats.Installed++
-				action = "installed"
+				stats.AddInstalled(module.Name, module.Version)
 			}
-
-			stats.Modules = append(stats.Modules, ModuleOperation{
-				Name:       module.Name,
-				Version:    module.Version,
-				OldVersion: oldVersion,
-				Action:     action,
-			})
+		} else {
+			// Module was skipped (already installed or other reason)
+			// Check if it was already installed to determine the reason
+			if wasInstalled {
+				// Module was already installed with the same version - skip
+				stats.AddSkipped(module.Name, module.Version)
+			}
+			// If wasInstalled is false and actuallyInstalled is false,
+			// it means there was an error or the module was skipped for another reason
+			// The AddSkipped call is already handled in installModuleFromLockFileWithStatus
 		}
 	}
 
-	return stats, nil
+	return nil
 }
 
 // isModuleInstalledFromLockFile checks if a module is already installed based on lock file
 // Returns true if installed and the old version string
 func (dm *DependencyManager) isModuleInstalledFromLockFile(module moduleloader.LockedModule, lockFile *moduleloader.LockFile) (bool, string) {
+	// Parse module name to get organization and module parts
+	name, err := moduleloader.ParseName(module.Name)
+	if err != nil {
+		dm.logger.Debug("Failed to parse module name", zap.Error(err))
+		return false, ""
+	}
+
 	// Check if any module directory exists for this module
-	moduleBaseDir := filepath.Join(lockFile.Directories.Modules, module.Name)
-	if _, err := os.Stat(moduleBaseDir); err != nil {
+	// Structure: .wippy/organization/ (contains module@hash directories)
+	organizationDir := filepath.Join(lockFile.Directories.Modules, name.Organization)
+
+	if _, err := os.Stat(organizationDir); err != nil {
 		return false, ""
 	}
 
 	// Look for module directories with commit hash pattern
-	entries, err := os.ReadDir(moduleBaseDir)
+	entries, err := os.ReadDir(organizationDir)
 	if err != nil {
 		return false, ""
 	}
 
+	// Check if the exact module with the same hash is already installed
+	expectedDirName := name.Module + "@" + module.Hash
+
 	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), module.Name+"@") {
-			// Extract version from directory name (format: module@version)
-			dirName := entry.Name()
-			if atIndex := strings.LastIndex(dirName, "@"); atIndex != -1 {
-				oldVersion := dirName[atIndex+1:]
-				return true, oldVersion
-			}
-			return true, "unknown"
+		if entry.IsDir() && entry.Name() == expectedDirName {
+			// Module is already installed with the same hash (same version)
+			return true, module.Version
 		}
 	}
 
+	// Check if module is installed with different hash (different version)
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), name.Module+"@") {
+			// Extract hash from directory name (format: module@hash)
+			dirName := entry.Name()
+			if atIndex := strings.LastIndex(dirName, "@"); atIndex != -1 {
+				oldHash := dirName[atIndex+1:]
+				// Find the version for this hash in the lock file
+				for _, lockModule := range lockFile.Modules {
+					if lockModule.Name == module.Name && lockModule.Hash == oldHash {
+						return true, lockModule.Version
+					}
+				}
+				return true, "unknown"
+			}
+		}
+	}
 	return false, ""
 }
 
 // installModuleFromLockFileWithStatus installs a single module from lock file with status reporting
 // Returns true if module was actually installed, false if it was skipped
-func (dm *DependencyManager) installModuleFromLockFileWithStatus(ctx context.Context, module moduleloader.LockedModule, replacements map[string]string, _ string, lockFile *moduleloader.LockFile) (bool, error) {
+func (dm *DependencyManager) installModuleFromLockFileWithStatus(ctx context.Context, module moduleloader.LockedModule, replacements map[string]string, _ string, lockFile *moduleloader.LockFile, _ *ModuleOperationStats) (bool, error) {
 	dm.logger.Debug("Installing module from lock file",
 		zap.String("name", module.Name),
 		zap.String("version", module.Version))
@@ -489,7 +395,6 @@ func (dm *DependencyManager) installModuleFromLockFileWithStatus(ctx context.Con
 	// Check if this module has a replacement
 	if _, hasReplacement := replacements[module.Name]; hasReplacement {
 		// Use the custom path from replacement
-		// dm.logger.Info(fmt.Sprintf(" - Installing %s: %s (from replacement)", module.Name, module.Version))
 		return true, nil
 	}
 
@@ -501,7 +406,6 @@ func (dm *DependencyManager) installModuleFromLockFileWithStatus(ctx context.Con
 
 	// Check if module is already installed but with different version (skip)
 	if wasInstalled, _ := dm.isModuleInstalledFromLockFile(module, lockFile); wasInstalled {
-		dm.logger.Info(fmt.Sprintf(" - Skipping %s: %s", module.Name, module.Version))
 		return false, nil // Already installed with different version, skip
 	}
 
@@ -795,8 +699,6 @@ func (dm *DependencyManager) loadExistingLockFile() (*moduleloader.LockFile, str
 // CleanupUnusedModules removes module directories that are not listed in the new lock file
 // Returns a list of removed module names for further use
 func (dm *DependencyManager) CleanupUnusedModules(_ context.Context, newLockFile *moduleloader.LockFile) ([]string, error) {
-	// dm.logger.Info("Cleaning up unused modules")
-
 	// Get the modules directory from the new lock file
 	modulesDir := newLockFile.Directories.Modules
 	if modulesDir == "" {
@@ -886,9 +788,9 @@ func (dm *DependencyManager) CleanupUnusedModules(_ context.Context, newLockFile
 
 			// Check if this directory should exist according to the new lock file
 			if !expectedModules[relPath] {
-				dm.logger.Info("Removing unused module directory",
-					zap.String("path", modulePath),
-					zap.String("relative_path", relPath))
+				// dm.logger.Info("Removing unused module directory",
+				//	zap.String("path", modulePath),
+				//	zap.String("relative_path", relPath))
 
 				// Extract module name from the directory path for reporting
 				moduleName := dm.extractModuleNameFromPath(relPath)
@@ -916,10 +818,6 @@ func (dm *DependencyManager) CleanupUnusedModules(_ context.Context, newLockFile
 			}
 		}
 	}
-
-	// dm.logger.Info("Module cleanup completed",
-	//	zap.Int("removed_count", len(removedModules)),
-	//	zap.Strings("removed_modules", removedModules))
 
 	return removedModules, nil
 }
@@ -951,8 +849,6 @@ func (dm *DependencyManager) extractModuleNameFromPath(relPath string) string {
 // This function looks inside module directories and removes subdirectories
 // that don't match the expected version from the lock file
 func (dm *DependencyManager) CleanupModuleContent(_ context.Context, newLockFile *moduleloader.LockFile) []string {
-	// dm.logger.Info("Cleaning up unused module content")
-
 	// Get the modules directory from the new lock file
 	modulesDir := newLockFile.Directories.Modules
 	if modulesDir == "" {
@@ -1014,10 +910,6 @@ func (dm *DependencyManager) CleanupModuleContent(_ context.Context, newLockFile
 
 		removedContent = append(removedContent, removed...)
 	}
-
-	// dm.logger.Info("Module content cleanup completed",
-	//	zap.Int("removed_count", len(removedContent)),
-	//	zap.Strings("removed_content", removedContent))
 
 	return removedContent
 }
@@ -1150,46 +1042,19 @@ func (dm *DependencyManager) isVersionString(s string) bool {
 	return true
 }
 
-// CleanupAllUnusedModules performs both module cleanup and module content cleanup
-// This is the main function that should be called to clean up unused modules and their content
-func (dm *DependencyManager) CleanupAllUnusedModules(ctx context.Context, _ string, newLockFile *moduleloader.LockFile) (*OperationStats, error) {
-	// dm.logger.Info("Starting comprehensive module cleanup")
-
+// CleanupAllUnusedModules removes unused module directories and records statistics
+// This is the main cleanup function that should be called after dependency updates
+func (dm *DependencyManager) CleanupAllUnusedModules(ctx context.Context, _ string, newLockFile *moduleloader.LockFile, stats *ModuleOperationStats) error {
 	// First, clean up unused modules (entire module directories)
 	removedModules, err := dm.CleanupUnusedModules(ctx, newLockFile)
 	if err != nil {
-		return nil, fmt.Errorf("cleanup unused modules: %w", err)
-	}
-
-	//// Then, clean up unused content within existing modules
-	// removedContent, err := dm.CleanupModuleContent(ctx, newLockFile)
-	// if err != nil {
-	//	return nil, fmt.Errorf("cleanup module content: %w", err)
-	//}
-
-	// Create operation stats
-	stats := &OperationStats{
-		Installed: 0,
-		Updated:   0,
-		Removed:   len(removedModules),
-		Modules:   make([]ModuleOperation, 0, len(removedModules)),
+		return fmt.Errorf("cleanup unused modules: %w", err)
 	}
 
 	// Add removed modules to stats
 	for _, moduleName := range removedModules {
-		stats.Modules = append(stats.Modules, ModuleOperation{
-			Name:       moduleName,
-			Version:    "",
-			OldVersion: "",
-			Action:     "removed",
-		})
+		stats.AddRemoved(moduleName, "unknown") // Version not available for removed modules
 	}
 
-	// dm.logger.Info("Comprehensive module cleanup completed",
-	//	zap.Int("removed_modules", len(removedModules)),
-	//	zap.Int("removed_content", len(removedContent)),
-	//	zap.Strings("removed_modules", removedModules),
-	//	zap.Strings("removed_content", removedContent))
-
-	return stats, nil
+	return nil
 }

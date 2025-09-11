@@ -213,7 +213,8 @@ func TestCleanupAllUnusedModules(t *testing.T) {
 	}
 
 	// Run comprehensive cleanup
-	stats, err := dm.CleanupAllUnusedModules(context.Background(), modulesDir, lockFile)
+	stats := NewModuleOperationStats()
+	err = dm.CleanupAllUnusedModules(context.Background(), modulesDir, lockFile, stats)
 	if err != nil {
 		t.Fatalf("CleanupAllUnusedModules failed: %v", err)
 	}

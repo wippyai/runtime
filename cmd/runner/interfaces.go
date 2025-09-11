@@ -17,7 +17,6 @@ type DependencyInstaller interface {
 // ModuleStatsProvider defines the interface for providing module statistics
 type ModuleStatsProvider interface {
 	GetModuleStats() []moduleloader.ModuleStats
-	DisplayModuleStatistics(stats []moduleloader.ModuleStats)
 }
 
 // LockFileManager defines the interface for lock file operations
