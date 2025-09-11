@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/ponyruntime/pony/moduleloader"
 )
 
@@ -24,14 +22,18 @@ type ModuleOperationStats struct {
 
 	// Removed module names (for display purposes)
 	RemovedModuleNames []string // Names of removed modules for logging
+
+	// Verbose flag to control output detail
+	Verbose bool // Whether to show detailed output including skipped modules
 }
 
 // NewModuleOperationStats creates a new empty statistics structure
-func NewModuleOperationStats() *ModuleOperationStats {
+func NewModuleOperationStats(verbose bool) *ModuleOperationStats {
 	return &ModuleOperationStats{
 		Operations:         make([]ModuleOperation, 0),
 		ModuleStats:        make([]moduleloader.ModuleStats, 0),
 		RemovedModuleNames: make([]string, 0),
+		Verbose:            verbose,
 	}
 }
 
@@ -115,14 +117,6 @@ func (s *ModuleOperationStats) AddSkipped(moduleName, version string) {
 		Action:  ActionSkipped,
 	}
 	s.Operations = append(s.Operations, operation)
-}
-
-// ShowResults displays the operation results in a formatted way
-// This method should be called on DependencyManager, not directly on ModuleOperationStats
-// Use DependencyManager.ShowResults(stats) instead
-func (s *ModuleOperationStats) ShowResults() {
-	fmt.Println("WARNING: ShowResults() should be called on DependencyManager, not directly on ModuleOperationStats")
-	fmt.Println("Use DependencyManager.ShowResults(stats) instead")
 }
 
 // Reset clears all statistics and resets all counters to zero

@@ -275,7 +275,7 @@ func (ic *UpdateCommand) executeUpdate(ctx context.Context, commonFlags *CommonF
 
 	// Update dependencies
 	depsManager := NewDependencyManager(ic.runner.config, ic.runner.logger)
-	stats := NewModuleOperationStats()
+	stats := NewModuleOperationStats(commonFlags.Verbose)
 	if err := depsManager.UpdateDependenciesWithRemovedModules(ctx, stats); err != nil {
 		return fmt.Errorf("failed to update dependencies: %w", err)
 	}

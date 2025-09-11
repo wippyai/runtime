@@ -444,7 +444,7 @@ func TestInstallAfterCleanup(t *testing.T) {
 	}
 
 	// Test cleanup - should remove the old module
-	stats := NewModuleOperationStats()
+	stats := NewModuleOperationStats(false) // Test with non-verbose mode
 	err = dm.CleanupAllUnusedModules(context.Background(), ".", lockFile, stats)
 	if err != nil {
 		t.Fatalf("Cleanup failed: %v", err)

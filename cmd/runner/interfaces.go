@@ -10,7 +10,6 @@ import (
 // DependencyInstaller defines the interface for dependency installation operations
 type DependencyInstaller interface {
 	InstallDependencies(ctx context.Context) error
-	InstallDependenciesSilent(ctx context.Context) (*OperationStats, error)
 	UpdateDependencies(ctx context.Context) error
 }
 

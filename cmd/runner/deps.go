@@ -30,15 +30,6 @@ type ModuleOperation struct {
 	Action     string // Operation type: "installed", "updated", "removed"
 }
 
-// OperationStats tracks aggregated module operations (legacy structure)
-type OperationStats struct {
-	Installed   int
-	Updated     int
-	Removed     int
-	Modules     []ModuleOperation
-	ModuleStats []moduleloader.ModuleStats
-}
-
 // DependencyManager handles dependency installation, updates, and cleanup
 type DependencyManager struct {
 	config         *Config
@@ -62,8 +53,8 @@ func NewDependencyManager(config *Config, logger *zap.Logger) *DependencyManager
 func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
 	dm.logger.Info(LogInstallingDependencies)
 
-	// Create statistics tracker
-	stats := NewModuleOperationStats()
+	// Create statistics tracker with verbose flag from config
+	stats := NewModuleOperationStats(dm.config.Verbose)
 	return dm.InstallDependenciesWithStats(ctx, stats)
 }
 
@@ -97,7 +88,7 @@ func (dm *DependencyManager) InstallDependenciesWithStats(ctx context.Context, s
 // UpdateDependencies updates dependencies and regenerates lock file
 // Delegates to UpdateDependenciesWithRemovedModules for full functionality
 func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
-	stats := NewModuleOperationStats()
+	stats := NewModuleOperationStats(dm.config.Verbose)
 	return dm.UpdateDependenciesWithStats(ctx, stats)
 }
 
