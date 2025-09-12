@@ -26,14 +26,20 @@ type Manager struct {
 }
 
 // NewManager creates a new logging service instance
-func NewManager(bus event.Bus, core api.Core, logger *zap.Logger, level zapcore.Level) *Manager {
+func NewManager(
+	bus event.Bus,
+	core api.Core,
+	logger *zap.Logger,
+	level zapcore.Level,
+	eventForwarding bool,
+) *Manager {
 	return &Manager{
 		log:  logger,
 		bus:  bus,
 		core: core,
 		config: api.Config{
-			PropagateDownstream: true,
-			StreamToEvents:      true,
+			PropagateDownstream: eventForwarding,
+			StreamToEvents:      eventForwarding,
 			MinLevel:            level,
 		},
 	}

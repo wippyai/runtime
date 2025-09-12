@@ -152,7 +152,7 @@ func (ic *InitCommand) Execute(_ context.Context, flags []string, _ []string) er
 	if verbose {
 		ic.runner.config.Verbose = true
 		// Reinitialize logger with verbose settings
-		logger, err := initMainLogger(true, false)
+		logger, err := initMainLogger(true, false, false)
 		if err != nil {
 			return fmt.Errorf("failed to initialize verbose logger: %w", err)
 		}
@@ -226,7 +226,7 @@ func (ic *InstallCommand) Execute(ctx context.Context, flags []string, args []st
 	if verbose {
 		ic.runner.config.Verbose = true
 		// Reinitialize logger with verbose settings
-		logger, err := initMainLogger(true, false)
+		logger, err := initMainLogger(true, false, false)
 		if err != nil {
 			return fmt.Errorf("failed to initialize verbose logger: %w", err)
 		}
@@ -347,7 +347,7 @@ func (ic *UpdateCommand) Execute(ctx context.Context, flags []string, args []str
 	if verbose {
 		ic.runner.config.Verbose = true
 		// Reinitialize logger with verbose settings
-		logger, err := initMainLogger(true, false)
+		logger, err := initMainLogger(true, false, false)
 		if err != nil {
 			return fmt.Errorf("failed to initialize verbose logger: %w", err)
 		}
@@ -415,7 +415,7 @@ func (ic *RunCommand) Execute(_ context.Context, flags []string, args []string) 
 	if verbose {
 		ic.runner.config.Verbose = true
 		// Reinitialize logger with verbose settings
-		logger, err := initMainLogger(true, false)
+		logger, err := initMainLogger(true, false, false)
 		if err != nil {
 			return fmt.Errorf("failed to initialize verbose logger: %w", err)
 		}

@@ -2,6 +2,7 @@ package logs
 
 import (
 	"context"
+	"log"
 	"sync/atomic"
 
 	api "github.com/ponyruntime/pony/api/logs"
@@ -77,7 +78,7 @@ func (c *Core) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.Check
 // Write implements zapcore.Core
 func (c *Core) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 	cfg := c.config.Load().(api.Config)
-
+	log.Printf("WRRRRRRRITE")
 	// Handle downstream propagation
 	if cfg.PropagateDownstream {
 		if err := c.downstream.Write(ent, fields); err != nil {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+	"github.com/fatih/color"
 	"github.com/pkg/errors"
 	"github.com/ponyruntime/pony/moduleloader"
 	"go.uber.org/zap"
@@ -25,6 +26,28 @@ const (
 	DefaultClusterPort = 7946
 )
 
+var (
+	appStartTime = time.Now()
+
+	levelColors = map[zapcore.Level]*color.Color{
+		zapcore.DebugLevel: color.New(color.FgCyan),
+		zapcore.InfoLevel:  color.New(color.FgGreen),
+		zapcore.WarnLevel:  color.New(color.FgYellow),
+		zapcore.ErrorLevel: color.New(color.FgRed),
+		zapcore.PanicLevel: color.New(color.FgMagenta),
+		zapcore.FatalLevel: color.New(color.FgMagenta, color.Bold),
+	}
+
+	componentColors = []*color.Color{
+		color.New(color.FgBlue),
+		color.New(color.FgMagenta),
+		color.New(color.FgCyan),
+		color.New(color.FgYellow),
+		color.New(color.FgGreen),
+		color.New(color.FgRed),
+	}
+)
+
 // Config holds all application configuration
 type Config struct {
 	// Core application
@@ -32,8 +55,10 @@ type Config struct {
 	UseEmbed   bool
 
 	// Logging
-	Verbose     bool
-	VeryVerbose bool
+	Verbose        bool
+	VeryVerbose    bool
+	ConsoleLogging bool
+	LogEvents      bool
 
 	// Performance
 	EnableProfiling bool
@@ -52,12 +77,74 @@ type Config struct {
 	LockFile string
 }
 
-func initMainLogger(verbose, veryVerbose bool) (*zap.Logger, error) {
-	cfg := zap.NewDevelopmentConfig()
+func consoleTimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+	elapsed := t.Sub(appStartTime)
+	enc.AppendString(fmt.Sprintf("%6.2fs", elapsed.Seconds()))
+}
+
+func consoleLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
+	if levelColor, ok := levelColors[level]; ok {
+		enc.AppendString(levelColor.Sprintf("%-5s", level.CapitalString()))
+	} else {
+		enc.AppendString(fmt.Sprintf("%-5s", level.CapitalString()))
+	}
+}
+
+func consoleNameEncoder(loggerName string, enc zapcore.PrimitiveArrayEncoder) {
+	if loggerName == "" {
+		enc.AppendString("")
+		return
+	}
+
+	hash := 0
+	for _, r := range loggerName {
+		hash = hash*31 + int(r)
+	}
+	colorIndex := (hash % len(componentColors))
+	if colorIndex < 0 {
+		colorIndex = -colorIndex
+	}
+
+	componentColor := componentColors[colorIndex]
+	enc.AppendString(componentColor.Sprintf("%-12s", loggerName))
+}
+
+func initMainLogger(verbose, veryVerbose, console bool) (*zap.Logger, error) {
+	var cfg zap.Config
+
+	if console {
+		cfg = zap.Config{
+			Level:       zap.NewAtomicLevelAt(zapcore.InfoLevel),
+			Development: true,
+			Encoding:    "console",
+			EncoderConfig: zapcore.EncoderConfig{
+				TimeKey:       "time",
+				LevelKey:      "level",
+				NameKey:       "name",
+				CallerKey:     "",
+				MessageKey:    "msg",
+				StacktraceKey: "",
+				LineEnding:    zapcore.DefaultLineEnding,
+				EncodeTime:    consoleTimeEncoder,
+				EncodeLevel:   consoleLevelEncoder,
+				EncodeName:    consoleNameEncoder,
+				EncodeCaller:  nil,
+			},
+			OutputPaths:      []string{"stdout"},
+			ErrorOutputPaths: []string{"stderr"},
+		}
+	} else {
+		cfg = zap.NewDevelopmentConfig()
+		cfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
+		cfg.DisableCaller = true
+	}
 
 	switch {
 	case veryVerbose:
 		cfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+		if !console {
+			cfg.DisableStacktrace = false
+		}
 	case verbose:
 		cfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
 		cfg.DisableStacktrace = true
@@ -65,12 +152,6 @@ func initMainLogger(verbose, veryVerbose bool) (*zap.Logger, error) {
 		cfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
 		cfg.DisableStacktrace = true
 	}
-	// Remove file and line number from logs
-	cfg.DisableCaller = true
-
-	cfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
-	// Remove file and line number from logs
-	cfg.DisableCaller = true
 
 	log, err := cfg.Build()
 	if err != nil {
@@ -89,6 +170,13 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.VeryVerbose, "vv", false, "enable very verbose debug logging with stack traces")
 	flag.BoolVar(&config.EnableProfiling, "p", false, "enable performance profiling")
 	flag.BoolVar(&config.UseEmbed, "use-embed", false, "use embedded files")
+
+	// Console logging flags
+	flag.BoolVar(&config.ConsoleLogging, "c", false, "enable colorful humanized console logging")
+	flag.BoolVar(&config.ConsoleLogging, "console", false, "enable colorful humanized console logging")
+
+	// Event forwarding flag
+	flag.BoolVar(&config.LogEvents, "log-events", false, "enable forwarding logs to event bus")
 
 	// Cluster flags (new)
 	flag.BoolVar(&config.ClusterEnabled, "cluster", false, "enable cluster membership")
@@ -141,7 +229,7 @@ func main() {
 	config := parseFlags()
 
 	// Initialize logger at the top level
-	logger, err := initMainLogger(config.Verbose, config.VeryVerbose)
+	logger, err := initMainLogger(config.Verbose, config.VeryVerbose, config.ConsoleLogging)
 	if err != nil {
 		fmt.Printf("Failed to create application: %v\n", err)
 		os.Exit(1)

@@ -133,17 +133,18 @@ func NewApp(
 	// Initialize event bus
 	bus := eventbus.NewBus()
 
-	// Use the provided logger and create a core for it
-	appLogger := logger.Named("")
+	// Create core wrapper for event bus integration
 	core := logs.NewCore(logger.Core(), bus)
+	// Create app logger using the wrapped core
+	appLogger := zap.New(core)
 
 	level := zapcore.InfoLevel
 	if config.Verbose || config.VeryVerbose {
 		level = zapcore.DebugLevel
 	}
 
-	// Initialize log manager
-	logManager := logs.NewManager(bus, core, logger.Named("logs"), level)
+	// Initialize log manager with event forwarding control
+	logManager := logs.NewManager(bus, core, appLogger.Named("logs"), level, config.LogEvents)
 
 	// Initialize transcoder
 	dtt := transcoder.GlobalTranscoder()

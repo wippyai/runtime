@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// todo: move it closer to topology dep
 func NewAdjuster(logger *zap.Logger) *Adjuster {
 	return &Adjuster{
 		logger: logger,
