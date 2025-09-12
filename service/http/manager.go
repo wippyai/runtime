@@ -620,6 +620,11 @@ func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	// set meta if applicable
+	if metaHolder, ok := interface{}(cfg).(interface{ SetMeta(registry.Metadata) }); ok {
+		metaHolder.SetMeta(entry.Meta)
+	}
+
 	// Validate if the config implements Validate()
 	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
