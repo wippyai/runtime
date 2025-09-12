@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -31,10 +31,9 @@ import (
 	topapi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/cluster/internode"
 	"github.com/ponyruntime/pony/cluster/membership"
-	"github.com/ponyruntime/pony/dependsadjuster"
 	"github.com/ponyruntime/pony/deps"
+	requirementresolver2 "github.com/ponyruntime/pony/deps/requirementresolver"
 	"github.com/ponyruntime/pony/embed"
-	"github.com/ponyruntime/pony/requirementresolver"
 	contractsys "github.com/ponyruntime/pony/system/contract"
 	"github.com/ponyruntime/pony/system/env"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -61,16 +60,77 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	// supported dbs
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 )
 
+type appConfig struct {
+	folderPath     string
+	lockFilePath   string
+	modulesDirPath string
+	lockFileDir    string
+	useEmbed       bool
+
+	consoleLogging bool
+	eventStreaming bool
+	minLevel       zapcore.Level
+
+	enableProfiling bool
+
+	clusterEnabled    bool
+	clusterName       string
+	clusterBind       string
+	clusterPort       int
+	clusterJoin       string
+	clusterSecret     string
+	clusterSecretFile string
+	clusterAdvertise  string
+}
+
+type AppOption func(*appConfig)
+
+func WithCluster(enabled bool, name, bind string, port int, join, secret, secretFile, advertise string) AppOption {
+	return func(c *appConfig) {
+		c.clusterEnabled = enabled
+		c.clusterName = name
+		c.clusterBind = bind
+		c.clusterPort = port
+		c.clusterJoin = join
+		c.clusterSecret = secret
+		c.clusterSecretFile = secretFile
+		c.clusterAdvertise = advertise
+	}
+}
+
+func WithPaths(folderPath, lockFilePath, modulesDirPath, lockFileDir string, useEmbed bool) AppOption {
+	return func(c *appConfig) {
+		c.folderPath = folderPath
+		c.lockFilePath = lockFilePath
+		c.modulesDirPath = modulesDirPath
+		c.lockFileDir = lockFileDir
+		c.useEmbed = useEmbed
+	}
+}
+
+func WithLogging(consoleLogging, eventStreaming bool, minLevel zapcore.Level) AppOption {
+	return func(c *appConfig) {
+		c.consoleLogging = consoleLogging
+		c.eventStreaming = eventStreaming
+		c.minLevel = minLevel
+	}
+}
+
+func WithProfiling(enabled bool) AppOption {
+	return func(c *appConfig) {
+		c.enableProfiling = enabled
+	}
+}
+
 type App struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
-	config      *Config
+	config      appConfig
 	logger      *zap.Logger
 	logCore     logapi.Core
 	logManager  *logs.Manager
@@ -90,23 +150,15 @@ type App struct {
 	resources   *resource.Registry
 	interceptor *interceptor.Registry
 
-	// contract system
 	contractRegistry     *contractsys.Registry
 	contractInstantiator *contractsys.Instantiator
 
-	// lock file configuration - all paths are absolute
-	lockFilePath   string
-	modulesDirPath string
-	lockFileDir    string
-
-	// mesh layer
 	node       *pubsub.NodeManager
-	router     pubsubapi.Receiver // The main message router for the application
+	router     pubsubapi.Receiver
 	topo       *topology.Topology
 	pidReg     *topology.PIDRegistry
-	membership *membership.Service // cluster membership service
+	membership *membership.Service
 
-	// internode communication (cluster only)
 	internodeService *internode.Service
 	connManager      internode.ConnectionManager
 	messageCodec     *internode.MessageCodec
@@ -116,210 +168,67 @@ type App struct {
 	otelCleanup   func()
 }
 
-func NewApp(
-	config *Config,
-	logger *zap.Logger,
-	lockFile string,
-	modulesDir string,
-	lockFileDir string,
-) (*App, error) {
-	// Set memory limit only if GOMEMLIMIT is not already set
+func NewApp(logger *zap.Logger, opts ...AppOption) (*App, error) {
 	if os.Getenv("GOMEMLIMIT") == "" {
-		debug.SetMemoryLimit(1 * 1024 * 1024 * 1024) // 1GB
+		debug.SetMemoryLimit(1 * 1024 * 1024 * 1024)
+	}
+
+	config := appConfig{
+		consoleLogging: true,
+		eventStreaming: false,
+		minLevel:       zapcore.InfoLevel,
+	}
+	for _, opt := range opts {
+		opt(&config)
 	}
 
 	appCtx, cancel := context.WithCancel(context.Background())
 
-	// Initialize event bus
 	bus := eventbus.NewBus()
 
-	// Create core wrapper for event bus integration
 	core := logs.NewCore(logger.Core(), bus)
-	// Create app logger using the wrapped core
 	appLogger := zap.New(core)
 
-	level := zapcore.InfoLevel
-	if config.Verbose || config.VeryVerbose {
-		level = zapcore.DebugLevel
-	}
-
-	// Initialize log manager with event forwarding control
-	logManager := logs.NewManager(bus, core, appLogger.Named("logs"), level, config.LogEvents)
-
-	// Initialize transcoder
 	dtt := transcoder.GlobalTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
 	lua.Register(dtt)
 
 	app := &App{
-		ctx:            appCtx,
-		cancel:         cancel,
-		config:         config,
-		logger:         appLogger,
-		logCore:        core,
-		logManager:     logManager,
-		eventBus:       bus,
-		services:       nil,
-		dtt:            dtt,
-		forceShutdown:  make(chan struct{}),
-		lockFilePath:   lockFile,
-		modulesDirPath: modulesDir,
-		lockFileDir:    lockFileDir,
-	}
-
-	// Initialize mesh layer based on cluster mode
-	if config.ClusterEnabled {
-		if err := app.initClusterMesh(); err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to initialize cluster mesh: %w", err)
-		}
-	} else {
-		app.initSingleNodeMesh()
+		ctx:           appCtx,
+		cancel:        cancel,
+		config:        config,
+		logger:        appLogger,
+		logCore:       core,
+		eventBus:      bus,
+		services:      nil,
+		dtt:           dtt,
+		forceShutdown: make(chan struct{}),
 	}
 
 	return app, nil
 }
 
-// initSingleNodeMesh initializes mesh layer for single node mode
-func (a *App) initSingleNodeMesh() {
-	nodeName := a.config.ClusterName
-	localNode := pubsub.NewNode(nodeName)
-
-	a.node = pubsub.NewNodeManager(
-		localNode,
-		a.eventBus,
-		a.logger.Named("pubsub"),
-	)
-	// Create a router that only knows about the local node
-	a.router = pubsub.NewRouter(localNode, nil)
-
-	a.topo = topology.NewTopology(a.node.Node())
-	a.pidReg = topology.NewPIDRegistry(topology.PIDRegistryConfig{
-		Parent: nil,
-		Logger: a.logger.Named("pid"),
-	})
-}
-
-// initClusterMesh initializes mesh layer for cluster mode with internode integration
-func (a *App) initClusterMesh() error {
-	// Parse join addresses
-	var joinAddrs []string
-	if a.config.ClusterJoin != "" {
-		for _, addr := range strings.Split(a.config.ClusterJoin, ",") {
-			joinAddrs = append(joinAddrs, strings.TrimSpace(addr))
-		}
-	}
-
-	// STEP 1: Create and PRE-START connection manager to allocate port
-	a.messageCodec = internode.NewMessageCodec(a.dtt)
-
-	connManagerConfig := internode.DefaultManagerConfig()
-	connManagerConfig.LocalNodeID = a.config.ClusterName
-	connManagerConfig.BindAddr = "0.0.0.0"
-	connManagerConfig.AutoPort = true
-	connManagerConfig.Logger = a.logger
-
-	a.connManager = internode.NewConnectionManager(connManagerConfig)
-
-	// Pre-start the connection manager to allocate the port
-	// We'll use a dummy callback for now since we don't have the delivery callback yet
-	tempCtx, tempCancel := context.WithCancel(context.Background())
-	dummyCallback := func(_ cluster.NodeID, _ []byte) {
-		// This won't be called during port allocation
-	}
-
-	if err := a.connManager.Start(tempCtx, dummyCallback); err != nil {
-		tempCancel()
-		return fmt.Errorf("failed to pre-start connection manager for port allocation: %w", err)
-	}
-
-	// STEP 2: Get the actual allocated port
-	actualPort := a.connManager.GetListenPort()
-	a.logger.Info("Pre-allocated internode port", zap.Int("port", actualPort))
-
-	// STEP 3: Stop the connection manager (we'll restart it later with proper callback)
-	if err := a.connManager.Stop(); err != nil {
-		tempCancel()
-		return fmt.Errorf("failed to stop connection manager after port allocation: %w", err)
-	}
-	tempCancel()
-
-	// STEP 4: Build node metadata with the correct port
-	nodeMeta := cluster.NodeMeta{
-		"version":        "1.0.0",
-		"role":           "wippy",
-		"internode_port": strconv.Itoa(actualPort), // Use the actual port!
-	}
-
-	// STEP 5: Create membership service with correct metadata
-	memberConfig := membership.Config{
-		NodeName:     a.config.ClusterName,
-		BindAddr:     a.config.ClusterBind,
-		BindPort:     a.config.ClusterPort,
-		JoinAddrs:    joinAddrs,
-		SecretFile:   a.config.ClusterSecretFile,
-		SecretString: a.config.ClusterSecret,
-		AdvertiseIP:  a.config.ClusterAdvertise,
-		VeryVerbose:  a.config.VeryVerbose,
-		Meta:         nodeMeta,
-	}
-
-	a.membership = membership.NewService(memberConfig, a.eventBus, a.logger.Named("cluster"))
-
-	// STEP 6: Create pubsub components using the Router architecture
-	a.logger.Info("Initializing pubsub router architecture")
-
-	// Create the local-only node. It does not know about any upstreams.
-	localNode := pubsub.NewNode(a.config.ClusterName)
-
-	// The delivery callback for the internode service passes incoming packages
-	// to the local node for final delivery.
-	pkgCallback := func(pkg *pubsubapi.Package) error {
-		return localNode.Send(pkg)
-	}
-
-	// Create the internode service which handles communication with other nodes.
-	a.internodeService = internode.NewService(
-		a.logger,
-		a.connManager,
-		a.messageCodec,
-		pkgCallback,
-		a.eventBus,
-		a.membership,
-	)
-
-	// Create the router. It's the central point for sending messages.
-	// It knows about the local node and the internode service for remote messages.
-	a.router = pubsub.NewRouter(localNode, a.internodeService)
-
-	// The NodeManager still manages the lifecycle of the local node.
-	a.node = pubsub.NewNodeManager(
-		localNode,
-		a.eventBus,
-		a.logger.Named("pubsub"),
-	)
-
-	// Create topology components
-	a.topo = topology.NewTopology(a.node.Node())
-	a.pidReg = topology.NewPIDRegistry(topology.PIDRegistryConfig{
-		Parent: nil,
-		Logger: a.logger.Named("pid"),
-	})
-
-	a.logger.Info("cluster mesh with internode initialized",
-		zap.String("node_name", a.config.ClusterName),
-		zap.Int("internode_port", actualPort),
-		zap.Strings("join_addresses", joinAddrs),
-		zap.Bool("encryption_enabled", a.config.ClusterSecretFile != "" || a.config.ClusterSecret != ""))
-
-	return nil
-}
-
 func (a *App) Initialize() error {
-	// Start log manager first for proper logging
+	logConfig := logapi.Config{
+		PropagateDownstream: a.config.consoleLogging,
+		StreamToEvents:      a.config.eventStreaming,
+		MinLevel:            a.config.minLevel,
+	}
+
+	logManager := logs.NewManager(a.eventBus, a.logCore, a.logger.Named("logs"), logConfig)
+	a.logManager = logManager
+
 	if err := a.logManager.Start(a.ctx); err != nil {
 		return fmt.Errorf("failed to start log manager: %w", err)
+	}
+
+	if a.config.clusterEnabled {
+		if err := a.initClusterMesh(); err != nil {
+			return fmt.Errorf("failed to initialize cluster mesh: %w", err)
+		}
+	} else {
+		a.initSingleNodeMesh()
 	}
 
 	a.security = security.NewPolicyRegistry(a.eventBus, a.logger.Named("security"))
@@ -327,7 +236,6 @@ func (a *App) Initialize() error {
 		return fmt.Errorf("failed to start security manager: %w", err)
 	}
 
-	// Initialize core components
 	a.reg = registry.NewRegistry(
 		history.NewMemory(),
 		runner.NewBusRunner(a.eventBus, a.logger.Named("runner")),
@@ -337,8 +245,6 @@ func (a *App) Initialize() error {
 
 	a.supervisor = supervisor.NewSupervisor(a.eventBus, a.logger.Named("core"))
 
-	// Initialize mesh hosts
-	// Control host for internal control messages
 	err := a.node.Node().RegisterHost(topapi.ControlHost, pubsub.NewHost(a.ctx, pubsub.HostConfig{
 		BufferSize:  1024,
 		WorkerCount: 16,
@@ -348,7 +254,6 @@ func (a *App) Initialize() error {
 		return fmt.Errorf("failed to register control host: %w", err)
 	}
 
-	// Function host for function execution
 	funcHost := pubsub.NewHost(a.ctx, pubsub.HostConfig{
 		BufferSize:  1024,
 		WorkerCount: 16,
@@ -359,37 +264,150 @@ func (a *App) Initialize() error {
 		return fmt.Errorf("failed to register function host: %w", err)
 	}
 
-	// Initialize filesystem registry
 	a.fsRegistry = fs.NewFSRegistry(a.eventBus, a.logger.Named("fs"))
 
-	// Initialize core registries
 	a.funcs = function.NewFunctionRegistry(a.eventBus, funcHost, a.logger.Named("funcs"))
 	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
 	a.resources = resource.NewResourceRegistry(a.eventBus, a.logger.Named("resources"))
 
-	// Initialize environment registry
 	a.envRegistry = env.NewRegistry(a.eventBus, a.logger.Named("env"))
 
-	// Initialize interceptor registry
 	a.interceptor = interceptor.NewInterceptorRegistry(a.eventBus, a.logger.Named("interceptor"))
 
 	a.processes = process.NewProcessManager(
 		a.hosts,
 		a.prototypes,
-		a.node.Node().ID(), // use node ID for PID generation
+		a.node.Node().ID(),
 		a.logger.Named("processes"),
 	)
 
-	// Initialize contract system
 	a.contractRegistry = contractsys.NewContractRegistry(a.eventBus, a.logger.Named("contracts"))
 	a.contractInstantiator = contractsys.NewContractInstantiator(a.contractRegistry, a.funcs)
 
 	return nil
 }
 
-func (a *App) Start(folderPath string, useEmbed bool) error {
-	// Build context with all required services
+func (a *App) initSingleNodeMesh() {
+	nodeName := a.config.clusterName
+	if nodeName == "" {
+		if hostname, err := os.Hostname(); err == nil {
+			nodeName = hostname
+		} else {
+			nodeName = "local"
+		}
+	}
+
+	localNode := pubsub.NewNode(nodeName)
+
+	a.node = pubsub.NewNodeManager(
+		localNode,
+		a.eventBus,
+		a.logger.Named("pubsub"),
+	)
+	a.router = pubsub.NewRouter(localNode, nil)
+
+	a.topo = topology.NewTopology(a.node.Node())
+	a.pidReg = topology.NewPIDRegistry(topology.PIDRegistryConfig{
+		Parent: nil,
+		Logger: a.logger.Named("pid"),
+	})
+}
+
+func (a *App) initClusterMesh() error {
+	var joinAddrs []string
+	if a.config.clusterJoin != "" {
+		for _, addr := range strings.Split(a.config.clusterJoin, ",") {
+			joinAddrs = append(joinAddrs, strings.TrimSpace(addr))
+		}
+	}
+
+	a.messageCodec = internode.NewMessageCodec(a.dtt)
+
+	connManagerConfig := internode.DefaultManagerConfig()
+	connManagerConfig.LocalNodeID = a.config.clusterName
+	connManagerConfig.BindAddr = "0.0.0.0"
+	connManagerConfig.AutoPort = true
+	connManagerConfig.Logger = a.logger
+
+	a.connManager = internode.NewConnectionManager(connManagerConfig)
+
+	tempCtx, tempCancel := context.WithCancel(context.Background())
+	dummyCallback := func(_ cluster.NodeID, _ []byte) {}
+
+	if err := a.connManager.Start(tempCtx, dummyCallback); err != nil {
+		tempCancel()
+		return fmt.Errorf("failed to pre-start connection manager for port allocation: %w", err)
+	}
+
+	actualPort := a.connManager.GetListenPort()
+	a.logger.Info("Pre-allocated internode port", zap.Int("port", actualPort))
+
+	if err := a.connManager.Stop(); err != nil {
+		tempCancel()
+		return fmt.Errorf("failed to stop connection manager after port allocation: %w", err)
+	}
+	tempCancel()
+
+	nodeMeta := cluster.NodeMeta{
+		"version":        "1.0.0",
+		"role":           "wippy",
+		"internode_port": strconv.Itoa(actualPort),
+	}
+
+	memberConfig := membership.Config{
+		NodeName:     a.config.clusterName,
+		BindAddr:     a.config.clusterBind,
+		BindPort:     a.config.clusterPort,
+		JoinAddrs:    joinAddrs,
+		SecretFile:   a.config.clusterSecretFile,
+		SecretString: a.config.clusterSecret,
+		AdvertiseIP:  a.config.clusterAdvertise,
+		VeryVerbose:  false,
+		Meta:         nodeMeta,
+	}
+
+	a.membership = membership.NewService(memberConfig, a.eventBus, a.logger.Named("cluster"))
+
+	localNode := pubsub.NewNode(a.config.clusterName)
+
+	pkgCallback := func(pkg *pubsubapi.Package) error {
+		return localNode.Send(pkg)
+	}
+
+	a.internodeService = internode.NewService(
+		a.logger,
+		a.connManager,
+		a.messageCodec,
+		pkgCallback,
+		a.eventBus,
+		a.membership,
+	)
+
+	a.router = pubsub.NewRouter(localNode, a.internodeService)
+
+	a.node = pubsub.NewNodeManager(
+		localNode,
+		a.eventBus,
+		a.logger.Named("pubsub"),
+	)
+
+	a.topo = topology.NewTopology(a.node.Node())
+	a.pidReg = topology.NewPIDRegistry(topology.PIDRegistryConfig{
+		Parent: nil,
+		Logger: a.logger.Named("pid"),
+	})
+
+	a.logger.Info("cluster mesh with internode initialized",
+		zap.String("node_name", a.config.clusterName),
+		zap.Int("internode_port", actualPort),
+		zap.Strings("join_addresses", joinAddrs),
+		zap.Bool("encryption_enabled", a.config.clusterSecretFile != "" || a.config.clusterSecret != ""))
+
+	return nil
+}
+
+func (a *App) Start() error {
 	appCtx := a.ctx
 	appCtx = event.WithBus(appCtx, a.eventBus)
 	appCtx = secapi.WithRegistry(appCtx, a.security)
@@ -400,21 +418,14 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	appCtx = funcapi.WithFunctions(appCtx, a.funcs)
 	appCtx = procapi.WithProcesses(appCtx, a.processes)
 	appCtx = resourceapi.WithResources(appCtx, a.resources)
-
-	// Put both the Router and the local Node into the context.
-	// The Router is the general-purpose sender.
-	// The Node is for local management (e.g., registering hosts).
 	appCtx = pubsubapi.WithRouter(appCtx, a.router)
 	appCtx = pubsubapi.WithNode(appCtx, a.node.Node())
-
 	appCtx = topapi.WithTopology(appCtx, a.topo)
 	appCtx = topapi.WithPIDRegistry(appCtx, a.pidReg)
 	appCtx = logapi.WithLogger(appCtx, a.logger)
 	appCtx = apiinterceptor.WithInterceptor(appCtx, a.interceptor)
 	appCtx = contract.WithServices(appCtx, a.contractRegistry, a.contractInstantiator)
 
-	// Start service router FIRST - before core services
-	// This ensures event handlers are registered before services start processing events
 	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
 	if err != nil {
 		a.cancel()
@@ -422,7 +433,6 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	}
 	a.eventRouter = router
 
-	// Start core services IN ORDER
 	if err := a.fsRegistry.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start filesystem service: %w", err)
@@ -443,7 +453,6 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to start interceptor service: %w", err)
 	}
 
-	// LaunchProcess core function registry
 	if err := a.funcs.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start function executor: %w", err)
@@ -464,9 +473,7 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to start contract registry: %w", err)
 	}
 
-	// Start cluster services if enabled - PROPER ORDER
-	if a.config.ClusterEnabled {
-		// Start membership service first (with correct port metadata)
+	if a.config.clusterEnabled {
 		if a.membership != nil {
 			if err := a.membership.Start(appCtx); err != nil {
 				a.cancel()
@@ -474,7 +481,6 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 			}
 		}
 
-		// Start internode service after membership (will restart connection manager properly)
 		if a.internodeService != nil {
 			if err := a.internodeService.Start(appCtx); err != nil {
 				a.cancel()
@@ -483,7 +489,6 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		}
 	}
 
-	// Start node mesh after cluster services
 	if err := a.node.Start(appCtx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start node mesh: %w", err)
@@ -494,24 +499,22 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to start supervisor: %w", err)
 	}
 
-	// Load filesystem
 	var fSys iofs.FS
-	if useEmbed {
-		fSys, err = iofs.Sub(embed.FS(), folderPath)
+	if a.config.useEmbed {
+		fSys, err = iofs.Sub(embed.FS(), a.config.folderPath)
 		if err != nil {
 			a.cancel()
 			return fmt.Errorf("open embedded sub-filesystem (use . to open from root): %w", err)
 		}
 	} else {
-		osRoot, err := os.OpenRoot(folderPath)
+		osRoot, err := os.OpenRoot(a.config.folderPath)
 		if err != nil {
 			a.cancel()
-			return fmt.Errorf("open folder %s: %w", folderPath, err)
+			return fmt.Errorf("open folder %s: %w", a.config.folderPath, err)
 		}
 		fSys = osRoot.FS()
 	}
 
-	// Load and apply application state
 	bootCtx, cancel := context.WithTimeout(appCtx, 300*time.Second)
 	defer cancel()
 
@@ -522,13 +525,12 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 		return fmt.Errorf("failed to initialize interceptors: %w", err)
 	}
 
-	appState, cleanup, err := loadApplicationState(bootCtx, fSys, a.dtt, a.logger, a.config, a.lockFilePath)
+	appState, cleanup, err := a.loadApplicationState(bootCtx, fSys)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("load application state: %w", err)
 	}
 
-	// Store cleanup function
 	a.otelCleanup = cleanup
 
 	if _, err := a.reg.Apply(bootCtx, appState); err != nil {
@@ -538,14 +540,98 @@ func (a *App) Start(folderPath string, useEmbed bool) error {
 	return nil
 }
 
+func (a *App) loadApplicationState(ctx context.Context, appFS iofs.FS) (regapi.ChangeSet, func(), error) {
+	folderLoader := loader.NewLoader(a.dtt, a.logger, interpolate.NewEntryInterpolator(a.dtt,
+		interpolate.WithInterpolator(interpolate.LoadFile),
+	))
+
+	cleanup, err := initOpenTelemetry(
+		context.Background(),
+		os.Getenv("OTEL_ENDPOINT"),
+		os.Getenv("OTEL_SERVICE_NAME"),
+		os.Getenv("OTEL_SERVICE_VERSION"),
+		a.logger,
+	)
+	if err != nil {
+		a.logger.Error("failed to initialize OpenTelemetry", zap.Error(err))
+	}
+
+	entries, err := folderLoader.LoadFS(ctx, appFS)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load entries: %w", err)
+	}
+
+	baseURL := "https://modules.wippy.ai"
+	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
+		baseURL = modulesURL
+	}
+
+	registryLoader := newModuleloaderManager(baseURL, entries, a.logger.Named("registry-loader"))
+
+	var loadResult *deps.LoadResult
+
+	lockPath, err := deps.FindLockFile(a.config.folderPath, a.config.lockFilePath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if lockPath != "" {
+		a.logger.Info("using lock file", zap.String("lock_file", lockPath))
+	}
+
+	if lockPath != "" {
+		a.logger.Info("loading modules using lock file", zap.String("lock_file", lockPath))
+		lockFile, loadErr := deps.LoadLockFile(lockPath)
+		if loadErr != nil {
+			a.logger.Error("load lock file", zap.Error(loadErr))
+		} else {
+			loadResult = deps.ConvertFromLockFile(lockFile, lockPath)
+		}
+	} else {
+		a.logger.Info("loading modules from registry")
+		loadResult, err = registryLoader.Load(ctx)
+		if err != nil {
+			a.logger.Error("load modules from registry", zap.Error(err))
+		}
+	}
+
+	if loadResult != nil && len(loadResult.Modules) > 0 {
+		a.logger.Debug("loaded modules",
+			zap.Int("count", len(loadResult.Modules)),
+			zap.Any("modules", loadResult.Modules))
+
+		projectRootFS, err := createProjectRootFS(a.config.folderPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create project root filesystem: %w", err)
+		}
+
+		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS, a.logger)
+		if err != nil {
+			return nil, nil, fmt.Errorf("load dependencies: %w", err)
+		}
+		entries = append(entries, dependencyEntries...)
+	}
+
+	resolver := requirementresolver2.NewResolver(a.logger.Named("requirement-resolver"))
+	entries, err = resolver.ResolveModuleDefinitions(entries)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	boot, err := regtop.NewStateBuilder(a.logger).BuildDelta(regapi.State{}, entries)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build state delta: %w", err)
+	}
+
+	return boot, cleanup, nil
+}
+
 func (a *App) Stop() error {
 	a.shuttingDown = true
 
-	// Create shutdown context with timeout
 	cancelCtx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 
-	// Handle force shutdown
 	go func() {
 		select {
 		case <-a.forceShutdown:
@@ -555,12 +641,10 @@ func (a *App) Stop() error {
 		}
 	}()
 
-	// Cleanup OpenTelemetry
 	if a.otelCleanup != nil {
 		a.otelCleanup()
 	}
 
-	// Stop services in REVERSE order of startup
 	if err := a.eventRouter.Stop(); err != nil {
 		a.logger.Error("failed to stop router", zap.Error(err))
 	}
@@ -573,16 +657,13 @@ func (a *App) Stop() error {
 		a.logger.Error("failed to stop node", zap.Error(err))
 	}
 
-	// Stop cluster services in reverse order
-	if a.config.ClusterEnabled {
-		// Stop internode service before membership
+	if a.config.clusterEnabled {
 		if a.internodeService != nil {
 			if err := a.internodeService.Stop(); err != nil {
 				a.logger.Error("failed to stop internode service", zap.Error(err))
 			}
 		}
 
-		// Stop membership service last
 		if a.membership != nil {
 			if err := a.membership.Stop(); err != nil {
 				a.logger.Error("failed to stop membership service", zap.Error(err))
@@ -626,20 +707,21 @@ func (a *App) Stop() error {
 		a.logger.Error("failed to stop security manager", zap.Error(err))
 	}
 
-	// Stop log manager last
 	if err := a.logManager.Stop(); err != nil {
 		a.logger.Error("failed to stop log manager", zap.Error(err))
 	}
 
-	// Clean up
 	a.cancel()
 	_ = a.logger.Sync()
 
 	return nil
 }
 
-// StartProfiler enables the pprof profiler server
 func (a *App) StartProfiler() {
+	if !a.config.enableProfiling {
+		return
+	}
+
 	go func() {
 		profilerAddr := "localhost:6060"
 		a.logger.Info("starting pprof server", zap.String("address", profilerAddr))
@@ -651,7 +733,6 @@ func (a *App) StartProfiler() {
 		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-		//nolint:gosec // ok for now
 		if err := httpbase.ListenAndServe(profilerAddr, mux); err != nil {
 			if !errors.Is(err, httpbase.ErrServerClosed) {
 				a.logger.Error("pprof server failed", zap.Error(err))
@@ -660,119 +741,23 @@ func (a *App) StartProfiler() {
 	}()
 }
 
-func loadApplicationState(
-	ctx context.Context,
-	appFS iofs.FS,
-	dtt *transcoder.Transcoder,
-	mainLogger *zap.Logger,
-	config *Config,
-	lockFile string,
-) (regapi.ChangeSet, func(), error) {
-	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
-		interpolate.WithInterpolator(interpolate.LoadFile),
-	))
-
-	// Initialize OpenTelemetry from ENV variables
-	cleanup, err := initOpenTelemetry(
-		context.Background(),
-		os.Getenv("OTEL_ENDPOINT"),
-		os.Getenv("OTEL_SERVICE_NAME"),
-		os.Getenv("OTEL_SERVICE_VERSION"),
-		mainLogger,
-	)
-	if err != nil {
-		mainLogger.Error("failed to initialize OpenTelemetry", zap.Error(err))
-	}
-
-	// Load app entries from the app filesystem
-	entries, err := folderLoader.LoadFS(ctx, appFS)
-	if err != nil {
-		return nil, nil, fmt.Errorf("load entries: %w", err)
-	}
-
-	// Module registry loader
-	baseURL := "https://modules.wippy.ai"
-	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
-		baseURL = modulesURL
-	}
-
-	registryLoader := newModuleloaderManager(baseURL, entries, mainLogger.Named("registry-loader"))
-
-	var loadResult *deps.LoadResult
-
-	// Find the lock file using intelligent path resolution
-	lockPath, err := deps.FindLockFile(config.FolderPath, lockFile)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if lockPath != "" {
-		mainLogger.Info("using lock file", zap.String("lock_file", lockPath))
-	}
-
-	if lockPath != "" {
-		mainLogger.Info("loading modules using lock file", zap.String("lock_file", lockPath))
-		// Lock file exists, use it
-		lockFile, loadErr := deps.LoadLockFile(lockPath)
-		if loadErr != nil {
-			mainLogger.Error("load lock file", zap.Error(loadErr))
-		} else {
-			loadResult = deps.ConvertFromLockFile(lockFile, lockPath)
-		}
-	} else {
-		mainLogger.Info("loading modules from registry")
-
-		// No lock file, load from registry
-		loadResult, err = registryLoader.Load(ctx)
-		if err != nil {
-			mainLogger.Error("load modules from registry", zap.Error(err))
-		}
-	}
-
-	if loadResult != nil && len(loadResult.Modules) > 0 {
-		mainLogger.Debug("loaded modules",
-			zap.Int("count", len(loadResult.Modules)),
-			zap.Any("modules", loadResult.Modules))
-
-		// Create a project root filesystem for loading modules
-		projectRootFS, err := createProjectRootFS(config.FolderPath)
-		if err != nil {
-			return nil, nil, fmt.Errorf("create project root filesystem: %w", err)
-		}
-
-		// Load entries only from the specific modules that were loaded
-		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS, mainLogger)
-		if err != nil {
-			return nil, nil, fmt.Errorf("load dependencies: %w", err)
-		}
-		entries = append(entries, dependencyEntries...)
-	}
-
-	resolver := requirementresolver.NewResolver(mainLogger.Named("requirement-resolver"))
-	entries, err = resolver.ResolveModuleDefinitions(entries)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// update here
-	dependsOnAdjuster := dependsadjuster.NewAdjuster(mainLogger.Named("dependson-adjuster"))
-	entries, err = dependsOnAdjuster.Adjust(entries)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
-	if err != nil {
-		return nil, nil, fmt.Errorf("build state delta: %w", err)
-	}
-
-	return boot, cleanup, nil
+func (a *App) SetServices(services eventbus.RouterOption) {
+	a.services = services
 }
 
-// createProjectRootFS creates a filesystem from the project root (current working directory)
+func (a *App) Shutdown() error {
+	return a.Stop()
+}
+
+func (a *App) ForceShutdown() {
+	select {
+	case <-a.forceShutdown:
+	default:
+		close(a.forceShutdown)
+	}
+}
+
 func createProjectRootFS(_ string) (iofs.FS, error) {
-	// Always use current working directory as project root
-	// This ensures that .wippy/ modules are accessible
 	currentDir, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("get current directory: %w", err)
@@ -787,21 +772,15 @@ func createProjectRootFS(_ string) (iofs.FS, error) {
 	return osRoot.FS(), nil
 }
 
-// resolveModulePath converts a module path to a relative path suitable for the rootFS
-// It handles Windows backslashes to forward slashes conversion for cross-platform compatibility
 func resolveModulePath(modulePath string, mainLogger *zap.Logger) (string, error) {
 	switch {
 	case strings.HasPrefix(modulePath, "/"):
-		// This is an absolute path (likely a replacement)
-		// We need to make it relative to the current working directory
 		currentDir, err := os.Getwd()
 		if err != nil {
 			return "", fmt.Errorf("failed to get current working directory: %w", err)
 		}
 
-		// Check if the absolute path is within the current working directory
 		if strings.HasPrefix(modulePath, currentDir) {
-			// Extract the relative part
 			relativePath := strings.TrimPrefix(modulePath, currentDir)
 			resolvedPath := strings.TrimPrefix(relativePath, "/")
 			resolvedPath = filepath.ToSlash(resolvedPath)
@@ -814,12 +793,8 @@ func resolveModulePath(modulePath string, mainLogger *zap.Logger) (string, error
 
 			return resolvedPath, nil
 		}
-		// The path is outside the current working directory, which is not supported
 		return "", fmt.Errorf("replacement path %s is outside the current working directory %s", modulePath, currentDir)
 	case strings.HasPrefix(modulePath, "./") || strings.HasPrefix(modulePath, "../"):
-		// This is a relative path (likely a replacement)
-		// Remove the leading "./" or "../" and use the path directly
-		// since the rootFS is created from the current working directory
 		cleanPath := strings.TrimPrefix(modulePath, "./")
 		cleanPath = strings.TrimPrefix(cleanPath, "../")
 		resolvedPath := filepath.ToSlash(cleanPath)
@@ -831,12 +806,10 @@ func resolveModulePath(modulePath string, mainLogger *zap.Logger) (string, error
 
 		return resolvedPath, nil
 	default:
-		// This is a path relative to the modules directory
 		return filepath.ToSlash(modulePath), nil
 	}
 }
 
-// loadEntriesFromLoadedModules loads entries only from the specific modules that were loaded by the registry loader
 func loadEntriesFromLoadedModules(
 	ctx context.Context,
 	folderLoader *loader.Loader,
@@ -856,19 +829,15 @@ func loadEntriesFromLoadedModules(
 			return nil, err
 		}
 
-		// Create a sub-filesystem for this specific module from the root filesystem
 		moduleFS, err := iofs.Sub(rootFS, modulePath)
 		if err != nil {
 			return nil, fmt.Errorf("create sub-filesystem for module %s: %w", module.Path, err)
 		}
 
-		// Load entries from this specific module using the sub-filesystem
 		moduleEntries, err := folderLoader.LoadFS(ctx, moduleFS)
 		if err != nil {
 			return nil, fmt.Errorf("load entries from module %s: %w", module.Path, err)
 		}
-
-		// Note: moduleEntries contains the entries loaded from this specific module
 
 		allEntries = append(allEntries, moduleEntries...)
 	}

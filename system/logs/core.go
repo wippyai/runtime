@@ -2,7 +2,6 @@ package logs
 
 import (
 	"context"
-	"log"
 	"sync/atomic"
 
 	api "github.com/ponyruntime/pony/api/logs"
@@ -11,14 +10,12 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// Core implements the api.Core interface and handles log interception and routing
 type Core struct {
 	downstream zapcore.Core
 	bus        event.Bus
 	config     *atomic.Value // holds api.Config
 }
 
-// NewCore creates a new Core instance
 func NewCore(downstream zapcore.Core, bus event.Bus) api.Core {
 	c := &Core{
 		downstream: downstream,
@@ -26,31 +23,38 @@ func NewCore(downstream zapcore.Core, bus event.Bus) api.Core {
 		config:     &atomic.Value{},
 	}
 
-	// Set default configuration
-	c.config.Store(api.Config{PropagateDownstream: true, StreamToEvents: false, MinLevel: zapcore.InfoLevel})
+	c.config.Store(api.Config{
+		PropagateDownstream: true,
+		StreamToEvents:      false,
+		MinLevel:            zapcore.DebugLevel,
+	})
 	return c
 }
 
-// Configure implements api.Core
 func (c *Core) Configure(cfg api.Config) {
 	c.config.Store(cfg)
 }
 
-// GetConfig implements api.Core
 func (c *Core) GetConfig() api.Config {
 	return c.config.Load().(api.Config)
 }
 
-// Enabled implements zapcore.Core
 func (c *Core) Enabled(level zapcore.Level) bool {
 	cfg := c.config.Load().(api.Config)
-	if level < cfg.MinLevel {
-		return false
+
+	// Enable if event streaming is on (accepts all levels)
+	if cfg.StreamToEvents {
+		return true
 	}
-	return cfg.PropagateDownstream || cfg.StreamToEvents
+
+	// Enable if downstream is on AND level meets minimum threshold
+	if cfg.PropagateDownstream && level >= cfg.MinLevel {
+		return true
+	}
+
+	return false
 }
 
-// With implements zapcore.Core
 func (c *Core) With(fields []zapcore.Field) zapcore.Core {
 	return &Core{
 		downstream: c.downstream.With(fields),
@@ -59,30 +63,26 @@ func (c *Core) With(fields []zapcore.Field) zapcore.Core {
 	}
 }
 
-// Check implements zapcore.Core
 func (c *Core) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
 	if !c.Enabled(ent.Level) {
 		return ce
 	}
 
-	// Always add our Core if enabled
 	ce = ce.AddCore(ent, c)
-
 	return ce
 }
 
-// Write implements zapcore.Core
 func (c *Core) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 	cfg := c.config.Load().(api.Config)
-	log.Printf("WRRRRRRRITE")
-	// Handle downstream propagation
-	if cfg.PropagateDownstream {
+
+	// Send to downstream only if enabled AND level meets threshold
+	if cfg.PropagateDownstream && ent.Level >= cfg.MinLevel {
 		if err := c.downstream.Write(ent, fields); err != nil {
 			return err
 		}
 	}
 
-	// Handle event streaming
+	// Always stream to events if enabled (no level filtering)
 	if cfg.StreamToEvents {
 		c.publishLogEvent(ent, fields)
 	}
@@ -90,7 +90,6 @@ func (c *Core) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 	return nil
 }
 
-// Sync implements zapcore.Core
 func (c *Core) Sync() error {
 	cfg := c.config.Load().(api.Config)
 
@@ -101,7 +100,6 @@ func (c *Core) Sync() error {
 	return nil
 }
 
-// publishLogEvent publishes the log entry to the event bus
 func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 	c.bus.Send(context.Background(), event.Event{
 		System: api.System,

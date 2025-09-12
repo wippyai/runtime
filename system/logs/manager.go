@@ -10,7 +10,6 @@ import (
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 // Manager manages logging configuration and event handling. This is considered to be a root service since it trunks
@@ -26,22 +25,18 @@ type Manager struct {
 }
 
 // NewManager creates a new logging service instance
+// Note: level parameter is kept for API compatibility but ignored since Core no longer filters by level
 func NewManager(
 	bus event.Bus,
 	core api.Core,
 	logger *zap.Logger,
-	level zapcore.Level,
-	eventForwarding bool,
+	config api.Config,
 ) *Manager {
 	return &Manager{
-		log:  logger,
-		bus:  bus,
-		core: core,
-		config: api.Config{
-			PropagateDownstream: eventForwarding,
-			StreamToEvents:      eventForwarding,
-			MinLevel:            level,
-		},
+		log:    logger,
+		bus:    bus,
+		core:   core,
+		config: config,
 	}
 }
 
@@ -62,7 +57,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.log.Info("logging service started",
 		zap.Bool("propagate", m.config.PropagateDownstream),
 		zap.Bool("stream", m.config.StreamToEvents),
-		zap.String("min_level", m.config.MinLevel.String()),
+		// Removed min_level logging since we don't filter by level anymore
 	)
 
 	return nil
@@ -116,8 +111,7 @@ func (m *Manager) handleConfigEvent(ctx context.Context, e event.Event) {
 		zap.Bool("new_propagate", cfg.PropagateDownstream),
 		zap.Bool("old_stream", m.config.StreamToEvents),
 		zap.Bool("new_stream", cfg.StreamToEvents),
-		zap.String("old_level", m.config.MinLevel.String()),
-		zap.String("new_level", cfg.MinLevel.String()),
+		// Removed level logging since we don't use MinLevel anymore
 	)
 
 	m.handleSetConfigEvent(ctx, e.Path, cfg)

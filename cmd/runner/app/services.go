@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -95,8 +95,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// createServiceHandlers configures all service handlers for the application
-func createServiceHandlers(a *App) eventbus.RouterOption {
+// todo: add auto collect from init()
+
+// CreateServiceHandlers configures all service handlers for the application
+func CreateServiceHandlers(a *App) eventbus.RouterOption {
 	return eventbus.WithHandlers(append(
 		withLuaRuntime(a),
 		withYamlPolicies(a),

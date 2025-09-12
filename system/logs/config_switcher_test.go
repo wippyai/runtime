@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	logsapi "github.com/ponyruntime/pony/api/logs"
+	api "github.com/ponyruntime/pony/api/logs"
 
 	"go.uber.org/zap/zaptest/observer"
 
@@ -26,7 +26,11 @@ func setupConfigSwitcherTest(t *testing.T) (*ConfigSwitcher, *Manager, *eventbus
 	core := NewCore(downstream, bus)
 
 	// Spawn and start the manager
-	manager := NewManager(bus, core, logger, zapcore.InfoLevel, true)
+	manager := NewManager(bus, core, logger, api.Config{
+		PropagateDownstream: true,
+		StreamToEvents:      true,
+		MinLevel:            zapcore.InfoLevel,
+	})
 	err := manager.Start(context.Background())
 	require.NoError(t, err)
 
@@ -47,7 +51,7 @@ func TestConfigSwitcher_EnableTemporaryConfig(t *testing.T) {
 	defer cancel()
 
 	// Set initial config via manager
-	baseConfig := logsapi.Config{
+	baseConfig := api.Config{
 		PropagateDownstream: true,
 		StreamToEvents:      false,
 		MinLevel:            zapcore.InfoLevel,
@@ -55,8 +59,8 @@ func TestConfigSwitcher_EnableTemporaryConfig(t *testing.T) {
 	manager.handleSetConfigEvent(ctx, "test", baseConfig)
 
 	// Switch to temporary config
-	tempConfig := logsapi.Config{
-		PropagateDownstream: false,
+	tempConfig := api.Config{
+		PropagateDownstream: true,
 		StreamToEvents:      true,
 		MinLevel:            zapcore.DebugLevel,
 	}
@@ -79,7 +83,7 @@ func TestConfigSwitcher_RestoreBaseConfig(t *testing.T) {
 	defer cancel()
 
 	// Set initial config via manager
-	baseConfig := logsapi.Config{
+	baseConfig := api.Config{
 		PropagateDownstream: true,
 		StreamToEvents:      false,
 		MinLevel:            zapcore.InfoLevel,
@@ -87,7 +91,7 @@ func TestConfigSwitcher_RestoreBaseConfig(t *testing.T) {
 	manager.handleSetConfigEvent(ctx, "test", baseConfig)
 
 	// Enable temporary config and then restore
-	tempConfig := logsapi.Config{
+	tempConfig := api.Config{
 		PropagateDownstream: false,
 		StreamToEvents:      true,
 		MinLevel:            zapcore.DebugLevel,
@@ -107,14 +111,14 @@ func TestConfigSwitcher_Clear(t *testing.T) {
 	defer cancel()
 
 	// Set base config via manager
-	baseConfig := logsapi.Config{
+	baseConfig := api.Config{
 		PropagateDownstream: true,
 		StreamToEvents:      false,
 		MinLevel:            zapcore.InfoLevel,
 	}
 	manager.handleSetConfigEvent(ctx, "test", baseConfig)
 
-	tempConfig := logsapi.Config{
+	tempConfig := api.Config{
 		PropagateDownstream: false,
 		StreamToEvents:      true,
 		MinLevel:            zapcore.DebugLevel,
@@ -141,7 +145,7 @@ func TestConfigSwitcher_EnableTemporaryConfigError(t *testing.T) {
 	bus.Stop()
 
 	// Attempt to enable temporary config
-	tempConfig := logsapi.Config{
+	tempConfig := api.Config{
 		PropagateDownstream: false,
 		StreamToEvents:      true,
 		MinLevel:            zapcore.DebugLevel,
@@ -174,7 +178,7 @@ func TestConfigSwitcher_MultipleTemporaryConfigs(t *testing.T) {
 	defer cancel()
 
 	// Set initial config via manager
-	baseConfig := logsapi.Config{
+	baseConfig := api.Config{
 		PropagateDownstream: true,
 		StreamToEvents:      false,
 		MinLevel:            zapcore.InfoLevel,
@@ -182,12 +186,12 @@ func TestConfigSwitcher_MultipleTemporaryConfigs(t *testing.T) {
 	manager.handleSetConfigEvent(ctx, "test", baseConfig)
 
 	// Enable multiple temporary configs
-	tempConfig1 := logsapi.Config{
+	tempConfig1 := api.Config{
 		PropagateDownstream: false,
 		StreamToEvents:      true,
 		MinLevel:            zapcore.DebugLevel,
 	}
-	tempConfig2 := logsapi.Config{
+	tempConfig2 := api.Config{
 		PropagateDownstream: true,
 		StreamToEvents:      true,
 		MinLevel:            zapcore.WarnLevel,
@@ -213,7 +217,7 @@ func TestConfigSwitcher_RestoreBaseConfigError(t *testing.T) {
 	defer cancel()
 
 	// Set initial config via manager
-	baseConfig := logsapi.Config{
+	baseConfig := api.Config{
 		PropagateDownstream: true,
 		StreamToEvents:      false,
 		MinLevel:            zapcore.InfoLevel,
@@ -221,7 +225,7 @@ func TestConfigSwitcher_RestoreBaseConfigError(t *testing.T) {
 	manager.handleSetConfigEvent(ctx, "test", baseConfig)
 
 	// Enable temporary config
-	tempConfig := logsapi.Config{
+	tempConfig := api.Config{
 		PropagateDownstream: false,
 		StreamToEvents:      true,
 		MinLevel:            zapcore.DebugLevel,
@@ -246,7 +250,7 @@ func TestConfigSwitcher_ConcurrentAccess(t *testing.T) {
 	defer cancel()
 
 	// Set initial config via manager
-	baseConfig := logsapi.Config{
+	baseConfig := api.Config{
 		PropagateDownstream: true,
 		StreamToEvents:      false,
 		MinLevel:            zapcore.InfoLevel,
@@ -263,7 +267,7 @@ func TestConfigSwitcher_ConcurrentAccess(t *testing.T) {
 		go func(_ int) {
 			defer func() { done <- struct{}{} }()
 
-			tempConfig := logsapi.Config{
+			tempConfig := api.Config{
 				PropagateDownstream: false,
 				StreamToEvents:      true,
 				MinLevel:            zapcore.DebugLevel,
@@ -314,7 +318,7 @@ func TestConfigSwitcher_ContextCancellation(t *testing.T) {
 	switcher, manager, _ := setupConfigSwitcherTest(t)
 
 	// Set initial config via manager
-	baseConfig := logsapi.Config{
+	baseConfig := api.Config{
 		PropagateDownstream: true,
 		StreamToEvents:      false,
 		MinLevel:            zapcore.InfoLevel,
@@ -328,7 +332,7 @@ func TestConfigSwitcher_ContextCancellation(t *testing.T) {
 		{
 			name: "EnableTemporaryConfig with canceled context",
 			operation: func(ctx context.Context) error {
-				return switcher.EnableTemporaryConfig(ctx, logsapi.Config{})
+				return switcher.EnableTemporaryConfig(ctx, api.Config{})
 			},
 		},
 		{

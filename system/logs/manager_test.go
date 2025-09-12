@@ -21,7 +21,11 @@ func setupManagerTest(t *testing.T) (*Manager, *eventbus.Bus) {
 	logger := zap.NewNop()
 
 	core := NewCore(downstream, bus)
-	manager := NewManager(bus, core, logger, zapcore.InfoLevel, true)
+	manager := NewManager(bus, core, logger, api.Config{
+		PropagateDownstream: true,
+		StreamToEvents:      true,
+		MinLevel:            zapcore.InfoLevel,
+	})
 
 	t.Cleanup(func() {
 		_ = manager.Stop()
