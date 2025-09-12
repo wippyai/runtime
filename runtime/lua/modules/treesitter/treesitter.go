@@ -91,8 +91,6 @@ func (m *Module) language(l *lua.LState) int {
 
 // parse parses the text into a Tree object.
 func (m *Module) parse(l *lua.LState) int {
-	m.log.Debug("parse called")
-
 	if l.GetTop() != 2 {
 		l.ArgError(1, "expected 2 arguments: language, code")
 		return 0
