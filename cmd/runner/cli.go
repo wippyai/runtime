@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ponyruntime/pony/moduleloader"
+	"github.com/ponyruntime/pony/deps"
 	"go.uber.org/zap"
 )
 
@@ -170,12 +170,12 @@ func (ic *InitCommand) Execute(_ context.Context, flags []string, _ []string) er
 	}
 
 	// Create empty lock file with directories
-	lockFile := &moduleloader.LockFile{
-		Directories: moduleloader.Directories{
+	lockFile := &deps.LockFile{
+		Directories: deps.Directories{
 			Modules: modulesDir,
 			Src:     srcDir,
 		},
-		Modules: []moduleloader.LockedModule{},
+		Modules: []deps.LockedModule{},
 	}
 
 	// Save the lock file
@@ -239,7 +239,7 @@ func (ic *InstallCommand) Execute(ctx context.Context, flags []string, args []st
 	}
 
 	// Check if lock file exists
-	lockPath, err := moduleloader.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
+	lockPath, err := deps.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
 	if err != nil {
 		ic.runner.logger.Info("Lock file not found, falling back to update behavior")
 		updateCmd := &UpdateCommand{runner: ic.runner}
@@ -247,7 +247,7 @@ func (ic *InstallCommand) Execute(ctx context.Context, flags []string, args []st
 	}
 
 	// Load lock file
-	lockFile, err := moduleloader.LoadLockFile(lockPath)
+	lockFile, err := deps.LoadLockFile(lockPath)
 	if err != nil {
 		return fmt.Errorf("failed to load lock file: %w", err)
 	}
@@ -267,7 +267,7 @@ func (ic *InstallCommand) Execute(ctx context.Context, flags []string, args []st
 	return depsManager.InstallDependencies(ctx)
 }
 
-func (ic *InstallCommand) cleanUnusedPackages(lockFile *moduleloader.LockFile) error {
+func (ic *InstallCommand) cleanUnusedPackages(lockFile *deps.LockFile) error {
 	ic.runner.logger.Info("Cleaning unused packages from modules directory")
 
 	// Get the modules directory path
@@ -360,7 +360,7 @@ func (ic *UpdateCommand) Execute(ctx context.Context, flags []string, args []str
 	}
 
 	// Check if lock file exists
-	_, err := moduleloader.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
+	_, err := deps.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
 	if err != nil {
 		ic.runner.logger.Info("Lock file not found, running init")
 		initCmd := &InitCommand{runner: ic.runner}
@@ -428,13 +428,13 @@ func (ic *RunCommand) Execute(_ context.Context, flags []string, args []string) 
 	}
 
 	// Check if lock file exists
-	lockPath, err := moduleloader.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
+	lockPath, err := deps.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
 	if err != nil {
 		return fmt.Errorf("lock file not found: %s", ic.runner.config.LockFile)
 	}
 
 	// Load lock file
-	lockFile, err := moduleloader.LoadLockFile(lockPath)
+	lockFile, err := deps.LoadLockFile(lockPath)
 	if err != nil {
 		return fmt.Errorf("failed to load lock file: %w", err)
 	}
@@ -618,7 +618,7 @@ func (ic *ReplaceCommand) Execute(_ context.Context, flags []string, args []stri
 		zap.Strings("parsedFlags", flags))
 
 	// Check if lock file exists
-	lockPath, err := moduleloader.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
+	lockPath, err := deps.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
 	if err != nil {
 		return fmt.Errorf("lock file not found: %s", ic.runner.config.LockFile)
 	}
@@ -626,7 +626,7 @@ func (ic *ReplaceCommand) Execute(_ context.Context, flags []string, args []stri
 	ic.runner.logger.Info("Found lock file", zap.String("lockPath", lockPath))
 
 	// Load lock file
-	lockFile, err := moduleloader.LoadLockFile(lockPath)
+	lockFile, err := deps.LoadLockFile(lockPath)
 	if err != nil {
 		return fmt.Errorf("failed to load lock file: %w", err)
 	}
@@ -668,7 +668,7 @@ func (ic *ReplaceCommand) Execute(_ context.Context, flags []string, args []stri
 		}
 
 		// Add the replacement
-		lockFile.Replacements = append(lockFile.Replacements, moduleloader.Replacement{
+		lockFile.Replacements = append(lockFile.Replacements, deps.Replacement{
 			From: moduleName,
 			To:   customPath,
 		})
@@ -721,7 +721,7 @@ func (ic *ReplaceCommand) Execute(_ context.Context, flags []string, args []stri
 	return nil
 }
 
-func (ic *ReplaceCommand) showReplacements(lockFile *moduleloader.LockFile) error {
+func (ic *ReplaceCommand) showReplacements(lockFile *deps.LockFile) error {
 	if len(lockFile.Replacements) == 0 {
 		fmt.Println("No module replacements configured.")
 		return nil

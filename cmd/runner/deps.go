@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/moduleloader"
+	"github.com/ponyruntime/pony/deps"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/lua"
@@ -38,7 +38,7 @@ func NewDependencyManager(config *Config, logger *zap.Logger) *DependencyManager
 // InstallDependencies installs dependencies from lock file
 func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
 	// Determine lock file path
-	lockPath, err := moduleloader.FindLockFile(dm.config.FolderPath, dm.config.LockFile)
+	lockPath, err := deps.FindLockFile(dm.config.FolderPath, dm.config.LockFile)
 	if err != nil {
 		return fmt.Errorf("find lock file: %w", err)
 	}
@@ -49,7 +49,7 @@ func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
 	}
 
 	// Load lock file
-	lockFile, err := moduleloader.LoadLockFile(lockPath)
+	lockFile, err := deps.LoadLockFile(lockPath)
 	if err != nil {
 		return fmt.Errorf("load lock file: %w", err)
 	}
@@ -72,7 +72,7 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 	// First, try to load existing lock file to get src directory
 	var srcDir string
 	existingLockPath := filepath.Join(dm.config.FolderPath, dm.config.LockFile)
-	if existingLock, err := moduleloader.LoadLockFile(existingLockPath); err == nil {
+	if existingLock, err := deps.LoadLockFile(existingLockPath); err == nil {
 		srcDir = existingLock.Directories.Src
 		dm.logger.Debug("Using src directory from lock file", zap.String("src_dir", srcDir))
 	} else {
@@ -124,8 +124,8 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 
 	// Get directory structure and preserve replacements from existing lock file
 	var modulesDir string
-	var existingReplacements []moduleloader.Replacement
-	if existingLock, err := moduleloader.LoadLockFile(existingLockPath); err == nil {
+	var existingReplacements []deps.Replacement
+	if existingLock, err := deps.LoadLockFile(existingLockPath); err == nil {
 		modulesDir = existingLock.Directories.Modules
 		existingReplacements = existingLock.Replacements
 		dm.logger.Debug("Preserving existing replacements",
@@ -135,7 +135,7 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 		modulesDir = ".wippy"
 	}
 
-	lockFile := moduleloader.ConvertToLockFile(loadResult, modulesDir, srcDir)
+	lockFile := deps.ConvertToLockFile(loadResult, modulesDir, srcDir)
 
 	// Preserve existing replacements
 	if len(existingReplacements) > 0 {
@@ -210,7 +210,7 @@ func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir str
 }
 
 // createModuleLoaderManagerWithEntries creates a module loader manager with provided entries
-func (dm *DependencyManager) createModuleLoaderManagerWithEntries(entries []regapi.Entry) *moduleloader.Manager {
+func (dm *DependencyManager) createModuleLoaderManagerWithEntries(entries []regapi.Entry) *deps.Manager {
 	baseURL := "https://modules.wippy.ai"
 	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
 		baseURL = modulesURL
@@ -227,23 +227,23 @@ func (dm *DependencyManager) createModuleLoaderManagerWithEntries(entries []rega
 	commitClient := modulev1connect.NewCommitServiceClient(client, baseURL)
 	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
 
-	registryLoader := moduleloader.NewEntryLoader(entries, dm.logger)
+	registryLoader := deps.NewEntryLoader(entries, dm.logger)
 
 	dm.logger.Debug("Created entry loader, creating manager")
 
-	return moduleloader.NewManager(
+	return deps.NewManager(
 		organizationClient,
 		moduleClient,
 		commitClient,
 		labelClient,
 		downloadClient,
 		registryLoader,
-		moduleloader.VendorFolder,
+		deps.VendorFolder,
 	)
 }
 
 // createModuleLoaderManagerWithLoader creates a module loader manager with provided loader
-func (dm *DependencyManager) createModuleLoaderManagerWithLoader(loader moduleloader.ManifestLoader) *moduleloader.Manager {
+func (dm *DependencyManager) createModuleLoaderManagerWithLoader(loader deps.ManifestLoader) *deps.Manager {
 	baseURL := "https://modules.wippy.ai"
 	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
 		baseURL = modulesURL
@@ -256,19 +256,19 @@ func (dm *DependencyManager) createModuleLoaderManagerWithLoader(loader modulelo
 	commitClient := modulev1connect.NewCommitServiceClient(client, baseURL)
 	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
 
-	return moduleloader.NewManager(
+	return deps.NewManager(
 		organizationClient,
 		moduleClient,
 		commitClient,
 		labelClient,
 		downloadClient,
 		loader,
-		moduleloader.VendorFolder,
+		deps.VendorFolder,
 	)
 }
 
 // installModules installs the modules from load result
-func (dm *DependencyManager) installModules(ctx context.Context, loadResult *moduleloader.LoadResult) error {
+func (dm *DependencyManager) installModules(ctx context.Context, loadResult *deps.LoadResult) error {
 	if len(loadResult.Modules) == 0 {
 		dm.logger.Info("No modules to install")
 		return nil
@@ -293,7 +293,7 @@ func (dm *DependencyManager) installModules(ctx context.Context, loadResult *mod
 }
 
 // installModulesFromLockFile installs modules from a lock file, handling replacements
-func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, lockFile *moduleloader.LockFile, lockPath string) error {
+func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, lockFile *deps.LockFile, lockPath string) error {
 	if len(lockFile.Modules) == 0 {
 		dm.logger.Info("No modules to install")
 		return nil
@@ -330,8 +330,8 @@ func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, loc
 	return nil
 }
 
-// installSingleModule installs a single module using moduleloader.Manager
-func (dm *DependencyManager) installSingleModule(ctx context.Context, module moduleloader.LoadedModule) error {
+// installSingleModule installs a single module using deps.Manager
+func (dm *DependencyManager) installSingleModule(ctx context.Context, module deps.LoadedModule) error {
 	dm.logger.Debug("Installing module",
 		zap.String("name", module.Name.String()),
 		zap.String("version", module.Version),
@@ -346,8 +346,8 @@ func (dm *DependencyManager) installSingleModule(ctx context.Context, module mod
 	}
 
 	// Create a manifest with just this module for installation
-	manifest := &moduleloader.Manifest{
-		Dependencies: []moduleloader.ManifestDependency{
+	manifest := &deps.Manifest{
+		Dependencies: []deps.ManifestDependency{
 			{
 				Name:    module.Name,
 				Version: module.Version,
@@ -381,7 +381,7 @@ func (dm *DependencyManager) installSingleModule(ctx context.Context, module mod
 }
 
 // installModuleFromLockFile installs a single module from lock file, handling replacements
-func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, module moduleloader.LockedModule, replacements map[string]string, lockPath string) error {
+func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, module deps.LockedModule, replacements map[string]string, lockPath string) error {
 	dm.logger.Debug("Installing module from lock file",
 		zap.String("name", module.Name),
 		zap.String("version", module.Version))
@@ -412,13 +412,13 @@ func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, modu
 
 	// No replacement, use default installation logic
 	// Parse the module name to get organization and module parts
-	name, err := moduleloader.ParseName(module.Name)
+	name, err := deps.ParseName(module.Name)
 	if err != nil {
 		return fmt.Errorf("invalid module name %s: %w", module.Name, err)
 	}
 
 	// Load lock file to get modules directory
-	lockFile, err := moduleloader.LoadLockFile(lockPath)
+	lockFile, err := deps.LoadLockFile(lockPath)
 	if err != nil {
 		return fmt.Errorf("failed to load lock file to get modules directory: %w", err)
 	}
@@ -442,8 +442,8 @@ func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, modu
 	}
 
 	// Create a manifest with just this module for installation
-	manifest := &moduleloader.Manifest{
-		Dependencies: []moduleloader.ManifestDependency{
+	manifest := &deps.Manifest{
+		Dependencies: []deps.ManifestDependency{
 			{
 				Name:    name,
 				Version: module.Version,
@@ -468,7 +468,7 @@ func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, modu
 	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
 
 	// Create the manager with the custom modules directory
-	registryLoader := moduleloader.NewManager(
+	registryLoader := deps.NewManager(
 		organizationClient,
 		moduleClient,
 		commitClient,
@@ -499,17 +499,17 @@ func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, modu
 
 // singleModuleLoader is a simple loader that returns a predefined manifest
 type singleModuleLoader struct {
-	manifest *moduleloader.Manifest
+	manifest *deps.Manifest
 }
 
-func (l *singleModuleLoader) LoadManifest(_ context.Context) (*moduleloader.Manifest, error) {
+func (l *singleModuleLoader) LoadManifest(_ context.Context) (*deps.Manifest, error) {
 	return l.manifest, nil
 }
 
 // isModuleInstalled checks if a module is already installed
-func (dm *DependencyManager) isModuleInstalled(module moduleloader.LoadedModule) bool {
+func (dm *DependencyManager) isModuleInstalled(module deps.LoadedModule) bool {
 	// Check if any module directory exists for this module
-	moduleBaseDir := filepath.Join(moduleloader.VendorFolder, module.Name.Organization)
+	moduleBaseDir := filepath.Join(deps.VendorFolder, module.Name.Organization)
 	if _, err := os.Stat(moduleBaseDir); err != nil {
 		return false
 	}
@@ -530,7 +530,7 @@ func (dm *DependencyManager) isModuleInstalled(module moduleloader.LoadedModule)
 }
 
 // displayPackageOperations displays package operations in the required format
-func (dm *DependencyManager) displayPackageOperations(loadResult *moduleloader.LoadResult, operationType string) {
+func (dm *DependencyManager) displayPackageOperations(loadResult *deps.LoadResult, operationType string) {
 	if len(loadResult.Modules) == 0 {
 		dm.logger.Info("No dependencies to process")
 		return

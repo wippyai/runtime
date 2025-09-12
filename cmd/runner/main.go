@@ -11,7 +11,7 @@ import (
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/fatih/color"
 	"github.com/pkg/errors"
-	"github.com/ponyruntime/pony/moduleloader"
+	"github.com/ponyruntime/pony/deps"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -188,7 +188,7 @@ func parseFlags() *Config {
 	flag.StringVar(&config.ClusterSecretFile, "cluster-secret-file", "", "path to file containing cluster secret key")
 	flag.StringVar(&config.ClusterAdvertise, "cluster-advertise", "", "cluster advertise IP address")
 
-	flag.StringVar(&config.LockFile, "lock-file", moduleloader.DefaultLockFile, "path to lock file")
+	flag.StringVar(&config.LockFile, "lock-file", deps.DefaultLockFile, "path to lock file")
 
 	flag.Parse()
 

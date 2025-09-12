@@ -15,7 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/moduleloader"
+	"github.com/ponyruntime/pony/deps"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/command"
 	"github.com/ponyruntime/pony/runtime/lua/component"
@@ -424,7 +424,7 @@ func withLuaRuntime(a *App) []eventbus.EventHandler {
 	}
 }
 
-func newModuleloaderManager(baseURL string, entries []registry.Entry, logger *zap.Logger) *moduleloader.Manager {
+func newModuleloaderManager(baseURL string, entries []registry.Entry, logger *zap.Logger) *deps.Manager {
 	client := &httpbase.Client{}
 	organizationClient := identityv1connect.NewOrganizationServiceClient(client, baseURL)
 	moduleClient := modulev1connect.NewModuleServiceClient(client, baseURL)
@@ -432,16 +432,16 @@ func newModuleloaderManager(baseURL string, entries []registry.Entry, logger *za
 	commitClient := modulev1connect.NewCommitServiceClient(client, baseURL)
 	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
 
-	registryLoader := moduleloader.NewEntryLoader(entries, logger)
+	registryLoader := deps.NewEntryLoader(entries, logger)
 
-	return moduleloader.NewManager(
+	return deps.NewManager(
 		organizationClient,
 		moduleClient,
 		commitClient,
 		labelClient,
 		downloadClient,
 		registryLoader,
-		moduleloader.VendorFolder,
+		deps.VendorFolder,
 	)
 }
 

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ponyruntime/pony/moduleloader"
+	"github.com/ponyruntime/pony/deps"
 	"go.uber.org/zap"
 )
 
@@ -65,7 +65,7 @@ func TestCLIRunner(t *testing.T) {
 		}
 
 		// Load and verify lock file content
-		lockFile, err := moduleloader.LoadLockFile(lockPath)
+		lockFile, err := deps.LoadLockFile(lockPath)
 		if err != nil {
 			t.Fatalf("Failed to load lock file: %v", err)
 		}
@@ -158,7 +158,7 @@ func TestInitCommandWithCustomPaths(t *testing.T) {
 		}
 
 		// Load and verify lock file content
-		lockFile, err := moduleloader.LoadLockFile(lockPath)
+		lockFile, err := deps.LoadLockFile(lockPath)
 		if err != nil {
 			t.Fatalf("Failed to load lock file: %v", err)
 		}
@@ -331,7 +331,7 @@ func TestUpdateCommandWithSrcDirectory(t *testing.T) {
 
 		// Verify lock file was created with correct src directory
 		lockPath := filepath.Join(tempDir, "wippy.lock")
-		lockFile, err := moduleloader.LoadLockFile(lockPath)
+		lockFile, err := deps.LoadLockFile(lockPath)
 		if err != nil {
 			t.Fatalf("Failed to load lock file: %v", err)
 		}

@@ -32,8 +32,8 @@ import (
 	"github.com/ponyruntime/pony/cluster/internode"
 	"github.com/ponyruntime/pony/cluster/membership"
 	"github.com/ponyruntime/pony/dependsadjuster"
+	"github.com/ponyruntime/pony/deps"
 	"github.com/ponyruntime/pony/embed"
-	"github.com/ponyruntime/pony/moduleloader"
 	"github.com/ponyruntime/pony/requirementresolver"
 	contractsys "github.com/ponyruntime/pony/system/contract"
 	"github.com/ponyruntime/pony/system/env"
@@ -698,10 +698,10 @@ func loadApplicationState(
 
 	registryLoader := newModuleloaderManager(baseURL, entries, mainLogger.Named("registry-loader"))
 
-	var loadResult *moduleloader.LoadResult
+	var loadResult *deps.LoadResult
 
 	// Find the lock file using intelligent path resolution
-	lockPath, err := moduleloader.FindLockFile(config.FolderPath, lockFile)
+	lockPath, err := deps.FindLockFile(config.FolderPath, lockFile)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -713,11 +713,11 @@ func loadApplicationState(
 	if lockPath != "" {
 		mainLogger.Info("loading modules using lock file", zap.String("lock_file", lockPath))
 		// Lock file exists, use it
-		lockFile, loadErr := moduleloader.LoadLockFile(lockPath)
+		lockFile, loadErr := deps.LoadLockFile(lockPath)
 		if loadErr != nil {
 			mainLogger.Error("load lock file", zap.Error(loadErr))
 		} else {
-			loadResult = moduleloader.ConvertFromLockFile(lockFile, lockPath)
+			loadResult = deps.ConvertFromLockFile(lockFile, lockPath)
 		}
 	} else {
 		mainLogger.Info("loading modules from registry")
@@ -840,7 +840,7 @@ func resolveModulePath(modulePath string, mainLogger *zap.Logger) (string, error
 func loadEntriesFromLoadedModules(
 	ctx context.Context,
 	folderLoader *loader.Loader,
-	loadResult *moduleloader.LoadResult,
+	loadResult *deps.LoadResult,
 	rootFS iofs.FS,
 	mainLogger *zap.Logger,
 ) ([]regapi.Entry, error) {
