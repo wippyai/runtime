@@ -13,7 +13,7 @@ var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize a new lock file",
 	Long:  "Initialize a new lock file with the specified directory structure.",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		logger, err := createLogger()
 		if err != nil {
 			return fmt.Errorf("failed to create logger: %w", err)

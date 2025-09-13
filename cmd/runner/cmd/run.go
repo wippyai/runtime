@@ -19,7 +19,7 @@ var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run the application",
 	Long:  "Run the smart application runtime using paths from the lock file.",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		logger, err := createLogger()
 		if err != nil {
 			return fmt.Errorf("failed to create logger: %w", err)

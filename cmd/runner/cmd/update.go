@@ -23,7 +23,7 @@ var updateCmd = &cobra.Command{
 	},
 }
 
-func runUpdate(cmd *cobra.Command, args []string, logger *zap.Logger) error {
+func runUpdate(cmd *cobra.Command, _ []string, logger *zap.Logger) error {
 	lockFile, _ := cmd.Flags().GetString("lock-file")
 	folderPath := "."
 
