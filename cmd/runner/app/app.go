@@ -60,7 +60,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql" // MySQL driver for database connections
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -88,9 +88,9 @@ type appConfig struct {
 	clusterAdvertise  string
 }
 
-type AppOption func(*appConfig)
+type Option func(*appConfig)
 
-func WithCluster(enabled bool, name, bind string, port int, join, secret, secretFile, advertise string) AppOption {
+func WithCluster(enabled bool, name, bind string, port int, join, secret, secretFile, advertise string) Option {
 	return func(c *appConfig) {
 		c.clusterEnabled = enabled
 		c.clusterName = name
@@ -103,7 +103,7 @@ func WithCluster(enabled bool, name, bind string, port int, join, secret, secret
 	}
 }
 
-func WithPaths(folderPath, lockFilePath, modulesDirPath, lockFileDir string, useEmbed bool) AppOption {
+func WithPaths(folderPath, lockFilePath, modulesDirPath, lockFileDir string, useEmbed bool) Option {
 	return func(c *appConfig) {
 		c.folderPath = folderPath
 		c.lockFilePath = lockFilePath
@@ -113,7 +113,7 @@ func WithPaths(folderPath, lockFilePath, modulesDirPath, lockFileDir string, use
 	}
 }
 
-func WithLogging(consoleLogging, eventStreaming bool, minLevel zapcore.Level) AppOption {
+func WithLogging(consoleLogging, eventStreaming bool, minLevel zapcore.Level) Option {
 	return func(c *appConfig) {
 		c.consoleLogging = consoleLogging
 		c.eventStreaming = eventStreaming
@@ -121,7 +121,7 @@ func WithLogging(consoleLogging, eventStreaming bool, minLevel zapcore.Level) Ap
 	}
 }
 
-func WithProfiling(enabled bool) AppOption {
+func WithProfiling(enabled bool) Option {
 	return func(c *appConfig) {
 		c.enableProfiling = enabled
 	}
@@ -168,7 +168,7 @@ type App struct {
 	otelCleanup   func()
 }
 
-func NewApp(logger *zap.Logger, opts ...AppOption) (*App, error) {
+func NewApp(logger *zap.Logger, opts ...Option) (*App, error) {
 	if os.Getenv("GOMEMLIMIT") == "" {
 		debug.SetMemoryLimit(1 * 1024 * 1024 * 1024)
 	}
@@ -605,7 +605,15 @@ func (a *App) loadApplicationState(ctx context.Context, appFS iofs.FS) (regapi.C
 			return nil, nil, fmt.Errorf("create project root filesystem: %w", err)
 		}
 
-		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS, a.logger)
+		// Create mapping from module names to their parent dependency entry IDs
+		parentDependencyMap := deps.CreateParentDependencyMap(entries, loadResult, a.logger)
+
+		// Validate that there are no conflicts in parent dependency assignments
+		if err := deps.ValidateParentDependencyConflicts(parentDependencyMap, a.logger); err != nil {
+			return nil, nil, fmt.Errorf("parent dependency conflicts detected: %w", err)
+		}
+
+		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS, a.logger, parentDependencyMap)
 		if err != nil {
 			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}
@@ -733,7 +741,14 @@ func (a *App) StartProfiler() {
 		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-		if err := httpbase.ListenAndServe(profilerAddr, mux); err != nil {
+		server := &httpbase.Server{
+			Addr:         profilerAddr,
+			Handler:      mux,
+			ReadTimeout:  15 * time.Second,
+			WriteTimeout: 15 * time.Second,
+			IdleTimeout:  60 * time.Second,
+		}
+		if err := server.ListenAndServe(); err != nil {
 			if !errors.Is(err, httpbase.ErrServerClosed) {
 				a.logger.Error("pprof server failed", zap.Error(err))
 			}
@@ -816,6 +831,7 @@ func loadEntriesFromLoadedModules(
 	loadResult *deps.LoadResult,
 	rootFS iofs.FS,
 	mainLogger *zap.Logger,
+	parentDependencyMap map[string][]deps.ParentDependencyInfo, // Maps module name (vendor/name) to parent dependency entries with parameters
 ) ([]regapi.Entry, error) {
 	if loadResult == nil || len(loadResult.Modules) == 0 {
 		return nil, nil
@@ -837,6 +853,27 @@ func loadEntriesFromLoadedModules(
 		moduleEntries, err := folderLoader.LoadFS(ctx, moduleFS)
 		if err != nil {
 			return nil, fmt.Errorf("load entries from module %s: %w", module.Path, err)
+		}
+
+		// Set meta.parent for ns.requirement entries
+		moduleName := module.Name.String() // Format: "vendor/name"
+		if parentDependencies, exists := parentDependencyMap[moduleName]; exists {
+			for i := range moduleEntries {
+				if moduleEntries[i].Kind == regapi.KindNamespaceRequirement {
+					// Find the best parent dependency based on parameter matching
+					bestParentID := deps.SelectBestParentDependency(moduleEntries[i], parentDependencies, mainLogger)
+					if bestParentID != "" {
+						if moduleEntries[i].Meta == nil {
+							moduleEntries[i].Meta = make(regapi.Metadata)
+						}
+						moduleEntries[i].Meta["parent"] = bestParentID
+						mainLogger.Debug("set meta.parent for ns.requirement",
+							zap.String("requirement_id", moduleEntries[i].ID.String()),
+							zap.String("parent_dependency_id", bestParentID),
+							zap.String("module_name", moduleName))
+					}
+				}
+			}
 		}
 
 		allEntries = append(allEntries, moduleEntries...)
