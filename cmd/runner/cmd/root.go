@@ -36,7 +36,6 @@ var (
 		color.New(color.FgGreen),
 		color.New(color.FgRed),
 		color.New(color.FgWhite),
-		color.New(color.FgBlack),
 		color.New(color.FgHiBlue),
 		color.New(color.FgHiMagenta),
 		color.New(color.FgHiCyan),
@@ -44,7 +43,6 @@ var (
 		color.New(color.FgHiGreen),
 		color.New(color.FgHiRed),
 		color.New(color.FgHiWhite),
-		color.New(color.FgHiBlack),
 		color.New(color.FgBlue, color.Bold),
 		color.New(color.FgMagenta, color.Bold),
 		color.New(color.FgCyan, color.Bold),
@@ -52,7 +50,6 @@ var (
 		color.New(color.FgGreen, color.Bold),
 		color.New(color.FgRed, color.Bold),
 		color.New(color.FgWhite, color.Bold),
-		color.New(color.FgBlack, color.Bold),
 	}
 )
 
