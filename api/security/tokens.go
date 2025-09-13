@@ -52,5 +52,7 @@ type (
 
 		// Revoke removes a token from the store
 		Revoke(ctx context.Context, token Token) error
+
+		// wippy todo: add RevokeAll, pass to lua Modules
 	}
 )

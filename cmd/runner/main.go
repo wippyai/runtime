@@ -4,7 +4,7 @@ import (
 	"os"
 	"runtime"
 
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/ponyruntime/pony/cmd/runner/cmd"
 
 	// supported dbs
@@ -15,7 +15,7 @@ import (
 
 func main() {
 	// Initialize sqlite-vec extension
-	sqlite_vec.Auto()
+	sqlitevec.Auto()
 
 	// Set max procs based on CPU quota if running in container
 	runtime.GOMAXPROCS(runtime.NumCPU())
