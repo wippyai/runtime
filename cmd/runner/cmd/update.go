@@ -124,6 +124,6 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 
 	updateCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
-	updateCmd.Flags().StringP("src-dir", "s", ".", "source directory path")
+	updateCmd.Flags().StringP("src-dir", "d", ".", "source directory path")
 	updateCmd.Flags().StringP("modules-dir", "m", ".wippy", "modules directory path")
 }
