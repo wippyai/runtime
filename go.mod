@@ -34,6 +34,7 @@ require (
 	github.com/ponyruntime/tree-sitter-markdown v0.0.2
 	github.com/ponyruntime/tree-sitter-sql v0.0.3
 	github.com/sergi/go-diff v1.3.1
+	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.10.0
 	github.com/tmc/langchaingo v0.1.13
 	github.com/tree-sitter-grammars/tree-sitter-lua v0.2.0
@@ -134,7 +135,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
-	github.com/spf13/cobra v1.10.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d // indirect
