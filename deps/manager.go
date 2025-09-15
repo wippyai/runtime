@@ -20,7 +20,7 @@ import (
 )
 
 // VendorFolder is a name of vendor folder.
-const VendorFolder = ".wippy"
+const VendorFolder = ".wippy/vendor"
 
 // ManifestLoader provides the way to load manifest information into the manager.
 type ManifestLoader interface {
