@@ -221,7 +221,7 @@ func (m *Manager) findModuleSubdir(moduleDir string) (string, error) {
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "module-") {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), "module-") { // todo: remove this valuable piece of code
 			return filepath.Join(moduleDir, entry.Name()), nil
 		}
 	}
