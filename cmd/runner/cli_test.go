@@ -378,6 +378,42 @@ func TestRunCommandVerboseWithLogs(t *testing.T) {
 		}
 	})
 
+	// Test run command with context cancellation
+	t.Run("RunCommandWithContextCancellation", func(t *testing.T) {
+		runCmd := &RunCommand{runner: runner}
+
+		// Create a context that will be canceled after a short delay
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		// Test with verbose flag in a goroutine
+		errChan := make(chan error, 1)
+		go func() {
+			flags := []string{"-v"}
+			err := runCmd.Execute(ctx, flags, []string{})
+			errChan <- err
+		}()
+
+		// Wait for context cancellation
+		select {
+		case err := <-errChan:
+			// The command should return due to context cancellation
+			if err != nil && !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("Run command with context cancellation failed: %v", err)
+			}
+		case <-ctx.Done():
+			// This is expected - the command should timeout
+			if ctx.Err() != context.DeadlineExceeded {
+				t.Fatalf("Unexpected context error: %v", ctx.Err())
+			}
+		}
+
+		// Verify that verbose mode was enabled
+		if !runner.config.Verbose {
+			t.Error("Expected verbose mode to be enabled")
+		}
+	})
+
 	// Test very verbose flag with log capture
 	t.Run("RunCommandVeryVerboseWithLogs", func(t *testing.T) {
 		runCmd := &RunCommand{runner: runner}
@@ -716,6 +752,18 @@ func TestUpdateCommandWithSrcDirectory(t *testing.T) {
 
 	// Test update command with existing lock file
 	t.Run("UpdateCommandWithExistingLockFile", func(t *testing.T) {
+		// Create the src directory that was specified in the lock file
+		appDir := filepath.Join(tempDir, "app")
+		if err := os.MkdirAll(appDir, 0755); err != nil {
+			t.Fatalf("Failed to create app directory: %v", err)
+		}
+
+		// Create a simple test file in the app directory
+		testFile := filepath.Join(appDir, "test.yaml")
+		if err := os.WriteFile(testFile, []byte("kind: test\n"), 0600); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
 		updateCmd := &UpdateCommand{runner: runner}
 
 		// Test update command - it should use src directory from lock file
