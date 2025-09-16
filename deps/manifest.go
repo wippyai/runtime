@@ -65,7 +65,23 @@ type LoadedModule struct {
 	ParentDependencyID string `json:"parent_dependency_id,omitempty"`
 }
 
+// ModuleOperation represents a single module operation with version tracking
+type ModuleOperation struct {
+	Name       string // Module name (e.g., "wippy/actor")
+	Version    string // Current version
+	OldVersion string // Previous version for updates
+	Action     string // Operation type: "installed", "updated", "removed"
+}
+
+// ModuleStats represents statistics for a single module operation
+type ModuleStats struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Status  string `json:"status"` // "from cache", "downloaded", "from replacement", "skipped"
+}
+
 // LoadResult represents the result of loading modules from the registry.
 type LoadResult struct {
-	Modules []LoadedModule `json:"modules"`
+	Modules     []LoadedModule `json:"modules"`
+	ModuleStats []ModuleStats  `json:"module_stats"`
 }

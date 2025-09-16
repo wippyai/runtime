@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/deps"
+
 	mock_identityv1connect "github.com/ponyruntime/pony/tests/mock/identityv1connect"
 	mock_moduleloader "github.com/ponyruntime/pony/tests/mock/moduleloader"
 	mock_modulev1connect "github.com/ponyruntime/pony/tests/mock/modulev1connect"
 	"go.uber.org/mock/gomock"
+	"go.uber.org/zap"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
@@ -304,6 +306,7 @@ func TestManager_Load(t *testing.T) {
 				mockLabelClient,
 				mockDownloadClient,
 				mockManifestLoader,
+				zap.NewNop(),
 				vendorFolderPath,
 			)
 
@@ -509,6 +512,7 @@ func TestManager_Load_TreeDependencyProcessing(t *testing.T) {
 		mockLabelClient,
 		mockDownloadClient,
 		mockManifestLoader,
+		zap.NewNop(),
 		vendorFolderPath,
 	)
 
@@ -643,6 +647,7 @@ func TestManager_Load_DuplicatePrevention(t *testing.T) {
 		mockLabelClient,
 		mockDownloadClient,
 		mockManifestLoader,
+		zap.NewNop(),
 		vendorFolderPath,
 	)
 
@@ -837,6 +842,7 @@ func TestManager_Load_EntriesFormatDependencyScanning(t *testing.T) {
 		mockLabelClient,
 		mockDownloadClient,
 		mockManifestLoader,
+		zap.NewNop(),
 		vendorFolderPath,
 	)
 

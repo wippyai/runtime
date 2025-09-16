@@ -12,6 +12,13 @@ import (
 
 const DefaultLockFile = "wippy.lock"
 
+// LockFileChanges represents changes between old and new lock files
+type LockFileChanges struct {
+	Installed []ModuleOperation
+	Updated   []ModuleOperation
+	Removed   []ModuleOperation
+}
+
 // LockFile represents the structure of wippy.lock file
 type LockFile struct {
 	Directories  Directories    `yaml:"directories"`
@@ -55,6 +62,19 @@ func LoadLockFile(path string) (*LockFile, error) {
 
 // SaveLockFile saves the lock file to the given path
 func (lf *LockFile) SaveLockFile(path string) error {
+	// Deduplicate modules by name and version before saving
+	moduleMap := make(map[string]LockedModule)
+	for _, module := range lf.Modules {
+		key := module.Name + "@" + module.Version
+		moduleMap[key] = module
+	}
+
+	// Convert map back to slice
+	lf.Modules = make([]LockedModule, 0, len(moduleMap))
+	for _, module := range moduleMap {
+		lf.Modules = append(lf.Modules, module)
+	}
+
 	// Sort modules by name for consistent output
 	sort.Slice(lf.Modules, func(i, j int) bool {
 		return lf.Modules[i].Name < lf.Modules[j].Name
