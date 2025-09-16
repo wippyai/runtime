@@ -31,7 +31,8 @@ func TestSupervisor_DependencyOrdering(t *testing.T) {
 		Path:   "service-a",
 	})
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for all services to reach running state instead of fixed sleep
+	h.waitForAllServices(supervisor.Running)
 
 	// Verify states
 	h.assertServiceState("service-c", supervisor.Running)
@@ -119,7 +120,8 @@ func TestSupervisor_ParallelDependencyStart(t *testing.T) {
 		Path:   "service-a",
 	})
 
-	time.Sleep(300 * time.Millisecond)
+	// Wait for all services to reach running state instead of fixed sleep
+	h.waitForAllServices(supervisor.Running)
 
 	// Verify states
 	h.assertServiceState("service-b", supervisor.Running)
@@ -151,7 +153,8 @@ func TestSupervisor_DependencyStopOrder(t *testing.T) {
 		Path:   "service-a",
 	})
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for all services to reach running state instead of fixed sleep
+	h.waitForAllServices(supervisor.Running)
 
 	// Verify all services started
 	h.assertServiceState("service-c", supervisor.Running)
@@ -165,7 +168,8 @@ func TestSupervisor_DependencyStopOrder(t *testing.T) {
 		Path:   "service-c",
 	})
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for all services to reach stopped state instead of fixed sleep
+	h.waitForAllServices(supervisor.Stopped)
 
 	// Verify all services stopped in correct order
 	h.assertServiceState("service-a", supervisor.Stopped)

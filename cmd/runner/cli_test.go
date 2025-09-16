@@ -268,6 +268,7 @@ func TestVerboseFlag(t *testing.T) {
 
 	// Test verbose flag for run command
 	t.Run("RunCommandVerbose", func(t *testing.T) {
+		// First, create a lock file using init command (if it doesn't exist)
 		runCmd := &RunCommand{runner: runner}
 
 		// Create a context with timeout
