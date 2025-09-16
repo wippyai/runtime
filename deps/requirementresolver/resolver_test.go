@@ -303,7 +303,16 @@ func TestFindDependencyByParameterName(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("Find parameter %s", tc.requirementName), func(t *testing.T) {
-			dependency, paramValue, err := findDependencyByParameterName(tc.requirementName, nsDependencies)
+			// Create a mock requirement entry with meta.parent
+			requirement := registry.Entry{
+				ID:   registry.ID{NS: "app.local", Name: tc.requirementName},
+				Kind: registry.KindNamespaceRequirement,
+				Meta: registry.Metadata{
+					"parent": "app.requirements.demo:hello_world_dependency",
+				},
+			}
+
+			dependency, paramValue, err := findDependencyByParameterName(requirement, nsDependencies)
 
 			if tc.shouldFind {
 				require.NoError(t, err, "Should find dependency parameter")
@@ -311,7 +320,7 @@ func TestFindDependencyByParameterName(t *testing.T) {
 				assert.Equal(t, tc.expectedValue, paramValue)
 			} else {
 				require.Error(t, err, "Should not find dependency parameter")
-				assert.Contains(t, err.Error(), "no dependency parameter found")
+				assert.Contains(t, err.Error(), "not found")
 			}
 		})
 	}
@@ -420,7 +429,16 @@ func TestFindDependencyByParameterNameEdgeCases(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			dependency, paramValue, err := findDependencyByParameterName(tc.requirementName, tc.nsDependencies)
+			// Create a mock requirement entry with meta.parent
+			requirement := registry.Entry{
+				ID:   registry.ID{NS: "app.local", Name: tc.requirementName},
+				Kind: registry.KindNamespaceRequirement,
+				Meta: registry.Metadata{
+					"parent": "app.local:dependency1",
+				},
+			}
+
+			dependency, paramValue, err := findDependencyByParameterName(requirement, tc.nsDependencies)
 
 			if tc.shouldFind {
 				require.NoError(t, err, "Should find dependency parameter")
@@ -428,10 +446,248 @@ func TestFindDependencyByParameterNameEdgeCases(t *testing.T) {
 				assert.Equal(t, "value1", paramValue)
 			} else {
 				require.Error(t, err, "Should not find dependency parameter")
-				assert.Contains(t, err.Error(), "no dependency parameter found")
+				assert.Contains(t, err.Error(), "not found")
 			}
 		})
 	}
+}
+
+// TestFindDependencyByParameterNameWithMetaParent tests the meta.parent functionality
+func TestFindDependencyByParameterNameWithMetaParent(t *testing.T) {
+	nsDependencies := map[string]registry.Entry{
+		"parent_dependency_1": {
+			ID:   registry.ID{NS: "app.local", Name: "parent_dependency_1"},
+			Kind: registry.KindNamespaceDependency,
+			Data: payload.New(map[string]interface{}{
+				"parameters": []interface{}{
+					map[string]interface{}{
+						"name":  "API_ROUTER",
+						"value": "system:api",
+					},
+					map[string]interface{}{
+						"name":  "NAMESPACE",
+						"value": "ns:system",
+					},
+				},
+			}),
+		},
+		"parent_dependency_2": {
+			ID:   registry.ID{NS: "app.local", Name: "parent_dependency_2"},
+			Kind: registry.KindNamespaceDependency,
+			Data: payload.New(map[string]interface{}{
+				"parameters": []interface{}{
+					map[string]interface{}{
+						"name":  "API_ROUTER",
+						"value": "custom:api",
+					},
+					map[string]interface{}{
+						"name":  "DATABASE_URL",
+						"value": "postgres://localhost:5432/test",
+					},
+				},
+			}),
+		},
+	}
+
+	testCases := []struct {
+		name          string
+		requirement   registry.Entry
+		expectedValue string
+		expectedDepID string
+		shouldFind    bool
+		description   string
+	}{
+		{
+			name: "requirement_with_meta_parent_found",
+			requirement: registry.Entry{
+				ID:   registry.ID{NS: "app.local", Name: "API_ROUTER"},
+				Kind: registry.KindNamespaceRequirement,
+				Meta: registry.Metadata{
+					"parent": "app.local:parent_dependency_1",
+				},
+			},
+			expectedValue: "system:api",
+			expectedDepID: "app.local:parent_dependency_1",
+			shouldFind:    true,
+			description:   "Should find parameter in specific parent dependency",
+		},
+		{
+			name: "requirement_with_meta_parent_different_value",
+			requirement: registry.Entry{
+				ID:   registry.ID{NS: "app.local", Name: "API_ROUTER"},
+				Kind: registry.KindNamespaceRequirement,
+				Meta: registry.Metadata{
+					"parent": "app.local:parent_dependency_2",
+				},
+			},
+			expectedValue: "custom:api",
+			expectedDepID: "app.local:parent_dependency_2",
+			shouldFind:    true,
+			description:   "Should find different value in different parent dependency",
+		},
+		{
+			name: "requirement_with_meta_parent_not_found",
+			requirement: registry.Entry{
+				ID:   registry.ID{NS: "app.local", Name: "NON_EXISTENT"},
+				Kind: registry.KindNamespaceRequirement,
+				Meta: registry.Metadata{
+					"parent": "app.local:parent_dependency_1",
+				},
+			},
+			expectedValue: "",
+			expectedDepID: "",
+			shouldFind:    false,
+			description:   "Should not find non-existent parameter in parent dependency",
+		},
+		{
+			name: "requirement_without_meta_parent_error",
+			requirement: registry.Entry{
+				ID:   registry.ID{NS: "app.local", Name: "API_ROUTER"},
+				Kind: registry.KindNamespaceRequirement,
+				// No meta.parent - should return error
+			},
+			expectedValue: "",
+			expectedDepID: "",
+			shouldFind:    false,
+			description:   "Should return error when no meta.parent",
+		},
+		{
+			name: "requirement_with_empty_meta_parent_error",
+			requirement: registry.Entry{
+				ID:   registry.ID{NS: "app.local", Name: "API_ROUTER"},
+				Kind: registry.KindNamespaceRequirement,
+				Meta: registry.Metadata{
+					"parent": "", // Empty parent
+				},
+			},
+			expectedValue: "",
+			expectedDepID: "",
+			shouldFind:    false,
+			description:   "Should return error when meta.parent is empty",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			dependency, paramValue, err := findDependencyByParameterName(tc.requirement, nsDependencies)
+
+			if tc.shouldFind {
+				require.NoError(t, err, "Should find dependency parameter")
+				assert.Equal(t, tc.expectedDepID, dependency.ID.String())
+				assert.Equal(t, tc.expectedValue, paramValue)
+			} else {
+				require.Error(t, err, "Should not find dependency parameter")
+				// Check for various error conditions
+				errMsg := err.Error()
+				hasError := strings.Contains(errMsg, "not found") ||
+					strings.Contains(errMsg, "no meta.parent") ||
+					strings.Contains(errMsg, "empty meta.parent") ||
+					strings.Contains(errMsg, "invalid meta.parent")
+				assert.True(t, hasError, "Error message should indicate the problem: %s", errMsg)
+			}
+		})
+	}
+}
+
+// TestResolveParameterValueThreeCases tests the three main cases for parameter resolution
+func TestResolveParameterValueThreeCases(t *testing.T) {
+	logger := zap.NewNop()
+	resolver := NewResolver(logger)
+
+	// Create a dependency with parameters
+	dependency := registry.Entry{
+		ID:   registry.ID{NS: "app.local", Name: "test_dependency"},
+		Kind: registry.KindNamespaceDependency,
+		Data: payload.New(map[string]interface{}{
+			"parameters": []interface{}{
+				map[string]interface{}{
+					"name":  "TEST_PARAM",
+					"value": "from_dependency",
+				},
+			},
+		}),
+	}
+
+	dependencies := map[string]registry.Entry{
+		"test_dependency": dependency,
+	}
+
+	t.Run("Case 1: Use value from meta.parent entry", func(t *testing.T) {
+		requirement := registry.Entry{
+			ID:   registry.ID{NS: "app.local", Name: "TEST_PARAM"},
+			Kind: registry.KindNamespaceRequirement,
+			Meta: registry.Metadata{
+				"parent": "app.local:test_dependency",
+			},
+		}
+
+		value, err := resolver.resolveParameterValue(requirement, dependencies)
+		require.NoError(t, err, "Should resolve parameter from dependency")
+		assert.Equal(t, "from_dependency", value, "Should use value from dependency")
+	})
+
+	t.Run("Case 2: Use default value when meta.parent not set", func(t *testing.T) {
+		requirement := registry.Entry{
+			ID:   registry.ID{NS: "app.local", Name: "TEST_PARAM"},
+			Kind: registry.KindNamespaceRequirement,
+			Data: payload.New(map[string]interface{}{
+				"default": "default_value",
+			}),
+		}
+
+		value, err := resolver.resolveParameterValue(requirement, dependencies)
+		require.NoError(t, err, "Should resolve parameter from default")
+		assert.Equal(t, "default_value", value, "Should use default value")
+	})
+
+	t.Run("Case 3: Error when no meta.parent and no default", func(t *testing.T) {
+		requirement := registry.Entry{
+			ID:   registry.ID{NS: "app.local", Name: "TEST_PARAM"},
+			Kind: registry.KindNamespaceRequirement,
+			Data: payload.New(map[string]interface{}{
+				// No default value
+			}),
+		}
+
+		value, err := resolver.resolveParameterValue(requirement, dependencies)
+		require.Error(t, err, "Should return error when no meta.parent and no default")
+		assert.Equal(t, "", value, "Should return empty value on error")
+		assert.Contains(t, err.Error(), "no parameter found and no default value available", "Should have correct error message")
+	})
+
+	t.Run("Case 4: Error when meta.parent set but dependency not found", func(t *testing.T) {
+		requirement := registry.Entry{
+			ID:   registry.ID{NS: "app.local", Name: "TEST_PARAM"},
+			Kind: registry.KindNamespaceRequirement,
+			Meta: registry.Metadata{
+				"parent": "app.local:nonexistent_dependency",
+			},
+			Data: payload.New(map[string]interface{}{
+				"default": "default_value",
+			}),
+		}
+
+		value, err := resolver.resolveParameterValue(requirement, dependencies)
+		require.NoError(t, err, "Should fallback to default when parent dependency not found")
+		assert.Equal(t, "default_value", value, "Should use default value as fallback")
+	})
+
+	t.Run("Case 5: Error when meta.parent set but parameter not found in dependency", func(t *testing.T) {
+		requirement := registry.Entry{
+			ID:   registry.ID{NS: "app.local", Name: "NONEXISTENT_PARAM"},
+			Kind: registry.KindNamespaceRequirement,
+			Meta: registry.Metadata{
+				"parent": "app.local:test_dependency",
+			},
+			Data: payload.New(map[string]interface{}{
+				"default": "default_value",
+			}),
+		}
+
+		value, err := resolver.resolveParameterValue(requirement, dependencies)
+		require.NoError(t, err, "Should fallback to default when parameter not found in dependency")
+		assert.Equal(t, "default_value", value, "Should use default value as fallback")
+	})
 }
 
 // ParseEntryReference parses an entry reference string to determine target namespace and name
@@ -528,6 +784,9 @@ func TestRequirementDefaultValues(t *testing.T) {
 			{
 				ID:   registry.ID{NS: "app.local", Name: "application_host"},
 				Kind: registry.KindNamespaceRequirement,
+				Meta: registry.Metadata{
+					"parent": "app.local:host_dependency",
+				},
 				Data: payload.New(map[string]interface{}{
 					"targets": []interface{}{
 						map[string]interface{}{
