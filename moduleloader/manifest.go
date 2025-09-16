@@ -61,6 +61,8 @@ type LoadedModule struct {
 	Path         string `json:"path"`
 	Organization string `json:"organization"`
 	Module       string `json:"module"`
+	// ParentDependencyID is the ID of the ns.dependency entry that caused this module to be loaded
+	ParentDependencyID string `json:"parent_dependency_id,omitempty"`
 }
 
 // ModuleStats represents statistics for a single module operation

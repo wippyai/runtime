@@ -739,8 +739,16 @@ func loadApplicationState(
 			return nil, nil, fmt.Errorf("create project root filesystem: %w", err)
 		}
 
+		// Create mapping from module names to their parent dependency entry IDs
+		parentDependencyMap := moduleloader.CreateParentDependencyMap(entries, loadResult, mainLogger)
+
+		// Validate that there are no conflicts in parent dependency assignments
+		if err := moduleloader.ValidateParentDependencyConflicts(parentDependencyMap, mainLogger); err != nil {
+			return nil, nil, fmt.Errorf("parent dependency conflicts detected: %w", err)
+		}
+
 		// Load entries only from the specific modules that were loaded
-		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS, mainLogger)
+		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS, mainLogger, parentDependencyMap)
 		if err != nil {
 			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}
@@ -842,6 +850,7 @@ func loadEntriesFromLoadedModules(
 	loadResult *moduleloader.LoadResult,
 	rootFS iofs.FS,
 	mainLogger *zap.Logger,
+	parentDependencyMap map[string][]moduleloader.ParentDependencyInfo, // Maps module name (vendor/name) to parent dependency entries with parameters
 ) ([]regapi.Entry, error) {
 	if loadResult == nil || len(loadResult.Modules) == 0 {
 		return nil, nil
@@ -867,7 +876,26 @@ func loadEntriesFromLoadedModules(
 			return nil, fmt.Errorf("load entries from module %s: %w", module.Path, err)
 		}
 
-		// Note: moduleEntries contains the entries loaded from this specific module
+		// Set meta.parent for ns.requirement entries
+		moduleName := module.Name.String() // Format: "vendor/name"
+		if parentDependencies, exists := parentDependencyMap[moduleName]; exists {
+			for i := range moduleEntries {
+				if moduleEntries[i].Kind == regapi.KindNamespaceRequirement {
+					// Find the best parent dependency based on parameter matching
+					bestParentID := moduleloader.SelectBestParentDependency(moduleEntries[i], parentDependencies, mainLogger)
+					if bestParentID != "" {
+						if moduleEntries[i].Meta == nil {
+							moduleEntries[i].Meta = make(regapi.Metadata)
+						}
+						moduleEntries[i].Meta["parent"] = bestParentID
+						mainLogger.Debug("set meta.parent for ns.requirement",
+							zap.String("requirement_id", moduleEntries[i].ID.String()),
+							zap.String("parent_dependency_id", bestParentID),
+							zap.String("module_name", moduleName))
+					}
+				}
+			}
+		}
 
 		allEntries = append(allEntries, moduleEntries...)
 	}

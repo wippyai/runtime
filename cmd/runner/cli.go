@@ -306,27 +306,104 @@ func (ic *RunCommand) Execute(_ context.Context, flags []string, args []string) 
 	flagSet := flag.NewFlagSet("run", flag.ExitOnError)
 	var lockFilePath string
 	var verbose bool
+	var veryVerbose bool
+	var enableProfiling bool
+	var useEmbed bool
+	var clusterEnabled bool
+	var clusterName string
+	var clusterBind string
+	var clusterPort int
+	var clusterJoin string
+	var clusterSecret string
+	var clusterSecretFile string
+	var clusterAdvertise string
+
+	// Core flags
 	flagSet.StringVar(&lockFilePath, "lock-file", "wippy.lock", "path to lock file")
 	flagSet.BoolVar(&verbose, "v", false, "enable verbose debug logging")
 	flagSet.BoolVar(&verbose, "verbose", false, "enable verbose debug logging")
+	flagSet.BoolVar(&veryVerbose, "vv", false, "enable very verbose debug logging with stack traces")
+	flagSet.BoolVar(&enableProfiling, "p", false, "enable performance profiling")
+	flagSet.BoolVar(&enableProfiling, "profiling", false, "enable performance profiling")
+	flagSet.BoolVar(&useEmbed, "use-embed", false, "use embedded files")
+
+	// Cluster flags
+	flagSet.BoolVar(&clusterEnabled, "cluster", false, "enable cluster membership")
+	flagSet.StringVar(&clusterName, "cluster-name", "", "cluster node name (defaults to hostname)")
+	flagSet.StringVar(&clusterBind, "cluster-bind", "0.0.0.0", "cluster bind address")
+	flagSet.IntVar(&clusterPort, "cluster-port", 7946, "cluster bind port")
+	flagSet.StringVar(&clusterJoin, "cluster-join", "", "comma-separated addresses to join")
+	flagSet.StringVar(&clusterSecret, "cluster-secret", "", "cluster secret key (base64 encoded string)")
+	flagSet.StringVar(&clusterSecretFile, "cluster-secret-file", "", "path to file containing cluster secret key")
+	flagSet.StringVar(&clusterAdvertise, "cluster-advertise", "", "cluster advertise IP address")
+
 	if err := flagSet.Parse(flags); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
 	}
 
-	// Update logger if verbose flag is set
-	if verbose {
-		ic.runner.config.Verbose = true
+	// Update logger if verbose flags are set
+	if verbose || veryVerbose {
+		ic.runner.config.Verbose = verbose
+		ic.runner.config.VeryVerbose = veryVerbose
 		// Reinitialize logger with verbose settings
-		logger, err := initMainLogger(true, false)
+		logger, err := initMainLogger(verbose, veryVerbose)
 		if err != nil {
 			return fmt.Errorf("failed to initialize verbose logger: %w", err)
 		}
 		ic.runner.logger = logger
 	}
 
+	// Update other flags
+	if enableProfiling {
+		ic.runner.config.EnableProfiling = true
+	}
+	if useEmbed {
+		ic.runner.config.UseEmbed = true
+	}
+	if clusterEnabled {
+		ic.runner.config.ClusterEnabled = true
+	}
+	if clusterName != "" {
+		ic.runner.config.ClusterName = clusterName
+	}
+	if clusterBind != "0.0.0.0" {
+		ic.runner.config.ClusterBind = clusterBind
+	}
+	if clusterPort != 7946 {
+		ic.runner.config.ClusterPort = clusterPort
+	}
+	if clusterJoin != "" {
+		ic.runner.config.ClusterJoin = clusterJoin
+	}
+	if clusterSecret != "" {
+		ic.runner.config.ClusterSecret = clusterSecret
+	}
+	if clusterSecretFile != "" {
+		ic.runner.config.ClusterSecretFile = clusterSecretFile
+	}
+	if clusterAdvertise != "" {
+		ic.runner.config.ClusterAdvertise = clusterAdvertise
+	}
+
 	// Update config with parsed lock file
 	if lockFilePath != "wippy.lock" {
 		ic.runner.config.LockFile = lockFilePath
+	}
+
+	// Set default cluster name to hostname if not provided
+	if ic.runner.config.ClusterEnabled && ic.runner.config.ClusterName == "" {
+		if hostname, err := os.Hostname(); err == nil {
+			ic.runner.config.ClusterName = hostname
+		} else {
+			return fmt.Errorf("failed to get hostname and no cluster name provided: %w", err)
+		}
+	}
+
+	// Validate cluster secret configuration
+	if ic.runner.config.ClusterEnabled {
+		if ic.runner.config.ClusterSecret != "" && ic.runner.config.ClusterSecretFile != "" {
+			return fmt.Errorf("cannot specify both -cluster-secret and -cluster-secret-file")
+		}
 	}
 
 	// Check if lock file exists
@@ -434,6 +511,11 @@ func (ic *RunCommand) Execute(_ context.Context, flags []string, args []string) 
 		app.services = createServiceHandlers(app)
 		runtime.GC()
 
+		// Start profiler if enabled
+		if ic.runner.config.EnableProfiling {
+			app.StartProfiler()
+		}
+
 		// Start the application
 		if err := app.Start(ic.runner.config.FolderPath, ic.runner.config.UseEmbed); err != nil {
 			return fmt.Errorf("failed to start application: %w", err)
@@ -481,10 +563,24 @@ func (ic *RunCommand) Execute(_ context.Context, flags []string, args []string) 
 func (ic *RunCommand) Help() string {
 	return `run - Run Wippy using paths from lock file
 
-Usage: wippy run --lock-file=<path> -- [command]
+Usage: wippy run --lock-file=<path> [options] -- [command]
 
 Options:
   --lock-file <path>  Path to lock file (default: wippy.lock)
+  -p, --profiling     Enable performance profiling
+  -v, --verbose       Enable verbose debug logging
+  -vv                 Enable very verbose debug logging with stack traces
+  --use-embed         Use embedded files
+
+Cluster Options:
+  --cluster           Enable cluster membership
+  --cluster-name <name>     Cluster node name (defaults to hostname)
+  --cluster-bind <addr>     Cluster bind address (default: 0.0.0.0)
+  --cluster-port <port>     Cluster bind port (default: 7946)
+  --cluster-join <addrs>    Comma-separated addresses to join
+  --cluster-secret <key>    Cluster secret key (base64 encoded string)
+  --cluster-secret-file <path>  Path to file containing cluster secret key
+  --cluster-advertise <ip>  Cluster advertise IP address
 
 Runs Wippy using paths from the lock file.
 When executed without a command, outputs a list of available commands.`
