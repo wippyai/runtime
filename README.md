@@ -315,6 +315,21 @@ wippy run --lock-file="custom.lock" --
 
 # Run with verbose logging
 wippy run -v --
+
+# Run with performance profiling enabled
+wippy run -p --
+
+# Run with very verbose logging and profiling
+wippy run -vv -p --
+
+# Run with embedded files
+wippy run --use-embed --
+
+# Run with cluster membership enabled
+wippy run --cluster --cluster-name="my-node" --
+
+# Run with custom cluster configuration
+wippy run --cluster --cluster-bind="0.0.0.0" --cluster-port=7946 --cluster-join="node1:7946,node2:7946" --
 ```
 
 **Manage module replacements:**
@@ -345,6 +360,70 @@ wippy run --help
 wippy replace --help
 ```
 
+### Run Command Advanced Options
+
+The `wippy run` command supports additional flags for advanced configuration:
+
+**Performance and Debugging:**
+```bash
+# Enable performance profiling (pprof server on localhost:6060)
+wippy run -p --
+
+# Enable very verbose logging with stack traces
+wippy run -vv --
+
+# Combine profiling and verbose logging
+wippy run -vv -p --
+
+# Use embedded files instead of file system
+wippy run --use-embed --
+```
+
+**Cluster Configuration:**
+```bash
+# Enable cluster membership with default settings
+wippy run --cluster --
+
+# Custom cluster node name
+wippy run --cluster --cluster-name="production-node" --
+
+# Custom cluster bind address and port
+wippy run --cluster --cluster-bind="192.168.1.100" --cluster-port=8000 --
+
+# Join existing cluster
+wippy run --cluster --cluster-join="node1:7946,node2:7946,node3:7946" --
+
+# Cluster with secret authentication
+wippy run --cluster --cluster-secret="base64-encoded-secret" --
+
+# Cluster with secret from file
+wippy run --cluster --cluster-secret-file="/path/to/secret.txt" --
+
+# Custom cluster advertise address
+wippy run --cluster --cluster-advertise="10.0.0.100" --
+
+# Complete cluster configuration
+wippy run --cluster \
+  --cluster-name="worker-1" \
+  --cluster-bind="0.0.0.0" \
+  --cluster-port=7946 \
+  --cluster-join="master:7946,worker-2:7946" \
+  --cluster-secret-file="/etc/wippy/cluster-secret" \
+  --cluster-advertise="192.168.1.10" --
+```
+
+**Combined Examples:**
+```bash
+# Development with profiling and verbose logging
+wippy run -vv -p --lock-file="dev.lock" --
+
+# Production cluster node with custom configuration
+wippy run --cluster --cluster-name="prod-node-1" --cluster-join="prod-master:7946" -p --
+
+# Testing with embedded files and cluster
+wippy run --use-embed --cluster --cluster-name="test-node" -vv --
+```
+
 ### Command Options
 
 | Option | Description | Example |
@@ -353,6 +432,17 @@ wippy replace --help
 | `--src-dir` | Source directory path (init only) | `wippy init --src-dir=src --` |
 | `--modules-dir` | Modules directory path (init only) | `wippy init --modules-dir=modules --` |
 | `-v, --verbose` | Enable verbose logging | `wippy install -v --` |
+| `-vv` | Enable very verbose logging with stack traces | `wippy run -vv --` |
+| `-p, --profiling` | Enable performance profiling (run only) | `wippy run -p --` |
+| `--use-embed` | Use embedded files (run only) | `wippy run --use-embed --` |
+| `--cluster` | Enable cluster membership (run only) | `wippy run --cluster --` |
+| `--cluster-name` | Cluster node name (run only) | `wippy run --cluster --cluster-name=node1 --` |
+| `--cluster-bind` | Cluster bind address (run only) | `wippy run --cluster --cluster-bind=0.0.0.0 --` |
+| `--cluster-port` | Cluster bind port (run only) | `wippy run --cluster --cluster-port=7946 --` |
+| `--cluster-join` | Comma-separated addresses to join (run only) | `wippy run --cluster --cluster-join=node1:7946,node2:7946 --` |
+| `--cluster-secret` | Cluster secret key (run only) | `wippy run --cluster --cluster-secret=base64key --` |
+| `--cluster-secret-file` | Path to cluster secret file (run only) | `wippy run --cluster --cluster-secret-file=secret.txt --` |
+| `--cluster-advertise` | Cluster advertise IP (run only) | `wippy run --cluster --cluster-advertise=192.168.1.100 --` |
 | `--help` | Show help information | `wippy init --help` |
 
 ### Legacy Flag Support
