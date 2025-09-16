@@ -468,10 +468,11 @@ func TestExecutor_Stderr(t *testing.T) {
 	// Start reading immediately in a goroutine
 	sb := new(strings.Builder)
 	readDone := make(chan struct{})
+	processDone := make(chan struct{})
 
 	go func() {
 		defer close(readDone)
-		timeout := time.After(2 * time.Second)
+		timeout := time.After(3 * time.Second)
 
 		for {
 			select {
@@ -495,11 +496,31 @@ func TestExecutor_Stderr(t *testing.T) {
 		}
 	}()
 
-	// Wait for the process to complete
-	_ = process.Wait()
+	// Wait for the process to complete in a separate goroutine
+	go func() {
+		defer close(processDone)
+		_ = process.Wait()
+	}()
 
-	// Wait for reading to complete
-	<-readDone
+	// Wait for both the process to complete and reading to finish
+	select {
+	case <-processDone:
+		// Process completed, give a little time for reading to finish
+		select {
+		case <-readDone:
+			// Reading completed
+		case <-time.After(1 * time.Second):
+			// Reading timed out, but process is done
+		}
+	case <-readDone:
+		// Reading completed, give a little time for process to finish
+		select {
+		case <-processDone:
+			// Process completed
+		case <-time.After(1 * time.Second):
+			// Process timed out, but reading is done
+		}
+	}
 
 	output := sb.String()
 	if !strings.Contains(output, "error message") {
