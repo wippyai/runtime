@@ -9,12 +9,11 @@ import (
 	"slices"
 	"strings"
 
-	"connectrpc.com/connect"
 	"github.com/Masterminds/semver/v3"
-	"github.com/goccy/go-yaml"
 	identityv1 "github.com/wippyai/module-registry-proto-go/registry/identity/v1"
 	"github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
 	"github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
+	"go.uber.org/zap"
 
 	modulev1 "github.com/wippyai/module-registry-proto-go/registry/module/v1"
 )
@@ -29,69 +28,44 @@ type ManifestLoader interface {
 
 // Manager manages module loading to the filesystem.
 type Manager struct {
-	organizationClient identityv1connect.OrganizationServiceClient
-	moduleClient       modulev1connect.ModuleServiceClient
-	commitClient       modulev1connect.CommitServiceClient
-	labelClient        modulev1connect.LabelServiceClient
-	downloadClient     modulev1connect.DownloadServiceClient
-	loader             ManifestLoader
-	vendorFolder       string                      // Custom vendor folder path
-	moduleQueue        []ManifestDependency        // Queue for processing modules
-	processedModules   map[ManifestDependency]bool // Track processed modules to avoid duplicates
+	downloadClient      modulev1connect.DownloadServiceClient
+	loader              ManifestLoader
+	logger              *zap.Logger
+	vendorFolder        string
+	dependencyProcessor *DependencyProcessor
 }
 
 func NewManager(
 	organizationClient identityv1connect.OrganizationServiceClient,
 	moduleClient modulev1connect.ModuleServiceClient,
-	commitClient modulev1connect.CommitServiceClient,
+	_ modulev1connect.CommitServiceClient,
 	labelClient modulev1connect.LabelServiceClient,
 	downloadClient modulev1connect.DownloadServiceClient,
 	loader ManifestLoader,
+	logger *zap.Logger,
 	vendorFolder string,
 ) *Manager {
 	if vendorFolder == "" {
 		vendorFolder = VendorFolder
 	}
 
+	// Create services
+	apiService := NewAPIService(organizationClient, moduleClient, labelClient)
+	yamlParser := NewYAMLParser(logger)
+	fileService := NewFileService(logger)
+	dependencyProcessor := NewDependencyProcessor(apiService, yamlParser, fileService, downloadClient, logger, vendorFolder)
+
 	return &Manager{
-		organizationClient: organizationClient,
-		moduleClient:       moduleClient,
-		commitClient:       commitClient,
-		labelClient:        labelClient,
-		downloadClient:     downloadClient,
-		loader:             loader,
-		vendorFolder:       vendorFolder,
-		moduleQueue:        make([]ManifestDependency, 0),
-		processedModules:   make(map[ManifestDependency]bool),
+		downloadClient:      downloadClient,
+		loader:              loader,
+		logger:              logger,
+		vendorFolder:        vendorFolder,
+		dependencyProcessor: dependencyProcessor,
 	}
-}
-
-// addRemoteModuleToQueue adds a module to the processing queue if it hasn't been processed yet
-func (m *Manager) addRemoteModuleToQueue(dep ManifestDependency) {
-	if m.processedModules[dep] {
-		// Module already processed, skip
-		return
-	}
-
-	// Check if module is already in the queue to avoid duplicates
-	for _, queuedDep := range m.moduleQueue {
-		if queuedDep.Name.Organization == dep.Name.Organization &&
-			queuedDep.Name.Module == dep.Name.Module &&
-			queuedDep.Version == dep.Version {
-			// Module already in queue, skip
-			return
-		}
-	}
-
-	m.moduleQueue = append(m.moduleQueue, dep)
 }
 
 // Load resolves and downloads dependencies based on the manifest
 func (m *Manager) Load(ctx context.Context) (*LoadResult, error) {
-	// Reset processed modules map for clean state
-	m.processedModules = make(map[ManifestDependency]bool)
-	m.moduleQueue = make([]ManifestDependency, 0)
-
 	manifest, err := m.loader.LoadManifest(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load manifest: %w", err)
@@ -110,7 +84,7 @@ func (m *Manager) Load(ctx context.Context) (*LoadResult, error) {
 	}
 
 	// Process remote dependencies
-	remoteModules, err := m.processRemoteDependencies(ctx, remoteDeps)
+	remoteModules, err := m.dependencyProcessor.ProcessRemoteDependencies(ctx, remoteDeps)
 	if err != nil {
 		return nil, fmt.Errorf("process remote dependencies: %w", err)
 	}
@@ -127,7 +101,8 @@ func (m *Manager) Load(ctx context.Context) (*LoadResult, error) {
 	allModules = append(allModules, localLoadedModules...)
 
 	return &LoadResult{
-		Modules: allModules,
+		Modules:     allModules,
+		ModuleStats: m.dependencyProcessor.GetModuleStats(),
 	}, nil
 }
 
@@ -136,348 +111,6 @@ type dependencyInformation struct {
 	module             *modulev1.Module
 	labels             []*modulev1.Label
 	matchingLabelIndex int
-}
-
-// processRemoteDependencies handles fetching and storing remote dependencies using a queue-based approach
-func (m *Manager) processRemoteDependencies(ctx context.Context, manifestDependencies []ManifestDependency) ([]LoadedModule, error) {
-	if len(manifestDependencies) == 0 {
-		return nil, nil
-	}
-
-	// Add initial dependencies to queue
-	for _, dep := range manifestDependencies {
-		m.addRemoteModuleToQueue(dep)
-	}
-
-	var loadedModules []LoadedModule
-
-	// Process queue until empty
-	for len(m.moduleQueue) > 0 {
-		// Get next module from queue
-		dep := m.moduleQueue[0]
-		m.moduleQueue = m.moduleQueue[1:]
-
-		// Skip if already processed
-		if m.processedModules[dep] {
-			continue
-		}
-
-		// Mark as processed
-		m.processedModules[dep] = true
-
-		// Process the module
-		loadedModule, err := m.downloadAndStoreModule(ctx, dep)
-		if err != nil {
-			return nil, fmt.Errorf("process module %s: %w", dep, err)
-		}
-
-		if loadedModule != nil {
-			loadedModules = append(loadedModules, *loadedModule)
-		}
-	}
-
-	return loadedModules, nil
-}
-
-// downloadAndStoreModule downloads and stores a single module
-func (m *Manager) downloadAndStoreModule(ctx context.Context, dep ManifestDependency) (*LoadedModule, error) {
-	// Get module information
-	info, err := m.getModuleInfo(ctx, dep)
-	if err != nil {
-		return nil, err
-	}
-
-	// Download module
-	moduleDir, err := m.downloadModule(ctx, dep, info)
-	if err != nil {
-		return nil, err
-	}
-
-	// Find the subdirectory where files are actually stored
-	subdirPath, err := m.findModuleSubdir(moduleDir)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check for new dependencies in the subdirectory where files are stored
-	if err := m.findNewDependencies(ctx, subdirPath); err != nil {
-		return nil, err
-	}
-
-	return &LoadedModule{
-		Name:         dep.Name,
-		Version:      info.labels[info.matchingLabelIndex].GetName(),
-		Path:         moduleDir, // Use the parent directory - filesystem walking will find subdirectory files
-		Organization: dep.Name.Organization,
-		Module:       dep.Name.Module,
-	}, nil
-}
-
-// findModuleSubdir finds the subdirectory where module files are stored
-func (m *Manager) findModuleSubdir(moduleDir string) (string, error) {
-	entries, err := os.ReadDir(moduleDir)
-	if err != nil {
-		return "", fmt.Errorf("read module directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "module-") {
-			return filepath.Join(moduleDir, entry.Name()), nil
-		}
-	}
-
-	return "", fmt.Errorf("no module subdirectory found in %s", moduleDir)
-}
-
-// getModuleInfo fetches all information needed for a module
-func (m *Manager) getModuleInfo(ctx context.Context, dep ManifestDependency) (*dependencyInformation, error) {
-	deps := map[ManifestDependency]*dependencyInformation{dep: {}}
-
-	err := errors.Join(
-		m.fetchOrganizationInformation(ctx, deps),
-		m.fetchModuleInformation(ctx, deps),
-		m.fetchLabelInformation(ctx, deps),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("fetch module information: %w", err)
-	}
-
-	info := deps[dep]
-	li, err := findHighestMatchingVersion(dep.Version, info.labels)
-	if err != nil {
-		return nil, fmt.Errorf("find highest matching version: %w", err)
-	}
-	info.matchingLabelIndex = li
-
-	return info, nil
-}
-
-// downloadModule downloads and stores the module files
-func (m *Manager) downloadModule(ctx context.Context, dep ManifestDependency, info *dependencyInformation) (string, error) {
-	if err := os.MkdirAll(m.vendorFolder, os.ModePerm); err != nil {
-		return "", fmt.Errorf("create vendor folder: %w", err)
-	}
-
-	if len(info.labels) == 0 {
-		return "", fmt.Errorf("no labels found for %s", dep)
-	}
-
-	commitID := info.labels[info.matchingLabelIndex].GetCommitId()
-
-	resp, err := m.downloadClient.Download(ctx, connect.NewRequest(&modulev1.DownloadRequest{CommitIds: []string{commitID}}))
-	if err != nil {
-		return "", fmt.Errorf("download commit %s: %w", commitID, err)
-	}
-
-	downloadedContents := resp.Msg.GetContents()
-	if len(downloadedContents) == 0 {
-		return "", fmt.Errorf("no content downloaded for commit %s", commitID)
-	}
-
-	content := downloadedContents[0]
-	moduleDir := filepath.Join(m.vendorFolder, dep.Name.Organization, dep.Name.Module+"@"+content.GetCommit().GetId())
-
-	if err := m.storeModuleFiles(moduleDir, content.GetFiles()); err != nil {
-		return "", fmt.Errorf("store module files: %w", err)
-	}
-
-	return moduleDir, nil
-}
-
-// findNewDependencies scans the module for new dependencies and adds them to the queue
-func (m *Manager) findNewDependencies(_ context.Context, moduleDir string) error {
-	return filepath.Walk(moduleDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return err
-		}
-
-		// Only process YAML files
-		name := strings.ToLower(info.Name())
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
-			return nil
-		}
-
-		// Read and parse YAML
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("read YAML file %s: %w", path, err)
-		}
-
-		// Try standard Manifest format
-		var manifest Manifest
-		if err := yaml.Unmarshal(data, &manifest); err == nil && len(manifest.Dependencies) > 0 {
-			for _, dep := range manifest.Dependencies {
-				if dep.Path == "" { // Only remote dependencies
-					m.addRemoteModuleToQueue(dep)
-				}
-			}
-			return nil
-		}
-
-		// Try entries format
-		var entriesDoc struct {
-			Entries []struct {
-				Name      string `yaml:"name"`
-				Kind      string `yaml:"kind"`
-				Component string `yaml:"component"`
-				Version   string `yaml:"version"`
-			} `yaml:"entries"`
-		}
-
-		if err := yaml.Unmarshal(data, &entriesDoc); err == nil {
-			for _, entry := range entriesDoc.Entries {
-				if entry.Kind == "ns.dependency" && entry.Component != "" {
-					parts := strings.Split(entry.Component, "/")
-					if len(parts) == 2 {
-						dep := ManifestDependency{
-							Name:    Name{Organization: parts[0], Module: parts[1]},
-							Version: entry.Version,
-						}
-						m.addRemoteModuleToQueue(dep)
-					}
-				}
-			}
-		}
-
-		return nil
-	})
-}
-
-func (m *Manager) fetchOrganizationInformation(ctx context.Context, deps map[ManifestDependency]*dependencyInformation) error {
-	organizationNames := make([]*identityv1.OrganizationRef, 0, len(deps))
-	seen := make(map[string]struct{})
-	for md := range deps {
-		if _, ok := seen[md.Name.Organization]; ok {
-			continue
-		}
-		organizationNames = append(organizationNames, &identityv1.OrganizationRef{Value: &identityv1.OrganizationRef_Name{Name: md.Name.Organization}})
-		seen[md.Name.Organization] = struct{}{}
-	}
-
-	// Find organization for the dependencies
-	resp, err := m.organizationClient.ListOrganizations(ctx, connect.NewRequest(&identityv1.ListOrganizationsRequest{Refs: organizationNames}))
-	if err != nil {
-		return fmt.Errorf("list organizations: %w", err)
-	}
-	listedOrganizations := resp.Msg.GetOrganizations()
-
-	for md, info := range deps {
-		organizationName := md.Name.Organization
-		matchesName := func(o *identityv1.Organization) bool { return organizationName == o.GetName() }
-		i := slices.IndexFunc(listedOrganizations, matchesName)
-		if i == -1 {
-			return fmt.Errorf("organization %s not found", organizationName)
-		}
-		info.organization = listedOrganizations[i]
-	}
-	return nil
-}
-
-func (m *Manager) fetchModuleInformation(ctx context.Context, deps map[ManifestDependency]*dependencyInformation) error {
-	// Find modules for the dependencies
-	moduleRefs := make([]*modulev1.ModuleRef, 0, len(deps))
-	for md, info := range deps {
-		if info.organization == nil {
-			return fmt.Errorf("missing organization info: %v", md)
-		}
-		moduleRefs = append(moduleRefs, &modulev1.ModuleRef{
-			Value: &modulev1.ModuleRef_NameRef{NameRef: &modulev1.ModuleRef_ModuleNameRef{
-				OrganizationId: info.organization.GetId(),
-				Name:           md.Name.Module,
-			}},
-		})
-	}
-
-	resp, err := m.moduleClient.ListModules(ctx, connect.NewRequest(&modulev1.ListModulesRequest{Refs: moduleRefs}))
-	if err != nil {
-		return fmt.Errorf("list modules: %w", err)
-	}
-	listedModules := resp.Msg.GetModules()
-	for md, info := range deps {
-		moduleName := md.Name.Module
-		matchesName := func(m *modulev1.Module) bool { return moduleName == m.GetName() }
-		i := slices.IndexFunc(listedModules, matchesName)
-		if i == -1 {
-			return fmt.Errorf("module %s not found", moduleName)
-		}
-		info.module = listedModules[i]
-	}
-	return nil
-}
-
-func (m *Manager) fetchLabelInformation(ctx context.Context, deps map[ManifestDependency]*dependencyInformation) error {
-	moduleIDs := make([]string, 0, len(deps))
-	for md, info := range deps {
-		if info.module == nil {
-			return fmt.Errorf("missing module info: %v", md)
-		}
-		moduleIDs = append(moduleIDs, info.module.GetId())
-	}
-
-	resp, err := m.labelClient.ListModuleLabels(ctx, connect.NewRequest(&modulev1.ListModuleLabelsRequest{ModuleIds: moduleIDs}))
-	if err != nil {
-		return fmt.Errorf("list module labels: %w", err)
-	}
-	listedLabels := resp.Msg.GetLabels()
-	moduleIDLabels := make(map[string][]*modulev1.Label, len(listedLabels))
-	for _, label := range listedLabels {
-		moduleIDLabels[label.GetModuleId()] = append(moduleIDLabels[label.GetModuleId()], label)
-	}
-	for md, info := range deps {
-		moduleID := info.module.GetId()
-		labels, ok := moduleIDLabels[moduleID]
-		if !ok {
-			return fmt.Errorf("missing module labels: %v", md)
-		}
-		info.labels = labels
-	}
-	return nil
-}
-
-// storeModuleFiles stores module files in the given directory
-func (m *Manager) storeModuleFiles(moduleDir string, files []*modulev1.File) error {
-	if len(files) == 0 {
-		return nil
-	}
-
-	// Get subdirectory name from first file
-	firstPath := files[0].GetPath()
-	pathParts := strings.Split(firstPath, "/")
-	if len(pathParts) == 0 {
-		return fmt.Errorf("invalid file path: %s", firstPath)
-	}
-
-	moduleSubdir := pathParts[0]
-	subdirPath := filepath.Join(moduleDir, moduleSubdir)
-
-	// Create subdirectory
-	if err := os.MkdirAll(subdirPath, os.ModePerm); err != nil {
-		return fmt.Errorf("create module subdirectory: %w", err)
-	}
-
-	// Write files to subdirectory
-	for _, file := range files {
-		filePath := file.GetPath()
-
-		// Remove module subdirectory prefix if present
-		if strings.HasPrefix(filePath, moduleSubdir+"/") {
-			filePath = strings.TrimPrefix(filePath, moduleSubdir+"/")
-		}
-
-		fullPath := filepath.Join(subdirPath, filePath)
-
-		// Create parent directories
-		if err := os.MkdirAll(filepath.Dir(fullPath), os.ModePerm); err != nil {
-			return fmt.Errorf("create directory: %w", err)
-		}
-
-		// Write file
-		if err := os.WriteFile(fullPath, file.GetContent(), 0600); err != nil {
-			return fmt.Errorf("write file: %w", err)
-		}
-	}
-
-	return nil
 }
 
 // processLocalModules processes local modules
@@ -494,6 +127,14 @@ func (m *Manager) processLocalModules(localModules map[Name]string) ([]LoadedMod
 		if err := os.CopyFS(modulePath, localOS.FS()); err != nil {
 			return nil, fmt.Errorf("copy %s: %w", name, err)
 		}
+
+		// Record statistics for local module
+		moduleName := fmt.Sprintf("%s/%s", name.Organization, name.Module)
+		m.dependencyProcessor.moduleStats = append(m.dependencyProcessor.moduleStats, ModuleStats{
+			Name:    moduleName,
+			Version: "local",
+			Status:  StatusFromReplacement,
+		})
 
 		// Create LoadedModule entry for local module
 		loadedModule := LoadedModule{

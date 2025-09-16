@@ -211,39 +211,17 @@ type InstallCommand struct {
 }
 
 func (ic *InstallCommand) Execute(ctx context.Context, flags []string, args []string) error {
-	// Parse common flags
-	flagSet := flag.NewFlagSet("install", flag.ExitOnError)
-	var lockFilePath string
-	var verbose bool
-	flagSet.StringVar(&lockFilePath, "lock-file", "wippy.lock", "path to lock file")
-	flagSet.BoolVar(&verbose, "v", false, "enable verbose debug logging")
-	flagSet.BoolVar(&verbose, "verbose", false, "enable verbose debug logging")
-	if err := flagSet.Parse(flags); err != nil {
-		return fmt.Errorf("failed to parse flags: %w", err)
-	}
+	baseCmd := NewBaseCommand(ic.runner)
+	return baseCmd.ExecuteWithCommonFlags(ctx, "install", flags, args, ic.executeInstall)
+}
 
-	// Update logger if verbose flag is set
-	if verbose {
-		ic.runner.config.Verbose = true
-		// Reinitialize logger with verbose settings
-		logger, err := initMainLogger(true, false)
-		if err != nil {
-			return fmt.Errorf("failed to initialize verbose logger: %w", err)
-		}
-		ic.runner.logger = logger
-	}
-
-	// Update config with parsed lock file
-	if lockFilePath != "wippy.lock" {
-		ic.runner.config.LockFile = lockFilePath
-	}
-
-	// Check if lock file exists
+func (ic *InstallCommand) executeInstall(ctx context.Context, commonFlags *CommonFlags, args []string) error {
+	// Check if lock file exists and load it
 	lockPath, err := moduleloader.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
 	if err != nil {
 		ic.runner.logger.Info("Lock file not found, falling back to update behavior")
 		updateCmd := &UpdateCommand{runner: ic.runner}
-		return updateCmd.Execute(ctx, flags, args)
+		return updateCmd.Execute(ctx, []string{"--lock-file=" + commonFlags.LockFilePath}, args)
 	}
 
 	// Load lock file
@@ -257,60 +235,9 @@ func (ic *InstallCommand) Execute(ctx context.Context, flags []string, args []st
 		return fmt.Errorf("invalid replacement paths: %w", err)
 	}
 
-	// Clean unused packages from .wippy
-	if err := ic.cleanUnusedPackages(lockFile); err != nil {
-		return fmt.Errorf("failed to clean unused packages: %w", err)
-	}
-
 	// Install dependencies
 	depsManager := NewDependencyManager(ic.runner.config, ic.runner.logger)
 	return depsManager.InstallDependencies(ctx)
-}
-
-func (ic *InstallCommand) cleanUnusedPackages(lockFile *moduleloader.LockFile) error {
-	ic.runner.logger.Info("Cleaning unused packages from modules directory")
-
-	// Get the modules directory path
-	modulesDir := filepath.Join(ic.runner.config.FolderPath, lockFile.Directories.Modules)
-
-	// Check if modules directory exists
-	if _, err := os.Stat(modulesDir); os.IsNotExist(err) {
-		ic.runner.logger.Info("Modules directory does not exist, nothing to clean")
-		return nil
-	}
-
-	// Create a set of expected packages from lock file
-	expectedPackages := make(map[string]bool)
-	for _, module := range lockFile.Modules {
-		expectedPackages[module.Name] = true
-	}
-
-	// Scan the modules directory for installed packages
-	entries, err := os.ReadDir(modulesDir)
-	if err != nil {
-		return fmt.Errorf("failed to read modules directory: %w", err)
-	}
-
-	// Remove packages that are not in the lock file
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		// Check if this package is expected
-		if !expectedPackages[entry.Name()] {
-			packagePath := filepath.Join(modulesDir, entry.Name())
-			ic.runner.logger.Info("Removing unused package", zap.String("package", entry.Name()))
-
-			if err := os.RemoveAll(packagePath); err != nil {
-				ic.runner.logger.Warn("Failed to remove unused package",
-					zap.String("package", entry.Name()),
-					zap.Error(err))
-			}
-		}
-	}
-
-	return nil
 }
 
 func (ic *InstallCommand) Help() string {
@@ -332,53 +259,28 @@ type UpdateCommand struct {
 }
 
 func (ic *UpdateCommand) Execute(ctx context.Context, flags []string, args []string) error {
-	// Parse common flags
-	flagSet := flag.NewFlagSet("update", flag.ExitOnError)
-	var lockFilePath string
-	var verbose bool
-	flagSet.StringVar(&lockFilePath, "lock-file", "wippy.lock", "path to lock file")
-	flagSet.BoolVar(&verbose, "v", false, "enable verbose debug logging")
-	flagSet.BoolVar(&verbose, "verbose", false, "enable verbose debug logging")
-	if err := flagSet.Parse(flags); err != nil {
-		return fmt.Errorf("failed to parse flags: %w", err)
-	}
+	baseCmd := NewBaseCommand(ic.runner)
+	return baseCmd.ExecuteWithCommonFlags(ctx, "update", flags, args, ic.executeUpdate)
+}
 
-	// Update logger if verbose flag is set
-	if verbose {
-		ic.runner.config.Verbose = true
-		// Reinitialize logger with verbose settings
-		logger, err := initMainLogger(true, false)
-		if err != nil {
-			return fmt.Errorf("failed to initialize verbose logger: %w", err)
-		}
-		ic.runner.logger = logger
+func (ic *UpdateCommand) executeUpdate(ctx context.Context, commonFlags *CommonFlags, args []string) error {
+	// Check if lock file exists, init if missing
+	flags := []string{"--lock-file=" + commonFlags.LockFilePath}
+	if commonFlags.Verbose {
+		flags = append(flags, "-v")
 	}
-
-	// Update config with parsed lock file
-	if lockFilePath != "wippy.lock" {
-		ic.runner.config.LockFile = lockFilePath
-	}
-
-	// Check if lock file exists
-	_, err := moduleloader.FindLockFile(ic.runner.config.FolderPath, ic.runner.config.LockFile)
-	if err != nil {
-		ic.runner.logger.Info("Lock file not found, running init")
-		initCmd := &InitCommand{runner: ic.runner}
-		if err := initCmd.Execute(ctx, flags, args); err != nil {
-			return fmt.Errorf("failed to initialize lock file: %w", err)
-		}
+	if err := InitLockFileIfMissing(ctx, ic.runner, flags, args); err != nil {
+		return err
 	}
 
 	// Update dependencies
 	depsManager := NewDependencyManager(ic.runner.config, ic.runner.logger)
-	if err := depsManager.UpdateDependencies(ctx); err != nil {
+	stats := NewModuleOperationStats(commonFlags.Verbose)
+	if err := depsManager.UpdateDependenciesWithRemovedModules(ctx, stats); err != nil {
 		return fmt.Errorf("failed to update dependencies: %w", err)
 	}
 
-	// Run install after update
-	ic.runner.logger.Info("Running install after update")
-	installCmd := &InstallCommand{runner: ic.runner}
-	return installCmd.Execute(ctx, flags, args)
+	return nil
 }
 
 func (ic *UpdateCommand) Help() string {
@@ -651,7 +553,6 @@ func (ic *RunCommand) Execute(_ context.Context, flags []string, args []string) 
 		return nil
 	}
 
-	// TODO: Implement actual command execution using paths from lock file for additional arguments
 	ic.runner.logger.Info("Running command with lock file paths",
 		zap.String("src_dir", lockFile.Directories.Src),
 		zap.String("modules_dir", lockFile.Directories.Modules))

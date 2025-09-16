@@ -7,8 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/noop"
-
 	"github.com/ponyruntime/pony/runtime/lua/modules/html"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -216,14 +214,6 @@ func withEphemeralHost(a *App) eventbus.EventHandler {
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("hosts"),
-	))
-}
-
-//nolint:unused // it breaks runtime. use only for dev purpose
-func withNoopRuntime(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("(function|workflow|process|library).*", noop.NewNoopRuntime(
-		a.eventBus,
-		a.logger.Named("noop"),
 	))
 }
 
@@ -441,6 +431,7 @@ func newModuleloaderManager(baseURL string, entries []registry.Entry, logger *za
 		labelClient,
 		downloadClient,
 		registryLoader,
+		logger,
 		moduleloader.VendorFolder,
 	)
 }
