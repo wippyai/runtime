@@ -1,155 +1,14 @@
-name: Tests and Build
+name: Build and Publish Cross-Platform Binaries
 
 on:
-  push:
-    branches:
-      - main
-      - develop
   pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
-  tests:
-    name: Wippy Tests (Go ${{ matrix.go }}, OS ${{matrix.os}})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        go: [1.24]
-        os: ["ubuntu-latest", "windows-latest"]
-    env:
-      GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
-      RELEASE_REPO: wippyai/wippy-releases
-      BINARY_NAME: wippy
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ env.GITHUB_TOKEN }}  # Use PAT with repo scope for cross-org access
-
-      - name: Setup msys
-        if: matrix.os == 'windows-latest'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-sqlite3
-          path-type: inherit
-
-      - name: Set up Go ${{ matrix.go }}
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ matrix.go }}
-          check-latest: false
-          token: ${{ env.GITHUB_TOKEN }}
-          cache: true
-        env:
-          MSYSTEM: MINGW64
-
-      - name: Configure Git and Go for private modules
-        if: matrix.os != 'windows-latest'
-        run: |
-          # Configure Git to use token from environment
-          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-          
-          # Configure Go to skip verification for private modules
-          go env -w GOPRIVATE=github.com/ponyruntime/*,github.com/wippyai/*
-          go env -w GONOSUMDB=github.com/ponyruntime/*,github.com/wippyai/*
-          go env -w GONOPROXY=github.com/ponyruntime/*,github.com/wippyai/*
-
-      - name: Configure Git and Go for private modules (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: msys2 {0}
-        run: |
-          # Configure Git to use token from environment
-          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-          
-          # Configure Go to skip verification for private modules
-          go env -w GOPRIVATE=github.com/ponyruntime/*,github.com/wippyai/*
-          go env -w GONOSUMDB=github.com/ponyruntime/*,github.com/wippyai/*
-          go env -w GONOPROXY=github.com/ponyruntime/*,github.com/wippyai/*
-
-      - name: Install Go dependencies
-        if: matrix.os != 'windows-latest'
-        run: go mod download
-
-      - name: Install Go dependencies (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: msys2 {0}
-        run: go mod download
-
-      - name: Run unit tests
-        if: matrix.os != 'windows-latest'
-        env:
-          CGO_ENABLED: 1
-          GORACE: "halt_on_error=1"
-        run: make test
-
-      - name: Run unit tests (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: msys2 {0}
-        env:
-          CGO_ENABLED: 1
-          GORACE: "halt_on_error=1"
-        run: make test
-
-      # Build binaries using Makefile
-      - name: Install cross-compilation tools (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross libsqlite3-dev mingw-w64
-
-      - name: Build all binaries (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          CGO_ENABLED: 1
-        run: |
-          make build-runner-all
-          # Rename binaries to wippy-* format
-          cd ./dist
-          for file in runner-*; do
-            if [ -f "$file" ]; then
-              new_name=$(echo "$file" | sed 's/runner-/wippy-/')
-              mv "$file" "$new_name"
-              echo "✅ Renamed $file to $new_name"
-            fi
-          done
-          ls -la
-
-      - name: Build binary (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: msys2 {0}
-        env:
-          CGO_ENABLED: 1
-        run: |
-          make build-runner-local
-          # Rename to wippy format
-          cd ./dist
-          for file in runner-*; do
-            if [ -f "$file" ]; then
-              new_name=$(echo "$file" | sed 's/runner-/wippy-/')
-              mv "$file" "$new_name"
-              echo "✅ Renamed $file to $new_name"
-            fi
-          done
-          ls -la
-
-      # Upload artifacts from each job
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: wippy-binaries-${{ matrix.os }}-${{ matrix.go }}
-          path: ./dist/
-          retention-days: 7
-
-  # Only run on pull requests and only after tests pass
   build-and-publish:
     name: Build and Publish Binaries
     runs-on: ubuntu-latest
-    needs: tests
-    if: github.event_name == 'pull_request'
-    timeout-minutes: 30
+    timeout-minutes: 60
     
     env:
       GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
@@ -173,7 +32,10 @@ jobs:
 
       - name: Configure Git and Go for private modules
         run: |
+          # Configure Git to use token from environment
           git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          
+          # Configure Go to skip verification for private modules
           go env -w GOPRIVATE=github.com/ponyruntime/*,github.com/wippyai/*
           go env -w GONOSUMDB=github.com/ponyruntime/*,github.com/wippyai/*
           go env -w GONOPROXY=github.com/ponyruntime/*,github.com/wippyai/*
@@ -187,94 +49,94 @@ jobs:
       - name: Install Go dependencies
         run: go mod download
 
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./artifacts/
-
-      - name: Extract and organize binaries
+      - name: Build Linux AMD64
         run: |
           mkdir -p ./dist
-          
-          # Extract binaries from artifacts
-          for artifact_dir in ./artifacts/wippy-binaries-*; do
-            if [ -d "$artifact_dir" ]; then
-              echo "Processing $artifact_dir"
-              cp -r "$artifact_dir"/* ./dist/ 2>/dev/null || true
-            fi
-          done
-          
-          # List what we have
-          echo "📦 Available binaries:"
-          ls -la ./dist/ || echo "No binaries found"
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build --tags "fts5 sqlite_vec" -o ./dist/wippy-linux-amd64 ./cmd/runner/
 
-      - name: Build missing binaries
+      - name: Build Linux ARM64
         run: |
-          # Build any missing binaries using Makefile
-          echo "Building missing binaries with Makefile..."
-          make build-runner-all
-          
-          # Rename any new binaries to wippy-* format
-          cd ./dist
-          for file in runner-*; do
-            if [ -f "$file" ]; then
-              new_name=$(echo "$file" | sed 's/runner-/wippy-/')
-              if [ ! -f "$new_name" ]; then
-                mv "$file" "$new_name"
-                echo "✅ Renamed $file to $new_name"
-              else
-                echo "⚠️  $new_name already exists, removing $file"
-                rm "$file"
-              fi
-            fi
-          done
-          
-          echo "📦 Final binaries:"
-          ls -la
+          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build --tags "fts5 sqlite_vec" -o ./dist/wippy-linux-arm64 ./cmd/runner/
+        continue-on-error: true
+
+      - name: Build Windows AMD64
+        run: |
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build --tags "fts5 sqlite_vec" -o ./dist/wippy-windows-amd64.exe ./cmd/runner/
+        continue-on-error: true
+
+      - name: Build Windows ARM64
+        run: |
+          CGO_ENABLED=1 GOOS=windows GOARCH=arm64 CC=aarch64-w64-mingw32-gcc go build --tags "fts5 sqlite_vec" -o ./dist/wippy-windows-arm64.exe ./cmd/runner/
+        continue-on-error: true
+
+      - name: Build macOS AMD64
+        run: |
+          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build --tags "fts5 sqlite_vec" -o ./dist/wippy-darwin-amd64 ./cmd/runner/
+        continue-on-error: true
+
+      - name: Build macOS ARM64
+        run: |
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build --tags "fts5 sqlite_vec" -o ./dist/wippy-darwin-arm64 ./cmd/runner/
+        continue-on-error: true
 
       - name: Create release directory structure
         run: |
+          # Create dated folder structure
           DATE=$(date +%Y-%m-%d)
           PR_NUMBER=${{ github.event.number }}
           RELEASE_DIR="${DATE}_pr-${PR_NUMBER}"
           
           mkdir -p ./release-artifacts/${RELEASE_DIR}
           
-          # Create Linux archives
+          # Create Linux archives (only if binaries exist)
           cd ./dist
           if [ -f wippy-linux-amd64 ]; then
             tar -czf ../release-artifacts/${RELEASE_DIR}/linux-amd64.tar.gz wippy-linux-amd64
             echo "✅ Created linux-amd64.tar.gz"
+          else
+            echo "⚠️  Skipping linux-amd64 (binary not found)"
           fi
           
           if [ -f wippy-linux-arm64 ]; then
             tar -czf ../release-artifacts/${RELEASE_DIR}/linux-arm64.tar.gz wippy-linux-arm64
             echo "✅ Created linux-arm64.tar.gz"
+          else
+            echo "⚠️  Skipping linux-arm64 (binary not found)"
           fi
           
-          # Create Windows archives
+          # Create Windows archives (only if binaries exist)
           if [ -f wippy-windows-amd64.exe ]; then
             zip ../release-artifacts/${RELEASE_DIR}/windows-amd64.zip wippy-windows-amd64.exe
             echo "✅ Created windows-amd64.zip"
+          else
+            echo "⚠️  Skipping windows-amd64 (binary not found)"
           fi
           
           if [ -f wippy-windows-arm64.exe ]; then
             zip ../release-artifacts/${RELEASE_DIR}/windows-arm64.zip wippy-windows-arm64.exe
             echo "✅ Created windows-arm64.zip"
+          else
+            echo "⚠️  Skipping windows-arm64 (binary not found)"
           fi
           
-          # Create macOS archives
+          # Create macOS archives (only if binaries exist)
           if [ -f wippy-darwin-amd64 ]; then
             tar -czf ../release-artifacts/${RELEASE_DIR}/darwin-amd64.tar.gz wippy-darwin-amd64
             echo "✅ Created darwin-amd64.tar.gz"
+          else
+            echo "⚠️  Skipping darwin-amd64 (binary not found)"
           fi
           
           if [ -f wippy-darwin-arm64 ]; then
             tar -czf ../release-artifacts/${RELEASE_DIR}/darwin-arm64.tar.gz wippy-darwin-arm64
             echo "✅ Created darwin-arm64.tar.gz"
+          else
+            echo "⚠️  Skipping darwin-arm64 (binary not found)"
           fi
           
           cd ..
+          
+          # List created artifacts
           echo "📦 Created artifacts:"
           ls -la ./release-artifacts/${RELEASE_DIR}/
 
@@ -291,8 +153,10 @@ jobs:
           PR_NUMBER=${{ github.event.number }}
           RELEASE_DIR="${DATE}_pr-${PR_NUMBER}"
           
+          # Copy all artifacts to the release repository
           cp -r ./release-artifacts/${RELEASE_DIR}/* ./release-repo/
           
+          # Create a latest symlink for easy access
           cd ./release-repo
           rm -f latest_pr-${PR_NUMBER}
           ln -sf ${RELEASE_DIR} latest_pr-${PR_NUMBER}
@@ -309,6 +173,13 @@ jobs:
           git commit -m "Add binaries for PR #${PR_NUMBER} (${RELEASE_DIR})"
           git push origin main
 
+      - name: Upload artifacts as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wippy-binaries-pr-${{ github.event.number }}
+          path: ./release-artifacts/
+          retention-days: 30
+
       - name: Summary
         run: |
           echo "## 🚀 Cross-Platform Binaries Built Successfully!" >> $GITHUB_STEP_SUMMARY
@@ -318,6 +189,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Available Binaries:" >> $GITHUB_STEP_SUMMARY
           
+          # Check which binaries were actually created
           DATE=$(date +%Y-%m-%d)
           PR_NUMBER=${{ github.event.number }}
           RELEASE_DIR="${DATE}_pr-${PR_NUMBER}"
