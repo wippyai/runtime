@@ -21,7 +21,11 @@ func setupManagerTest(t *testing.T) (*Manager, *eventbus.Bus) {
 	logger := zap.NewNop()
 
 	core := NewCore(downstream, bus)
-	manager := NewManager(bus, core, logger, zapcore.InfoLevel)
+	manager := NewManager(bus, core, logger, api.Config{
+		PropagateDownstream: true,
+		StreamToEvents:      true,
+		MinLevel:            zapcore.InfoLevel,
+	})
 
 	t.Cleanup(func() {
 		_ = manager.Stop()
@@ -42,8 +46,8 @@ func TestManager_StartStop(t *testing.T) {
 
 	// Verify initial config
 	cfg := manager.GetConfig()
-	require.True(t, cfg.PropagateDownstream, "PropagateDownstream should be true by default")
-	require.False(t, cfg.StreamToEvents, "StreamToEvents should be false by default")
+	require.True(t, cfg.PropagateDownstream, "PropagateDownstream should be true")
+	require.True(t, cfg.StreamToEvents, "StreamToEvents should be true")
 	require.Equal(t, zapcore.InfoLevel, cfg.MinLevel, "Default level should be Info")
 
 	err = manager.Stop()

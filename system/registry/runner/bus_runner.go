@@ -175,9 +175,9 @@ func (br *BusRunner) applyOperation(
 
 			err, ok := rejection.Data.(error)
 			if !ok {
-				return state, errors.New("operation rejected, no details")
+				return state, fmt.Errorf("operation rejected for entry %s, no details", op.Entry.ID.String())
 			}
-			return state, err
+			return state, fmt.Errorf("operation failed for entry %s: %w", op.Entry.ID.String(), err)
 
 		case <-ctx.Done():
 			return state, fmt.Errorf("failed to apply operation %s (%s): %w", op.Entry.ID, op.Entry.Kind, ctx.Err())

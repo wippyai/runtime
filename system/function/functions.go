@@ -248,7 +248,7 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 				zap.String("pid", pid.String()),
 				zap.Error(err))
 
-			return nil, fmt.Errorf("interceptor chain execution failed: %w", err)
+			return nil, err
 		}
 
 		return ch, nil

@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// todo: duplicatye with component
 // DecodeAndInitConfig decodes the configuration and initializes defaults
 func DecodeAndInitConfig[T any](dtt payload.Transcoder, entry registry.Entry) (*T, error) {
 	// Get logger from context if available

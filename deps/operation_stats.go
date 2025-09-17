@@ -1,8 +1,4 @@
-package main
-
-import (
-	"github.com/ponyruntime/pony/deps"
-)
+package deps
 
 // ModuleOperationStats holds comprehensive statistics for module operations
 // This structure is created at the beginning of update/install commands
@@ -15,10 +11,10 @@ type ModuleOperationStats struct {
 	Skipped   int // Number of skipped modules
 
 	// Detailed operation records
-	Operations []deps.ModuleOperation // Individual operation details
+	Operations []ModuleOperation // Individual operation details
 
 	// Module statistics from moduleloader
-	ModuleStats []deps.ModuleStats // Status information from moduleloader
+	ModuleStats []ModuleStats // Status information from moduleloader
 
 	// Removed module names (for display purposes)
 	RemovedModuleNames []string // Names of removed modules for logging
@@ -30,15 +26,15 @@ type ModuleOperationStats struct {
 // NewModuleOperationStats creates a new empty statistics structure
 func NewModuleOperationStats(verbose bool) *ModuleOperationStats {
 	return &ModuleOperationStats{
-		Operations:         make([]deps.ModuleOperation, 0),
-		ModuleStats:        make([]deps.ModuleStats, 0),
+		Operations:         make([]ModuleOperation, 0),
+		ModuleStats:        make([]ModuleStats, 0),
 		RemovedModuleNames: make([]string, 0),
 		Verbose:            verbose,
 	}
 }
 
 // AddOperation adds a new operation to the statistics and updates counters
-func (s *ModuleOperationStats) AddOperation(operation deps.ModuleOperation) {
+func (s *ModuleOperationStats) AddOperation(operation ModuleOperation) {
 	s.Operations = append(s.Operations, operation)
 
 	switch operation.Action {
@@ -54,7 +50,7 @@ func (s *ModuleOperationStats) AddOperation(operation deps.ModuleOperation) {
 }
 
 // AddModuleStats adds module statistics from moduleloader
-func (s *ModuleOperationStats) AddModuleStats(stats []deps.ModuleStats) {
+func (s *ModuleOperationStats) AddModuleStats(stats []ModuleStats) {
 	s.ModuleStats = append(s.ModuleStats, stats...)
 }
 
@@ -77,7 +73,7 @@ func (s *ModuleOperationStats) HasOperations() bool {
 // AddInstalled increments the installed counter and adds operation record
 func (s *ModuleOperationStats) AddInstalled(moduleName, version string) {
 	s.Installed++
-	operation := deps.ModuleOperation{
+	operation := ModuleOperation{
 		Name:    moduleName,
 		Version: version,
 		Action:  ActionInstalled,
@@ -88,7 +84,7 @@ func (s *ModuleOperationStats) AddInstalled(moduleName, version string) {
 // AddUpdated increments the updated counter and adds operation record
 func (s *ModuleOperationStats) AddUpdated(moduleName, version, oldVersion string) {
 	s.Updated++
-	operation := deps.ModuleOperation{
+	operation := ModuleOperation{
 		Name:       moduleName,
 		Version:    version,
 		OldVersion: oldVersion,
@@ -100,7 +96,7 @@ func (s *ModuleOperationStats) AddUpdated(moduleName, version, oldVersion string
 // AddRemoved increments the removed counter and adds operation record
 func (s *ModuleOperationStats) AddRemoved(moduleName, version string) {
 	s.Removed++
-	operation := deps.ModuleOperation{
+	operation := ModuleOperation{
 		Name:    moduleName,
 		Version: version,
 		Action:  ActionRemoved,
@@ -111,7 +107,7 @@ func (s *ModuleOperationStats) AddRemoved(moduleName, version string) {
 // AddSkipped increments the skipped counter and adds operation record
 func (s *ModuleOperationStats) AddSkipped(moduleName, version string) {
 	s.Skipped++
-	operation := deps.ModuleOperation{
+	operation := ModuleOperation{
 		Name:    moduleName,
 		Version: version,
 		Action:  ActionSkipped,

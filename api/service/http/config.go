@@ -32,7 +32,7 @@ const (
 // ServerConfig represents the initial configuration for the Timeouts service.
 type (
 	ServerConfig struct {
-		Meta      registry.Metadata          `json:"meta"`
+		Meta      registry.Metadata          `json:"meta"` // todo: migrate to avoid use of this
 		Addr      string                     `json:"addr"`
 		Timeouts  TimeoutConfig              `json:"timeouts"`
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
@@ -53,7 +53,7 @@ type (
 
 	// RouterConfig represents the configuration for a group of endpoints (a router).
 	RouterConfig struct {
-		Meta           registry.Metadata `json:"meta"`            // Metadata
+		Meta           registry.Metadata `json:"meta"`            // Metadata, todo: migrate to avoid use of this
 		Server         registry.ID       `json:"server"`          // Server Source
 		Prefix         string            `json:"prefix"`          // URL prefix for this group
 		Middleware     []string          `json:"middleware"`      // Middleware names
@@ -64,7 +64,7 @@ type (
 
 	// EndpointConfig represents the configuration for a single endpoint.
 	EndpointConfig struct {
-		Meta   registry.Metadata `json:"meta"`   // Metadata
+		Meta   registry.Metadata `json:"meta"`   // Metadata, todo: migrate to avoid use of this
 		Path   string            `json:"path"`   // URL path
 		Method string            `json:"method"` // Timeouts method
 		Func   registry.ID       `json:"func"`   // Func function
@@ -72,7 +72,7 @@ type (
 
 	// StaticConfig represents the configuration for a static file server endpoint
 	StaticConfig struct {
-		Meta      registry.Metadata `json:"meta"`      // Metadata
+		Meta      registry.Metadata `json:"meta"`      // Metadata, todo: migrate to avoid use of this
 		Path      string            `json:"path"`      // URL path prefix to serve under
 		FS        registry.ID       `json:"fs"`        // Name of the filesystem to serve from
 		Directory string            `json:"directory"` // Directory within the filesystem to serve
@@ -85,6 +85,34 @@ type (
 		CacheControl string `json:"cache"` // Cache-Control header value
 	}
 )
+
+// SetMeta sets the metadata for ServerConfig
+func (c *ServerConfig) SetMeta(meta registry.Metadata) {
+	if c.Meta == nil { // todo: remove later once we migrate away from using meta for config!
+		c.Meta = meta
+	}
+}
+
+// SetMeta sets the metadata for RouterConfig
+func (c *RouterConfig) SetMeta(meta registry.Metadata) {
+	if c.Meta == nil { // todo: remove later once we migrate away from using meta for config!
+		c.Meta = meta
+	}
+}
+
+// SetMeta sets the metadata for EndpointConfig
+func (c *EndpointConfig) SetMeta(meta registry.Metadata) {
+	if c.Meta == nil { // todo: remove later once we migrate away from using meta for config!
+		c.Meta = meta
+	}
+}
+
+// SetMeta sets the metadata for StaticConfig
+func (c *StaticConfig) SetMeta(meta registry.Metadata) {
+	if c.Meta == nil { // todo: remove later once we migrate away from using meta for config!
+		c.Meta = meta
+	}
+}
 
 // UnmarshalJSON implements custom unmarshaling for TimeoutConfig to handle time.Duration fields.
 func (c *TimeoutConfig) UnmarshalJSON(data []byte) error {

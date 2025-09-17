@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ponyruntime/pony/moduleloader"
+	"github.com/ponyruntime/pony/cmd/runner/app"
+	deps "github.com/ponyruntime/pony/deps"
+
 	"go.uber.org/zap"
 )
 
@@ -52,20 +54,14 @@ func TestCleanupModuleContent(t *testing.T) {
 	}
 
 	// Create lock file with new version
-	lockFile := &moduleloader.LockFile{
-		Directories: moduleloader.Directories{
+	lockFile := &deps.LockFile{
+		Directories: deps.Directories{
 			Modules: ".wippy",
 			Src:     ".",
 		},
-		Modules: []moduleloader.LockedModule{
+		Modules: []deps.LockedModule{
 			{Name: "wippyai/security", Version: "v0.0.7", Hash: "abc123"},
 		},
-	}
-
-	// Create dependency manager
-	config := &Config{
-		FolderPath: tempDir,
-		LockFile:   "wippy.lock",
 	}
 
 	logger, err := zap.NewDevelopment()
@@ -73,7 +69,7 @@ func TestCleanupModuleContent(t *testing.T) {
 		t.Fatalf("Failed to create logger: %v", err)
 	}
 
-	dm := NewDependencyManager(config, logger)
+	dm := app.NewDependencyManager(tempDir, "wippy.lock", logger)
 
 	// List directory contents before cleanup
 	t.Logf("Directory contents before cleanup:")
@@ -176,20 +172,14 @@ func TestCleanupAllUnusedModules(t *testing.T) {
 	}
 
 	// Create lock file with only the used module
-	lockFile := &moduleloader.LockFile{
-		Directories: moduleloader.Directories{
+	lockFile := &deps.LockFile{
+		Directories: deps.Directories{
 			Modules: ".wippy",
 			Src:     ".",
 		},
-		Modules: []moduleloader.LockedModule{
+		Modules: []deps.LockedModule{
 			{Name: "wippyai/security", Version: "v0.0.7", Hash: "abc123"},
 		},
-	}
-
-	// Create dependency manager
-	config := &Config{
-		FolderPath: tempDir,
-		LockFile:   "wippy.lock",
 	}
 
 	logger, err := zap.NewDevelopment()
@@ -197,7 +187,7 @@ func TestCleanupAllUnusedModules(t *testing.T) {
 		t.Fatalf("Failed to create logger: %v", err)
 	}
 
-	dm := NewDependencyManager(config, logger)
+	dm := app.NewDependencyManager(tempDir, "wippy.lock", logger)
 
 	// List directory contents before cleanup
 	t.Logf("Directory contents before cleanup:")
@@ -213,7 +203,7 @@ func TestCleanupAllUnusedModules(t *testing.T) {
 	}
 
 	// Run comprehensive cleanup
-	stats := NewModuleOperationStats(false) // Test with non-verbose mode
+	stats := deps.NewModuleOperationStats(false) // Test with non-verbose mode
 	err = dm.CleanupAllUnusedModules(context.Background(), modulesDir, lockFile, stats)
 	if err != nil {
 		t.Fatalf("CleanupAllUnusedModules failed: %v", err)

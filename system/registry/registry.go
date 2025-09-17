@@ -136,7 +136,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 
 // rollback state desync between actual state in system and state in history
 func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
-	r.log.Debug("attempting to rollback", zap.Any("from", from), zap.Any("to", to))
+	r.log.Debug("attempting to rollback")
 
 	partial, err := r.transitionState(ctx, from, to)
 	if err == nil {
@@ -149,7 +149,7 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 }
 
 func (r *Reg) transitionState(ctx context.Context, from, to registry.State) (registry.State, error) {
-	r.log.Debug("transitioning state", zap.Any("from", from), zap.Any("to", to))
+	r.log.Debug("transitioning state")
 
 	cs, terr := r.builder.BuildDelta(from, to)
 	if terr != nil {

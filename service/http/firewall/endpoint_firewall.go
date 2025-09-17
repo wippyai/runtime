@@ -81,11 +81,6 @@ func CreateEndpointFirewallMiddleware(options map[string]string) func(http.Handl
 				return
 			}
 
-			// Permission granted, continue with the request
-			logs.GetLogger(ctx).Debug("endpoint firewall: access granted",
-				zap.String("actor_id", actor.ID),
-				zap.String("endpoint", resourceID))
-
 			next.ServeHTTP(w, r)
 		})
 	}

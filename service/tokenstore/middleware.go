@@ -85,13 +85,9 @@ func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) htt
 								// Token is valid - add actor and scope to context
 								ctx = security.WithActor(ctx, actor)
 								ctx = security.WithScope(ctx, scope)
-
-								// Log the authenticated user at debug level
-								logger.Debug("authenticated user",
-									zap.String("actor_id", actor.ID))
 							} else {
 								// Log token validation error at debug level
-								logger.Debug("token validation failed", zap.Error(err))
+								logger.Debug("token validation failed", zap.Error(err), zap.String("actor_id", actor.ID))
 							}
 						}
 					}

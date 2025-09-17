@@ -52,6 +52,7 @@ func (r *RouterStorage) Get(ctx context.Context, name string) (string, error) {
 	var lastErr error
 	for _, storage := range r.storages {
 		value, err := storage.Get(ctx, name)
+
 		if err == nil && value != "" {
 			r.cache.Store(name, value)
 			return value, nil

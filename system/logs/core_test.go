@@ -123,7 +123,7 @@ func TestCore_Enabled(t *testing.T) {
 			name: "below min level",
 			config: api.Config{
 				PropagateDownstream: true,
-				StreamToEvents:      true,
+				StreamToEvents:      false,
 				MinLevel:            zapcore.InfoLevel,
 			},
 			level:    zapcore.DebugLevel,
