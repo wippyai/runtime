@@ -14,6 +14,7 @@ import (
 
 // TestCleanupUnusedModulesRealData tests the function with real wippy.lock and .wippy directory
 func TestCleanupUnusedModulesRealData(t *testing.T) {
+	t.SkipNow() // functionality relocated to a repo http://github.com/wippyai/wippy-integration/
 	// Get the project root directory (go up two levels from cmd/runner)
 	projectRoot, err := filepath.Abs("../..")
 	if err != nil {
