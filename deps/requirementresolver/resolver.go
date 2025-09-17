@@ -108,7 +108,7 @@ func (r *Resolver) ResolveModuleDefinitions(entries []registry.Entry) ([]registr
 // resolveParameterValue resolves a parameter value for a requirement from either dependency or default
 func (r *Resolver) resolveParameterValue(requirement registry.Entry, dependencies map[string]registry.Entry) (string, error) {
 	// Try to find parameter in dependencies first
-	_, paramValue, err := findDependencyByParameterName(requirement.ID.Name, dependencies)
+	_, paramValue, err := findDependencyByParameterName(requirement, dependencies)
 	if err == nil {
 		r.logger.Debug("found dependency parameter for requirement",
 			zap.String("requirement", requirement.ID.Name),
@@ -363,42 +363,82 @@ func joinErrors(errs []error) error {
 }
 
 // findDependencyByParameterName finds a dependency with a parameter matching the given requirement name
-func findDependencyByParameterName(requirementName string, nsDependencies map[string]registry.Entry) (registry.Entry, string, error) {
+// Uses meta.parent to find the specific parent dependency
+func findDependencyByParameterName(requirement registry.Entry, nsDependencies map[string]registry.Entry) (registry.Entry, string, error) {
+	requirementName := requirement.ID.Name
+
+	// Check if meta.parent is not set
+	if requirement.Meta == nil {
+		return registry.Entry{}, "", fmt.Errorf("no meta.parent set for requirement %s", requirementName)
+	}
+
+	// Check if parent key exists
+	parentID, exists := requirement.Meta["parent"]
+	if !exists {
+		return registry.Entry{}, "", fmt.Errorf("no meta.parent set for requirement %s", requirementName)
+	}
+
+	// Check if parent is a string
+	parentIDStr, ok := parentID.(string)
+	if !ok {
+		return registry.Entry{}, "", fmt.Errorf("invalid meta.parent type for requirement %s", requirementName)
+	}
+
+	// Check if parent is not empty
+	if parentIDStr == "" {
+		return registry.Entry{}, "", fmt.Errorf("empty meta.parent for requirement %s", requirementName)
+	}
+
+	// Find the specific parent dependency by ID
 	for _, nsDependency := range nsDependencies {
-		data := nsDependency.Data.Data()
-		depMap, ok := data.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		paramsRaw, exists := depMap["parameters"]
-		if !exists || paramsRaw == nil {
-			continue
-		}
-
-		paramsArray, ok := paramsRaw.([]interface{})
-		if !ok {
-			continue
-		}
-
-		for _, paramRaw := range paramsArray {
-			paramMap, ok := paramRaw.(map[string]interface{})
-			if !ok {
-				continue
-			}
-
-			paramName, ok := paramMap["name"].(string)
-			if !ok || paramName != requirementName {
-				continue
-			}
-
-			paramValue, ok := paramMap["value"].(string)
-			if ok {
+		if nsDependency.ID.String() == parentIDStr {
+			paramValue, err := findParameterInDependency(requirementName, nsDependency)
+			if err == nil {
 				return nsDependency, paramValue, nil
 			}
+			return registry.Entry{}, "", fmt.Errorf("parameter %s not found in parent dependency %s", requirementName, parentIDStr)
 		}
 	}
-	return registry.Entry{}, "", fmt.Errorf("no dependency parameter found for requirement %s", requirementName)
+
+	return registry.Entry{}, "", fmt.Errorf("parent dependency %s not found for requirement %s", parentIDStr, requirementName)
+}
+
+// findParameterInDependency searches for a parameter within a specific dependency
+func findParameterInDependency(requirementName string, nsDependency registry.Entry) (string, error) {
+	data := nsDependency.Data.Data()
+	depMap, ok := data.(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid dependency data structure")
+	}
+
+	paramsRaw, exists := depMap["parameters"]
+	if !exists || paramsRaw == nil {
+		return "", fmt.Errorf("no parameters found in dependency")
+	}
+
+	paramsArray, ok := paramsRaw.([]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid parameters structure")
+	}
+
+	for _, paramRaw := range paramsArray {
+		paramMap, ok := paramRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		paramName, ok := paramMap["name"].(string)
+		if !ok || paramName != requirementName {
+			continue
+		}
+
+		paramValue, ok := paramMap["value"].(string)
+		if ok {
+			return paramValue, nil
+		}
+	}
+
+	return "", fmt.Errorf("parameter %s not found in dependency", requirementName)
 }
 
 // getValueFromEntryWithGojq uses gojq to extract values from data using jq-style queries

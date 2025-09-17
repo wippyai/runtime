@@ -264,7 +264,16 @@ func TestResolverBasicFunctionality(t *testing.T) {
 		}
 	}
 
-	dependency, paramValue, err := findDependencyByParameterName("CONFIG_VALUE", nsDependencies)
+	// Create a mock requirement entry for CONFIG_VALUE with meta.parent
+	requirement := registry.Entry{
+		ID:   registry.ID{NS: "app.local", Name: "CONFIG_VALUE"},
+		Kind: registry.KindNamespaceRequirement,
+		Meta: registry.Metadata{
+			"parent": "app.local:config_dependency",
+		},
+	}
+
+	dependency, paramValue, err := findDependencyByParameterName(requirement, nsDependencies)
 	require.NoError(t, err, "Should find dependency parameter")
 	assert.Equal(t, "config_dependency", dependency.ID.Name)
 	assert.Equal(t, "new_value", paramValue)
