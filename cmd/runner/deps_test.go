@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ponyruntime/pony/moduleloader"
+	"github.com/ponyruntime/pony/cmd/runner/app"
+	"github.com/ponyruntime/pony/deps"
+
 	"go.uber.org/zap"
 )
 
@@ -14,16 +16,16 @@ import (
 func TestCleanupUnusedModules(t *testing.T) {
 	tests := []struct {
 		name            string
-		setup           func(t *testing.T, tempDir string) *moduleloader.LockFile
+		setup           func(t *testing.T, tempDir string) *deps.LockFile
 		expectedRemoved map[string]string // moduleName -> relativePath
 		expectError     bool
 		description     string
 	}{
 		{
 			name: "no_modules_directory",
-			setup: func(_ *testing.T, _ string) *moduleloader.LockFile {
+			setup: func(_ *testing.T, _ string) *deps.LockFile {
 				// Don't create modules directory
-				return createTestLockFile([]moduleloader.LockedModule{
+				return createTestLockFile([]deps.LockedModule{
 					{Name: "org1/module1", Version: "1.0.0", Hash: "abc123"},
 				}, ".wippy")
 			},
@@ -33,13 +35,13 @@ func TestCleanupUnusedModules(t *testing.T) {
 		},
 		{
 			name: "empty_modules_directory",
-			setup: func(t *testing.T, tempDir string) *moduleloader.LockFile {
+			setup: func(t *testing.T, tempDir string) *deps.LockFile {
 				// Create empty modules directory
 				modulesDir := filepath.Join(tempDir, ".wippy")
 				if err := os.MkdirAll(modulesDir, 0755); err != nil {
 					t.Fatalf("Failed to create modules directory: %v", err)
 				}
-				return createTestLockFile([]moduleloader.LockedModule{
+				return createTestLockFile([]deps.LockedModule{
 					{Name: "org1/module1", Version: "1.0.0", Hash: "abc123"},
 				}, ".wippy")
 			},
@@ -49,7 +51,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 		},
 		{
 			name: "remove_unused_modules",
-			setup: func(t *testing.T, tempDir string) *moduleloader.LockFile {
+			setup: func(t *testing.T, tempDir string) *deps.LockFile {
 				// Create modules directory with unused modules
 				modulesDir := filepath.Join(tempDir, ".wippy")
 				if err := os.MkdirAll(modulesDir, 0755); err != nil {
@@ -64,7 +66,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 				// Create used module directory (should not be removed)
 				createRealModuleDir(t, modulesDir, "actor", "")
 
-				return createTestLockFile([]moduleloader.LockedModule{
+				return createTestLockFile([]deps.LockedModule{
 					{Name: "wippyai/actor", Version: "1.0.0"},
 				}, ".wippy")
 			},
@@ -78,7 +80,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 		},
 		{
 			name: "keep_modules_with_versions",
-			setup: func(t *testing.T, tempDir string) *moduleloader.LockFile {
+			setup: func(t *testing.T, tempDir string) *deps.LockFile {
 				// Create modules directory with modules that have versions
 				modulesDir := filepath.Join(tempDir, ".wippy")
 				if err := os.MkdirAll(modulesDir, 0755); err != nil {
@@ -93,7 +95,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 				// Create unused module
 				createRealModuleDir(t, modulesDir, "unused-migration", "jkl012")
 
-				return createTestLockFile([]moduleloader.LockedModule{
+				return createTestLockFile([]deps.LockedModule{
 					{Name: "wippyai/actor", Version: "1.0.0", Hash: "abc123"},
 					{Name: "wippyai/agents", Version: "2.0.0", Hash: "def456"},
 					{Name: "wippyai/llm", Version: "3.0.0", Hash: "ghi789"},
@@ -107,7 +109,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 		},
 		{
 			name: "keep_modules_without_versions",
-			setup: func(t *testing.T, tempDir string) *moduleloader.LockFile {
+			setup: func(t *testing.T, tempDir string) *deps.LockFile {
 				// Create modules directory with modules without versions
 				modulesDir := filepath.Join(tempDir, ".wippy")
 				if err := os.MkdirAll(modulesDir, 0755); err != nil {
@@ -122,7 +124,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 				// Create unused module
 				createRealModuleDir(t, modulesDir, "unused-test", "")
 
-				return createTestLockFile([]moduleloader.LockedModule{
+				return createTestLockFile([]deps.LockedModule{
 					{Name: "wippyai/actor", Version: "1.0.0"},
 					{Name: "wippyai/agents", Version: "2.0.0"},
 					{Name: "wippyai/llm", Version: "3.0.0"},
@@ -136,7 +138,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 		},
 		{
 			name: "handle_replacements",
-			setup: func(t *testing.T, tempDir string) *moduleloader.LockFile {
+			setup: func(t *testing.T, tempDir string) *deps.LockFile {
 				// Create modules directory
 				modulesDir := filepath.Join(tempDir, ".wippy")
 				if err := os.MkdirAll(modulesDir, 0755); err != nil {
@@ -153,10 +155,10 @@ func TestCleanupUnusedModules(t *testing.T) {
 				createRealModuleDir(t, modulesDir, "unused-migration", "abc123")
 
 				// Create lock file with replacement
-				lockFile := createTestLockFile([]moduleloader.LockedModule{
+				lockFile := createTestLockFile([]deps.LockedModule{
 					{Name: "wippyai/actor", Version: "1.0.0"},
 				}, ".wippy")
-				lockFile.Replacements = []moduleloader.Replacement{
+				lockFile.Replacements = []deps.Replacement{
 					{From: "wippyai/actor", To: "custom/wippyai/actor"},
 				}
 
@@ -170,7 +172,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 		},
 		{
 			name: "custom_modules_directory",
-			setup: func(t *testing.T, tempDir string) *moduleloader.LockFile {
+			setup: func(t *testing.T, tempDir string) *deps.LockFile {
 				// Create custom modules directory
 				modulesDir := filepath.Join(tempDir, "custom_modules")
 				if err := os.MkdirAll(modulesDir, 0755); err != nil {
@@ -183,7 +185,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 				// Create used module
 				createRealModuleDir(t, modulesDir, "actor", "def456")
 
-				return createTestLockFile([]moduleloader.LockedModule{
+				return createTestLockFile([]deps.LockedModule{
 					{Name: "wippyai/actor", Version: "1.0.0", Hash: "def456"},
 				}, "custom_modules")
 			},
@@ -195,7 +197,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 		},
 		{
 			name: "invalid_module_names",
-			setup: func(t *testing.T, tempDir string) *moduleloader.LockFile {
+			setup: func(t *testing.T, tempDir string) *deps.LockFile {
 				// Create modules directory
 				modulesDir := filepath.Join(tempDir, ".wippy")
 				if err := os.MkdirAll(modulesDir, 0755); err != nil {
@@ -204,7 +206,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 
 				// Create module with invalid name in lock file
 				// This should be handled gracefully
-				return createTestLockFile([]moduleloader.LockedModule{
+				return createTestLockFile([]deps.LockedModule{
 					{Name: "invalid-module-name", Version: "1.0.0"}, // Invalid format
 				}, ".wippy")
 			},
@@ -214,7 +216,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 		},
 		{
 			name: "nested_directories",
-			setup: func(t *testing.T, tempDir string) *moduleloader.LockFile {
+			setup: func(t *testing.T, tempDir string) *deps.LockFile {
 				// Create modules directory
 				modulesDir := filepath.Join(tempDir, ".wippy")
 				if err := os.MkdirAll(modulesDir, 0755); err != nil {
@@ -224,7 +226,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 				// Create used module with nested structure (like real wippy modules)
 				createRealModuleDir(t, modulesDir, "actor", "abc123")
 
-				return createTestLockFile([]moduleloader.LockedModule{
+				return createTestLockFile([]deps.LockedModule{
 					{Name: "wippyai/actor", Version: "1.0.0", Hash: "abc123"},
 				}, ".wippy")
 			},
@@ -234,7 +236,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 		},
 		{
 			name: "real_wippy_structure",
-			setup: func(t *testing.T, tempDir string) *moduleloader.LockFile {
+			setup: func(t *testing.T, tempDir string) *deps.LockFile {
 				// Create modules directory
 				modulesDir := filepath.Join(tempDir, ".wippy")
 				if err := os.MkdirAll(modulesDir, 0755); err != nil {
@@ -250,7 +252,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 				createRealModuleDir(t, modulesDir, "unused-btea", "")
 				createRealModuleDir(t, modulesDir, "unused-migration", "")
 
-				return createTestLockFile([]moduleloader.LockedModule{
+				return createTestLockFile([]deps.LockedModule{
 					{Name: "wippyai/actor", Version: "1.0.0"},
 					{Name: "wippyai/agents", Version: "1.0.0"},
 					{Name: "wippyai/llm", Version: "1.0.0"},
@@ -277,18 +279,12 @@ func TestCleanupUnusedModules(t *testing.T) {
 			// Setup test scenario
 			lockFile := tt.setup(t, tempDir)
 
-			// Create dependency manager
-			config := &Config{
-				FolderPath: tempDir,
-				LockFile:   "wippy.lock",
-			}
-
 			logger, err := zap.NewDevelopment()
 			if err != nil {
 				t.Fatalf("Failed to create logger: %v", err)
 			}
 
-			dm := NewDependencyManager(config, logger)
+			dm := app.NewDependencyManager(tempDir, "wippy.lock", logger)
 
 			// Run cleanup
 			removedModules, err := dm.CleanupUnusedModules(context.Background(), lockFile)
@@ -314,7 +310,7 @@ func TestCleanupUnusedModules(t *testing.T) {
 // TestExtractVersionFromPath tests the version extraction function
 func TestExtractVersionFromPath(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	dm := &DependencyManager{logger: logger}
+	dm := app.NewDependencyManager("", "", logger)
 
 	tests := []struct {
 		path     string
@@ -352,7 +348,7 @@ func TestExtractVersionFromPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			result := dm.extractVersionFromPath(tt.path)
+			result := dm.ExtractVersionFromPath(tt.path)
 			if result != tt.expected {
 				t.Errorf("extractVersionFromPath(%q) = %q, want %q", tt.path, result, tt.expected)
 			}
@@ -415,12 +411,12 @@ func TestInstallAfterCleanup(t *testing.T) {
 	}
 
 	// Create a lock file with the new version (v0.0.7)
-	lockFile := &moduleloader.LockFile{
-		Directories: moduleloader.Directories{
+	lockFile := &deps.LockFile{
+		Directories: deps.Directories{
 			Modules: ".wippy",
 			Src:     ".",
 		},
-		Modules: []moduleloader.LockedModule{
+		Modules: []deps.LockedModule{
 			{
 				Name:    "wippy/security",
 				Version: "v0.0.7",
@@ -429,22 +425,17 @@ func TestInstallAfterCleanup(t *testing.T) {
 		},
 	}
 
-	// Create config and logger
-	config := &Config{
-		FolderPath: tempDir,
-		LockFile:   "wippy.lock",
-	}
 	logger, _ := zap.NewDevelopment()
-	dm := NewDependencyManager(config, logger)
+	dm := app.NewDependencyManager(tempDir, "wippy.lock", logger)
 
 	// Test that the old module is detected as installed
-	wasInstalled, oldVersion := dm.isModuleInstalledFromLockFile(lockFile.Modules[0], lockFile)
+	wasInstalled, oldVersion := dm.IsModuleInstalledFromLockFile(lockFile.Modules[0], lockFile)
 	if wasInstalled {
 		t.Logf("Old module detected as installed with version: %s", oldVersion)
 	}
 
 	// Test cleanup - should remove the old module
-	stats := NewModuleOperationStats(false) // Test with non-verbose mode
+	stats := deps.NewModuleOperationStats(false) // Test with non-verbose mode
 	err = dm.CleanupAllUnusedModules(context.Background(), ".", lockFile, stats)
 	if err != nil {
 		t.Fatalf("Cleanup failed: %v", err)
@@ -456,7 +447,7 @@ func TestInstallAfterCleanup(t *testing.T) {
 	}
 
 	// Check that the module is no longer detected as installed
-	wasInstalledAfter, _ := dm.isModuleInstalledFromLockFile(lockFile.Modules[0], lockFile)
+	wasInstalledAfter, _ := dm.IsModuleInstalledFromLockFile(lockFile.Modules[0], lockFile)
 	if wasInstalledAfter {
 		t.Errorf("Module should not be detected as installed after cleanup")
 	}
@@ -479,13 +470,12 @@ func TestExtractModuleNameFromPath(t *testing.T) {
 		{"org1/module1@", "org1/module1"}, // Edge case with empty version
 	}
 
-	config := &Config{}
 	logger, _ := zap.NewDevelopment()
-	dm := NewDependencyManager(config, logger)
+	dm := app.NewDependencyManager("", "", logger)
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result := dm.extractModuleNameFromPath(tt.input)
+			result := dm.ExtractModuleNameFromPath(tt.input)
 			if result != tt.expected {
 				t.Errorf("extractModuleNameFromPath(%q) = %q, expected %q", tt.input, result, tt.expected)
 			}
@@ -496,14 +486,14 @@ func TestExtractModuleNameFromPath(t *testing.T) {
 // Helper functions
 
 // createTestLockFile creates a test lock file with the given modules
-func createTestLockFile(modules []moduleloader.LockedModule, modulesDir string) *moduleloader.LockFile {
-	return &moduleloader.LockFile{
-		Directories: moduleloader.Directories{
+func createTestLockFile(modules []deps.LockedModule, modulesDir string) *deps.LockFile {
+	return &deps.LockFile{
+		Directories: deps.Directories{
 			Modules: modulesDir,
 			Src:     ".",
 		},
 		Modules:      modules,
-		Replacements: []moduleloader.Replacement{},
+		Replacements: []deps.Replacement{},
 	}
 }
 
@@ -592,7 +582,7 @@ func stringMapsEqual(a, b map[string]string) bool {
 // TestIsVersionDowngrade tests the semver-based version comparison
 func TestIsVersionDowngrade(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	dm := &DependencyManager{logger: logger}
+	dm := app.NewDependencyManager("", "", logger)
 
 	tests := []struct {
 		name        string
@@ -682,7 +672,7 @@ func TestIsVersionDowngrade(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := dm.isVersionDowngrade(tt.oldVersion, tt.newVersion)
+			result := dm.IsVersionDowngrade(tt.oldVersion, tt.newVersion)
 			if result != tt.expected {
 				t.Errorf("isVersionDowngrade(%s, %s) = %v, expected %v. %s",
 					tt.oldVersion, tt.newVersion, result, tt.expected, tt.description)

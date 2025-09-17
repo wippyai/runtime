@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	moduleloader "github.com/ponyruntime/pony/moduleloader"
+	moduleloader "github.com/ponyruntime/pony/deps"
 	gomock "go.uber.org/mock/gomock"
 )
 

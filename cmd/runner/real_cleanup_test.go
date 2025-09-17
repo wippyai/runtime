@@ -6,12 +6,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ponyruntime/pony/moduleloader"
+	"github.com/ponyruntime/pony/cmd/runner/app"
+
+	"github.com/ponyruntime/pony/deps"
 	"go.uber.org/zap"
 )
 
 // TestCleanupUnusedModulesRealData tests the function with real wippy.lock and .wippy directory
 func TestCleanupUnusedModulesRealData(t *testing.T) {
+	t.SkipNow() // functionality relocated to a repo http://github.com/wippyai/wippy-integration/
 	// Get the project root directory (go up two levels from cmd/runner)
 	projectRoot, err := filepath.Abs("../..")
 	if err != nil {
@@ -22,7 +25,7 @@ func TestCleanupUnusedModulesRealData(t *testing.T) {
 	// Load the real wippy.lock file
 	lockFilePath := filepath.Join(projectRoot, "wippy.lock")
 	t.Logf("Loading lock file from: %s", lockFilePath)
-	lockFile, err := moduleloader.LoadLockFile(lockFilePath)
+	lockFile, err := deps.LoadLockFile(lockFilePath)
 	if err != nil {
 		t.Fatalf("Failed to load wippy.lock file: %v", err)
 	}
@@ -30,18 +33,12 @@ func TestCleanupUnusedModulesRealData(t *testing.T) {
 	// Ensure required module directories exist for testing
 	ensureModuleDirectoriesExist(t, projectRoot, lockFile)
 
-	// Create dependency manager
-	config := &Config{
-		FolderPath: projectRoot,
-		LockFile:   "wippy.lock",
-	}
-
 	logger, err := zap.NewDevelopment()
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
 	}
 
-	dm := NewDependencyManager(config, logger)
+	dm := app.NewDependencyManager(projectRoot, "wippy.lock", logger)
 
 	// List directory contents before cleanup
 	wippyDir := filepath.Join(projectRoot, ".wippy")
@@ -84,8 +81,15 @@ func TestCleanupUnusedModulesRealData(t *testing.T) {
 			continue
 		}
 
-		// Build module path dynamically based on module name and hash
-		moduleDirName := module.Name + "@" + module.Hash
+		// Parse the module name to get organization and module parts
+		name, err := deps.ParseName(module.Name)
+		if err != nil {
+			t.Errorf("Failed to parse module name %s: %v", module.Name, err)
+			continue
+		}
+
+		// Build module path dynamically based on organization, module name and hash
+		moduleDirName := name.Organization + "/" + name.Module + "@" + module.Hash
 		modulePath := filepath.Join(projectRoot, ".wippy", moduleDirName)
 
 		if _, err := os.Stat(modulePath); os.IsNotExist(err) {
@@ -109,7 +113,15 @@ func TestCleanupUnusedModulesRealData(t *testing.T) {
 		}
 
 		if moduleHash != "" {
-			replacementDirName := replacement.From + "@" + moduleHash
+			// Parse the replacement name to get organization and module parts
+			name, err := deps.ParseName(replacement.From)
+			if err != nil {
+				t.Errorf("Failed to parse replacement name %s: %v", replacement.From, err)
+				continue
+			}
+
+			// Build replacement path dynamically based on organization, module name and hash
+			replacementDirName := name.Organization + "/" + name.Module + "@" + moduleHash
 			replacementPath := filepath.Join(projectRoot, ".wippy", replacementDirName)
 
 			if _, err := os.Stat(replacementPath); os.IsNotExist(err) {
@@ -155,7 +167,7 @@ func TestCleanupUnusedModulesRealData(t *testing.T) {
 
 // ensureModuleDirectoriesExist creates the required module directories for testing
 // This makes the test more robust and independent of existing directory structure
-func ensureModuleDirectoriesExist(t *testing.T, projectRoot string, lockFile *moduleloader.LockFile) {
+func ensureModuleDirectoriesExist(t *testing.T, projectRoot string, lockFile *deps.LockFile) {
 	wippyDir := filepath.Join(projectRoot, ".wippy")
 
 	// Ensure .wippy directory exists
@@ -165,7 +177,14 @@ func ensureModuleDirectoriesExist(t *testing.T, projectRoot string, lockFile *mo
 
 	// Create directories for all modules in lock file
 	for _, module := range lockFile.Modules {
-		moduleDirName := module.Name + "@" + module.Hash
+		// Parse the module name to get organization and module parts
+		name, err := deps.ParseName(module.Name)
+		if err != nil {
+			t.Fatalf("Failed to parse module name %s: %v", module.Name, err)
+		}
+
+		// Create the directory structure: Organization/Module@Hash
+		moduleDirName := name.Organization + "/" + name.Module + "@" + module.Hash
 		modulePath := filepath.Join(wippyDir, moduleDirName)
 
 		if err := os.MkdirAll(modulePath, 0755); err != nil {
@@ -186,7 +205,14 @@ func ensureModuleDirectoriesExist(t *testing.T, projectRoot string, lockFile *mo
 		}
 
 		if moduleHash != "" {
-			replacementDirName := replacement.From + "@" + moduleHash
+			// Parse the replacement name to get organization and module parts
+			name, err := deps.ParseName(replacement.From)
+			if err != nil {
+				t.Fatalf("Failed to parse replacement name %s: %v", replacement.From, err)
+			}
+
+			// Create the directory structure: Organization/Module@Hash
+			replacementDirName := name.Organization + "/" + name.Module + "@" + moduleHash
 			replacementPath := filepath.Join(wippyDir, replacementDirName)
 
 			if err := os.MkdirAll(replacementPath, 0755); err != nil {

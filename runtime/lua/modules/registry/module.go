@@ -459,7 +459,7 @@ func (m *Module) registryFind(l *lua.LState) int {
 
 	// Convert to Lua table
 	entriesTable := l.CreateTable(len(entries), 0)
-	for i, entry := range entries {
+	for _, entry := range entries {
 		if !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
 			continue
 		}
@@ -471,7 +471,7 @@ func (m *Module) registryFind(l *lua.LState) int {
 			l.Push(lua.LString(err.Error()))
 			return 2
 		}
-		entriesTable.RawSetInt(i+1, entryTable)
+		entriesTable.Append(entryTable)
 	}
 
 	l.Push(entriesTable)

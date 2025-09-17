@@ -72,4 +72,6 @@ type (
 		// May return errors like ErrStoreClosed or implementation-specific errors
 		Has(ctx context.Context, key registry.ID) (bool, error)
 	}
+
+	// todo: prefix operations?
 )

@@ -25,7 +25,7 @@ type (
 	// Config represents the configuration state for log handling.
 	Config struct {
 		// PropagateDownstream controls whether logs are propagated to the underlying logger.
-		// When true, logs will be sent to the configured downstream logging system.
+		// When true, logs will be sent to the configured downstream logging system. Turn off to keep IO free.
 		PropagateDownstream bool `json:"propagate_downstream"`
 
 		// StreamToEvents controls whether logs are streamed to the event bus.
