@@ -403,7 +403,7 @@ func withLuaRuntime(a *App) []eventbus.EventHandler {
 				system.NewSystemModule(),
 				contractmod.NewContractModule(a.logger.Named("contract")),
 				otelmod.NewOTelModule(),
-				expr.NewExprModule(expr.WithCapacity(1000)),
+				expr.NewExprModule(expr.WithCapacity(5000)),
 				html.NewHTMLModule(),
 			},
 			ProtoCacheSize: 60000,

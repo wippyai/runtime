@@ -122,7 +122,7 @@ func (m *Module) luaCompile(l *luavm.LState) int {
 	}
 
 	// Get optional environment
-	var env interface{}
+	var env any
 	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
 		env = lua.ToGoAny(l.Get(2))
 	}
@@ -154,7 +154,7 @@ func (m *Module) luaEval(l *luavm.LState) int {
 	}
 
 	// Get optional environment
-	var env interface{}
+	var env any
 	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
 		env = lua.ToGoAny(l.Get(2))
 	}
@@ -197,7 +197,7 @@ func (m *Module) programRun(l *luavm.LState) int {
 	}
 
 	// Get optional environment
-	var env interface{}
+	var env any
 	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
 		env = lua.ToGoAny(l.Get(2))
 	}
@@ -242,7 +242,7 @@ func (m *Module) getCachedProgram(expression string) (*vm.Program, error) {
 }
 
 // compileExpression compiles an expression (only built-ins supported)
-func (m *Module) compileExpression(expression string, env interface{}) (*vm.Program, error) {
+func (m *Module) compileExpression(expression string, env any) (*vm.Program, error) {
 	// Build options
 	var options []expr.Option
 	if env != nil {
