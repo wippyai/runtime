@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/ponyruntime/pony/runtime/lua/modules/expr"
 	"github.com/ponyruntime/pony/runtime/noop"
 
 	"github.com/ponyruntime/pony/runtime/lua/modules/html"
@@ -402,6 +403,7 @@ func withLuaRuntime(a *App) []eventbus.EventHandler {
 				system.NewSystemModule(),
 				contractmod.NewContractModule(a.logger.Named("contract")),
 				otelmod.NewOTelModule(),
+				expr.NewExprModule(expr.WithCapacity(1000)),
 				html.NewHTMLModule(),
 			},
 			ProtoCacheSize: 60000,
