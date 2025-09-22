@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 # Default values
 PR_NUMBER="${1:-}"
 COMMIT_SHA="${2:-}"
-BUILD_DATE="${3:-$(date +%Y-%m-%d)}"
+BUILD_TIMESTAMP="${3:-$(date +%Y-%m-%d-%H-%M)}"
 ARTIFACTS_DIR="${4:-./dist}"
 RELEASE_REPO="${RELEASE_REPO:-wippyai/wippy-releases}"
 GITHUB_REPO="${GITHUB_REPOSITORY:-}"
@@ -113,7 +113,7 @@ generate_artifact_links() {
     local artifacts_dir="$1"
     local pr_number="$2"
     local commit_sha="$3"
-    local build_date="$4"
+    local build_timestamp="$4"
     
     local links=""
     
@@ -155,7 +155,7 @@ generate_artifact_links() {
             if [ "$file_platform" = "$platform" ]; then
                 local file_size=$(get_file_size "$file")
                 local formatted_size=$(format_file_size "$file_size")
-                local download_url="https://github.com/$RELEASE_REPO/raw/main/pull-requests/$pr_number/$build_date/$(basename "$file")"
+                local download_url="https://github.com/$RELEASE_REPO/raw/main/releases/wippy/$build_timestamp/$(basename "$file")"
                 
                 links+="- **$filename** ($formatted_size) - [Download]($download_url)\n"
             fi
@@ -170,7 +170,7 @@ generate_markdown() {
     local pr_number="$1"
     local commit_sha="$2"
     local short_sha="$3"
-    local build_date="$4"
+    local build_timestamp="$4"
     local artifacts_dir="$5"
     
     local ci_url=""
@@ -178,7 +178,7 @@ generate_markdown() {
         ci_url="https://github.com/$GITHUB_REPO/actions/runs/$GITHUB_RUN_ID"
     fi
     
-    local artifact_links=$(generate_artifact_links "$artifacts_dir" "$pr_number" "$commit_sha" "$build_date")
+    local artifact_links=$(generate_artifact_links "$artifacts_dir" "$pr_number" "$commit_sha" "$build_timestamp")
     
     cat << EOF
 # Wippy Build Artifacts
@@ -186,7 +186,7 @@ generate_markdown() {
 ## Build Information
 - **Pull Request:** #$pr_number
 - **Commit SHA:** \`$commit_sha\` (short: \`$short_sha\`)
-- **Build Date:** $build_date
+- **Build Timestamp:** $build_timestamp
 - **CI Run:** [View in GitHub Actions]($ci_url)
 
 ## Download Artifacts
@@ -198,7 +198,7 @@ $artifact_links
 ### Linux
 \`\`\`bash
 # Download and extract
-wget https://github.com/$RELEASE_REPO/raw/main/pull-requests/$pr_number/$build_date/wippy-*-linux-amd64
+wget https://github.com/$RELEASE_REPO/raw/main/releases/wippy/$build_timestamp/wippy-*-linux-amd64
 chmod +x wippy-*-linux-amd64
 ./wippy-*-linux-amd64 --version
 \`\`\`
@@ -206,14 +206,14 @@ chmod +x wippy-*-linux-amd64
 ### Windows
 \`\`\`powershell
 # Download and run
-Invoke-WebRequest -Uri "https://github.com/$RELEASE_REPO/raw/main/pull-requests/$pr_number/$build_date/wippy-*-windows-amd64.exe" -OutFile "wippy.exe"
+Invoke-WebRequest -Uri "https://github.com/$RELEASE_REPO/raw/main/releases/wippy/$build_timestamp/wippy-*-windows-amd64.exe" -OutFile "wippy.exe"
 ./wippy.exe --version
 \`\`\`
 
 ### macOS
 \`\`\`bash
 # Download and extract
-curl -L https://github.com/$RELEASE_REPO/raw/main/pull-requests/$pr_number/$build_date/wippy-*-darwin-amd64 -o wippy
+curl -L https://github.com/$RELEASE_REPO/raw/main/releases/wippy/$build_timestamp/wippy-*-darwin-amd64 -o wippy
 chmod +x wippy
 ./wippy --version
 \`\`\`
@@ -226,13 +226,13 @@ EOF
 # Function to create directory structure
 create_directory_structure() {
     local pr_number="$1"
-    local build_date="$2"
+    local build_timestamp="$2"
     
-    local pr_dir="pull-requests/$pr_number"
-    local date_dir="$pr_dir/$build_date"
+    local release_dir="releases/wippy"
+    local timestamp_dir="$release_dir/$build_timestamp"
     
-    mkdir -p "$date_dir"
-    echo "$date_dir"
+    mkdir -p "$timestamp_dir"
+    echo "$timestamp_dir"
 }
 
 # Function to copy artifacts
@@ -273,34 +273,34 @@ main() {
     
     log "PR Number: $PR_NUMBER"
     log "Commit SHA: $COMMIT_SHA (short: $short_sha)"
-    log "Build Date: $BUILD_DATE"
+    log "Build Timestamp: $BUILD_TIMESTAMP"
     log "Artifacts Dir: $ARTIFACTS_DIR"
     
     # Create directory structure
-    local date_dir=$(create_directory_structure "$PR_NUMBER" "$BUILD_DATE")
-    log "Created directory: $date_dir"
+    local timestamp_dir=$(create_directory_structure "$PR_NUMBER" "$BUILD_TIMESTAMP")
+    log "Created directory: $timestamp_dir"
     
     # Copy artifacts
-    copy_artifacts "$ARTIFACTS_DIR" "$date_dir"
+    copy_artifacts "$ARTIFACTS_DIR" "$timestamp_dir"
     
     # Generate Markdown content
-    local markdown_content=$(generate_markdown "$PR_NUMBER" "$COMMIT_SHA" "$short_sha" "$BUILD_DATE" "$ARTIFACTS_DIR")
+    local markdown_content=$(generate_markdown "$PR_NUMBER" "$COMMIT_SHA" "$short_sha" "$BUILD_TIMESTAMP" "$ARTIFACTS_DIR")
     
     # Write individual build file
-    local build_file="$date_dir/${BUILD_DATE}_${short_sha}.md"
+    local build_file="$timestamp_dir/${BUILD_TIMESTAMP}_${short_sha}.md"
     echo "$markdown_content" > "$build_file"
     log "Created build file: $build_file"
     
     # Update latest.md
-    local latest_file="pull-requests/$PR_NUMBER/latest.md"
+    local latest_file="releases/wippy/latest.md"
     echo "$markdown_content" > "$latest_file"
     log "Updated latest file: $latest_file"
     
     # Create symlink for easy access
-    local symlink="pull-requests/$PR_NUMBER/latest"
+    local symlink="releases/wippy/latest"
     rm -f "$symlink"
-    ln -sf "$BUILD_DATE" "$symlink"
-    log "Created symlink: $symlink -> $BUILD_DATE"
+    ln -sf "$BUILD_TIMESTAMP" "$symlink"
+    log "Created symlink: $symlink -> $BUILD_TIMESTAMP"
     
     log "✅ Artifact Markdown generation completed successfully"
     
@@ -312,8 +312,8 @@ main() {
     echo "  - $symlink (symlink)"
     echo ""
     echo "🔗 Quick links:"
-    echo "  - Latest: https://github.com/$RELEASE_REPO/blob/main/pull-requests/$PR_NUMBER/latest.md"
-    echo "  - This build: https://github.com/$RELEASE_REPO/blob/main/pull-requests/$PR_NUMBER/$BUILD_DATE/${BUILD_DATE}_${short_sha}.md"
+    echo "  - Latest: https://github.com/$RELEASE_REPO/blob/main/releases/wippy/latest.md"
+    echo "  - This build: https://github.com/$RELEASE_REPO/blob/main/releases/wippy/$BUILD_TIMESTAMP/${BUILD_TIMESTAMP}_${short_sha}.md"
 }
 
 # Run main function
