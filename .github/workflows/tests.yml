@@ -211,6 +211,7 @@ jobs:
               if [ "$platform" != "Unknown" ]; then
                 echo "- **$platform**: [$filename](https://github.com/${{ env.RELEASE_REPO }}/raw/main/releases/wippy/$BUILD_TIMESTAMP/$filename)" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
               fi
+            fi
           done
           
           # Add build information
