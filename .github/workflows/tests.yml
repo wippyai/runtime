@@ -188,12 +188,10 @@ jobs:
           GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
           
           # Create README.md content
-          cat > ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md << EOF
-# Wippy Release
-
-## Downloads
-
-EOF
+          echo "# Wippy Release" > ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "## Downloads" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
           
           # Add download links for each binary
           for file in ./dist/*; do
@@ -216,29 +214,27 @@ EOF
           done
           
           # Add build information
-          cat >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md << EOF
-
-## Build Information
-
-- **Branch**: $BRANCH_NAME
-- **Commit**: $GITHUB_SHA
-- **Pipeline**: $RUN_ID
-- **Build Date**: $BUILD_DATE
-- **Go Version**: $GO_VERSION
-
-## Installation
-
-Download the appropriate binary for your platform and make it executable:
-
-\`\`\`bash
-# Linux/macOS
-chmod +x wippy-linux-amd64
-./wippy-linux-amd64 --help
-
-# Windows
-wippy-windows-amd64.exe --help
-\`\`\`
-EOF
+          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "## Build Information" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "- **Branch**: $BRANCH_NAME" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "- **Commit**: $GITHUB_SHA" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "- **Pipeline**: $RUN_ID" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "- **Build Date**: $BUILD_DATE" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "- **Go Version**: $GO_VERSION" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "## Installation" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "Download the appropriate binary for your platform and make it executable:" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "\`\`\`bash" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "# Linux/macOS" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "chmod +x wippy-linux-amd64" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "./wippy-linux-amd64 --help" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "# Windows" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "wippy-windows-amd64.exe --help" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "\`\`\`" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
           
           echo "✅ Generated README.md for release $BUILD_TIMESTAMP"
 
