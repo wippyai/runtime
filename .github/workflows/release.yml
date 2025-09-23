@@ -1,0 +1,348 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu-latest", "windows-latest"]
+        include:
+          - os: "ubuntu-latest"
+            platform: "linux"
+            arch: "amd64"
+          - os: "ubuntu-latest"
+            platform: "linux"
+            arch: "arm64"
+          - os: "windows-latest"
+            platform: "windows"
+            arch: "amd64"
+    
+    env:
+      GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
+      CGO_ENABLED: 1
+      BINARY_NAME: wippy
+      TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+    
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ env.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup msys (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-sqlite3
+          path-type: inherit
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24
+          check-latest: false
+          token: ${{ env.GITHUB_TOKEN }}
+          cache: true
+        env:
+          MSYSTEM: MINGW64
+
+      - name: Configure Git and Go for private modules
+        if: matrix.os != 'windows-latest'
+        run: |
+          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          go env -w GOPRIVATE=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOSUMDB=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOPROXY=github.com/ponyruntime/*,github.com/wippyai/*
+
+      - name: Configure Git and Go for private modules (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: |
+          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          go env -w GOPRIVATE=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOSUMDB=github.com/ponyruntime/*,github.com/wippyai/*
+          go env -w GONOPROXY=github.com/ponyruntime/*,github.com/wippyai/*
+
+      - name: Install dependencies
+        if: matrix.os != 'windows-latest'
+        run: go mod download
+
+      - name: Install dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: go mod download
+
+      - name: Install cross-compilation tools (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross libsqlite3-dev
+
+      - name: Build Linux AMD64 (Ubuntu)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
+        run: |
+          make build-runner-linux-amd64
+          cd ./dist
+          mv runner-linux-amd64 wippy-linux-amd64
+          echo "✅ Built wippy-linux-amd64"
+
+      - name: Build Linux ARM64 (Ubuntu)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64'
+        run: |
+          make build-runner-linux-arm64
+          cd ./dist
+          mv runner-linux-arm64 wippy-linux-arm64
+          echo "✅ Built wippy-linux-arm64"
+
+      - name: Build Windows AMD64
+        if: matrix.os == 'windows-latest' && matrix.arch == 'amd64'
+        shell: msys2 {0}
+        run: |
+          make build-runner-windows-amd64
+          cd ./dist
+          mv runner-windows-amd64.exe wippy-windows-amd64.exe
+          echo "✅ Built wippy-windows-amd64.exe"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wippy-${{ matrix.platform }}-${{ matrix.arch }}-${{ env.TAG_NAME }}
+          path: ./dist/
+          retention-days: 30
+
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build-and-release
+    if: github.event_name == 'push' || github.event.inputs.tag
+    
+    env:
+      GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
+      TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+    
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ env.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts/
+
+      - name: Extract and organize binaries
+        run: |
+          mkdir -p ./release-binaries
+          
+          # Extract binaries from all artifacts
+          for artifact_dir in ./artifacts/wippy-*; do
+            if [ -d "$artifact_dir" ]; then
+              echo "📦 Copying from $artifact_dir"
+              cp -r "$artifact_dir"/* ./release-binaries/ 2>/dev/null || true
+            fi
+          done
+          
+          echo "📦 Available binaries for release:"
+          ls -la ./release-binaries/ || echo "No binaries found"
+
+      - name: Generate checksums
+        run: |
+          cd ./release-binaries
+          echo "Generating checksums..."
+          
+          # Generate SHA256 checksums
+          for file in *; do
+            if [ -f "$file" ]; then
+              sha256sum "$file" > "${file}.sha256"
+              echo "✅ Generated checksum for $file"
+            fi
+          done
+          
+          # Create a combined checksums file
+          cat *.sha256 > checksums.txt
+          echo "✅ Created combined checksums.txt"
+          
+          ls -la
+
+      - name: Create Release Notes
+        run: |
+          # Get commit messages since last tag
+          if [ "${{ github.event_name }}" = "push" ]; then
+            PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            if [ -n "$PREVIOUS_TAG" ]; then
+              CHANGELOG=$(git log --pretty=format:"- %s" ${PREVIOUS_TAG}..HEAD)
+            else
+              CHANGELOG=$(git log --pretty=format:"- %s" --max-count=10)
+            fi
+          else
+            CHANGELOG="Manual release triggered"
+          fi
+          
+          # Create release notes
+          cat > release_notes.md << EOF
+          # Release ${{ env.TAG_NAME }}
+          
+          ## Changes
+          ${CHANGELOG}
+          
+          ## Downloads
+          
+          ### Windows
+          - **Windows AMD64**: \`wippy-windows-amd64.exe\`
+          
+          ### Linux
+          - **Linux AMD64**: \`wippy-linux-amd64\`
+          - **Linux ARM64**: \`wippy-linux-arm64\`
+          
+          ## Installation
+          
+          ### Windows
+          \`\`\`powershell
+          # Download the appropriate binary
+          wippy-windows-amd64.exe --help
+          \`\`\`
+          
+          ### Linux
+          \`\`\`bash
+          # Download and make executable
+          chmod +x wippy-linux-amd64
+          ./wippy-linux-amd64 --help
+          \`\`\`
+          
+          ## Verification
+          
+          Verify the integrity of downloaded files using the provided checksums:
+          \`\`\`bash
+          sha256sum -c checksums.txt
+          \`\`\`
+          EOF
+          
+          echo "✅ Generated release notes"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ env.GITHUB_TOKEN }}
+          tag_name: ${{ env.TAG_NAME }}
+          name: "Wippy ${{ env.TAG_NAME }}"
+          body_path: release_notes.md
+          files: |
+            ./release-binaries/*
+          draft: false
+          prerelease: ${{ contains(env.TAG_NAME, 'alpha') || contains(env.TAG_NAME, 'beta') || contains(env.TAG_NAME, 'rc') }}
+
+      - name: Update wippy-releases repository
+        run: |
+          # Clone wippy-releases repository
+          git clone https://${GITHUB_TOKEN}@github.com/wippyai/wippy-releases.git release-repo
+          cd release-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create release entry
+          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
+          mkdir -p ./releases/wippy/$BUILD_TIMESTAMP
+          
+          # Create README with links to GitHub release
+          cat > ./releases/wippy/$BUILD_TIMESTAMP/README.md << EOF
+          # Wippy Release ${{ env.TAG_NAME }}
+          
+          **Release Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Commit**: ${{ github.sha }}
+          **Pipeline**: ${{ github.run_id }}
+          
+          ## Downloads
+          
+          This release is available on GitHub Releases with the following binaries:
+          
+          - **Linux AMD64**: [wippy-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-amd64)
+          - **Linux ARM64**: [wippy-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-arm64)
+          - **Windows AMD64**: [wippy-windows-amd64.exe](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-windows-amd64.exe)
+          
+          ## Installation
+          
+          ### Linux
+          \`\`\`bash
+          # Download and make executable
+          wget https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-amd64
+          chmod +x wippy-linux-amd64
+          ./wippy-linux-amd64 --help
+          \`\`\`
+          
+          ### Windows
+          \`\`\`powershell
+          # Download the appropriate binary
+          Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"
+          .\wippy-windows-amd64.exe --help
+          \`\`\`
+          
+          ## Verification
+          
+          Download and verify checksums:
+          \`\`\`bash
+          wget https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/checksums.txt
+          sha256sum -c checksums.txt
+          \`\`\`
+          
+          ## Full Release
+          
+          View the complete release with all files and changelog:
+          [GitHub Release ${{ env.TAG_NAME }}](https://github.com/${{ github.repository }}/releases/tag/${{ env.TAG_NAME }})
+          EOF
+          
+          # Commit and push
+          git add .
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Add release ${{ env.TAG_NAME }} - ${BUILD_TIMESTAMP}"
+            git push origin main
+            echo "✅ Updated wippy-releases repository"
+          fi
+
+      - name: Release Summary
+        run: |
+          echo "## 🚀 Release ${{ env.TAG_NAME }} Published!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Available Binaries:" >> $GITHUB_STEP_SUMMARY
+          if [ -d "./release-binaries" ]; then
+            for file in ./release-binaries/*; do
+              if [ -f "$file" ] && [[ "$file" != *.sha256 ]] && [[ "$file" != checksums.txt ]]; then
+                filename=$(basename "$file")
+                size=$(stat -c%s "$file" 2>/dev/null || echo "Unknown")
+                if [ "$size" != "Unknown" ] && [ "$size" -gt 0 ]; then
+                  if [ "$size" -lt 1024 ]; then
+                    size_str="${size}B"
+                  elif [ "$size" -lt 1048576 ]; then
+                    size_str="$(( size / 1024 ))KB"
+                  else
+                    size_str="$(( size / 1048576 ))MB"
+                  fi
+                  echo "- \`$filename\` ($size_str)" >> $GITHUB_STEP_SUMMARY
+                fi
+              fi
+            done
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Release Links:" >> $GITHUB_STEP_SUMMARY
+          echo "- [GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.TAG_NAME }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [wippy-releases](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy)" >> $GITHUB_STEP_SUMMARY

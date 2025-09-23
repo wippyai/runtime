@@ -153,204 +153,54 @@ jobs:
         with:
           name: wippy-binaries-${{ matrix.os }}-${{ matrix.go }}
           path: ./dist/
-          retention-days: 7
+          retention-days: 30
 
-  # Upload binaries to release repository
-  upload-binaries:
-    name: Upload Binaries to Release Repository
+  # Create PR build summary (no binary upload)
+  pr-summary:
+    name: PR Build Summary
     runs-on: ubuntu-latest
     needs: tests
     if: github.event_name == 'pull_request'
-    timeout-minutes: 10
+    timeout-minutes: 5
     
-    env:
-      GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
-      RELEASE_REPO: wippyai/wippy-releases
-      
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ env.GITHUB_TOKEN }}
-          fetch-depth: 0
-
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts/
 
-      - name: Extract and organize binaries
+      - name: Generate build summary
         run: |
-          # Create releases directory structure
-          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-          mkdir -p ./dist
+          echo "## 📦 Build Summary for PR #${{ github.event.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.head_ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Built Binaries:" >> $GITHUB_STEP_SUMMARY
           
           # Extract binaries from all artifacts
           for artifact_dir in ./artifacts/wippy-binaries-*; do
             if [ -d "$artifact_dir" ]; then
-              echo "📦 Copying from $artifact_dir"
-              cp -r "$artifact_dir"/* ./dist/ 2>/dev/null || true
-            fi
-          done
-          
-          echo "📦 Available binaries in dist:"
-          ls -la ./dist/ || echo "No binaries found"
-
-      - name: Checkout release repository
-        run: |
-          git clone https://${GITHUB_TOKEN}@github.com/${RELEASE_REPO}.git release-repo
-          cd release-repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Copy binaries to release repository
-        run: |
-          # Copy binaries to the appropriate timestamp directory
-          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-          mkdir -p ./release-repo/releases/wippy/$BUILD_TIMESTAMP
-          cp -r ./dist/* ./release-repo/releases/wippy/$BUILD_TIMESTAMP/ 2>/dev/null || true
-          
-          echo "📁 Files to be committed:"
-          find ./release-repo/releases/wippy/$BUILD_TIMESTAMP/ -type f | head -20
-
-      - name: Generate Markdown files
-        run: |
-          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-          BUILD_DATE=$(date +%Y-%m-%d)
-          PR_NUMBER=${{ github.event.number }}
-          COMMIT_SHA="${{ github.sha }}"
-          
-          echo "PR Number: $PR_NUMBER"
-          echo "Commit SHA: $COMMIT_SHA"
-          echo "Build Date: $BUILD_DATE"
-          echo "Build Timestamp: $BUILD_TIMESTAMP"
-          
-          # Run the script
-          ./.github/scripts/generate-artifacts-md.sh "$PR_NUMBER" "$COMMIT_SHA" "$BUILD_TIMESTAMP" "./dist"
-
-      - name: Copy generated files to release repository
-        run: |
-          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-          
-          # Copy generated Markdown files
-          if [ -d "pull-requests" ]; then
-            cp -r pull-requests/ ./release-repo/ 2>/dev/null || true
-          fi
-          
-          echo "📁 Generated files copied to release repository"
-
-      - name: Generate README.md for release
-        run: |
-          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-          BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          BRANCH_NAME="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          RUN_ID="${GITHUB_RUN_ID}"
-          
-          # Get Go version from the build
-          GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-          
-          # Create README.md content
-          echo "# Wippy Release" > ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "## Downloads" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          
-          # Add download links for each binary
-          for file in ./dist/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              platform=""
-              case "$filename" in
-                *linux-amd64*) platform="Linux AMD64" ;;
-                *linux-arm64*) platform="Linux ARM64" ;;
-                *windows-amd64*) platform="Windows AMD64" ;;
-                *windows-arm64*) platform="Windows ARM64" ;;
-                *darwin-amd64*) platform="macOS AMD64" ;;
-                *darwin-arm64*) platform="macOS ARM64" ;;
-                *) platform="Unknown" ;;
-              esac
-              
-              if [ "$platform" != "Unknown" ]; then
-                echo "- **$platform**: [$filename](https://github.com/${{ env.RELEASE_REPO }}/raw/main/releases/wippy/$BUILD_TIMESTAMP/$filename)" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-              fi
-            fi
-          done
-          
-          # Add build information
-          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "## Build Information" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "- **Branch**: $BRANCH_NAME" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "- **Commit**: $GITHUB_SHA" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "- **Pipeline**: $RUN_ID" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "- **Build Date**: $BUILD_DATE" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "- **Go Version**: $GO_VERSION" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "## Installation" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "Download the appropriate binary for your platform and make it executable:" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "\`\`\`bash" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "# Linux" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "chmod +x wippy-linux-amd64" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "./wippy-linux-amd64 --help" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "# Windows" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "wippy-windows-amd64.exe --help" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "\`\`\`" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          
-          echo "✅ Generated README.md for release $BUILD_TIMESTAMP"
-
-      - name: Commit and push to release repository
-        run: |
-          cd ./release-repo
-          
-          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          
-          git add .
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Add binaries for build ${BUILD_TIMESTAMP}_${SHORT_SHA}"
-            git push origin main
-            echo "✅ Committed and pushed changes"
-          fi
-
-      - name: Summary
-        run: |
-          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          
-          echo "## 📦 Binaries Uploaded!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Build Timestamp:** $BUILD_TIMESTAMP" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`$SHORT_SHA\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📁 Release Directory:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`releases/wippy/$BUILD_TIMESTAMP/\` - This build binaries and README.md" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔗 Quick Links:" >> $GITHUB_STEP_SUMMARY
-          echo "- [Release Directory](https://github.com/${{ env.RELEASE_REPO }}/tree/main/releases/wippy/$BUILD_TIMESTAMP)" >> $GITHUB_STEP_SUMMARY
-          echo "- [README.md](https://github.com/${{ env.RELEASE_REPO }}/blob/main/releases/wippy/$BUILD_TIMESTAMP/README.md)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Available Binaries:" >> $GITHUB_STEP_SUMMARY
-          if [ -d "./dist" ]; then
-            for file in ./dist/*; do
-              if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                size=$(stat -c%s "$file" 2>/dev/null || echo "Unknown")
-                if [ "$size" != "Unknown" ] && [ "$size" -gt 0 ]; then
-                  if [ "$size" -lt 1024 ]; then
-                    size_str="${size}B"
-                  elif [ "$size" -lt 1048576 ]; then
-                    size_str="$(( size / 1024 ))KB"
-                  else
-                    size_str="$(( size / 1048576 ))MB"
+              echo "📦 From $artifact_dir:" >> $GITHUB_STEP_SUMMARY
+              for file in "$artifact_dir"/*; do
+                if [ -f "$file" ]; then
+                  filename=$(basename "$file")
+                  size=$(stat -c%s "$file" 2>/dev/null || echo "Unknown")
+                  if [ "$size" != "Unknown" ] && [ "$size" -gt 0 ]; then
+                    if [ "$size" -lt 1024 ]; then
+                      size_str="${size}B"
+                    elif [ "$size" -lt 1048576 ]; then
+                      size_str="$(( size / 1024 ))KB"
+                    else
+                      size_str="$(( size / 1048576 ))MB"
+                    fi
+                    echo "- \`$filename\` ($size_str)" >> $GITHUB_STEP_SUMMARY
                   fi
-                  echo "- \`$filename\` ($size_str)" >> $GITHUB_STEP_SUMMARY
                 fi
-              fi
-            done
-          fi
+              done
+            fi
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ℹ️ Note:" >> $GITHUB_STEP_SUMMARY
+          echo "Binaries are available as build artifacts for 30 days. For releases, use GitHub Releases." >> $GITHUB_STEP_SUMMARY
