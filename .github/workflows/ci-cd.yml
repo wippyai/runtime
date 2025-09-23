@@ -44,6 +44,7 @@ jobs:
       CGO_ENABLED: 1
       BINARY_NAME: wippy
       TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+      ARTIFACT_SUFFIX: ${{ github.event.inputs.tag || github.ref_name }}
     
     steps:
       - name: Check out code
@@ -171,10 +172,17 @@ jobs:
           echo "✅ Compressed wippy-windows-amd64.exe with UPX"
           echo "📊 Binary size after compression: $(ls -lh wippy-windows-amd64.exe | awk '{print $5}')"
 
+      - name: Sanitize artifact name
+        run: |
+          # Sanitize artifact name by replacing invalid characters
+          ARTIFACT_NAME="wippy-${{ matrix.platform }}-${{ matrix.arch }}-$(echo '${{ env.ARTIFACT_SUFFIX }}' | sed 's/[\/:*?"<>|\\]/-/g')"
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+          echo "✅ Sanitized artifact name: ${ARTIFACT_NAME}"
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wippy-${{ matrix.platform }}-${{ matrix.arch }}-${{ env.TAG_NAME }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: ./dist/
           retention-days: 30
 
@@ -245,6 +253,13 @@ jobs:
         with:
           token: ${{ env.GITHUB_TOKEN }}
           fetch-depth: 0
+
+      - name: Sanitize artifact name for download
+        run: |
+          # Sanitize artifact name by replacing invalid characters
+          ARTIFACT_SUFFIX_SANITIZED="$(echo '${{ env.TAG_NAME }}' | sed 's/[\/:*?"<>|\\]/-/g')"
+          echo "ARTIFACT_SUFFIX_SANITIZED=${ARTIFACT_SUFFIX_SANITIZED}" >> $GITHUB_ENV
+          echo "✅ Sanitized artifact suffix: ${ARTIFACT_SUFFIX_SANITIZED}"
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
