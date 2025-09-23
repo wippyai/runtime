@@ -94,18 +94,43 @@ jobs:
         run: make test
 
       # Build binaries using Makefile
-      - name: Install cross-compilation tools (Ubuntu)
+      - name: Install Linux cross-compilation tools (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross libsqlite3-dev mingw-w64 zip
+          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross libsqlite3-dev zip
 
-      - name: Build all binaries (Ubuntu)
+      - name: Build Linux binaries (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         env:
           CGO_ENABLED: 1
         run: |
-          make build-runner-local
+          make build-runner-linux-amd64
+          make build-runner-linux-arm64
+          # Rename binaries to wippy-platform format
+          cd ./dist
+          for file in runner-*; do
+            if [ -f "$file" ]; then
+              # Extract platform info from original filename
+              platform=$(echo "$file" | sed 's/runner-//' | sed 's/\.exe$//')
+              new_name="wippy-${platform}"
+              if [[ "$file" == *".exe" ]]; then
+                new_name="${new_name}.exe"
+              fi
+              mv "$file" "$new_name"
+              echo "✅ Renamed $file to $new_name"
+            fi
+          done
+          ls -la
+
+      - name: Build Windows binaries (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        env:
+          CGO_ENABLED: 1
+        run: |
+          make build-runner-windows-amd64
+          make build-runner-windows-arm64
           # Rename binaries to wippy-platform format
           cd ./dist
           for file in runner-*; do
@@ -267,7 +292,7 @@ jobs:
           echo "Download the appropriate binary for your platform and make it executable:" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
           echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
           echo "\`\`\`bash" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
-          echo "# Linux/macOS" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
+          echo "# Linux" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
           echo "chmod +x wippy-linux-amd64" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
           echo "./wippy-linux-amd64 --help" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md
           echo "" >> ./release-repo/releases/wippy/$BUILD_TIMESTAMP/README.md

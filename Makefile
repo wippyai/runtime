@@ -59,13 +59,14 @@ build-runner-cross: build-runner-check
 	-$(MAKE) build-runner-darwin-amd64
 	-$(MAKE) build-runner-darwin-arm64
 	-$(MAKE) build-runner-windows-amd64
+	-$(MAKE) build-runner-windows-arm64
 
 # Check if cross-compilation is happening with CGO
 build-runner-check:
 	@echo "Note: Cross-compilation with CGO_ENABLED=1 requires appropriate toolchains"
 	@echo "For linux/arm64: apt-get install gcc-aarch64-linux-gnu libc6-dev-arm64-cross libsqlite3-dev"
-	@echo "For darwin: osxcross toolchain"
-	@echo "For windows: mingw-w64"
+	@echo "For darwin: Only works on macOS (use build-runner-local on macOS)"
+	@echo "For windows: apt-get install gcc-mingw-w64-x86-64 gcc-mingw-w64-i686"
 
 # Individual platform targets
 build-runner-linux-amd64:
@@ -76,7 +77,24 @@ build-runner-linux-arm64:
 	mkdir -p ./dist
 	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-arm64 ./cmd/runner/
 
-# Build for M1 architecture on M1 Mac
+build-runner-windows-amd64:
+	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build --tags "fts5 sqlite_vec" -o "./dist/runner-windows-amd64.exe" "./cmd/runner/"
+
+build-runner-windows-arm64:
+	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=windows GOARCH=arm64 CC=aarch64-w64-mingw32-gcc go build --tags "fts5 sqlite_vec" -o "./dist/runner-windows-arm64.exe" "./cmd/runner/"
+
+# Standard Darwin builds (works on any macOS)
+build-runner-darwin-amd64:
+	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 CGO_CFLAGS="-O2 -g" go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-amd64 ./cmd/runner/
+
+build-runner-darwin-arm64:
+	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 CGO_CFLAGS="-O2 -g" go build --tags "fts5 sqlite_vec" -o ./dist/runner-darwin-arm64 ./cmd/runner/
+
+# Build for M1 architecture on M1 Mac (specialized versions)
 build-runner-darwin-arm64--on-M1:
 	mkdir -p ./dist
 	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 \
