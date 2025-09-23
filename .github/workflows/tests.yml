@@ -152,10 +152,22 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: ./dist/
+          path: ./artifacts/
 
-      - name: List available binaries
+      - name: Extract and organize binaries
         run: |
+          # Create releases directory structure
+          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
+          mkdir -p ./dist
+          
+          # Extract binaries from all artifacts
+          for artifact_dir in ./artifacts/wippy-binaries-*; do
+            if [ -d "$artifact_dir" ]; then
+              echo "📦 Copying from $artifact_dir"
+              cp -r "$artifact_dir"/* ./dist/ 2>/dev/null || true
+            fi
+          done
+          
           echo "📦 Available binaries in dist:"
           ls -la ./dist/ || echo "No binaries found"
 
@@ -175,6 +187,32 @@ jobs:
           
           echo "📁 Files to be committed:"
           find ./release-repo/releases/wippy/$BUILD_TIMESTAMP/ -type f | head -20
+
+      - name: Generate Markdown files
+        run: |
+          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
+          BUILD_DATE=$(date +%Y-%m-%d)
+          PR_NUMBER=${{ github.event.number }}
+          COMMIT_SHA="${{ github.sha }}"
+          
+          echo "PR Number: $PR_NUMBER"
+          echo "Commit SHA: $COMMIT_SHA"
+          echo "Build Date: $BUILD_DATE"
+          echo "Build Timestamp: $BUILD_TIMESTAMP"
+          
+          # Run the script
+          ./.github/scripts/generate-artifacts-md.sh "$PR_NUMBER" "$COMMIT_SHA" "$BUILD_TIMESTAMP" "./dist"
+
+      - name: Copy generated files to release repository
+        run: |
+          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
+          
+          # Copy generated Markdown files
+          if [ -d "pull-requests" ]; then
+            cp -r pull-requests/ ./release-repo/ 2>/dev/null || true
+          fi
+          
+          echo "📁 Generated files copied to release repository"
 
       - name: Generate README.md for release
         run: |
