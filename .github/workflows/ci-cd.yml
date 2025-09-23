@@ -228,12 +228,12 @@ jobs:
           echo "### ℹ️ Note:" >> $GITHUB_STEP_SUMMARY
           echo "Binaries are optimized with UPX compression (~80% size reduction) and available as build artifacts for 30 days." >> $GITHUB_STEP_SUMMARY
 
-  # Release job - only for tags and manual releases
+  # Release job - runs on every push and manual releases
   release:
     name: Create Release
     runs-on: ubuntu-latest
     needs: lint-test-build
-    if: github.event_name == 'push' || github.event.inputs.tag
+    if: always() && (needs.lint-test-build.result == 'success')
     
     env:
       GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
@@ -366,16 +366,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Create release entry
+          # Create release entry with commit hash
+          COMMIT_HASH=$(echo "${{ github.sha }}" | cut -c1-8)
           BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
           mkdir -p ./releases/wippy/$BUILD_TIMESTAMP
           
           # Create README with links to GitHub release
           cat > ./releases/wippy/$BUILD_TIMESTAMP/README.md << EOF
-          # Wippy Release ${{ env.TAG_NAME }}
+          # Wippy Build $COMMIT_HASH
           
-          **Release Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Build Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           **Commit**: ${{ github.sha }}
+          **Branch**: ${{ github.ref_name }}
           **Pipeline**: ${{ github.run_id }}
           
           ## Downloads
@@ -429,7 +431,7 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Add release ${{ env.TAG_NAME }} - ${BUILD_TIMESTAMP}"
+            git commit -m "Add build $COMMIT_HASH - ${BUILD_TIMESTAMP}"
             git push origin main
             echo "✅ Updated wippy-releases repository"
           fi
