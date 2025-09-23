@@ -181,6 +181,9 @@ jobs:
           
           echo "📦 Available binaries for release:"
           ls -la ./release-binaries/ || echo "No binaries found"
+          
+          # Compress binaries for wippy-releases (they are already compressed from build steps)
+          echo "📦 Binaries are already compressed with UPX from build steps"
 
       - name: Generate checksums
         run: |
@@ -225,11 +228,14 @@ jobs:
           ## Downloads
           
           ### Windows
-          - **Windows AMD64**: \`wippy-windows-amd64.exe\`
+          - **Windows AMD64**: \`wippy-windows-amd64.exe\` (compressed with UPX)
           
           ### Linux
-          - **Linux AMD64**: \`wippy-linux-amd64\`
-          - **Linux ARM64**: \`wippy-linux-arm64\`
+          - **Linux AMD64**: \`wippy-linux-amd64\` (compressed with UPX)
+          - **Linux ARM64**: \`wippy-linux-arm64\` (compressed with UPX)
+          
+          ### Binary Optimization
+          All binaries are optimized for minimal size with UPX compression (~80% size reduction).
           
           ## Installation
           
@@ -290,11 +296,18 @@ jobs:
           
           ## Downloads
           
-          This release is available on GitHub Releases with the following binaries:
+          This release is available on GitHub Releases with the following optimized binaries:
           
-          - **Linux AMD64**: [wippy-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-amd64)
-          - **Linux ARM64**: [wippy-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-arm64)
-          - **Windows AMD64**: [wippy-windows-amd64.exe](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-windows-amd64.exe)
+          - **Linux AMD64**: [wippy-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-amd64) (compressed with UPX)
+          - **Linux ARM64**: [wippy-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-arm64) (compressed with UPX)
+          - **Windows AMD64**: [wippy-windows-amd64.exe](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-windows-amd64.exe) (compressed with UPX)
+          
+          ## Binary Optimization
+          
+          All binaries are optimized for minimal size:
+          - **Build optimization**: Stripped debug symbols, trimmed paths, PIE build mode
+          - **UPX compression**: ~80% size reduction with LZMA compression
+          - **Final size**: ~12MB (down from ~78MB uncompressed)
           
           ## Installation
           
@@ -341,7 +354,7 @@ jobs:
         run: |
           echo "## 🚀 Release ${{ env.TAG_NAME }} Published!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Available Binaries:" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Optimized Binaries (UPX Compressed):" >> $GITHUB_STEP_SUMMARY
           if [ -d "./release-binaries" ]; then
             for file in ./release-binaries/*; do
               if [ -f "$file" ] && [[ "$file" != *.sha256 ]] && [[ "$file" != checksums.txt ]]; then
