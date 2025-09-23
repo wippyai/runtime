@@ -4,7 +4,13 @@ This document describes how to build Windows binaries for the Wippy runtime.
 
 ## Prerequisites
 
-### For Cross-Compilation (Linux/macOS to Windows)
+### For Native Windows Build
+
+Use MSYS2 with the following packages:
+- `mingw-w64-x86_64-toolchain`
+- `mingw-w64-x86_64-sqlite3`
+
+### For Cross-Compilation (Linux to Windows)
 
 Install the required toolchain:
 
@@ -16,12 +22,6 @@ sudo apt-get install -y gcc-mingw-w64-x86-64 gcc-mingw-w64-i686
 # macOS (using Homebrew)
 brew install mingw-w64
 ```
-
-### For Native Windows Build
-
-Use MSYS2 with the following packages:
-- `mingw-w64-x86_64-toolchain`
-- `mingw-w64-x86_64-sqlite3`
 
 ## Building Windows Binaries
 
@@ -42,10 +42,10 @@ make build-runner-cross
 
 ```bash
 # Windows AMD64
-CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build --tags "fts5 sqlite_vec" -o "./dist/runner-windows-amd64.exe" "./cmd/runner/"
+CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build --tags "fts5 sqlite_vec" -o "./dist/runner-windows-amd64.exe" "./cmd/runner/"
 
 # Windows ARM64
-CGO_ENABLED=1 GOOS=windows GOARCH=arm64 CC=aarch64-w64-mingw32-gcc go build --tags "fts5 sqlite_vec" -o "./dist/runner-windows-arm64.exe" "./cmd/runner/"
+CGO_ENABLED=1 GOOS=windows GOARCH=arm64 go build --tags "fts5 sqlite_vec" -o "./dist/runner-windows-arm64.exe" "./cmd/runner/"
 ```
 
 ## GitHub Actions
