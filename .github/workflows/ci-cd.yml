@@ -346,7 +346,8 @@ jobs:
           
           echo "✅ Generated release notes"
 
-      - name: Create Release
+      - name: Create Release (only for valid tags)
+        if: startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/')
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ env.GITHUB_TOKEN }}
@@ -382,11 +383,13 @@ jobs:
           
           ## Downloads
           
-          This release is available on GitHub Releases with the following optimized binaries:
+          This build contains the following optimized binaries:
           
           - **Linux AMD64**: [wippy-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-amd64) (compressed with UPX)
           - **Linux ARM64**: [wippy-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-arm64) (compressed with UPX)
           - **Windows AMD64**: [wippy-windows-amd64.exe](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-windows-amd64.exe) (compressed with UPX)
+          
+          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && '## GitHub Release\n\nThis build is also available on GitHub Releases:\n\n- [Download from GitHub Releases](https://github.com/' + github.repository + '/releases/tag/' + env.TAG_NAME + ')\n' || '' }}
           
           ## Binary Optimization
           
@@ -400,30 +403,23 @@ jobs:
           ### Linux
           \`\`\`bash
           # Download and make executable
-          wget https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-amd64
+          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && 'wget https://github.com/' + github.repository + '/releases/download/' + env.TAG_NAME + '/wippy-linux-amd64' || '# Binary available in this directory' }}
           chmod +x wippy-linux-amd64
           ./wippy-linux-amd64 --help
           \`\`\`
           
           ### Windows
           \`\`\`powershell
-          # Download the appropriate binary
-          Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"
+          # Download and run
+          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && 'Invoke-WebRequest -Uri "https://github.com/' + github.repository + '/releases/download/' + env.TAG_NAME + '/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"' || '# Binary available in this directory' }}
           .\wippy-windows-amd64.exe --help
           \`\`\`
           
-          ## Verification
+          ## Build Information
           
-          Download and verify checksums:
-          \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/checksums.txt
-          sha256sum -c checksums.txt
-          \`\`\`
-          
-          ## Full Release
-          
-          View the complete release with all files and changelog:
-          [GitHub Release ${{ env.TAG_NAME }}](https://github.com/${{ github.repository }}/releases/tag/${{ env.TAG_NAME }})
+          - **Repository**: ${{ github.repository }}
+          - **Workflow**: [View Build](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - **Source**: [Commit $COMMIT_HASH](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
           EOF
           
           # Commit and push
