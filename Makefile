@@ -49,7 +49,25 @@ build-runner-all: build-runner-local build-runner-cross
 # Build for the local platform (always works)
 build-runner-local:
 	mkdir -p ./dist
-	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -o ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/
+	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" -ldflags="-s -w -X main.version=$(shell git describe --tags --always --dirty)" -trimpath -o ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/
+
+# Build optimized for production (maximum size reduction)
+build-runner-optimized:
+	mkdir -p ./dist
+	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec" \
+		-ldflags="-s -w -X main.version=$(shell git describe --tags --always --dirty)" \
+		-trimpath \
+		-buildmode=pie \
+		-o ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/runner/
+	@echo "Binary size after optimization:"
+	@ls -lh ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH)
+
+# Build with UPX compression (maximum size reduction)
+build-runner-compressed: build-runner-optimized
+	@echo "Compressing binary with UPX..."
+	upx --best --lzma ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH)
+	@echo "Final compressed binary size:"
+	@ls -lh ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH)
 
 # Cross-compilation targets (require appropriate toolchains)
 build-runner-cross: build-runner-check
@@ -71,15 +89,27 @@ build-runner-check:
 # Individual platform targets
 build-runner-linux-amd64:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-amd64 ./cmd/runner/
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build --tags "fts5 sqlite_vec" \
+		-ldflags="-s -w -X main.version=$(shell git describe --tags --always --dirty)" \
+		-trimpath \
+		-buildmode=pie \
+		-o ./dist/runner-linux-amd64 ./cmd/runner/
 
 build-runner-linux-arm64:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build --tags "fts5 sqlite_vec" -o ./dist/runner-linux-arm64 ./cmd/runner/
+	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build --tags "fts5 sqlite_vec" \
+		-ldflags="-s -w -X main.version=$(shell git describe --tags --always --dirty)" \
+		-trimpath \
+		-buildmode=pie \
+		-o ./dist/runner-linux-arm64 ./cmd/runner/
 
 build-runner-windows-amd64:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build --tags "fts5 sqlite_vec" -o "./dist/runner-windows-amd64.exe" "./cmd/runner/"
+	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build --tags "fts5 sqlite_vec" \
+		-ldflags="-s -w -X main.version=$(shell git describe --tags --always --dirty)" \
+		-trimpath \
+		-buildmode=pie \
+		-o "./dist/runner-windows-amd64.exe" "./cmd/runner/"
 
 # Windows ARM64 build - requires special toolchain, not supported on standard Windows runners
 build-runner-windows-arm64:

@@ -50,7 +50,7 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-sqlite3
+          install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-sqlite3 mingw-w64-x86_64-upx
           path-type: inherit
 
       - name: Set up Go
@@ -93,7 +93,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross libsqlite3-dev
+          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross libsqlite3-dev upx-ucl
 
       - name: Build Linux AMD64 (Ubuntu)
         if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
@@ -102,6 +102,12 @@ jobs:
           cd ./dist
           mv runner-linux-amd64 wippy-linux-amd64
           echo "✅ Built wippy-linux-amd64"
+          echo "📊 Binary size before compression: $(ls -lh wippy-linux-amd64 | awk '{print $5}')"
+          
+          # Compress with UPX
+          upx --best --lzma wippy-linux-amd64
+          echo "✅ Compressed wippy-linux-amd64 with UPX"
+          echo "📊 Binary size after compression: $(ls -lh wippy-linux-amd64 | awk '{print $5}')"
 
       - name: Build Linux ARM64 (Ubuntu)
         if: matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64'
@@ -110,6 +116,12 @@ jobs:
           cd ./dist
           mv runner-linux-arm64 wippy-linux-arm64
           echo "✅ Built wippy-linux-arm64"
+          echo "📊 Binary size before compression: $(ls -lh wippy-linux-arm64 | awk '{print $5}')"
+          
+          # Compress with UPX
+          upx --best --lzma wippy-linux-arm64
+          echo "✅ Compressed wippy-linux-arm64 with UPX"
+          echo "📊 Binary size after compression: $(ls -lh wippy-linux-arm64 | awk '{print $5}')"
 
       - name: Build Windows AMD64
         if: matrix.os == 'windows-latest' && matrix.arch == 'amd64'
@@ -119,6 +131,12 @@ jobs:
           cd ./dist
           mv runner-windows-amd64.exe wippy-windows-amd64.exe
           echo "✅ Built wippy-windows-amd64.exe"
+          echo "📊 Binary size before compression: $(ls -lh wippy-windows-amd64.exe | awk '{print $5}')"
+          
+          # Compress with UPX
+          upx --best --lzma wippy-windows-amd64.exe
+          echo "✅ Compressed wippy-windows-amd64.exe with UPX"
+          echo "📊 Binary size after compression: $(ls -lh wippy-windows-amd64.exe | awk '{print $5}')"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
