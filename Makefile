@@ -59,7 +59,7 @@ build-runner-cross: build-runner-check
 	-$(MAKE) build-runner-darwin-amd64
 	-$(MAKE) build-runner-darwin-arm64
 	-$(MAKE) build-runner-windows-amd64
-	-$(MAKE) build-runner-windows-arm64
+	@echo "⚠️  Skipping Windows ARM64 (not supported on standard runners)"
 
 # Check if cross-compilation is happening with CGO
 build-runner-check:
@@ -81,7 +81,10 @@ build-runner-windows-amd64:
 	mkdir -p ./dist
 	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build --tags "fts5 sqlite_vec" -o "./dist/runner-windows-amd64.exe" "./cmd/runner/"
 
+# Windows ARM64 build - requires special toolchain, not supported on standard Windows runners
 build-runner-windows-arm64:
+	@echo "⚠️  Windows ARM64 build is not supported on standard Windows runners"
+	@echo "This target is kept for local development with proper ARM64 toolchain"
 	mkdir -p ./dist
 	CGO_ENABLED=1 GOOS=windows GOARCH=arm64 go build --tags "fts5 sqlite_vec" -o "./dist/runner-windows-arm64.exe" "./cmd/runner/"
 

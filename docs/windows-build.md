@@ -76,9 +76,11 @@ You can also trigger a manual release using the GitHub Actions UI:
 The build process creates the following files in the `./dist/` directory:
 
 - `runner-windows-amd64.exe` - Windows AMD64 binary
-- `runner-windows-arm64.exe` - Windows ARM64 binary
+- `runner-windows-arm64.exe` - Windows ARM64 binary (local development only)
 
 These are renamed to `wippy-windows-amd64.exe` and `wippy-windows-arm64.exe` in the release process.
+
+**Note**: Windows ARM64 builds are not supported on standard Windows runners in CI/CD due to toolchain limitations.
 
 ## Testing
 

@@ -130,7 +130,7 @@ jobs:
           CGO_ENABLED: 1
         run: |
           make build-runner-windows-amd64
-          make build-runner-windows-arm64
+          # Note: Windows ARM64 build disabled - not supported on standard Windows runner
           # Rename binaries to wippy-platform format
           cd ./dist
           for file in runner-*; do
