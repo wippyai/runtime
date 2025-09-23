@@ -389,7 +389,7 @@ jobs:
           - **Linux ARM64**: [wippy-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-arm64) (compressed with UPX)
           - **Windows AMD64**: [wippy-windows-amd64.exe](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-windows-amd64.exe) (compressed with UPX)
           
-          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && '## GitHub Release\n\nThis build is also available on GitHub Releases:\n\n- [Download from GitHub Releases](https://github.com/' + github.repository + '/releases/tag/' + env.TAG_NAME + ')\n' || '' }}
+          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && format('## GitHub Release\n\nThis build is also available on GitHub Releases:\n\n- [Download from GitHub Releases](https://github.com/{0}/releases/tag/{1})\n', github.repository, env.TAG_NAME) || '' }}
           
           ## Binary Optimization
           
@@ -403,7 +403,7 @@ jobs:
           ### Linux
           \`\`\`bash
           # Download and make executable
-          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && 'wget https://github.com/' + github.repository + '/releases/download/' + env.TAG_NAME + '/wippy-linux-amd64' || '# Binary available in this directory' }}
+          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && format('wget https://github.com/{0}/releases/download/{1}/wippy-linux-amd64', github.repository, env.TAG_NAME) || '# Binary available in this directory' }}
           chmod +x wippy-linux-amd64
           ./wippy-linux-amd64 --help
           \`\`\`
@@ -411,7 +411,7 @@ jobs:
           ### Windows
           \`\`\`powershell
           # Download and run
-          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && 'Invoke-WebRequest -Uri "https://github.com/' + github.repository + '/releases/download/' + env.TAG_NAME + '/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"' || '# Binary available in this directory' }}
+          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && format('Invoke-WebRequest -Uri "https://github.com/{0}/releases/download/{1}/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"', github.repository, env.TAG_NAME) || '# Binary available in this directory' }}
           .\wippy-windows-amd64.exe --help
           \`\`\`
           
