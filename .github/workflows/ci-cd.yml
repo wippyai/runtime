@@ -392,9 +392,8 @@ jobs:
             DIR_NAME="wippy/releases/${BUILD_TIMESTAMP}"
             echo "📁 Using release tag directory: $DIR_NAME"
           else
-            # Timestamped releases for feature branches
-            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9._-]/_/g')
-            DIR_NAME="wippy/feature/${BRANCH_NAME}-${BUILD_TIMESTAMP}"
+            # Timestamped releases for feature branches - only timestamp, no branch name
+            DIR_NAME="wippy/feature/${BUILD_TIMESTAMP}"
             echo "📁 Using feature branch directory: $DIR_NAME"
           fi
           
@@ -550,7 +549,7 @@ jobs:
           - **wippy/main/**: Latest builds from main branch (stable)
           - **wippy/develop/**: Latest builds from develop branch (development)
           - **wippy/releases/**: Timestamped releases from version tags
-          - **wippy/feature/**: Timestamped builds from feature branches
+          - **wippy/feature/**: Timestamped builds from feature branches (YYYY-MM-DD-HH-MM format)
           
           ## Build History
           
@@ -615,8 +614,7 @@ jobs:
             BRANCH_TYPE="Release Tag (${{ github.ref_name }})"
           else
             BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9._-]/_/g')
-            DIR_NAME="wippy/feature/${BRANCH_NAME}-${BUILD_TIMESTAMP}"
+            DIR_NAME="wippy/feature/${BUILD_TIMESTAMP}"
             BRANCH_TYPE="Feature Branch (${{ github.ref_name }})"
           fi
           
