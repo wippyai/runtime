@@ -371,23 +371,48 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Create release entry with commit hash
+          # Determine directory structure based on branch/tag
           COMMIT_HASH=$(echo "${{ github.sha }}" | cut -c1-8)
           BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-          mkdir -p ./releases/wippy/$BUILD_TIMESTAMP
+          
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            # Latest version for main - no timestamp, overwrites previous
+            DIR_NAME="wippy/main"
+            echo "📁 Using main branch directory: $DIR_NAME"
+          elif [ "${{ github.ref_name }}" = "develop" ]; then
+            # Latest version for develop - no timestamp, overwrites previous
+            DIR_NAME="wippy/develop"
+            echo "📁 Using develop branch directory: $DIR_NAME"
+          elif [[ "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            # Timestamped releases for version tags
+            DIR_NAME="wippy/releases/${BUILD_TIMESTAMP}"
+            echo "📁 Using version tag directory: $DIR_NAME"
+          elif [[ "${{ github.ref_name }}" =~ ^release/ ]]; then
+            # Timestamped releases for release tags
+            DIR_NAME="wippy/releases/${BUILD_TIMESTAMP}"
+            echo "📁 Using release tag directory: $DIR_NAME"
+          else
+            # Timestamped releases for feature branches
+            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9._-]/_/g')
+            DIR_NAME="wippy/feature/${BRANCH_NAME}-${BUILD_TIMESTAMP}"
+            echo "📁 Using feature branch directory: $DIR_NAME"
+          fi
+          
+          mkdir -p ./releases/$DIR_NAME
           
           # Copy binaries to wippy-releases repository
           echo "📦 Copying binaries to wippy-releases repository..."
-          cp -r ../release-binaries/* ./releases/wippy/$BUILD_TIMESTAMP/
+          cp -r ../release-binaries/* ./releases/$DIR_NAME/
           
           # Create README with download links
-          cat > ./releases/wippy/$BUILD_TIMESTAMP/README.md << EOF
+          cat > ./releases/$DIR_NAME/README.md << EOF
           # Wippy Build $COMMIT_HASH
           
           **Build Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           **Commit**: ${{ github.sha }}
-          **Branch**: ${{ github.ref_name }}
+          **Branch/Tag**: ${{ github.ref_name }}
           **Pipeline**: ${{ github.run_id }}
+          **Directory**: $DIR_NAME
           
           ## Downloads
           
@@ -411,7 +436,7 @@ jobs:
           ### Linux
           \`\`\`bash
           # Download and make executable
-          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/$BUILD_TIMESTAMP/wippy-linux-amd64
+          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-linux-amd64
           chmod +x wippy-linux-amd64
           ./wippy-linux-amd64 --help
           \`\`\`
@@ -419,7 +444,7 @@ jobs:
           ### Windows
           \`\`\`powershell
           # Download and run
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/$BUILD_TIMESTAMP/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"
           .\wippy-windows-amd64.exe --help
           \`\`\`
           
@@ -427,7 +452,7 @@ jobs:
           
           Verify the integrity of downloaded files using the provided checksums:
           \`\`\`bash
-          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/$BUILD_TIMESTAMP/checksums.txt
+          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/checksums.txt
           sha256sum -c checksums.txt
           \`\`\`
           
@@ -438,20 +463,41 @@ jobs:
           - **Source**: [Commit $COMMIT_HASH](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
           EOF
           
-          # Create latest symlink for easy access
-          rm -f ./releases/wippy/latest
-          ln -sf $BUILD_TIMESTAMP ./releases/wippy/latest
+          # Create symlinks and update main README based on branch type
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            # For main branch, create main symlink
+            rm -f ./releases/wippy/main
+            ln -sf $DIR_NAME ./releases/wippy/main
+            echo "🔗 Created main symlink: wippy/main -> $DIR_NAME"
+          elif [ "${{ github.ref_name }}" = "develop" ]; then
+            # For develop branch, create develop symlink
+            rm -f ./releases/wippy/develop
+            ln -sf $DIR_NAME ./releases/wippy/develop
+            echo "🔗 Created develop symlink: wippy/develop -> $DIR_NAME"
+          else
+            # For other branches/tags, create latest symlink
+            rm -f ./releases/wippy/latest
+            ln -sf $DIR_NAME ./releases/wippy/latest
+            echo "🔗 Created latest symlink: wippy/latest -> $DIR_NAME"
+          fi
           
           # Update main README with latest build info
           cat > ./releases/wippy/README.md << EOF
           # Wippy Releases
           
-          This repository contains pre-built binaries for the Wippy runtime.
+          This repository contains pre-built binaries for the Wippy runtime, organized by branch and release type.
           
-          ## Latest Build
+          ## Quick Access
           
-          - **Build**: [wippy/$BUILD_TIMESTAMP](./$BUILD_TIMESTAMP/) (Commit: $COMMIT_HASH)
-          - **Direct Download**: [Latest Build](./latest/)
+          - **Main Branch**: [wippy/main](./main/) - Latest stable builds
+          - **Develop Branch**: [wippy/develop](./develop/) - Latest development builds
+          - **Latest Build**: [wippy/latest](./latest/) - Most recent build (any branch)
+          
+          ## Current Build
+          
+          - **Build**: [$DIR_NAME](./$DIR_NAME/) (Commit: $COMMIT_HASH)
+          - **Branch/Tag**: ${{ github.ref_name }}
+          - **Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           
           ## Available Platforms
           
@@ -468,9 +514,25 @@ jobs:
           
           ## Quick Start
           
-          ### Linux
+          ### Main Branch (Stable)
           \`\`\`bash
-          # Download latest build
+          # Download latest stable build
+          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/main/wippy-linux-amd64
+          chmod +x wippy-linux-amd64
+          ./wippy-linux-amd64 --help
+          \`\`\`
+          
+          ### Develop Branch (Development)
+          \`\`\`bash
+          # Download latest development build
+          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/develop/wippy-linux-amd64
+          chmod +x wippy-linux-amd64
+          ./wippy-linux-amd64 --help
+          \`\`\`
+          
+          ### Latest Build (Any Branch)
+          \`\`\`bash
+          # Download most recent build
           wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-linux-amd64
           chmod +x wippy-linux-amd64
           ./wippy-linux-amd64 --help
@@ -478,14 +540,21 @@ jobs:
           
           ### Windows
           \`\`\`powershell
-          # Download latest build
+          # Download latest build (Windows)
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"
           .\wippy-windows-amd64.exe --help
           \`\`\`
           
+          ## Directory Structure
+          
+          - **wippy/main/**: Latest builds from main branch (stable)
+          - **wippy/develop/**: Latest builds from develop branch (development)
+          - **wippy/releases/**: Timestamped releases from version tags
+          - **wippy/feature/**: Timestamped builds from feature branches
+          
           ## Build History
           
-          All builds are preserved in dated directories. Check the [releases directory](./) for historical builds.
+          All builds are preserved in their respective directories. Check the [releases directory](./) for historical builds.
           EOF
           
           # Commit and push
@@ -493,19 +562,68 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Add build $COMMIT_HASH - ${BUILD_TIMESTAMP}
+            # Create commit message based on branch type
+            if [ "${{ github.ref_name }}" = "main" ]; then
+              COMMIT_MSG="Update main branch build $COMMIT_HASH
+
+          - Updated optimized binaries for Linux AMD64, Linux ARM64, and Windows AMD64
+          - All binaries compressed with UPX for minimal size
+          - Updated main symlink and main README
+          - Build from commit: ${{ github.sha }}"
+            elif [ "${{ github.ref_name }}" = "develop" ]; then
+              COMMIT_MSG="Update develop branch build $COMMIT_HASH
+
+          - Updated optimized binaries for Linux AMD64, Linux ARM64, and Windows AMD64
+          - All binaries compressed with UPX for minimal size
+          - Updated develop symlink and main README
+          - Build from commit: ${{ github.sha }}"
+            elif [[ "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              COMMIT_MSG="Add version release ${{ github.ref_name }} - $COMMIT_HASH
 
           - Added optimized binaries for Linux AMD64, Linux ARM64, and Windows AMD64
           - All binaries compressed with UPX for minimal size
-          - Updated latest symlink and main README
-          - Build from commit: ${{ github.sha }}"
+          - Version release from commit: ${{ github.sha }}"
+            else
+              COMMIT_MSG="Add feature build ${{ github.ref_name }} - $COMMIT_HASH
+
+          - Added optimized binaries for Linux AMD64, Linux ARM64, and Windows AMD64
+          - All binaries compressed with UPX for minimal size
+          - Feature build from commit: ${{ github.sha }}"
+            fi
+            
+            git commit -m "$COMMIT_MSG"
             git push origin main
-            echo "✅ Updated wippy-releases repository with binaries"
+            echo "✅ Updated wippy-releases repository with binaries in $DIR_NAME"
           fi
 
       - name: Release Summary
         run: |
-          echo "## 🚀 Release ${{ env.TAG_NAME }} Published!" >> $GITHUB_STEP_SUMMARY
+          # Determine directory structure for summary
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            DIR_NAME="wippy/main"
+            BRANCH_TYPE="Main Branch (Stable)"
+          elif [ "${{ github.ref_name }}" = "develop" ]; then
+            DIR_NAME="wippy/develop"
+            BRANCH_TYPE="Develop Branch (Development)"
+          elif [[ "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
+            DIR_NAME="wippy/releases/${BUILD_TIMESTAMP}"
+            BRANCH_TYPE="Version Release (${{ github.ref_name }})"
+          elif [[ "${{ github.ref_name }}" =~ ^release/ ]]; then
+            BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
+            DIR_NAME="wippy/releases/${BUILD_TIMESTAMP}"
+            BRANCH_TYPE="Release Tag (${{ github.ref_name }})"
+          else
+            BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
+            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9._-]/_/g')
+            DIR_NAME="wippy/feature/${BRANCH_NAME}-${BUILD_TIMESTAMP}"
+            BRANCH_TYPE="Feature Branch (${{ github.ref_name }})"
+          fi
+          
+          echo "## 🚀 $BRANCH_TYPE Published!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Directory**: \`$DIR_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Optimized Binaries (UPX Compressed):" >> $GITHUB_STEP_SUMMARY
           if [ -d "./release-binaries" ]; then
@@ -530,9 +648,14 @@ jobs:
           echo "### 🔗 Release Links:" >> $GITHUB_STEP_SUMMARY
           echo "- [GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.TAG_NAME }})" >> $GITHUB_STEP_SUMMARY
           echo "- [wippy-releases (with binaries)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy)" >> $GITHUB_STEP_SUMMARY
-          echo "- [Latest Build (direct download)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy/latest)" >> $GITHUB_STEP_SUMMARY
+          echo "- [This Build (direct download)](https://github.com/wippyai/wippy-releases/tree/main/releases/$DIR_NAME)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📥 Direct Download URLs:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Linux AMD64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-linux-amd64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Linux ARM64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-linux-arm64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Windows AMD64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-windows-amd64.exe\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux AMD64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-linux-amd64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux ARM64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-linux-arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Windows AMD64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-windows-amd64.exe\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Quick Access Links:" >> $GITHUB_STEP_SUMMARY
+          echo "- [Main Branch (Stable)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy/main)" >> $GITHUB_STEP_SUMMARY
+          echo "- [Develop Branch (Development)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy/develop)" >> $GITHUB_STEP_SUMMARY
+          echo "- [Latest Build (Any Branch)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy/latest)" >> $GITHUB_STEP_SUMMARY
