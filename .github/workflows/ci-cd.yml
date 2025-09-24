@@ -225,8 +225,12 @@ jobs:
           done
           
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Download Links:" >> $GITHUB_STEP_SUMMARY
+          echo "- [wippy-releases (with binaries)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy)" >> $GITHUB_STEP_SUMMARY
+          echo "- [Latest Build (direct download)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy/latest)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "### ℹ️ Note:" >> $GITHUB_STEP_SUMMARY
-          echo "Binaries are optimized with UPX compression (~80% size reduction) and available as build artifacts for 30 days." >> $GITHUB_STEP_SUMMARY
+          echo "Binaries are optimized with UPX compression (~80% size reduction) and available for direct download from wippy-releases repository." >> $GITHUB_STEP_SUMMARY
 
   # Release job - runs on every push and manual releases
   release:
@@ -372,7 +376,11 @@ jobs:
           BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
           mkdir -p ./releases/wippy/$BUILD_TIMESTAMP
           
-          # Create README with links to GitHub release
+          # Copy binaries to wippy-releases repository
+          echo "📦 Copying binaries to wippy-releases repository..."
+          cp -r ../release-binaries/* ./releases/wippy/$BUILD_TIMESTAMP/
+          
+          # Create README with download links
           cat > ./releases/wippy/$BUILD_TIMESTAMP/README.md << EOF
           # Wippy Build $COMMIT_HASH
           
@@ -383,11 +391,11 @@ jobs:
           
           ## Downloads
           
-          This build contains the following optimized binaries:
+          This build contains the following optimized binaries (available for direct download):
           
-          - **Linux AMD64**: [wippy-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-amd64) (compressed with UPX)
-          - **Linux ARM64**: [wippy-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-linux-arm64) (compressed with UPX)
-          - **Windows AMD64**: [wippy-windows-amd64.exe](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/wippy-windows-amd64.exe) (compressed with UPX)
+          - **Linux AMD64**: [wippy-linux-amd64](./wippy-linux-amd64) (compressed with UPX)
+          - **Linux ARM64**: [wippy-linux-arm64](./wippy-linux-arm64) (compressed with UPX)
+          - **Windows AMD64**: [wippy-windows-amd64.exe](./wippy-windows-amd64.exe) (compressed with UPX)
           
           ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && format('## GitHub Release\n\nThis build is also available on GitHub Releases:\n\n- [Download from GitHub Releases](https://github.com/{0}/releases/tag/{1})\n', github.repository, env.TAG_NAME) || '' }}
           
@@ -403,7 +411,7 @@ jobs:
           ### Linux
           \`\`\`bash
           # Download and make executable
-          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && format('wget https://github.com/{0}/releases/download/{1}/wippy-linux-amd64', github.repository, env.TAG_NAME) || '# Binary available in this directory' }}
+          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/$BUILD_TIMESTAMP/wippy-linux-amd64
           chmod +x wippy-linux-amd64
           ./wippy-linux-amd64 --help
           \`\`\`
@@ -411,8 +419,16 @@ jobs:
           ### Windows
           \`\`\`powershell
           # Download and run
-          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && format('Invoke-WebRequest -Uri "https://github.com/{0}/releases/download/{1}/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"', github.repository, env.TAG_NAME) || '# Binary available in this directory' }}
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/$BUILD_TIMESTAMP/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"
           .\wippy-windows-amd64.exe --help
+          \`\`\`
+          
+          ## Verification
+          
+          Verify the integrity of downloaded files using the provided checksums:
+          \`\`\`bash
+          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/$BUILD_TIMESTAMP/checksums.txt
+          sha256sum -c checksums.txt
           \`\`\`
           
           ## Build Information
@@ -422,14 +438,69 @@ jobs:
           - **Source**: [Commit $COMMIT_HASH](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
           EOF
           
+          # Create latest symlink for easy access
+          rm -f ./releases/wippy/latest
+          ln -sf $BUILD_TIMESTAMP ./releases/wippy/latest
+          
+          # Update main README with latest build info
+          cat > ./releases/wippy/README.md << EOF
+          # Wippy Releases
+          
+          This repository contains pre-built binaries for the Wippy runtime.
+          
+          ## Latest Build
+          
+          - **Build**: [wippy/$BUILD_TIMESTAMP](./$BUILD_TIMESTAMP/) (Commit: $COMMIT_HASH)
+          - **Direct Download**: [Latest Build](./latest/)
+          
+          ## Available Platforms
+          
+          - **Linux AMD64**: Optimized for x86_64 Linux systems
+          - **Linux ARM64**: Optimized for ARM64 Linux systems (Raspberry Pi, etc.)
+          - **Windows AMD64**: Optimized for x86_64 Windows systems
+          
+          ## Binary Optimization
+          
+          All binaries are optimized for minimal size:
+          - **Build optimization**: Stripped debug symbols, trimmed paths, PIE build mode
+          - **UPX compression**: ~80% size reduction with LZMA compression
+          - **Final size**: ~12MB (down from ~78MB uncompressed)
+          
+          ## Quick Start
+          
+          ### Linux
+          \`\`\`bash
+          # Download latest build
+          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-linux-amd64
+          chmod +x wippy-linux-amd64
+          ./wippy-linux-amd64 --help
+          \`\`\`
+          
+          ### Windows
+          \`\`\`powershell
+          # Download latest build
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"
+          .\wippy-windows-amd64.exe --help
+          \`\`\`
+          
+          ## Build History
+          
+          All builds are preserved in dated directories. Check the [releases directory](./) for historical builds.
+          EOF
+          
           # Commit and push
           git add .
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Add build $COMMIT_HASH - ${BUILD_TIMESTAMP}"
+            git commit -m "Add build $COMMIT_HASH - ${BUILD_TIMESTAMP}
+
+          - Added optimized binaries for Linux AMD64, Linux ARM64, and Windows AMD64
+          - All binaries compressed with UPX for minimal size
+          - Updated latest symlink and main README
+          - Build from commit: ${{ github.sha }}"
             git push origin main
-            echo "✅ Updated wippy-releases repository"
+            echo "✅ Updated wippy-releases repository with binaries"
           fi
 
       - name: Release Summary
@@ -458,4 +529,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🔗 Release Links:" >> $GITHUB_STEP_SUMMARY
           echo "- [GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.TAG_NAME }})" >> $GITHUB_STEP_SUMMARY
-          echo "- [wippy-releases](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy)" >> $GITHUB_STEP_SUMMARY
+          echo "- [wippy-releases (with binaries)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy)" >> $GITHUB_STEP_SUMMARY
+          echo "- [Latest Build (direct download)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy/latest)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Direct Download URLs:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux AMD64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-linux-amd64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux ARM64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-linux-arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Windows AMD64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-windows-amd64.exe\`" >> $GITHUB_STEP_SUMMARY
