@@ -65,7 +65,11 @@ build-runner-optimized:
 # Build with UPX compression (maximum size reduction)
 build-runner-compressed: build-runner-optimized
 	@echo "Compressing binary with UPX..."
-	upx --best --lzma ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH)
+	@if [ "$(shell go env GOOS)" = "darwin" ]; then \
+		upx --best --lzma --force-macos ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH); \
+	else \
+		upx --best --lzma ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH); \
+	fi
 	@echo "Final compressed binary size:"
 	@ls -lh ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH)
 

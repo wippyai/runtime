@@ -197,8 +197,8 @@ jobs:
           echo "✅ Built wippy-darwin-amd64"
           echo "📊 Binary size before compression: $(ls -lh wippy-darwin-amd64 | awk '{print $5}')"
 
-          # Compress with UPX
-          upx --best --lzma wippy-darwin-amd64
+          # Compress with UPX (force macOS support)
+          upx --best --lzma --force-macos wippy-darwin-amd64
           echo "✅ Compressed wippy-darwin-amd64 with UPX"
           echo "📊 Binary size after compression: $(ls -lh wippy-darwin-amd64 | awk '{print $5}')"
 
@@ -211,8 +211,8 @@ jobs:
           echo "✅ Built wippy-darwin-arm64"
           echo "📊 Binary size before compression: $(ls -lh wippy-darwin-arm64 | awk '{print $5}')"
 
-          # Compress with UPX
-          upx --best --lzma wippy-darwin-arm64
+          # Compress with UPX (force macOS support)
+          upx --best --lzma --force-macos wippy-darwin-arm64
           echo "✅ Compressed wippy-darwin-arm64 with UPX"
           echo "📊 Binary size after compression: $(ls -lh wippy-darwin-arm64 | awk '{print $5}')"
 
