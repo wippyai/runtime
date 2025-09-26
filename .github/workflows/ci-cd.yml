@@ -24,7 +24,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu-latest", "windows-latest", "macos-latest"]
         include:
           - os: "ubuntu-latest"
             platform: "linux"
@@ -282,7 +281,7 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     needs: lint-test-build
-    if: always() && (needs.lint-test-build.result == 'success')
+    if: always() && (needs.lint-test-build.result != 'failure')
 
     env:
       GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
@@ -304,10 +303,15 @@ jobs:
         run: |
           mkdir -p ./release-binaries
 
+          echo "🔍 Available artifacts:"
+          ls -la ./artifacts/ || echo "No artifacts found"
+
           # Extract binaries from all artifacts
           for artifact_dir in ./artifacts/wippy-*; do
             if [ -d "$artifact_dir" ]; then
               echo "📦 Copying from $artifact_dir"
+              echo "📦 Contents of $artifact_dir:"
+              ls -la "$artifact_dir" || echo "Empty directory"
               cp -r "$artifact_dir"/* ./release-binaries/ 2>/dev/null || true
             fi
           done
