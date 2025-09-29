@@ -298,12 +298,39 @@ func updateEntryFromRawJSONMap(entry *registry.Entry, m map[string]interface{}) 
 	return nil
 }
 
-// setValueWithGojqReturnMap is like setValueWithGojq but returns the updated map
+// setValueWithGojqReturnMap with deduplication for depends_on arrays
 func setValueWithGojqReturnMap(data interface{}, path string, value string) (map[string]interface{}, error) {
 	trimmedPath := strings.TrimSpace(path)
 
 	var jqQuery string
 	if strings.Contains(trimmedPath, "+=") {
+		// Special handling for depends_on to avoid duplicates
+		if strings.Contains(trimmedPath, "depends_on") {
+			// First check if value already exists
+			checkQuery := strings.ReplaceAll(trimmedPath, "+=", "")
+			checkQuery = strings.TrimSpace(checkQuery)
+
+			// Try to get existing array
+			query, err := gojq.Parse(checkQuery)
+			if err == nil {
+				iter := query.Run(data)
+				if v, ok := iter.Next(); ok {
+					if existingArray, isArray := v.([]interface{}); isArray {
+						// Check if value already exists
+						for _, existing := range existingArray {
+							if existing == value {
+								// Value already exists, return data unchanged
+								if resultMap, ok := data.(map[string]interface{}); ok {
+									return resultMap, nil
+								}
+								return nil, fmt.Errorf("data is not a map")
+							}
+						}
+					}
+				}
+			}
+		}
+
 		jqQuery = fmt.Sprintf("%s [\"%s\"]", trimmedPath, value)
 	} else {
 		// For simple assignment, check if the path already has an assignment operator
