@@ -23,26 +23,33 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Only test on Linux AMD64 for PRs (fastest, cheapest)
           - os: "ubuntu-latest"
             platform: "linux"
             arch: "amd64"
             run_lint: true
+            run_tests: true
+          # Build only on other platforms (no tests to save time)
           - os: "ubuntu-latest"
             platform: "linux"
             arch: "arm64"
             run_lint: false
+            run_tests: false
           - os: "windows-latest"
             platform: "windows"
             arch: "amd64"
             run_lint: false
+            run_tests: false
           - os: "macos-latest"
             platform: "darwin"
             arch: "amd64"
             run_lint: false
+            run_tests: false
           - os: "macos-latest"
             platform: "darwin"
             arch: "arm64"
             run_lint: false
+            run_tests: false
 
     env:
       GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
@@ -162,22 +169,22 @@ jobs:
           sqlite3 --version
           upx --version
 
-      - name: Run unit tests
-        if: matrix.os != 'windows-latest'
+      - name: Run unit tests (Linux/macOS)
+        if: matrix.os != 'windows-latest' && matrix.run_tests == true
         env:
           GORACE: "halt_on_error=1"
         run: make test
 
       - name: Run unit tests (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-latest' && matrix.run_tests == true
         shell: msys2 {0}
         env:
           GORACE: "halt_on_error=1"
         run: make test
 
-      # Build optimized binaries
+      # Build optimized binaries (only for releases or when needed)
       - name: Build Linux AMD64 (Ubuntu)
-        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
           make build-runner-linux-amd64
           cd ./dist
@@ -191,7 +198,7 @@ jobs:
           echo "📊 Binary size after compression: $(ls -lh wippy-linux-amd64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
       - name: Build Linux ARM64 (Ubuntu)
-        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64'
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
           make build-runner-linux-arm64
           cd ./dist
@@ -205,7 +212,7 @@ jobs:
           echo "📊 Binary size after compression: $(ls -lh wippy-linux-arm64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
       - name: Build Windows AMD64
-        if: matrix.os == 'windows-latest' && matrix.arch == 'amd64'
+        if: matrix.os == 'windows-latest' && matrix.arch == 'amd64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: msys2 {0}
         run: |
           make build-runner-windows-amd64
@@ -220,7 +227,7 @@ jobs:
           echo "📊 Binary size after compression: $(ls -lh wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe | awk '{print $5}')"
 
       - name: Build macOS AMD64
-        if: matrix.os == 'macos-latest' && matrix.arch == 'amd64'
+        if: matrix.os == 'macos-latest' && matrix.arch == 'amd64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
           make build-runner-darwin-amd64
           cd ./dist
@@ -234,7 +241,7 @@ jobs:
           echo "📊 Binary size after compression: $(ls -lh wippy-darwin-amd64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
       - name: Build macOS ARM64
-        if: matrix.os == 'macos-latest' && matrix.arch == 'arm64'
+        if: matrix.os == 'macos-latest' && matrix.arch == 'arm64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
           make build-runner-darwin-arm64
           cd ./dist
