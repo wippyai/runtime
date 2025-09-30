@@ -60,7 +60,24 @@ jobs:
           token: ${{ env.GITHUB_TOKEN }}
           fetch-depth: 0
 
-      - name: Clean tag name
+      - name: Clean tag name (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          # Remove 'v' prefix and 'release/' prefix for filename
+          if [[ "${{ env.TAG_NAME }}" == v* ]]; then
+            CLEAN_TAG="${TAG_NAME#v}"
+          elif [[ "${{ env.TAG_NAME }}" == release/* ]]; then
+            CLEAN_TAG="${TAG_NAME#release/}"
+          else
+            CLEAN_TAG="${{ env.TAG_NAME }}"
+          fi
+          echo "CLEAN_TAG=$CLEAN_TAG" >> $GITHUB_ENV
+          echo "Original tag: ${{ env.TAG_NAME }}"
+          echo "Clean tag: $CLEAN_TAG"
+
+      - name: Clean tag name (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
         run: |
           # Remove 'v' prefix and 'release/' prefix for filename
           if [[ "${{ env.TAG_NAME }}" == v* ]]; then
