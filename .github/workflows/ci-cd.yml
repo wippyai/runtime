@@ -260,7 +260,7 @@ jobs:
         with:
           name: wippy-${{ matrix.platform }}-${{ matrix.arch }}-${{ env.CLEAN_TAG }}
           path: ./dist/
-          retention-days: 30
+          retention-days: 365
 
   # Release job - creates GitHub release with binaries in wippy-releases repository
   release:
@@ -320,6 +320,31 @@ jobs:
           echo "📦 Available binaries for release:"
           ls -la ./release-binaries/ || echo "No binaries found"
 
+      - name: Download PackCLI binaries
+        run: |
+          echo "🔧 Downloading latest PackCLI binaries for integration..."
+
+          # Use local PackCLI integration script
+          chmod +x ./scripts/packcli-integration/download-packcli.sh
+
+          # Always download the latest available PackCLI version
+          # This avoids version confusion since Wippy and PackCLI have independent release cycles
+          echo "📦 Downloading latest PackCLI version (independent of Wippy version)..."
+
+          if ./scripts/packcli-integration/download-packcli.sh "latest"; then
+            echo "✅ PackCLI binaries downloaded successfully"
+            # Move PackCLI binaries to release directory
+            mv packcli-* ./release-binaries/ 2>/dev/null || echo "No PackCLI binaries to move"
+            mv packcli-metadata.json ./release-binaries/ 2>/dev/null || echo "No PackCLI metadata to move"
+            echo "✅ PackCLI binaries included in Wippy release"
+          else
+            echo "⚠️  PackCLI binaries not available - Wippy release will be created without PackCLI"
+            echo "   This is normal if PackCLI hasn't been built yet"
+          fi
+
+          echo "📦 Final binaries for release:"
+          ls -la ./release-binaries/ || echo "No binaries found"
+
       - name: Generate checksums
         run: |
           cd ./release-binaries
@@ -362,40 +387,82 @@ jobs:
 
           ## Downloads
 
-          ### Windows
+          ### Wippy Runtime
+          #### Windows
           - **Windows AMD64**: \`wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe\` (compressed with UPX)
 
-          ### Linux
+          #### Linux
           - **Linux AMD64**: \`wippy-linux-amd64-${{ env.CLEAN_TAG }}\` (compressed with UPX)
           - **Linux ARM64**: \`wippy-linux-arm64-${{ env.CLEAN_TAG }}\` (compressed with UPX)
 
-          ### macOS
+          #### macOS
           - **macOS AMD64**: \`wippy-darwin-amd64-${{ env.CLEAN_TAG }}\` (compressed with UPX)
           - **macOS ARM64**: \`wippy-darwin-arm64-${{ env.CLEAN_TAG }}\` (compressed with UPX)
+
+          ### PackCLI (Helper Tool)
+          PackCLI is included as a helper tool for module management and development.
+
+          #### Windows
+          - **Windows AMD64**: \`packcli-windows-amd64.exe\`
+
+          #### Linux
+          - **Linux AMD64**: \`packcli-linux-amd64\`
+          - **Linux ARM64**: \`packcli-linux-arm64\`
+
+          #### macOS
+          - **macOS AMD64**: \`packcli-darwin-amd64\`
+          - **macOS ARM64**: \`packcli-darwin-arm64\`
 
           ### Binary Optimization
           All binaries are optimized for minimal size with UPX compression (~80% size reduction).
 
           ## Installation
 
-          ### Windows
+          ### Wippy Runtime
+          #### Windows
           \`\`\`powershell
           # Download the appropriate binary
           wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe --help
           \`\`\`
 
-          ### Linux
+          #### Linux
           \`\`\`bash
           # Download and make executable
           chmod +x wippy-linux-amd64-${{ env.CLEAN_TAG }}
           ./wippy-linux-amd64-${{ env.CLEAN_TAG }} --help
           \`\`\`
 
-          ### macOS
+          #### macOS
           \`\`\`bash
           # Download and make executable
           chmod +x wippy-darwin-amd64-${{ env.CLEAN_TAG }}  # or wippy-darwin-arm64-${{ env.CLEAN_TAG }} for Apple Silicon
           ./wippy-darwin-amd64-${{ env.CLEAN_TAG }} --help
+          \`\`\`
+
+          ### PackCLI Helper Tool
+          PackCLI is included for module management and development tasks.
+
+          #### Windows
+          \`\`\`powershell
+          # Use PackCLI for module operations
+          packcli-windows-amd64.exe --help
+          packcli-windows-amd64.exe module init my-module
+          \`\`\`
+
+          #### Linux
+          \`\`\`bash
+          # Download and make executable
+          chmod +x packcli-linux-amd64
+          ./packcli-linux-amd64 --help
+          ./packcli-linux-amd64 module init my-module
+          \`\`\`
+
+          #### macOS
+          \`\`\`bash
+          # Download and make executable
+          chmod +x packcli-darwin-amd64  # or packcli-darwin-arm64 for Apple Silicon
+          ./packcli-darwin-amd64 --help
+          ./packcli-darwin-amd64 module init my-module
           \`\`\`
 
           ## Verification
@@ -452,11 +519,20 @@ jobs:
           echo "- [GitHub Release in wippy-releases](https://github.com/wippyai/wippy-releases/releases/tag/${{ env.TAG_NAME }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📥 Download from GitHub Release:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Wippy Runtime:" >> $GITHUB_STEP_SUMMARY
           echo "- **Linux AMD64**: \`wippy-linux-amd64-${{ env.CLEAN_TAG }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Linux ARM64**: \`wippy-linux-arm64-${{ env.CLEAN_TAG }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Windows AMD64**: \`wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe\`" >> $GITHUB_STEP_SUMMARY
           echo "- **macOS AMD64**: \`wippy-darwin-amd64-${{ env.CLEAN_TAG }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **macOS ARM64**: \`wippy-darwin-arm64-${{ env.CLEAN_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### PackCLI Helper Tool:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux AMD64**: \`packcli-linux-amd64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux ARM64**: \`packcli-linux-arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Windows AMD64**: \`packcli-windows-amd64.exe\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS AMD64**: \`packcli-darwin-amd64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS ARM64**: \`packcli-darwin-arm64\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### ℹ️ Note:" >> $GITHUB_STEP_SUMMARY
           echo "All binaries are optimized with UPX compression (~80% size reduction) and available for download from the GitHub release assets." >> $GITHUB_STEP_SUMMARY
