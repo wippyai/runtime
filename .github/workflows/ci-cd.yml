@@ -51,7 +51,7 @@ jobs:
       TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
       # Remove 'v' prefix and 'release/' prefix for filename
       VERSION_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-      CLEAN_TAG: ${{ contains(github.event.inputs.tag || github.ref_name, 'v') && replace(github.event.inputs.tag || github.ref_name, 'v', '') || replace(github.event.inputs.tag || github.ref_name, 'release/', '') }}
+      CLEAN_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
     steps:
       - name: Check out code
@@ -59,6 +59,20 @@ jobs:
         with:
           token: ${{ env.GITHUB_TOKEN }}
           fetch-depth: 0
+
+      - name: Clean tag name
+        run: |
+          # Remove 'v' prefix and 'release/' prefix for filename
+          if [[ "${{ env.TAG_NAME }}" == v* ]]; then
+            CLEAN_TAG="${TAG_NAME#v}"
+          elif [[ "${{ env.TAG_NAME }}" == release/* ]]; then
+            CLEAN_TAG="${TAG_NAME#release/}"
+          else
+            CLEAN_TAG="${{ env.TAG_NAME }}"
+          fi
+          echo "CLEAN_TAG=$CLEAN_TAG" >> $GITHUB_ENV
+          echo "Original tag: ${{ env.TAG_NAME }}"
+          echo "Clean tag: $CLEAN_TAG"
 
       - name: Setup msys (Windows)
         if: matrix.os == 'windows-latest'
@@ -233,7 +247,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
       TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
-      CLEAN_TAG: ${{ contains(github.event.inputs.tag || github.ref_name, 'v') && replace(github.event.inputs.tag || github.ref_name, 'v', '') || replace(github.event.inputs.tag || github.ref_name, 'release/', '') }}
+      CLEAN_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
     steps:
       - name: Check out code
@@ -241,6 +255,20 @@ jobs:
         with:
           token: ${{ env.GITHUB_TOKEN }}
           fetch-depth: 0
+
+      - name: Clean tag name
+        run: |
+          # Remove 'v' prefix and 'release/' prefix for filename
+          if [[ "${{ env.TAG_NAME }}" == v* ]]; then
+            CLEAN_TAG="${TAG_NAME#v}"
+          elif [[ "${{ env.TAG_NAME }}" == release/* ]]; then
+            CLEAN_TAG="${TAG_NAME#release/}"
+          else
+            CLEAN_TAG="${{ env.TAG_NAME }}"
+          fi
+          echo "CLEAN_TAG=$CLEAN_TAG" >> $GITHUB_ENV
+          echo "Original tag: ${{ env.TAG_NAME }}"
+          echo "Clean tag: $CLEAN_TAG"
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
