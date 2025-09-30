@@ -2,16 +2,13 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main
-      - develop
     tags:
       - "v*"
-  pull_request:
+      - "release/*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g., v1.0.0)"
+        description: "Release tag (e.g., v1.0.0, v1.2.3-alpha)"
         required: true
         type: string
 
@@ -51,6 +48,9 @@ jobs:
       CGO_ENABLED: 1
       BINARY_NAME: wippy
       TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+      # Remove 'v' prefix and 'release/' prefix for filename
+      VERSION_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      CLEAN_TAG: ${{ contains(github.event.inputs.tag || github.ref_name, 'v') && replace(github.event.inputs.tag || github.ref_name, 'v', '') || replace(github.event.inputs.tag || github.ref_name, 'release/', '') }}
 
     steps:
       - name: Check out code
@@ -149,28 +149,28 @@ jobs:
         run: |
           make build-runner-linux-amd64
           cd ./dist
-          mv runner-linux-amd64 wippy-linux-amd64
-          echo "✅ Built wippy-linux-amd64"
-          echo "📊 Binary size before compression: $(ls -lh wippy-linux-amd64 | awk '{print $5}')"
+          mv runner-linux-amd64 wippy-linux-amd64-${{ env.CLEAN_TAG }}
+          echo "✅ Built wippy-linux-amd64-${{ env.CLEAN_TAG }}"
+          echo "📊 Binary size before compression: $(ls -lh wippy-linux-amd64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
           # Compress with UPX
-          upx --best --lzma wippy-linux-amd64
-          echo "✅ Compressed wippy-linux-amd64 with UPX"
-          echo "📊 Binary size after compression: $(ls -lh wippy-linux-amd64 | awk '{print $5}')"
+          upx --best --lzma wippy-linux-amd64-${{ env.CLEAN_TAG }}
+          echo "✅ Compressed wippy-linux-amd64-${{ env.CLEAN_TAG }} with UPX"
+          echo "📊 Binary size after compression: $(ls -lh wippy-linux-amd64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
       - name: Build Linux ARM64 (Ubuntu)
         if: matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64'
         run: |
           make build-runner-linux-arm64
           cd ./dist
-          mv runner-linux-arm64 wippy-linux-arm64
-          echo "✅ Built wippy-linux-arm64"
-          echo "📊 Binary size before compression: $(ls -lh wippy-linux-arm64 | awk '{print $5}')"
+          mv runner-linux-arm64 wippy-linux-arm64-${{ env.CLEAN_TAG }}
+          echo "✅ Built wippy-linux-arm64-${{ env.CLEAN_TAG }}"
+          echo "📊 Binary size before compression: $(ls -lh wippy-linux-arm64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
           # Compress with UPX
-          upx --best --lzma wippy-linux-arm64
-          echo "✅ Compressed wippy-linux-arm64 with UPX"
-          echo "📊 Binary size after compression: $(ls -lh wippy-linux-arm64 | awk '{print $5}')"
+          upx --best --lzma wippy-linux-arm64-${{ env.CLEAN_TAG }}
+          echo "✅ Compressed wippy-linux-arm64-${{ env.CLEAN_TAG }} with UPX"
+          echo "📊 Binary size after compression: $(ls -lh wippy-linux-arm64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
       - name: Build Windows AMD64
         if: matrix.os == 'windows-latest' && matrix.arch == 'amd64'
@@ -178,107 +178,53 @@ jobs:
         run: |
           make build-runner-windows-amd64
           cd ./dist
-          mv runner-windows-amd64.exe wippy-windows-amd64.exe
-          echo "✅ Built wippy-windows-amd64.exe"
-          echo "📊 Binary size before compression: $(ls -lh wippy-windows-amd64.exe | awk '{print $5}')"
+          mv runner-windows-amd64.exe wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe
+          echo "✅ Built wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe"
+          echo "📊 Binary size before compression: $(ls -lh wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe | awk '{print $5}')"
 
           # Compress with UPX
-          upx --best --lzma wippy-windows-amd64.exe
-          echo "✅ Compressed wippy-windows-amd64.exe with UPX"
-          echo "📊 Binary size after compression: $(ls -lh wippy-windows-amd64.exe | awk '{print $5}')"
+          upx --best --lzma wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe
+          echo "✅ Compressed wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe with UPX"
+          echo "📊 Binary size after compression: $(ls -lh wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe | awk '{print $5}')"
 
       - name: Build macOS AMD64
         if: matrix.os == 'macos-latest' && matrix.arch == 'amd64'
         run: |
           make build-runner-darwin-amd64
           cd ./dist
-          mv runner-darwin-amd64 wippy-darwin-amd64
-          echo "✅ Built wippy-darwin-amd64"
-          echo "📊 Binary size before compression: $(ls -lh wippy-darwin-amd64 | awk '{print $5}')"
+          mv runner-darwin-amd64 wippy-darwin-amd64-${{ env.CLEAN_TAG }}
+          echo "✅ Built wippy-darwin-amd64-${{ env.CLEAN_TAG }}"
+          echo "📊 Binary size before compression: $(ls -lh wippy-darwin-amd64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
           # Compress with UPX (force macOS support)
-          upx --best --lzma --force-macos wippy-darwin-amd64
-          echo "✅ Compressed wippy-darwin-amd64 with UPX"
-          echo "📊 Binary size after compression: $(ls -lh wippy-darwin-amd64 | awk '{print $5}')"
+          upx --best --lzma --force-macos wippy-darwin-amd64-${{ env.CLEAN_TAG }}
+          echo "✅ Compressed wippy-darwin-amd64-${{ env.CLEAN_TAG }} with UPX"
+          echo "📊 Binary size after compression: $(ls -lh wippy-darwin-amd64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
       - name: Build macOS ARM64
         if: matrix.os == 'macos-latest' && matrix.arch == 'arm64'
         run: |
           make build-runner-darwin-arm64
           cd ./dist
-          mv runner-darwin-arm64 wippy-darwin-arm64
-          echo "✅ Built wippy-darwin-arm64"
-          echo "📊 Binary size before compression: $(ls -lh wippy-darwin-arm64 | awk '{print $5}')"
+          mv runner-darwin-arm64 wippy-darwin-arm64-${{ env.CLEAN_TAG }}
+          echo "✅ Built wippy-darwin-arm64-${{ env.CLEAN_TAG }}"
+          echo "📊 Binary size before compression: $(ls -lh wippy-darwin-arm64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
           # Compress with UPX (force macOS support)
-          upx --best --lzma --force-macos wippy-darwin-arm64
-          echo "✅ Compressed wippy-darwin-arm64 with UPX"
-          echo "📊 Binary size after compression: $(ls -lh wippy-darwin-arm64 | awk '{print $5}')"
+          upx --best --lzma --force-macos wippy-darwin-arm64-${{ env.CLEAN_TAG }}
+          echo "✅ Compressed wippy-darwin-arm64-${{ env.CLEAN_TAG }} with UPX"
+          echo "📊 Binary size after compression: $(ls -lh wippy-darwin-arm64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wippy-${{ matrix.platform }}-${{ matrix.arch }}
+          name: wippy-${{ matrix.platform }}-${{ matrix.arch }}-${{ env.CLEAN_TAG }}
           path: ./dist/
           retention-days: 30
 
-  # PR Summary - only for pull requests
-  pr-summary:
-    name: PR Build Summary
-    runs-on: ubuntu-latest
-    needs: lint-test-build
-    if: github.event_name == 'pull_request'
-    timeout-minutes: 5
-
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./artifacts/
-
-      - name: Generate build summary
-        run: |
-          echo "## 📦 Build Summary for PR #${{ github.event.number }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`${{ github.head_ref }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Optimized Binaries (UPX Compressed):" >> $GITHUB_STEP_SUMMARY
-
-          # Extract binaries from all artifacts
-          for artifact_dir in ./artifacts/wippy-*; do
-            if [ -d "$artifact_dir" ]; then
-              echo "📦 From $artifact_dir:" >> $GITHUB_STEP_SUMMARY
-              for file in "$artifact_dir"/*; do
-                if [ -f "$file" ]; then
-                  filename=$(basename "$file")
-                  size=$(stat -c%s "$file" 2>/dev/null || echo "Unknown")
-                  if [ "$size" != "Unknown" ] && [ "$size" -gt 0 ]; then
-                    if [ "$size" -lt 1024 ]; then
-                      size_str="${size}B"
-                    elif [ "$size" -lt 1048576 ]; then
-                      size_str="$(( size / 1024 ))KB"
-                    else
-                      size_str="$(( size / 1048576 ))MB"
-                    fi
-                    echo "- \`$filename\` ($size_str)" >> $GITHUB_STEP_SUMMARY
-                  fi
-                fi
-              done
-            fi
-          done
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔗 Download Links:" >> $GITHUB_STEP_SUMMARY
-          echo "- [wippy-releases (with binaries)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy)" >> $GITHUB_STEP_SUMMARY
-          echo "- [Latest Build (direct download)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy/latest)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ℹ️ Note:" >> $GITHUB_STEP_SUMMARY
-          echo "Binaries are optimized with UPX compression (~80% size reduction) and available for direct download from wippy-releases repository." >> $GITHUB_STEP_SUMMARY
-
-  # Release job - runs on every push and manual releases
+  # Release job - creates GitHub release in wippy-releases repository
   release:
-    name: Create Release
+    name: Create Release in wippy-releases
     runs-on: ubuntu-latest
     needs: lint-test-build
     if: always() && (needs.lint-test-build.result != 'failure')
@@ -286,6 +232,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.PAT_TOKEN_IGOR }}
       TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+      CLEAN_TAG: ${{ contains(github.event.inputs.tag || github.ref_name, 'v') && replace(github.event.inputs.tag || github.ref_name, 'v', '') || replace(github.event.inputs.tag || github.ref_name, 'release/', '') }}
 
     steps:
       - name: Check out code
@@ -318,9 +265,6 @@ jobs:
 
           echo "📦 Available binaries for release:"
           ls -la ./release-binaries/ || echo "No binaries found"
-
-          # Compress binaries for wippy-releases (they are already compressed from build steps)
-          echo "📦 Binaries are already compressed with UPX from build steps"
 
       - name: Generate checksums
         run: |
@@ -365,15 +309,15 @@ jobs:
           ## Downloads
 
           ### Windows
-          - **Windows AMD64**: \`wippy-windows-amd64.exe\` (compressed with UPX)
+          - **Windows AMD64**: \`wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe\` (compressed with UPX)
 
           ### Linux
-          - **Linux AMD64**: \`wippy-linux-amd64\` (compressed with UPX)
-          - **Linux ARM64**: \`wippy-linux-arm64\` (compressed with UPX)
+          - **Linux AMD64**: \`wippy-linux-amd64-${{ env.CLEAN_TAG }}\` (compressed with UPX)
+          - **Linux ARM64**: \`wippy-linux-arm64-${{ env.CLEAN_TAG }}\` (compressed with UPX)
 
           ### macOS
-          - **macOS AMD64**: \`wippy-darwin-amd64\` (compressed with UPX)
-          - **macOS ARM64**: \`wippy-darwin-arm64\` (compressed with UPX)
+          - **macOS AMD64**: \`wippy-darwin-amd64-${{ env.CLEAN_TAG }}\` (compressed with UPX)
+          - **macOS ARM64**: \`wippy-darwin-arm64-${{ env.CLEAN_TAG }}\` (compressed with UPX)
 
           ### Binary Optimization
           All binaries are optimized for minimal size with UPX compression (~80% size reduction).
@@ -383,21 +327,21 @@ jobs:
           ### Windows
           \`\`\`powershell
           # Download the appropriate binary
-          wippy-windows-amd64.exe --help
+          wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe --help
           \`\`\`
 
           ### Linux
           \`\`\`bash
           # Download and make executable
-          chmod +x wippy-linux-amd64
-          ./wippy-linux-amd64 --help
+          chmod +x wippy-linux-amd64-${{ env.CLEAN_TAG }}
+          ./wippy-linux-amd64-${{ env.CLEAN_TAG }} --help
           \`\`\`
 
           ### macOS
           \`\`\`bash
           # Download and make executable
-          chmod +x wippy-darwin-amd64  # or wippy-darwin-arm64 for Apple Silicon
-          ./wippy-darwin-amd64 --help
+          chmod +x wippy-darwin-amd64-${{ env.CLEAN_TAG }}  # or wippy-darwin-arm64-${{ env.CLEAN_TAG }} for Apple Silicon
+          ./wippy-darwin-amd64-${{ env.CLEAN_TAG }} --help
           \`\`\`
 
           ## Verification
@@ -410,11 +354,11 @@ jobs:
 
           echo "✅ Generated release notes"
 
-      - name: Create Release (only for valid tags)
-        if: startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/')
+      - name: Create Release in wippy-releases repository
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ env.GITHUB_TOKEN }}
+          repository: wippyai/wippy-releases
           tag_name: ${{ env.TAG_NAME }}
           name: "Wippy ${{ env.TAG_NAME }}"
           body_path: release_notes.md
@@ -423,291 +367,11 @@ jobs:
           draft: false
           prerelease: ${{ contains(env.TAG_NAME, 'alpha') || contains(env.TAG_NAME, 'beta') || contains(env.TAG_NAME, 'rc') }}
 
-      - name: Update wippy-releases repository
-        run: |
-          # Clone wippy-releases repository
-          git clone https://${GITHUB_TOKEN}@github.com/wippyai/wippy-releases.git release-repo
-          cd release-repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Determine directory structure based on branch/tag
-          COMMIT_HASH=$(echo "${{ github.sha }}" | cut -c1-8)
-          BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-
-          if [ "${{ github.ref_name }}" = "main" ]; then
-            # Latest version for main - no timestamp, overwrites previous
-            DIR_NAME="wippy/main"
-            echo "📁 Using main branch directory: $DIR_NAME"
-          elif [ "${{ github.ref_name }}" = "develop" ]; then
-            # Latest version for develop - no timestamp, overwrites previous
-            DIR_NAME="wippy/develop"
-            echo "📁 Using develop branch directory: $DIR_NAME"
-          elif [[ "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            # Timestamped releases for version tags
-            DIR_NAME="wippy/releases/${BUILD_TIMESTAMP}"
-            echo "📁 Using version tag directory: $DIR_NAME"
-          elif [[ "${{ github.ref_name }}" =~ ^release/ ]]; then
-            # Timestamped releases for release tags
-            DIR_NAME="wippy/releases/${BUILD_TIMESTAMP}"
-            echo "📁 Using release tag directory: $DIR_NAME"
-          else
-            # Timestamped releases for feature branches - only timestamp, no branch name
-            DIR_NAME="wippy/feature/${BUILD_TIMESTAMP}"
-            echo "📁 Using feature branch directory: $DIR_NAME"
-          fi
-
-          mkdir -p ./releases/$DIR_NAME
-
-          # Copy binaries to wippy-releases repository
-          echo "📦 Copying binaries to wippy-releases repository..."
-          cp -r ../release-binaries/* ./releases/$DIR_NAME/
-
-          # Create README with download links
-          cat > ./releases/$DIR_NAME/README.md << EOF
-          # Wippy Build $COMMIT_HASH
-
-          **Build Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          **Commit**: ${{ github.sha }}
-          **Branch/Tag**: ${{ github.ref_name }}
-          **Pipeline**: ${{ github.run_id }}
-          **Directory**: $DIR_NAME
-
-          ## Downloads
-
-          This build contains the following optimized binaries (available for direct download):
-
-          - **Linux AMD64**: [wippy-linux-amd64](./wippy-linux-amd64) (compressed with UPX)
-          - **Linux ARM64**: [wippy-linux-arm64](./wippy-linux-arm64) (compressed with UPX)
-          - **Windows AMD64**: [wippy-windows-amd64.exe](./wippy-windows-amd64.exe) (compressed with UPX)
-          - **macOS AMD64**: [wippy-darwin-amd64](./wippy-darwin-amd64) (compressed with UPX)
-          - **macOS ARM64**: [wippy-darwin-arm64](./wippy-darwin-arm64) (compressed with UPX)
-
-          ${{ startsWith(env.TAG_NAME, 'v') || startsWith(env.TAG_NAME, 'release/') && format('## GitHub Release\n\nThis build is also available on GitHub Releases:\n\n- [Download from GitHub Releases](https://github.com/{0}/releases/tag/{1})\n', github.repository, env.TAG_NAME) || '' }}
-
-          ## Binary Optimization
-
-          All binaries are optimized for minimal size:
-          - **Build optimization**: Stripped debug symbols, trimmed paths, PIE build mode
-          - **UPX compression**: ~80% size reduction with LZMA compression
-          - **Final size**: ~12MB (down from ~78MB uncompressed)
-
-          ## Installation
-
-          ### Linux
-          \`\`\`bash
-          # Download and make executable
-          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-linux-amd64
-          chmod +x wippy-linux-amd64
-          ./wippy-linux-amd64 --help
-          \`\`\`
-
-          ### Windows
-          \`\`\`powershell
-          # Download and run
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"
-          .\wippy-windows-amd64.exe --help
-          \`\`\`
-
-          ### macOS
-          \`\`\`bash
-          # Download and make executable (Intel Mac)
-          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-darwin-amd64
-          chmod +x wippy-darwin-amd64
-          ./wippy-darwin-amd64 --help
-
-          # Or for Apple Silicon Mac
-          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-darwin-arm64
-          chmod +x wippy-darwin-arm64
-          ./wippy-darwin-arm64 --help
-          \`\`\`
-
-          ## Verification
-
-          Verify the integrity of downloaded files using the provided checksums:
-          \`\`\`bash
-          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/checksums.txt
-          sha256sum -c checksums.txt
-          \`\`\`
-
-          ## Build Information
-
-          - **Repository**: ${{ github.repository }}
-          - **Workflow**: [View Build](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          - **Source**: [Commit $COMMIT_HASH](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
-          EOF
-
-          # Create symlinks and update main README based on branch type
-          if [ "${{ github.ref_name }}" = "main" ]; then
-            # For main branch, create main symlink
-            rm -f ./releases/wippy/main
-            ln -sf $DIR_NAME ./releases/wippy/main
-            echo "🔗 Created main symlink: wippy/main -> $DIR_NAME"
-          elif [ "${{ github.ref_name }}" = "develop" ]; then
-            # For develop branch, create develop symlink
-            rm -f ./releases/wippy/develop
-            ln -sf $DIR_NAME ./releases/wippy/develop
-            echo "🔗 Created develop symlink: wippy/develop -> $DIR_NAME"
-          else
-            # For other branches/tags, create latest symlink
-            rm -f ./releases/wippy/latest
-            ln -sf $DIR_NAME ./releases/wippy/latest
-            echo "🔗 Created latest symlink: wippy/latest -> $DIR_NAME"
-          fi
-
-          # Update main README with latest build info
-          cat > ./releases/wippy/README.md << EOF
-          # Wippy Releases
-
-          This repository contains pre-built binaries for the Wippy runtime, organized by branch and release type.
-
-          ## Quick Access
-
-          - **Main Branch**: [wippy/main](./main/) - Latest stable builds
-          - **Develop Branch**: [wippy/develop](./develop/) - Latest development builds
-          - **Latest Build**: [wippy/latest](./latest/) - Most recent build (any branch)
-
-          ## Current Build
-
-          - **Build**: [$DIR_NAME](./$DIR_NAME/) (Commit: $COMMIT_HASH)
-          - **Branch/Tag**: ${{ github.ref_name }}
-          - **Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-
-          ## Available Platforms
-
-          - **Linux AMD64**: Optimized for x86_64 Linux systems
-          - **Linux ARM64**: Optimized for ARM64 Linux systems (Raspberry Pi, etc.)
-          - **Windows AMD64**: Optimized for x86_64 Windows systems
-          - **macOS AMD64**: Optimized for Intel-based Mac systems
-          - **macOS ARM64**: Optimized for Apple Silicon Mac systems (M1/M2/M3)
-
-          ## Binary Optimization
-
-          All binaries are optimized for minimal size:
-          - **Build optimization**: Stripped debug symbols, trimmed paths, PIE build mode
-          - **UPX compression**: ~80% size reduction with LZMA compression
-          - **Final size**: ~12MB (down from ~78MB uncompressed)
-
-          ## Quick Start
-
-          ### Main Branch (Stable)
-          \`\`\`bash
-          # Download latest stable build
-          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/main/wippy-linux-amd64
-          chmod +x wippy-linux-amd64
-          ./wippy-linux-amd64 --help
-          \`\`\`
-
-          ### Develop Branch (Development)
-          \`\`\`bash
-          # Download latest development build
-          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/develop/wippy-linux-amd64
-          chmod +x wippy-linux-amd64
-          ./wippy-linux-amd64 --help
-          \`\`\`
-
-          ### Latest Build (Any Branch)
-          \`\`\`bash
-          # Download most recent build
-          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-linux-amd64
-          chmod +x wippy-linux-amd64
-          ./wippy-linux-amd64 --help
-          \`\`\`
-
-          ### Windows
-          \`\`\`powershell
-          # Download latest build (Windows)
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-windows-amd64.exe" -OutFile "wippy-windows-amd64.exe"
-          .\wippy-windows-amd64.exe --help
-          \`\`\`
-
-          ### macOS
-          \`\`\`bash
-          # Download latest build (macOS)
-          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-darwin-amd64  # Intel Mac
-          # or
-          wget https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/wippy/latest/wippy-darwin-arm64  # Apple Silicon Mac
-          chmod +x wippy-darwin-amd64
-          ./wippy-darwin-amd64 --help
-          \`\`\`
-
-          ## Directory Structure
-
-          - **wippy/main/**: Latest builds from main branch (stable)
-          - **wippy/develop/**: Latest builds from develop branch (development)
-          - **wippy/releases/**: Timestamped releases from version tags
-          - **wippy/feature/**: Timestamped builds from feature branches (YYYY-MM-DD-HH-MM format)
-
-          ## Build History
-
-          All builds are preserved in their respective directories. Check the [releases directory](./) for historical builds.
-          EOF
-
-          # Commit and push
-          git add .
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            # Create commit message based on branch type
-            if [ "${{ github.ref_name }}" = "main" ]; then
-              COMMIT_MSG="Update main branch build $COMMIT_HASH
-
-          - Updated optimized binaries for Linux AMD64, Linux ARM64, and Windows AMD64
-          - All binaries compressed with UPX for minimal size
-          - Updated main symlink and main README
-          - Build from commit: ${{ github.sha }}"
-            elif [ "${{ github.ref_name }}" = "develop" ]; then
-              COMMIT_MSG="Update develop branch build $COMMIT_HASH
-
-          - Updated optimized binaries for Linux AMD64, Linux ARM64, and Windows AMD64
-          - All binaries compressed with UPX for minimal size
-          - Updated develop symlink and main README
-          - Build from commit: ${{ github.sha }}"
-            elif [[ "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-              COMMIT_MSG="Add version release ${{ github.ref_name }} - $COMMIT_HASH
-
-          - Added optimized binaries for Linux AMD64, Linux ARM64, and Windows AMD64
-          - All binaries compressed with UPX for minimal size
-          - Version release from commit: ${{ github.sha }}"
-            else
-              COMMIT_MSG="Add feature build ${{ github.ref_name }} - $COMMIT_HASH
-
-          - Added optimized binaries for Linux AMD64, Linux ARM64, and Windows AMD64
-          - All binaries compressed with UPX for minimal size
-          - Feature build from commit: ${{ github.sha }}"
-            fi
-            
-            git commit -m "$COMMIT_MSG"
-            git push origin main
-            echo "✅ Updated wippy-releases repository with binaries in $DIR_NAME"
-          fi
-
       - name: Release Summary
         run: |
-          # Determine directory structure for summary
-          if [ "${{ github.ref_name }}" = "main" ]; then
-            DIR_NAME="wippy/main"
-            BRANCH_TYPE="Main Branch (Stable)"
-          elif [ "${{ github.ref_name }}" = "develop" ]; then
-            DIR_NAME="wippy/develop"
-            BRANCH_TYPE="Develop Branch (Development)"
-          elif [[ "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-            DIR_NAME="wippy/releases/${BUILD_TIMESTAMP}"
-            BRANCH_TYPE="Version Release (${{ github.ref_name }})"
-          elif [[ "${{ github.ref_name }}" =~ ^release/ ]]; then
-            BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-            DIR_NAME="wippy/releases/${BUILD_TIMESTAMP}"
-            BRANCH_TYPE="Release Tag (${{ github.ref_name }})"
-          else
-            BUILD_TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-            DIR_NAME="wippy/feature/${BUILD_TIMESTAMP}"
-            BRANCH_TYPE="Feature Branch (${{ github.ref_name }})"
-          fi
-
-          echo "## 🚀 $BRANCH_TYPE Published!" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Release ${{ env.TAG_NAME }} Published!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Directory**: \`$DIR_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag**: \`${{ env.TAG_NAME }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Optimized Binaries (UPX Compressed):" >> $GITHUB_STEP_SUMMARY
@@ -731,18 +395,14 @@ jobs:
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🔗 Release Links:" >> $GITHUB_STEP_SUMMARY
-          echo "- [GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.TAG_NAME }})" >> $GITHUB_STEP_SUMMARY
-          echo "- [wippy-releases (with binaries)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy)" >> $GITHUB_STEP_SUMMARY
-          echo "- [This Build (direct download)](https://github.com/wippyai/wippy-releases/tree/main/releases/$DIR_NAME)" >> $GITHUB_STEP_SUMMARY
+          echo "- [GitHub Release in wippy-releases](https://github.com/wippyai/wippy-releases/releases/tag/${{ env.TAG_NAME }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📥 Direct Download URLs:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Linux AMD64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-linux-amd64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Linux ARM64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-linux-arm64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Windows AMD64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-windows-amd64.exe\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **macOS AMD64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-darwin-amd64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **macOS ARM64**: \`https://raw.githubusercontent.com/wippyai/wippy-releases/main/releases/$DIR_NAME/wippy-darwin-arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Download from GitHub Release:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux AMD64**: \`wippy-linux-amd64-${{ env.CLEAN_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux ARM64**: \`wippy-linux-arm64-${{ env.CLEAN_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Windows AMD64**: \`wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS AMD64**: \`wippy-darwin-amd64-${{ env.CLEAN_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS ARM64**: \`wippy-darwin-arm64-${{ env.CLEAN_TAG }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔗 Quick Access Links:" >> $GITHUB_STEP_SUMMARY
-          echo "- [Main Branch (Stable)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy/main)" >> $GITHUB_STEP_SUMMARY
-          echo "- [Develop Branch (Development)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy/develop)" >> $GITHUB_STEP_SUMMARY
-          echo "- [Latest Build (Any Branch)](https://github.com/wippyai/wippy-releases/tree/main/releases/wippy/latest)" >> $GITHUB_STEP_SUMMARY
+          echo "### ℹ️ Note:" >> $GITHUB_STEP_SUMMARY
+          echo "All binaries are optimized with UPX compression (~80% size reduction) and available for download from the GitHub release assets." >> $GITHUB_STEP_SUMMARY
