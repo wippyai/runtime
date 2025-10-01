@@ -326,30 +326,20 @@ jobs:
           echo "📦 Available binaries for release:"
           ls -la ./release-binaries/ || echo "No binaries found"
 
-      - name: Download PackCLI binaries
-        run: |
-          echo "🔧 Downloading latest PackCLI binaries for integration..."
-
-          # Use local PackCLI integration script
-          chmod +x ./scripts/packcli-integration/download-packcli.sh
-
-          # Always download the latest available PackCLI version
-          # This avoids version confusion since Wippy and PackCLI have independent release cycles
-          echo "📦 Downloading latest PackCLI version (independent of Wippy version)..."
-
-          if ./scripts/packcli-integration/download-packcli.sh "latest"; then
-            echo "✅ PackCLI binaries downloaded successfully"
-            # Move PackCLI binaries to release directory
-            mv packcli-* ./release-binaries/ 2>/dev/null || echo "No PackCLI binaries to move"
-            mv packcli-metadata.json ./release-binaries/ 2>/dev/null || echo "No PackCLI metadata to move"
-            echo "✅ PackCLI binaries included in Wippy release"
-          else
-            echo "⚠️  PackCLI binaries not available - Wippy release will be created without PackCLI"
-            echo "   This is normal if PackCLI hasn't been built yet"
-          fi
-
-          echo "📦 Final binaries for release:"
-          ls -la ./release-binaries/ || echo "No binaries found"
+            # PackCLI binaries - download latest PackCLI release
+            - name: Download PackCLI binaries
+              run: |
+                echo "🔧 Downloading latest PackCLI binaries for integration..."
+                chmod +x ./scripts/packcli-integration/download-packcli.sh
+                if ./scripts/packcli-integration/download-packcli.sh "latest"; then
+                  echo "✅ PackCLI binaries downloaded successfully"
+                  mv packcli-* ./release-binaries/ 2>/dev/null || echo "No PackCLI binaries to move"
+                  echo "✅ PackCLI binaries included in Wippy release"
+                else
+                  echo "⚠️  PackCLI binaries not available - Wippy release will be created without PackCLI"
+                fi
+                echo "📦 Final binaries for release:"
+                ls -la ./release-binaries/ || echo "No binaries found"
 
       - name: Generate checksums
         run: |

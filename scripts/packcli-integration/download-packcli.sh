@@ -19,71 +19,80 @@ NC='\033[0m' # No Color
 echo -e "${GREEN}🔧 PackCLI Downloader for Wippy${NC}"
 echo "=================================="
 
-# Auto-detect platform if not specified
-if [ "$PLATFORM" = "auto" ]; then
-    case "$(uname -s)" in
-        Linux*)     PLATFORM="linux-amd64";;
-        Darwin*)    PLATFORM="darwin-amd64";;
-        CYGWIN*|MINGW*|MSYS*) PLATFORM="windows-amd64";;
-        *)          echo -e "${RED}❌ Unsupported platform: $(uname -s)${NC}"; exit 1;;
-    esac
-fi
-
 echo "📦 Version: $PACKCLI_VERSION"
-echo "🖥️  Platform: $PLATFORM"
-
-# Determine binary name
-if [ "$PLATFORM" = "windows-amd64" ]; then
-    BINARY_NAME="packcli-windows-amd64.exe"
-else
-    BINARY_NAME="packcli-${PLATFORM}"
-fi
 
 # Get latest version if needed
 if [ "$PACKCLI_VERSION" = "latest" ]; then
-    echo "🔍 Getting latest version from GitHub API..."
-    LATEST_VERSION=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | jq -r '.tag_name')
+    echo "🔍 Getting latest PackCLI version from GitHub API..."
+    # Get the most recent PackCLI release by creation date
+    LATEST_VERSION=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPO/releases" | jq -r '.[] | select(.name | test("PackCLI")) | [.created_at, .tag_name] | @tsv' | sort -r | head -1 | cut -f2)
     if [ "$LATEST_VERSION" = "null" ] || [ -z "$LATEST_VERSION" ]; then
-        echo -e "${RED}❌ Failed to get latest version from GitHub${NC}"
+        echo -e "${RED}❌ Failed to get latest PackCLI version from GitHub${NC}"
+        echo "   Available PackCLI releases:"
+        curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPO/releases" | jq -r '.[] | select(.name | test("PackCLI")) | .created_at + " - " + .name + " (" + .tag_name + ")"' | head -5
         exit 1
     fi
     PACKCLI_VERSION="$LATEST_VERSION"
-    echo "✅ Latest version: $PACKCLI_VERSION"
+    echo "✅ Latest PackCLI version: $PACKCLI_VERSION"
 fi
 
-# Construct GitHub URLs
-BINARY_URL="https://github.com/$GITHUB_REPO/releases/download/$PACKCLI_VERSION/$BINARY_NAME"
+# We'll download all PackCLI assets from the release
 
-echo "📥 Binary URL: $BINARY_URL"
+# Download all PackCLI assets from the release
+echo "📥 Downloading all PackCLI assets from release $PACKCLI_VERSION..."
 
-# Download binary
-echo "📥 Downloading $BINARY_NAME..."
-if ! curl -L -f "$BINARY_URL" -o "$BINARY_NAME"; then
-    echo -e "${RED}❌ Failed to download binary from $BINARY_URL${NC}"
-    echo "   Make sure the release exists: https://github.com/$GITHUB_REPO/releases/tag/$PACKCLI_VERSION"
+# Get all assets from the release
+ASSETS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPO/releases/tags/$PACKCLI_VERSION" | jq -r '.assets[] | select(.name | test("packcli")) | [.name, .url] | @tsv')
+
+if [ -z "$ASSETS" ]; then
+    echo -e "${RED}❌ No PackCLI assets found in release $PACKCLI_VERSION${NC}"
     exit 1
 fi
 
-# Make executable (except for Windows)
-if [ "$PLATFORM" != "windows-amd64" ]; then
-    chmod +x "$BINARY_NAME"
+# Download each asset
+echo "$ASSETS" | while IFS=$'\t' read -r asset_name asset_url; do
+    echo "📥 Downloading $asset_name..."
+    if curl -L -f -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_url" -o "$asset_name"; then
+        echo "✅ Downloaded $asset_name"
+        # Make executable (except for Windows .exe files)
+        if [[ "$asset_name" != *.exe ]]; then
+            chmod +x "$asset_name"
+        fi
+    else
+        echo -e "${RED}❌ Failed to download $asset_name${NC}"
+    fi
+done
+
+echo -e "${GREEN}✅ Successfully downloaded all PackCLI assets from $PACKCLI_VERSION${NC}"
+echo "📁 Downloaded files:"
+ls -la packcli-* 2>/dev/null || echo "No PackCLI files found"
+
+# Test one of the binaries (prefer linux-amd64 if available)
+TEST_BINARY=""
+if [ -f "packcli-linux-amd64" ]; then
+    TEST_BINARY="packcli-linux-amd64"
+elif [ -f "packcli-darwin-amd64" ]; then
+    TEST_BINARY="packcli-darwin-amd64"
+elif [ -f "packcli-windows-amd64.exe" ]; then
+    TEST_BINARY="packcli-windows-amd64.exe"
+else
+    # Find any packcli binary
+    TEST_BINARY=$(ls packcli-* 2>/dev/null | head -1)
 fi
 
-echo -e "${GREEN}✅ Successfully downloaded PackCLI $PACKCLI_VERSION for $PLATFORM${NC}"
-echo "📁 Binary: $BINARY_NAME"
-
-# Test the binary
-echo "🧪 Testing binary..."
-if [ "$PLATFORM" = "windows-amd64" ]; then
-    ./"$BINARY_NAME" --version
-else
-    ./"$BINARY_NAME" --version
+if [ -n "$TEST_BINARY" ]; then
+    echo "🧪 Testing binary: $TEST_BINARY"
+    if [[ "$TEST_BINARY" == *.exe ]]; then
+        ./"$TEST_BINARY" --version
+    else
+        ./"$TEST_BINARY" --version
+    fi
 fi
 
 echo ""
 echo -e "${GREEN}🎉 PackCLI is ready for wippy integration!${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Include $BINARY_NAME in your wippy release assets"
+echo "  1. Include all PackCLI binaries in your wippy release assets"
 echo "  2. Update your wippy documentation with PackCLI usage"
-echo "  3. Clean up: rm $BINARY_NAME"
+echo "  3. Clean up: rm packcli-*"
