@@ -159,6 +159,107 @@ build-runner-darwin-universal--on-M1: build-runner-darwin-arm64--on-M1 build-run
 	mkdir -p ./dist
 	lipo -create -output ./dist/runner-darwin-universal ./dist/runner-darwin-arm64 ./dist/runner-darwin-amd64
 
+# Release packaging targets
+VERSION ?= $(shell git describe --tags --always --dirty)
+
+# Create release archives for all platforms
+build-release-all: build-release-linux-amd64 build-release-linux-arm64 build-release-windows-amd64 build-release-darwin-amd64 build-release-darwin-arm64
+
+# Linux AMD64 release archive
+build-release-linux-amd64: build-runner-linux-amd64
+	@echo "Creating Linux AMD64 release archive..."
+	mkdir -p ./dist/release-temp/wippy-linux-amd64-$(VERSION)
+	cp ./dist/runner-linux-amd64 ./dist/release-temp/wippy-linux-amd64-$(VERSION)/wippy
+	@if [ -f "./packcli-linux-amd64" ]; then \
+		cp ./packcli-linux-amd64 ./dist/release-temp/wippy-linux-amd64-$(VERSION)/packcli; \
+	else \
+		echo "⚠️  PackCLI binary not found for Linux AMD64"; \
+	fi
+	# Compress binaries with UPX
+	upx --best --lzma ./dist/release-temp/wippy-linux-amd64-$(VERSION)/wippy
+	@if [ -f "./dist/release-temp/wippy-linux-amd64-$(VERSION)/packcli" ]; then \
+		upx --best --lzma ./dist/release-temp/wippy-linux-amd64-$(VERSION)/packcli; \
+	fi
+	cd ./dist/release-temp && tar -czf ../wippy-linux-amd64-$(VERSION).tar.gz wippy-linux-amd64-$(VERSION)/
+	rm -rf ./dist/release-temp
+	@echo "✅ Created wippy-linux-amd64-$(VERSION).tar.gz"
+
+# Linux ARM64 release archive
+build-release-linux-arm64: build-runner-linux-arm64
+	@echo "Creating Linux ARM64 release archive..."
+	mkdir -p ./dist/release-temp/wippy-linux-arm64-$(VERSION)
+	cp ./dist/runner-linux-arm64 ./dist/release-temp/wippy-linux-arm64-$(VERSION)/wippy
+	@if [ -f "./packcli-linux-arm64" ]; then \
+		cp ./packcli-linux-arm64 ./dist/release-temp/wippy-linux-arm64-$(VERSION)/packcli; \
+	else \
+		echo "⚠️  PackCLI binary not found for Linux ARM64"; \
+	fi
+	# Compress binaries with UPX
+	upx --best --lzma ./dist/release-temp/wippy-linux-arm64-$(VERSION)/wippy
+	@if [ -f "./dist/release-temp/wippy-linux-arm64-$(VERSION)/packcli" ]; then \
+		upx --best --lzma ./dist/release-temp/wippy-linux-arm64-$(VERSION)/packcli; \
+	fi
+	cd ./dist/release-temp && tar -czf ../wippy-linux-arm64-$(VERSION).tar.gz wippy-linux-arm64-$(VERSION)/
+	rm -rf ./dist/release-temp
+	@echo "✅ Created wippy-linux-arm64-$(VERSION).tar.gz"
+
+# Windows AMD64 release archive
+build-release-windows-amd64: build-runner-windows-amd64
+	@echo "Creating Windows AMD64 release archive..."
+	mkdir -p ./dist/release-temp/wippy-windows-amd64-$(VERSION)
+	cp ./dist/runner-windows-amd64.exe ./dist/release-temp/wippy-windows-amd64-$(VERSION)/wippy.exe
+	@if [ -f "./packcli-windows-amd64.exe" ]; then \
+		cp ./packcli-windows-amd64.exe ./dist/release-temp/wippy-windows-amd64-$(VERSION)/packcli.exe; \
+	else \
+		echo "⚠️  PackCLI binary not found for Windows AMD64"; \
+	fi
+	# Compress binaries with UPX
+	upx --best --lzma ./dist/release-temp/wippy-windows-amd64-$(VERSION)/wippy.exe
+	@if [ -f "./dist/release-temp/wippy-windows-amd64-$(VERSION)/packcli.exe" ]; then \
+		upx --best --lzma ./dist/release-temp/wippy-windows-amd64-$(VERSION)/packcli.exe; \
+	fi
+	cd ./dist/release-temp && zip -r ../wippy-windows-amd64-$(VERSION).zip wippy-windows-amd64-$(VERSION)/
+	rm -rf ./dist/release-temp
+	@echo "✅ Created wippy-windows-amd64-$(VERSION).zip"
+
+# macOS AMD64 release archive
+build-release-darwin-amd64: build-runner-darwin-amd64
+	@echo "Creating macOS AMD64 release archive..."
+	mkdir -p ./dist/release-temp/wippy-darwin-amd64-$(VERSION)
+	cp ./dist/runner-darwin-amd64 ./dist/release-temp/wippy-darwin-amd64-$(VERSION)/wippy
+	@if [ -f "./packcli-darwin-amd64" ]; then \
+		cp ./packcli-darwin-amd64 ./dist/release-temp/wippy-darwin-amd64-$(VERSION)/packcli; \
+	else \
+		echo "⚠️  PackCLI binary not found for macOS AMD64"; \
+	fi
+	# Compress binaries with UPX (force macOS support)
+	upx --best --lzma --force-macos ./dist/release-temp/wippy-darwin-amd64-$(VERSION)/wippy
+	@if [ -f "./dist/release-temp/wippy-darwin-amd64-$(VERSION)/packcli" ]; then \
+		upx --best --lzma --force-macos ./dist/release-temp/wippy-darwin-amd64-$(VERSION)/packcli; \
+	fi
+	cd ./dist/release-temp && tar -czf ../wippy-darwin-amd64-$(VERSION).tar.gz wippy-darwin-amd64-$(VERSION)/
+	rm -rf ./dist/release-temp
+	@echo "✅ Created wippy-darwin-amd64-$(VERSION).tar.gz"
+
+# macOS ARM64 release archive
+build-release-darwin-arm64: build-runner-darwin-arm64
+	@echo "Creating macOS ARM64 release archive..."
+	mkdir -p ./dist/release-temp/wippy-darwin-arm64-$(VERSION)
+	cp ./dist/runner-darwin-arm64 ./dist/release-temp/wippy-darwin-arm64-$(VERSION)/wippy
+	@if [ -f "./packcli-darwin-arm64" ]; then \
+		cp ./packcli-darwin-arm64 ./dist/release-temp/wippy-darwin-arm64-$(VERSION)/packcli; \
+	else \
+		echo "⚠️  PackCLI binary not found for macOS ARM64"; \
+	fi
+	# Compress binaries with UPX (force macOS support)
+	upx --best --lzma --force-macos ./dist/release-temp/wippy-darwin-arm64-$(VERSION)/wippy
+	@if [ -f "./dist/release-temp/wippy-darwin-arm64-$(VERSION)/packcli" ]; then \
+		upx --best --lzma --force-macos ./dist/release-temp/wippy-darwin-arm64-$(VERSION)/packcli; \
+	fi
+	cd ./dist/release-temp && tar -czf ../wippy-darwin-arm64-$(VERSION).tar.gz wippy-darwin-arm64-$(VERSION)/
+	rm -rf ./dist/release-temp
+	@echo "✅ Created wippy-darwin-arm64-$(VERSION).tar.gz"
+
 # Build runner with embedded data (example: make build-runner-embed EMBED_DIR=/path/to/your/data)
 build-runner-embed:
 	@echo "Building runner with embedded data"
