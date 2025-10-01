@@ -14,7 +14,7 @@ on:
         type: string
 
 jobs:
-  # Quality checks and conditional builds - optimized for budget (AMD64 testing only)
+  # Quality checks and conditional builds - stable platforms only (Linux + Windows)
   quality-checks:
     name: Quality Checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Test only on AMD64 platforms to save CI budget
+          # Test only on stable platforms (Linux + Windows) to avoid runner issues
           - os: "ubuntu-latest"
             platform: "linux"
             arch: "amd64"
@@ -34,15 +34,16 @@ jobs:
             arch: "amd64"
             run_lint: false
             run_tests: true
-          - os: "macos-latest"
-            platform: "darwin"
-            arch: "amd64"
-            run_lint: false
-            run_tests: true
           # ARM64 platforms - build only for releases (no testing to save budget)
           - os: "ubuntu-latest"
             platform: "linux"
             arch: "arm64"
+            run_lint: false
+            run_tests: false
+          # macOS platforms - build only for releases (runners often unavailable)
+          - os: "macos-latest"
+            platform: "darwin"
+            arch: "amd64"
             run_lint: false
             run_tests: false
           - os: "macos-latest"
@@ -169,7 +170,7 @@ jobs:
           sqlite3 --version
           upx --version
 
-      # Run tests only on AMD64 platforms to save CI budget
+      # Run tests only on stable platforms (Linux + Windows) to avoid runner issues
       - name: Run unit tests (Linux/macOS)
         if: matrix.os != 'windows-latest' && matrix.run_tests == true
         env:
