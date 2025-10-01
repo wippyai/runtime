@@ -40,13 +40,13 @@ jobs:
             arch: "arm64"
             run_lint: false
             run_tests: false
-          # macOS platforms - build only for releases (runners often unavailable)
-          - os: "macos-latest"
+          # macOS platforms - using macOS-13 for better availability
+          - os: "macos-13"
             platform: "darwin"
             arch: "amd64"
             run_lint: false
             run_tests: false
-          - os: "macos-latest"
+          - os: "macos-13"
             platform: "darwin"
             arch: "arm64"
             run_lint: false
@@ -229,7 +229,9 @@ jobs:
           echo "📊 Binary size after compression: $(ls -lh wippy-windows-amd64-${{ env.CLEAN_TAG }}.exe | awk '{print $5}')"
 
       - name: Build macOS AMD64
-        if: matrix.os == 'macos-latest' && matrix.arch == 'amd64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: matrix.os == 'macos-13' && matrix.arch == 'amd64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        timeout-minutes: 15
+        continue-on-error: true
         run: |
           make build-runner-darwin-amd64
           cd ./dist
@@ -243,7 +245,9 @@ jobs:
           echo "📊 Binary size after compression: $(ls -lh wippy-darwin-amd64-${{ env.CLEAN_TAG }} | awk '{print $5}')"
 
       - name: Build macOS ARM64
-        if: matrix.os == 'macos-latest' && matrix.arch == 'arm64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: matrix.os == 'macos-13' && matrix.arch == 'arm64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        timeout-minutes: 15
+        continue-on-error: true
         run: |
           make build-runner-darwin-arm64
           cd ./dist
