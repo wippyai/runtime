@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-GITHUB_REPO="wippyai/wippy-releases"
+GITHUB_REPO="wippyai/runtime"
 PACKCLI_VERSION=${1:-"latest"}
 PLATFORM=${2:-"auto"}
 
