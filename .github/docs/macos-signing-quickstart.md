@@ -34,9 +34,11 @@ Signing happens automatically on:
 ### 4. Check Results
 
 After successful execution:
-- macOS binaries will be signed and notarized
+- macOS binaries will be signed with entitlements and notarized
 - They will work without Gatekeeper warnings
 - Release will be created in `wippyai/wippy-releases`
+
+**Note**: The signing process includes entitlements from `.github/entitlements/macos.entitlements` for proper functionality.
 
 ### Local Testing
 
@@ -49,8 +51,9 @@ make build-sign-notarize-macos \
   MACOS_APPLE_ID_PASSWORD="password" \
   MACOS_TEAM_ID="TEAM_ID"
 
-# Verify signature
+# Verify signature and entitlements
 codesign --verify --verbose ./dist/runner-darwin-amd64
+codesign --display --entitlements - ./dist/runner-darwin-amd64
 spctl --assess --verbose ./dist/runner-darwin-amd64
 ```
 
@@ -60,4 +63,4 @@ spctl --assess --verbose ./dist/runner-darwin-amd64
 2. **"Invalid certificate"** → Check certificate expiration date  
 3. **"Notarization failed"** → Check Apple ID and Team ID
 
-Detailed documentation: [macos-code-signing.md](macos-code-signing.md)
+Detailed documentation: [macos-code-signing.md](.github/docs/macos-code-signing.md)

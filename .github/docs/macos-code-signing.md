@@ -5,7 +5,7 @@ This guide will help you set up macOS binary signing and notarization in GitHub 
 ## Process Overview
 
 macOS application signing includes:
-1. **Code Signing** - signing the binary with a digital signature
+1. **Code Signing** - signing the binary with a digital signature and entitlements
 2. **Notarization** - submitting to Apple for security verification
 3. **Stapling** - attaching the notarization result to the binary
 
@@ -94,10 +94,21 @@ For security, use app-specific password instead of regular password:
 
 1. **Certificate Import**: CI/CD creates a temporary keychain and imports the certificate
 2. **Build**: macOS binary is built
-3. **Signing**: Binary is signed using `codesign`
+3. **Signing**: Binary is signed using `codesign` with entitlements
 4. **Notarization**: Binary is submitted to Apple for verification
 5. **Stapling**: Notarization result is attached to the binary
 6. **Cleanup**: Temporary keychain is removed
+
+### Entitlements
+
+The signing process includes entitlements from `.github/entitlements/macos.entitlements` which grant:
+- JIT compilation support
+- Unsigned executable memory
+- Dynamic library loading
+- Network access (client and server)
+- File system access
+- Hardware access (audio, camera)
+- Debugging capabilities
 
 ### Makefile Commands
 
@@ -120,6 +131,9 @@ make build-sign-notarize-macos
 # Verify signature
 codesign --verify --verbose ./dist/runner-darwin-amd64
 
+# Verify entitlements
+codesign --display --entitlements - ./dist/runner-darwin-amd64
+
 # Verify notarization
 spctl --assess --verbose ./dist/runner-darwin-amd64
 
@@ -131,6 +145,7 @@ codesign --display --verbose=4 ./dist/runner-darwin-amd64
 
 CI/CD automatically verifies:
 - Signature correctness
+- Entitlements are properly embedded
 - Notarization status
 - Gatekeeper compatibility
 

@@ -339,13 +339,14 @@ jobs:
         run: |
           echo "🔐 Signing macOS binaries..."
 
-          # Sign the binary
+          # Sign the binary with entitlements
           if [ -f "./dist/runner-darwin-${{ matrix.arch }}" ]; then
-            codesign --force --options runtime --sign "${{ secrets.MACOS_CERTIFICATE_NAME }}" --timestamp ./dist/runner-darwin-${{ matrix.arch }}
+            codesign --force --options runtime --entitlements ./.github/entitlements/macos.entitlements --sign "${{ secrets.MACOS_CERTIFICATE_NAME }}" --timestamp ./dist/runner-darwin-${{ matrix.arch }}
             echo "✅ Signed runner-darwin-${{ matrix.arch }}"
             
-            # Verify signature
+            # Verify signature and entitlements
             codesign --verify --verbose ./dist/runner-darwin-${{ matrix.arch }}
+            codesign --display --entitlements - ./dist/runner-darwin-${{ matrix.arch }}
             spctl --assess --verbose ./dist/runner-darwin-${{ matrix.arch }}
           else
             echo "⚠️ Binary not found for signing: ./dist/runner-darwin-${{ matrix.arch }}"
