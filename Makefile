@@ -192,6 +192,71 @@ build-release-darwin-amd64: build-runner-darwin-amd64
 build-release-darwin-arm64: build-runner-darwin-arm64
 	$(call build-archive,darwin,arm64,tar.gz)
 
+# macOS signing targets
+MACOS_CERTIFICATE_NAME ?= "Developer ID Application: Your Company Name (TEAM_ID)"
+MACOS_CERTIFICATE_PASSWORD ?= ""
+MACOS_APPLE_ID ?= ""
+MACOS_APPLE_ID_PASSWORD ?= ""
+MACOS_TEAM_ID ?= ""
+
+# Sign macOS binary
+sign-macos-binary:
+	@if [ -z "$(MACOS_CERTIFICATE_PASSWORD)" ]; then \
+		echo "❌ MACOS_CERTIFICATE_PASSWORD is required for signing"; \
+		exit 1; \
+	fi
+	@if [ -z "$(MACOS_CERTIFICATE_NAME)" ]; then \
+		echo "❌ MACOS_CERTIFICATE_NAME is required for signing"; \
+		exit 1; \
+	fi
+	@echo "🔐 Signing macOS binary..."
+	@if [ -f "./dist/runner-darwin-amd64" ]; then \
+		codesign --force --options runtime --sign "$(MACOS_CERTIFICATE_NAME)" --timestamp ./dist/runner-darwin-amd64; \
+		echo "✅ Signed runner-darwin-amd64"; \
+	fi
+	@if [ -f "./dist/runner-darwin-arm64" ]; then \
+		codesign --force --options runtime --sign "$(MACOS_CERTIFICATE_NAME)" --timestamp ./dist/runner-darwin-arm64; \
+		echo "✅ Signed runner-darwin-arm64"; \
+	fi
+
+# Notarize macOS binary
+notarize-macos-binary:
+	@if [ -z "$(MACOS_APPLE_ID)" ]; then \
+		echo "❌ MACOS_APPLE_ID is required for notarization"; \
+		exit 1; \
+	fi
+	@if [ -z "$(MACOS_APPLE_ID_PASSWORD)" ]; then \
+		echo "❌ MACOS_APPLE_ID_PASSWORD is required for notarization"; \
+		exit 1; \
+	fi
+	@if [ -z "$(MACOS_TEAM_ID)" ]; then \
+		echo "❌ MACOS_TEAM_ID is required for notarization"; \
+		exit 1; \
+	fi
+	@echo "📋 Notarizing macOS binary..."
+	@if [ -f "./dist/runner-darwin-amd64" ]; then \
+		xcrun notarytool submit ./dist/runner-darwin-amd64 \
+			--apple-id "$(MACOS_APPLE_ID)" \
+			--password "$(MACOS_APPLE_ID_PASSWORD)" \
+			--team-id "$(MACOS_TEAM_ID)" \
+			--wait; \
+		xcrun stapler staple ./dist/runner-darwin-amd64; \
+		echo "✅ Notarized runner-darwin-amd64"; \
+	fi
+	@if [ -f "./dist/runner-darwin-arm64" ]; then \
+		xcrun notarytool submit ./dist/runner-darwin-arm64 \
+			--apple-id "$(MACOS_APPLE_ID)" \
+			--password "$(MACOS_APPLE_ID_PASSWORD)" \
+			--team-id "$(MACOS_TEAM_ID)" \
+			--wait; \
+		xcrun stapler staple ./dist/runner-darwin-arm64; \
+		echo "✅ Notarized runner-darwin-arm64"; \
+	fi
+
+# Build, sign and notarize macOS binaries
+build-sign-notarize-macos: build-runner-darwin-amd64 build-runner-darwin-arm64 sign-macos-binary notarize-macos-binary
+	@echo "✅ macOS binaries built, signed and notarized successfully"
+
 # Build runner with embedded data (example: make build-runner-embed EMBED_DIR=/path/to/your/data)
 build-runner-embed:
 	@echo "Building runner with embedded data"
