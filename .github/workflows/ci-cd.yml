@@ -98,9 +98,6 @@ jobs:
           - os: "windows-latest"
             platform: "windows"
             arch: "amd64"
-          - os: "windows-latest"
-            platform: "windows"
-            arch: "arm64"
           - os: "macos-13"
             platform: "darwin"
             arch: "amd64"
@@ -260,13 +257,6 @@ jobs:
           make build-release-windows-amd64 VERSION=${{ env.CLEAN_TAG }}
           echo "✅ Created wippy-windows-amd64-${{ env.CLEAN_TAG }}.zip"
 
-      - name: Build Windows ARM64
-        if: matrix.os == 'windows-latest' && matrix.arch == 'arm64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        shell: msys2 {0}
-        run: |
-          make build-release-windows-arm64 VERSION=${{ env.CLEAN_TAG }}
-          echo "✅ Created wippy-windows-arm64-${{ env.CLEAN_TAG }}.zip"
-
       - name: Build macOS AMD64
         if: matrix.os == 'macos-13' && matrix.arch == 'amd64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         timeout-minutes: 15
@@ -399,7 +389,6 @@ jobs:
 
           #### Windows
           - **Windows AMD64**: \`wippy-windows-amd64-${{ env.CLEAN_TAG }}.zip\`
-          - **Windows ARM64**: \`wippy-windows-arm64-${{ env.CLEAN_TAG }}.zip\`
 
           #### Linux
           - **Linux AMD64**: \`wippy-linux-amd64-${{ env.CLEAN_TAG }}.tar.gz\`
@@ -413,11 +402,9 @@ jobs:
 
           ### Windows
           \`\`\`powershell
-          # Extract the archive (choose appropriate version)
-          Expand-Archive wippy-windows-amd64-${{ env.CLEAN_TAG }}.zip  # For AMD64
-          # or
-          Expand-Archive wippy-windows-arm64-${{ env.CLEAN_TAG }}.zip  # For ARM64
-          cd wippy-windows-amd64-${{ env.CLEAN_TAG }}  # or wippy-windows-arm64-${{ env.CLEAN_TAG }}
+          # Extract the archive
+          Expand-Archive wippy-windows-amd64-${{ env.CLEAN_TAG }}.zip
+          cd wippy-windows-amd64-${{ env.CLEAN_TAG }}
 
           # Run Wippy
           .\wippy.exe --help
@@ -505,6 +492,5 @@ jobs:
           echo "- **Linux AMD64**: \`wippy-linux-amd64-${{ env.CLEAN_TAG }}.tar.gz\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Linux ARM64**: \`wippy-linux-arm64-${{ env.CLEAN_TAG }}.tar.gz\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Windows AMD64**: \`wippy-windows-amd64-${{ env.CLEAN_TAG }}.zip\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Windows ARM64**: \`wippy-windows-arm64-${{ env.CLEAN_TAG }}.zip\`" >> $GITHUB_STEP_SUMMARY
           echo "- **macOS AMD64**: \`wippy-darwin-amd64-${{ env.CLEAN_TAG }}.tar.gz\`" >> $GITHUB_STEP_SUMMARY
           echo "- **macOS ARM64**: \`wippy-darwin-arm64-${{ env.CLEAN_TAG }}.tar.gz\`" >> $GITHUB_STEP_SUMMARY
