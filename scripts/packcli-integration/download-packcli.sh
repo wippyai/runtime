@@ -99,26 +99,38 @@ echo -e "${GREEN}✅ Successfully downloaded all PackCLI assets from $PACKCLI_VE
 echo "📁 Downloaded files:"
 ls -la packcli-* 2>/dev/null || echo "No PackCLI files found"
 
-# Test one of the binaries (prefer linux-amd64 if available)
+# Test one of the binaries (only if compatible with current architecture)
 TEST_BINARY=""
-if [ -f "packcli-linux-amd64" ]; then
-    TEST_BINARY="packcli-linux-amd64"
-elif [ -f "packcli-darwin-amd64" ]; then
-    TEST_BINARY="packcli-darwin-amd64"
-elif [ -f "packcli-windows-amd64.exe" ]; then
-    TEST_BINARY="packcli-windows-amd64.exe"
-else
-    # Find any packcli binary
-    TEST_BINARY=$(ls packcli-* 2>/dev/null | head -1)
+CURRENT_ARCH=$(uname -m)
+CURRENT_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+echo "🔍 Current system: $CURRENT_OS-$CURRENT_ARCH"
+
+# Map current architecture to expected binary names
+if [ "$CURRENT_OS" = "linux" ]; then
+    if [ "$CURRENT_ARCH" = "x86_64" ] && [ -f "packcli-linux-amd64" ]; then
+        TEST_BINARY="packcli-linux-amd64"
+    elif [ "$CURRENT_ARCH" = "aarch64" ] && [ -f "packcli-linux-arm64" ]; then
+        TEST_BINARY="packcli-linux-arm64"
+    fi
+elif [ "$CURRENT_OS" = "darwin" ]; then
+    if [ "$CURRENT_ARCH" = "x86_64" ] && [ -f "packcli-darwin-amd64" ]; then
+        TEST_BINARY="packcli-darwin-amd64"
+    elif [ "$CURRENT_ARCH" = "arm64" ] && [ -f "packcli-darwin-arm64" ]; then
+        TEST_BINARY="packcli-darwin-arm64"
+    fi
 fi
 
 if [ -n "$TEST_BINARY" ]; then
-    echo "🧪 Testing binary: $TEST_BINARY"
+    echo "🧪 Testing compatible binary: $TEST_BINARY"
     if [[ "$TEST_BINARY" == *.exe ]]; then
         ./"$TEST_BINARY" --version
     else
         ./"$TEST_BINARY" --version
     fi
+else
+    echo "ℹ️ No compatible binary found for testing ($CURRENT_OS-$CURRENT_ARCH)"
+    echo "   This is normal when downloading binaries for different architectures"
 fi
 
 echo ""

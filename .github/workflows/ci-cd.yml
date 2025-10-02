@@ -215,7 +215,7 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross libsqlite3-dev upx-ucl
 
       - name: Install dependencies (macOS)
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-13'
         run: |
           # Install SQLite3 and UPX via Homebrew
           brew install sqlite3 upx
@@ -268,9 +268,21 @@ jobs:
         timeout-minutes: 15
         continue-on-error: true
         run: |
+          echo "🍎 Building macOS AMD64..."
+          echo "📁 Current directory: $(pwd)"
+          echo "📁 Directory contents:"
+          ls -la
+
           # Download PackCLI for this platform only
+          echo "📥 Downloading PackCLI for darwin-amd64..."
           ./scripts/packcli-integration/download-packcli.sh latest darwin-amd64
+
+          echo "🔨 Building release archive..."
           make build-release-darwin-amd64 VERSION=${{ env.CLEAN_TAG }}
+
+          echo "📁 Contents after build:"
+          ls -la ./dist/ || echo "No ./dist directory found"
+
           echo "✅ Created wippy-darwin-amd64-${{ env.CLEAN_TAG }}.tar.gz"
 
       - name: Build macOS ARM64
@@ -278,12 +290,39 @@ jobs:
         timeout-minutes: 15
         continue-on-error: true
         run: |
+          echo "🍎 Building macOS ARM64..."
+          echo "📁 Current directory: $(pwd)"
+          echo "📁 Directory contents:"
+          ls -la
+
           # Download PackCLI for this platform only
+          echo "📥 Downloading PackCLI for darwin-arm64..."
           ./scripts/packcli-integration/download-packcli.sh latest darwin-arm64
+
+          echo "🔨 Building release archive..."
           make build-release-darwin-arm64 VERSION=${{ env.CLEAN_TAG }}
+
+          echo "📁 Contents after build:"
+          ls -la ./dist/ || echo "No ./dist directory found"
+
           echo "✅ Created wippy-darwin-arm64-${{ env.CLEAN_TAG }}.tar.gz"
 
       - name: Upload build artifacts
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          echo "🔍 Checking for build artifacts..."
+          if [ -d "./dist" ] && [ "$(ls -A ./dist 2>/dev/null)" ]; then
+            echo "📦 Found artifacts in ./dist:"
+            ls -la ./dist/
+            echo "📤 Uploading artifacts..."
+          else
+            echo "⚠️ No artifacts found in ./dist - skipping upload"
+            echo "📁 Current directory contents:"
+            ls -la
+            exit 0
+          fi
+
+      - name: Upload artifacts to GitHub
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@v4
         with:
