@@ -241,12 +241,16 @@ jobs:
       - name: Build Linux AMD64 (Ubuntu)
         if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
+          # Download PackCLI for this platform only
+          ./scripts/packcli-integration/download-packcli.sh latest linux-amd64
           make build-release-linux-amd64 VERSION=${{ env.CLEAN_TAG }}
           echo "✅ Created wippy-linux-amd64-${{ env.CLEAN_TAG }}.tar.gz"
 
       - name: Build Linux ARM64 (Ubuntu)
         if: matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
+          # Download PackCLI for this platform only
+          ./scripts/packcli-integration/download-packcli.sh latest linux-arm64
           make build-release-linux-arm64 VERSION=${{ env.CLEAN_TAG }}
           echo "✅ Created wippy-linux-arm64-${{ env.CLEAN_TAG }}.tar.gz"
 
@@ -254,6 +258,8 @@ jobs:
         if: matrix.os == 'windows-latest' && matrix.arch == 'amd64' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: msys2 {0}
         run: |
+          # Download PackCLI for this platform only
+          ./scripts/packcli-integration/download-packcli.sh latest windows-amd64
           make build-release-windows-amd64 VERSION=${{ env.CLEAN_TAG }}
           echo "✅ Created wippy-windows-amd64-${{ env.CLEAN_TAG }}.zip"
 
@@ -262,6 +268,8 @@ jobs:
         timeout-minutes: 15
         continue-on-error: true
         run: |
+          # Download PackCLI for this platform only
+          ./scripts/packcli-integration/download-packcli.sh latest darwin-amd64
           make build-release-darwin-amd64 VERSION=${{ env.CLEAN_TAG }}
           echo "✅ Created wippy-darwin-amd64-${{ env.CLEAN_TAG }}.tar.gz"
 
@@ -270,6 +278,8 @@ jobs:
         timeout-minutes: 15
         continue-on-error: true
         run: |
+          # Download PackCLI for this platform only
+          ./scripts/packcli-integration/download-packcli.sh latest darwin-arm64
           make build-release-darwin-arm64 VERSION=${{ env.CLEAN_TAG }}
           echo "✅ Created wippy-darwin-arm64-${{ env.CLEAN_TAG }}.tar.gz"
 
