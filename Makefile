@@ -161,7 +161,11 @@ build-release-all: build-release-linux-amd64 build-release-linux-arm64 build-rel
 # Universal archive builder function
 # Usage: $(call build-archive,platform,arch,format)
 define build-archive
-	./scripts/build-release-archive.sh $(1) $(2) $(3) $(VERSION)
+	@if [ "$(1)" = "windows" ]; then \
+		bash ./scripts/build-release-archive.sh $(1) $(2) $(3) $(VERSION); \
+	else \
+		./scripts/build-release-archive.sh $(1) $(2) $(3) $(VERSION); \
+	fi
 endef
 
 # Linux AMD64 release archive
