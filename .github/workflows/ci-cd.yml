@@ -445,6 +445,29 @@ jobs:
             ./release-binaries/*
           draft: false
           prerelease: ${{ contains(env.TAG_NAME, 'alpha') || contains(env.TAG_NAME, 'beta') || contains(env.TAG_NAME, 'rc') }}
+          generate_release_notes: false
+
+      - name: Remove Source Code Archives
+        run: |
+          echo "🗑️ Removing automatically generated source code archives..."
+
+          # Get release assets
+          ASSETS=$(curl -s -H "Authorization: token ${{ env.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/wippyai/wippy-releases/releases/tags/${{ env.TAG_NAME }}" | \
+            jq -r '.assets[] | select(.name | test("Source code")) | .id')
+
+          if [ -n "$ASSETS" ]; then
+            echo "$ASSETS" | while read asset_id; do
+              if [ -n "$asset_id" ]; then
+                echo "🗑️ Deleting asset ID: $asset_id"
+                curl -X DELETE -H "Authorization: token ${{ env.GITHUB_TOKEN }}" \
+                  "https://api.github.com/repos/wippyai/wippy-releases/releases/assets/$asset_id"
+              fi
+            done
+            echo "✅ Source code archives removed successfully"
+          else
+            echo "ℹ️ No source code archives found to remove"
+          fi
 
       - name: Release Summary
         run: |
