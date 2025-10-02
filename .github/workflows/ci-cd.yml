@@ -279,7 +279,7 @@ jobs:
         with:
           name: wippy-${{ matrix.platform }}-${{ matrix.arch }}-${{ env.CLEAN_TAG }}
           path: ./dist/
-          retention-days: 365
+          retention-days: 90
 
   # Release job - creates GitHub release with binaries in wippy-releases repository
   release:
