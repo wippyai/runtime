@@ -2,13 +2,17 @@
 
 # Script for wippy to download packcli binaries from GitHub
 # Usage: ./download-packcli.sh [version] [platform]
+# Examples:
+#   ./download-packcli.sh latest                    # Download all PackCLI binaries
+#   ./download-packcli.sh latest linux-amd64       # Download only linux-amd64 PackCLI
+#   ./download-packcli.sh v0.0.7-alpha7 windows-amd64  # Download specific version for specific platform
 
 set -e
 
 # Configuration
 GITHUB_REPO="wippyai/runtime"
 PACKCLI_VERSION=${1:-"latest"}
-PLATFORM=${2:-"auto"}
+PLATFORM_FILTER=${2:-""}
 
 # Colors for output
 RED='\033[0;31m'
@@ -38,14 +42,28 @@ fi
 
 # We'll download all PackCLI assets from the release
 
-# Download all PackCLI assets from the release
-echo "📥 Downloading all PackCLI assets from release $PACKCLI_VERSION..."
+# Download PackCLI assets from the release
+if [ -n "$PLATFORM_FILTER" ]; then
+    echo "📥 Downloading PackCLI $PLATFORM_FILTER from release $PACKCLI_VERSION..."
+else
+    echo "📥 Downloading all PackCLI assets from release $PACKCLI_VERSION..."
+fi
 
-# Get all assets from the release
-ASSETS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPO/releases/tags/$PACKCLI_VERSION" | jq -r '.assets[] | select(.name | test("packcli")) | [.name, .url] | @tsv')
+# Get assets from the release with optional platform filter
+if [ -n "$PLATFORM_FILTER" ]; then
+    ASSETS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPO/releases/tags/$PACKCLI_VERSION" | jq -r ".assets[] | select(.name | test(\"packcli.*$PLATFORM_FILTER\")) | [.name, .url] | @tsv")
+else
+    ASSETS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPO/releases/tags/$PACKCLI_VERSION" | jq -r '.assets[] | select(.name | test("packcli")) | [.name, .url] | @tsv')
+fi
 
 if [ -z "$ASSETS" ]; then
-    echo -e "${RED}❌ No PackCLI assets found in release $PACKCLI_VERSION${NC}"
+    if [ -n "$PLATFORM_FILTER" ]; then
+        echo -e "${RED}❌ No PackCLI assets found for platform $PLATFORM_FILTER in release $PACKCLI_VERSION${NC}"
+    else
+        echo -e "${RED}❌ No PackCLI assets found in release $PACKCLI_VERSION${NC}"
+    fi
+    echo "   Available PackCLI releases:"
+    curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPO/releases" | jq -r '.[] | select(.name | test("PackCLI")) | .created_at + " - " + .name + " (" + .tag_name + ")"' | head -5
     exit 1
 fi
 
