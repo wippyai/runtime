@@ -173,7 +173,12 @@ build-release-linux-amd64: build-runner-linux-amd64
 	@if [ -f "./dist/release-temp/packcli" ]; then \
 		upx --best --lzma ./dist/release-temp/packcli; \
 	fi
-	cd ./dist/release-temp && tar -czf ../wippy-linux-amd64-$(VERSION).tar.gz wippy $(if [ -f packcli ]; then echo packcli; fi)
+	cd ./dist/release-temp && \
+		if [ -f packcli ]; then \
+			tar -czf ../wippy-linux-amd64-$(VERSION).tar.gz wippy packcli; \
+		else \
+			tar -czf ../wippy-linux-amd64-$(VERSION).tar.gz wippy; \
+		fi
 	rm -rf ./dist/release-temp
 	@echo "✅ Created wippy-linux-amd64-$(VERSION).tar.gz"
 
@@ -192,7 +197,12 @@ build-release-linux-arm64: build-runner-linux-arm64
 	@if [ -f "./dist/release-temp/packcli" ]; then \
 		upx --best --lzma ./dist/release-temp/packcli; \
 	fi
-	cd ./dist/release-temp && tar -czf ../wippy-linux-arm64-$(VERSION).tar.gz wippy $(if [ -f packcli ]; then echo packcli; fi)
+	cd ./dist/release-temp && \
+		if [ -f packcli ]; then \
+			tar -czf ../wippy-linux-arm64-$(VERSION).tar.gz wippy packcli; \
+		else \
+			tar -czf ../wippy-linux-arm64-$(VERSION).tar.gz wippy; \
+		fi
 	rm -rf ./dist/release-temp
 	@echo "✅ Created wippy-linux-arm64-$(VERSION).tar.gz"
 
@@ -211,7 +221,12 @@ build-release-windows-amd64: build-runner-windows-amd64
 	@if [ -f "./dist/release-temp/packcli.exe" ]; then \
 		upx --best --lzma ./dist/release-temp/packcli.exe; \
 	fi
-	cd ./dist/release-temp && zip ../wippy-windows-amd64-$(VERSION).zip wippy.exe $(if [ -f packcli.exe ]; then echo packcli.exe; fi)
+	cd ./dist/release-temp && \
+		if [ -f packcli.exe ]; then \
+			zip ../wippy-windows-amd64-$(VERSION).zip wippy.exe packcli.exe; \
+		else \
+			zip ../wippy-windows-amd64-$(VERSION).zip wippy.exe; \
+		fi
 	rm -rf ./dist/release-temp
 	@echo "✅ Created wippy-windows-amd64-$(VERSION).zip"
 
@@ -230,7 +245,12 @@ build-release-darwin-amd64: build-runner-darwin-amd64
 	@if [ -f "./dist/release-temp/packcli" ]; then \
 		upx --best --lzma --force-macos ./dist/release-temp/packcli; \
 	fi
-	cd ./dist/release-temp && tar -czf ../wippy-darwin-amd64-$(VERSION).tar.gz wippy $(if [ -f packcli ]; then echo packcli; fi)
+	cd ./dist/release-temp && \
+		if [ -f packcli ]; then \
+			tar -czf ../wippy-darwin-amd64-$(VERSION).tar.gz wippy packcli; \
+		else \
+			tar -czf ../wippy-darwin-amd64-$(VERSION).tar.gz wippy; \
+		fi
 	rm -rf ./dist/release-temp
 	@echo "✅ Created wippy-darwin-amd64-$(VERSION).tar.gz"
 
@@ -249,7 +269,12 @@ build-release-darwin-arm64: build-runner-darwin-arm64
 	@if [ -f "./dist/release-temp/packcli" ]; then \
 		upx --best --lzma --force-macos ./dist/release-temp/packcli; \
 	fi
-	cd ./dist/release-temp && tar -czf ../wippy-darwin-arm64-$(VERSION).tar.gz wippy $(if [ -f packcli ]; then echo packcli; fi)
+	cd ./dist/release-temp && \
+		if [ -f packcli ]; then \
+			tar -czf ../wippy-darwin-arm64-$(VERSION).tar.gz wippy packcli; \
+		else \
+			tar -czf ../wippy-darwin-arm64-$(VERSION).tar.gz wippy; \
+		fi
 	rm -rf ./dist/release-temp
 	@echo "✅ Created wippy-darwin-arm64-$(VERSION).tar.gz"
 
