@@ -10,21 +10,20 @@ PackCLI is a helper tool that doesn't have its own releases. Instead, it's built
 
 1. **PackCLI Build Process** (in `estimation-engine/packer`):
    - When a tag is created, PackCLI builds binaries for all platforms
-   - Binaries are uploaded to S3 storage (`wippy-releases/packcli/{version}/`)
-   - A "latest" symlink is created pointing to the newest version
+   - Binaries are uploaded to GitHub releases in the `wippyai/runtime` repository
    - Metadata is created with version information
 
 2. **Wippy Release Process** (in this repository):
-   - When Wippy creates a release, it downloads the latest available PackCLI binaries
+   - When Wippy creates a release, it downloads the latest available PackCLI binaries from GitHub releases
    - **No version matching**: Wippy and PackCLI have independent release cycles
    - PackCLI binaries are included as assets in the Wippy release
    - Users get both Wippy runtime and PackCLI helper tool
 
 ## Scripts
 
-### 1. `download-packcli.sh` (Primary - S3)
+### 1. `download-packcli.sh` (Primary - GitHub)
 
-Downloads PackCLI binaries from S3 storage.
+Downloads PackCLI binaries from GitHub releases.
 
 ```bash
 # Download latest version
@@ -39,13 +38,13 @@ Downloads PackCLI binaries from S3 storage.
 
 **Features:**
 - Auto-detects platform (Linux, macOS, Windows)
-- Downloads from S3 bucket `wippy-releases/packcli/`
+- Downloads from GitHub releases in `wippyai/runtime` repository
 - Includes metadata with build information
 - Tests downloaded binary
 
-### 2. `download-packcli-github.sh` (Fallback - GitHub)
+### 2. `download-packcli-github.sh` (Alternative - GitHub)
 
-Downloads PackCLI binaries from GitHub draft releases.
+Downloads PackCLI binaries from GitHub releases in the `wippyai/wippy-releases` repository.
 
 ```bash
 # Download latest version
@@ -60,7 +59,7 @@ Downloads PackCLI binaries from GitHub draft releases.
 
 **Features:**
 - Auto-detects platform (Linux, macOS, Windows)
-- Downloads from GitHub draft releases
+- Downloads from GitHub releases in `wippyai/wippy-releases` repository
 - Includes metadata with build information
 - Tests downloaded binary
 
@@ -93,16 +92,16 @@ The integration is configured in `.github/workflows/ci-cd.yml`:
 
 ## Binary Storage
 
-PackCLI binaries are stored in two locations:
+PackCLI binaries are stored in GitHub releases:
 
-### Primary: S3 Storage
-- **Bucket**: `wippy-releases`
-- **Path**: `packcli/{version}/`
-- **URLs**: `https://wippy-releases.s3.amazonaws.com/packcli/{version}/packcli-{platform}`
+### Primary: GitHub Releases
+- **Repository**: `wippyai/runtime`
+- **Type**: Regular releases
+- **URLs**: `https://github.com/wippyai/runtime/releases/download/{version}/packcli-{platform}`
 
-### Fallback: GitHub Draft Releases
+### Alternative: GitHub Releases (Alternative Repository)
 - **Repository**: `wippyai/wippy-releases`
-- **Type**: Draft releases (not published)
+- **Type**: Regular releases
 - **URLs**: `https://github.com/wippyai/wippy-releases/releases/download/{version}/packcli-{platform}`
 
 ## Platform Support
@@ -126,7 +125,7 @@ PackCLI is automatically included in Wippy release notes:
 ### Common Issues
 
 1. **PackCLI binaries not found**: This is normal for new Wippy versions - PackCLI will be available in future releases
-2. **Download script fails**: Check S3/GitHub access and permissions
+2. **Download script fails**: Check GitHub access and permissions
 3. **Binary not executable**: Ensure proper permissions are set
 
 ### Debug Mode
@@ -159,5 +158,5 @@ To test the integration locally:
 For issues with PackCLI integration:
 - Check the PackCLI repository: `estimation-engine/packer`
 - Review the build logs in GitLab CI/CD
-- Verify S3/GitHub access and permissions
+- Verify GitHub access and permissions
 - Check Wippy release logs in GitHub Actions

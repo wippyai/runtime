@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Alternative script for wippy to download packcli binaries from GitHub
-# This uses GitHub as intermediate storage instead of S3
+# This downloads from the wippyai/wippy-releases repository
 # Usage: ./download-packcli-github.sh [version] [platform]
 
 set -e
