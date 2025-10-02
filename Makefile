@@ -163,7 +163,7 @@ build-runner-darwin-universal--on-M1: build-runner-darwin-arm64--on-M1 build-run
 VERSION ?= $(shell git describe --tags --always --dirty)
 
 # Create release archives for all platforms
-build-release-all: build-release-linux-amd64 build-release-linux-arm64 build-release-windows-amd64 build-release-darwin-amd64 build-release-darwin-arm64
+build-release-all: build-release-linux-amd64 build-release-linux-arm64 build-release-windows-amd64 build-release-windows-arm64 build-release-darwin-amd64 build-release-darwin-arm64
 
 # Linux AMD64 release archive
 build-release-linux-amd64: build-runner-linux-amd64
@@ -221,6 +221,25 @@ build-release-windows-amd64: build-runner-windows-amd64
 	cd ./dist/release-temp && zip -r ../wippy-windows-amd64-$(VERSION).zip wippy-windows-amd64-$(VERSION)/
 	rm -rf ./dist/release-temp
 	@echo "✅ Created wippy-windows-amd64-$(VERSION).zip"
+
+# Windows ARM64 release archive
+build-release-windows-arm64: build-runner-windows-arm64
+	@echo "Creating Windows ARM64 release archive..."
+	mkdir -p ./dist/release-temp/wippy-windows-arm64-$(VERSION)
+	cp ./dist/runner-windows-arm64.exe ./dist/release-temp/wippy-windows-arm64-$(VERSION)/wippy.exe
+	@if [ -f "./packcli-windows-arm64.exe" ]; then \
+		cp ./packcli-windows-arm64.exe ./dist/release-temp/wippy-windows-arm64-$(VERSION)/packcli.exe; \
+	else \
+		echo "⚠️  PackCLI binary not found for Windows ARM64"; \
+	fi
+	# Compress binaries with UPX
+	upx --best --lzma ./dist/release-temp/wippy-windows-arm64-$(VERSION)/wippy.exe
+	@if [ -f "./dist/release-temp/wippy-windows-arm64-$(VERSION)/packcli.exe" ]; then \
+		upx --best --lzma ./dist/release-temp/wippy-windows-arm64-$(VERSION)/packcli.exe; \
+	fi
+	cd ./dist/release-temp && zip -r ../wippy-windows-arm64-$(VERSION).zip wippy-windows-arm64-$(VERSION)/
+	rm -rf ./dist/release-temp
+	@echo "✅ Created wippy-windows-arm64-$(VERSION).zip"
 
 # macOS AMD64 release archive
 build-release-darwin-amd64: build-runner-darwin-amd64
