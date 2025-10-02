@@ -320,45 +320,35 @@ jobs:
           path: ./artifacts/
           pattern: wippy-*
 
-      - name: Extract and organize binaries
+      - name: Extract release archives
         run: |
           mkdir -p ./release-binaries
 
           echo "🔍 Available artifacts:"
           ls -la ./artifacts/ || echo "No artifacts found"
 
-          # Extract binaries from all artifacts
+          # Extract only release archives from artifacts (not individual binaries)
           for artifact_dir in ./artifacts/wippy-*; do
             if [ -d "$artifact_dir" ]; then
-              echo "📦 Copying from $artifact_dir"
+              echo "📦 Processing artifact: $artifact_dir"
               echo "📦 Contents of $artifact_dir:"
               ls -la "$artifact_dir" || echo "Empty directory"
-              cp -r "$artifact_dir"/* ./release-binaries/ 2>/dev/null || true
+              
+              # Copy only archive files (*.tar.gz, *.zip)
+              find "$artifact_dir" -name "*.tar.gz" -o -name "*.zip" | while read archive; do
+                echo "📦 Copying archive: $archive"
+                cp "$archive" ./release-binaries/
+              done
             fi
           done
 
-          echo "📦 Available binaries for release:"
-          ls -la ./release-binaries/ || echo "No binaries found"
+          echo "📦 Available release archives:"
+          ls -la ./release-binaries/ || echo "No archives found"
 
-      # PackCLI binaries - download latest PackCLI release
-      - name: Download PackCLI binaries
-        run: |
-          echo "🔧 Downloading latest PackCLI binaries for integration..."
-          chmod +x ./scripts/packcli-integration/download-packcli.sh
-          if ./scripts/packcli-integration/download-packcli.sh "latest"; then
-            echo "✅ PackCLI binaries downloaded successfully"
-            mv packcli-* ./release-binaries/ 2>/dev/null || echo "No PackCLI binaries to move"
-            echo "✅ PackCLI binaries included in Wippy release"
-          else
-            echo "⚠️  PackCLI binaries not available - Wippy release will be created without PackCLI"
-          fi
-          echo "📦 Final binaries for release:"
-          ls -la ./release-binaries/ || echo "No binaries found"
-
-      - name: List release binaries
+      - name: List release archives
         run: |
           cd ./release-binaries
-          echo "📦 Available binaries for release:"
+          echo "📦 Available release archives:"
           ls -la
 
       - name: Create Release Notes
@@ -463,7 +453,7 @@ jobs:
           echo "**Tag**: \`${{ env.TAG_NAME }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Release Binaries:" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Release Archives:" >> $GITHUB_STEP_SUMMARY
           if [ -d "./release-binaries" ]; then
             for file in ./release-binaries/*; do
               if [ -f "$file" ]; then
