@@ -404,7 +404,7 @@ jobs:
           \`\`\`powershell
           # Extract the archive
           Expand-Archive wippy-windows-amd64-${{ env.CLEAN_TAG }}.zip
-          cd wippy-windows-amd64-${{ env.CLEAN_TAG }}
+          # Files are extracted directly to current directory
 
           # Run Wippy
           .\wippy.exe --help
@@ -418,7 +418,7 @@ jobs:
           \`\`\`bash
           # Extract the archive
           tar -xzf wippy-linux-amd64-${{ env.CLEAN_TAG }}.tar.gz
-          cd wippy-linux-amd64-${{ env.CLEAN_TAG }}
+          # Files are extracted directly to current directory
 
           # Make executables and run
           chmod +x wippy packcli
@@ -431,7 +431,7 @@ jobs:
           \`\`\`bash
           # Extract the archive
           tar -xzf wippy-darwin-amd64-${{ env.CLEAN_TAG }}.tar.gz  # or wippy-darwin-arm64-${{ env.CLEAN_TAG }}.tar.gz for Apple Silicon
-          cd wippy-darwin-amd64-${{ env.CLEAN_TAG }}
+          # Files are extracted directly to current directory
 
           # Make executables and run
           chmod +x wippy packcli
