@@ -309,6 +309,7 @@ jobs:
 
       - name: Upload build artifacts
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
         run: |
           echo "🔍 Checking for build artifacts..."
           if [ -d "./dist" ] && [ "$(ls -A ./dist 2>/dev/null)" ]; then
