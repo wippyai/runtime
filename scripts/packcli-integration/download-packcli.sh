@@ -54,9 +54,23 @@ echo "$ASSETS" | while IFS=$'\t' read -r asset_name asset_url; do
     echo "📥 Downloading $asset_name..."
     if curl -L -f -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_url" -o "$asset_name"; then
         echo "✅ Downloaded $asset_name"
+        
+        # Rename file to short format expected by Makefile
+        # Convert packcli-linux-arm64-v0.0.7-alpha7 -> packcli-linux-arm64
+        # Convert packcli-windows-amd64-v0.0.7-alpha7.exe -> packcli-windows-amd64.exe
+        short_name=$(echo "$asset_name" | sed -E 's/-v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)*(\.[a-z]+)?$/\2/')
+        # If the regex didn't match, try a simpler approach
+        if [ "$short_name" = "$asset_name" ]; then
+            short_name=$(echo "$asset_name" | sed -E 's/-v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)*//')
+        fi
+        if [ "$short_name" != "$asset_name" ]; then
+            mv "$asset_name" "$short_name"
+            echo "📝 Renamed $asset_name -> $short_name"
+        fi
+        
         # Make executable (except for Windows .exe files)
-        if [[ "$asset_name" != *.exe ]]; then
-            chmod +x "$asset_name"
+        if [[ "$short_name" != *.exe ]]; then
+            chmod +x "$short_name"
         fi
     else
         echo -e "${RED}❌ Failed to download $asset_name${NC}"
