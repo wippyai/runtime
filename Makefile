@@ -211,11 +211,11 @@ sign-macos-binary:
 	fi
 	@echo "🔐 Signing macOS binary..."
 	@if [ -f "./dist/runner-darwin-amd64" ]; then \
-		codesign --force --options runtime --sign "$(MACOS_CERTIFICATE_NAME)" --timestamp ./dist/runner-darwin-amd64; \
+		codesign --force --options runtime --entitlements ./.github/entitlements/macos.entitlements --sign "$(MACOS_CERTIFICATE_NAME)" --timestamp ./dist/runner-darwin-amd64; \
 		echo "✅ Signed runner-darwin-amd64"; \
 	fi
 	@if [ -f "./dist/runner-darwin-arm64" ]; then \
-		codesign --force --options runtime --sign "$(MACOS_CERTIFICATE_NAME)" --timestamp ./dist/runner-darwin-arm64; \
+		codesign --force --options runtime --entitlements ./.github/entitlements/macos.entitlements --sign "$(MACOS_CERTIFICATE_NAME)" --timestamp ./dist/runner-darwin-arm64; \
 		echo "✅ Signed runner-darwin-arm64"; \
 	fi
 
