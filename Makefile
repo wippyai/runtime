@@ -119,14 +119,14 @@ build-runner-windows-amd64:
 # Standard Darwin builds (works on any macOS)
 build-runner-darwin-amd64:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build --tags "fts5 sqlite_vec" \
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 CC=clang go build --tags "fts5 sqlite_vec" \
 		-ldflags="-s -w -X main.version=$(shell git describe --tags --always --dirty)" \
 		-trimpath \
 		-o ./dist/runner-darwin-amd64 ./cmd/runner/
 
 build-runner-darwin-arm64:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build --tags "fts5 sqlite_vec" \
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 CC=clang go build --tags "fts5 sqlite_vec" \
 		-ldflags="-s -w -X main.version=$(shell git describe --tags --always --dirty)" \
 		-trimpath \
 		-o ./dist/runner-darwin-arm64 ./cmd/runner/
