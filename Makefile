@@ -63,14 +63,17 @@ build-runner-optimized:
 	@ls -lh ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH)
 
 # Build with UPX compression (maximum size reduction)
+# Note: UPX compression is disabled on macOS due to crash issues on macOS Ventura 13.0+
+# See: https://github.com/upx/upx/issues/612
 build-runner-compressed: build-runner-optimized
 	@echo "Compressing binary with UPX..."
 	@if [ "$(shell go env GOOS)" = "darwin" ]; then \
-		upx --best --lzma --force-macos ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH); \
+		echo "⚠️  UPX compression disabled on macOS due to crash issues (see https://github.com/upx/upx/issues/612)"; \
+		echo "Using optimized binary without compression..."; \
 	else \
 		upx --best --lzma ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH); \
 	fi
-	@echo "Final compressed binary size:"
+	@echo "Final binary size:"
 	@ls -lh ./dist/runner-$(shell go env GOOS)-$(shell go env GOARCH)
 
 # Cross-compilation targets (require appropriate toolchains)
@@ -119,14 +122,14 @@ build-runner-windows-amd64:
 # Standard Darwin builds (works on any macOS)
 build-runner-darwin-amd64:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 CC=clang go build --tags "fts5 sqlite_vec" \
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build --tags "fts5 sqlite_vec" \
 		-ldflags="-s -w -X main.version=$(shell git describe --tags --always --dirty)" \
 		-trimpath \
 		-o ./dist/runner-darwin-amd64 ./cmd/runner/
 
 build-runner-darwin-arm64:
 	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 CC=clang go build --tags "fts5 sqlite_vec" \
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build --tags "fts5 sqlite_vec" \
 		-ldflags="-s -w -X main.version=$(shell git describe --tags --always --dirty)" \
 		-trimpath \
 		-o ./dist/runner-darwin-arm64 ./cmd/runner/
