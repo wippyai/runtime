@@ -146,8 +146,8 @@ func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 
 	// This code runs in debug mode only, avoid blocking at cancelling self-listening services
 	// todo: revisit later, see keeper.logger
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	ctx, _ := context.WithTimeout(context.Background(), time.Second)
+	// cancel ignored
 
 	c.bus.Send(ctx, event.Event{
 		System: api.System,
