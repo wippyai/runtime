@@ -14,7 +14,7 @@ import (
 type Core struct {
 	downstream zapcore.Core
 	bus        event.Bus
-	config     *atomic.Value // holds api.Config
+	config     *atomic.Value
 }
 
 func NewCore(downstream zapcore.Core, bus event.Bus) api.Core {
@@ -113,6 +113,31 @@ type LogField struct {
 	Int    int64  `json:"int"`
 }
 
+func fieldTypeToString(ft zapcore.FieldType) string {
+	switch ft {
+	case zapcore.StringType:
+		return "string"
+	case zapcore.Int64Type:
+		return "int64"
+	case zapcore.Int32Type:
+		return "int32"
+	case zapcore.Uint64Type:
+		return "uint64"
+	case zapcore.Uint32Type:
+		return "uint32"
+	case zapcore.Int16Type:
+		return "int16"
+	case zapcore.Uint16Type:
+		return "uint16"
+	case zapcore.Int8Type:
+		return "int8"
+	case zapcore.Uint8Type:
+		return "uint8"
+	default:
+		return "unknown"
+	}
+}
+
 func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 	logEntry := LogEntry{
 		Level:      int(ent.Level),
@@ -127,7 +152,7 @@ func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 	for _, f := range fields {
 		field := LogField{
 			Key:  f.Key,
-			Type: string(f.Type),
+			Type: fieldTypeToString(f.Type),
 		}
 
 		switch f.Type {
@@ -144,10 +169,8 @@ func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 		logFields = append(logFields, field)
 	}
 
-	// This code runs in debug mode only, avoid blocking at cancelling self-listening services
-	// todo: revisit later, see keeper.logger
+	// we only run this code in debug mode, so a second timeout is fine
 	ctx, _ := context.WithTimeout(context.Background(), time.Second)
-	// cancel ignored
 
 	c.bus.Send(ctx, event.Event{
 		System: api.System,
