@@ -3,6 +3,7 @@ package logs
 import (
 	"context"
 	"sync/atomic"
+	"time"
 
 	api "github.com/ponyruntime/pony/api/logs"
 
@@ -168,16 +169,20 @@ func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 		logFields = append(logFields, field)
 	}
 
-	go c.bus.Send(context.Background(), event.Event{
-		System: api.System,
-		Kind:   api.Entry,
-		Path:   ent.LoggerName,
-		Data: struct {
-			Entry  LogEntry   `json:"entry"`
-			Fields []LogField `json:"fields"`
-		}{
-			Entry:  logEntry,
-			Fields: logFields,
-		},
-	})
+	// we only run this code in debug mode, so a second timeout is fine
+	go func() {
+		ctx, _ := context.WithTimeout(context.Background(), time.Second)
+		c.bus.Send(ctx, event.Event{
+			System: api.System,
+			Kind:   api.Entry,
+			Path:   ent.LoggerName,
+			Data: struct {
+				Entry  LogEntry   `json:"entry"`
+				Fields []LogField `json:"fields"`
+			}{
+				Entry:  logEntry,
+				Fields: logFields,
+			},
+		})
+	}()
 }
