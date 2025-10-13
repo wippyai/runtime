@@ -77,15 +77,31 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 		return fmt.Errorf("load registry entries: %w", err)
 	}
 
-	registryLoader := dm.createModuleLoaderManager(entries)
+	// Create a temporary directory for dependency resolution during update
+	tempDir := filepath.Join(dm.folderPath, ".wippy-update.tmp")
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return fmt.Errorf("create temporary directory: %w", err)
+	}
+	defer func() {
+		if cleanupErr := os.RemoveAll(tempDir); cleanupErr != nil {
+			dm.logger.Warn("Failed to cleanup temporary directory",
+				zap.String("path", tempDir),
+				zap.Error(cleanupErr))
+		}
+	}()
+
+	dm.logger.Debug("Using temporary directory for dependency resolution",
+		zap.String("temp_dir", tempDir))
+
+	// Use temporary directory for dependency resolution
+	registryLoader := dm.createModuleLoaderManagerWithTempDir(entries, tempDir)
 	loadResult, err := registryLoader.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load dependencies: %w", err)
 	}
 
-	if err := dm.installModules(ctx, loadResult); err != nil {
-		return fmt.Errorf("install modules: %w", err)
-	}
+	// Don't install modules during update - only resolve dependencies
+	// Modules will be installed after the lock file is saved
 
 	var modulesDir string
 	var existingReplacements []deps.Replacement
@@ -166,7 +182,9 @@ func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir str
 	return entries, nil
 }
 
-func (dm *DependencyManager) createModuleLoaderManager(entries []regapi.Entry) *deps.Manager {
+// createModuleLoaderManagerWithTempDir creates a module loader manager that uses a temporary directory
+// This is used during update operations to avoid modifying the actual modules directory
+func (dm *DependencyManager) createModuleLoaderManagerWithTempDir(entries []regapi.Entry, tempDir string) *deps.Manager {
 	baseURL := "https://modules.wippy.ai"
 	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
 		baseURL = modulesURL
@@ -181,6 +199,8 @@ func (dm *DependencyManager) createModuleLoaderManager(entries []regapi.Entry) *
 
 	registryLoader := deps.NewEntryLoader(entries, dm.logger)
 
+	// Use temporary directory instead of the actual vendor folder
+	tempVendorFolder := filepath.Join(tempDir, "vendor")
 	return deps.NewManager(
 		organizationClient,
 		moduleClient,
@@ -189,22 +209,8 @@ func (dm *DependencyManager) createModuleLoaderManager(entries []regapi.Entry) *
 		downloadClient,
 		registryLoader,
 		dm.logger,
-		deps.VendorFolder,
+		tempVendorFolder,
 	)
-}
-
-func (dm *DependencyManager) installModules(ctx context.Context, loadResult *deps.LoadResult) error {
-	if len(loadResult.Modules) == 0 {
-		return nil
-	}
-
-	for _, module := range loadResult.Modules {
-		if err := dm.installSingleModule(ctx, module); err != nil {
-			return fmt.Errorf("install module %s: %w", module.Name.String(), err)
-		}
-	}
-
-	return nil
 }
 
 func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, lockFile *deps.LockFile, lockPath string) error {
@@ -221,35 +227,6 @@ func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, loc
 		if err := dm.installModuleFromLockFile(ctx, module, replacements, lockPath); err != nil {
 			return fmt.Errorf("install module %s: %w", module.Name, err)
 		}
-	}
-
-	return nil
-}
-
-func (dm *DependencyManager) installSingleModule(ctx context.Context, module deps.LoadedModule) error {
-	if dm.isModuleInstalled(module) {
-		return nil
-	}
-
-	manifest := &deps.Manifest{
-		Dependencies: []deps.ManifestDependency{
-			{
-				Name:    module.Name,
-				Version: module.Version,
-			},
-		},
-	}
-
-	loader := &singleModuleLoader{manifest: manifest}
-	registryLoader := dm.createModuleLoaderManagerWithLoader(loader)
-
-	loadResult, err := registryLoader.Load(ctx)
-	if err != nil {
-		return fmt.Errorf("install module %s: %w", module.Name.String(), err)
-	}
-
-	if len(loadResult.Modules) == 0 {
-		return fmt.Errorf("no modules loaded for %s", module.Name.String())
 	}
 
 	return nil
@@ -404,51 +381,6 @@ func (dm *DependencyManager) displayModuleOperation(stat deps.ModuleStats, verbo
 	}
 
 	dm.logger.Info(statusText)
-}
-
-func (dm *DependencyManager) createModuleLoaderManagerWithLoader(loader deps.ManifestLoader) *deps.Manager {
-	baseURL := "https://modules.wippy.ai"
-	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
-		baseURL = modulesURL
-	}
-
-	client := &http.Client{}
-	organizationClient := identityv1connect.NewOrganizationServiceClient(client, baseURL)
-	moduleClient := modulev1connect.NewModuleServiceClient(client, baseURL)
-	labelClient := modulev1connect.NewLabelServiceClient(client, baseURL)
-	commitClient := modulev1connect.NewCommitServiceClient(client, baseURL)
-	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
-
-	return deps.NewManager(
-		organizationClient,
-		moduleClient,
-		commitClient,
-		labelClient,
-		downloadClient,
-		loader,
-		dm.logger,
-		deps.VendorFolder,
-	)
-}
-
-func (dm *DependencyManager) isModuleInstalled(module deps.LoadedModule) bool {
-	moduleBaseDir := filepath.Join(deps.VendorFolder, module.Name.Organization)
-	if _, err := os.Stat(moduleBaseDir); err != nil {
-		return false
-	}
-
-	entries, err := os.ReadDir(moduleBaseDir)
-	if err != nil {
-		return false
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), module.Name.Module+"@") {
-			return true
-		}
-	}
-
-	return false
 }
 
 // CleanupModuleContent removes unused content from module directories
