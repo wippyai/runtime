@@ -13,7 +13,7 @@ import (
 type Core struct {
 	downstream zapcore.Core
 	bus        event.Bus
-	config     *atomic.Value // holds api.Config
+	config     *atomic.Value
 }
 
 func NewCore(downstream zapcore.Core, bus event.Bus) api.Core {
@@ -42,12 +42,10 @@ func (c *Core) GetConfig() api.Config {
 func (c *Core) Enabled(level zapcore.Level) bool {
 	cfg := c.config.Load().(api.Config)
 
-	// Enable if event streaming is on (accepts all levels)
 	if cfg.StreamToEvents {
 		return true
 	}
 
-	// Enable if downstream is on AND level meets minimum threshold
 	if cfg.PropagateDownstream && level >= cfg.MinLevel {
 		return true
 	}
@@ -75,14 +73,12 @@ func (c *Core) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.Check
 func (c *Core) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 	cfg := c.config.Load().(api.Config)
 
-	// Send to downstream only if enabled AND level meets threshold
 	if cfg.PropagateDownstream && ent.Level >= cfg.MinLevel {
 		if err := c.downstream.Write(ent, fields); err != nil {
 			return err
 		}
 	}
 
-	// Always stream to events if enabled (no level filtering)
 	if cfg.StreamToEvents {
 		c.publishLogEvent(ent, fields)
 	}
@@ -100,17 +96,89 @@ func (c *Core) Sync() error {
 	return nil
 }
 
+type LogEntry struct {
+	Level      int    `json:"level"`
+	Time       int64  `json:"time"`
+	LoggerName string `json:"logger_name"`
+	Message    string `json:"message"`
+	Caller     string `json:"caller"`
+	Stack      string `json:"stack"`
+}
+
+type LogField struct {
+	Key    string `json:"key"`
+	Type   string `json:"type"`
+	String string `json:"string"`
+	Int    int64  `json:"int"`
+}
+
+func fieldTypeToString(ft zapcore.FieldType) string {
+	switch ft {
+	case zapcore.StringType:
+		return "string"
+	case zapcore.Int64Type:
+		return "int64"
+	case zapcore.Int32Type:
+		return "int32"
+	case zapcore.Uint64Type:
+		return "uint64"
+	case zapcore.Uint32Type:
+		return "uint32"
+	case zapcore.Int16Type:
+		return "int16"
+	case zapcore.Uint16Type:
+		return "uint16"
+	case zapcore.Int8Type:
+		return "int8"
+	case zapcore.Uint8Type:
+		return "uint8"
+	default:
+		return "unknown"
+	}
+}
+
 func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
+	logEntry := LogEntry{
+		Level:      int(ent.Level),
+		Time:       ent.Time.UnixNano(),
+		LoggerName: ent.LoggerName,
+		Message:    ent.Message,
+		Caller:     ent.Caller.String(),
+		Stack:      ent.Stack,
+	}
+
+	logFields := make([]LogField, 0, len(fields))
+	for _, f := range fields {
+		field := LogField{
+			Key:  f.Key,
+			Type: fieldTypeToString(f.Type),
+		}
+
+		switch f.Type {
+		case zapcore.StringType:
+			field.String = f.String
+		case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type:
+			field.Int = f.Integer
+		case zapcore.Uint64Type, zapcore.Uint32Type, zapcore.Uint16Type, zapcore.Uint8Type:
+			field.Int = int64(f.Integer)
+		default:
+			field.String = f.String
+		}
+
+		logFields = append(logFields, field)
+	}
+
+	// we only run this code in debug mode, so a second timeout is fine
 	c.bus.Send(context.Background(), event.Event{
 		System: api.System,
 		Kind:   api.Entry,
 		Path:   ent.LoggerName,
 		Data: struct {
-			Entry  zapcore.Entry   `json:"entry"`
-			Fields []zapcore.Field `json:"fields"`
+			Entry  LogEntry   `json:"entry"`
+			Fields []LogField `json:"fields"`
 		}{
-			Entry:  ent,
-			Fields: fields,
+			Entry:  logEntry,
+			Fields: logFields,
 		},
 	})
 }

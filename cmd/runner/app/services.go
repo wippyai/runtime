@@ -366,7 +366,7 @@ func withLuaRuntime(a *App) []eventbus.EventHandler {
 				ostime.NewOSTimeModule(),
 				channel.NewChannelModule(),
 				timemod.NewTimeModule(),
-				logger.NewLoggerModule(a.logger.Named("app")),
+				logger.NewLoggerModule(a.logger),
 				base64.NewBase64Module(),
 				jsonmod.NewJSONModule(),
 				fsmod.NewFSModule(),
