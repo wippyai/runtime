@@ -547,7 +547,7 @@ func (a *App) loadApplicationState(ctx context.Context, appFS iofs.FS) (regapi.C
 
 	cleanup, err := initOpenTelemetry(
 		context.Background(),
-		os.Getenv("OTEL_ENDPOINT"),
+		os.Getenv("OTEL_ENDPOINT"), // todo: cleanup to env layer
 		os.Getenv("OTEL_SERVICE_NAME"),
 		os.Getenv("OTEL_SERVICE_VERSION"),
 		a.logger,
