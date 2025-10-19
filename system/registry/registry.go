@@ -31,15 +31,13 @@ func NewRegistry(
 	log *zap.Logger,
 ) *Reg {
 	reg := &Reg{
-		history: history,
-		runner:  runner,
-		builder: builder,
-		state:   registry.State{},
-		log:     log,
+		history:        history,
+		runner:         runner,
+		builder:        builder,
+		state:          registry.State{},
+		log:            log,
+		currentVersion: version.FromParent(nil, 0), // initial version
 	}
-
-	// Default boot version
-	reg.versionNum.Store(1)
 
 	return reg
 }

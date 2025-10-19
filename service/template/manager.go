@@ -124,16 +124,12 @@ func (m *Manager) handleTemplateAdd(_ context.Context, entry registry.Entry) err
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Decode configuration
-	cfg := new(template.Config)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
+	cfg, err := decodeEntity[template.Config](entry, m.dtt)
+	if err != nil {
 		return fmt.Errorf("failed to unmarshal template config: %w", err)
 	}
-
-	// Initialize defaults and validate
-	cfg.InitDefaults()
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid template config: %w", err)
+	if entry.Meta != nil {
+		cfg.Meta = entry.Meta
 	}
 
 	// Set namespace if not specified
@@ -188,10 +184,13 @@ func (m *Manager) handleTemplateUpdate(_ context.Context, entry registry.Entry) 
 		return fmt.Errorf("%w: %s", ErrTemplateNotFound, entry.ID)
 	}
 
-	// Decode configuration
-	cfg := new(template.Config)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
+	cfg, err := decodeEntity[template.Config](entry, m.dtt)
+	if err != nil {
 		return fmt.Errorf("failed to unmarshal template config: %w", err)
+	}
+
+	if entry.Meta != nil {
+		cfg.Meta = entry.Meta
 	}
 
 	// Initialize defaults and validate
@@ -355,9 +354,8 @@ func (m *Manager) handleSetAdd(ctx context.Context, entry registry.Entry) error 
 		return fmt.Errorf("template set %s already exists", entry.ID)
 	}
 
-	// Decode configuration
-	cfg := new(template.SetConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
+	cfg, err := decodeEntity[template.SetConfig](entry, m.dtt)
+	if err != nil {
 		return fmt.Errorf("failed to unmarshal set config: %w", err)
 	}
 
@@ -407,8 +405,8 @@ func (m *Manager) handleSetUpdate(ctx context.Context, entry registry.Entry) err
 	}
 
 	// Decode configuration
-	cfg := new(template.SetConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
+	cfg, err := decodeEntity[template.SetConfig](entry, m.dtt)
+	if err != nil {
 		return fmt.Errorf("failed to unmarshal set config: %w", err)
 	}
 
@@ -533,4 +531,34 @@ func (m *Manager) Acquire(
 
 	// Create a resource for the template
 	return set.Acquire(ctx, registry.ID{Name: entry.Name}, mode)
+}
+
+//
+// Helper functions
+//
+
+// decodeEntity is a helper to decode registry entries into specific configs
+func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*T, error) {
+	if entry.Data == nil {
+		return nil, fmt.Errorf("configuration data is required")
+	}
+
+	cfg := new(T)
+	if err := transcoder.Unmarshal(entry.Data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	// Validate if the config implements Validate()
+	if df, ok := interface{}(cfg).(interface{ InitDefaults() }); ok {
+		df.InitDefaults()
+	}
+
+	// Validate if the config implements Validate()
+	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid configuration: %w", err)
+		}
+	}
+
+	return cfg, nil
 }
