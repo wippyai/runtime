@@ -132,6 +132,46 @@ func fieldTypeToString(ft zapcore.FieldType) string {
 		return "int8"
 	case zapcore.Uint8Type:
 		return "uint8"
+	case zapcore.UnknownType:
+		return "unknown"
+	case zapcore.ArrayMarshalerType:
+		return "unknown"
+	case zapcore.ObjectMarshalerType:
+		return "unknown"
+	case zapcore.BinaryType:
+		return "unknown"
+	case zapcore.BoolType:
+		return "unknown"
+	case zapcore.ByteStringType:
+		return "unknown"
+	case zapcore.Complex128Type:
+		return "unknown"
+	case zapcore.Complex64Type:
+		return "unknown"
+	case zapcore.DurationType:
+		return "unknown"
+	case zapcore.Float64Type:
+		return "unknown"
+	case zapcore.Float32Type:
+		return "unknown"
+	case zapcore.TimeType:
+		return "unknown"
+	case zapcore.TimeFullType:
+		return "unknown"
+	case zapcore.UintptrType:
+		return "unknown"
+	case zapcore.ReflectType:
+		return "unknown"
+	case zapcore.NamespaceType:
+		return "unknown"
+	case zapcore.StringerType:
+		return "unknown"
+	case zapcore.ErrorType:
+		return "unknown"
+	case zapcore.SkipType:
+		return "unknown"
+	case zapcore.InlineMarshalerType:
+		return "unknown"
 	default:
 		return "unknown"
 	}
@@ -160,7 +200,47 @@ func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 		case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type:
 			field.Int = f.Integer
 		case zapcore.Uint64Type, zapcore.Uint32Type, zapcore.Uint16Type, zapcore.Uint8Type:
-			field.Int = int64(f.Integer)
+			field.Int = f.Integer
+		case zapcore.UnknownType:
+			field.String = f.String
+		case zapcore.ArrayMarshalerType:
+			field.String = f.String
+		case zapcore.ObjectMarshalerType:
+			field.String = f.String
+		case zapcore.BinaryType:
+			field.String = f.String
+		case zapcore.BoolType:
+			field.String = f.String
+		case zapcore.ByteStringType:
+			field.String = f.String
+		case zapcore.Complex128Type:
+			field.String = f.String
+		case zapcore.Complex64Type:
+			field.String = f.String
+		case zapcore.DurationType:
+			field.String = f.String
+		case zapcore.Float64Type:
+			field.String = f.String
+		case zapcore.Float32Type:
+			field.String = f.String
+		case zapcore.TimeType:
+			field.String = f.String
+		case zapcore.TimeFullType:
+			field.String = f.String
+		case zapcore.UintptrType:
+			field.String = f.String
+		case zapcore.ReflectType:
+			field.String = f.String
+		case zapcore.NamespaceType:
+			field.String = f.String
+		case zapcore.StringerType:
+			field.String = f.String
+		case zapcore.ErrorType:
+			field.String = f.String
+		case zapcore.SkipType:
+			field.String = f.String
+		case zapcore.InlineMarshalerType:
+			field.String = f.String
 		default:
 			field.String = f.String
 		}
