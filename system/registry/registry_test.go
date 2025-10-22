@@ -74,8 +74,11 @@ func TestNewRegistry(t *testing.T) {
 		t.Errorf("Expected state to be initialized, got nil")
 	}
 
-	if reg.currentVersion != nil {
-		t.Errorf("Expected currentVersion to be nil, got %v", reg.currentVersion)
+	if reg.currentVersion == nil {
+		t.Errorf("Expected currentVersion to be initialized, got nil")
+	}
+	if reg.currentVersion.ID() != 0 {
+		t.Errorf("Expected currentVersion to be v0, got %v", reg.currentVersion)
 	}
 }
 
@@ -175,8 +178,8 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 	}
 
 	head, _ := hist.Head()
-	if newVersion.ID() != 0 {
-		t.Errorf("Expected new version to be v0, got: %v", newVersion)
+	if newVersion.ID() != 1 {
+		t.Errorf("Expected new version to be v1, got: %v", newVersion)
 	}
 
 	if !reflect.DeepEqual(head, newVersion) {
@@ -442,7 +445,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	}
 
 	//nolint:gosec // used in tests
-	if int(currentVersion.ID()) != numGoroutines*changesPerRoutine-1 {
+	if int(currentVersion.ID()) != numGoroutines*changesPerRoutine {
 		t.Errorf("Expected current version Process %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
 	}
 }
@@ -698,8 +701,8 @@ data:
 	}
 
 	// 6. Verify the state
-	if newVersion.ID() != 0 {
-		t.Errorf("Expected current version to be 0, got: %v", newVersion.ID())
+	if newVersion.ID() != 1 {
+		t.Errorf("Expected current version to be 1, got: %v", newVersion.ID())
 	}
 
 	expectedState := registry.State{
@@ -770,25 +773,13 @@ func TestInMemoryRegistry_Current(t *testing.T) {
 
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
 
-	// Test when no current version is set
-	_, err := reg.Current()
-	if err == nil {
-		t.Error("Expected error when no current version is set")
-	}
-	if !strings.Contains(err.Error(), "no current version") {
-		t.Errorf("Expected error message to contain 'no current version', got: %v", err)
-	}
-
-	// Test when current version is set
-	v0 := version.New(registry.RootVersion)
-	reg.currentVersion = v0
-
+	// Test when current version is initialized (v0)
 	version, err := reg.Current()
 	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
+		t.Errorf("Expected no error when current version is initialized, got: %v", err)
 	}
-	if version != v0 {
-		t.Errorf("Expected version %v, got %v", v0, version)
+	if version.ID() != 0 {
+		t.Errorf("Expected current version to be v0, got: %v", version)
 	}
 }
 
