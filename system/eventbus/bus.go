@@ -306,10 +306,10 @@ func (b *Bus) processActions() bool {
 				// Check contexts and deliver
 				select {
 				case <-a.sendEvent.ctx.Done():
-					// Event context cancelled
+					// Event context canceled
 					goto cleanup
 				case <-s.ctx.Done():
-					// Subscriber context cancelled, mark for cleanup
+					// Subscriber context canceled, mark for cleanup
 					expiredSubs = append(expiredSubs, id)
 					continue
 				case s.eventCh <- a.sendEvent.event:

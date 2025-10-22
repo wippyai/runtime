@@ -30,13 +30,16 @@ func NewRegistry(
 	builder registry.StateBuilder,
 	log *zap.Logger,
 ) *Reg {
-	return &Reg{
-		history: history,
-		runner:  runner,
-		builder: builder,
-		state:   registry.State{},
-		log:     log,
+	reg := &Reg{
+		history:        history,
+		runner:         runner,
+		builder:        builder,
+		state:          registry.State{},
+		log:            log,
+		currentVersion: version.FromParent(nil, 0), // initial version
 	}
+
+	return reg
 }
 
 // --- EntryReader Interface Implementation ---
