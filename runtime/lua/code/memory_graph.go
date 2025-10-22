@@ -79,7 +79,6 @@ type MemoryGraph struct {
 	nodes map[registry.ID]*Node
 
 	// Performance caches
-	stringCache           map[registry.ID]string  // Cache for ID.String() results
 	dependencyLevelsCache [][]*Node               // Cache for DependencyLevels result
 	dependentsCache       map[registry.ID][]*Node // Cache for GetAllDependents results
 	cacheValid            bool                    // Whether caches are valid
@@ -90,7 +89,6 @@ func NewMemoryGraph() *MemoryGraph {
 	return &MemoryGraph{
 		graph:           graph.New[registry.ID, Edge](),
 		nodes:           make(map[registry.ID]*Node),
-		stringCache:     make(map[registry.ID]string),
 		dependentsCache: make(map[registry.ID][]*Node),
 		cacheValid:      true,
 	}
@@ -103,16 +101,6 @@ func (m *MemoryGraph) invalidateCache() {
 	for k := range m.dependentsCache {
 		delete(m.dependentsCache, k)
 	}
-}
-
-// getIDString returns a cached string representation of the ID
-func (m *MemoryGraph) getIDString(id registry.ID) string {
-	if str, exists := m.stringCache[id]; exists {
-		return str
-	}
-	str := id.String()
-	m.stringCache[id] = str
-	return str
 }
 
 // hasCycle performs DFS-based cycle detection without cloning the graph
@@ -189,7 +177,6 @@ func (m *MemoryGraph) RemoveNode(id registry.ID) error {
 	}
 
 	delete(m.nodes, id)
-	delete(m.stringCache, id)
 	m.invalidateCache()
 	return nil
 }
@@ -365,9 +352,8 @@ func (m *MemoryGraph) DependencyLevels() ([][]*Node, error) {
 			}
 		}
 
-		// Sort using cached strings to avoid fmt.Sprintf in hot path
 		sort.Slice(level, func(i, j int) bool {
-			return m.getIDString(level[i].ID) < m.getIDString(level[j].ID)
+			return level[i].ID.String() < level[j].ID.String()
 		})
 
 		levels = append(levels, level)
