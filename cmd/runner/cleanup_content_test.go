@@ -27,8 +27,8 @@ func TestCleanupModuleContent(t *testing.T) {
 		t.Fatalf("Failed to create modules directory: %v", err)
 	}
 
-	// Create test module with multiple versions
-	modulePath := filepath.Join(modulesDir, "wippyai", "security@abc123")
+	// Create test module with multiple versions inside vendor subdirectory
+	modulePath := filepath.Join(modulesDir, "vendor", "wippyai", "security@abc123")
 	if err := os.MkdirAll(modulePath, 0755); err != nil {
 		t.Fatalf("Failed to create module directory: %v", err)
 	}
@@ -147,8 +147,8 @@ func TestCleanupAllUnusedModules(t *testing.T) {
 		t.Fatalf("Failed to create modules directory: %v", err)
 	}
 
-	// Create used module with multiple versions
-	usedModulePath := filepath.Join(modulesDir, "wippyai", "security@abc123")
+	// Create used module with multiple versions inside vendor subdirectory
+	usedModulePath := filepath.Join(modulesDir, "vendor", "wippyai", "security@abc123")
 	if err := os.MkdirAll(usedModulePath, 0755); err != nil {
 		t.Fatalf("Failed to create used module directory: %v", err)
 	}
@@ -165,8 +165,8 @@ func TestCleanupAllUnusedModules(t *testing.T) {
 		t.Fatalf("Failed to create new version directory: %v", err)
 	}
 
-	// Create unused module (should be removed entirely)
-	unusedModulePath := filepath.Join(modulesDir, "wippyai", "unused@def456")
+	// Create unused module (should be removed entirely) inside vendor subdirectory
+	unusedModulePath := filepath.Join(modulesDir, "vendor", "wippyai", "unused@def456")
 	if err := os.MkdirAll(unusedModulePath, 0755); err != nil {
 		t.Fatalf("Failed to create unused module directory: %v", err)
 	}

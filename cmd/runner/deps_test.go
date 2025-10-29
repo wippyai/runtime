@@ -307,50 +307,53 @@ func TestCleanupUnusedModules(t *testing.T) {
 	}
 }
 
-// TestExtractVersionFromPath tests the version extraction function
-func TestExtractVersionFromPath(t *testing.T) {
+// TestExtractVersionFromModuleFolder tests the version extraction from module folder names
+func TestExtractVersionFromModuleFolder(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	dm := app.NewDependencyManager("", "", logger)
 
 	tests := []struct {
-		path     string
-		expected string
+		name       string
+		folderName string
+		expected   string
 	}{
 		{
-			path:     "wippy/security@01978c92-7d02-7b4a-95df-55b57cfe80b7/module-security-0.0.7",
-			expected: "0.0.7",
+			name:       "module with v prefix",
+			folderName: "module-wippy-security-v0.3.0",
+			expected:   "v0.3.0",
 		},
 		{
-			path:     "wippyai/actor@abc123/module-actor-1.2.3",
-			expected: "1.2.3",
+			name:       "module without v prefix",
+			folderName: "module-wippy-security-0.3.0",
+			expected:   "0.3.0",
 		},
 		{
-			path:     "wippyai/test@def456/module-test-2.0.0-beta.1",
-			expected: "2.0.0-beta.1",
+			name:       "module with beta version",
+			folderName: "module-wippy-test-v2.0.0-beta.1",
+			expected:   "v2.0.0-beta.1",
 		},
 		{
-			path:     "wippyai/simple/module-simple-1.0.0",
-			expected: "1.0.0",
+			name:       "simple module",
+			folderName: "module-simple-1.0.0",
+			expected:   "1.0.0",
 		},
 		{
-			path:     "wippyai/invalid/module-invalid",
-			expected: "unknown",
+			name:       "invalid folder name",
+			folderName: "module-invalid",
+			expected:   "",
 		},
 		{
-			path:     "wippyai/short/module-short-1",
-			expected: "unknown",
-		},
-		{
-			path:     "wippyai/empty",
-			expected: "unknown",
+			name:       "short version",
+			folderName: "module-short-1",
+			expected:   "",
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			result := dm.ExtractVersionFromPath(tt.path)
+		t.Run(tt.name, func(t *testing.T) {
+			result := dm.ExtractVersionFromModuleFolder(tt.folderName)
 			if result != tt.expected {
-				t.Errorf("extractVersionFromPath(%q) = %q, want %q", tt.path, result, tt.expected)
+				t.Errorf("ExtractVersionFromModuleFolder(%q) = %q, want %q", tt.folderName, result, tt.expected)
 			}
 		})
 	}
@@ -404,8 +407,8 @@ func TestInstallAfterCleanup(t *testing.T) {
 		t.Fatalf("Failed to create modules directory: %v", err)
 	}
 
-	// Create an old version of a module (simulating v0.0.6)
-	oldModuleDir := filepath.Join(modulesDir, "wippy", "security@old-hash")
+	// Create an old version of a module (simulating v0.0.6) inside vendor subdirectory
+	oldModuleDir := filepath.Join(modulesDir, "vendor", "wippy", "security@old-hash")
 	if err := os.MkdirAll(oldModuleDir, 0755); err != nil {
 		t.Fatalf("Failed to create old module directory: %v", err)
 	}
@@ -498,6 +501,7 @@ func createTestLockFile(modules []deps.LockedModule, modulesDir string) *deps.Lo
 }
 
 // createRealModuleDir creates a module directory structure using real wippy format
+// baseDir is the modules directory (e.g., ".wippy"), and it creates vendor subdirectory
 func createRealModuleDir(t *testing.T, baseDir, module, version string) {
 	var dirName string
 	if version != "" {
@@ -506,8 +510,8 @@ func createRealModuleDir(t *testing.T, baseDir, module, version string) {
 		dirName = module
 	}
 
-	// Create the main module directory (with hash)
-	moduleDir := filepath.Join(baseDir, "wippyai", dirName)
+	// Create the main module directory (with hash) inside vendor subdirectory
+	moduleDir := filepath.Join(baseDir, "vendor", "wippyai", dirName)
 	if err := os.MkdirAll(moduleDir, 0755); err != nil {
 		t.Fatalf("Failed to create module directory %s: %v", moduleDir, err)
 	}
