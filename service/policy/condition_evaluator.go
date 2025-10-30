@@ -20,7 +20,7 @@ func NewConditionEvaluator(conditions []policy.Condition) (*ConditionEvaluator, 
 	patterns := make(map[string]*regexp.Regexp)
 
 	for _, condition := range conditions {
-		if condition.Operator == "matches" {
+		if condition.Operator == "matches" || condition.Operator == "nmatches" {
 			if patternStr, ok := condition.Value.(string); ok {
 				if _, exists := patterns[patternStr]; !exists {
 					compiled, err := regexp.Compile(patternStr)
@@ -173,7 +173,14 @@ func (e *ConditionEvaluator) extractNestedMap(m map[string]any, parts []string) 
 
 func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator string) (bool, error) {
 	if fieldValue == nil {
-		return operator == "exists" && !compareValue.(bool), nil
+		switch operator {
+		case "exists":
+			return !compareValue.(bool), nil
+		case "nexists":
+			return compareValue.(bool), nil
+		default:
+			return false, nil
+		}
 	}
 
 	switch operator {
@@ -182,6 +189,12 @@ func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator stri
 			return boolValue, nil
 		}
 		return true, nil
+
+	case "nexists":
+		if boolValue, ok := compareValue.(bool); ok {
+			return !boolValue, nil
+		}
+		return false, nil
 
 	case "eq":
 		return e.equals(fieldValue, compareValue)
@@ -196,11 +209,23 @@ func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator stri
 	case "in":
 		return e.isIn(fieldValue, compareValue)
 
+	case "nin":
+		result, err := e.isIn(fieldValue, compareValue)
+		return !result, err
+
 	case "contains":
 		return e.contains(fieldValue, compareValue)
 
+	case "ncontains":
+		result, err := e.contains(fieldValue, compareValue)
+		return !result, err
+
 	case "matches":
 		return e.matches(fieldValue, compareValue)
+
+	case "nmatches":
+		result, err := e.matches(fieldValue, compareValue)
+		return !result, err
 
 	default:
 		return false, fmt.Errorf("unsupported operator: %s", operator)

@@ -116,7 +116,11 @@ func (c *Config) Validate() error {
 
 		// Validate operators
 		switch condition.Operator {
-		case "eq", "ne", "lt", "gt", "lte", "gte", "in", "exists", "contains", "matches":
+		case "eq", "ne", "lt", "gt", "lte", "gte",
+			"in", "nin",
+			"exists", "nexists",
+			"contains", "ncontains",
+			"matches", "nmatches":
 			// Valid operators
 		default:
 			return fmt.Errorf("condition[%d]: invalid operator: %s", i, condition.Operator)
