@@ -220,16 +220,13 @@ func ConvertFromLockFile(lockFile *LockFile, lockFilePath string) *LoadResult {
 				modulePath = filepath.Join(name.Organization, name.Module+"@"+module.Hash)
 			}
 
-			// Use the modules directory from the lock file
-			modulesDir := lockFile.Directories.Modules
-			if modulesDir == "" {
-				modulesDir = VendorFolder // fallback to default
-			}
+			// Use the vendor directory from the lock file (modules + "/vendor")
+			vendorPath := lockFile.GetModulesVendorPath()
 
 			modules = append(modules, LoadedModule{
 				Name:    name,
 				Version: module.Version,
-				Path:    filepath.Join(modulesDir, modulePath),
+				Path:    filepath.Join(vendorPath, modulePath),
 			})
 		}
 	}
@@ -252,4 +249,86 @@ func (lf *LockFile) ValidateReplacements(lockFilePath string) error {
 		}
 	}
 	return nil
+}
+
+// GetModulesVendorPath returns the full vendor path by appending "/vendor" to the modules directory
+// For example: ".wippy" -> ".wippy/vendor"
+func (lf *LockFile) GetModulesVendorPath() string {
+	modulesDir := lf.Directories.Modules
+	if modulesDir == "" {
+		modulesDir = DefaultModulesDir
+	}
+	return filepath.Join(modulesDir, "vendor")
+}
+
+// CalculateChanges computes the difference between two lock files and returns categorized operations.
+// It classifies modules as installed (new), removed (missing), or updated (same name, different hash/version).
+func CalculateChanges(oldLock, newLock *LockFile) *LockFileChanges {
+	changes := &LockFileChanges{
+		Installed: make([]ModuleOperation, 0),
+		Updated:   make([]ModuleOperation, 0),
+		Removed:   make([]ModuleOperation, 0),
+	}
+
+	if oldLock == nil && newLock == nil {
+		return changes
+	}
+
+	// Index old and new by module name
+	oldLen := 0
+	if oldLock != nil {
+		oldLen = len(oldLock.Modules)
+	}
+	oldByName := make(map[string]LockedModule, oldLen)
+	if oldLock != nil {
+		for _, m := range oldLock.Modules {
+			oldByName[m.Name] = m
+		}
+	}
+
+	newLen := 0
+	if newLock != nil {
+		newLen = len(newLock.Modules)
+	}
+	newByName := make(map[string]LockedModule, newLen)
+	if newLock != nil {
+		for _, m := range newLock.Modules {
+			newByName[m.Name] = m
+		}
+	}
+
+	// Detect installations and updates
+	for name, newMod := range newByName {
+		if oldMod, ok := oldByName[name]; ok {
+			// Present before and after: check version/hash changes
+			if oldMod.Hash != newMod.Hash || oldMod.Version != newMod.Version {
+				changes.Updated = append(changes.Updated, ModuleOperation{
+					Name:       name,
+					Version:    newMod.Version,
+					OldVersion: oldMod.Version,
+					Action:     ActionUpdated,
+				})
+			}
+		} else {
+			// New install
+			changes.Installed = append(changes.Installed, ModuleOperation{
+				Name:    name,
+				Version: newMod.Version,
+				Action:  ActionInstalled,
+			})
+		}
+	}
+
+	// Detect removals
+	for name, oldMod := range oldByName {
+		if _, ok := newByName[name]; !ok {
+			changes.Removed = append(changes.Removed, ModuleOperation{
+				Name:    name,
+				Version: oldMod.Version,
+				Action:  ActionRemoved,
+			})
+		}
+	}
+
+	return changes
 }

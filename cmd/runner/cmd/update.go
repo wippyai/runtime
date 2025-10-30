@@ -29,8 +29,9 @@ func runUpdate(cmd *cobra.Command, _ []string, logger *zap.Logger) error {
 
 	logger.Info("Updating dependencies")
 
-	// Check if lock file exists
+	// Check if lock file exists and load old lock file BEFORE update to compare later
 	lockPath, err := deps.FindLockFile(folderPath, lockFile)
+	var oldLock *deps.LockFile
 	if err != nil {
 		logger.Info("Lock file not found, running init")
 
@@ -64,12 +65,13 @@ func runUpdate(cmd *cobra.Command, _ []string, logger *zap.Logger) error {
 			zap.String("path", lockFile),
 			zap.String("src_dir", srcDir),
 			zap.String("modules_dir", modulesDir))
+		// oldLock remains nil for new lock file
 	} else {
 		logger.Debug("Found existing lock file", zap.String("path", lockPath))
-
-		// Load existing lock file to show current state
+		// Load existing lock file to save it for comparison
 		if existingLock, err := deps.LoadLockFile(lockPath); err == nil {
-			logger.Info("Current lock file state",
+			oldLock = existingLock
+			logger.Debug("Current lock file state",
 				zap.String("src_dir", existingLock.Directories.Src),
 				zap.String("modules_dir", existingLock.Directories.Modules),
 				zap.Int("current_modules", len(existingLock.Modules)),
@@ -95,25 +97,30 @@ func runUpdate(cmd *cobra.Command, _ []string, logger *zap.Logger) error {
 
 	logger.Info("Dependencies updated and lock file regenerated")
 
-	// Run install after update
-	logger.Info("Running install after update")
-
-	// Load the updated lock file to show what will be installed
-	if updatedLock, err := deps.LoadLockFile(lockFile); err == nil {
-		logger.Info("Updated lock file contents",
-			zap.Int("total_modules", len(updatedLock.Modules)))
-
-		if len(updatedLock.Modules) > 0 {
-			logger.Info(fmt.Sprintf("Lock file operations: %d installs, %d updates, 0 removals:", len(updatedLock.Modules), len(updatedLock.Modules)))
-			for _, module := range updatedLock.Modules {
-				logger.Info(fmt.Sprintf("- %s: %s", module.Name, module.Version))
+	// Load new lock file AFTER update to compare
+	newLock, err := deps.LoadLockFile(lockFile)
+	if err != nil {
+		logger.Warn("Failed to load updated lock file for comparison", zap.Error(err))
+	} else {
+		changes := deps.CalculateChanges(oldLock, newLock)
+		if len(changes.Installed)+len(changes.Updated)+len(changes.Removed) > 0 {
+			logger.Info(fmt.Sprintf("Package operations: %d installed, %d updated, %d removed",
+				len(changes.Installed), len(changes.Updated), len(changes.Removed)))
+			for _, op := range changes.Installed {
+				logger.Info(fmt.Sprintf(" - Installing %s: %s", op.Name, op.Version))
 			}
+			for _, op := range changes.Updated {
+				logger.Info(fmt.Sprintf(" - Updating %s: %s → %s", op.Name, op.OldVersion, op.Version))
+			}
+			for _, op := range changes.Removed {
+				logger.Info(fmt.Sprintf(" - Removing %s: %s", op.Name, op.Version))
+			}
+		} else {
+			logger.Debug("Package operations summary",
+				zap.Int("installed", len(changes.Installed)),
+				zap.Int("updated", len(changes.Updated)),
+				zap.Int("removed", len(changes.Removed)))
 		}
-	}
-
-	if err := depsManager.InstallDependencies(cmd.Context()); err != nil {
-		logger.Error("failed to install updated dependencies", zap.Error(err))
-		return fmt.Errorf("failed to install updated dependencies: %w", err)
 	}
 
 	logger.Info("Update completed successfully")

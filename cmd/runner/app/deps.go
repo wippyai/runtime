@@ -62,6 +62,14 @@ func (dm *DependencyManager) InstallDependencies(ctx context.Context) error {
 	return nil
 }
 
+// InstallDependenciesFromLockFile installs dependencies from an already loaded lock file
+func (dm *DependencyManager) InstallDependenciesFromLockFile(ctx context.Context, lockFile *deps.LockFile, lockPath string) error {
+	if err := dm.installModulesFromLockFile(ctx, lockFile, lockPath); err != nil {
+		return fmt.Errorf("install modules: %w", err)
+	}
+	return nil
+}
+
 // UpdateDependencies updates dependencies and regenerates lock file
 func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 	var srcDir string
@@ -77,21 +85,42 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 		return fmt.Errorf("load registry entries: %w", err)
 	}
 
-	registryLoader := dm.createModuleLoaderManager(entries)
+	// Load existing replacements from lock file to avoid re-downloading local modules
+	var existingReplacements []deps.Replacement
+	if existingLock, err := deps.LoadLockFile(existingLockPath); err == nil {
+		existingReplacements = existingLock.Replacements
+		if len(existingReplacements) > 0 {
+			dm.logger.Debug("Found replacements in existing lock file",
+				zap.Int("count", len(existingReplacements)))
+		}
+	}
+
+	// Create a temporary directory for dependency resolution during update
+	tempDir := filepath.Join(dm.folderPath, deps.TempUpdateDir)
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return fmt.Errorf("create temporary directory: %w", err)
+	}
+	defer func() {
+		if cleanupErr := os.RemoveAll(tempDir); cleanupErr != nil {
+			dm.logger.Warn("Failed to cleanup temporary directory",
+				zap.String("path", tempDir),
+				zap.Error(cleanupErr))
+		}
+	}()
+
+	dm.logger.Debug("Using temporary directory for dependency resolution",
+		zap.String("temp_dir", tempDir))
+
+	// Use temporary directory for dependency resolution with replacements support
+	registryLoader := dm.createModuleLoaderManagerWithTempDirAndReplacements(entries, tempDir, existingReplacements, existingLockPath)
 	loadResult, err := registryLoader.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load dependencies: %w", err)
 	}
 
-	if err := dm.installModules(ctx, loadResult); err != nil {
-		return fmt.Errorf("install modules: %w", err)
-	}
-
 	var modulesDir string
-	var existingReplacements []deps.Replacement
 	if existingLock, err := deps.LoadLockFile(existingLockPath); err == nil {
 		modulesDir = existingLock.Directories.Modules
-		existingReplacements = existingLock.Replacements
 	} else {
 		modulesDir = ".wippy"
 	}
@@ -111,7 +140,8 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 
 // CleanUnusedPackages removes packages not in lock file
 func (dm *DependencyManager) CleanUnusedPackages(lockFile *deps.LockFile) error {
-	modulesDir := filepath.Join(dm.folderPath, lockFile.Directories.Modules)
+	vendorPath := lockFile.GetModulesVendorPath()
+	modulesDir := filepath.Join(dm.folderPath, vendorPath)
 
 	if _, err := os.Stat(modulesDir); os.IsNotExist(err) {
 		return nil
@@ -166,7 +196,14 @@ func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir str
 	return entries, nil
 }
 
-func (dm *DependencyManager) createModuleLoaderManager(entries []regapi.Entry) *deps.Manager {
+// createModuleLoaderManagerWithTempDirAndReplacements creates a module loader manager
+// that uses a temporary directory and applies replacements from lock file
+func (dm *DependencyManager) createModuleLoaderManagerWithTempDirAndReplacements(
+	entries []regapi.Entry,
+	tempDir string,
+	replacements []deps.Replacement,
+	lockFilePath string,
+) *deps.Manager {
 	baseURL := "https://modules.wippy.ai"
 	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
 		baseURL = modulesURL
@@ -179,8 +216,10 @@ func (dm *DependencyManager) createModuleLoaderManager(entries []regapi.Entry) *
 	commitClient := modulev1connect.NewCommitServiceClient(client, baseURL)
 	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
 
-	registryLoader := deps.NewEntryLoader(entries, dm.logger)
+	// Create entry loader with replacements support
+	registryLoader := deps.NewEntryLoaderWithReplacements(entries, replacements, lockFilePath, dm.logger)
 
+	tempVendorFolder := filepath.Join(tempDir, "vendor")
 	return deps.NewManager(
 		organizationClient,
 		moduleClient,
@@ -189,22 +228,8 @@ func (dm *DependencyManager) createModuleLoaderManager(entries []regapi.Entry) *
 		downloadClient,
 		registryLoader,
 		dm.logger,
-		deps.VendorFolder,
+		tempVendorFolder,
 	)
-}
-
-func (dm *DependencyManager) installModules(ctx context.Context, loadResult *deps.LoadResult) error {
-	if len(loadResult.Modules) == 0 {
-		return nil
-	}
-
-	for _, module := range loadResult.Modules {
-		if err := dm.installSingleModule(ctx, module); err != nil {
-			return fmt.Errorf("install module %s: %w", module.Name.String(), err)
-		}
-	}
-
-	return nil
 }
 
 func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, lockFile *deps.LockFile, lockPath string) error {
@@ -221,35 +246,6 @@ func (dm *DependencyManager) installModulesFromLockFile(ctx context.Context, loc
 		if err := dm.installModuleFromLockFile(ctx, module, replacements, lockPath); err != nil {
 			return fmt.Errorf("install module %s: %w", module.Name, err)
 		}
-	}
-
-	return nil
-}
-
-func (dm *DependencyManager) installSingleModule(ctx context.Context, module deps.LoadedModule) error {
-	if dm.isModuleInstalled(module) {
-		return nil
-	}
-
-	manifest := &deps.Manifest{
-		Dependencies: []deps.ManifestDependency{
-			{
-				Name:    module.Name,
-				Version: module.Version,
-			},
-		},
-	}
-
-	loader := &singleModuleLoader{manifest: manifest}
-	registryLoader := dm.createModuleLoaderManagerWithLoader(loader)
-
-	loadResult, err := registryLoader.Load(ctx)
-	if err != nil {
-		return fmt.Errorf("install module %s: %w", module.Name.String(), err)
-	}
-
-	if len(loadResult.Modules) == 0 {
-		return fmt.Errorf("no modules loaded for %s", module.Name.String())
 	}
 
 	return nil
@@ -274,16 +270,20 @@ func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, modu
 		return fmt.Errorf("failed to load lock file to get modules directory: %w", err)
 	}
 
-	modulesDir := filepath.Join(filepath.Dir(lockPath), lockFile.Directories.Modules)
+	// Use vendor path (modules + "/vendor")
+	vendorPath := lockFile.GetModulesVendorPath()
+	modulesDir := filepath.Join(filepath.Dir(lockPath), vendorPath)
 	moduleBaseDir := filepath.Join(modulesDir, name.Organization)
-	if _, err := os.Stat(moduleBaseDir); err == nil {
-		entries, err := os.ReadDir(moduleBaseDir)
-		if err == nil {
-			for _, entry := range entries {
-				if entry.IsDir() && strings.HasPrefix(entry.Name(), name.Module+"@") {
-					return nil
-				}
-			}
+	expectedDirName := name.Module + "@" + module.Hash
+	expectedModulePath := filepath.Join(moduleBaseDir, expectedDirName)
+
+	// Check if exact hash directory exists and has content
+	if stat, err := os.Stat(expectedModulePath); err == nil && stat.IsDir() {
+		// Check if it has a module- subdirectory
+		subEntries, err := os.ReadDir(expectedModulePath)
+		if err == nil && len(subEntries) > 0 {
+			// Module with exact hash is already installed and has content
+			return nil
 		}
 	}
 
@@ -310,6 +310,8 @@ func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, modu
 	commitClient := modulev1connect.NewCommitServiceClient(client, baseURL)
 	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
 
+	// Use vendor path (modules + "/vendor")
+	moduleVendorPath := lockFile.GetModulesVendorPath()
 	registryLoader := deps.NewManager(
 		organizationClient,
 		moduleClient,
@@ -318,7 +320,7 @@ func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, modu
 		downloadClient,
 		loader,
 		dm.logger,
-		lockFile.Directories.Modules,
+		moduleVendorPath,
 	)
 
 	loadResult, err := registryLoader.Load(ctx)
@@ -406,63 +408,15 @@ func (dm *DependencyManager) displayModuleOperation(stat deps.ModuleStats, verbo
 	dm.logger.Info(statusText)
 }
 
-func (dm *DependencyManager) createModuleLoaderManagerWithLoader(loader deps.ManifestLoader) *deps.Manager {
-	baseURL := "https://modules.wippy.ai"
-	if modulesURL := os.Getenv("WIPPY_MODULES_URL"); modulesURL != "" {
-		baseURL = modulesURL
-	}
-
-	client := &http.Client{}
-	organizationClient := identityv1connect.NewOrganizationServiceClient(client, baseURL)
-	moduleClient := modulev1connect.NewModuleServiceClient(client, baseURL)
-	labelClient := modulev1connect.NewLabelServiceClient(client, baseURL)
-	commitClient := modulev1connect.NewCommitServiceClient(client, baseURL)
-	downloadClient := modulev1connect.NewDownloadServiceClient(client, baseURL)
-
-	return deps.NewManager(
-		organizationClient,
-		moduleClient,
-		commitClient,
-		labelClient,
-		downloadClient,
-		loader,
-		dm.logger,
-		deps.VendorFolder,
-	)
-}
-
-func (dm *DependencyManager) isModuleInstalled(module deps.LoadedModule) bool {
-	moduleBaseDir := filepath.Join(deps.VendorFolder, module.Name.Organization)
-	if _, err := os.Stat(moduleBaseDir); err != nil {
-		return false
-	}
-
-	entries, err := os.ReadDir(moduleBaseDir)
-	if err != nil {
-		return false
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), module.Name.Module+"@") {
-			return true
-		}
-	}
-
-	return false
-}
-
 // CleanupModuleContent removes unused content from module directories
 // This function looks inside module directories and removes subdirectories
 // that don't match the expected version from the lock file
 func (dm *DependencyManager) CleanupModuleContent(_ context.Context, newLockFile *deps.LockFile) []string {
-	// Get the modules directory from the new lock file
-	modulesDir := newLockFile.Directories.Modules
-	if modulesDir == "" {
-		modulesDir = ".wippy" // fallback to default
-	}
+	// Get the vendor directory from the new lock file (modules + "/vendor")
+	vendorPath := newLockFile.GetModulesVendorPath()
 
 	// Resolve the full path to the modules directory
-	modulesPath := filepath.Join(dm.folderPath, modulesDir)
+	modulesPath := filepath.Join(dm.folderPath, vendorPath)
 
 	// Check if modules directory exists
 	if _, err := os.Stat(modulesPath); os.IsNotExist(err) {
@@ -539,11 +493,7 @@ func (dm *DependencyManager) cleanupModuleDirectoryContent(moduleDirPath, expect
 
 		// Check if this directory name contains a version that doesn't match expected version
 		if dm.shouldRemoveModuleContent(entry.Name(), expectedVersion) {
-			dm.logger.Info("Removing unused module content",
-				zap.String("module", moduleName),
-				zap.String("path", entryPath),
-				zap.String("content", entry.Name()),
-				zap.String("expected_version", expectedVersion))
+			dm.logger.Debug(fmt.Sprintf(" - Removing unused content for %s: %s", moduleName, entry.Name()))
 
 			// Remove the directory
 			if err := os.RemoveAll(entryPath); err != nil {
@@ -659,9 +609,14 @@ func (dm *DependencyManager) CleanupAllUnusedModules(ctx context.Context, _ stri
 
 	// Add removed modules to stats
 	for moduleName, relPath := range removedModules {
-		version := dm.ExtractVersionFromPath(relPath)
-		if version != "unknown" {
-			version = "v" + version
+		// Extract version from module folder name (last part of path should be module folder like "module-xxx-v1.2.3")
+		moduleFolderName := filepath.Base(relPath)
+		var version string
+		if moduleFolderName != "" {
+			version = dm.ExtractVersionFromModuleFolder(moduleFolderName)
+		}
+		if version == "" {
+			version = "unknown"
 		}
 		stats.AddRemoved(moduleName, version)
 	}
@@ -672,14 +627,11 @@ func (dm *DependencyManager) CleanupAllUnusedModules(ctx context.Context, _ stri
 // CleanupUnusedModules removes module directories that are not listed in the new lock file
 // Returns a list of removed module names for further use
 func (dm *DependencyManager) CleanupUnusedModules(_ context.Context, newLockFile *deps.LockFile) (map[string]string, error) {
-	// Get the modules directory from the new lock file
-	modulesDir := newLockFile.Directories.Modules
-	if modulesDir == "" {
-		modulesDir = ".wippy" // fallback to default
-	}
+	// Get the vendor directory from the new lock file (modules + "/vendor")
+	vendorPath := newLockFile.GetModulesVendorPath()
 
 	// Resolve the full path to the modules directory
-	modulesPath := filepath.Join(dm.folderPath, modulesDir)
+	modulesPath := filepath.Join(dm.folderPath, vendorPath)
 
 	// Check if modules directory exists
 	if _, err := os.Stat(modulesPath); os.IsNotExist(err) {
@@ -761,32 +713,28 @@ func (dm *DependencyManager) CleanupUnusedModules(_ context.Context, newLockFile
 
 			// Check if this directory should exist according to the new lock file
 			if !expectedModules[relPath] {
-				// Check if this is a module directory with subdirectories (new format)
+				// Try to extract module name from the directory path (format: org/module or org/module@hash)
+				moduleName := orgEntry.Name() + "/" + strings.Split(moduleEntry.Name(), "@")[0]
+
 				// Look for module subdirectories inside this directory
 				moduleSubEntries, err := os.ReadDir(modulePath)
 				if err == nil && len(moduleSubEntries) > 0 {
-					// This is a module directory with subdirectories
 					// Find the actual module subdirectory
 					for _, subEntry := range moduleSubEntries {
 						if subEntry.IsDir() && strings.HasPrefix(subEntry.Name(), "module-") {
-							// This is the actual module subdirectory
 							moduleSubRelPath := filepath.Join(relPath, subEntry.Name())
-
-							// Extract module name from the subdirectory path for reporting
-							moduleName := dm.ExtractModuleNameFromPath(moduleSubRelPath)
-							if moduleName != "" {
-								removedModules[moduleName] = moduleSubRelPath
-							}
+							// Use the subdirectory path for better version extraction
+							removedModules[moduleName] = moduleSubRelPath
 							break
 						}
 					}
-				} else {
-					// This is a simple module directory (old format)
-					// Extract module name from the directory path for reporting
-					moduleName := dm.ExtractModuleNameFromPath(relPath)
-					if moduleName != "" {
+					// If no module- subdirectory found, still add to removedModules but with the directory path
+					if _, exists := removedModules[moduleName]; !exists {
 						removedModules[moduleName] = relPath
 					}
+				} else {
+					// No subdirectories, just use the directory path
+					removedModules[moduleName] = relPath
 				}
 
 				dm.logger.Info("removing: ", zap.String("module_path", modulePath))
@@ -813,61 +761,6 @@ func (dm *DependencyManager) CleanupUnusedModules(_ context.Context, newLockFile
 	}
 
 	return removedModules, nil
-}
-
-// ExtractVersionFromPath extracts the version from a module directory path
-// Path format: organization/module@hash/module-version
-// Returns the semver version from the module folder name or "unknown" if not found
-func (dm *DependencyManager) ExtractVersionFromPath(relPath string) string {
-	// Split by path separator
-	parts := strings.Split(relPath, string(filepath.Separator))
-	if len(parts) < 3 {
-		return "unknown"
-	}
-
-	// The module folder is the last part of the path
-	moduleFolder := parts[len(parts)-1]
-
-	// Extract version from module folder name (format: module-version)
-	// Look for the dash before the version pattern
-	// Examples: "module-security-0.0.7" -> "0.0.7"
-	//           "module-1.2.3" -> "1.2.3"
-	//           "module-test-2.0.0-beta.1" -> "2.0.0-beta.1"
-
-	var version string
-	// Find the dash before the version (look for pattern: module-name-version)
-	// We need to find the dash that separates the module name from the version
-	// The version should start with a digit
-	for i := len(moduleFolder) - 1; i >= 0; i-- {
-		if moduleFolder[i] == '-' {
-			// Check if the part after this dash looks like a version (starts with digit)
-			potentialVersion := moduleFolder[i+1:]
-			if len(potentialVersion) > 0 && potentialVersion[0] >= '0' && potentialVersion[0] <= '9' {
-				version = potentialVersion
-				break
-			}
-		}
-	}
-
-	if version == "" {
-		return "unknown"
-	}
-
-	// Basic validation: check if it looks like a semver version
-	// Should contain at least one dot and only valid semver characters
-	if version == "" || !strings.Contains(version, ".") {
-		return "unknown"
-	}
-
-	// Check if version contains only valid semver characters (digits, dots, hyphens, and letters for pre-release)
-	for _, char := range version {
-		if (char < '0' || char > '9') && char != '.' && char != '-' &&
-			(char < 'a' || char > 'z') && (char < 'A' || char > 'Z') {
-			return "unknown"
-		}
-	}
-
-	return version
 }
 
 // ExtractModuleNameFromPath extracts a module name from a directory path
@@ -904,8 +797,9 @@ func (dm *DependencyManager) IsModuleInstalledFromLockFile(module deps.LockedMod
 	}
 
 	// Check if any module directory exists for this module
-	// Structure: .wippy/organization/ (contains module@hash directories)
-	organizationDir := filepath.Join(lockFile.Directories.Modules, name.Organization)
+	// Structure: .wippy/vendor/organization/ (contains module@hash directories)
+	vendorPath := lockFile.GetModulesVendorPath()
+	organizationDir := filepath.Join(vendorPath, name.Organization)
 
 	if _, err := os.Stat(organizationDir); err != nil {
 		return false, ""
@@ -964,6 +858,318 @@ func (dm *DependencyManager) IsVersionDowngrade(oldVersion, newVersion string) b
 
 	// Compare versions - if old version is greater than new version, it's a downgrade
 	return oldVer.GreaterThan(newVer)
+}
+
+// InstalledPackageState represents a single installed package with its location and version
+type InstalledPackageState struct {
+	Name         string // Module name in "org/module" format
+	Version      string // Version string
+	Hash         string // Commit hash
+	ModuleFolder string // The actual module folder name (e.g., "module-wippy-security-v0.3.0")
+	RelPath      string // Relative path from vendor directory
+}
+
+// ScanInstalledPackages scans the filesystem and returns a map of currently installed packages
+func (dm *DependencyManager) ScanInstalledPackages(lockFile *deps.LockFile) map[string]*InstalledPackageState {
+	// Get the vendor directory from the lock file
+	vendorPath := lockFile.GetModulesVendorPath()
+	modulesPath := filepath.Join(dm.folderPath, vendorPath)
+
+	installedPackages := make(map[string]*InstalledPackageState)
+
+	// Check if modules directory exists
+	if _, err := os.Stat(modulesPath); os.IsNotExist(err) {
+		dm.logger.Debug("Modules directory does not exist, nothing to scan",
+			zap.String("path", modulesPath))
+		return installedPackages
+	}
+
+	// Scan all organization directories
+	orgEntries, err := os.ReadDir(modulesPath)
+	if err != nil {
+		dm.logger.Warn("Failed to read modules directory",
+			zap.String("path", modulesPath),
+			zap.Error(err))
+		return installedPackages
+	}
+
+	for _, orgEntry := range orgEntries {
+		if !orgEntry.IsDir() {
+			continue
+		}
+
+		orgPath := filepath.Join(modulesPath, orgEntry.Name())
+
+		// Read all module@hash directories within this organization
+		moduleEntries, err := os.ReadDir(orgPath)
+		if err != nil {
+			dm.logger.Debug("Failed to read organization directory",
+				zap.String("org_path", orgPath),
+				zap.Error(err))
+			continue
+		}
+
+		for _, moduleEntry := range moduleEntries {
+			if !moduleEntry.IsDir() {
+				continue
+			}
+
+			modulePath := filepath.Join(orgPath, moduleEntry.Name())
+			relPath := filepath.Join(orgEntry.Name(), moduleEntry.Name())
+
+			// Extract module name and hash from directory name (format: module@hash)
+			var moduleName string
+			var hash string
+			dirName := moduleEntry.Name()
+			if atIndex := strings.LastIndex(dirName, "@"); atIndex != -1 {
+				moduleName = dirName[:atIndex]
+				hash = dirName[atIndex+1:]
+			} else {
+				// Skip directories without hash
+				continue
+			}
+
+			// Read module subdirectories
+			moduleSubEntries, err := os.ReadDir(modulePath)
+			if err != nil || len(moduleSubEntries) == 0 {
+				continue
+			}
+
+			// Find the module folder with "module-" prefix
+			for _, subEntry := range moduleSubEntries {
+				if subEntry.IsDir() && strings.HasPrefix(subEntry.Name(), "module-") {
+					// Extract version from the module folder name
+					version := dm.ExtractVersionFromModuleFolder(subEntry.Name())
+					if version != "" {
+						packageName := fmt.Sprintf("%s/%s", orgEntry.Name(), moduleName)
+						installedPackages[packageName] = &InstalledPackageState{
+							Name:         packageName,
+							Version:      version,
+							Hash:         hash,
+							ModuleFolder: subEntry.Name(),
+							RelPath:      filepath.Join(relPath, subEntry.Name()),
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	return installedPackages
+}
+
+// ExtractVersionFromModuleFolder extracts the version from a module folder name
+// Example: "module-wippy-security-v0.3.0" -> "v0.3.0"
+func (dm *DependencyManager) ExtractVersionFromModuleFolder(folderName string) string {
+	// Remove 'module-' prefix if present
+	withoutPrefix := folderName
+	if strings.HasPrefix(folderName, "module-") {
+		withoutPrefix = folderName[7:]
+	}
+
+	// Find the last occurrence of a dash followed by a version (with or without 'v' prefix)
+	for i := len(withoutPrefix) - 1; i >= 0; i-- {
+		if withoutPrefix[i] == '-' {
+			potentialVersion := withoutPrefix[i+1:]
+			// Version with 'v' prefix
+			if len(potentialVersion) > 1 && potentialVersion[0] == 'v' && potentialVersion[1] >= '0' && potentialVersion[1] <= '9' {
+				if strings.Contains(potentialVersion[1:], ".") {
+					return potentialVersion
+				}
+			}
+			// Version without 'v' prefix
+			if len(potentialVersion) > 0 && potentialVersion[0] >= '0' && potentialVersion[0] <= '9' {
+				if strings.Contains(potentialVersion, ".") {
+					return potentialVersion
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// ComparePackageStates compares two package states and returns differences
+func ComparePackageStates(oldState, newState map[string]*InstalledPackageState) *deps.ModuleOperationStats {
+	stats := deps.NewModuleOperationStats(true)
+
+	// Find newly installed packages
+	for name, newPkg := range newState {
+		if _, exists := oldState[name]; !exists {
+			// This is a new installation
+			stats.AddInstalled(name, newPkg.Version)
+		} else {
+			// This package exists in both states - check if it's updated
+			oldPkg := oldState[name]
+			if oldPkg.Hash != newPkg.Hash || oldPkg.Version != newPkg.Version {
+				stats.AddUpdated(name, newPkg.Version, oldPkg.Version)
+			}
+		}
+	}
+
+	// Find removed packages
+	for name, oldPkg := range oldState {
+		if _, exists := newState[name]; !exists {
+			stats.AddRemoved(name, oldPkg.Version)
+		}
+	}
+
+	return stats
+}
+
+// CleanupGarbageDirectories removes directories from vendor that don't match expected module structure
+func (dm *DependencyManager) CleanupGarbageDirectories(lockFile *deps.LockFile) ([]string, error) {
+	// Get the vendor directory
+	vendorPath := lockFile.GetModulesVendorPath()
+	modulesPath := filepath.Join(dm.folderPath, vendorPath)
+
+	// Check if modules directory exists
+	if _, err := os.Stat(modulesPath); os.IsNotExist(err) {
+		dm.logger.Debug("Vendor directory does not exist, nothing to clean",
+			zap.String("path", modulesPath))
+		return []string{}, nil
+	}
+
+	// Build a map of expected organizations and their modules from lock file
+	expectedModules := make(map[string]map[string]bool)       // org -> set of module@hash
+	modulesByOrgAndName := make(map[string]map[string]string) // org/moduleName -> hash
+
+	for _, module := range lockFile.Modules {
+		name, err := deps.ParseName(module.Name)
+		if err != nil {
+			continue
+		}
+
+		if expectedModules[name.Organization] == nil {
+			expectedModules[name.Organization] = make(map[string]bool)
+		}
+
+		// Store the expected hash for this module
+		if modulesByOrgAndName[name.Organization] == nil {
+			modulesByOrgAndName[name.Organization] = make(map[string]string)
+		}
+		modulesByOrgAndName[name.Organization][name.Module] = module.Hash
+
+		// Mark expected module with hash
+		if module.Hash != "" {
+			expectedModules[name.Organization][name.Module+"@"+module.Hash] = true
+		} else {
+			expectedModules[name.Organization][name.Module] = true
+		}
+	}
+
+	removedDirs := []string{}
+
+	// Scan all organizations in vendor
+	orgEntries, err := os.ReadDir(modulesPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read vendor directory: %w", err)
+	}
+
+	for _, orgEntry := range orgEntries {
+		if !orgEntry.IsDir() {
+			continue
+		}
+
+		orgName := orgEntry.Name()
+		orgPath := filepath.Join(modulesPath, orgName)
+
+		// Check if this organization is expected
+		expectedModulesForOrg, orgExists := expectedModules[orgName]
+		if !orgExists {
+			// Organization not in lock file - remove entire directory
+			dm.logger.Info("Removing unknown organization directory",
+				zap.String("org", orgName),
+				zap.String("path", orgPath))
+			if err := os.RemoveAll(orgPath); err != nil {
+				dm.logger.Warn("Failed to remove organization directory",
+					zap.String("org", orgName),
+					zap.Error(err))
+			} else {
+				removedDirs = append(removedDirs, orgPath)
+			}
+			continue
+		}
+
+		// Scan modules within this organization
+		moduleEntries, err := os.ReadDir(orgPath)
+		if err != nil {
+			dm.logger.Debug("Failed to read organization directory",
+				zap.String("org", orgName),
+				zap.Error(err))
+			continue
+		}
+
+		for _, moduleEntry := range moduleEntries {
+			if !moduleEntry.IsDir() {
+				continue
+			}
+
+			moduleDirName := moduleEntry.Name()
+			modulePath := filepath.Join(orgPath, moduleDirName)
+
+			// Parse module name and hash from directory name
+			moduleName := moduleDirName
+			var installedHash string
+			if atIndex := strings.LastIndex(moduleDirName, "@"); atIndex != -1 {
+				moduleName = moduleDirName[:atIndex]
+				installedHash = moduleDirName[atIndex+1:]
+			}
+
+			// Check if this module is expected from lock file
+			expectedHash, moduleExists := modulesByOrgAndName[orgName][moduleName]
+			isExpected := false
+
+			if moduleExists && expectedHash != "" {
+				// Module exists in lock file with hash
+				// It's expected ONLY if the installed hash matches the expected hash
+				installedHashWithPrefix := moduleDirName
+				isExpected = (installedHash == expectedHash) ||
+					strings.HasSuffix(installedHashWithPrefix, "@"+expectedHash)
+			} else if moduleExists {
+				// Module exists in lock file but no hash specified
+				isExpected = !strings.Contains(moduleDirName, "@")
+			}
+
+			// Also check if the directory name exactly matches one in expected modules
+			if !isExpected && expectedModulesForOrg[moduleDirName] {
+				isExpected = true
+			}
+
+			if !isExpected {
+				// Module with this hash is not in lock file - remove it
+				dm.logger.Debug("Removing outdated module directory",
+					zap.String("org", orgName),
+					zap.String("module", moduleDirName),
+					zap.String("installed_hash", installedHash),
+					zap.String("expected_hash", expectedHash))
+				if err := os.RemoveAll(modulePath); err != nil {
+					dm.logger.Warn("Failed to remove module directory",
+						zap.String("path", modulePath),
+						zap.Error(err))
+				} else {
+					removedDirs = append(removedDirs, modulePath)
+				}
+			}
+		}
+
+		// Check if organization directory is now empty
+		remainingEntries, err := os.ReadDir(orgPath)
+		if err == nil && len(remainingEntries) == 0 {
+			dm.logger.Debug("Removing empty organization directory",
+				zap.String("org", orgName))
+			if err := os.Remove(orgPath); err != nil {
+				dm.logger.Debug("Failed to remove empty organization directory",
+					zap.String("path", orgPath),
+					zap.Error(err))
+			} else {
+				removedDirs = append(removedDirs, orgPath)
+			}
+		}
+	}
+
+	return removedDirs, nil
 }
 
 type singleModuleLoader struct {

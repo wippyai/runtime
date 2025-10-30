@@ -2,6 +2,7 @@ package deps
 
 import (
 	"context"
+	"path/filepath"
 
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"go.uber.org/zap"
@@ -9,15 +10,34 @@ import (
 
 // EntryLoader implements ManifestLoader using registry entries.
 type EntryLoader struct {
-	entries []regapi.Entry
-	logger  *zap.Logger
+	entries      []regapi.Entry
+	replacements map[string]string // module name -> local path
+	lockFilePath string
+	logger       *zap.Logger
 }
 
 // NewEntryLoader creates a new EntryLoader.
 func NewEntryLoader(entries []regapi.Entry, logger *zap.Logger) *EntryLoader {
 	return &EntryLoader{
-		entries: entries,
-		logger:  logger,
+		entries:      entries,
+		replacements: make(map[string]string),
+		logger:       logger,
+	}
+}
+
+// NewEntryLoaderWithReplacements creates a new EntryLoader with replacements support.
+// Replacements allow local paths to be used instead of downloading remote modules.
+func NewEntryLoaderWithReplacements(entries []regapi.Entry, replacements []Replacement, lockFilePath string, logger *zap.Logger) *EntryLoader {
+	replacementMap := make(map[string]string, len(replacements))
+	for _, r := range replacements {
+		replacementMap[r.From] = r.To
+	}
+
+	return &EntryLoader{
+		entries:      entries,
+		replacements: replacementMap,
+		lockFilePath: lockFilePath,
+		logger:       logger,
 	}
 }
 
@@ -65,6 +85,20 @@ func (r *EntryLoader) LoadManifest(_ context.Context) (*Manifest, error) {
 		dependency := ManifestDependency{
 			Name:    dependencyName,
 			Version: versionValue,
+		}
+
+		// Check if this dependency has a replacement (local path)
+		if replacementPath, hasReplacement := r.replacements[componentValue]; hasReplacement {
+			// Resolve the path relative to the lock file location
+			resolvedPath := replacementPath
+			if r.lockFilePath != "" && !filepath.IsAbs(replacementPath) {
+				resolvedPath = filepath.Join(filepath.Dir(r.lockFilePath), replacementPath)
+			}
+			dependency.Path = resolvedPath
+
+			r.logger.Debug("Using replacement for dependency",
+				zap.String("module", componentValue),
+				zap.String("path", resolvedPath))
 		}
 
 		dependencies = append(dependencies, dependency)
