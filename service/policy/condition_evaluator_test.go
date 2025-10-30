@@ -169,6 +169,34 @@ func TestEvaluateCondition(t *testing.T) {
 			wantErr:  false,
 		},
 		{
+			name: "nexists operator - true when field missing",
+			condition: policy.Condition{
+				Field:    "meta.missing",
+				Operator: "nexists",
+				Value:    true,
+			},
+			actor:    newMockActor("user123", nil),
+			action:   "read",
+			resource: "document",
+			meta:     registry.Metadata{},
+			want:     true,
+			wantErr:  false,
+		},
+		{
+			name: "nexists operator - false when field present",
+			condition: policy.Condition{
+				Field:    "meta.owner",
+				Operator: "nexists",
+				Value:    true,
+			},
+			actor:    newMockActor("user123", nil),
+			action:   "read",
+			resource: "document",
+			meta:     registry.Metadata{"owner": "user123"},
+			want:     false,
+			wantErr:  false,
+		},
+		{
 			name: "not equals operator",
 			condition: policy.Condition{
 				Field:    "action",
@@ -295,6 +323,34 @@ func TestEvaluateCondition(t *testing.T) {
 			wantErr:  false,
 		},
 		{
+			name: "nin operator - not in list true",
+			condition: policy.Condition{
+				Field:    "action",
+				Operator: "nin",
+				Value:    []any{"write", "delete"},
+			},
+			actor:    newMockActor("user123", nil),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     true,
+			wantErr:  false,
+		},
+		{
+			name: "nin operator - in list false",
+			condition: policy.Condition{
+				Field:    "action",
+				Operator: "nin",
+				Value:    []string{"read", "list"},
+			},
+			actor:    newMockActor("user123", nil),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     false,
+			wantErr:  false,
+		},
+		{
 			name: "contains operator with string",
 			condition: policy.Condition{
 				Field:    "resource",
@@ -314,6 +370,34 @@ func TestEvaluateCondition(t *testing.T) {
 				Field:    "meta.tags",
 				Operator: "contains",
 				Value:    "important",
+			},
+			actor:    newMockActor("user123", nil),
+			action:   "read",
+			resource: "document",
+			meta:     registry.Metadata{"tags": []string{"public", "important", "archived"}},
+			want:     true,
+			wantErr:  false,
+		},
+		{
+			name: "ncontains operator with string",
+			condition: policy.Condition{
+				Field:    "resource",
+				Operator: "ncontains",
+				Value:    "x",
+			},
+			actor:    newMockActor("user123", nil),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     true,
+			wantErr:  false,
+		},
+		{
+			name: "ncontains operator with array",
+			condition: policy.Condition{
+				Field:    "meta.tags",
+				Operator: "ncontains",
+				Value:    "missing",
 			},
 			actor:    newMockActor("user123", nil),
 			action:   "read",
@@ -379,6 +463,11 @@ func TestRegexPrecompilation(t *testing.T) {
 			Value:    "^doc[a-z]+(ent)?$",
 		},
 		{
+			Field:    "resource",
+			Operator: "nmatches",
+			Value:    "^skip.*$",
+		},
+		{
 			Field:    "action",
 			Operator: "eq",
 			Value:    "read",
@@ -390,8 +479,8 @@ func TestRegexPrecompilation(t *testing.T) {
 		t.Fatalf("Failed to create evaluator: %v", err)
 	}
 
-	if len(evaluator.compiledPatterns) != 2 {
-		t.Errorf("Expected 2 compiled patterns, got %d", len(evaluator.compiledPatterns))
+	if len(evaluator.compiledPatterns) != 3 {
+		t.Errorf("Expected 3 compiled patterns, got %d", len(evaluator.compiledPatterns))
 	}
 
 	if _, exists := evaluator.compiledPatterns["^doc.*$"]; !exists {
@@ -400,6 +489,9 @@ func TestRegexPrecompilation(t *testing.T) {
 
 	if _, exists := evaluator.compiledPatterns["^doc[a-z]+(ent)?$"]; !exists {
 		t.Error("Pattern '^doc[a-z]+(ent)?$' should be pre-compiled")
+	}
+	if _, exists := evaluator.compiledPatterns["^skip.*$"]; !exists {
+		t.Error("Pattern '^skip.*$' should be pre-compiled")
 	}
 
 	tests := []struct {
@@ -453,6 +545,20 @@ func TestRegexPrecompilation(t *testing.T) {
 			meta:     nil,
 			want:     false,
 			wantErr:  true,
+		},
+		{
+			name: "nmatches operator with pre-compiled pattern",
+			condition: policy.Condition{
+				Field:    "resource",
+				Operator: "nmatches",
+				Value:    "^skip.*$",
+			},
+			actor:    newMockActor("user123", nil),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     true,
+			wantErr:  false,
 		},
 	}
 
