@@ -55,110 +55,94 @@ var installCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// Clean unused packages from modules directory
-		if err := cleanUnusedPackages(lockFileObj, folderPath, logger); err != nil {
-			logger.Error("failed to clean unused packages", zap.Error(err))
-			os.Exit(1)
-		}
+		// Create dependency manager
+		depsManager := app.NewDependencyManager(folderPath, lockFile, logger)
 
-		// Display package operations from lock file
-		if len(lockFileObj.Modules) > 0 {
-			logger.Info(fmt.Sprintf("Package operations: %d installs, 0 updates, 0 removals:", len(lockFileObj.Modules)))
-			for _, module := range lockFileObj.Modules {
-				logger.Info(fmt.Sprintf("- %s: %s", module.Name, module.Version))
-			}
-		} else {
-			logger.Info("No modules to install")
-		}
+		// Scan current state of installed packages BEFORE installation
+		logger.Debug("Scanning currently installed packages")
+		oldState := depsManager.ScanInstalledPackages(lockFileObj)
 
 		// Install dependencies
-		depsManager := app.NewDependencyManager(folderPath, lockFile, logger)
-		if err := depsManager.InstallDependencies(cmd.Context()); err != nil {
+		if err := depsManager.InstallDependenciesFromLockFile(cmd.Context(), lockFileObj, lockPath); err != nil {
 			logger.Error("failed to install dependencies", zap.Error(err))
 			os.Exit(1)
+		}
+
+		// Clean up garbage directories BEFORE scanning new state to get accurate stats
+		removedGarbage, err := depsManager.CleanupGarbageDirectories(lockFileObj)
+		if err != nil {
+			logger.Warn("Failed to cleanup garbage directories", zap.Error(err))
+		}
+
+		// Scan new state of installed packages AFTER cleanup
+		logger.Debug("Scanning newly installed packages")
+		newState := depsManager.ScanInstalledPackages(lockFileObj)
+
+		// Compare the two states to determine what changed
+		stats := app.ComparePackageStates(oldState, newState)
+
+		// Build a set of modules that were already accounted for (updated or installed)
+		accountedModules := make(map[string]bool)
+		for _, op := range stats.Operations {
+			if op.Action == deps.ActionUpdated || op.Action == deps.ActionInstalled {
+				accountedModules[op.Name] = true
+			}
+		}
+
+		// Add removed garbage directories to stats (only if not already updated/installed)
+		if len(removedGarbage) > 0 {
+			for _, dir := range removedGarbage {
+				// Only process module directories, skip organization directories
+				// Path format: /home/user/project/.wippy/vendor/org/module@hash
+				// We need to check if path ends with @hash
+				base := filepath.Base(dir)
+				if strings.Contains(base, "@") && !strings.HasSuffix(filepath.Dir(dir), "vendor") {
+					// Get the last two parts of path: org and module@hash
+					// dir is full path like: /path/to/.wippy/vendor/wippy/actor@019a01d3-...
+					// Split into parts
+					parts := strings.Split(dir, string(filepath.Separator))
+					// Find vendor in path and get org, module parts
+					for i, part := range parts {
+						if part == "vendor" && i+2 < len(parts) {
+							org := parts[i+1]
+							moduleDirName := parts[i+2]
+							moduleName := strings.Split(moduleDirName, "@")[0]
+							fullModuleName := org + "/" + moduleName
+							if org != "" && moduleName != "" && org != "vendor" && !strings.HasSuffix(org, "vendor") {
+								// Only add if this module wasn't already updated or installed
+								if !accountedModules[fullModuleName] {
+									stats.AddRemoved(fullModuleName, "unknown")
+								}
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+
+		// Display the results
+		if stats.HasOperations() {
+			logger.Info(fmt.Sprintf("Package operations: %d installed, %d updated, %d removed",
+				stats.Installed, stats.Updated, stats.Removed))
+
+			for _, op := range stats.Operations {
+				switch op.Action {
+				case deps.ActionInstalled:
+					logger.Info(fmt.Sprintf(" - Installing %s: %s", op.Name, op.Version))
+				case deps.ActionUpdated:
+					logger.Info(fmt.Sprintf(" - Updating %s: %s → %s", op.Name, op.OldVersion, op.Version))
+				case deps.ActionRemoved:
+					logger.Info(fmt.Sprintf(" - Removing %s: %s", op.Name, op.Version))
+				}
+			}
+		} else {
+			logger.Info("All dependencies are up to date")
 		}
 
 		logger.Info("Dependencies installed successfully")
 		return nil
 	},
-}
-
-func cleanUnusedPackages(lockFile *deps.LockFile, folderPath string, logger *zap.Logger) error {
-	logger.Info("Cleaning unused packages from modules directory")
-
-	// Get the modules directory path
-	modulesDir := filepath.Join(folderPath, lockFile.Directories.Modules)
-
-	// Check if modules directory exists
-	if _, err := os.Stat(modulesDir); os.IsNotExist(err) {
-		logger.Info("Modules directory does not exist, nothing to clean")
-		return nil
-	}
-
-	// Create a set of expected organizations from lock file
-	// Module names are like "wippy/llm", so we need to extract organization names
-	expectedOrgs := make(map[string]bool)
-	for _, module := range lockFile.Modules {
-		// Parse module name to get organization
-		if name, err := deps.ParseName(module.Name); err == nil {
-			expectedOrgs[name.Organization] = true
-			logger.Debug("Expected organization from module",
-				zap.String("module", module.Name),
-				zap.String("organization", name.Organization))
-		} else {
-			// Fallback: split by '/' and take first part
-			parts := strings.Split(module.Name, "/")
-			if len(parts) > 0 {
-				expectedOrgs[parts[0]] = true
-				logger.Debug("Expected organization from fallback parsing",
-					zap.String("module", module.Name),
-					zap.String("organization", parts[0]))
-			}
-		}
-	}
-
-	logger.Debug("Expected organizations", zap.Any("organizations", expectedOrgs))
-
-	// Scan the modules directory for installed packages
-	entries, err := os.ReadDir(modulesDir)
-	if err != nil {
-		return fmt.Errorf("failed to read modules directory: %w", err)
-	}
-
-	cleanedCount := 0
-	// Remove organization directories that are not in the lock file
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		// Check if this organization is expected
-		if !expectedOrgs[entry.Name()] {
-			packagePath := filepath.Join(modulesDir, entry.Name())
-			logger.Info("Removing unused organization directory", zap.String("org", entry.Name()))
-			cleanedCount++
-
-			if err := os.RemoveAll(packagePath); err != nil {
-				logger.Warn("Failed to remove unused organization directory",
-					zap.String("org", entry.Name()),
-					zap.Error(err))
-			} else {
-				logger.Debug("Successfully removed organization directory",
-					zap.String("org", entry.Name()),
-					zap.String("path", packagePath))
-			}
-		} else {
-			logger.Debug("Keeping expected organization directory", zap.String("org", entry.Name()))
-		}
-	}
-
-	if cleanedCount > 0 {
-		logger.Info("Cleanup completed", zap.Int("removed_directories", cleanedCount))
-	} else {
-		logger.Info("No unused packages found to clean")
-	}
-
-	return nil
 }
 
 func init() {

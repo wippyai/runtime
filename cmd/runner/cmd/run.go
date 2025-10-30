@@ -56,7 +56,9 @@ var runCmd = &cobra.Command{
 		lockDir := filepath.Dir(fullLockPath)
 
 		appDir := filepath.Join(lockDir, lockFileObj.Directories.Src)
-		modulesDir := filepath.Join(lockDir, lockFileObj.Directories.Modules)
+		// Use vendor path (modules + "/vendor")
+		vendorPath := lockFileObj.GetModulesVendorPath()
+		modulesDir := filepath.Join(lockDir, vendorPath)
 
 		if !strings.HasSuffix(appDir, string(os.PathSeparator)) {
 			appDir += string(os.PathSeparator)
