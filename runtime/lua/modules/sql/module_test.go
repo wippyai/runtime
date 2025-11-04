@@ -71,7 +71,7 @@ func (m *mockResourceRegistry) Exists(id registry.ID) bool {
 }
 
 // setupLuaWithDB sets up a Lua state with our SQL module and a connected database
-func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner) {
+func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, engine.UnitOfWork, *engine.Runner, context.Context) {
 	logger := zaptest.NewLogger(t)
 
 	// Create the SQL module
@@ -103,10 +103,11 @@ func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *
 	// Add the resource registry to the context
 	ctx = resource.WithResources(ctx, mockRegistry)
 
-	// Set the context in the Lua state
-	L.SetContext(ctx)
-
-	return vm, L, uw, runner
+	// IMPORTANT: Don't call L.SetContext(ctx) here!
+	// runner.Execute() will create a fresh UOW and automatically call L.SetContext()
+	// through NewUnitOfWork(). This ensures Lua code always uses the correct context.
+	// Setting context here would cause deadlock as coroutines would use the wrong UOW.
+	return vm, uw, runner, ctx
 }
 
 // TestModuleBasicDBGet tests the sql.get function with a basic SQLite database
@@ -133,7 +134,7 @@ func TestModuleBasicDBGet(t *testing.T) {
 	}
 
 	// Setup Lua with the test database using the helper function
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -174,8 +175,8 @@ func TestModuleBasicDBGet(t *testing.T) {
 	`, "test", "test_db_get")
 	require.NoError(t, err, "Failed to import test function")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_db_get")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_db_get")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify the database type
