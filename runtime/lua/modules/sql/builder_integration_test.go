@@ -35,7 +35,7 @@ func TestSelectBuilderWithDB(t *testing.T) {
 	}
 
 	// Setup Lua environment
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -63,7 +63,7 @@ func TestSelectBuilderWithDB(t *testing.T) {
 	err = vm.Import(script, "test", "test_select")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_select")
+	result, err := runner.Execute(ctx, "test_select")
 	require.NoError(t, err)
 	resultTable := result.(*lua.LTable)
 
@@ -90,7 +90,7 @@ func TestInsertBuilderWithDB(t *testing.T) {
 	}
 
 	// Setup Lua environment
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -124,7 +124,7 @@ func TestInsertBuilderWithDB(t *testing.T) {
 	err = vm.Import(script, "test", "test_insert")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_insert")
+	result, err := runner.Execute(ctx, "test_insert")
 	require.NoError(t, err)
 	resultTable := result.(*lua.LTable)
 
@@ -158,7 +158,7 @@ func TestUpdateBuilderWithDB(t *testing.T) {
 	}
 
 	// Setup Lua environment
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -194,7 +194,7 @@ func TestUpdateBuilderWithDB(t *testing.T) {
 	err = vm.Import(script, "test", "test_update")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_update")
+	result, err := runner.Execute(ctx, "test_update")
 	require.NoError(t, err)
 	resultTable := result.(*lua.LTable)
 
@@ -231,7 +231,7 @@ func TestDeleteBuilderWithDB(t *testing.T) {
 	}
 
 	// Setup Lua environment
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -271,7 +271,7 @@ func TestDeleteBuilderWithDB(t *testing.T) {
 	err = vm.Import(script, "test", "test_delete")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_delete")
+	result, err := runner.Execute(ctx, "test_delete")
 	require.NoError(t, err)
 	resultTable := result.(*lua.LTable)
 

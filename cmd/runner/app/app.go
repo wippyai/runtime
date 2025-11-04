@@ -34,6 +34,7 @@ import (
 	"github.com/ponyruntime/pony/deps"
 	requirementresolver2 "github.com/ponyruntime/pony/deps/requirementresolver"
 	"github.com/ponyruntime/pony/embed"
+	"github.com/ponyruntime/pony/internal/runtimeconfig"
 	contractsys "github.com/ponyruntime/pony/system/contract"
 	"github.com/ponyruntime/pony/system/env"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -86,6 +87,8 @@ type appConfig struct {
 	clusterSecret     string
 	clusterSecretFile string
 	clusterAdvertise  string
+
+	runtimeConfig *runtimeconfig.Config
 }
 
 type Option func(*appConfig)
@@ -124,6 +127,12 @@ func WithLogging(consoleLogging, eventStreaming bool, minLevel zapcore.Level) Op
 func WithProfiling(enabled bool) Option {
 	return func(c *appConfig) {
 		c.enableProfiling = enabled
+	}
+}
+
+func WithRuntimeConfig(cfg *runtimeconfig.Config) Option {
+	return func(c *appConfig) {
+		c.runtimeConfig = cfg
 	}
 }
 
@@ -621,9 +630,18 @@ func (a *App) loadApplicationState(ctx context.Context, appFS iofs.FS) (regapi.C
 	}
 
 	resolver := requirementresolver2.NewResolver(a.logger.Named("requirement-resolver"))
+
 	entries, err = resolver.ResolveModuleDefinitions(entries)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	// apply runtime configuration overrides
+	if a.config.runtimeConfig != nil {
+		entries, err = a.applyRuntimeConfigOverrides(entries)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to apply runtime config overrides: %w", err)
+		}
 	}
 
 	boot, err := regtop.NewStateBuilder(a.logger).BuildDelta(regapi.State{}, entries)
@@ -880,4 +898,105 @@ func loadEntriesFromLoadedModules(
 	}
 
 	return allEntries, nil
+}
+
+// applyRuntimeConfigOverrides applies runtime configuration overrides to registry entries.
+// Format: namespace:entry:field=value
+func (a *App) applyRuntimeConfigOverrides(entries []regapi.Entry) ([]regapi.Entry, error) {
+	if a.config.runtimeConfig == nil {
+		return entries, nil
+	}
+
+	namespaces := a.config.runtimeConfig.GetAllNamespaces()
+	if len(namespaces) == 0 {
+		return entries, nil
+	}
+
+	modifiedCount := 0
+	var errs []error
+	for i := range entries {
+		entry := &entries[i]
+
+		for _, ns := range namespaces {
+			if entry.ID.NS != ns {
+				continue
+			}
+
+			nsConfig, exists := a.config.runtimeConfig.GetNamespace(ns)
+			if !exists {
+				continue
+			}
+
+			for entryName, entryConfig := range nsConfig {
+				if entry.ID.Name != entryName {
+					continue
+				}
+
+				if err := a.applyEntryRuntimeConfig(entry, entryConfig); err != nil {
+					errs = append(errs, fmt.Errorf("entry %s: %w", entry.ID.String(), err))
+					continue
+				}
+
+				modifiedCount++
+				break
+			}
+		}
+	}
+
+	if len(errs) > 0 {
+		return entries, errors.Join(errs...)
+	}
+
+	a.logger.Debug("Applied runtime configuration overrides",
+		zap.Int("namespaces", len(namespaces)),
+		zap.Int("entries_modified", modifiedCount))
+
+	return entries, nil
+}
+
+func (a *App) applyEntryRuntimeConfig(entry *regapi.Entry, entryConfig runtimeconfig.EntryConfig) error {
+	return a.applyNestedRuntimeConfigSingle(entry, entryConfig, "")
+}
+
+func (a *App) applyNestedRuntimeConfigSingle(targetEntry *regapi.Entry, config runtimeconfig.EntryConfig, prefix string) error {
+	for key, value := range config {
+		fieldPath := key
+		if prefix != "" {
+			fieldPath = prefix + "." + key
+		}
+
+		if err := a.applyFieldPathToEntry(targetEntry, fieldPath, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) applyFieldPathToEntry(targetEntry *regapi.Entry, fieldPath string, value string) error {
+	valueStr := value
+
+	jqQuery := ".data"
+	if fieldPath != "" {
+		switch {
+		case strings.HasPrefix(fieldPath, "."):
+			jqQuery = fieldPath
+		case strings.HasPrefix(fieldPath, "meta."):
+			jqQuery = "." + fieldPath
+		case strings.HasPrefix(fieldPath, "data."):
+			jqQuery = "." + fieldPath
+		default:
+			jqQuery = ".data." + fieldPath
+		}
+	}
+
+	entryCopy := *targetEntry
+	entriesSlice := []regapi.Entry{entryCopy}
+
+	err := requirementresolver2.ApplyPathValueToEntriesWithGojq(jqQuery, valueStr, entriesSlice)
+	if err != nil {
+		return err
+	}
+
+	*targetEntry = entriesSlice[0]
+	return nil
 }
