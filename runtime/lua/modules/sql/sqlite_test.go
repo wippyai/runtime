@@ -53,7 +53,7 @@ func TestVectorWithSQLite(t *testing.T) {
 		},
 	}
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -131,7 +131,7 @@ func TestVectorWithSQLite(t *testing.T) {
 	require.NoError(t, err, "Failed to import test script")
 
 	// Execute the test function
-	result, err := runner.Execute(L.Context(), "test_vector_sqlite")
+	result, err := runner.Execute(ctx, "test_vector_sqlite")
 	require.NoError(t, err, "Failed to execute test function")
 
 	// If we got a string result, it means sqlite-vec is not available
@@ -186,7 +186,7 @@ func TestHybridSearch(t *testing.T) {
 		},
 	}
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -438,7 +438,7 @@ func TestHybridSearch(t *testing.T) {
 	require.NoError(t, err, "Failed to import test script")
 
 	// Execute the test function
-	result, err := runner.Execute(L.Context(), "test_hybrid_search")
+	result, err := runner.Execute(ctx, "test_hybrid_search")
 	require.NoError(t, err, "Failed to execute hybrid search test function")
 
 	// If we got a string result, it means either sqlite-vec or FTS5 is not available

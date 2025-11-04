@@ -59,7 +59,7 @@ func TestPrepareStatement(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -89,8 +89,8 @@ func TestPrepareStatement(t *testing.T) {
 	`, "test", "test_prepare")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_prepare")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_prepare")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify statement was prepared
@@ -104,7 +104,7 @@ func TestStatementQuery(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -140,8 +140,8 @@ func TestStatementQuery(t *testing.T) {
 	`, "test", "test_query")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_query")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_query")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify query results
@@ -158,7 +158,7 @@ func TestStatementExecute(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -201,8 +201,8 @@ func TestStatementExecute(t *testing.T) {
 	`, "test", "test_execute")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_execute")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_execute")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify execution results
@@ -221,7 +221,7 @@ func TestStatementMultipleExecution(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -281,8 +281,8 @@ func TestStatementMultipleExecution(t *testing.T) {
 	`, "test", "test_multiple_execute")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_multiple_execute")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_multiple_execute")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify execution results
@@ -330,7 +330,7 @@ func TestStatementErrorHandling(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -361,8 +361,8 @@ func TestStatementErrorHandling(t *testing.T) {
 	`, "test", "test_error_handling")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_error_handling")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_error_handling")
 	require.NoError(t, err, "Lua execution failed unexpectedly")
 
 	// Verify error handling
@@ -382,7 +382,7 @@ func TestStatementWithInvalidParams(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -425,8 +425,8 @@ func TestStatementWithInvalidParams(t *testing.T) {
 	`, "test", "test_invalid_params")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_invalid_params")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_invalid_params")
 	require.NoError(t, err, "Lua execution failed unexpectedly")
 
 	// Verify error handling
@@ -446,7 +446,7 @@ func TestStatementWithNilParams(t *testing.T) {
 	db, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -488,8 +488,8 @@ func TestStatementWithNilParams(t *testing.T) {
 	`, "test", "test_nil_params")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_nil_params")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_nil_params")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify execution results
@@ -506,7 +506,7 @@ func TestStatementDataTypes(t *testing.T) {
 	db, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -564,8 +564,8 @@ func TestStatementDataTypes(t *testing.T) {
 `, "test", "test_data_types")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_data_types")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_data_types")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify data type handling
@@ -607,7 +607,7 @@ func TestStatementClose(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -648,8 +648,8 @@ func TestStatementClose(t *testing.T) {
 	`, "test", "test_statement_close")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_statement_close")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_statement_close")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify results
@@ -666,7 +666,7 @@ func TestStatementQueryNoResults(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -701,8 +701,8 @@ func TestStatementQueryNoResults(t *testing.T) {
 	`, "test", "test_query_no_results")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_query_no_results")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_query_no_results")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify query results
@@ -734,7 +734,7 @@ func TestStatementQueryNullColumns(t *testing.T) {
 		(4, NULL, NULL)`)
 	require.NoError(t, err, "Failed to insert test data")
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -776,8 +776,8 @@ func TestStatementQueryNullColumns(t *testing.T) {
 	`, "test", "test_null_columns")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_null_columns")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_null_columns")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify NULL handling in result columns
@@ -821,7 +821,7 @@ func TestStatementWithSQLNull(t *testing.T) {
 	)`)
 	require.NoError(t, err, "Failed to create test table")
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() {
 		err := uw.Close()
@@ -880,8 +880,8 @@ func TestStatementWithSQLNull(t *testing.T) {
 	`, "test", "test_null_params")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_null_params")
+	// Execute with correct context from setup
+	result, err := runner.Execute(ctx, "test_null_params")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify NULL parameter handling

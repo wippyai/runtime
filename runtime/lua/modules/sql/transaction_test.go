@@ -34,7 +34,7 @@ func TestTransactionCommit(t *testing.T) {
 	}
 
 	// Setup the Lua VM with the SQL module (helper defined in module_test.go).
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -62,7 +62,7 @@ func TestTransactionCommit(t *testing.T) {
 	err = vm.Import(script, "test", "test_tx_commit")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_tx_commit")
+	result, err := runner.Execute(ctx, "test_tx_commit")
 	require.NoError(t, err)
 	assert.Equal(t, lua.LString("new"), result)
 }
@@ -87,7 +87,7 @@ func TestTransactionRollback(t *testing.T) {
 		},
 	}
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -111,7 +111,7 @@ func TestTransactionRollback(t *testing.T) {
 	err = vm.Import(script, "test", "test_tx_rollback")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_tx_rollback")
+	result, err := runner.Execute(ctx, "test_tx_rollback")
 	require.NoError(t, err)
 	// Expect the original value since the update was rolled back.
 	assert.Equal(t, lua.LString("old"), result)
@@ -137,7 +137,7 @@ func TestTransactionSavepoint(t *testing.T) {
 		},
 	}
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -173,7 +173,7 @@ func TestTransactionSavepoint(t *testing.T) {
 	err = vm.Import(script, "test", "test_tx_savepoint")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_tx_savepoint")
+	result, err := runner.Execute(ctx, "test_tx_savepoint")
 	require.NoError(t, err)
 	// Expect the value to remain as "intermediate" (the change to "final" was undone).
 	assert.Equal(t, lua.LString("intermediate"), result)
@@ -200,7 +200,7 @@ func TestTransactionErrorHandling(t *testing.T) {
 	}
 
 	// Set up the Lua VM with the SQL module.
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -236,7 +236,7 @@ func TestTransactionErrorHandling(t *testing.T) {
 	err = vm.Import(script, "test", "test_tx_error")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_tx_error")
+	result, err := runner.Execute(ctx, "test_tx_error")
 	require.NoError(t, err)
 
 	// The result should contain an error message mentioning the non_existing_table.

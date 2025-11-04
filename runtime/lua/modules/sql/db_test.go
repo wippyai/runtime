@@ -51,7 +51,7 @@ func TestDBType(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -67,7 +67,7 @@ func TestDBType(t *testing.T) {
 	`, "test", "test_db_type")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_db_type")
+	result, err := runner.Execute(ctx, "test_db_type")
 	require.NoError(t, err)
 	assert.Equal(t, lua.LString("sqlite"), result)
 }
@@ -77,7 +77,7 @@ func TestDBQuery(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -93,7 +93,7 @@ func TestDBQuery(t *testing.T) {
 	`, "test", "test_db_query")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_db_query")
+	result, err := runner.Execute(ctx, "test_db_query")
 	require.NoError(t, err)
 	resultTable, ok := result.(*lua.LTable)
 	require.True(t, ok)
@@ -124,7 +124,7 @@ func TestDBExecute(t *testing.T) {
 		},
 	}
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -142,7 +142,7 @@ func TestDBExecute(t *testing.T) {
 	`, "test", "test_db_execute")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_db_execute")
+	result, err := runner.Execute(ctx, "test_db_execute")
 	require.NoError(t, err)
 	assert.Equal(t, lua.LString("new"), result)
 }
@@ -152,7 +152,7 @@ func TestDBRelease(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -168,7 +168,7 @@ func TestDBRelease(t *testing.T) {
 	`, "test", "test_db_release")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_db_release")
+	result, err := runner.Execute(ctx, "test_db_release")
 	require.NoError(t, err)
 	assert.Equal(t, lua.LTrue, result)
 }
@@ -178,7 +178,7 @@ func TestDBGetNotFound(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -191,7 +191,7 @@ func TestDBGetNotFound(t *testing.T) {
 	`, "test", "test_db_get_not_found")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_db_get_not_found")
+	result, err := runner.Execute(ctx, "test_db_get_not_found")
 	require.NoError(t, err)
 	errMsg, ok := result.(lua.LString)
 	require.True(t, ok)
@@ -203,7 +203,7 @@ func TestDBQueryNoResults(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -219,7 +219,7 @@ func TestDBQueryNoResults(t *testing.T) {
 	`, "test", "test_db_query_no_results")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_db_query_no_results")
+	result, err := runner.Execute(ctx, "test_db_query_no_results")
 	require.NoError(t, err)
 	resultTable, ok := result.(*lua.LTable)
 	require.True(t, ok)
@@ -232,7 +232,7 @@ func TestDBErrorHandling(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
@@ -248,7 +248,7 @@ func TestDBErrorHandling(t *testing.T) {
 	`, "test", "test_db_error")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(L.Context(), "test_db_error")
+	result, err := runner.Execute(ctx, "test_db_error")
 	require.NoError(t, err)
 	errMsg, ok := result.(lua.LString)
 	require.True(t, ok)
