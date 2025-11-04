@@ -11,6 +11,14 @@ import (
 // Example: {"addr": "8080", "timeouts.read": "30s", "timeouts.write": "60s"}
 type EntryConfig map[string]string
 
+// ConfigEntry represents a single configuration entry.
+type ConfigEntry struct {
+	Namespace string
+	Entry     string
+	Field     string
+	Value     string
+}
+
 // Config represents a hierarchical runtime configuration store.
 type Config struct {
 	mu   sync.RWMutex
@@ -19,7 +27,7 @@ type Config struct {
 
 // Namespace represents a configuration namespace (e.g., "app").
 type Namespace struct {
-	entries map[string]string // key format: "entry.field" or "entry.nested.field"
+	entries map[string]EntryConfig // key is entry name, value is EntryConfig with fields
 }
 
 // New creates a new Config instance.
@@ -91,18 +99,29 @@ func (c *Config) Set(namespace, entry, field, value string) error {
 		return fmt.Errorf("invalid field: cannot be empty")
 	}
 
+	// Validate field path doesn't contain empty segments (e.g., "addr..port")
+	if strings.Contains(field, "..") {
+		return fmt.Errorf("invalid field: field path cannot contain empty segments")
+	}
+
 	// Get or create namespace
 	ns, exists := c.data[namespace]
 	if !exists {
 		ns = &Namespace{
-			entries: make(map[string]string),
+			entries: make(map[string]EntryConfig),
 		}
 		c.data[namespace] = ns
 	}
 
-	// Combine entry and field into a single key
-	key := entry + "." + field
-	ns.entries[key] = value
+	// Get or create entry config
+	entryConfig, exists := ns.entries[entry]
+	if !exists {
+		entryConfig = make(EntryConfig)
+		ns.entries[entry] = entryConfig
+	}
+
+	// Set field value
+	entryConfig[field] = value
 	return nil
 }
 
@@ -127,8 +146,12 @@ func (c *Config) Get(namespace, entry, field string) (string, bool, error) {
 		return "", false, nil
 	}
 
-	key := entry + "." + field
-	value, ok := ns.entries[key]
+	entryConfig, exists := ns.entries[entry]
+	if !exists {
+		return "", false, nil
+	}
+
+	value, ok := entryConfig[field]
 	if !ok {
 		return "", false, nil
 	}
@@ -155,16 +178,22 @@ func (c *Config) GetNamespace(namespace string) (map[string]EntryConfig, bool) {
 	defer c.mu.RUnlock()
 
 	ns, exists := c.data[namespace]
-	if !exists {
+	if !exists || ns == nil {
 		return nil, false
 	}
 
-	return c.getNamespaceUnlocked(ns)
-}
+	// Build result map: key is entry name, value is EntryConfig (map[field]value)
+	result := make(map[string]EntryConfig, len(ns.entries))
+	for entryName, entryConfig := range ns.entries {
+		// Create a copy of EntryConfig to avoid external modification
+		entryConfigCopy := make(EntryConfig, len(entryConfig))
+		for field, value := range entryConfig {
+			entryConfigCopy[field] = value
+		}
+		result[entryName] = entryConfigCopy
+	}
 
-// setNestedField sets a value in EntryConfig using dot-separated path as key.
-func setNestedField(m EntryConfig, path string, value string) {
-	m[path] = value
+	return result, true
 }
 
 // GetAllNamespaces returns a list of all namespace names.
@@ -185,40 +214,23 @@ func (c *Config) ToMap() map[string]map[string]EntryConfig {
 	defer c.mu.RUnlock()
 
 	result := make(map[string]map[string]EntryConfig, len(c.data))
-	for ns, namespace := range c.data {
-		nsMap, _ := c.getNamespaceUnlocked(namespace)
-		result[ns] = nsMap
-	}
-	return result
-}
-
-// getNamespaceUnlocked is an unlocked version of GetNamespace for internal use.
-func (c *Config) getNamespaceUnlocked(ns *Namespace) (map[string]EntryConfig, bool) {
-	if ns == nil {
-		return nil, false
-	}
-
-	// Group entries by entry name
-	result := make(map[string]EntryConfig)
-	for key, value := range ns.entries {
-		// Split key into entry and field
-		dotIdx := strings.Index(key, ".")
-		if dotIdx == -1 {
+	for namespaceName, namespace := range c.data {
+		if namespace == nil {
 			continue
 		}
-		entryName := key[:dotIdx]
-		fieldPath := key[dotIdx+1:]
 
-		// Get or create entry map
-		entryMap, ok := result[entryName]
-		if !ok {
-			entryMap = make(EntryConfig)
-			result[entryName] = entryMap
+		// Build entry map for this namespace
+		entryMap := make(map[string]EntryConfig, len(namespace.entries))
+		for entryName, entryConfig := range namespace.entries {
+			// Create a copy of EntryConfig to avoid external modification
+			entryConfigCopy := make(EntryConfig, len(entryConfig))
+			for field, value := range entryConfig {
+				entryConfigCopy[field] = value
+			}
+			entryMap[entryName] = entryConfigCopy
 		}
-
-		// Set nested field in entry map
-		setNestedField(entryMap, fieldPath, value)
+		result[namespaceName] = entryMap
 	}
 
-	return result, true
+	return result
 }
