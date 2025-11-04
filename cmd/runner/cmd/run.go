@@ -11,6 +11,7 @@ import (
 
 	appbuild "github.com/ponyruntime/pony/cmd/runner/app"
 	"github.com/ponyruntime/pony/deps"
+	"github.com/ponyruntime/pony/internal/runtimeconfig"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
@@ -23,6 +24,25 @@ var runCmd = &cobra.Command{
 		logger, err := createLogger()
 		if err != nil {
 			return fmt.Errorf("failed to create logger: %w", err)
+		}
+
+		// Parse runtime configuration flags
+		runtimeConfigFlags, _ := cmd.Flags().GetStringSlice("runtime-config")
+		runtimeCfg := runtimeconfig.New()
+
+		for _, configEntry := range runtimeConfigFlags {
+			if err := runtimeCfg.SetFromString(configEntry); err != nil {
+				logger.Error("failed to parse runtime configuration",
+					zap.String("entry", configEntry),
+					zap.Error(err))
+				return fmt.Errorf("invalid runtime configuration '%s': %w", configEntry, err)
+			}
+		}
+
+		if len(runtimeConfigFlags) > 0 {
+			logger.Info("Loaded runtime configuration",
+				zap.Int("entries", len(runtimeConfigFlags)),
+				zap.Strings("namespaces", runtimeCfg.GetAllNamespaces()))
 		}
 
 		lockFile, _ := cmd.Flags().GetString("lock-file")
@@ -138,6 +158,7 @@ var runCmd = &cobra.Command{
 			appbuild.WithLogging(consoleLogging, eventStreaming, minLevel),
 			appbuild.WithProfiling(enableProfiling),
 			appbuild.WithCluster(clusterEnabled, clusterName, clusterBind, clusterPort, clusterJoin, clusterSecret, clusterSecretFile, clusterAdvertise),
+			appbuild.WithRuntimeConfig(runtimeCfg),
 		)
 		if err != nil {
 			logger.Error("failed to create application", zap.Error(err))
@@ -189,6 +210,8 @@ func init() {
 	runCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
 	runCmd.Flags().BoolP("profiling", "p", false, "enable performance profiling")
 	runCmd.Flags().Bool("use-embed", false, "use embedded files")
+
+	runCmd.Flags().StringSliceP("runtime-config", "r", []string{}, "runtime configuration in format namespace:entry:field=value (can be specified multiple times). Entry and field can contain dots.")
 
 	runCmd.Flags().BoolP("cluster", "C", false, "enable cluster membership")
 	runCmd.Flags().StringP("cluster-name", "n", "", "cluster node name (defaults to hostname)")
