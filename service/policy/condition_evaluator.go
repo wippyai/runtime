@@ -386,6 +386,9 @@ func toString(value any) (string, bool) {
 		return strconv.FormatFloat(v, 'f', -1, 64), true
 	case bool:
 		return strconv.FormatBool(v), true
+	case []any, []string, []int:
+		// Don't convert slices to strings to avoid substring matching on array string representation
+		return "", false
 	}
 
 	return fmt.Sprintf("%v", value), true
