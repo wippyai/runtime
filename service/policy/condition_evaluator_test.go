@@ -1135,6 +1135,176 @@ func TestTypeConversions(t *testing.T) {
 	})
 }
 
+func TestRoleMatchingBehavior(t *testing.T) {
+	evaluator, err := NewConditionEvaluator([]policy.Condition{})
+	if err != nil {
+		t.Fatalf("Failed to create evaluator: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		condition policy.Condition
+		actor     security.Actor
+		action    string
+		resource  string
+		meta      registry.Metadata
+		want      bool
+		wantErr   bool
+		comment   string
+	}{
+		{
+			name: "ncontains with role array - exact match only (user case FIXED)",
+			condition: policy.Condition{
+				Field:    "actor.meta.roles",
+				Operator: "ncontains",
+				Value:    "admin",
+			},
+			actor:    newMockActor("user123", registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}}),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     true, // FIXED: returns TRUE because exact 'admin' is NOT in array
+			wantErr:  false,
+			comment:  "FIXED: ncontains returns TRUE because exact 'admin' string is NOT in array (only 'distributor-admin', 'super-admin')",
+		},
+		{
+			name: "ncontains with role array - exact match exists",
+			condition: policy.Condition{
+				Field:    "actor.meta.roles",
+				Operator: "ncontains",
+				Value:    "distributor-admin",
+			},
+			actor:    newMockActor("user123", registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}}),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     false,
+			wantErr:  false,
+			comment:  "ncontains returns FALSE because exact 'distributor-admin' IS in array",
+		},
+		{
+			name: "contains with role array - exact match only (FIXED)",
+			condition: policy.Condition{
+				Field:    "actor.meta.roles",
+				Operator: "contains",
+				Value:    "admin",
+			},
+			actor:    newMockActor("user123", registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}}),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     false, // FIXED: returns FALSE because exact 'admin' is NOT in array
+			wantErr:  false,
+			comment:  "FIXED: contains returns FALSE because exact 'admin' string is NOT in array (substring doesn't match)",
+		},
+		{
+			name: "contains with role array - exact match exists",
+			condition: policy.Condition{
+				Field:    "actor.meta.roles",
+				Operator: "contains",
+				Value:    "distributor-admin",
+			},
+			actor:    newMockActor("user123", registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}}),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     true,
+			wantErr:  false,
+			comment:  "contains returns TRUE because exact 'distributor-admin' IS in array",
+		},
+		{
+			name: "nin operator - WRONG USAGE: comparing array to list",
+			condition: policy.Condition{
+				Field:    "actor.meta.roles",
+				Operator: "nin",
+				Value:    []string{"admin", "distributor-admin", "super-admin"},
+			},
+			actor:    newMockActor("user123", registry.Metadata{"roles": []string{"distributor-admin"}}),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     true, // Returns TRUE because array ["distributor-admin"] != string "distributor-admin"
+			wantErr:  false,
+			comment:  "nin compares WHOLE ARRAY as value - array [\"distributor-admin\"] is NOT equal to any string in list, so returns TRUE (not correct usage)",
+		},
+		{
+			name: "nin operator - CORRECT USAGE: single role value not in admin list",
+			condition: policy.Condition{
+				Field:    "actor.meta.role", // Single value, not array!
+				Operator: "nin",
+				Value:    []string{"admin", "distributor-admin", "super-admin"},
+			},
+			actor:    newMockActor("user123", registry.Metadata{"role": "user"}),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     true,
+			wantErr:  false,
+			comment:  "CORRECT: nin returns TRUE because 'user' (single value) is NOT in admin roles list",
+		},
+		{
+			name: "nin operator - CORRECT USAGE: single role value IS in admin list",
+			condition: policy.Condition{
+				Field:    "actor.meta.role", // Single value, not array!
+				Operator: "nin",
+				Value:    []string{"admin", "distributor-admin", "super-admin"},
+			},
+			actor:    newMockActor("user123", registry.Metadata{"role": "distributor-admin"}),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     false,
+			wantErr:  false,
+			comment:  "CORRECT: nin returns FALSE because 'distributor-admin' (single value) IS in admin roles list",
+		},
+		{
+			name: "contains vs ncontains on string field - substring behavior",
+			condition: policy.Condition{
+				Field:    "actor.meta.role",
+				Operator: "contains",
+				Value:    "admin",
+			},
+			actor:    newMockActor("user123", registry.Metadata{"role": "distributor-admin"}),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     true,
+			wantErr:  false,
+			comment:  "contains on STRING performs substring match - 'admin' is IN 'distributor-admin'",
+		},
+		{
+			name: "ncontains on string field - substring behavior",
+			condition: policy.Condition{
+				Field:    "actor.meta.role",
+				Operator: "ncontains",
+				Value:    "admin",
+			},
+			actor:    newMockActor("user123", registry.Metadata{"role": "distributor-admin"}),
+			action:   "read",
+			resource: "document",
+			meta:     nil,
+			want:     false,
+			wantErr:  false,
+			comment:  "ncontains on STRING performs substring check - 'admin' IS in 'distributor-admin', so returns FALSE",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := evaluator.EvaluateCondition(tt.condition, tt.actor, tt.action, tt.resource, tt.meta)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("EvaluateCondition() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("EvaluateCondition() got = %v, want %v\nComment: %s", got, tt.want, tt.comment)
+			} else {
+				t.Logf("✓ %s", tt.comment)
+			}
+		})
+	}
+}
+
 func TestComplexNestedConditions(t *testing.T) {
 	conditions := []policy.Condition{
 		{
