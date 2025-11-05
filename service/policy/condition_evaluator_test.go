@@ -1298,8 +1298,6 @@ func TestRoleMatchingBehavior(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("EvaluateCondition() got = %v, want %v\nComment: %s", got, tt.want, tt.comment)
-			} else {
-				t.Logf("✓ %s", tt.comment)
 			}
 		})
 	}
