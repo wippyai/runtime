@@ -387,7 +387,6 @@ func toString(value any) (string, bool) {
 	case bool:
 		return strconv.FormatBool(v), true
 	case []any, []string, []int:
-		// Don't convert slices to strings to avoid substring matching on array string representation
 		return "", false
 	}
 
