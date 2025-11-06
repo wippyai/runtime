@@ -1,0 +1,28 @@
+# Go Testing Rules
+
+## ✅ DO:
+- Use `testify`: `require.NoError(t, err)` and `assert.Equal(t, want, got)`
+- Always add `t.Parallel()` to tests and subtests
+- Use table-driven tests with descriptive names
+- Group tests with `t.Run("group name", func(t *testing.T) {...})`
+- Test edge cases: nil, empty, zero, boundary values
+- Extract repeated values to constants at top of test
+- Name tests: `TestType_Method_Scenario` format
+- Use `assert.Error(t, err)` or `assert.NoError(t, err)` for error checks
+
+## ❌ DON'T:
+- Don't use `if (err != nil) != tt.wantErr` - use `assert.Error` or `assert.NoError`
+- Don't add `wantErr` field if it's always the same value - just check explicitly
+- Don't use plain `if got != want` - use `assert.Equal`
+- Don't use `t.Fatalf` for non-critical checks - use `assert`
+- Don't skip `t.Parallel()` - tests must run in parallel
+- Don't use `t.Logf` for test progress - test names should be self-explanatory
+- Don't write comments explaining expected behavior - test name should be clear
+- Don't repeat test data - use constants or table-driven tests
+- Don't write code that takes 15 seconds to understand - keep it simple
+
+## Before Commit:
+```bash
+make lint  # Must be 0 issues
+```
+
