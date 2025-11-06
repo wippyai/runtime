@@ -12,7 +12,7 @@ import (
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize a new lock file",
-	Long:  "Initialize a new lock file with the specified directory structure.",
+	Long:  fmt.Sprintf("Initialize a new lock file with default directory structure (src: '%s', modules: '%s').", deps.DefaultSrcDir, deps.DefaultModulesDir),
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		logger, err := createLogger()
 		if err != nil {
@@ -20,19 +20,17 @@ var initCmd = &cobra.Command{
 		}
 
 		lockFile, _ := cmd.Flags().GetString("lock-file")
-		srcDir, _ := cmd.Flags().GetString("src-dir")
-		modulesDir, _ := cmd.Flags().GetString("modules-dir")
 
 		// Check if lock file already exists
 		if _, err := os.Stat(lockFile); err == nil {
 			return fmt.Errorf("lock file already exists: %s", lockFile)
 		}
 
-		// Create empty lock file with directories
+		// Create empty lock file with default directories
 		lockFileObj := &deps.LockFile{
 			Directories: deps.Directories{
-				Modules: modulesDir,
-				Src:     srcDir,
+				Modules: deps.DefaultModulesDir,
+				Src:     deps.DefaultSrcDir,
 			},
 			Modules: []deps.LockedModule{},
 		}
@@ -44,8 +42,8 @@ var initCmd = &cobra.Command{
 
 		logger.Info("Lock file initialized successfully",
 			zap.String("path", lockFile),
-			zap.String("src_dir", srcDir),
-			zap.String("modules_dir", modulesDir))
+			zap.String("src_dir", deps.DefaultSrcDir),
+			zap.String("modules_dir", deps.DefaultModulesDir))
 
 		return nil
 	},
@@ -55,6 +53,4 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 
 	initCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
-	initCmd.Flags().StringP("src-dir", "d", ".", "source directory path")
-	initCmd.Flags().StringP("modules-dir", "m", ".wippy", "modules directory path")
 }

@@ -72,15 +72,24 @@ func (dm *DependencyManager) InstallDependenciesFromLockFile(ctx context.Context
 
 // UpdateDependencies updates dependencies and regenerates lock file
 func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
-	var srcDir string
+	var srcDir, modulesDir string
+	var excludeDirs []string
+
 	existingLockPath := filepath.Join(dm.folderPath, dm.lockFile)
-	if existingLock, err := deps.LoadLockFile(existingLockPath); err == nil {
+	var existingLock *deps.LockFile
+	if lock, err := deps.LoadLockFile(existingLockPath); err == nil {
+		existingLock = lock
 		srcDir = existingLock.Directories.Src
+		modulesDir = existingLock.Directories.Modules
 	} else {
 		srcDir = "."
+		modulesDir = deps.WippyFolder
 	}
 
-	entries, err := dm.loadRegistryEntries(ctx, srcDir)
+	// Prepare list of directories to exclude from source scanning
+	excludeDirs = dm.prepareExcludeDirs(srcDir, modulesDir, existingLock, existingLockPath)
+
+	entries, err := dm.loadRegistryEntries(ctx, srcDir, excludeDirs)
 	if err != nil {
 		return fmt.Errorf("load registry entries: %w", err)
 	}
@@ -116,13 +125,6 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 	loadResult, err := registryLoader.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load dependencies: %w", err)
-	}
-
-	var modulesDir string
-	if existingLock, err := deps.LoadLockFile(existingLockPath); err == nil {
-		modulesDir = existingLock.Directories.Modules
-	} else {
-		modulesDir = ".wippy"
 	}
 
 	lockFile := deps.ConvertToLockFile(loadResult, modulesDir, srcDir)
@@ -175,7 +177,7 @@ func (dm *DependencyManager) CleanUnusedPackages(lockFile *deps.LockFile) error 
 	return nil
 }
 
-func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir string) ([]regapi.Entry, error) {
+func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir string, excludeDirs []string) ([]regapi.Entry, error) {
 	dtt := transcoder.GlobalTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
@@ -186,7 +188,12 @@ func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir str
 	))
 
 	srcPath := filepath.Join(dm.folderPath, srcDir)
-	fsys := os.DirFS(srcPath)
+	var fsys = os.DirFS(srcPath)
+
+	// Apply filtering if we have directories to exclude
+	if len(excludeDirs) > 0 {
+		fsys = newFilteredFS(fsys, excludeDirs)
+	}
 
 	entries, err := folderLoader.LoadFS(ctx, fsys)
 	if err != nil {
@@ -194,6 +201,85 @@ func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir str
 	}
 
 	return entries, nil
+}
+
+// prepareExcludeDirs prepares a list of directories to exclude from source scanning.
+//
+// It calculates relative paths (relative to srcDir) for:
+//   - modules directory (if inside source directory)
+//   - replacement directories from lock file (if inside source directory)
+//
+// Parameters:
+//   - srcDir: source directory path (relative to dm.folderPath)
+//   - modulesDir: modules directory path (relative to dm.folderPath)
+//   - lockFile: parsed lock file (may be nil)
+//   - lockPath: path to the lock file
+//
+// Returns a list of relative paths (relative to srcDir) to exclude.
+// Paths outside the source directory or paths that fail validation are
+// silently skipped with debug logging.
+//
+// Example:
+//
+//	srcDir = "."
+//	modulesDir = ".wippy"
+//	→ returns [".wippy"]
+func (dm *DependencyManager) prepareExcludeDirs(srcDir, modulesDir string, lockFile *deps.LockFile, lockPath string) []string {
+	// Validate inputs
+	if srcDir == "" {
+		dm.logger.Warn("prepareExcludeDirs called with empty srcDir, using '.' as default")
+		srcDir = "."
+	}
+
+	var excludeDirs []string
+
+	// Exclude modules directory if it's inside source directory
+	if modulesDir != "" {
+		absModulesPath := filepath.Join(dm.folderPath, modulesDir)
+		absSrcPath := filepath.Join(dm.folderPath, srcDir)
+
+		relModulesPath, err := filepath.Rel(absSrcPath, absModulesPath)
+		if err != nil {
+			dm.logger.Debug("Failed to calculate relative path for modules directory",
+				zap.String("src_dir", srcDir),
+				zap.String("modules_dir", modulesDir),
+				zap.Error(err))
+		} else if !strings.HasPrefix(relModulesPath, "..") {
+			excludeDirs = append(excludeDirs, relModulesPath)
+			dm.logger.Debug("Filtering out modules directory from source scanning",
+				zap.String("src_dir", srcDir),
+				zap.String("modules_dir", modulesDir),
+				zap.String("relative_path", relModulesPath))
+		}
+	}
+
+	// Exclude replacement directories if they are inside source directory
+	if lockFile != nil && len(lockFile.Replacements) > 0 {
+		lockFileDir := filepath.Dir(lockPath)
+		absSrcPath := filepath.Join(dm.folderPath, srcDir)
+
+		for _, replacement := range lockFile.Replacements {
+			absReplacementPath := filepath.Join(lockFileDir, replacement.To)
+			relReplacementPath, err := filepath.Rel(absSrcPath, absReplacementPath)
+			if err != nil {
+				dm.logger.Debug("Failed to calculate relative path for replacement",
+					zap.String("module", replacement.From),
+					zap.String("replacement_path", replacement.To),
+					zap.Error(err))
+				continue
+			}
+
+			if !strings.HasPrefix(relReplacementPath, "..") {
+				excludeDirs = append(excludeDirs, relReplacementPath)
+				dm.logger.Debug("Filtering out replacement directory from source scanning",
+					zap.String("module", replacement.From),
+					zap.String("replacement_path", replacement.To),
+					zap.String("relative_path", relReplacementPath))
+			}
+		}
+	}
+
+	return excludeDirs
 }
 
 // createModuleLoaderManagerWithTempDirAndReplacements creates a module loader manager

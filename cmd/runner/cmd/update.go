@@ -12,7 +12,7 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update dependencies and regenerate lock file",
-	Long:  "If the lock file is missing, runs init. Resolves dependencies and calculates a diff. Writes a new lock file and runs install afterwards.",
+	Long:  "If the lock file is missing, runs init. Resolves dependencies and calculates a diff. Writes a new lock file and runs install afterwards (unless --lock flag is used).",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		logger, err := createLogger()
 		if err != nil {
@@ -25,9 +25,14 @@ var updateCmd = &cobra.Command{
 
 func runUpdate(cmd *cobra.Command, _ []string, logger *zap.Logger) error {
 	lockFile, _ := cmd.Flags().GetString("lock-file")
+	lockOnly, _ := cmd.Flags().GetBool("lock")
 	folderPath := "."
 
-	logger.Info("Updating dependencies")
+	if lockOnly {
+		logger.Info("Updating dependencies (lock file only, skipping installation)")
+	} else {
+		logger.Info("Updating dependencies")
+	}
 
 	// Check if lock file exists and load old lock file BEFORE update to compare later
 	lockPath, err := deps.FindLockFile(folderPath, lockFile)
@@ -35,22 +40,11 @@ func runUpdate(cmd *cobra.Command, _ []string, logger *zap.Logger) error {
 	if err != nil {
 		logger.Info("Lock file not found, running init")
 
-		// Create default init parameters
-		srcDir, _ := cmd.Flags().GetString("src-dir")
-		modulesDir, _ := cmd.Flags().GetString("modules-dir")
-
-		if srcDir == "" {
-			srcDir = "."
-		}
-		if modulesDir == "" {
-			modulesDir = ".wippy"
-		}
-
-		// Create empty lock file with directories
+		// Create empty lock file with default directories
 		lockFileObj := &deps.LockFile{
 			Directories: deps.Directories{
-				Modules: modulesDir,
-				Src:     srcDir,
+				Modules: deps.DefaultModulesDir,
+				Src:     deps.DefaultSrcDir,
 			},
 			Modules: []deps.LockedModule{},
 		}
@@ -63,8 +57,8 @@ func runUpdate(cmd *cobra.Command, _ []string, logger *zap.Logger) error {
 
 		logger.Info("Lock file initialized",
 			zap.String("path", lockFile),
-			zap.String("src_dir", srcDir),
-			zap.String("modules_dir", modulesDir))
+			zap.String("src_dir", deps.DefaultSrcDir),
+			zap.String("modules_dir", deps.DefaultModulesDir))
 		// oldLock remains nil for new lock file
 	} else {
 		logger.Debug("Found existing lock file", zap.String("path", lockPath))
@@ -123,6 +117,26 @@ func runUpdate(cmd *cobra.Command, _ []string, logger *zap.Logger) error {
 		}
 	}
 
+	// Install dependencies unless --lock flag is set
+	if !lockOnly {
+		logger.Info("Installing dependencies from updated lock file")
+
+		// Validate replacements before installation
+		if err := newLock.ValidateReplacements(lockFile); err != nil {
+			logger.Error("invalid replacement paths", zap.Error(err))
+			return fmt.Errorf("invalid replacement paths: %w", err)
+		}
+
+		if err := depsManager.InstallDependenciesFromLockFile(cmd.Context(), newLock, lockFile); err != nil {
+			logger.Error("failed to install dependencies", zap.Error(err))
+			return fmt.Errorf("failed to install dependencies: %w", err)
+		}
+
+		logger.Info("Dependencies installed successfully")
+	} else {
+		logger.Info("Skipping installation (--lock flag is set)")
+	}
+
 	logger.Info("Update completed successfully")
 	return nil
 }
@@ -131,6 +145,5 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 
 	updateCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
-	updateCmd.Flags().StringP("src-dir", "d", ".", "source directory path")
-	updateCmd.Flags().StringP("modules-dir", "m", ".wippy", "modules directory path")
+	updateCmd.Flags().Bool("lock", false, "only update lock file without installing dependencies")
 }

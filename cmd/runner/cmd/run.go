@@ -152,6 +152,9 @@ var runCmd = &cobra.Command{
 		consoleLogging, eventStreaming := GetLoggingConfig()
 		minLevel := GetVerboseLevel()
 
+		// Prepare list of directories to exclude from source scanning
+		excludeDirs := prepareExcludeDirs(appDir, absModulesDir, absLockDir, lockFileObj, logger)
+
 		app, err := appbuild.NewApp(
 			logger,
 			appbuild.WithPaths(appDir, absLockPath, absModulesDir, absLockDir, useEmbed),
@@ -159,6 +162,7 @@ var runCmd = &cobra.Command{
 			appbuild.WithProfiling(enableProfiling),
 			appbuild.WithCluster(clusterEnabled, clusterName, clusterBind, clusterPort, clusterJoin, clusterSecret, clusterSecretFile, clusterAdvertise),
 			appbuild.WithRuntimeConfig(runtimeCfg),
+			appbuild.WithExcludeDirs(excludeDirs),
 		)
 		if err != nil {
 			logger.Error("failed to create application", zap.Error(err))
@@ -221,4 +225,87 @@ func init() {
 	runCmd.Flags().String("cluster-secret", "", "cluster secret key (base64 encoded string)")
 	runCmd.Flags().String("cluster-secret-file", "", "path to file containing cluster secret key")
 	runCmd.Flags().String("cluster-advertise", "", "cluster advertise IP address")
+}
+
+// prepareExcludeDirs prepares a list of directories to exclude from source scanning.
+//
+// It calculates relative paths for:
+//   - modules directory (if inside source directory)
+//   - replacement directories from lock file (if inside source directory)
+//
+// Parameters:
+//   - folderPath: absolute path to the source/application directory
+//   - modulesDirPath: absolute path to the modules directory
+//   - lockFileDir: directory containing the lock file
+//   - lockFile: parsed lock file (may be nil)
+//   - logger: logger instance for debug output
+//
+// Returns a list of relative paths to exclude. Paths outside the source directory
+// or paths that fail validation are silently skipped with debug logging.
+//
+// Example:
+//
+//	folderPath = "/app"
+//	modulesDirPath = "/app/.wippy/vendor"
+//	→ returns [".wippy/vendor"]
+func prepareExcludeDirs(folderPath, modulesDirPath, lockFileDir string, lockFile *deps.LockFile, logger *zap.Logger) []string {
+	// Validate inputs
+	if folderPath == "" {
+		if logger != nil {
+			logger.Warn("prepareExcludeDirs called with empty folderPath")
+		}
+		return []string{}
+	}
+
+	var excludeDirs []string
+
+	// Exclude modules directory if it's inside source directory
+	if modulesDirPath != "" {
+		relModulesPath, err := filepath.Rel(folderPath, modulesDirPath)
+		if err != nil {
+			if logger != nil {
+				logger.Debug("Failed to calculate relative path for modules directory",
+					zap.String("folder_path", folderPath),
+					zap.String("modules_dir_path", modulesDirPath),
+					zap.Error(err))
+			}
+		} else if !strings.HasPrefix(relModulesPath, "..") {
+			excludeDirs = append(excludeDirs, relModulesPath)
+			if logger != nil {
+				logger.Debug("Filtering out modules directory from source scanning",
+					zap.String("folder_path", folderPath),
+					zap.String("modules_dir_path", modulesDirPath),
+					zap.String("relative_path", relModulesPath))
+			}
+		}
+	}
+
+	// Exclude replacement directories if they are inside source directory
+	if lockFile != nil && len(lockFile.Replacements) > 0 {
+		for _, replacement := range lockFile.Replacements {
+			absReplacementPath := filepath.Join(lockFileDir, replacement.To)
+			relReplacementPath, err := filepath.Rel(folderPath, absReplacementPath)
+			if err != nil {
+				if logger != nil {
+					logger.Debug("Failed to calculate relative path for replacement",
+						zap.String("module", replacement.From),
+						zap.String("replacement_path", replacement.To),
+						zap.Error(err))
+				}
+				continue
+			}
+
+			if !strings.HasPrefix(relReplacementPath, "..") {
+				excludeDirs = append(excludeDirs, relReplacementPath)
+				if logger != nil {
+					logger.Debug("Filtering out replacement directory from source scanning",
+						zap.String("module", replacement.From),
+						zap.String("replacement_path", replacement.To),
+						zap.String("relative_path", relReplacementPath))
+				}
+			}
+		}
+	}
+
+	return excludeDirs
 }
