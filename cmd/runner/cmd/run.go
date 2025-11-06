@@ -154,6 +154,9 @@ var runCmd = &cobra.Command{
 
 		// Prepare list of directories to exclude from source scanning
 		excludeDirs := prepareExcludeDirs(appDir, absModulesDir, absLockDir, lockFileObj, logger)
+		if len(excludeDirs) > 0 {
+			logger.Debug("Excluding directories from source scanning", zap.Strings("directories", excludeDirs))
+		}
 
 		app, err := appbuild.NewApp(
 			logger,
@@ -214,9 +217,7 @@ func init() {
 	runCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
 	runCmd.Flags().BoolP("profiling", "p", false, "enable performance profiling")
 	runCmd.Flags().Bool("use-embed", false, "use embedded files")
-
 	runCmd.Flags().StringSliceP("runtime-config", "r", []string{}, "runtime configuration in format namespace:entry:field=value (can be specified multiple times). Entry and field can contain dots.")
-
 	runCmd.Flags().BoolP("cluster", "C", false, "enable cluster membership")
 	runCmd.Flags().StringP("cluster-name", "n", "", "cluster node name (defaults to hostname)")
 	runCmd.Flags().String("cluster-bind", "0.0.0.0", "cluster bind address")
@@ -248,61 +249,26 @@ func init() {
 //	folderPath = "/app"
 //	modulesDirPath = "/app/.wippy/vendor"
 //	→ returns [".wippy/vendor"]
-func prepareExcludeDirs(folderPath, modulesDirPath, lockFileDir string, lockFile *deps.LockFile, logger *zap.Logger) []string {
-	// Validate inputs
+func prepareExcludeDirs(folderPath, modulesDirPath, lockFileDir string, lockFile *deps.LockFile, _ *zap.Logger) []string {
 	if folderPath == "" {
-		if logger != nil {
-			logger.Warn("prepareExcludeDirs called with empty folderPath")
-		}
 		return []string{}
 	}
 
 	var excludeDirs []string
 
-	// Exclude modules directory if it's inside source directory
+	// Add modules directory
 	if modulesDirPath != "" {
-		relModulesPath, err := filepath.Rel(folderPath, modulesDirPath)
-		if err != nil {
-			if logger != nil {
-				logger.Debug("Failed to calculate relative path for modules directory",
-					zap.String("folder_path", folderPath),
-					zap.String("modules_dir_path", modulesDirPath),
-					zap.Error(err))
-			}
-		} else if !strings.HasPrefix(relModulesPath, "..") {
-			excludeDirs = append(excludeDirs, relModulesPath)
-			if logger != nil {
-				logger.Debug("Filtering out modules directory from source scanning",
-					zap.String("folder_path", folderPath),
-					zap.String("modules_dir_path", modulesDirPath),
-					zap.String("relative_path", relModulesPath))
-			}
+		if relPath, err := filepath.Rel(folderPath, modulesDirPath); err == nil && !strings.HasPrefix(relPath, "..") {
+			excludeDirs = append(excludeDirs, relPath)
 		}
 	}
 
-	// Exclude replacement directories if they are inside source directory
+	// Add replacements directories
 	if lockFile != nil && len(lockFile.Replacements) > 0 {
 		for _, replacement := range lockFile.Replacements {
-			absReplacementPath := filepath.Join(lockFileDir, replacement.To)
-			relReplacementPath, err := filepath.Rel(folderPath, absReplacementPath)
-			if err != nil {
-				if logger != nil {
-					logger.Debug("Failed to calculate relative path for replacement",
-						zap.String("module", replacement.From),
-						zap.String("replacement_path", replacement.To),
-						zap.Error(err))
-				}
-				continue
-			}
-
-			if !strings.HasPrefix(relReplacementPath, "..") {
-				excludeDirs = append(excludeDirs, relReplacementPath)
-				if logger != nil {
-					logger.Debug("Filtering out replacement directory from source scanning",
-						zap.String("module", replacement.From),
-						zap.String("replacement_path", replacement.To),
-						zap.String("relative_path", relReplacementPath))
-				}
+			absPath := filepath.Join(lockFileDir, replacement.To)
+			if relPath, err := filepath.Rel(folderPath, absPath); err == nil && !strings.HasPrefix(relPath, "..") {
+				excludeDirs = append(excludeDirs, relPath)
 			}
 		}
 	}

@@ -88,6 +88,9 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 
 	// Prepare list of directories to exclude from source scanning
 	excludeDirs = dm.prepareExcludeDirs(srcDir, modulesDir, existingLock, existingLockPath)
+	if len(excludeDirs) > 0 {
+		dm.logger.Debug("Excluding directories from source scanning", zap.Strings("directories", excludeDirs))
+	}
 
 	entries, err := dm.loadRegistryEntries(ctx, srcDir, excludeDirs)
 	if err != nil {
@@ -203,78 +206,29 @@ func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir str
 	return entries, nil
 }
 
-// prepareExcludeDirs prepares a list of directories to exclude from source scanning.
-//
-// It calculates relative paths (relative to srcDir) for:
-//   - modules directory (if inside source directory)
-//   - replacement directories from lock file (if inside source directory)
-//
-// Parameters:
-//   - srcDir: source directory path (relative to dm.folderPath)
-//   - modulesDir: modules directory path (relative to dm.folderPath)
-//   - lockFile: parsed lock file (may be nil)
-//   - lockPath: path to the lock file
-//
-// Returns a list of relative paths (relative to srcDir) to exclude.
-// Paths outside the source directory or paths that fail validation are
-// silently skipped with debug logging.
-//
-// Example:
-//
-//	srcDir = "."
-//	modulesDir = ".wippy"
-//	→ returns [".wippy"]
 func (dm *DependencyManager) prepareExcludeDirs(srcDir, modulesDir string, lockFile *deps.LockFile, lockPath string) []string {
-	// Validate inputs
 	if srcDir == "" {
-		dm.logger.Warn("prepareExcludeDirs called with empty srcDir, using '.' as default")
 		srcDir = "."
 	}
 
+	absSrcPath := filepath.Join(dm.folderPath, srcDir)
 	var excludeDirs []string
 
-	// Exclude modules directory if it's inside source directory
+	// Add modules directory
 	if modulesDir != "" {
 		absModulesPath := filepath.Join(dm.folderPath, modulesDir)
-		absSrcPath := filepath.Join(dm.folderPath, srcDir)
-
-		relModulesPath, err := filepath.Rel(absSrcPath, absModulesPath)
-		if err != nil {
-			dm.logger.Debug("Failed to calculate relative path for modules directory",
-				zap.String("src_dir", srcDir),
-				zap.String("modules_dir", modulesDir),
-				zap.Error(err))
-		} else if !strings.HasPrefix(relModulesPath, "..") {
-			excludeDirs = append(excludeDirs, relModulesPath)
-			dm.logger.Debug("Filtering out modules directory from source scanning",
-				zap.String("src_dir", srcDir),
-				zap.String("modules_dir", modulesDir),
-				zap.String("relative_path", relModulesPath))
+		if relPath, err := filepath.Rel(absSrcPath, absModulesPath); err == nil && !strings.HasPrefix(relPath, "..") {
+			excludeDirs = append(excludeDirs, relPath)
 		}
 	}
 
-	// Exclude replacement directories if they are inside source directory
+	// Add replacements directories
 	if lockFile != nil && len(lockFile.Replacements) > 0 {
 		lockFileDir := filepath.Dir(lockPath)
-		absSrcPath := filepath.Join(dm.folderPath, srcDir)
-
 		for _, replacement := range lockFile.Replacements {
-			absReplacementPath := filepath.Join(lockFileDir, replacement.To)
-			relReplacementPath, err := filepath.Rel(absSrcPath, absReplacementPath)
-			if err != nil {
-				dm.logger.Debug("Failed to calculate relative path for replacement",
-					zap.String("module", replacement.From),
-					zap.String("replacement_path", replacement.To),
-					zap.Error(err))
-				continue
-			}
-
-			if !strings.HasPrefix(relReplacementPath, "..") {
-				excludeDirs = append(excludeDirs, relReplacementPath)
-				dm.logger.Debug("Filtering out replacement directory from source scanning",
-					zap.String("module", replacement.From),
-					zap.String("replacement_path", replacement.To),
-					zap.String("relative_path", relReplacementPath))
+			absPath := filepath.Join(lockFileDir, replacement.To)
+			if relPath, err := filepath.Rel(absSrcPath, absPath); err == nil && !strings.HasPrefix(relPath, "..") {
+				excludeDirs = append(excludeDirs, relPath)
 			}
 		}
 	}
