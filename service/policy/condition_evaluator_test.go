@@ -1159,7 +1159,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 		tests := []struct {
 			name      string
 			field     string
-			value     interface{}
+			value     any
 			actorMeta registry.Metadata
 			want      bool
 		}{
@@ -1225,7 +1225,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 		tests := []struct {
 			name      string
 			field     string
-			value     interface{}
+			value     any
 			actorMeta registry.Metadata
 			want      bool
 		}{
@@ -1284,7 +1284,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 		tests := []struct {
 			name      string
 			field     string
-			value     interface{}
+			value     any
 			actorMeta registry.Metadata
 			want      bool
 		}{
@@ -1343,7 +1343,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 		tests := []struct {
 			name      string
 			field     string
-			value     interface{}
+			value     any
 			actorMeta registry.Metadata
 			want      bool
 		}{
@@ -1395,7 +1395,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 		tests := []struct {
 			name      string
 			field     string
-			value     interface{}
+			value     any
 			actorMeta registry.Metadata
 			want      bool
 		}{
@@ -1447,7 +1447,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 		tests := []struct {
 			name      string
 			field     string
-			value     interface{}
+			value     any
 			actorMeta registry.Metadata
 			want      bool
 		}{
