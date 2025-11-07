@@ -5,10 +5,15 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/deps"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
 
+const lockFileName = "wippy.lock"
+
 func TestDependencyManager_prepareExcludeDirs(t *testing.T) {
+	t.Parallel()
+
 	logger := zap.NewNop()
 
 	tests := []struct {
@@ -104,43 +109,40 @@ func TestDependencyManager_prepareExcludeDirs(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			dm := &DependencyManager{
 				folderPath: tt.folderPath,
-				lockFile:   "wippy.lock",
+				lockFile:   lockFileName,
 				logger:     logger,
 			}
 
 			got := dm.prepareExcludeDirs(tt.srcDir, tt.modulesDir, tt.lockFile, tt.lockPath)
 
-			if len(got) != len(tt.want) {
-				t.Errorf("prepareExcludeDirs() got %d items, want %d items\ngot: %v\nwant: %v",
-					len(got), len(tt.want), got, tt.want)
-				return
-			}
-
-			// Convert to map for easier comparison
 			gotMap := make(map[string]bool)
 			for _, item := range got {
 				gotMap[filepath.Clean(item)] = true
 			}
 
-			for _, wantItem := range tt.want {
-				cleanWant := filepath.Clean(wantItem)
-				if !gotMap[cleanWant] {
-					t.Errorf("prepareExcludeDirs() missing expected item: %s\ngot: %v\nwant: %v",
-						wantItem, got, tt.want)
-				}
+			wantMap := make(map[string]bool)
+			for _, item := range tt.want {
+				wantMap[filepath.Clean(item)] = true
 			}
+
+			assert.Equal(t, wantMap, gotMap)
 		})
 	}
 }
 
 func TestDependencyManager_prepareExcludeDirs_WithTrailingSlashes(t *testing.T) {
+	t.Parallel()
+
 	logger := zap.NewNop()
 	dm := &DependencyManager{
 		folderPath: "/app/",
-		lockFile:   "wippy.lock",
+		lockFile:   lockFileName,
 		logger:     logger,
 	}
 
@@ -152,17 +154,16 @@ func TestDependencyManager_prepareExcludeDirs_WithTrailingSlashes(t *testing.T) 
 
 	got := dm.prepareExcludeDirs(".", ".wippy/", lockFile, "/app/wippy.lock")
 
-	// Should still work correctly with trailing slashes
-	if len(got) != 2 {
-		t.Errorf("prepareExcludeDirs() with trailing slashes got %d items, want 2", len(got))
-	}
+	assert.Equal(t, 2, len(got))
 }
 
 func TestDependencyManager_prepareExcludeDirs_EmptyReplacements(t *testing.T) {
+	t.Parallel()
+
 	logger := zap.NewNop()
 	dm := &DependencyManager{
 		folderPath: "/app",
-		lockFile:   "wippy.lock",
+		lockFile:   lockFileName,
 		logger:     logger,
 	}
 
@@ -172,16 +173,16 @@ func TestDependencyManager_prepareExcludeDirs_EmptyReplacements(t *testing.T) {
 
 	got := dm.prepareExcludeDirs(".", ".wippy", lockFile, "/app/wippy.lock")
 
-	if len(got) != 1 {
-		t.Errorf("prepareExcludeDirs() with empty replacements got %d items, want 1", len(got))
-	}
+	assert.Equal(t, 1, len(got))
 }
 
 func TestDependencyManager_prepareExcludeDirs_AbsoluteReplacementPaths(t *testing.T) {
+	t.Parallel()
+
 	logger := zap.NewNop()
 	dm := &DependencyManager{
 		folderPath: "/app",
-		lockFile:   "wippy.lock",
+		lockFile:   lockFileName,
 		logger:     logger,
 	}
 
@@ -194,9 +195,6 @@ func TestDependencyManager_prepareExcludeDirs_AbsoluteReplacementPaths(t *testin
 
 	got := dm.prepareExcludeDirs(".", ".wippy", lockFile, "/app/wippy.lock")
 
-	// Paths that resolve outside the srcDir should not be included
-	// We expect only .wippy to be included
-	// Note: absolute paths and paths starting with .. should be excluded
 	foundOutsidePath := false
 	for _, dir := range got {
 		if dir == "absolute" || dir == "outside" || filepath.IsAbs(dir) {
@@ -204,12 +202,6 @@ func TestDependencyManager_prepareExcludeDirs_AbsoluteReplacementPaths(t *testin
 		}
 	}
 
-	if foundOutsidePath {
-		t.Errorf("prepareExcludeDirs() included paths outside srcDir: %v", got)
-	}
-
-	// At minimum, we should have .wippy
-	if len(got) < 1 {
-		t.Errorf("prepareExcludeDirs() got %d items, want at least 1 (.wippy)", len(got))
-	}
+	assert.False(t, foundOutsidePath, "prepareExcludeDirs() included paths outside srcDir: %v", got)
+	assert.GreaterOrEqual(t, len(got), 1, "prepareExcludeDirs() should have at least 1 item (.wippy)")
 }

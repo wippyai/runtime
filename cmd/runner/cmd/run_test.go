@@ -5,10 +5,13 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/deps"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
 
 func TestPrepareExcludeDirs(t *testing.T) {
+	t.Parallel()
+
 	logger := zap.NewNop()
 
 	tests := []struct {
@@ -96,32 +99,30 @@ func TestPrepareExcludeDirs(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := prepareExcludeDirs(tt.folderPath, tt.modulesDirPath, tt.lockFileDir, tt.lockFile, logger)
 
-			if len(got) != len(tt.want) {
-				t.Errorf("prepareExcludeDirs() got %d items, want %d items\ngot: %v\nwant: %v", len(got), len(tt.want), got, tt.want)
-				return
-			}
-
-			// Convert to map for easier comparison
 			gotMap := make(map[string]bool)
 			for _, item := range got {
-				// Normalize paths for comparison
 				gotMap[filepath.Clean(item)] = true
 			}
 
-			for _, wantItem := range tt.want {
-				cleanWant := filepath.Clean(wantItem)
-				if !gotMap[cleanWant] {
-					t.Errorf("prepareExcludeDirs() missing expected item: %s\ngot: %v", wantItem, got)
-				}
+			wantMap := make(map[string]bool)
+			for _, item := range tt.want {
+				wantMap[filepath.Clean(item)] = true
 			}
+
+			assert.Equal(t, wantMap, gotMap)
 		})
 	}
 }
 
 func TestPrepareExcludeDirs_EmptyLockFile(t *testing.T) {
+	t.Parallel()
+
 	logger := zap.NewNop()
 
 	lockFile := &deps.LockFile{
@@ -130,13 +131,12 @@ func TestPrepareExcludeDirs_EmptyLockFile(t *testing.T) {
 
 	got := prepareExcludeDirs("/app", "/app/.wippy/vendor", "/app", lockFile, logger)
 
-	if len(got) != 1 {
-		t.Errorf("prepareExcludeDirs() with empty replacements got %d items, want 1", len(got))
-	}
+	assert.Equal(t, 1, len(got))
 }
 
 func TestPrepareExcludeDirs_NilLogger(t *testing.T) {
-	// Should not panic with nil logger (though we pass zap.NewNop() in real code)
+	t.Parallel()
+
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("prepareExcludeDirs() panicked: %v", r)

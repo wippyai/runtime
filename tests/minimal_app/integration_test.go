@@ -5,6 +5,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+const (
+	testDirName    = "minimal_app"
+	testScriptName = "test.sh"
+	makeTarget     = "build-runner-local"
 )
 
 func TestMinimalAppIntegration(t *testing.T) {
@@ -12,34 +20,21 @@ func TestMinimalAppIntegration(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	// Find project root
 	projectRoot, err := findProjectRoot()
-	if err != nil {
-		t.Fatalf("Failed to find project root: %v", err)
-	}
+	require.NoError(t, err, "Failed to find project root")
 
-	// Build runner binary first
-	t.Log("Building runner binary...")
-	buildCmd := exec.Command("make", "build-runner-local")
+	buildCmd := exec.Command("make", makeTarget)
 	buildCmd.Dir = projectRoot
-	if output, err := buildCmd.CombinedOutput(); err != nil {
-		t.Fatalf("Failed to build runner: %v\nOutput: %s", err, output)
-	}
+	output, err := buildCmd.CombinedOutput()
+	require.NoError(t, err, "Failed to build runner: %s", string(output))
 
-	// Run test.sh script
-	t.Log("Running integration test script...")
-	testDir := filepath.Join(projectRoot, "tests", "minimal_app")
-	testScript := filepath.Join(testDir, "test.sh")
+	testDir := filepath.Join(projectRoot, "tests", testDirName)
+	testScript := filepath.Join(testDir, testScriptName)
 
 	cmd := exec.Command("/bin/bash", testScript)
 	cmd.Dir = testDir
-	output, err := cmd.CombinedOutput()
-
-	t.Logf("Test script output:\n%s", output)
-
-	if err != nil {
-		t.Fatalf("Integration test failed: %v", err)
-	}
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "Integration test failed: %s", string(output))
 }
 
 func findProjectRoot() (string, error) {
