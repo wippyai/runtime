@@ -1,16 +1,24 @@
 package app
 
 import (
-	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const (
+	testDirPerm  = 0755
+	testFilePerm = 0600
 )
 
 func TestFilteredFS_Open(t *testing.T) {
-	// Create a test filesystem
+	t.Parallel()
+
 	fsys := fstest.MapFS{
 		"file.txt":              &fstest.MapFile{Data: []byte("content")},
 		"excluded/file.txt":     &fstest.MapFile{Data: []byte("excluded")},
@@ -23,71 +31,64 @@ func TestFilteredFS_Open(t *testing.T) {
 		name        string
 		excludeDirs []string
 		openPath    string
-		wantErr     bool
+		assertErr   assert.ErrorAssertionFunc
 		errType     error
 	}{
 		{
 			name:        "open normal file",
 			excludeDirs: []string{"excluded"},
 			openPath:    "file.txt",
-			wantErr:     false,
+			assertErr:   assert.NoError,
 		},
 		{
 			name:        "open excluded file",
 			excludeDirs: []string{"excluded"},
 			openPath:    "excluded/file.txt",
-			wantErr:     true,
+			assertErr:   assert.Error,
 			errType:     fs.ErrNotExist,
 		},
 		{
 			name:        "open excluded subdirectory",
 			excludeDirs: []string{"excluded"},
 			openPath:    "excluded/sub/file.txt",
-			wantErr:     true,
+			assertErr:   assert.Error,
 			errType:     fs.ErrNotExist,
 		},
 		{
 			name:        "open with multiple exclusions",
 			excludeDirs: []string{"excluded", "normal"},
 			openPath:    "normal/file.txt",
-			wantErr:     true,
+			assertErr:   assert.Error,
 			errType:     fs.ErrNotExist,
 		},
 		{
 			name:        "open non-excluded with multiple exclusions",
 			excludeDirs: []string{"excluded", "normal"},
 			openPath:    "another.txt",
-			wantErr:     false,
+			assertErr:   assert.NoError,
 		},
 		{
 			name:        "no exclusions",
 			excludeDirs: []string{},
 			openPath:    "excluded/file.txt",
-			wantErr:     false,
+			assertErr:   assert.NoError,
 		},
 	}
 
 	for _, tt := range tests {
+
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			filtered := newFilteredFS(fsys, tt.excludeDirs)
 
 			file, err := filtered.Open(tt.openPath)
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("Open() expected error, got nil")
-					return
-				}
-				if tt.errType != nil && !errors.Is(err, tt.errType) {
-					t.Errorf("Open() error = %v, want %v", err, tt.errType)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("Open() unexpected error: %v", err)
-					return
-				}
-				if file == nil {
-					t.Errorf("Open() returned nil file")
-				}
+			tt.assertErr(t, err)
+			if tt.errType != nil && err != nil {
+				assert.ErrorIs(t, err, tt.errType)
+			}
+			if err == nil {
+				require.NotNil(t, file)
 				file.Close()
 			}
 		})
@@ -95,7 +96,8 @@ func TestFilteredFS_Open(t *testing.T) {
 }
 
 func TestFilteredFS_ReadDir(t *testing.T) {
-	// Create a test filesystem
+	t.Parallel()
+
 	fsys := fstest.MapFS{
 		"file1.txt":          &fstest.MapFile{Data: []byte("file1")},
 		"file2.txt":          &fstest.MapFile{Data: []byte("file2")},
@@ -136,38 +138,34 @@ func TestFilteredFS_ReadDir(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			filtered := newFilteredFS(fsys, tt.excludeDirs)
 
 			entries, err := filtered.ReadDir(tt.readPath)
-			if err != nil {
-				t.Errorf("ReadDir() unexpected error: %v", err)
-				return
-			}
+			require.NoError(t, err)
 
 			entryNames := make(map[string]bool)
 			for _, entry := range entries {
 				entryNames[entry.Name()] = true
 			}
 
-			// Check that wanted entries are present
 			for _, want := range tt.wantContains {
-				if !entryNames[want] {
-					t.Errorf("ReadDir() missing expected entry: %s, got entries: %v", want, entryNames)
-				}
+				assert.True(t, entryNames[want], "ReadDir() missing expected entry: %s", want)
 			}
 
-			// Check that excluded entries are not present
 			for _, exclude := range tt.wantExcludes {
-				if entryNames[exclude] {
-					t.Errorf("ReadDir() contains excluded entry: %s", exclude)
-				}
+				assert.False(t, entryNames[exclude], "ReadDir() contains excluded entry: %s", exclude)
 			}
 		})
 	}
 }
 
 func TestFilteredFS_shouldExclude(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		excludeDirs []string
@@ -231,23 +229,21 @@ func TestFilteredFS_shouldExclude(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			f := newFilteredFS(nil, tt.excludeDirs)
 
 			got := f.shouldExclude(tt.path)
-			if got != tt.want {
-				t.Errorf("shouldExclude() = %v, want %v for path %s with excludeDirs %v",
-					got, tt.want, tt.path, tt.excludeDirs)
-			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestFilteredFS_Integration(t *testing.T) {
-	// Create a temporary directory structure for integration testing
 	tmpDir := t.TempDir()
 
-	// Create test structure
 	dirs := []string{
 		".wippy/vendor",
 		"replacements/module1",
@@ -266,22 +262,15 @@ func TestFilteredFS_Integration(t *testing.T) {
 	}
 
 	for _, dir := range dirs {
-		if err := os.MkdirAll(filepath.Join(tmpDir, dir), 0755); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, dir), testDirPerm))
 	}
 
 	for file, content := range files {
 		fullPath := filepath.Join(tmpDir, file)
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(fullPath, []byte(content), 0600); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.MkdirAll(filepath.Dir(fullPath), testDirPerm))
+		require.NoError(t, os.WriteFile(fullPath, []byte(content), testFilePerm))
 	}
 
-	// Create filtered FS
 	osFS := os.DirFS(tmpDir)
 	filtered := newFilteredFS(osFS, []string{
 		".wippy",
@@ -289,43 +278,25 @@ func TestFilteredFS_Integration(t *testing.T) {
 		"replacements/module2",
 	})
 
-	// Test ReadDir at root
 	entries, err := filtered.ReadDir(".")
-	if err != nil {
-		t.Fatalf("ReadDir failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	// Check that excluded directories are not present
 	for _, entry := range entries {
-		if entry.Name() == ".wippy" {
-			t.Errorf("ReadDir returned excluded directory: .wippy")
-		}
+		assert.NotEqual(t, ".wippy", entry.Name(), "ReadDir returned excluded directory: .wippy")
 		if entry.Name() == "replacements" {
-			// Replacements dir itself should be visible, but its subdirs should be filtered
 			subEntries, err := filtered.ReadDir("replacements")
-			if err != nil {
-				t.Fatalf("ReadDir(replacements) failed: %v", err)
-			}
+			require.NoError(t, err)
 			for _, sub := range subEntries {
-				if sub.Name() == "module1" || sub.Name() == "module2" {
-					t.Errorf("ReadDir returned excluded subdirectory: replacements/%s", sub.Name())
-				}
+				assert.NotContains(t, []string{"module1", "module2"}, sub.Name(), "ReadDir returned excluded subdirectory: replacements/%s", sub.Name())
 			}
 		}
 	}
 
-	// Try to open excluded file
 	_, err = filtered.Open(".wippy/vendor/test/module.lua")
-	if err == nil {
-		t.Error("Open() should fail for excluded file")
-	}
+	assert.Error(t, err, "Open() should fail for excluded file")
 
-	// Try to open normal file
 	file, err := filtered.Open("app.yaml")
-	if err != nil {
-		t.Errorf("Open() failed for normal file: %v", err)
-	}
-	if file != nil {
-		file.Close()
-	}
+	require.NoError(t, err)
+	require.NotNil(t, file)
+	file.Close()
 }
