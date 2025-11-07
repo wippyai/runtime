@@ -8,12 +8,11 @@
 - Test edge cases: nil, empty, zero, boundary values
 - Extract repeated values to constants at top of test
 - Name tests: `TestType_Method_Scenario` format
-- Use `assert.Error(t, err)` or `assert.NoError(t, err)` for error checks
+- Use `assert.ErrorAssertionFunc` in table-driven tests: add field `assertErr assert.ErrorAssertionFunc` and pass `assert.Error` or `assert.NoError` directly (see https://pkg.go.dev/github.com/stretchr/testify/assert#example-ErrorAssertionFunc)
 - Use `any` instead of `interface{}` (Go 1.18+)
 
 ## ❌ DON'T:
-- Don't use `if (err != nil) != tt.wantErr` - use `assert.Error` or `assert.NoError`
-- Don't add `wantErr` field if it's always the same value - just check explicitly
+- Don't use `if (err != nil) != tt.wantErr` - use `assert.ErrorAssertionFunc` field with `assert.Error` or `assert.NoError`
 - Don't use plain `if got != want` - use `assert.Equal`
 - Don't use `t.Fatalf` for non-critical checks - use `assert`
 - Don't use `t.Parallel()` if tests have shared state, side effects (DB, files), or resource conflicts (ports)

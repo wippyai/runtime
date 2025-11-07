@@ -1162,6 +1162,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			value     any
 			actorMeta registry.Metadata
 			want      bool
+			assertErr assert.ErrorAssertionFunc
 		}{
 			{
 				name:      "exact match found in array",
@@ -1169,6 +1170,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "distributor-admin",
 				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "exact match not found - substring in array element not matched",
@@ -1176,6 +1178,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
 				want:      false,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "match found in multi-element array",
@@ -1183,6 +1186,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "super-admin",
 				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin", "viewer"}},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "no match in single-element array",
@@ -1190,6 +1194,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"roles": []string{"viewer"}},
 				want:      false,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "empty array returns false",
@@ -1197,6 +1202,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"roles": []string{}},
 				want:      false,
+				assertErr: assert.NoError,
 			},
 		}
 
@@ -1213,7 +1219,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 
 				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
 
-				require.NoError(t, err, "unexpected error during evaluation")
+				tt.assertErr(t, err)
 				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
 			})
 		}
@@ -1228,6 +1234,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			value     any
 			actorMeta registry.Metadata
 			want      bool
+			assertErr assert.ErrorAssertionFunc
 		}{
 			{
 				name:      "exact match not in array returns true",
@@ -1235,6 +1242,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "exact match found in array returns false",
@@ -1242,6 +1250,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "distributor-admin",
 				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
 				want:      false,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "value not in single-element array returns true",
@@ -1249,6 +1258,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"roles": []string{"viewer"}},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "empty array returns true - value not contained",
@@ -1256,6 +1266,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"roles": []string{}},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 		}
 
@@ -1272,7 +1283,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 
 				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
 
-				require.NoError(t, err, "unexpected error during evaluation")
+				tt.assertErr(t, err)
 				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
 			})
 		}
@@ -1287,6 +1298,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			value     any
 			actorMeta registry.Metadata
 			want      bool
+			assertErr assert.ErrorAssertionFunc
 		}{
 			{
 				name:      "substring match found",
@@ -1294,6 +1306,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"role": "distributor-admin"},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "exact match found",
@@ -1301,6 +1314,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"role": "admin"},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "substring not found",
@@ -1308,6 +1322,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"role": "viewer"},
 				want:      false,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "empty string field returns false",
@@ -1315,6 +1330,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"role": ""},
 				want:      false,
+				assertErr: assert.NoError,
 			},
 		}
 
@@ -1331,7 +1347,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 
 				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
 
-				require.NoError(t, err, "unexpected error during evaluation")
+				tt.assertErr(t, err)
 				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
 			})
 		}
@@ -1346,6 +1362,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			value     any
 			actorMeta registry.Metadata
 			want      bool
+			assertErr assert.ErrorAssertionFunc
 		}{
 			{
 				name:      "substring found returns false",
@@ -1353,6 +1370,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"role": "distributor-admin"},
 				want:      false,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "substring not found returns true",
@@ -1360,6 +1378,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"role": "viewer"},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "empty string returns true - value not contained",
@@ -1367,6 +1386,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     "admin",
 				actorMeta: registry.Metadata{"role": ""},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 		}
 
@@ -1383,7 +1403,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 
 				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
 
-				require.NoError(t, err, "unexpected error during evaluation")
+				tt.assertErr(t, err)
 				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
 			})
 		}
@@ -1398,6 +1418,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			value     any
 			actorMeta registry.Metadata
 			want      bool
+			assertErr assert.ErrorAssertionFunc
 		}{
 			{
 				name:      "single value not in list",
@@ -1405,6 +1426,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     []string{"admin", "distributor-admin", "super-admin"},
 				actorMeta: registry.Metadata{"role": "viewer"},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "single value found in list",
@@ -1412,6 +1434,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     []string{"admin", "distributor-admin", "super-admin"},
 				actorMeta: registry.Metadata{"role": "distributor-admin"},
 				want:      false,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "empty string not in list",
@@ -1419,6 +1442,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     []string{"admin", "viewer"},
 				actorMeta: registry.Metadata{"role": ""},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 		}
 
@@ -1435,7 +1459,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 
 				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
 
-				require.NoError(t, err, "unexpected error during evaluation")
+				tt.assertErr(t, err)
 				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
 			})
 		}
@@ -1450,6 +1474,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			value     any
 			actorMeta registry.Metadata
 			want      bool
+			assertErr assert.ErrorAssertionFunc
 		}{
 			{
 				name:      "single value found in list",
@@ -1457,6 +1482,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     []string{"admin", "distributor-admin", "super-admin"},
 				actorMeta: registry.Metadata{"role": "distributor-admin"},
 				want:      true,
+				assertErr: assert.NoError,
 			},
 			{
 				name:      "single value not in list",
@@ -1464,6 +1490,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				value:     []string{"admin", "distributor-admin", "super-admin"},
 				actorMeta: registry.Metadata{"role": "viewer"},
 				want:      false,
+				assertErr: assert.NoError,
 			},
 		}
 
@@ -1480,7 +1507,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 
 				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
 
-				require.NoError(t, err, "unexpected error during evaluation")
+				tt.assertErr(t, err)
 				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
 			})
 		}
@@ -1506,7 +1533,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 
 			got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
 
-			require.NoError(t, err, "unexpected error during evaluation")
+			assert.NoError(t, err, "unexpected error during evaluation")
 			// Returns true because the array []string{"distributor-admin"} is not equal
 			// to any of the strings in the nin list. This demonstrates that nin is not
 			// appropriate for checking array element membership.
