@@ -48,7 +48,7 @@ func setupTestManager(_ *testing.T) (*Manager, *eventbus.Bus) {
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
 	dtt := &mockTranscoder{}
-	manager := NewManager(bus, dtt, logger)
+	manager := NewManager(bus, dtt, logger, NewDefaultEnvStorageFactory())
 
 	return manager, bus
 }
@@ -58,7 +58,7 @@ func TestNewManager(t *testing.T) {
 	logger := zap.NewNop()
 	dtt := &mockTranscoder{}
 
-	manager := NewManager(bus, dtt, logger)
+	manager := NewManager(bus, dtt, logger, NewDefaultEnvStorageFactory())
 
 	assert.NotNil(t, manager)
 	assert.Equal(t, bus, manager.bus)

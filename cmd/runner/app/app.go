@@ -297,6 +297,105 @@ func (a *App) Initialize() error {
 	return nil
 }
 
+func (a *App) StartWithState(ctx context.Context, state regapi.ChangeSet) error {
+	appCtx := a.ctx
+	appCtx = event.WithBus(appCtx, a.eventBus)
+	appCtx = secapi.WithRegistry(appCtx, a.security)
+	appCtx = fsapi.WithFSRegistry(appCtx, a.fsRegistry)
+	appCtx = envapi.WithRegistry(appCtx, a.envRegistry)
+	appCtx = regapi.WithRegistry(appCtx, a.reg)
+	appCtx = payload.WithTranscoder(appCtx, a.dtt)
+	appCtx = funcapi.WithFunctions(appCtx, a.funcs)
+	appCtx = procapi.WithProcesses(appCtx, a.processes)
+	appCtx = resourceapi.WithResources(appCtx, a.resources)
+	appCtx = pubsubapi.WithRouter(appCtx, a.router)
+	appCtx = pubsubapi.WithNode(appCtx, a.node.Node())
+	appCtx = topapi.WithTopology(appCtx, a.topo)
+	appCtx = topapi.WithPIDRegistry(appCtx, a.pidReg)
+	appCtx = logapi.WithLogger(appCtx, a.logger)
+	appCtx = apiinterceptor.WithInterceptor(appCtx, a.interceptor)
+	appCtx = contract.WithServices(appCtx, a.contractRegistry, a.contractInstantiator)
+
+	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
+	if err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to create event router: %w", err)
+	}
+	a.eventRouter = router
+
+	if err := a.fsRegistry.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start filesystem service: %w", err)
+	}
+
+	if err := a.envRegistry.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start env registry: %w", err)
+	}
+
+	if err := a.resources.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start resource service: %w", err)
+	}
+
+	if err := a.interceptor.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start interceptor service: %w", err)
+	}
+
+	if err := a.funcs.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start function executor: %w", err)
+	}
+
+	if err := a.prototypes.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start prototype registry: %w", err)
+	}
+
+	if err := a.hosts.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start host registry: %w", err)
+	}
+
+	if err := a.contractRegistry.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start contract registry: %w", err)
+	}
+
+	if a.config.clusterEnabled {
+		if a.membership != nil {
+			if err := a.membership.Start(appCtx); err != nil {
+				a.cancel()
+				return fmt.Errorf("failed to start membership service: %w", err)
+			}
+		}
+
+		if a.internodeService != nil {
+			if err := a.internodeService.Start(appCtx); err != nil {
+				a.cancel()
+				return fmt.Errorf("failed to start internode service: %w", err)
+			}
+		}
+	}
+
+	if err := a.node.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start node mesh: %w", err)
+	}
+
+	if err := a.supervisor.Start(appCtx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start supervisor: %w", err)
+	}
+
+	if _, err := a.reg.Apply(ctx, state); err != nil {
+		return fmt.Errorf("failed to apply initial state: %w", err)
+	}
+
+	return nil
+}
+
 func (a *App) initSingleNodeMesh() {
 	nodeName := a.config.clusterName
 	if nodeName == "" {

@@ -1,0 +1,18 @@
+{
+  "wippy-prod-main": {
+    "name": "Wippy Production",
+    "state_file": "wippy-prod-state.json",
+    "env_variables": {
+      "env_key": "value"
+    },
+    "runtime_config": []
+  },
+  "wippy-hello": {
+    "name": "Wippy Hello World",
+    "state_file": "hello-world.json",
+    "env_variables": {
+      "env_key": "value"
+    },
+    "runtime_config": []
+  }
+}
