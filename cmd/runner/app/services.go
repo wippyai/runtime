@@ -122,6 +122,42 @@ func CreateServiceHandlers(a *App) eventbus.RouterOption {
 	)...)
 }
 
+// CreateServiceHandlersWithStaticEnv configures all service handlers with static environment variables
+// This is used for remote deployments where environment variables come from config server
+func CreateServiceHandlersWithStaticEnv(a *App, staticEnv map[string]string) eventbus.RouterOption {
+	return eventbus.WithHandlers(append(
+		withLuaRuntime(a),
+		withYamlPolicies(a),
+		withEnvManagerWithStaticEnv(a, staticEnv), // Use static env instead of OS env
+		withDirectoryManager(a),
+		withHTTPService(a),
+		withTokenStoreManager(a),
+		withTerminalManager(a),
+		withProcessSupervisor(a),
+		withEphemeralHost(a),
+		withSQLManager(a),
+		withSQLStore(a),
+		withAWSConfigManager(a),
+		withS3Manager(a),
+		withProcessFunctionBridge(a),
+		withMemStore(a),
+		withNativeExecutor(a),
+		withJetTemplates(a),
+		withContractSystem(a),
+	)...)
+}
+
+// withEnvManagerWithStaticEnv creates env manager with static environment variables
+// This replaces OS environment access with predefined values from config server
+func withEnvManagerWithStaticEnv(a *App, staticEnv map[string]string) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("env.**", envservice.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("env"),
+		envservice.NewDefaultEnvStorageFactory(envservice.WithStaticEnv(staticEnv)),
+	))
+}
+
 func withTokenStoreManager(a *App) eventbus.EventHandler {
 	// Create token store manager
 	manager := tokenstore.NewManager(
@@ -256,11 +292,13 @@ func withS3Manager(a *App) eventbus.EventHandler {
 	))
 }
 
+// todo: pass it
 func withEnvManager(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("env.**", envservice.NewManager(
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("env"),
+		envservice.NewDefaultEnvStorageFactory(),
 	))
 }
 

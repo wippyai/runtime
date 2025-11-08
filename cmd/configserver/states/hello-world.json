@@ -1,0 +1,67 @@
+{
+  "entries": [
+    {
+      "id": "app:gateway",
+      "kind": "http.service",
+      "data": {
+        "addr": ":8085",
+        "kind": "http.service",
+        "lifecycle": {
+          "auto_start": true
+        },
+        "meta": null,
+        "name": "gateway"
+      },
+      "format": "golang/any"
+    },
+    {
+      "id": "app:router",
+      "kind": "http.router",
+      "meta": {
+        "server": "gateway"
+      },
+      "data": {
+        "kind": "http.router",
+        "meta": {
+          "server": "gateway"
+        },
+        "name": "router",
+        "prefix": "/"
+      },
+      "format": "golang/any"
+    },
+    {
+      "id": "app:hello",
+      "kind": "function.lua",
+      "data": {
+        "kind": "function.lua",
+        "meta": null,
+        "method": "handler",
+        "modules": [
+          "http"
+        ],
+        "name": "hello",
+        "source": "local http = require(\"http\")\r\n\r\nlocal function handler()\r\n    local res = http.response()\r\n    res:set_status(http.STATUS.OK)\r\n    res:set_content_type(http.CONTENT.TEXT)\r\n    res:write(\"hello world\")\r\nend\r\n\r\nreturn {\r\n    handler = handler\r\n}"
+      },
+      "format": "golang/any"
+    },
+    {
+      "id": "app:hello.endpoint",
+      "kind": "http.endpoint",
+      "meta": {
+        "router": "app:router"
+      },
+      "data": {
+        "func": "hello",
+        "kind": "http.endpoint",
+        "meta": {
+          "router": "app:router"
+        },
+        "method": "GET",
+        "name": "hello.endpoint",
+        "path": "/hello"
+      },
+      "format": "golang/any"
+    }
+  ]
+}

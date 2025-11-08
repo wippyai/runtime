@@ -23,13 +23,13 @@ type Manager struct {
 	factory  StorageFactory
 }
 
-func NewManager(bus event.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
+func NewManager(bus event.Bus, dtt payload.Transcoder, logger *zap.Logger, factory StorageFactory) *Manager {
 	return &Manager{
 		bus:      bus,
 		dtt:      dtt,
 		logger:   logger,
 		storages: make(map[registry.ID]env.Storage),
-		factory:  NewDefaultEnvStorageFactory(),
+		factory:  factory,
 	}
 }
 

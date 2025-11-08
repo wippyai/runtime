@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/itchyny/gojq"
@@ -153,7 +154,9 @@ func ApplyPathValueToEntriesWithGojq(jqQuery string, value string, entries []reg
 		} else {
 			// Try Data first, fallback to entire entry for meta fields
 			err := updateEntryDataWithGojq(entry, jqQuery, value)
-			if err != nil && strings.HasPrefix(trimmedQuery, ".meta") {
+			log.Printf("%+v %v %v", entry.Meta, err, jqQuery)
+
+			if err != nil && strings.HasPrefix(trimmedQuery, ".meta") { // todo: what?
 				// If Data update failed and it's a meta query, try entire entry
 				err2 := updateEntireEntryWithGojq(entry, jqQuery, value)
 				if err2 != nil {
@@ -178,6 +181,8 @@ func updateEntireEntryWithGojq(entry *registry.Entry, jqQuery string, value stri
 		data = entry.Data.Data()
 	}
 	entry.Data = nil
+
+	// todo: REWRITE ALL THIS, move to expr
 
 	entryMap, err := entryToRawJSONMap(entry)
 	if err != nil {
@@ -232,6 +237,19 @@ func updateEntryDataWithGojq(entry *registry.Entry, jqQuery string, value string
 		return nil
 	}
 
+	if strings.HasPrefix(trimmedQuery, ".meta") {
+		// Remove the .data prefix and apply the query to the data
+		metaQuery := strings.TrimPrefix(trimmedQuery, ".meta")
+
+		// Apply the query to the data field
+		newMeta, err := setValueWithGojqReturnMap(entry.Meta, metaQuery, value)
+		if err != nil {
+			return fmt.Errorf("failed to set value with jq query: %w", err)
+		}
+		entry.Meta = newMeta
+		return nil
+	}
+
 	// Apply jq query to the data
 	updatedData, err := setValueWithGojqReturnMap(currentData, jqQuery, value)
 	if err != nil {
@@ -275,6 +293,8 @@ func updateEntryFromRawJSONMap(entry *registry.Entry, m map[string]interface{}) 
 	// Temporarily save the Data field and set it to nil to avoid interface serialization issues
 	originalData := entry.Data
 	entry.Data = nil
+
+	// todo: rewrite ALL of that
 
 	// Marshal the map to JSON
 	b, err := json.Marshal(m)
