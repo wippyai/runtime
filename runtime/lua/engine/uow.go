@@ -44,7 +44,7 @@ func NewUnitOfWork(parentCtx context.Context, state *lua.LState) (UnitOfWork, co
 	ctx, cancel := context.WithCancel(parentCtx)
 
 	uw.ctx = ctx
-	uw.cancel = cancel
+	uw.cancel = cancel // todo: get from call context, dont fork here
 	uw.state = state
 	uw.closed.Store(false)
 
@@ -72,6 +72,8 @@ func NewUnitOfWork(parentCtx context.Context, state *lua.LState) (UnitOfWork, co
 
 	return uw, ctx
 }
+
+// todo: migrate to call context
 
 // GetUnitOfWork retrieves the UnitOfWork from a context
 func GetUnitOfWork(ctx context.Context) UnitOfWork {
