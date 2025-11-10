@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/api/cluster"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/contract"
 	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
@@ -299,6 +300,11 @@ func (a *App) Initialize() error {
 
 func (a *App) StartWithState(ctx context.Context, state regapi.ChangeSet) error {
 	appCtx := a.ctx
+
+	// Initialize AppContext for application-level services
+	appContext := contextapi.NewAppContext()
+	appCtx = contextapi.WithAppContext(appCtx, appContext)
+
 	appCtx = event.WithBus(appCtx, a.eventBus)
 	appCtx = secapi.WithRegistry(appCtx, a.security)
 	appCtx = fsapi.WithFSRegistry(appCtx, a.fsRegistry)
@@ -315,6 +321,9 @@ func (a *App) StartWithState(ctx context.Context, state regapi.ChangeSet) error 
 	appCtx = logapi.WithLogger(appCtx, a.logger)
 	appCtx = apiinterceptor.WithInterceptor(appCtx, a.interceptor)
 	appCtx = contract.WithServices(appCtx, a.contractRegistry, a.contractInstantiator)
+
+	// Lock AppContext to make it immutable
+	appContext.Lock()
 
 	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
 	if err != nil {
@@ -517,6 +526,11 @@ func (a *App) initClusterMesh() error {
 
 func (a *App) Start() error {
 	appCtx := a.ctx
+
+	// Initialize AppContext for application-level services
+	appContext := contextapi.NewAppContext()
+	appCtx = contextapi.WithAppContext(appCtx, appContext)
+
 	appCtx = event.WithBus(appCtx, a.eventBus)
 	appCtx = secapi.WithRegistry(appCtx, a.security)
 	appCtx = fsapi.WithFSRegistry(appCtx, a.fsRegistry)
@@ -533,6 +547,9 @@ func (a *App) Start() error {
 	appCtx = logapi.WithLogger(appCtx, a.logger)
 	appCtx = apiinterceptor.WithInterceptor(appCtx, a.interceptor)
 	appCtx = contract.WithServices(appCtx, a.contractRegistry, a.contractInstantiator)
+
+	// Lock AppContext to make it immutable
+	appContext.Lock()
 
 	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
 	if err != nil {
