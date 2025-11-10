@@ -1,0 +1,294 @@
+package context
+
+import (
+	"sync"
+	"testing"
+)
+
+func TestNewValues(t *testing.T) {
+	v := NewValues()
+	if v == nil {
+		t.Fatal("NewValues() returned nil")
+	}
+	if v.Len() != 0 {
+		t.Errorf("NewValues().Len() = %d, want 0", v.Len())
+	}
+}
+
+func TestValues_SetAndGet(t *testing.T) {
+	v := NewValues()
+
+	// Test with string key
+	v.Set("key1", "value1")
+	if got := v.Get("key1"); got != "value1" {
+		t.Errorf("Get(key1) = %v, want value1", got)
+	}
+
+	// Test with *Key
+	key := &Key{Name: "test.key"}
+	v.Set(key, 42)
+	if got := v.Get(key); got != 42 {
+		t.Errorf("Get(key) = %v, want 42", got)
+	}
+
+	// Test with struct{} key
+	type customKey struct{}
+	v.Set(customKey{}, "custom")
+	if got := v.Get(customKey{}); got != "custom" {
+		t.Errorf("Get(customKey{}) = %v, want custom", got)
+	}
+
+	// Test with int key
+	v.Set(123, "int_key")
+	if got := v.Get(123); got != "int_key" {
+		t.Errorf("Get(123) = %v, want int_key", got)
+	}
+
+	// Test non-existent key
+	if got := v.Get("nonexistent"); got != nil {
+		t.Errorf("Get(nonexistent) = %v, want nil", got)
+	}
+}
+
+func TestValues_Overwrite(t *testing.T) {
+	v := NewValues()
+
+	v.Set("key", "value1")
+	if got := v.Get("key"); got != "value1" {
+		t.Errorf("Get(key) = %v, want value1", got)
+	}
+
+	v.Set("key", "value2")
+	if got := v.Get("key"); got != "value2" {
+		t.Errorf("Get(key) after overwrite = %v, want value2", got)
+	}
+}
+
+func TestValues_Len(t *testing.T) {
+	v := NewValues()
+
+	if v.Len() != 0 {
+		t.Errorf("empty Values.Len() = %d, want 0", v.Len())
+	}
+
+	v.Set("key1", "value1")
+	if v.Len() != 1 {
+		t.Errorf("Values.Len() = %d, want 1", v.Len())
+	}
+
+	v.Set("key2", "value2")
+	if v.Len() != 2 {
+		t.Errorf("Values.Len() = %d, want 2", v.Len())
+	}
+
+	// Overwrite doesn't increase length
+	v.Set("key1", "new_value")
+	if v.Len() != 2 {
+		t.Errorf("Values.Len() after overwrite = %d, want 2", v.Len())
+	}
+}
+
+func TestValues_Iterate(t *testing.T) {
+	v := NewValues()
+
+	expected := map[string]any{
+		"key1": "value1",
+		"key2": 42,
+		"key3": true,
+	}
+
+	for k, val := range expected {
+		v.Set(k, val)
+	}
+
+	collected := make(map[string]any)
+	v.Iterate(func(key any, value any) {
+		if k, ok := key.(string); ok {
+			collected[k] = value
+		}
+	})
+
+	if len(collected) != len(expected) {
+		t.Errorf("Iterate() collected %d items, want %d", len(collected), len(expected))
+	}
+
+	for k, val := range expected {
+		if collected[k] != val {
+			t.Errorf("Iterate() key %s = %v, want %v", k, collected[k], val)
+		}
+	}
+}
+
+func TestValues_IterateEmpty(t *testing.T) {
+	v := NewValues()
+
+	count := 0
+	v.Iterate(func(key any, value any) {
+		count++
+	})
+
+	if count != 0 {
+		t.Errorf("Iterate() on empty Values called fn %d times, want 0", count)
+	}
+}
+
+func TestValues_Clone(t *testing.T) {
+	original := NewValues()
+	original.Set("key1", "value1")
+	original.Set("key2", 42)
+	original.Set("key3", true)
+
+	clone := original.Clone()
+
+	// Verify clone has same values
+	if got := clone.Get("key1"); got != "value1" {
+		t.Errorf("clone.Get(key1) = %v, want value1", got)
+	}
+	if got := clone.Get("key2"); got != 42 {
+		t.Errorf("clone.Get(key2) = %v, want 42", got)
+	}
+	if got := clone.Get("key3"); got != true {
+		t.Errorf("clone.Get(key3) = %v, want true", got)
+	}
+
+	// Verify same length
+	if clone.Len() != original.Len() {
+		t.Errorf("clone.Len() = %d, want %d", clone.Len(), original.Len())
+	}
+
+	// Modify original
+	original.Set("key4", "value4")
+
+	// Clone should NOT have new value (independent)
+	if got := clone.Get("key4"); got != nil {
+		t.Errorf("clone.Get(key4) = %v, want nil (should be independent)", got)
+	}
+
+	// Modify clone
+	clone.Set("key5", "value5")
+
+	// Original should NOT have clone's new value
+	if got := original.Get("key5"); got != nil {
+		t.Errorf("original.Get(key5) = %v, want nil (should be independent)", got)
+	}
+}
+
+func TestValues_CloneEmpty(t *testing.T) {
+	original := NewValues()
+	clone := original.Clone()
+
+	if clone == nil {
+		t.Fatal("Clone() of empty Values returned nil")
+	}
+
+	if clone.Len() != 0 {
+		t.Errorf("clone.Len() = %d, want 0", clone.Len())
+	}
+}
+
+func TestValues_ConcurrentAccess(t *testing.T) {
+	v := NewValues()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			v.Set(n, n*2)
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			val := v.Get(n)
+			if val != nil && val != n*2 {
+				t.Errorf("Get(%d) = %v, want %d", n, val, n*2)
+			}
+		}(i)
+	}
+
+	// Concurrent Len calls
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = v.Len()
+		}()
+	}
+
+	// Concurrent Iterate calls
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			v.Iterate(func(key any, value any) {
+				// Just iterate, don't assert
+			})
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestValues_MultipleTypes(t *testing.T) {
+	v := NewValues()
+
+	// Store different types
+	v.Set("string", "value")
+	v.Set("int", 42)
+	v.Set("bool", true)
+	v.Set("slice", []int{1, 2, 3})
+	v.Set("map", map[string]int{"a": 1})
+	v.Set("struct", struct{ Name string }{"test"})
+
+	// Retrieve and verify
+	if got := v.Get("string").(string); got != "value" {
+		t.Errorf("Get(string) = %v, want value", got)
+	}
+	if got := v.Get("int").(int); got != 42 {
+		t.Errorf("Get(int) = %v, want 42", got)
+	}
+	if got := v.Get("bool").(bool); got != true {
+		t.Errorf("Get(bool) = %v, want true", got)
+	}
+	if got := v.Get("slice").([]int); len(got) != 3 {
+		t.Errorf("Get(slice) length = %v, want 3", len(got))
+	}
+	if got := v.Get("map").(map[string]int)["a"]; got != 1 {
+		t.Errorf("Get(map)[a] = %v, want 1", got)
+	}
+	if got := v.Get("struct").(struct{ Name string }).Name; got != "test" {
+		t.Errorf("Get(struct).Name = %v, want test", got)
+	}
+}
+
+func TestValues_UsedInCallContext(t *testing.T) {
+	// Example usage: Values stored inside CallContext
+	callCtx := NewCallContext()
+	values := NewValues()
+
+	values.Set("user.id", "123")
+	values.Set("user.name", "john")
+
+	valuesKey := &Key{Name: "context.values"}
+	callCtx.Set(valuesKey, values)
+
+	// Retrieve Values from CallContext
+	retrieved := callCtx.Get(valuesKey).(*Values)
+	if retrieved == nil {
+		t.Fatal("retrieved Values is nil")
+	}
+
+	if got := retrieved.Get("user.id"); got != "123" {
+		t.Errorf("retrieved.Get(user.id) = %v, want 123", got)
+	}
+
+	if got := retrieved.Get("user.name"); got != "john" {
+		t.Errorf("retrieved.Get(user.name) = %v, want john", got)
+	}
+}
