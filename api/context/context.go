@@ -3,9 +3,7 @@ package context
 
 // Key represents a context key used for storing and retrieving values from the context.
 // It provides a type-safe way to store context values using string names.
-type Key struct {
-	Name string
-}
+type Key struct{ Name string }
 
 func (ck *Key) String() string {
 	return ck.Name
