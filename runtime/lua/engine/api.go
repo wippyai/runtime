@@ -199,10 +199,9 @@ func (e *CoroutineLeak) Error() string {
 // unable to make progress. Count indicates number of blocked coroutines.
 type DeadlockError struct {
 	Count int // Number of blocked coroutines
-	Kind  string
 }
 
 // Error returns a string representation of the DeadlockError error.
 func (e *DeadlockError) Error() string {
-	return fmt.Sprintf("deadlock (%s) detected on %d coroutines", e.Kind, e.Count)
+	return fmt.Sprintf("deadlock detected on %d coroutines", e.Count)
 }

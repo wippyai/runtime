@@ -165,7 +165,7 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan *Update) (lua.LValue, er
 		}
 
 		if len(tasks) == 0 && e.cvm.queue.Len() == 0 && uw.Tasks().Ready() == 0 && uw.Tasks().Blocked() == 0 {
-			return nil, &DeadlockError{Kind: "in-work", Count: len(e.cvm.threads)}
+			return nil, &DeadlockError{Count: len(e.cvm.threads)}
 		}
 
 		for _, task := range tasks {
@@ -229,8 +229,7 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 
 	// wait-wait-wait, are we deadlocked?
 	if uw.Tasks().Blocked() == 0 && uw.Tasks().Ready() == 0 {
-
-		return &DeadlockError{Kind: "continue", Count: len(e.cvm.threads)}
+		return &DeadlockError{Count: len(e.cvm.threads)}
 	}
 
 	// block for any pending task
