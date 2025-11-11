@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -244,7 +245,7 @@ func TestNewRegistryHandler(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := ctxapi.NewRootContext()
 			bus := eventbus.NewBus()
 			listener := &mockEntryListener{returnError: tc.returnError}
 			handler := NewRegistryHandler(tc.kinds, listener)

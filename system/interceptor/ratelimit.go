@@ -28,7 +28,7 @@ func NewRateLimitInterceptor(cache *expirable.LRU[string, *rate.Limiter]) *RateL
 
 // Handle implements the interceptor interface
 func (i *RateLimitInterceptor) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
-	options := apiinterceptor.GetOptionsFromContext(ctx)
+	options := apiinterceptor.GetOptions(ctx)
 
 	// If requests per second is 0, skip rate limiting
 	if options.RateLimit.RequestsPerSecond == 0 {

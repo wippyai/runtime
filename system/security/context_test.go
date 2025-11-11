@@ -1,9 +1,9 @@
 package security
 
 import (
-	"context"
 	"testing"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/security"
 	"github.com/stretchr/testify/assert"
@@ -11,7 +11,7 @@ import (
 
 func TestWithSecurityConfig(t *testing.T) {
 	// Test with nil config
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	result := WithSecurityConfig(ctx, nil)
 	assert.Equal(t, ctx, result, "WithSecurityConfig should return original context when config is nil")
 

@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 	"time"
 
@@ -188,7 +189,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	runner := engine.NewRunner(vm)
 
 	// Create a UOW
-	uw, ctx := runner.InitUnitOfWork(context.Background())
+	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
 
 	// Add pubsub context
 	pid := pubsub.PID{ID: registry.ID{NS: "test", Name: "test"}}
@@ -204,7 +205,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 
 	// Add process manager
 	mockManager := newMockProcessManager()
-	ctx = processapi.WithProcesses(ctx, mockManager)
+	ctx = processapi.WithManager(ctx, mockManager)
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)

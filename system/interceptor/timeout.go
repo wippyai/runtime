@@ -20,7 +20,7 @@ func NewTimeoutInterceptor() *TimeoutInterceptor {
 // Handle implements the interceptor interface
 func (i *TimeoutInterceptor) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
 	// Create config and apply options
-	options := apiinterceptor.GetOptionsFromContext(ctx)
+	options := apiinterceptor.GetOptions(ctx)
 
 	// Use configured timeout or fallback to default
 	timeout := options.Timeout.Timeout
@@ -54,7 +54,7 @@ func (i *TimeoutInterceptor) Handle(ctx context.Context, next func(context.Conte
 		default:
 			// Only timeout if it's the timeout context that expired
 			if timeoutCtx.Err() == context.DeadlineExceeded {
-				cancelFunc := apiinterceptor.GetCancelFromContext(ctx)
+				cancelFunc := apiinterceptor.GetCancel(ctx)
 				if cancelFunc != nil {
 					cancelFunc()
 				}

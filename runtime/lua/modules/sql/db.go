@@ -129,7 +129,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 		return 0
 	}
 
-	reg := resource.GetResources(uw.Context())
+	reg := resource.GetRegistry(uw.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("resource registry not found"))

@@ -1,6 +1,7 @@
 package context
 
 import (
+	"context"
 	"sync"
 	"testing"
 )
@@ -269,17 +270,22 @@ func TestValues_MultipleTypes(t *testing.T) {
 
 func TestValues_UsedInCallContext(t *testing.T) {
 	// Example usage: Values stored inside CallContext
-	callCtx := NewCallContext()
+	ctx := context.Background()
+	_, callCtx := NewCallContext(ctx)
 	values := NewValues()
 
 	values.Set("user.id", "123")
 	values.Set("user.name", "john")
 
-	valuesKey := &Key{Name: "context.values"}
+	valuesKey := &Key{Name: "context.values", Scope: ScopeThread}
 	callCtx.Set(valuesKey, values)
 
 	// Retrieve Values from CallContext
-	retrieved := callCtx.Get(valuesKey).(*Values)
+	retrievedVal, ok := callCtx.Get(valuesKey)
+	if !ok {
+		t.Fatal("retrieved Values not found")
+	}
+	retrieved := retrievedVal.(*Values)
 	if retrieved == nil {
 		t.Fatal("retrieved Values is nil")
 	}

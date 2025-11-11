@@ -20,7 +20,7 @@ func NewRetryInterceptor() *RetryInterceptor {
 func (i *RetryInterceptor) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
 	attempt := 0
 
-	options := apiinterceptor.GetOptionsFromContext(ctx)
+	options := apiinterceptor.GetOptions(ctx)
 
 	// Use configured max attempts or fallback to default
 	maxAttempts := options.Retry.MaxAttempts

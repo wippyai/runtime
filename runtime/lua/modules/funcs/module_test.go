@@ -3,6 +3,7 @@ package funcs
 import (
 	"context"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"strings"
 	"testing"
 
@@ -221,7 +222,7 @@ func TestExecutorModule(t *testing.T) {
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 		// Create context with dependencies
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		uw, ctx := wrapped.InitUnitOfWork(ctxapi.NewRootContext())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -232,7 +233,7 @@ func TestExecutorModule(t *testing.T) {
 
 		tr := createTestTranscoder()
 		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+		ctx = function.WithRegistry(ctx, mockExec)
 
 		// Serve test
 		result, err := wrapped.Execute(ctx, "test_call")
@@ -261,7 +262,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		uw, ctx := wrapped.InitUnitOfWork(ctxapi.NewRootContext())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -272,7 +273,7 @@ func TestExecutorModule(t *testing.T) {
 
 		tr := createTestTranscoder()
 		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+		ctx = function.WithRegistry(ctx, mockExec)
 
 		result, err := wrapped.Execute(ctx, "test_multi")
 		require.NoError(t, err)
@@ -312,7 +313,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		uw, ctx := wrapped.InitUnitOfWork(ctxapi.NewRootContext())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -323,7 +324,7 @@ func TestExecutorModule(t *testing.T) {
 
 		tr := createTestTranscoder()
 		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+		ctx = function.WithRegistry(ctx, mockExec)
 
 		result, err := wrapped.Execute(ctx, "test_with_actor")
 		require.NoError(t, err)
@@ -362,7 +363,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		uw, ctx := wrapped.InitUnitOfWork(ctxapi.NewRootContext())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -373,7 +374,7 @@ func TestExecutorModule(t *testing.T) {
 
 		tr := createTestTranscoder()
 		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+		ctx = function.WithRegistry(ctx, mockExec)
 
 		result, err := wrapped.Execute(ctx, "test_with_scope")
 		require.NoError(t, err)
@@ -418,7 +419,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		uw, ctx := wrapped.InitUnitOfWork(ctxapi.NewRootContext())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -429,7 +430,7 @@ func TestExecutorModule(t *testing.T) {
 
 		tr := createTestTranscoder()
 		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+		ctx = function.WithRegistry(ctx, mockExec)
 
 		result, err := wrapped.Execute(ctx, "test_remove_actor")
 		require.NoError(t, err)
@@ -478,7 +479,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		uw, ctx := wrapped.InitUnitOfWork(ctxapi.NewRootContext())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -489,7 +490,7 @@ func TestExecutorModule(t *testing.T) {
 
 		tr := createTestTranscoder()
 		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+		ctx = function.WithRegistry(ctx, mockExec)
 
 		result, err := wrapped.Execute(ctx, "test_remove_scope")
 		require.NoError(t, err)
@@ -539,7 +540,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		uw, ctx := wrapped.InitUnitOfWork(ctxapi.NewRootContext())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -550,7 +551,7 @@ func TestExecutorModule(t *testing.T) {
 
 		tr := createTestTranscoder()
 		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+		ctx = function.WithRegistry(ctx, mockExec)
 
 		result, err := wrapped.Execute(ctx, "test_async_with_actor")
 		require.NoError(t, err)
@@ -595,7 +596,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
+		uw, ctx := wrapped.InitUnitOfWork(ctxapi.NewRootContext())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -606,7 +607,7 @@ func TestExecutorModule(t *testing.T) {
 
 		tr := createTestTranscoder()
 		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+		ctx = function.WithRegistry(ctx, mockExec)
 
 		result, err := wrapped.Execute(ctx, "test_with_options")
 		require.NoError(t, err)

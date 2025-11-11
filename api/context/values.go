@@ -2,6 +2,12 @@ package context
 
 import "sync"
 
+// valuesKey is the context key for storing Values or Contexter[any]
+var valuesKey = &Key{Name: "values", Scope: ScopeThread}
+
+// ValuesCtx is the public accessor for the values context key
+var ValuesCtx = valuesKey
+
 // Values stores arbitrary key-value pairs for carrying data between calls.
 // Thread-safe replacement for Contexter[any] without generics.
 type Values struct {

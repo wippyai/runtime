@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -15,12 +16,12 @@ func TestWithLogger(t *testing.T) {
 	// Create a test logger
 	logger := zap.NewExample()
 
-	// Create a context with the logger
-	ctx := context.Background()
+	// Create a context with AppContext
+	ctx := ctxapi.NewRootContext()
 	ctxWithLogger := WithLogger(ctx, logger)
 
-	// Verify the logger was stored in the context
-	storedLogger := ctxWithLogger.Value(loggerCtx)
+	// Verify the logger was stored
+	storedLogger := GetLogger(ctxWithLogger)
 	assert.NotNil(t, storedLogger)
 	assert.Equal(t, logger, storedLogger)
 }
@@ -35,19 +36,15 @@ func TestGetLogger(t *testing.T) {
 		{
 			name: "context with logger",
 			setupContext: func() context.Context {
-				return WithLogger(context.Background(), zap.NewExample())
+				ctx := ctxapi.NewRootContext()
+				return WithLogger(ctx, zap.NewExample())
 			},
 			expectNopLogger: false,
 		},
 		{
-			name:            "context without logger",
-			setupContext:    context.Background,
-			expectNopLogger: true,
-		},
-		{
-			name: "context with wrong type",
+			name: "context without logger",
 			setupContext: func() context.Context {
-				return context.WithValue(context.Background(), loggerCtx, "not a logger")
+				return ctxapi.NewRootContext()
 			},
 			expectNopLogger: true,
 		},

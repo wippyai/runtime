@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"strings"
 	"testing"
 	"time"
@@ -1328,7 +1329,7 @@ func TestVM_Context_Cancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	go func() {
 		// Cancel after a short delay
 		time.Sleep(100 * time.Millisecond)

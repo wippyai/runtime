@@ -2,6 +2,7 @@ package security
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -128,7 +129,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	runner := engine.NewRunner(vm)
 
 	// Create a UOW
-	uw, ctx := runner.InitUnitOfWork(context.Background())
+	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
 
 	// Add security context with a test actor and scope
 	actor := secapi.Actor{ID: "test-actor"}
@@ -138,7 +139,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 
 	// Add resource registry
 	mockRegistry := newMockResourceRegistry()
-	ctx = resource.WithResources(ctx, mockRegistry)
+	ctx = resource.WithRegistry(ctx, mockRegistry)
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)

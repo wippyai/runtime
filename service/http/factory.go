@@ -75,7 +75,7 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 		// Get pooled RequestContext
 		rCtx := getRequestContext(r, w)
 
-		// CRITICAL: Return to pool when request is done
+		// Return to pool when request is done
 		defer putRequestContext(rCtx)
 
 		execCtx := context.WithValue(r.Context(), config.RequestCtx, rCtx)

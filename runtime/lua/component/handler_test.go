@@ -2,6 +2,7 @@ package component
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"sort"
 	"testing"
 
@@ -176,7 +177,7 @@ func TestUnpackConfig_ValidConfig(t *testing.T) {
 	}
 
 	// Create context with transcoder
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	transcoder := systempayload.NewTranscoder()
 	jsonpkg.Register(transcoder)
 	ctx = payload.WithTranscoder(ctx, transcoder)
@@ -205,7 +206,7 @@ func TestUnpackConfig_InvalidConfig(t *testing.T) {
 	}
 
 	// Create context with transcoder
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	transcoder := systempayload.NewTranscoder()
 	jsonpkg.Register(transcoder)
 	ctx = payload.WithTranscoder(ctx, transcoder)
@@ -228,7 +229,7 @@ func TestUnpackConfig_NoTranscoder(t *testing.T) {
 		Kind: registry.Kind("test"),
 	}
 
-	ctx := context.Background() // No transcoder in context
+	ctx := ctxapi.NewRootContext() // No transcoder in context
 
 	type TestConfig struct {
 		Name string `json:"name"`
@@ -252,7 +253,7 @@ func TestUnpackConfig_WithValidation(t *testing.T) {
 		Data: payloadData,
 	}
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	transcoder := systempayload.NewTranscoder()
 	jsonpkg.Register(transcoder)
 	ctx = payload.WithTranscoder(ctx, transcoder)

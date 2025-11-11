@@ -568,10 +568,10 @@ type CancelContextKey struct{}
 // Context utilities
 func WithInterceptor(ctx context.Context, registry Registry) context.Context
 func GetInterceptors(ctx context.Context) Registry
-func GetOptionsFromContext(ctx context.Context) Options
+func GetOptions(ctx context.Context) Options
 func WithOptions(ctx context.Context, options Options) context.Context
 func WithCancel(ctx context.Context, cancel context.CancelFunc) context.Context
-func GetCancelFromContext(ctx context.Context) context.CancelFunc
+func GetCancel(ctx context.Context) context.CancelFunc
 ```
 
 These utilities enable:

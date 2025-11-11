@@ -1,7 +1,7 @@
 package models
 
 import (
-	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -31,7 +31,7 @@ func setupHelpTest(t *testing.T) *engine.VM {
 }
 
 func TestHelp(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Basic initialization
 	t.Run("constructor and default values", func(t *testing.T) {

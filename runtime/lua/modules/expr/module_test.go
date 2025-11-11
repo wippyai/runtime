@@ -1,7 +1,7 @@
 package expr
 
 import (
-	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -34,7 +34,7 @@ func setupTestEnvironment(t *testing.T, opts ...Option) (*engine.CoroutineVM, *l
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(context.Background())
+	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)

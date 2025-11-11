@@ -12,7 +12,6 @@ import (
 
 	pubsubsys "github.com/ponyruntime/pony/system/pubsub"
 
-	"github.com/go-chi/chi/v5/middleware"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/logs"
@@ -34,8 +33,6 @@ const (
 )
 
 // ContextListener is the context key for the HTTP listener
-//
-
 var ContextListener = &contextapi.Key{Name: "listener"}
 
 // ServerService combines HTTP server and router functionality
@@ -316,30 +313,6 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 			}
 		}
 	}
-}
-
-// createMiddleware converts a middleware name to its handler function
-// This is now a fallback if no middleware factory is provided
-func (s *ServerService) createMiddleware(name string, options map[string]string) func(http.Handler) http.Handler {
-	switch name {
-	case "timeout":
-		timeoutVal := options["timeout"]
-		if timeoutVal == "" {
-			timeoutVal = "60s"
-		}
-		duration, err := time.ParseDuration(timeoutVal)
-		if err == nil {
-			return middleware.Timeout(duration)
-		}
-	case "recoverer":
-		return middleware.Recoverer
-	case "request_id":
-		return middleware.RequestID
-	case "real_ip":
-		return middleware.RealIP
-	}
-
-	return nil
 }
 
 // Implement Host interface methods by delegating to embedded host

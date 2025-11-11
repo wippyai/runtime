@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"sync"
 	"testing"
 	"time"
@@ -172,7 +173,7 @@ func TestTaskCoordinator_WakeUpWithFunction(t *testing.T) {
 
 func TestTaskCoordinator_Send(t *testing.T) {
 	coordinator := newTaskCoordinator(10, nil)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	state := lua.NewState()
 	defer state.Close()
 
@@ -184,7 +185,7 @@ func TestTaskCoordinator_Send(t *testing.T) {
 	}
 
 	// Test sending with canceled context
-	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancelledCtx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	cancel()
 	_ = coordinator.Send(cancelledCtx, update)
 	// Implementation may not return an error here, so do not assert
@@ -245,7 +246,7 @@ func TestTaskCoordinator_Ready(t *testing.T) {
 
 func TestTaskCoordinator_Wait(t *testing.T) {
 	coordinator := newTaskCoordinator(10, nil)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Test Wait with no updates (non-blocking)
 	updates, err := coordinator.Wait(ctx, false)
@@ -277,7 +278,7 @@ func TestTaskCoordinator_Wait(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test Wait with canceled context
-	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancelledCtx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	cancel()
 	_, err = coordinator.Wait(cancelledCtx, true)
 	if err == nil {
@@ -314,7 +315,7 @@ func TestTaskCoordinator_WaitBlocking(t *testing.T) {
 
 func TestTaskCoordinator_ConcurrentAccess(t *testing.T) {
 	coordinator := newTaskCoordinator(100, nil)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Test concurrent Add/Done
 	var wg sync.WaitGroup

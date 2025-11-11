@@ -111,7 +111,7 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 		return fmt.Errorf("service %s already exists", entry.ID)
 	}
 
-	cfg, err := config2.DecodeAndInitConfig[config.DBConfig](m.dtt, entry)
+	cfg, err := config2.DecodeAndInitConfig[config.DBConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -149,7 +149,7 @@ func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) err
 		return fmt.Errorf("service %s already exists", entry.ID)
 	}
 
-	cfg, err := config2.DecodeAndInitConfig[config.SQLiteConfig](m.dtt, entry)
+	cfg, err := config2.DecodeAndInitConfig[config.SQLiteConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -168,7 +168,7 @@ func (m *Manager) handleStandardDBUpdate(ctx context.Context, entry registry.Ent
 		return fmt.Errorf("service %s not found", entry.ID)
 	}
 
-	cfg, err := config2.DecodeAndInitConfig[config.DBConfig](m.dtt, entry)
+	cfg, err := config2.DecodeAndInitConfig[config.DBConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func (m *Manager) handleSQLiteUpdate(ctx context.Context, entry registry.Entry) 
 		return fmt.Errorf("service %s not found", entry.ID)
 	}
 
-	cfg, err := config2.DecodeAndInitConfig[config.SQLiteConfig](m.dtt, entry)
+	cfg, err := config2.DecodeAndInitConfig[config.SQLiteConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}

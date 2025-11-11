@@ -7,9 +7,12 @@ import (
 	"testing"
 	"time"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/pidgen"
 	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/internal/uniqid"
 	"github.com/ponyruntime/pony/system/pubsub"
 
 	"github.com/ponyruntime/pony/api/event"
@@ -24,7 +27,11 @@ import (
 func setupTest() (*Registry, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
-	executor := NewFunctionRegistry(bus, pubsub.NewHost(context.Background(), pubsub.HostConfig{
+	ctx := ctxapi.NewRootContext()
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
+	executor := NewFunctionRegistry(bus, pubsub.NewHost(ctx, pubsub.HostConfig{
 		BufferSize: 100,
 	}), logger)
 	return executor, bus
@@ -32,7 +39,7 @@ func setupTest() (*Registry, event.Bus) {
 
 // Keep working test unchanged
 func TestFunctions_StartStop(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	executor, _ := setupTest()
 
 	err := executor.Start(ctx)
@@ -45,7 +52,7 @@ func TestFunctions_StartStop(t *testing.T) {
 
 // Keep working test unchanged
 func TestFunctions_InvalidEvents(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 
 	executor, bus := setupTest()
@@ -96,7 +103,7 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 }
 
 func TestFunctions_EventResponses(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 
 	executor, bus := setupTest()
@@ -215,8 +222,13 @@ func TestFunctions_EventResponses(t *testing.T) {
 }
 
 func TestFunctions_Execute(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+
+	// Add PID generator
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -332,8 +344,12 @@ func TestFunctions_Execute(t *testing.T) {
 }
 
 func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -424,8 +440,12 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 }
 
 func TestFunctions_CallErrorHandling(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
 
 	executor, _ := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -468,8 +488,13 @@ func TestFunctions_CallErrorHandling(t *testing.T) {
 }
 
 func TestFunctions_CallContextHandling(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+
+	// Add PID generator to context
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
 
 	executor, _ := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -504,8 +529,12 @@ func TestFunctions_CallContextHandling(t *testing.T) {
 }
 
 func TestFunctions_EdgeCases(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -564,8 +593,12 @@ func TestFunctions_EdgeCases(t *testing.T) {
 }
 
 func TestFunctions_ConcurrentExecution(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
 
 	executor, _ := setupTest()
 	require.NoError(t, executor.Start(ctx))

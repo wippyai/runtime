@@ -129,7 +129,7 @@ func storeGet(l *lua.LState, log *zap.Logger) int {
 		return 0
 	}
 
-	reg := resource.GetResources(uw.Context())
+	reg := resource.GetRegistry(uw.Context())
 	if reg == nil {
 		l.RaiseError("resource registry not found")
 		return 0

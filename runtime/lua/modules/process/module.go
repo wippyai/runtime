@@ -182,7 +182,7 @@ func (m *Module) getProcessManager(l *lua.LState) (process.Manager, bool) {
 		return nil, false
 	}
 
-	manager := process.GetProcesses(ctx)
+	manager := process.GetManager(ctx)
 	if manager == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no process manager found"))
@@ -201,7 +201,7 @@ func (m *Module) getRegistry(l *lua.LState) (topology.PIDRegistry, bool) {
 		return nil, false
 	}
 
-	reg := topology.GetPIDRegistry(ctx)
+	reg := topology.GetRegistry(ctx)
 	if reg == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no registry found in context"))

@@ -35,7 +35,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Get process manager from context
-	proc := process.GetProcesses(ctx)
+	proc := process.GetManager(ctx)
 	if proc == nil {
 		return nil, fmt.Errorf("no process manager found in context")
 	}

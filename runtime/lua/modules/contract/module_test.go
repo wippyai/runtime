@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"errors"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/contract"
@@ -314,10 +315,10 @@ func setupContractTest(t *testing.T) (*engine.CoroutineVM, engine.UnitOfWork, co
 
 	// Setup coroutine support
 	wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
-	uw, ctx := wrapped.InitUnitOfWork(context.Background())
+	uw, ctx := wrapped.InitUnitOfWork(ctxapi.NewRootContext())
 
 	// Inject mock dependencies
-	ctx = contract.WithServices(ctx, mockReg, mockInst)
+	ctx = contract.WithContracts(ctx, mockReg, mockInst)
 
 	// Add payload transcoder
 	ctx = payload.WithTranscoder(ctx, createTestTranscoder())

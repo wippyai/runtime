@@ -52,7 +52,7 @@ func NewSQLStore(id registry.ID, config *sqlstore.SQLConfig, log *zap.Logger) *S
 // Get retrieves a value by key
 // Returns the payload associated with the given registry.ID or ErrKeyNotFound if not present
 func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, error) {
-	reg := resource.GetResources(ctx)
+	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
 		s.log.Error("failed to acquire database resource",
@@ -111,7 +111,7 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 // Set stores or updates a value with the given key
 // Overwrites any existing value if the key already exists
 func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
-	reg := resource.GetResources(ctx)
+	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
 		s.log.Error("failed to acquire database resource",
@@ -227,7 +227,7 @@ func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
 		}
 	}
 
-	reg := resource.GetResources(ctx)
+	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
 		s.log.Error("failed to acquire database resource",
@@ -276,7 +276,7 @@ func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
 // Has checks if a key exists without retrieving the value
 // Returns true if the key exists, false otherwise
 func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
-	reg := resource.GetResources(ctx)
+	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
 		s.log.Error("failed to acquire database resource",
@@ -398,7 +398,7 @@ func (s *SQLStore) cleanup(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	reg := resource.GetResources(ctx)
+	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
 		s.log.Error("failed to acquire database resource",

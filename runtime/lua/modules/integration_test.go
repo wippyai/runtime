@@ -2,6 +2,7 @@ package modules_test
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"io/fs"
 	"os"
 	"testing"
@@ -75,7 +76,7 @@ func TestExcelFileSystemIntegration(t *testing.T) {
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(t.Context())
+	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
 	defer func() {
 		err := uw.Close()
 		assert.NoError(t, err, "Unit of work cleanup failed")
@@ -89,9 +90,9 @@ func TestExcelFileSystemIntegration(t *testing.T) {
 	}
 
 	// Add the resource registry to the context
-	ctx = resource.WithResources(ctx, mockRegistry)
+	ctx = resource.WithRegistry(ctx, mockRegistry)
 	ctx = logs.WithLogger(ctx, logger)
-	ctx = fsapi.WithFSRegistry(ctx, fsRegistry)
+	ctx = fsapi.WithRegistry(ctx, fsRegistry)
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)

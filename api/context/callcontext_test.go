@@ -7,9 +7,12 @@ import (
 )
 
 func TestNewCallContext(t *testing.T) {
-	cc := NewCallContext()
+	ctx, cc := NewCallContext(context.Background())
 	if cc == nil {
-		t.Fatal("NewCallContext() returned nil")
+		t.Fatal("NewCallContext() returned nil CallContext")
+	}
+	if ctx == nil {
+		t.Fatal("NewCallContext() returned nil context")
 	}
 	if cc.Parent() != nil {
 		t.Error("NewCallContext() should have nil parent")
@@ -17,52 +20,99 @@ func TestNewCallContext(t *testing.T) {
 }
 
 func TestCallContext_SetAndGet(t *testing.T) {
-	cc := NewCallContext()
+	_, cc := NewCallContext(context.Background())
 
-	// Test with string key
-	cc.Set("key1", "value1")
-	if got := cc.Get("key1"); got != "value1" {
-		t.Errorf("Get(key1) = %v, want value1", got)
+	key1 := &Key{Name: "test.key1", Scope: ScopeCall}
+	key2 := &Key{Name: "test.key2", Scope: ScopeThread}
+
+	// Set values
+	if err := cc.Set(key1, "value1"); err != nil {
+		t.Errorf("Set(key1) error = %v, want nil", err)
+	}
+	if err := cc.Set(key2, 42); err != nil {
+		t.Errorf("Set(key2) error = %v, want nil", err)
 	}
 
-	// Test with *Key
-	key := &Key{Name: "test.key"}
-	cc.Set(key, 42)
-	if got := cc.Get(key); got != 42 {
-		t.Errorf("Get(key) = %v, want 42", got)
+	// Get values
+	if got, ok := cc.Get(key1); !ok || got != "value1" {
+		t.Errorf("Get(key1) = %v, %v, want value1, true", got, ok)
+	}
+	if got, ok := cc.Get(key2); !ok || got != 42 {
+		t.Errorf("Get(key2) = %v, %v, want 42, true", got, ok)
 	}
 
-	// Test with struct{} key
-	type customKey struct{}
-	cc.Set(customKey{}, "custom")
-	if got := cc.Get(customKey{}); got != "custom" {
-		t.Errorf("Get(customKey{}) = %v, want custom", got)
+	// Non-existent key
+	nonExistentKey := &Key{Name: "nonexistent", Scope: ScopeCall}
+	if got, ok := cc.Get(nonExistentKey); ok || got != nil {
+		t.Errorf("Get(nonexistent) = %v, %v, want nil, false", got, ok)
+	}
+}
+
+func TestCallContext_Has(t *testing.T) {
+	_, cc := NewCallContext(context.Background())
+
+	key1 := &Key{Name: "test.key1", Scope: ScopeCall}
+	key2 := &Key{Name: "test.key2", Scope: ScopeThread}
+
+	if cc.Has(key1) {
+		t.Error("Has(key1) = true, want false before Set")
 	}
 
-	// Test non-existent key
-	if got := cc.Get("nonexistent"); got != nil {
-		t.Errorf("Get(nonexistent) = %v, want nil", got)
+	cc.Set(key1, "value1")
+
+	if !cc.Has(key1) {
+		t.Error("Has(key1) = false, want true after Set")
+	}
+	if cc.Has(key2) {
+		t.Error("Has(key2) = true, want false (not set)")
+	}
+}
+
+func TestCallContext_WriteOnce(t *testing.T) {
+	_, cc := NewCallContext(context.Background())
+
+	key := &Key{Name: "test.key", Scope: ScopeCall}
+
+	// First set should succeed
+	if err := cc.Set(key, "value1"); err != nil {
+		t.Errorf("First Set() error = %v, want nil", err)
+	}
+
+	// Second set should fail
+	if err := cc.Set(key, "value2"); err == nil {
+		t.Error("Second Set() error = nil, want error")
+	} else if keyErr, ok := err.(*KeyError); !ok {
+		t.Errorf("Second Set() error type = %T, want *KeyError", err)
+	} else if keyErr.Key != key {
+		t.Errorf("KeyError.Key = %v, want %v", keyErr.Key, key)
+	}
+
+	// Value should still be original
+	if got, _ := cc.Get(key); got != "value1" {
+		t.Errorf("Get(key) = %v, want value1", got)
 	}
 }
 
 func TestCallContext_Iterate(t *testing.T) {
-	cc := NewCallContext()
+	_, cc := NewCallContext(context.Background())
 
-	expected := map[string]any{
-		"key1": "value1",
-		"key2": 42,
-		"key3": true,
+	key1 := &Key{Name: "test.key1", Scope: ScopeCall}
+	key2 := &Key{Name: "test.key2", Scope: ScopeThread}
+	key3 := &Key{Name: "test.key3", Scope: ScopeCall}
+
+	expected := map[*Key]any{
+		key1: "value1",
+		key2: 42,
+		key3: true,
 	}
 
 	for k, v := range expected {
 		cc.Set(k, v)
 	}
 
-	collected := make(map[string]any)
-	cc.Iterate(func(key any, value any) {
-		if k, ok := key.(string); ok {
-			collected[k] = value
-		}
+	collected := make(map[*Key]any)
+	cc.Iterate(func(key *Key, value any) {
+		collected[key] = value
 	})
 
 	if len(collected) != len(expected) {
@@ -71,16 +121,16 @@ func TestCallContext_Iterate(t *testing.T) {
 
 	for k, v := range expected {
 		if collected[k] != v {
-			t.Errorf("Iterate() key %s = %v, want %v", k, collected[k], v)
+			t.Errorf("Iterate() key %s = %v, want %v", k.Name, collected[k], v)
 		}
 	}
 }
 
 func TestCallContext_IterateEmpty(t *testing.T) {
-	cc := NewCallContext()
+	_, cc := NewCallContext(context.Background())
 
 	count := 0
-	cc.Iterate(func(key any, value any) {
+	cc.Iterate(func(key *Key, value any) {
 		count++
 	})
 
@@ -89,99 +139,97 @@ func TestCallContext_IterateEmpty(t *testing.T) {
 	}
 }
 
+func TestCallContext_ScopeInheritance(t *testing.T) {
+	// Create parent with both ScopeCall and ScopeThread keys
+	parentCtx, parent := NewCallContext(context.Background())
+
+	callKey := &Key{Name: "test.call", Scope: ScopeCall}
+	threadKey := &Key{Name: "test.thread", Scope: ScopeThread}
+
+	parent.Set(callKey, "call_value")
+	parent.Set(threadKey, "thread_value")
+
+	// Create child from parent
+	_, child := NewCallContext(parentCtx)
+
+	// ScopeCall key should NOT be inherited
+	if child.Has(callKey) {
+		t.Error("child.Has(callKey) = true, want false (ScopeCall not inherited)")
+	}
+	if got, ok := child.Get(callKey); ok {
+		t.Errorf("child.Get(callKey) = %v, %v, want nil, false", got, ok)
+	}
+
+	// ScopeThread key SHOULD be inherited
+	if !child.Has(threadKey) {
+		t.Error("child.Has(threadKey) = false, want true (ScopeThread inherited)")
+	}
+	if got, ok := child.Get(threadKey); !ok || got != "thread_value" {
+		t.Errorf("child.Get(threadKey) = %v, %v, want thread_value, true", got, ok)
+	}
+
+	// Verify parent reference
+	if child.Parent() != parent {
+		t.Error("child.Parent() != parent")
+	}
+}
+
 func TestCallContext_Parent(t *testing.T) {
-	parent := NewCallContext()
-	parent.Set("parent_key", "parent_value")
+	parentCtx, parent := NewCallContext(context.Background())
+	parentKey := &Key{Name: "parent.key", Scope: ScopeThread}
+	parent.Set(parentKey, "parent_value")
 
-	child := NewCallContext()
-	child.Set("child_key", "child_value")
-
-	// Set parent
-	child = child.WithParent(parent)
+	_, child := NewCallContext(parentCtx)
+	childKey := &Key{Name: "child.key", Scope: ScopeThread}
+	child.Set(childKey, "child_value")
 
 	// Verify parent reference
 	if child.Parent() == nil {
-		t.Fatal("Parent() = nil, want parent")
+		t.Fatal("child.Parent() = nil, want parent")
 	}
 
 	// Verify parent has its values
-	if got := child.Parent().Get("parent_key"); got != "parent_value" {
-		t.Errorf("Parent().Get(parent_key) = %v, want parent_value", got)
+	if got, ok := child.Parent().Get(parentKey); !ok || got != "parent_value" {
+		t.Errorf("child.Parent().Get(parentKey) = %v, %v, want parent_value, true", got, ok)
+	}
+
+	// Child should have inherited parent's ScopeThread key
+	if got, ok := child.Get(parentKey); !ok || got != "parent_value" {
+		t.Errorf("child.Get(parentKey) = %v, %v, want parent_value, true (inherited)", got, ok)
 	}
 
 	// Verify child has its own values
-	if got := child.Get("child_key"); got != "child_value" {
-		t.Errorf("Get(child_key) = %v, want child_value", got)
-	}
-}
-
-func TestCallContext_GetDoesNotWalkParent(t *testing.T) {
-	parent := NewCallContext()
-	parent.Set("key", "parent_value")
-
-	child := NewCallContext()
-	child = child.WithParent(parent)
-
-	// Child Get() should NOT find parent's value
-	if got := child.Get("key"); got != nil {
-		t.Errorf("child.Get(key) = %v, want nil (should not walk parent)", got)
-	}
-
-	// Manual parent lookup should work
-	if got := child.Parent().Get("key"); got != "parent_value" {
-		t.Errorf("child.Parent().Get(key) = %v, want parent_value", got)
-	}
-}
-
-func TestCallContext_WithParent(t *testing.T) {
-	parent := NewCallContext()
-	parent.Set("parent_key", "parent_value")
-
-	original := NewCallContext()
-	original.Set("key1", "value1")
-
-	// WithParent returns new instance
-	withParent := original.WithParent(parent)
-
-	// Verify new instance has parent
-	if withParent.Parent() != parent {
-		t.Error("WithParent() did not set parent correctly")
-	}
-
-	// Verify new instance shares values map
-	if got := withParent.Get("key1"); got != "value1" {
-		t.Errorf("withParent.Get(key1) = %v, want value1", got)
-	}
-
-	// Modify original, should affect withParent (shared map)
-	original.Set("key2", "value2")
-	if got := withParent.Get("key2"); got != "value2" {
-		t.Errorf("withParent.Get(key2) = %v, want value2 (shared map)", got)
+	if got, ok := child.Get(childKey); !ok || got != "child_value" {
+		t.Errorf("child.Get(childKey) = %v, %v, want child_value, true", got, ok)
 	}
 }
 
 func TestCallContext_ConcurrentAccess(t *testing.T) {
-	cc := NewCallContext()
+	_, cc := NewCallContext(context.Background())
 
 	var wg sync.WaitGroup
 
-	// Concurrent writes
+	// Concurrent writes to different keys
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			cc.Set(n, n*2)
+			key := &Key{Name: "test.key" + string(rune(n)), Scope: ScopeCall}
+			cc.Set(key, n*2)
 		}(i)
 	}
+
+	wg.Wait()
 
 	// Concurrent reads
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			val := cc.Get(n)
-			if val != nil && val != n*2 {
-				t.Errorf("Get(%d) = %v, want %d", n, val, n*2)
+			key := &Key{Name: "test.key" + string(rune(n)), Scope: ScopeCall}
+			val, ok := cc.Get(key)
+			if ok && val != n*2 {
+				t.Errorf("Get(key%d) = %v, want %d", n, val, n*2)
 			}
 		}(i)
 	}
@@ -190,8 +238,9 @@ func TestCallContext_ConcurrentAccess(t *testing.T) {
 }
 
 func TestWithCallContext(t *testing.T) {
-	cc := NewCallContext()
-	cc.Set("key1", "value1")
+	_, cc := NewCallContext(context.Background())
+	key := &Key{Name: "test.key", Scope: ScopeCall}
+	cc.Set(key, "value1")
 
 	ctx := context.Background()
 	ctx = WithCallContext(ctx, cc)
@@ -201,8 +250,8 @@ func TestWithCallContext(t *testing.T) {
 		t.Fatal("CallFromContext() returned nil")
 	}
 
-	if got := retrieved.Get("key1"); got != "value1" {
-		t.Errorf("retrieved.Get(key1) = %v, want value1", got)
+	if got, ok := retrieved.Get(key); !ok || got != "value1" {
+		t.Errorf("retrieved.Get(key) = %v, %v, want value1, true", got, ok)
 	}
 }
 
@@ -210,13 +259,8 @@ func TestCallFromContext_NotPresent(t *testing.T) {
 	ctx := context.Background()
 
 	retrieved := CallFromContext(ctx)
-	if retrieved == nil {
-		t.Error("CallFromContext() returned nil, want empty CallContext")
-	}
-
-	// Should be empty
-	if got := retrieved.Get("anything"); got != nil {
-		t.Errorf("empty CallContext.Get() = %v, want nil", got)
+	if retrieved != nil {
+		t.Error("CallFromContext() should return nil when not present")
 	}
 }
 
@@ -225,91 +269,64 @@ func TestCallFromContext_WrongType(t *testing.T) {
 	ctx = context.WithValue(ctx, callContextKey, "not a CallContext")
 
 	retrieved := CallFromContext(ctx)
-	if retrieved == nil {
-		t.Error("CallFromContext() returned nil, want empty CallContext")
-	}
-}
-
-func TestWithoutCallContext(t *testing.T) {
-	cc := NewCallContext()
-	cc.Set("key1", "value1")
-
-	ctx := context.Background()
-	ctx = WithCallContext(ctx, cc)
-
-	// Verify it's there
-	if got := CallFromContext(ctx).Get("key1"); got != "value1" {
-		t.Errorf("Before WithoutCallContext: Get(key1) = %v, want value1", got)
-	}
-
-	// Remove CallContext
-	ctx = WithoutCallContext(ctx)
-
-	// Should return empty CallContext
-	retrieved := CallFromContext(ctx)
-	if got := retrieved.Get("key1"); got != nil {
-		t.Errorf("After WithoutCallContext: Get(key1) = %v, want nil", got)
-	}
-}
-
-func TestCopyCallContext(t *testing.T) {
-	original := NewCallContext()
-	original.Set("key1", "value1")
-	original.Set("key2", 42)
-
-	parent := NewCallContext()
-	parent.Set("parent_key", "parent_value")
-	original = original.WithParent(parent)
-
-	// Copy it
-	copied := CopyCallContext(original)
-
-	// Verify copied has same values
-	if got := copied.Get("key1"); got != "value1" {
-		t.Errorf("copied.Get(key1) = %v, want value1", got)
-	}
-	if got := copied.Get("key2"); got != 42 {
-		t.Errorf("copied.Get(key2) = %v, want 42", got)
-	}
-
-	// Verify parent is NOT copied
-	if copied.Parent() != nil {
-		t.Error("CopyCallContext() should not copy parent")
-	}
-
-	// Modify original
-	original.Set("key3", "value3")
-
-	// Copied should NOT have new value (independent)
-	if got := copied.Get("key3"); got != nil {
-		t.Errorf("copied.Get(key3) = %v, want nil (should be independent)", got)
+	if retrieved != nil {
+		t.Error("CallFromContext() should return nil for wrong type")
 	}
 }
 
 func TestCallContext_MultipleTypes(t *testing.T) {
-	cc := NewCallContext()
+	_, cc := NewCallContext(context.Background())
+
+	stringKey := &Key{Name: "test.string", Scope: ScopeCall}
+	intKey := &Key{Name: "test.int", Scope: ScopeCall}
+	boolKey := &Key{Name: "test.bool", Scope: ScopeCall}
+	sliceKey := &Key{Name: "test.slice", Scope: ScopeCall}
+	mapKey := &Key{Name: "test.map", Scope: ScopeCall}
 
 	// Store different types
-	cc.Set("string", "value")
-	cc.Set("int", 42)
-	cc.Set("bool", true)
-	cc.Set("slice", []int{1, 2, 3})
-	cc.Set("map", map[string]int{"a": 1})
+	cc.Set(stringKey, "value")
+	cc.Set(intKey, 42)
+	cc.Set(boolKey, true)
+	cc.Set(sliceKey, []int{1, 2, 3})
+	cc.Set(mapKey, map[string]int{"a": 1})
 
 	// Retrieve and verify
-	if got := cc.Get("string").(string); got != "value" {
+	if got, _ := cc.Get(stringKey); got.(string) != "value" {
 		t.Errorf("Get(string) = %v, want value", got)
 	}
-	if got := cc.Get("int").(int); got != 42 {
+	if got, _ := cc.Get(intKey); got.(int) != 42 {
 		t.Errorf("Get(int) = %v, want 42", got)
 	}
-	if got := cc.Get("bool").(bool); got != true {
+	if got, _ := cc.Get(boolKey); got.(bool) != true {
 		t.Errorf("Get(bool) = %v, want true", got)
 	}
-	if got := cc.Get("slice").([]int); len(got) != 3 {
-		t.Errorf("Get(slice) length = %v, want 3", len(got))
+	if got, _ := cc.Get(sliceKey); len(got.([]int)) != 3 {
+		t.Errorf("Get(slice) length = %v, want 3", len(got.([]int)))
 	}
-	if got := cc.Get("map").(map[string]int)["a"]; got != 1 {
-		t.Errorf("Get(map)[a] = %v, want 1", got)
+	if got, _ := cc.Get(mapKey); got.(map[string]int)["a"] != 1 {
+		t.Errorf("Get(map)[a] = %v, want 1", got.(map[string]int)["a"])
+	}
+}
+
+func TestCallContext_InheritanceDoesNotAffectParent(t *testing.T) {
+	parentCtx, parent := NewCallContext(context.Background())
+	threadKey := &Key{Name: "test.thread", Scope: ScopeThread}
+	parent.Set(threadKey, "original")
+
+	_, child := NewCallContext(parentCtx)
+
+	// Child inherited the value
+	if got, _ := child.Get(threadKey); got != "original" {
+		t.Errorf("child.Get(threadKey) = %v, want original", got)
+	}
+
+	// Try to overwrite in child (should fail - write-once)
+	if err := child.Set(threadKey, "modified"); err == nil {
+		t.Error("child.Set(threadKey) should fail (already inherited)")
+	}
+
+	// Parent should still have original value
+	if got, _ := parent.Get(threadKey); got != "original" {
+		t.Errorf("parent.Get(threadKey) = %v, want original", got)
 	}
 }

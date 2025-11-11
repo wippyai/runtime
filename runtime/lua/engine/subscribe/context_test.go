@@ -2,6 +2,7 @@ package subscribe
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -82,7 +83,7 @@ func TestPublish(t *testing.T) {
 	}
 
 	// Test publishing with canceled context
-	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancelledCtx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	cancel()
 	err = Publish(cancelledCtx, topic, values...)
 	if err == nil {
@@ -178,7 +179,7 @@ func TestExists(t *testing.T) {
 	}
 
 	// Test exists with canceled context
-	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancelledCtx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	cancel()
 	_, err = Exists(cancelledCtx, topic)
 	require.Error(t, err)

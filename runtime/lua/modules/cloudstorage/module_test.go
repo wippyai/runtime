@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"io"
 	"strconv"
 	"testing"
@@ -234,7 +235,7 @@ func setupTestEnvironment(t *testing.T, mockStorage cloudstorage.Storage) (*engi
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Add the resource registry to the context
-	ctx := resource.WithResources(context.Background(), mockRegistry)
+	ctx := resource.WithRegistry(ctxapi.NewRootContext(), mockRegistry)
 	ctx = logs.WithLogger(ctx, logger)
 
 	// Create a UOW for resource management

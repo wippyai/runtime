@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	apiregistry "github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
@@ -127,7 +128,7 @@ func setupManager(t *testing.T) (*Manager, context.Context) {
 	)
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	return manager, ctx
 }
@@ -302,7 +303,7 @@ func TestManager_RouterOperations(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// First add a server with a unique Source
 	serverID := apiregistry.ID{NS: "test", Name: testID + "_server"}

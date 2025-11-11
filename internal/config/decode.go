@@ -12,9 +12,9 @@ import (
 
 // todo: duplicatye with component, todo: ADD SUPPORT FOR META EXTRACTION
 // DecodeAndInitConfig decodes the configuration and initializes defaults
-func DecodeAndInitConfig[T any](dtt payload.Transcoder, entry registry.Entry) (*T, error) {
+func DecodeAndInitConfig[T any](ctx context.Context, dtt payload.Transcoder, entry registry.Entry) (*T, error) {
 	// Get logger from context if available
-	logger := logs.GetLogger(context.Background())
+	logger := logs.GetLogger(ctx)
 
 	if entry.Data == nil {
 		logger.Error("DecodeAndInitConfig - entry data is nil",

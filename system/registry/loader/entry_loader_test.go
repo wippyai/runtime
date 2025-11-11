@@ -1,12 +1,12 @@
 package loader
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"reflect"
 	"testing"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	tr "github.com/ponyruntime/pony/system/payload"
@@ -262,7 +262,7 @@ entries:
 		t.Run(tt.name, func(t *testing.T) {
 			p := payload.NewPayload([]byte(tt.input), tt.format)
 
-			got, err := suite.processor.ExtractDependenciesToEntries(context.Background(), p)
+			got, err := suite.processor.ExtractDependenciesToEntries(ctxapi.NewRootContext(), p)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ExtractDependenciesToEntries() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -307,7 +307,7 @@ func TestEntryProcessor(t *testing.T) {
 			},
 		}
 
-		entries, err := suite.processor.processBatchEntries(context.Background(), content)
+		entries, err := suite.processor.processBatchEntries(ctxapi.NewRootContext(), content)
 		if err != nil {
 			t.Fatalf("processBatchEntries failed: %v", err)
 		}
@@ -342,7 +342,7 @@ func TestEntryProcessor(t *testing.T) {
 			},
 		}
 
-		entry, err := suite.processor.processSingleEntry(context.Background(), content)
+		entry, err := suite.processor.processSingleEntry(ctxapi.NewRootContext(), content)
 		if err != nil {
 			t.Fatalf("processSingleEntry failed: %v", err)
 		}

@@ -4,6 +4,7 @@ package upstream
 import (
 	"context"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"sync"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ func setupTest(t *testing.T, ch chan<- payload.Payload) (*engine.VM, context.Con
 	require.NoError(t, err)
 
 	// Create context with upstream channel
-	ctx := context.WithValue(context.Background(), Ctx, ch)
+	ctx := context.WithValue(ctxapi.NewRootContext(), Ctx, ch)
 
 	return vm, ctx
 }

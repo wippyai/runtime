@@ -2,6 +2,7 @@ package time
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 	"time"
 
@@ -197,7 +198,7 @@ func TestTicker(t *testing.T) {
 
 		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 
 		done := make(chan struct{})
 		var execErr error

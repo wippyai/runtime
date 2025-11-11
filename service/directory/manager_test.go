@@ -1,9 +1,9 @@
 package directory
 
 import (
-	"context"
 	"errors"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"io/fs"
 	"testing"
 	"time"
@@ -138,7 +138,7 @@ func newTestDirectoryManager(_ *testing.T) (*Manager, event.Bus) {
 }
 
 func TestManager_Add(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := newTestDirectoryManager(t)
 
 	// Setup event listener for filesystem registration events
@@ -247,7 +247,7 @@ func TestManager_Add(t *testing.T) {
 }
 
 func TestManager_Update(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := newTestDirectoryManager(t)
 
 	// Setup event listener for filesystem registration events
@@ -353,7 +353,7 @@ func TestManager_Update(t *testing.T) {
 }
 
 func TestManager_Delete(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := newTestDirectoryManager(t)
 
 	// Setup event listener for filesystem deletion events
@@ -433,7 +433,7 @@ func TestManager_Delete(t *testing.T) {
 }
 
 func TestManager_RegisterFS(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := newTestDirectoryManager(t)
 
 	// Setup event listener for filesystem registration events
@@ -477,7 +477,7 @@ func TestManager_RegisterFS(t *testing.T) {
 
 // Add test for factory error handling
 func TestManager_FactoryError(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	transcoder := &MockTranscoder{}

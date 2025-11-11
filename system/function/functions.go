@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"sync"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/interceptor"
+	"github.com/ponyruntime/pony/api/pidgen"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/internal/uniqid"
-
-	"github.com/ponyruntime/pony/api/event"
+	runtimeapi "github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -22,7 +22,6 @@ import (
 type Registry struct {
 	ctx        context.Context
 	host       pubsub.Host
-	uniqID     *uniqid.Generator
 	logger     *zap.Logger
 	bus        event.Bus
 	handlers   sync.Map
@@ -33,7 +32,6 @@ type Registry struct {
 // NewFunctionRegistry creates a new Registry instance with the provided event bus and logger.
 func NewFunctionRegistry(bus event.Bus, host pubsub.Host, logger *zap.Logger) *Registry {
 	return &Registry{
-		uniqID:   uniqid.NewGenerator(),
 		bus:      bus,
 		host:     host,
 		logger:   logger,
@@ -194,11 +192,27 @@ func (f *Registry) sendOptionsReject(path event.Path, reason string) {
 // Call runs the given task using its registered handler and returns a channel
 // for receiving the execution result(s). Returns an error if no handler is registered
 // for the task's target or if the handler type is invalid.
-func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (chan *runtimeapi.Result, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("nil context")
+	}
+
+	// Initialize CallContext if not already present
+	// This allows reusing existing CallContext when called from another function
+	cc := ctxapi.CallFromContext(ctx)
+	if cc == nil {
+		// No CallContext - this is a top-level function call from outside
+		ctx, cc = ctxapi.NewCallContext(ctx)
+	}
+
+	// Note: ScopeThread values are automatically copied to the new CallContext
+
 	handler, exists := f.handlers.Load(task.ID)
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for target: %s", task.ID)
 	}
+
+	// -- down the line we have to transform pretty much all of this shit
 
 	storedOptions, exists := f.options.Load(task.ID)
 	if !exists {
@@ -209,56 +223,68 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 		return nil, fmt.Errorf("invalid options type for target: %s", task.ID)
 	}
 
-	// keep context boundaries
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	// keep context boundaries todo: we have to remove this, noit allo
 
 	execHandler, ok := handler.(function.Func)
 	if !ok {
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.ID)
 	}
-	pid := pubsub.PID{
-		Node:   pubsub.GetNode(ctx).ID(),
-		Host:   function.HostID,
-		ID:     task.ID,
-		UniqID: f.uniqID.Generate(),
-	}.Precomputed()
+
+	// Check if PID is already set in CallContext - this is a boundary violation
+	if cc.Has(runtimeapi.CallPIDKey) {
+		return nil, fmt.Errorf("function call boundary violation: PID already set in CallContext")
+	}
+
+	// Generate new PID for this function call (node is configured in generator)
+	gen := pidgen.GetGenerator(ctx)
+	pid := gen.Generate(function.HostID, task.ID)
+
+	// Store call ID (registry.ID) in CallContext
+	if err := cc.Set(runtimeapi.CallIDKey, task.ID); err != nil {
+		return nil, fmt.Errorf("failed to set call ID: %w", err)
+	}
+
+	// Store unique PID (UniqID string) in CallContext
+	if err := cc.Set(runtimeapi.CallPIDKey, pid.UniqID); err != nil {
+		return nil, fmt.Errorf("failed to set call PID: %w", err)
+	}
 
 	// --- todo: we need to add proper layers for CTX to avoid so many ctx spans
 	ctx = pubsub.WithHost(ctx, f.host)
 	ctx = pubsub.WithPID(ctx, pid)
 	ctx = interceptor.WithOptions(ctx, options)
-	ctx, cancel := context.WithCancel(ctx)
+	//ctx, cancel := context.WithCancel(ctx)
 	// defer cancel()
 
-	ctx = interceptor.WithCancel(ctx, cancel)
+	//ctx = interceptor.WithCancel(ctx, cancel)
 	// ---
 
-	interceptorsRegistry := interceptor.GetInterceptors(ctx)
-	if interceptorsRegistry != nil {
-		ch, err := interceptorsRegistry.GetChain().Execute(
-			ctx,
-			execHandler,
-			task,
-		)
-		if err != nil {
-			f.logger.Debug("interceptor chain execution failed",
-				zap.String("function", task.ID.String()),
-				zap.String("pid", pid.String()),
-				zap.Error(err))
-
-			return nil, err
-		}
-
-		return ch, nil
-	}
+	//interceptorsRegistry := interceptor.GetInterceptors(ctx)
+	//if interceptorsRegistry != nil {
+	//	ch, err := interceptorsRegistry.GetChain().Execute(
+	//		ctx,
+	//		execHandler,
+	//		task,
+	//	)
+	//	if err != nil {
+	//		f.logger.Debug("interceptor chain execution failed",
+	//			zap.String("function", task.ID.String()),
+	//			zap.String("pid", pid.String()),
+	//			zap.Error(err))
+	//
+	//		return nil, err
+	//	}
+	//
+	//	return ch, nil
+	//}
 
 	ch, err := execHandler(ctx, task)
 	if err != nil {
+		// Get PID for logging (either newly generated or reused)
+		logPID, _ := pubsub.GetPID(ctx)
 		f.logger.Error(err.Error(),
 			zap.String("function", task.ID.String()),
-			zap.String("pid", pid.String()))
+			zap.String("pid", logPID.String()))
 		return nil, err
 	}
 

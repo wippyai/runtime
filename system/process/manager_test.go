@@ -8,13 +8,16 @@ import (
 
 	toposystem "github.com/ponyruntime/pony/system/topology"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/pidgen"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
+	"github.com/ponyruntime/pony/internal/uniqid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -230,9 +233,16 @@ func (m *managerTopology) Release(caller, _ pubsub.PID) error {
 // Helper to create a context with mock topology
 func contextWithManagerTopology() (context.Context, *managerTopology) {
 	topo := newManagerTopology()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
+
 	ctx = topology.WithTopology(ctx, topo)
-	ctx = topology.WithPIDRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
+	ctx = topology.WithRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
+
+	// Add PID generator to context
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
+
 	return ctx, topo
 }
 
@@ -785,7 +795,8 @@ func TestManager_AttachLifecycle_MissingTopology(t *testing.T) {
 	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
 
 	// Test AttachLifecycle with missing topology
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
+
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
@@ -817,7 +828,8 @@ func TestManager_AttachLifecycle_MissingPIDRegistry(t *testing.T) {
 	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
 
 	// Test AttachLifecycle with missing PID registry
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
+
 	ctx = topology.WithTopology(ctx, newManagerTopology())
 	lifecycle := process.Lifecycle{
 		Monitor: true,
@@ -849,9 +861,10 @@ func TestManager_AttachLifecycle_RegistrationError(t *testing.T) {
 	topo := newManagerTopology()
 	topo.registerErr = errors.New("registration failed")
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
+
 	ctx = topology.WithTopology(ctx, topo)
-	ctx = topology.WithPIDRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
+	ctx = topology.WithRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
@@ -881,9 +894,10 @@ func TestManager_AttachLifecycle_MonitoringError(t *testing.T) {
 	topo := newManagerTopology()
 	topo.waitErr = errors.New("monitoring failed")
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
+
 	ctx = topology.WithTopology(ctx, topo)
-	ctx = topology.WithPIDRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
+	ctx = topology.WithRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
@@ -913,9 +927,10 @@ func TestManager_AttachLifecycle_LinkingError(t *testing.T) {
 	topo := newManagerTopology()
 	topo.linkErr = errors.New("linking failed")
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
+
 	ctx = topology.WithTopology(ctx, topo)
-	ctx = topology.WithPIDRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
+	ctx = topology.WithRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,

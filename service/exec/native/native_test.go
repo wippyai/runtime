@@ -3,6 +3,7 @@ package native
 import (
 	"context"
 	"errors"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"io"
 	"io/fs"
 	"os"
@@ -126,7 +127,7 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	// Stop the process after a short delay to ensure we get some output
 	go func() {
 		// Use context with timeout instead of time.Sleep to prevent test hanging
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 3*time.Second)
 		defer cancel()
 
 		select {
@@ -356,7 +357,7 @@ func TestExecutor_StdoutWithSleep(t *testing.T) {
 
 	// Give a moment for the reading goroutine to start
 	// Use context with timeout instead of time.Sleep to prevent test hanging
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 100*time.Millisecond)
 	defer cancel()
 
 	select {

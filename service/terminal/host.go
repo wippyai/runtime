@@ -175,7 +175,7 @@ func (t *Terminal) prepareContext(
 	}
 
 	// global lifecycle
-	pCtx = process.GetProcesses(ctx).AttachLifecycle(pCtx, lifecycle)
+	pCtx = process.GetManager(ctx).AttachLifecycle(pCtx, lifecycle)
 
 	// service lifecycle
 	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {

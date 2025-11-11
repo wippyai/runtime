@@ -190,3 +190,12 @@ otel-up:
 otel-down:
 	cd tests && docker-compose down
 
+build-runner-linux-amd64-exp:
+	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+	GOEXPERIMENT=jsonv2,greenteagc \
+	go build --tags "fts5 sqlite_vec" \
+	   -ldflags="-s -w -X main.version=$(shell git describe --tags --always --dirty)" \
+	   -trimpath \
+	   -buildmode=pie \
+	   -o ./dist/runner-linux-amd64-exp ./cmd/runner/

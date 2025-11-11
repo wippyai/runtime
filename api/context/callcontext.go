@@ -6,53 +6,88 @@ import (
 )
 
 // CallContext stores execution-level key-value pairs.
-// Can reference a parent CallContext (for metadata/tracing, not value inheritance).
+// All keys are write-once: each key can only be set once.
+// New keys can be added anytime, but existing keys cannot be overwritten.
+// Scope controls inheritance when creating child contexts:
+// - ScopeCall keys are NOT inherited (PID, cancel, callbacks)
+// - ScopeThread keys ARE inherited (security, values, options)
 type CallContext interface {
-	// Get retrieves a value by key from this context only.
-	// Does NOT walk up parent chain automatically.
-	Get(key any) any
+	// Get retrieves a value by key. Returns (value, exists).
+	Get(key *Key) (any, bool)
 
-	// Set stores a value by key in this context.
-	Set(key any, value any)
+	// Set stores a value by key. Returns error if key already set (write-once).
+	Set(key *Key, value any) error
 
-	// Iterate calls fn for each key-value pair in this context only.
-	Iterate(fn func(key any, value any))
+	// Has checks if a key exists in this context.
+	Has(key *Key) bool
+
+	// Iterate calls fn for each key-value pair in this context.
+	Iterate(fn func(key *Key, value any))
 
 	// Parent returns the parent CallContext, or nil if none.
-	// Use this for manual inspection/tracing.
+	// For metadata/tracing only - values are NOT inherited via Get().
 	Parent() CallContext
-
-	// WithParent returns a new CallContext with specified parent.
-	WithParent(parent CallContext) CallContext
 }
 
 // callContext is the concrete implementation of CallContext.
 type callContext struct {
 	mu     sync.RWMutex
-	values map[any]any
+	values map[*Key]any
 	parent CallContext
+	cancel context.CancelFunc
 }
 
-// NewCallContext creates a new CallContext instance.
-func NewCallContext() CallContext {
-	return &callContext{
-		values: make(map[any]any),
+// NewCallContext creates a new CallContext with optional parent.
+// Only ScopeThread keys are inherited from parent (selective copy).
+// Auto-creates a cancel function.
+func NewCallContext(parent context.Context) (context.Context, CallContext) {
+	ctx, cancel := context.WithCancel(parent)
+	cc := &callContext{
+		values: make(map[*Key]any),
+		cancel: cancel,
 	}
+
+	// Copy only ScopeThread keys from parent CallContext
+	if parentCC := CallFromContext(parent); parentCC != nil {
+		cc.parent = parentCC
+		parentCC.Iterate(func(key *Key, value any) {
+			if key.Scope == ScopeThread {
+				cc.values[key] = value
+			}
+		})
+	}
+
+	return WithCallContext(ctx, cc), cc
 }
 
-func (c *callContext) Get(key any) any {
+func (c *callContext) Get(key *Key) (any, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.values[key]
+	val, exists := c.values[key]
+	return val, exists
 }
 
-func (c *callContext) Set(key any, value any) {
+func (c *callContext) Set(key *Key, value any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// All keys are write-once
+	if _, exists := c.values[key]; exists {
+		return &KeyError{Key: key, Message: "key already set"}
+	}
+
 	c.values[key] = value
+	return nil
 }
 
-func (c *callContext) Iterate(fn func(key any, value any)) {
+func (c *callContext) Has(key *Key) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, exists := c.values[key]
+	return exists
+}
+
+func (c *callContext) Iterate(fn func(key *Key, value any)) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	for k, v := range c.values {
@@ -66,18 +101,18 @@ func (c *callContext) Parent() CallContext {
 	return c.parent
 }
 
-func (c *callContext) WithParent(parent CallContext) CallContext {
-	return &callContext{
-		values: c.values,
-		parent: parent,
-	}
+// KeyError is returned when trying to overwrite a ScopeCall key
+type KeyError struct {
+	Key     *Key
+	Message string
+}
+
+func (e *KeyError) Error() string {
+	return e.Message + ": " + e.Key.Name
 }
 
 // callContextKey is the context key for storing CallContext.
-var callContextKey = &Key{Name: "context.call"}
-
-// emptyCallContext is a singleton for default/empty CallContext.
-var emptyCallContext = NewCallContext()
+var callContextKey = &Key{Name: "context.call", Scope: ScopeThread}
 
 // WithCallContext attaches CallContext to the provided context.
 func WithCallContext(ctx context.Context, cc CallContext) context.Context {
@@ -85,26 +120,10 @@ func WithCallContext(ctx context.Context, cc CallContext) context.Context {
 }
 
 // CallFromContext extracts CallContext from context.
-// Returns empty CallContext if not present.
+// Returns nil if not present.
 func CallFromContext(ctx context.Context) CallContext {
 	if cc, ok := ctx.Value(callContextKey).(CallContext); ok {
 		return cc
 	}
-	return emptyCallContext
-}
-
-// WithoutCallContext removes CallContext for isolation (like DetachUnitOfWork).
-// AppContext is still inherited from parent context.
-func WithoutCallContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, callContextKey, nil)
-}
-
-// CopyCallContext creates new CallContext with same values.
-// Parent is NOT copied - new context is independent.
-func CopyCallContext(from CallContext) CallContext {
-	to := NewCallContext()
-	from.Iterate(func(key any, value any) {
-		to.Set(key, value)
-	})
-	return to
+	return nil
 }

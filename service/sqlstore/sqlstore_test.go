@@ -8,14 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/store"
-
 	_ "github.com/mattn/go-sqlite3"
+
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	sqlconfig "github.com/ponyruntime/pony/api/service/sql"
 	"github.com/ponyruntime/pony/api/service/sqlstore"
+	"github.com/ponyruntime/pony/api/store"
 	sqlsvc "github.com/ponyruntime/pony/service/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -168,7 +169,8 @@ func createDefaultConfig() *sqlstore.SQLConfig {
 
 // createContext creates a context with the given registry
 func createContext(reg resource.Registry) context.Context {
-	return resource.WithResources(context.Background(), reg)
+	ctx := ctxapi.NewRootContext()
+	return resource.WithRegistry(ctx, reg)
 }
 
 // createTranscoderContext creates a context with the given transcoder

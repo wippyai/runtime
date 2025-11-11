@@ -1,10 +1,10 @@
 package interpolate
 
 import (
-	"context"
 	"strings"
 	"testing"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/stretchr/testify/assert"
 )
@@ -47,7 +47,7 @@ func TestNewEntryInterpolator(t *testing.T) {
 func TestHelper_Interpolate(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Context:  context.Background(),
+		Context:  ctxapi.NewRootContext(),
 		Filename: "config.yaml",
 	}
 
@@ -141,7 +141,7 @@ func TestHelper_Interpolate(t *testing.T) {
 func TestHelper_interpolateString(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Context:  context.Background(),
+		Context:  ctxapi.NewRootContext(),
 		Filename: "config.yaml",
 	}
 
@@ -203,7 +203,7 @@ func TestHelper_interpolateString(t *testing.T) {
 func TestHelper_interpolateMap(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Context:  context.Background(),
+		Context:  ctxapi.NewRootContext(),
 		Filename: "config.yaml",
 	}
 
@@ -260,7 +260,7 @@ func TestHelper_interpolateMap(t *testing.T) {
 func TestHelper_interpolateSlice(t *testing.T) {
 	dtt := &MockTranscoder{}
 	ctx := EntryContext{
-		Context:  context.Background(),
+		Context:  ctxapi.NewRootContext(),
 		Filename: "config.yaml",
 	}
 

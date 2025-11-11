@@ -443,7 +443,7 @@ func (m *Module) call(l *lua.LState) int {
 		execCtx := engine.DetachUnitOfWork(uw.Context())
 		execCtx = functions.applySecurityContext(execCtx)
 		execCtx = context.WithValue(execCtx, contextapi.ValuesCtx, functions.values)
-		execCtx = context.WithValue(execCtx, interceptor.OptionsContextKey{}, functions.options)
+		execCtx = interceptor.WithOptions(execCtx, functions.options)
 
 		resultChan, err := functions.funcs.Call(execCtx, t)
 		if err != nil {

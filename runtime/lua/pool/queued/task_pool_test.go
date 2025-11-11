@@ -3,6 +3,7 @@ package queued
 import (
 	"context"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	runtime2 "runtime"
 	"sync"
 	"sync/atomic"
@@ -100,7 +101,7 @@ func TestTaskPool_Execute_Basic(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 5*time.Second)
 	defer cancel()
 	ctx = setupTestContext(ctx)
 
@@ -126,7 +127,7 @@ func TestTaskPool_Execute_AfterClose(t *testing.T) {
 
 	p.Close()
 
-	ctx := setupTestContext(context.Background())
+	ctx := setupTestContext(ctxapi.NewRootContext())
 	task := createTestTask("test", lua.LNil)
 
 	_, err = p.Execute(ctx, task)
@@ -155,7 +156,7 @@ func TestTaskPool_Execute_Failure(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 5*time.Second)
 	defer cancel()
 	ctx = setupTestContext(ctx)
 
@@ -198,7 +199,7 @@ func TestTaskPool_ParallelExecution(t *testing.T) {
 
 	var wg sync.WaitGroup
 	results := make(chan string, 10)
-	baseCtx := setupTestContext(context.Background())
+	baseCtx := setupTestContext(ctxapi.NewRootContext())
 
 	// Launch 10 jobs with 3 workers
 	for i := 0; i < 10; i++ {
@@ -264,7 +265,7 @@ func TestTaskPool_WorkerDistribution(t *testing.T) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	idCounts := make(map[string]int)
-	baseCtx := setupTestContext(context.Background())
+	baseCtx := setupTestContext(ctxapi.NewRootContext())
 
 	// Run multiple tasks and track distribution
 	for i := 0; i < 30; i++ {
@@ -322,7 +323,7 @@ func TestTaskPool_StressTest(t *testing.T) {
 
 			var wg sync.WaitGroup
 			successCount := atomic.Int32{}
-			baseCtx := setupTestContext(t.Context())
+			baseCtx := setupTestContext(ctxapi.NewRootContext())
 
 			// Launch many parallel jobs
 			for j := 0; j < 1000; j++ {
@@ -377,7 +378,7 @@ func TestTaskPool_QueueBehavior(t *testing.T) {
 
 	var wg sync.WaitGroup
 	results := make(chan string, 10)
-	baseCtx := setupTestContext(context.Background())
+	baseCtx := setupTestContext(ctxapi.NewRootContext())
 
 	// Queue several jobs that will take time to complete
 	for i := 0; i < 10; i++ {
@@ -438,7 +439,7 @@ func BenchmarkTaskPool_Execute(b *testing.B) {
 	require.NoError(b, err)
 	defer p.Close()
 
-	baseCtx := setupTestContext(context.Background())
+	baseCtx := setupTestContext(ctxapi.NewRootContext())
 	task := createTestTask("bench", lua.LString("benchmark"))
 
 	b.ResetTimer()

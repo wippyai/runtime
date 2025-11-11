@@ -31,7 +31,7 @@ package time
 //			engine.WithLayer(channels),
 //		)
 //
-//		ctx := asyncRunner.WithContext(context.Background())
+//		ctx := asyncRunner.WithContext(ctxapi.NewRootContext())
 //
 //		start := time.Now()
 //		result, err := wrapped.Execute(ctx, "test")
@@ -80,7 +80,7 @@ package time
 //			engine.WithLayer(channels),
 //		)
 //
-//		ctx := asyncRunner.WithContext(context.Background())
+//		ctx := asyncRunner.WithContext(ctxapi.NewRootContext())
 //
 //		result, err := wrapped.Execute(ctx, "test")
 //		require.NoError(t, err)
@@ -117,7 +117,7 @@ package time
 //			engine.WithLayer(channels),
 //		)
 //
-//		ctx := asyncRunner.WithContext(context.Background())
+//		ctx := asyncRunner.WithContext(ctxapi.NewRootContext())
 //
 //		result, err := wrapped.Execute(ctx, "test")
 //		require.NoError(t, err)
@@ -160,7 +160,7 @@ package time
 //			engine.WithLayer(channels),
 //		)
 //
-//		ctx := asyncRunner.WithContext(context.Background())
+//		ctx := asyncRunner.WithContext(ctxapi.NewRootContext())
 //
 //		start := time.Now()
 //		result, err := wrapped.Execute(ctx, "test")
@@ -271,7 +271,7 @@ package time
 //					engine.WithLayer(channels),
 //				)
 //
-//				ctx := asyncRunner.WithContext(context.Background())
+//				ctx := asyncRunner.WithContext(ctxapi.NewRootContext())
 //
 //				start := time.Now()
 //				result, err := wrapped.Execute(ctx, "test")
@@ -319,7 +319,7 @@ package time
 //			engine.WithLayer(channels),
 //		)
 //
-//		ctx, cancel := context.WithCancel(context.Background())
+//		ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 //		ctx = asyncRunner.WithContext(ctx)
 //
 //		done := make(chan struct{})
@@ -416,7 +416,7 @@ package time
 //			engine.WithLayer(coroutine.NewCoroutineLayer()),
 //		)
 //
-//		ctx := asyncRunner.WithContext(context.Background())
+//		ctx := asyncRunner.WithContext(ctxapi.NewRootContext())
 //
 //		start := time.Now()
 //		result, err := wrapped.Execute(ctx, "test")
@@ -508,7 +508,7 @@ package time
 //			engine.WithLayer(asyncRunner),
 //		)
 //
-//		ctx := asyncRunner.WithContext(context.Background())
+//		ctx := asyncRunner.WithContext(ctxapi.NewRootContext())
 //
 //		start := time.Now()
 //		result, err := wrapped.Execute(ctx, "test")

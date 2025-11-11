@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"reflect"
 	"strings"
 	"testing"
@@ -265,7 +266,7 @@ func TestCoroutineVM_ContextPropagation(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("context cancellation", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 		vm, err := NewCVM(logger)
 
 		if err != nil {
@@ -1776,7 +1777,7 @@ func BenchmarkCoroutineVM(b *testing.B) {
 	logger := zap.NewNop()
 
 	b.Run("send_message", func(b *testing.B) {
-		ctx := context.Background()
+		ctx := ctxapi.NewRootContext()
 		vm, err := NewCVM(logger)
 		require.NoError(b, err)
 

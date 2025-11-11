@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	apifsLib "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
@@ -165,6 +166,8 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 	}
 
 	t.Run("successful handler creation", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+
 		// Register test function
 		registry.Register(cfg.Func, func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 			resultCh := make(chan *runtime.Result, 1)
@@ -194,6 +197,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		// Test handler
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req = req.WithContext(ctx)
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -212,6 +216,8 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 	})
 
 	t.Run("function registry error", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+
 		// Register test function that returns an error
 		registry.Register(cfg.Func, func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 			return nil, fmt.Errorf("function error")
@@ -224,6 +230,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		// Test handler
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req = req.WithContext(ctx)
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)

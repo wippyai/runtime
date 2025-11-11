@@ -2,6 +2,7 @@ package coroutine
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 	"time"
 
@@ -109,7 +110,7 @@ func TestAsyncCoroutines(t *testing.T) {
 	require.NoError(t, err)
 
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1000)
+	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), time.Second*1000)
 	defer cancel()
 
 	result, err := wrapped.Execute(ctx, "test_sleep")

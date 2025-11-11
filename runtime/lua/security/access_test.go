@@ -1,7 +1,7 @@
 package security
 
 import (
-	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/logs"
@@ -109,7 +109,7 @@ func (m *mockScope) AddPolicy(policy secapi.Policy) {
 func TestIsAllowed_WithCompleteContext_Allow(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
 	actor := secapi.Actor{ID: "test-actor"}
@@ -132,7 +132,7 @@ func TestIsAllowed_WithCompleteContext_Allow(t *testing.T) {
 func TestIsAllowed_WithCompleteContext_Deny(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
 	actor := secapi.Actor{ID: "test-actor"}
@@ -155,7 +155,7 @@ func TestIsAllowed_WithCompleteContext_Deny(t *testing.T) {
 func TestIsAllowed_WithCompleteContext_MultiplePolicies(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
 	actor := secapi.Actor{ID: "test-actor"}
@@ -184,7 +184,7 @@ func TestIsAllowed_WithCompleteContext_MultiplePolicies(t *testing.T) {
 func TestIsAllowed_WithCompleteContext_WithMetadata(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
 	actor := secapi.Actor{ID: "test-actor"}
@@ -209,7 +209,7 @@ func TestIsAllowed_WithCompleteContext_WithMetadata(t *testing.T) {
 func TestIsAllowed_WithoutActor_NonStrictMode(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
 	policy := newMockPolicy(registry.ID{NS: "test", Name: "policy"})
@@ -227,7 +227,7 @@ func TestIsAllowed_WithoutActor_NonStrictMode(t *testing.T) {
 func TestIsAllowed_WithoutScope_NonStrictMode(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
 	actor := secapi.Actor{ID: "test-actor"}
@@ -243,7 +243,7 @@ func TestIsAllowed_WithoutScope_NonStrictMode(t *testing.T) {
 func TestIsAllowed_WithoutActorAndScope_NonStrictMode(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
 	// Execute
@@ -256,7 +256,7 @@ func TestIsAllowed_WithoutActorAndScope_NonStrictMode(t *testing.T) {
 func TestIsAllowed_WithEmptyActionAndResource(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
 	actor := secapi.Actor{ID: "test-actor"}
@@ -279,7 +279,7 @@ func TestIsAllowed_WithEmptyActionAndResource(t *testing.T) {
 func TestIsAllowed_WithComplexMetadata(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
 	actor := secapi.Actor{ID: "test-actor"}
@@ -311,7 +311,7 @@ func TestIsAllowed_WithComplexMetadata(t *testing.T) {
 func TestIsAllowed_ConcurrentAccess(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
 	actor := secapi.Actor{ID: "test-actor"}
@@ -349,7 +349,7 @@ func TestIsAllowed_ConcurrentAccess(t *testing.T) {
 func TestIsAllowed_WithRealSecurityScope(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
 	actor := secapi.Actor{ID: "test-actor"}

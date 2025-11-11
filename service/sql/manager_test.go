@@ -8,16 +8,16 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/mattn/go-sqlite3"
+
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	envapi "github.com/ponyruntime/pony/api/env"
-	"github.com/ponyruntime/pony/internal/config"
-
-	_ "github.com/mattn/go-sqlite3" // Import SQLite driver
-
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	apiconfig "github.com/ponyruntime/pony/api/service/sql"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/internal/config"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -278,8 +278,7 @@ func TestNewManagerWithFactory(t *testing.T) {
 	})
 }
 func TestManager_Add(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	defer cancel()
+	ctx := ctxapi.NewRootContext()
 
 	manager, bus, factory := newTestManager(t)
 
@@ -393,15 +392,12 @@ func TestManager_Update(t *testing.T) {
 	manager, bus, _ := newTestManager(t)
 
 	envRegistry := NewMockEnvRegistry()
-	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_HOST", "test-host"))
-	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_PORT", "1234"))
-	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_DATABASE", "test-db"))
-	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_USERNAME", "test-user"))
-	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_PASSWORD", "test-pwd"))
-
-	rootCtx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	defer cancel()
-	ctx := rootCtx
+	ctx := ctxapi.NewRootContext()
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_HOST", "test-host"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_PORT", "1234"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_DATABASE", "test-db"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_USERNAME", "test-user"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_PASSWORD", "test-pwd"))
 
 	// Setup event listener for supervisor events
 	supervisorEvents := make(chan event.Event, 2)
@@ -504,15 +500,12 @@ func TestManager_Delete(t *testing.T) {
 	manager, bus, _ := newTestManager(t)
 
 	envRegistry := NewMockEnvRegistry()
-	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_HOST", "test-host"))
-	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_PORT", "1234"))
-	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_DATABASE", "test-db"))
-	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_USERNAME", "test-user"))
-	require.NoError(t, envRegistry.Set(context.Background(), "POSTGRESQL_DEFAULT_PASSWORD", "test-pwd"))
-
-	rootCtx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	defer cancel()
-	ctx := rootCtx
+	ctx := ctxapi.NewRootContext()
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_HOST", "test-host"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_PORT", "1234"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_DATABASE", "test-db"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_USERNAME", "test-user"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_PASSWORD", "test-pwd"))
 
 	// Setup event listeners
 	supervisorEvents := make(chan event.Event, 2)
@@ -622,6 +615,8 @@ func TestManager_Delete(t *testing.T) {
 }
 
 func TestDecode_NilPayload(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+
 	transcoder := &TestTranscoder{}
 
 	entry := registry.Entry{
@@ -630,7 +625,7 @@ func TestDecode_NilPayload(t *testing.T) {
 		Data: nil,
 	}
 
-	_, err := config.DecodeAndInitConfig[apiconfig.DBConfig](transcoder, entry)
+	_, err := config.DecodeAndInitConfig[apiconfig.DBConfig](ctx, transcoder, entry)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "configuration data is required")
 }

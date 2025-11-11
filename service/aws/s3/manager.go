@@ -172,12 +172,12 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 func (m *Manager) set(ctx context.Context, entry registry.Entry) (registry.Metadata, error) {
 	// Decode and initialize configuration
-	cfg, err := internalconfig.DecodeAndInitConfig[services3.Config](m.dtt, entry)
+	cfg, err := internalconfig.DecodeAndInitConfig[services3.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
 
-	resourceRegistry := resource.GetResources(ctx)
+	resourceRegistry := resource.GetRegistry(ctx)
 	rsc, err := resourceRegistry.Acquire(ctx, registry.ParseID(cfg.AWSConfig), resource.ModeNormal)
 	if err != nil {
 		return nil, fmt.Errorf("acquire resource: %w", err)

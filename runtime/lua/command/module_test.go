@@ -1,7 +1,7 @@
 package command
 
 import (
-	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -28,7 +28,7 @@ func TestModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.Background()
+		ctx := ctxapi.NewRootContext()
 		_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 		// Test that the module can be loaded
@@ -47,7 +47,7 @@ func TestNewCommandFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	// Register the command module
@@ -124,7 +124,7 @@ func TestResponseFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -174,7 +174,7 @@ func TestIsCompleteFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -249,7 +249,7 @@ func TestResultFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -368,7 +368,7 @@ func TestIsCanceledFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -421,7 +421,7 @@ func TestCancelFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -537,7 +537,7 @@ func TestIntegration(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	// Register the command module directly

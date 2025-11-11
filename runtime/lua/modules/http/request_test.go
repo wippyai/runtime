@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"io"
 	"mime/multipart"
 	"net/http/httptest"
@@ -79,7 +80,7 @@ func TestRequest_Creation(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -98,7 +99,7 @@ func TestRequest_Creation(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -117,7 +118,7 @@ func TestRequest_Creation(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -140,7 +141,7 @@ func TestRequest_BasicInfo(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -160,7 +161,7 @@ func TestRequest_BasicInfo(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/users", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -181,7 +182,7 @@ func TestRequest_BasicInfo(t *testing.T) {
 		req.Host = "example.com"
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -205,7 +206,7 @@ func TestRequest_Query(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test?name=john&age=25", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -227,7 +228,7 @@ func TestRequest_Query(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -247,7 +248,7 @@ func TestRequest_Query(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -273,7 +274,7 @@ func TestRequest_Body(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -295,7 +296,7 @@ func TestRequest_Body(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -317,7 +318,7 @@ func TestRequest_Body(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -338,7 +339,7 @@ func TestRequest_Body(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -363,7 +364,7 @@ func TestRequest_ContentType(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -384,7 +385,7 @@ func TestRequest_ContentType(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -405,7 +406,7 @@ func TestRequest_ContentType(t *testing.T) {
 		req.Header.Set("Accept", "application/json, text/html")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -432,7 +433,7 @@ func TestRequest_Headers(t *testing.T) {
 		req.Header.Set("X-Custom", "test-value")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -452,7 +453,7 @@ func TestRequest_Headers(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -473,7 +474,7 @@ func TestRequest_Headers(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -503,7 +504,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", slowReader)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -525,7 +526,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -553,7 +554,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -576,7 +577,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(
@@ -602,7 +603,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -627,7 +628,7 @@ func TestRequest_InvalidInput(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -646,7 +647,7 @@ func TestRequest_InvalidInput(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -665,7 +666,7 @@ func TestRequest_InvalidInput(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -688,7 +689,7 @@ func TestRequest_EdgeCases(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -710,7 +711,7 @@ func TestRequest_EdgeCases(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -730,7 +731,7 @@ func TestRequest_EdgeCases(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test?key=value1&key=value2", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -752,7 +753,7 @@ func TestRequest_EdgeCases(t *testing.T) {
 		req.Header.Add("X-Custom", "value2")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -775,7 +776,7 @@ func TestRequest_EdgeCases(t *testing.T) {
 		req.Header.Set("X-Special", "value!@#$%^&*()")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -811,7 +812,7 @@ func TestRequest_ContextCancellation(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 
 		// Spawn a parent context with a short timeout
-		parentCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		parentCtx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 500*time.Millisecond)
 		defer cancel()
 
 		// Attach the parent context to the request context
@@ -842,7 +843,7 @@ func TestRequest_RemoteAddr(t *testing.T) {
 		req.RemoteAddr = "192.168.1.1:12345"
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -863,7 +864,7 @@ func TestRequest_ContextErrors(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("no HTTP request context found", func(t *testing.T) {
-		ctx := context.Background() // Context without HTTP request
+		ctx := ctxapi.NewRootContext() // Context without HTTP request
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -880,7 +881,7 @@ func TestRequest_ContextErrors(t *testing.T) {
 	})
 
 	t.Run("invalid HTTP request context type", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), http.RequestCtx, "invalid")
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, "invalid")
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -904,7 +905,7 @@ func TestRequest_ToString(t *testing.T) {
 		req := httptest.NewRequest("PUT", "/resource/123", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -929,7 +930,7 @@ func TestRequest_JSONWithEmptyBody(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(
@@ -988,7 +989,7 @@ func TestRequest_Multipart(t *testing.T) {
 
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -1101,7 +1102,7 @@ func TestRequest_Multipart(t *testing.T) {
 
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -1137,7 +1138,7 @@ func TestRequest_Multipart(t *testing.T) {
 
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))

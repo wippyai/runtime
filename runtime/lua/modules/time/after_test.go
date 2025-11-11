@@ -2,6 +2,7 @@ package time
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 	"time"
 
@@ -299,7 +300,7 @@ func TestAfterTimers(t *testing.T) {
 		done := make(chan struct{})
 		var execErr error
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 
 		go func() {
 			defer close(done)

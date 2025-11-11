@@ -2,6 +2,7 @@ package list
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -279,7 +280,7 @@ func TestListUpdate(t *testing.T) {
 }
 
 func TestItemManagement(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Test empty list behavior
 	t.Run("empty list operations", func(t *testing.T) {
@@ -523,7 +524,7 @@ func TestItemManagement(t *testing.T) {
 
 // Test status message handling and lifecycle
 func TestListStatusMessages(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	t.Run("status message operations", func(t *testing.T) {
 		vm := setupListTest(t)
@@ -613,7 +614,7 @@ func TestListStatusMessages(t *testing.T) {
 }
 
 func TestListSpinner(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	t.Run("basic spinner operations", func(t *testing.T) {
 		vm := setupListTest(t)
@@ -777,7 +778,7 @@ func TestListSpinner(t *testing.T) {
 }
 
 func TestListDelegate(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	t.Run("basic delegate operations", func(t *testing.T) {
 		vm := setupListTest(t)

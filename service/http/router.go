@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/ponyruntime/pony/api/registry"
 	httpapi "github.com/ponyruntime/pony/api/service/http"
 )
@@ -17,7 +16,7 @@ import (
 var routeInfoPool = sync.Pool{
 	New: func() interface{} {
 		return &httpapi.RouteInfo{
-			Params: make(map[string]string, 2), // Max 2 params
+			Params: make(map[string]string, 2),
 		}
 	},
 }
@@ -47,10 +46,11 @@ func putRouteInfo(info *httpapi.RouteInfo) {
 
 // RouteEntry represents a single route within a router
 type RouteEntry struct {
-	method  string
-	path    string
-	handler http.Handler
-	funcID  registry.ID
+	method     string
+	path       string
+	handler    http.Handler
+	funcID     registry.ID
+	paramNames []string // Cached param names extracted from path
 }
 
 // RouterEntry represents a router with its routes and middleware
@@ -84,7 +84,6 @@ func NewRouteManager() (*RouteManager, error) {
 }
 
 // AddRouter adds a new router or updates an existing one
-// If a router with the same Source already exists, it will be updated with the new prefix and middleware
 func (rm *RouteManager) AddRouter(id registry.ID, prefix string,
 	middleware []func(http.Handler) http.Handler,
 	postMiddleware []func(http.Handler) http.Handler) error {
@@ -92,15 +91,15 @@ func (rm *RouteManager) AddRouter(id registry.ID, prefix string,
 	defer rm.mu.Unlock()
 
 	// Check for duplicate prefixes
-	for _, existingRouter := range rm.routers {
-		if existingRouter.prefix == prefix {
+	for existingID, existingRouter := range rm.routers {
+		if existingID != id && existingRouter.prefix == prefix {
 			return fmt.Errorf("router with prefix %s already exists", prefix)
 		}
 	}
 
 	// Check if the router already exists
 	if existingRouter, exists := rm.routers[id]; exists {
-		// Update existing router instead of returning an error
+		// Update existing router
 		existingRouter.prefix = prefix
 		existingRouter.middleware = middleware
 		existingRouter.postMiddleware = postMiddleware
@@ -118,7 +117,7 @@ func (rm *RouteManager) AddRouter(id registry.ID, prefix string,
 	return nil
 }
 
-// RemoveRouter removes a router by Source
+// RemoveRouter removes a router by ID
 func (rm *RouteManager) RemoveRouter(id registry.ID) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -131,7 +130,7 @@ func (rm *RouteManager) RemoveRouter(id registry.ID) error {
 	return nil
 }
 
-// AddRoute adds a new route to the specified router
+// AddRoute adds or updates a route in the specified router
 func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, path string, funcID registry.ID, handler http.Handler) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -159,37 +158,29 @@ func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, p
 		return fmt.Errorf("path must start with /: %s", path)
 	}
 
-	// Convert :param syntax to {param} syntax for Chi router
-	pathWithChiSyntax := path
+	// Convert :param syntax to {param} syntax
+	pathWithBraceSyntax := path
 	if strings.Contains(path, ":") {
-		// Find all ":param" patterns and replace with "{param}"
 		segments := strings.Split(path, "/")
 		for i, segment := range segments {
 			if strings.HasPrefix(segment, ":") {
-				paramName := segment[1:] // remove the colon
+				paramName := segment[1:]
 				segments[i] = "{" + paramName + "}"
 			}
 		}
-		pathWithChiSyntax = strings.Join(segments, "/")
+		pathWithBraceSyntax = strings.Join(segments, "/")
 	}
 
-	// Check existing routes
-	if _, exists := router.routes[id]; exists {
-		return fmt.Errorf("route with Source %s already exists in router %s", id, routerID)
-	}
+	// Extract param names for later use
+	paramNames := extractParamNames(pathWithBraceSyntax)
 
-	// Check for conflicts
-	for _, route := range router.routes {
-		if route.path == pathWithChiSyntax && route.method == method {
-			return fmt.Errorf("route with path %s and method %s already exists in router %s", path, method, routerID)
-		}
-	}
-
+	// Upsert route (allow overwrites for updates)
 	router.routes[id] = &RouteEntry{
-		method:  method,
-		path:    pathWithChiSyntax,
-		handler: handler, // Store original handler, middleware will be applied at Build time
-		funcID:  funcID,
+		method:     method,
+		path:       pathWithBraceSyntax,
+		handler:    handler,
+		funcID:     funcID,
+		paramNames: paramNames,
 	}
 
 	return nil
@@ -249,108 +240,106 @@ func (rm *RouteManager) Unmount(path string) error {
 
 // Build rebuilds the entire router from the current configuration
 func (rm *RouteManager) Build() error {
-	router := chi.NewRouter()
+	mux := http.NewServeMux()
 
-	// Add root mounts first
+	// Add root mounts
 	for path, handler := range rm.mounts {
-		err := mount(router, path, handler)
-		if err != nil {
-			return err
+		pattern := path
+		if !strings.HasSuffix(pattern, "/") {
+			pattern += "/"
+		}
+		mux.Handle(pattern, handler)
+	}
+
+	// Build routes from all routers
+	for _, routerEntry := range rm.routers {
+		for routeID, route := range routerEntry.routes {
+			// Build full pattern: "METHOD /prefix/path"
+			pattern := buildPattern(route.method, routerEntry.prefix, route.path)
+
+			// Create handler that extracts params and applies middleware
+			handler := rm.createRouteHandler(routeID, route, routerEntry)
+
+			// Apply pre-match middleware
+			if len(routerEntry.middleware) > 0 {
+				handler = applyMiddlewareChain(routerEntry.middleware, handler)
+			}
+
+			mux.HandleFunc(pattern, handler.ServeHTTP)
 		}
 	}
 
-	// Build each router with its middleware and routes
-	for _, re := range rm.routers {
-		subRouter := chi.NewRouter()
-
-		// Apply router pre-match middleware
-		for _, mw := range re.middleware {
-			subRouter.Use(mw)
-		}
-
-		// Create and add each route with custom handling for post-match middleware
-		for routeID, route := range re.routes {
-			// Create a custom handler that:
-			// 1. Runs first middleware to extract chi params and add route info
-			// 2. Runs post-match middleware
-			// 3. Finally calls the original handler
-
-			finalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Get pooled RouteInfo
-				routeInfo := getRouteInfo()
-
-				// CRITICAL: Return to pool when request is done
-				defer putRouteInfo(routeInfo)
-
-				// Step 1: Extract URL parameters and add route context
-				chiRouteCtx := chi.RouteContext(r.Context())
-				if chiRouteCtx != nil {
-					for i, key := range chiRouteCtx.URLParams.Keys {
-						if i < len(chiRouteCtx.URLParams.Values) {
-							routeInfo.Params[key] = chiRouteCtx.URLParams.Values[i]
-						}
-					}
-				}
-
-				// Set route metadata
-				routeInfo.Endpoint = routeID
-				routeInfo.Func = route.funcID
-
-				// Create request with updated context
-				r = r.WithContext(context.WithValue(r.Context(), httpapi.RouteCtx, routeInfo))
-
-				// Step 2: Run post-match middleware chain
-				if len(re.postMiddleware) == 0 {
-					// No post middleware, just call the original handler
-					route.handler.ServeHTTP(w, r)
-					return
-				}
-
-				// Create a middleware chain
-				chain := createChain(re.postMiddleware, route.handler)
-				chain.ServeHTTP(w, r)
-			})
-
-			// Register the route with our custom handler
-			subRouter.Method(route.method, route.path, finalHandler)
-		}
-
-		// Mount subrouter
-		err := mount(router, re.prefix, subRouter)
-		if err != nil {
-			return err
-		}
-	}
-
-	var h http.Handler = router
+	var h http.Handler = mux
 	rm.router.Store(&h)
 
 	return nil
 }
 
-func mount(router *chi.Mux, pattern string, handler http.Handler) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("mount failed for %s", pattern)
+// createRouteHandler creates the handler for a route with param extraction and post-middleware
+func (rm *RouteManager) createRouteHandler(routeID registry.ID, route *RouteEntry, routerEntry *RouterEntry) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get pooled RouteInfo
+		routeInfo := getRouteInfo()
+		defer putRouteInfo(routeInfo)
+
+		// Extract URL parameters using req.PathValue()
+		for _, paramName := range route.paramNames {
+			value := r.PathValue(paramName)
+			if value != "" {
+				routeInfo.Params[paramName] = value
+			}
 		}
-	}()
 
-	router.Mount(pattern, handler)
+		// Set route metadata
+		routeInfo.Endpoint = routeID
+		routeInfo.Func = route.funcID
 
-	return nil
+		// Add route info to context
+		r = r.WithContext(context.WithValue(r.Context(), httpapi.RouteCtx, routeInfo))
+
+		// Apply post-match middleware and call endpoint handler
+		finalHandler := route.handler
+		if len(routerEntry.postMiddleware) > 0 {
+			finalHandler = applyMiddlewareChain(routerEntry.postMiddleware, finalHandler)
+		}
+		finalHandler.ServeHTTP(w, r)
+	})
 }
 
-// createChain creates a middleware chain that will call middlewares in order,
-// then call the final handler
-func createChain(middleware []func(http.Handler) http.Handler, finalHandler http.Handler) http.Handler {
-	// Start with the final handler
-	h := finalHandler
+// buildPattern builds the full pattern for ServeMux
+func buildPattern(method, prefix, path string) string {
+	// Normalize prefix (remove trailing slash)
+	prefix = strings.TrimSuffix(prefix, "/")
 
-	// Apply middleware in reverse order so they execute in the correct order
+	// Build full path
+	fullPath := prefix + path
+
+	return method + " " + fullPath
+}
+
+// extractParamNames extracts parameter names from path like "/users/{id}/posts/{postId}" -> ["id", "postId"]
+func extractParamNames(path string) []string {
+	var names []string
+	start := -1
+
+	for i, ch := range path {
+		if ch == '{' {
+			start = i + 1
+		} else if ch == '}' && start >= 0 {
+			names = append(names, path[start:i])
+			start = -1
+		}
+	}
+
+	return names
+}
+
+// applyMiddlewareChain wraps handler with middleware in correct order
+func applyMiddlewareChain(middleware []func(http.Handler) http.Handler, finalHandler http.Handler) http.Handler {
+	h := finalHandler
 	for i := len(middleware) - 1; i >= 0; i-- {
 		h = middleware[i](h)
 	}
-
 	return h
 }
 

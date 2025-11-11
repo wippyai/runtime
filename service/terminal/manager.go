@@ -58,7 +58,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg, err := config.DecodeAndInitConfig[api.HostConfig](m.dtt, entry)
+	cfg, err := config.DecodeAndInitConfig[api.HostConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg, err := config.DecodeAndInitConfig[api.HostConfig](m.dtt, entry)
+	cfg, err := config.DecodeAndInitConfig[api.HostConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}

@@ -18,7 +18,7 @@ func TestCtxModule(t *testing.T) {
 	t.Run("get and set with valid context", func(t *testing.T) {
 		// Spawn a Contexter and add it to the context
 		contexter := ctxapi.NewContexter[any]()
-		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
+		ctx := context.WithValue(ctxapi.NewRootContext(), ctxapi.ValuesCtx, contexter)
 
 		// Spawn a new Lua VM with the context module
 		mod := NewCtxModule(logger)
@@ -105,7 +105,7 @@ func TestCtxModule(t *testing.T) {
 		defer vm.Close()
 
 		// Use a context, but without setting the Contexter
-		ctx := context.Background()
+		ctx := ctxapi.NewRootContext()
 
 		// Test ctx.get with no contexter
 		err = vm.DoString(ctx, `
@@ -131,7 +131,7 @@ func TestCtxModule(t *testing.T) {
 		defer vm.Close()
 
 		// Set a value of the wrong type as the Contexter
-		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, "not a contexter")
+		ctx := context.WithValue(ctxapi.NewRootContext(), ctxapi.ValuesCtx, "not a contexter")
 
 		// Test ctx.get with invalid contexter type
 		err = vm.DoString(ctx, `
@@ -152,7 +152,7 @@ func TestCtxModule(t *testing.T) {
 
 	t.Run("get with empty key", func(t *testing.T) {
 		contexter := ctxapi.NewContexter[any]()
-		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
+		ctx := context.WithValue(ctxapi.NewRootContext(), ctxapi.ValuesCtx, contexter)
 
 		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -169,7 +169,7 @@ func TestCtxModule(t *testing.T) {
 
 	t.Run("set with empty key", func(t *testing.T) {
 		contexter := ctxapi.NewContexter[any]()
-		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
+		ctx := context.WithValue(ctxapi.NewRootContext(), ctxapi.ValuesCtx, contexter)
 
 		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -186,7 +186,7 @@ func TestCtxModule(t *testing.T) {
 
 	t.Run("set with value conversion error", func(t *testing.T) {
 		contexter := ctxapi.NewContexter[any]()
-		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
+		ctx := context.WithValue(ctxapi.NewRootContext(), ctxapi.ValuesCtx, contexter)
 
 		mod := NewCtxModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -206,7 +206,7 @@ func TestCtxModule(t *testing.T) {
 	t.Run("all with valid context", func(t *testing.T) {
 		// Create a Contexter and add it to the context
 		contexter := ctxapi.NewContexter[any]()
-		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
+		ctx := context.WithValue(ctxapi.NewRootContext(), ctxapi.ValuesCtx, contexter)
 
 		// Create a new Lua VM with the context module
 		mod := NewCtxModule(logger)
@@ -248,7 +248,7 @@ func TestCtxModule(t *testing.T) {
 		defer vm.Close()
 
 		// Use a context, but without setting the Contexter
-		ctx := context.Background()
+		ctx := ctxapi.NewRootContext()
 
 		// Test ctx.all with no contexter
 		err = vm.DoString(ctx, `
@@ -266,7 +266,7 @@ func TestCtxModule(t *testing.T) {
 		defer vm.Close()
 
 		// Set a value of the wrong type as the Contexter
-		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, "not a contexter")
+		ctx := context.WithValue(ctxapi.NewRootContext(), ctxapi.ValuesCtx, "not a contexter")
 
 		// Test ctx.all with invalid contexter type
 		err = vm.DoString(ctx, `

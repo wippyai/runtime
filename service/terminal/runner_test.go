@@ -3,6 +3,7 @@ package terminal
 import (
 	"context"
 	"errors"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func TestTerminalRunnerStopsOnStepError(t *testing.T) {
 		Input:   nil,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 2*time.Second)
 	defer cancel()
 
 	runner, err := NewTerminalRunner(ctx, DefaultRunnerConfig(), lp)
@@ -96,7 +97,7 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 		Input:   nil,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 2*time.Second)
 	defer cancel()
 
 	runner, err := NewTerminalRunner(ctx, DefaultRunnerConfig(), lp)
