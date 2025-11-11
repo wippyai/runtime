@@ -10,14 +10,29 @@ import (
 )
 
 var updateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "Update dependencies and regenerate lock file",
-	Long:  "If the lock file is missing, runs init. Resolves dependencies and calculates a diff. Writes a new lock file and runs install afterwards.",
+	Use:           "update",
+	Short:         "Update dependencies and regenerate lock file",
+	Long:          "If the lock file is missing, runs init. Resolves dependencies and calculates a diff. Writes a new lock file and runs install afterwards.",
+	Args:          cobra.NoArgs,
+	SilenceUsage:  true,
+	SilenceErrors: false,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Explicitly check for unexpected arguments on Windows
+		if len(args) > 0 {
+			return fmt.Errorf("unexpected arguments: %v (command 'update' does not accept positional arguments)", args)
+		}
+
+		// Verify we're actually running the update command, not something else
+		if cmd.Use != "update" {
+			return fmt.Errorf("internal error: expected 'update' command but got '%s'", cmd.Use)
+		}
+
 		logger, err := createLogger()
 		if err != nil {
 			return fmt.Errorf("failed to create logger: %w", err)
 		}
+
+		logger.Info("Executing update command", zap.String("command", cmd.Use), zap.Strings("args", args))
 
 		return runUpdate(cmd, args, logger)
 	},

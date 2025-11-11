@@ -13,15 +13,30 @@ import (
 )
 
 var installCmd = &cobra.Command{
-	Use:   "install",
-	Short: "Install dependencies from lock file",
-	Long:  "Reads dependencies from the lock file and installs them. If the lock file is missing, behaves like update.",
+	Use:           "install",
+	Short:         "Install dependencies from lock file",
+	Long:          "Reads dependencies from the lock file and installs them. If the lock file is missing, behaves like update.",
+	Args:          cobra.NoArgs,
+	SilenceUsage:  true,
+	SilenceErrors: false,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Explicitly check for unexpected arguments on Windows
+		if len(args) > 0 {
+			return fmt.Errorf("unexpected arguments: %v (command 'install' does not accept positional arguments)", args)
+		}
+
+		// Verify we're actually running the install command, not something else
+		if cmd.Use != "install" {
+			return fmt.Errorf("internal error: expected 'install' command but got '%s'", cmd.Use)
+		}
+
 		logger, err := createLogger()
 		if err != nil {
 			logger.Error("failed to create logger", zap.Error(err))
 			os.Exit(1)
 		}
+
+		logger.Info("Executing install command", zap.String("command", cmd.Use), zap.Strings("args", args))
 
 		lockFile, _ := cmd.Flags().GetString("lock-file")
 		folderPath := "."

@@ -10,15 +10,29 @@ import (
 )
 
 var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize a new lock file",
-	Long:  "Initialize a new lock file with the specified directory structure.",
-	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	Use:           "init",
+	Short:         "Initialize a new lock file",
+	Long:          "Initialize a new lock file with the specified directory structure.",
+	Args:          cobra.NoArgs,
+	SilenceUsage:  true,
+	SilenceErrors: false,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Explicitly check for unexpected arguments on Windows
+		if len(args) > 0 {
+			return fmt.Errorf("unexpected arguments: %v (command 'init' does not accept positional arguments)", args)
+		}
+
+		// Verify we're actually running the init command, not something else
+		if cmd.Use != "init" {
+			return fmt.Errorf("internal error: expected 'init' command but got '%s'", cmd.Use)
+		}
+
 		logger, err := createLogger()
 		if err != nil {
 			return fmt.Errorf("failed to create logger: %w", err)
 		}
+
+		logger.Info("Executing init command", zap.String("command", cmd.Use), zap.Strings("args", args))
 
 		lockFile, _ := cmd.Flags().GetString("lock-file")
 		srcDir, _ := cmd.Flags().GetString("src-dir")
