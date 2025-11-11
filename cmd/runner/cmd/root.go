@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/fatih/color"
@@ -59,10 +60,33 @@ var rootCmd = &cobra.Command{
 	Long:          "Wippy is a smart application runtime for building and deploying distributed applications.",
 	SilenceUsage:  true,
 	SilenceErrors: false,
+	// Disable default command behavior - require explicit command
+	Run: nil,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Log which command is about to be executed
+		fmt.Fprintf(os.Stderr, "DEBUG: PersistentPreRun called for command: Use='%s', Name='%s', args=%v\n",
+			cmd.Use, cmd.Name(), args)
+	},
 }
 
 func Execute() error {
-	return rootCmd.Execute()
+	// Log to stderr before cobra executes to verify we're running the right code
+	fmt.Fprintf(os.Stderr, "DEBUG: cmd.Execute() called, about to execute cobra root command\n")
+	fmt.Fprintf(os.Stderr, "DEBUG: rootCmd.Use='%s', rootCmd.Commands() count=%d\n",
+		rootCmd.Use, len(rootCmd.Commands()))
+
+	// Log all available commands
+	cmdNames := make([]string, 0, len(rootCmd.Commands()))
+	for _, cmd := range rootCmd.Commands() {
+		cmdNames = append(cmdNames, cmd.Use)
+	}
+	fmt.Fprintf(os.Stderr, "DEBUG: Available commands: %v\n", cmdNames)
+
+	err := rootCmd.Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: cobra.Execute() returned error: %v\n", err)
+	}
+	return err
 }
 
 func init() {

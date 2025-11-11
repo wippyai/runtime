@@ -17,13 +17,18 @@ var initCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: false,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// CRITICAL: Early check - log to stderr immediately before any logger is created
+		fmt.Fprintf(os.Stderr, "DEBUG: init command RunE called (cmd.Use='%s', args=%v)\n", cmd.Use, args)
+
 		// Explicitly check for unexpected arguments on Windows
 		if len(args) > 0 {
+			fmt.Fprintf(os.Stderr, "ERROR: init command received unexpected arguments: %v\n", args)
 			return fmt.Errorf("unexpected arguments: %v (command 'init' does not accept positional arguments)", args)
 		}
 
 		// Verify we're actually running the init command, not something else
 		if cmd.Use != "init" {
+			fmt.Fprintf(os.Stderr, "ERROR: expected 'init' command but got '%s'\n", cmd.Use)
 			return fmt.Errorf("internal error: expected 'init' command but got '%s'", cmd.Use)
 		}
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 
@@ -13,7 +14,23 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// Build information - can be set via ldflags during build
+// CI/CD uses: -X main.version=$CLEAN_TAG
+var (
+	version = "dev"
+)
+
 func main() {
+	// Log startup information immediately to stderr for debugging
+	fmt.Fprintf(os.Stderr, "=== WIPPY STARTUP DEBUG ===\n")
+	fmt.Fprintf(os.Stderr, "Version: %s\n", version)
+	fmt.Fprintf(os.Stderr, "Go version: %s\n", runtime.Version())
+	fmt.Fprintf(os.Stderr, "OS: %s\n", runtime.GOOS)
+	fmt.Fprintf(os.Stderr, "Arch: %s\n", runtime.GOARCH)
+	fmt.Fprintf(os.Stderr, "Command line args: %v\n", os.Args)
+	fmt.Fprintf(os.Stderr, "Working directory: %s\n", getWorkingDir())
+	fmt.Fprintf(os.Stderr, "===========================\n")
+
 	// Initialize sqlite-vec extension
 	sqlitevec.Auto()
 
@@ -24,4 +41,12 @@ func main() {
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func getWorkingDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Sprintf("error: %v", err)
+	}
+	return wd
 }

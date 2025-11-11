@@ -20,20 +20,25 @@ var installCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: false,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// CRITICAL: Early check - log to stderr immediately before any logger is created
+		fmt.Fprintf(os.Stderr, "DEBUG: install command RunE called (cmd.Use='%s', args=%v)\n", cmd.Use, args)
+
 		// Explicitly check for unexpected arguments on Windows
 		if len(args) > 0 {
+			fmt.Fprintf(os.Stderr, "ERROR: install command received unexpected arguments: %v\n", args)
 			return fmt.Errorf("unexpected arguments: %v (command 'install' does not accept positional arguments)", args)
 		}
 
 		// Verify we're actually running the install command, not something else
 		if cmd.Use != "install" {
+			fmt.Fprintf(os.Stderr, "ERROR: expected 'install' command but got '%s'\n", cmd.Use)
 			return fmt.Errorf("internal error: expected 'install' command but got '%s'", cmd.Use)
 		}
 
 		logger, err := createLogger()
 		if err != nil {
-			logger.Error("failed to create logger", zap.Error(err))
-			os.Exit(1)
+			fmt.Fprintf(os.Stderr, "ERROR: failed to create logger: %v\n", err)
+			return fmt.Errorf("failed to create logger: %w", err)
 		}
 
 		logger.Info("Executing install command", zap.String("command", cmd.Use), zap.Strings("args", args))
