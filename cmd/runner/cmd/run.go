@@ -76,12 +76,22 @@ var runCmd = &cobra.Command{
 		lockDir := filepath.Dir(fullLockPath)
 
 		appDir := filepath.Join(lockDir, lockFileObj.Directories.Src)
+		// Clean the path to resolve any "." or ".." components, especially important on Windows
+		appDir = filepath.Clean(appDir)
 		// Use vendor path (modules + "/vendor")
 		vendorPath := lockFileObj.GetModulesVendorPath()
 		modulesDir := filepath.Join(lockDir, vendorPath)
+		modulesDir = filepath.Clean(modulesDir)
 
-		if !strings.HasSuffix(appDir, string(os.PathSeparator)) {
-			appDir += string(os.PathSeparator)
+		// Convert to absolute paths to ensure proper resolution on Windows
+		absAppDir, err := filepath.Abs(appDir)
+		if err != nil {
+			logger.Error("failed to resolve absolute application directory path", zap.Error(err))
+			os.Exit(1)
+		}
+
+		if !strings.HasSuffix(absAppDir, string(os.PathSeparator)) {
+			absAppDir += string(os.PathSeparator)
 		}
 		if !strings.HasSuffix(modulesDir, string(os.PathSeparator)) {
 			modulesDir += string(os.PathSeparator)
@@ -89,7 +99,7 @@ var runCmd = &cobra.Command{
 
 		logger.Info("Resolved paths from lock file",
 			zap.String("lock_file_dir", lockDir),
-			zap.String("source_dir", appDir),
+			zap.String("source_dir", absAppDir),
 			zap.String("modules_dir", modulesDir))
 
 		absModulesDir, err := filepath.Abs(modulesDir)
@@ -154,7 +164,7 @@ var runCmd = &cobra.Command{
 
 		app, err := appbuild.NewApp(
 			logger,
-			appbuild.WithPaths(appDir, absLockPath, absModulesDir, absLockDir, useEmbed),
+			appbuild.WithPaths(absAppDir, absLockPath, absModulesDir, absLockDir, useEmbed),
 			appbuild.WithLogging(consoleLogging, eventStreaming, minLevel),
 			appbuild.WithProfiling(enableProfiling),
 			appbuild.WithCluster(clusterEnabled, clusterName, clusterBind, clusterPort, clusterJoin, clusterSecret, clusterSecretFile, clusterAdvertise),
