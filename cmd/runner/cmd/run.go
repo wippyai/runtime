@@ -22,17 +22,29 @@ var runCmd = &cobra.Command{
 	Long:  "Run the smart application runtime using paths from the lock file.",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Explicitly check for unexpected arguments on Windows
+		// CRITICAL: Early check - if we have args, this might be a misparsed command on Windows
+		// Log to stderr immediately before any logger is created
 		if len(args) > 0 {
+			fmt.Fprintf(os.Stderr, "ERROR: run command received unexpected arguments: %v\n", args)
+			fmt.Fprintf(os.Stderr, "This might indicate a Windows command parsing issue.\n")
 			return fmt.Errorf("unexpected arguments: %v (command 'run' does not accept positional arguments)", args)
 		}
+
+		// Verify we're actually running the run command
+		if cmd.Use != "run" {
+			fmt.Fprintf(os.Stderr, "ERROR: expected 'run' command but got '%s'\n", cmd.Use)
+			return fmt.Errorf("internal error: expected 'run' command but got '%s'", cmd.Use)
+		}
+
+		// Log to stderr immediately to debug Windows issues
+		fmt.Fprintf(os.Stderr, "DEBUG: Executing run command (cmd.Use='%s', args=%v)\n", cmd.Use, args)
 
 		logger, err := createLogger()
 		if err != nil {
 			return fmt.Errorf("failed to create logger: %w", err)
 		}
 
-		logger.Debug("Executing run command", zap.String("command", "run"))
+		logger.Info("Executing run command", zap.String("command", cmd.Use), zap.Strings("args", args))
 
 		// Parse runtime configuration flags
 		runtimeConfigFlags, _ := cmd.Flags().GetStringSlice("runtime-config")

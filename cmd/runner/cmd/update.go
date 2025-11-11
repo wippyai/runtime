@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/ponyruntime/pony/cmd/runner/app"
 	"github.com/ponyruntime/pony/deps"
@@ -17,13 +18,18 @@ var updateCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: false,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// CRITICAL: Early check - log to stderr immediately before any logger is created
+		fmt.Fprintf(os.Stderr, "DEBUG: update command RunE called (cmd.Use='%s', args=%v)\n", cmd.Use, args)
+
 		// Explicitly check for unexpected arguments on Windows
 		if len(args) > 0 {
+			fmt.Fprintf(os.Stderr, "ERROR: update command received unexpected arguments: %v\n", args)
 			return fmt.Errorf("unexpected arguments: %v (command 'update' does not accept positional arguments)", args)
 		}
 
 		// Verify we're actually running the update command, not something else
 		if cmd.Use != "update" {
+			fmt.Fprintf(os.Stderr, "ERROR: expected 'update' command but got '%s'\n", cmd.Use)
 			return fmt.Errorf("internal error: expected 'update' command but got '%s'", cmd.Use)
 		}
 
