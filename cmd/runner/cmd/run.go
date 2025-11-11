@@ -20,11 +20,19 @@ var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run the application",
 	Long:  "Run the smart application runtime using paths from the lock file.",
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Explicitly check for unexpected arguments on Windows
+		if len(args) > 0 {
+			return fmt.Errorf("unexpected arguments: %v (command 'run' does not accept positional arguments)", args)
+		}
+
 		logger, err := createLogger()
 		if err != nil {
 			return fmt.Errorf("failed to create logger: %w", err)
 		}
+
+		logger.Debug("Executing run command", zap.String("command", "run"))
 
 		// Parse runtime configuration flags
 		runtimeConfigFlags, _ := cmd.Flags().GetStringSlice("runtime-config")

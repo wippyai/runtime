@@ -54,9 +54,11 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "wippy",
-	Short: "Smart application runtime",
-	Long:  "Wippy is a smart application runtime for building and deploying distributed applications.",
+	Use:           "wippy",
+	Short:         "Smart application runtime",
+	Long:          "Wippy is a smart application runtime for building and deploying distributed applications.",
+	SilenceUsage:  true,
+	SilenceErrors: false,
 }
 
 func Execute() error {
