@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	httpbase "net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,7 +28,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -100,7 +101,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -154,7 +155,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -201,7 +202,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))

@@ -1,7 +1,7 @@
 package btea
 
 import (
-	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -51,7 +51,7 @@ func TestApp_Start_NoTerminalContext(t *testing.T) {
 
 	app, _ := NewApp(log, transcoder, runner, funcName)
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	pid := pubsub.PID{
 		Host:   "test_host",
 		ID:     registry.ID{Name: "test_process"},

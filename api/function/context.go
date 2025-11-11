@@ -7,20 +7,30 @@ import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
 )
 
-var registryCtx = &ctxapi.Key{Name: "functions.registry"}
+var registryCtx = &ctxapi.Key{Name: "functions.registry", Scope: ctxapi.ScopeThread}
 
-// WithFunctions returns a new context with the provided function Registry attached.
+// WithRegistry returns a new context with the provided function Registry attached.
 // This allows the Registry to be retrieved later using the GetRegistry function.
-func WithFunctions(ctx context.Context, reg Registry) context.Context {
-	return context.WithValue(ctx, registryCtx, reg)
+func WithRegistry(ctx context.Context, reg Registry) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(registryCtx) == nil {
+		ac.With(registryCtx, reg)
+	}
+	return ctx
 }
 
 // GetRegistry retrieves the function registry from the provided context.
 // Returns nil if no Registry is found in the context.
 func GetRegistry(ctx context.Context) Registry {
-	if reg, ok := ctx.Value(registryCtx).(Registry); ok {
-		return reg
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
 	}
-
+	if reg := ac.Get(registryCtx); reg != nil {
+		return reg.(Registry)
+	}
 	return nil
 }

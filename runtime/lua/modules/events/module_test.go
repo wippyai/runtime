@@ -1,7 +1,7 @@
 package events
 
 import (
-	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/event"
@@ -94,7 +94,7 @@ func TestEventsModule_BasicSubscribe(t *testing.T) {
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 
-	ctx := event.WithBus(context.Background(), bus)
+	ctx := event.WithBus(ctxapi.NewRootContext(), bus)
 
 	go func() {
 		<-ready
@@ -210,7 +210,7 @@ func TestEventsModule_SendAndReceive(t *testing.T) {
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 
-	ctx := event.WithBus(context.Background(), bus)
+	ctx := event.WithBus(ctxapi.NewRootContext(), bus)
 
 	// Wait for ready signal before starting
 	go func() {
@@ -265,7 +265,7 @@ func TestEventsModule_SendWithoutData(t *testing.T) {
 	// Create simple runner
 	wrapped := engine.NewRunner(vm)
 
-	ctx := event.WithBus(context.Background(), bus)
+	ctx := event.WithBus(ctxapi.NewRootContext(), bus)
 
 	// Execute the test
 	result, err := wrapped.Execute(ctx, "test_send_no_data")

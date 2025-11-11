@@ -4,6 +4,7 @@ package treesitter
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 	"time"
 
@@ -97,7 +98,7 @@ func TestParser(t *testing.T) {
 
 	t.Run("parser with context deadline", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 100*time.Millisecond)
 		defer cancel()
 
 		vm, err := engine.NewVM(logger,
@@ -246,7 +247,7 @@ func TestParserContextCancellation(t *testing.T) {
 	logger := zap.NewNop()
 	mod := NewTreeSitterModule(logger)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	vm, err := engine.NewVM(logger,
 		engine.WithLoader(mod.Name(), mod.Loader),
 	)

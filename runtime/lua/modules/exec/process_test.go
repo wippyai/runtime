@@ -3,6 +3,7 @@ package exec
 import (
 	"context"
 	"fmt" // Import fmt
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"runtime"
 	"testing"
 	"time"
@@ -148,12 +149,12 @@ func setupLuaWithExec(t *testing.T, logger *zap.Logger) (*engine.CoroutineVM, en
 	)
 
 	// Create UoW and add context
-	baseCtx := context.Background()
+	baseCtx := ctxapi.NewRootContext()
 	baseCtx = logs.WithLogger(baseCtx, logger)
 	uw, ctx := runner.InitUnitOfWork(baseCtx)
 
 	// Add the mock resource registry to the context
-	ctx = resource.WithResources(ctx, mockRegistry)
+	ctx = resource.WithRegistry(ctx, mockRegistry)
 
 	// Set the final context in the Lua state
 	vm.State().SetContext(ctx)

@@ -318,7 +318,7 @@ func (m *Module) contextSpawn(l *lua.LState) int {
 	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
-	manager := process.GetProcesses(ctx)
+	manager := process.GetManager(ctx)
 	if manager == nil {
 		l.RaiseError("no process manager found")
 		return 0
@@ -407,7 +407,7 @@ func (m *Module) contextSpawnMonitored(l *lua.LState) int {
 	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
-	manager := process.GetProcesses(ctx)
+	manager := process.GetManager(ctx)
 	if manager == nil {
 		l.RaiseError("no process manager found")
 		return 0
@@ -496,7 +496,7 @@ func (m *Module) contextSpawnLinked(l *lua.LState) int {
 	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
-	manager := process.GetProcesses(ctx)
+	manager := process.GetManager(ctx)
 	if manager == nil {
 		l.RaiseError("no process manager found")
 		return 0
@@ -591,7 +591,7 @@ func (m *Module) contextSpawnLinkedMonitored(l *lua.LState) int {
 	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
-	manager := process.GetProcesses(ctx)
+	manager := process.GetManager(ctx)
 	if manager == nil {
 		l.RaiseError("no process manager found")
 		return 0

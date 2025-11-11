@@ -10,11 +10,11 @@ import (
 
 // Context keys
 var (
-	actorCtx = &ctxapi.Key{Name: "security.actor"}
+	actorCtx = &ctxapi.Key{Name: "security.actor", Scope: ctxapi.ScopeThread}
 
-	scopeCtx = &ctxapi.Key{Name: "security.scope"}
+	scopeCtx = &ctxapi.Key{Name: "security.scope", Scope: ctxapi.ScopeThread}
 
-	registryCtx = &ctxapi.Key{Name: "security.registry"}
+	registryCtx = &ctxapi.Key{Name: "security.registry", Scope: ctxapi.ScopeThread}
 )
 
 // WithActor attaches an actor to the context
@@ -51,13 +51,28 @@ func WithPolicy(ctx context.Context, policy Policy) context.Context {
 
 // WithRegistry attaches a security registry to the context
 func WithRegistry(ctx context.Context, registry Registry) context.Context {
-	return context.WithValue(ctx, registryCtx, registry)
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(registryCtx) == nil {
+		ac.With(registryCtx, registry)
+	}
+	return ctx
 }
 
 // GetRegistry retrieves the security registry from the context
 func GetRegistry(ctx context.Context) (Registry, bool) {
-	reg, ok := ctx.Value(registryCtx).(Registry)
-	return reg, ok
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil, false
+	}
+	if val := ac.Get(registryCtx); val != nil {
+		if reg, ok := val.(Registry); ok {
+			return reg, true
+		}
+	}
+	return nil, false
 }
 
 // GetPolicy retrieves a policy by ID using the registry from context

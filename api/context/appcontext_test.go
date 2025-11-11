@@ -11,30 +11,27 @@ func TestNewAppContext(t *testing.T) {
 	if ac == nil {
 		t.Fatal("NewAppContext() returned nil")
 	}
-	if ac.IsLocked() {
-		t.Error("NewAppContext() should not be locked by default")
-	}
 }
 
-func TestAppContext_SetAndGet(t *testing.T) {
+func TestAppContext_WithAndGet(t *testing.T) {
 	ac := NewAppContext()
 
 	// Test with string key
-	ac.Set("key1", "value1")
+	ac = ac.With("key1", "value1")
 	if got := ac.Get("key1"); got != "value1" {
 		t.Errorf("Get(key1) = %v, want value1", got)
 	}
 
 	// Test with *Key
-	key := &Key{Name: "test.key"}
-	ac.Set(key, 42)
+	key := &Key{Name: "test.key", Scope: ScopeThread}
+	ac = ac.With(key, 42)
 	if got := ac.Get(key); got != 42 {
 		t.Errorf("Get(key) = %v, want 42", got)
 	}
 
 	// Test with struct{} key
 	type customKey struct{}
-	ac.Set(customKey{}, "custom")
+	ac = ac.With(customKey{}, "custom")
 	if got := ac.Get(customKey{}); got != "custom" {
 		t.Errorf("Get(customKey{}) = %v, want custom", got)
 	}
@@ -45,34 +42,27 @@ func TestAppContext_SetAndGet(t *testing.T) {
 	}
 }
 
-func TestAppContext_Lock(t *testing.T) {
+func TestAppContext_WriteOnce(t *testing.T) {
 	ac := NewAppContext()
 
-	// Set value before lock
-	ac.Set("key1", "value1")
+	// Set value once
+	ac = ac.With("key1", "value1")
 
-	// Lock the context
-	ac.Lock()
-
-	if !ac.IsLocked() {
-		t.Error("IsLocked() = false, want true after Lock()")
-	}
-
-	// Should still be able to read
+	// Should be able to read
 	if got := ac.Get("key1"); got != "value1" {
-		t.Errorf("Get(key1) after lock = %v, want value1", got)
+		t.Errorf("Get(key1) = %v, want value1", got)
 	}
 
-	// Setting after lock should panic
+	// Setting same key again should panic
 	defer func() {
 		if r := recover(); r == nil {
-			t.Error("Set() after Lock() should panic")
-		} else if r != "cannot modify locked AppContext" {
-			t.Errorf("panic message = %v, want 'cannot modify locked AppContext'", r)
+			t.Error("With() for existing key should panic")
+		} else if r != "cannot overwrite AppContext key: key already set" {
+			t.Errorf("panic message = %v, want 'cannot overwrite AppContext key: key already set'", r)
 		}
 	}()
 
-	ac.Set("key2", "value2")
+	ac.With("key1", "value2")
 }
 
 func TestAppContext_ConcurrentAccess(t *testing.T) {
@@ -80,21 +70,18 @@ func TestAppContext_ConcurrentAccess(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	// Concurrent writes
+	// Concurrent writes to different keys
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			ac.Set(n, n*2)
+			ac.With(n, n*2)
 		}(i)
 	}
 
 	wg.Wait()
 
-	// Lock it
-	ac.Lock()
-
-	// Concurrent reads after lock
+	// Concurrent reads
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(n int) {
@@ -111,7 +98,7 @@ func TestAppContext_ConcurrentAccess(t *testing.T) {
 
 func TestWithAppContext(t *testing.T) {
 	ac := NewAppContext()
-	ac.Set("key1", "value1")
+	ac = ac.With("key1", "value1")
 
 	ctx := context.Background()
 	ctx = WithAppContext(ctx, ac)
@@ -148,12 +135,12 @@ func TestAppFromContext_WrongType(t *testing.T) {
 func TestAppContext_MultipleTypes(t *testing.T) {
 	ac := NewAppContext()
 
-	// Store different types
-	ac.Set("string", "value")
-	ac.Set("int", 42)
-	ac.Set("bool", true)
-	ac.Set("slice", []int{1, 2, 3})
-	ac.Set("map", map[string]int{"a": 1})
+	// Store different types using chaining
+	ac = ac.With("string", "value").
+		With("int", 42).
+		With("bool", true).
+		With("slice", []int{1, 2, 3}).
+		With("map", map[string]int{"a": 1})
 
 	// Retrieve and verify
 	if got := ac.Get("string").(string); got != "value" {

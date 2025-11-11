@@ -12,10 +12,10 @@ import (
 // Context keys for storing HTTP-specific values in the request context
 var (
 	// todo: privatize
-	RequestCtx        = &ctxapi.Key{Name: "http.request"}
-	RouteCtx          = &ctxapi.Key{Name: "http.route"}
-	ContextServerID   = &ctxapi.Key{Name: "http.server_id"}
-	EndpointConfigCtx = &ctxapi.Key{Name: "http.endpoint_config"}
+	RequestCtx        = &ctxapi.Key{Name: "http.request", Scope: ctxapi.ScopeThread}
+	RouteCtx          = &ctxapi.Key{Name: "http.route", Scope: ctxapi.ScopeThread}
+	ContextServerID   = &ctxapi.Key{Name: "http.server_id", Scope: ctxapi.ScopeThread}
+	EndpointConfigCtx = &ctxapi.Key{Name: "http.endpoint_config", Scope: ctxapi.ScopeThread}
 )
 
 // RouteInfo contains information about the matched route for the current request.

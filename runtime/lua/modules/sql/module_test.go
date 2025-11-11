@@ -3,6 +3,7 @@ package sql
 import (
 	"context"
 	"database/sql"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	sqlapi "github.com/ponyruntime/pony/api/service/sql"
@@ -98,10 +99,10 @@ func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, e
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(context.Background())
+	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
 
 	// Add the resource registry to the context
-	ctx = resource.WithResources(ctx, mockRegistry)
+	ctx = resource.WithRegistry(ctx, mockRegistry)
 
 	// IMPORTANT: Don't call L.SetContext(ctx) here!
 	// runner.Execute() will create a fresh UOW and automatically call L.SetContext()

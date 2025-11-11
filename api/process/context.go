@@ -11,32 +11,102 @@ import (
 // Context keys for storing process-related information in context.Context
 var (
 	// managerCtx is the context key for storing a process Manager.
-	managerCtx = ctxapi.Key{Name: "process.manager"}
+	managerCtx = &ctxapi.Key{Name: "process.manager", Scope: ctxapi.ScopeThread}
 
-	// onCompleteCtx is the context key for storing process completion callbacks.
-	onCompleteCtx = ctxapi.Key{Name: "process.onComplete"}
+	// prototypesCtx is the context key for storing a PrototypeFactory.
+	prototypesCtx = &ctxapi.Key{Name: "process.prototypes", Scope: ctxapi.ScopeThread}
 
-	// onStartCtx is the context key for storing process start callbacks.
-	onStartCtx = ctxapi.Key{Name: "process.onStart"}
+	// hostsCtx is the context key for storing a HostRegistry.
+	hostsCtx = &ctxapi.Key{Name: "process.hosts", Scope: ctxapi.ScopeThread}
+
+	// onCompleteCtx is the context key for storing process completion callbacks (ScopeCall: call-specific).
+	onCompleteCtx = &ctxapi.Key{Name: "process.onComplete", Scope: ctxapi.ScopeCall}
+
+	// onStartCtx is the context key for storing process start callbacks (ScopeCall: call-specific).
+	onStartCtx = &ctxapi.Key{Name: "process.onStart", Scope: ctxapi.ScopeCall}
 )
 
-// WithProcesses attaches a process Manager to the context.
+// WithManager attaches a process Manager to the context.
 // This makes the Manager available to any code that has access to the context.
 // This is used to provide process management capabilities throughout the system
 // without requiring direct dependency injection at every level.
-func WithProcesses(ctx context.Context, m Manager) context.Context {
-	return context.WithValue(ctx, managerCtx, m)
+func WithManager(ctx context.Context, m Manager) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(managerCtx) == nil {
+		ac.With(managerCtx, m)
+	}
+	return ctx
 }
 
-// GetProcesses retrieves the process Manager from the context.
+// GetManager retrieves the process Manager from the context.
 // Returns nil if no Manager is found in the context.
 // This allows components to access the process manager without having it
 // directly passed as a parameter.
-func GetProcesses(ctx context.Context) Manager {
-	if m, ok := ctx.Value(managerCtx).(Manager); ok {
-		return m
+func GetManager(ctx context.Context) Manager {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
 	}
+	if val := ac.Get(managerCtx); val != nil {
+		if m, ok := val.(Manager); ok {
+			return m
+		}
+	}
+	return nil
+}
 
+// WithPrototypes attaches a PrototypeFactory to the context.
+func WithPrototypes(ctx context.Context, p PrototypeFactory) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(prototypesCtx) == nil {
+		ac.With(prototypesCtx, p)
+	}
+	return ctx
+}
+
+// GetPrototypes retrieves the PrototypeFactory from the context.
+func GetPrototypes(ctx context.Context) PrototypeFactory {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if val := ac.Get(prototypesCtx); val != nil {
+		if p, ok := val.(PrototypeFactory); ok {
+			return p
+		}
+	}
+	return nil
+}
+
+// WithHosts attaches a HostRegistry to the context.
+func WithHosts(ctx context.Context, h HostRegistry) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(hostsCtx) == nil {
+		ac.With(hostsCtx, h)
+	}
+	return ctx
+}
+
+// GetHosts retrieves the HostRegistry from the context.
+func GetHosts(ctx context.Context) HostRegistry {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if val := ac.Get(hostsCtx); val != nil {
+		if h, ok := val.(HostRegistry); ok {
+			return h
+		}
+	}
 	return nil
 }
 

@@ -1,8 +1,8 @@
 package command
 
 import (
-	"context"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -20,7 +20,7 @@ func TestNewCommand(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	uw, ctx := engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("creates command with valid parameters", func(t *testing.T) {
@@ -110,7 +110,7 @@ func TestCommand_Complete(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("completes command successfully", func(t *testing.T) {
@@ -189,7 +189,7 @@ func TestCommand_Cancel(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("cancels command successfully", func(t *testing.T) {
@@ -264,7 +264,7 @@ func TestCommand_Result(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("returns nil when not completed", func(t *testing.T) {
@@ -317,7 +317,7 @@ func TestCommand_StateMethods(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("isCompleted returns correct state", func(t *testing.T) {
@@ -365,7 +365,7 @@ func TestCommand_IDAndType(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("ID and Type return correct values", func(t *testing.T) {
@@ -396,7 +396,7 @@ func TestCommand_Params(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("Params returns correct parameters", func(t *testing.T) {

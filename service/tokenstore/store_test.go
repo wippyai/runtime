@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"strings"
 	"sync"
 	"testing"
@@ -191,7 +192,7 @@ func (r *testResourceRegistry) Register(id registry.ID, provider resource.Provid
 // TestTokenStoreCreateValidateRevoke tests the full lifecycle of a token
 func TestTokenStoreCreateValidateRevoke(t *testing.T) {
 	// Setup
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
 	// Create and configure MemoryStore
@@ -290,7 +291,7 @@ func TestTokenStoreCreateValidateRevoke(t *testing.T) {
 // TestTokenExpiration tests that tokens expire correctly
 func TestTokenExpiration(t *testing.T) {
 	// Setup similar to previous test
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
 	storeID := registry.ID{Name: "test-store"}
@@ -348,7 +349,7 @@ func TestTokenExpiration(t *testing.T) {
 // TestTokenSignature tests that token signatures are properly validated
 func TestTokenSignature(t *testing.T) {
 	// Setup
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
 	storeID := registry.ID{Name: "test-store"}
@@ -412,7 +413,7 @@ func TestTokenSignature(t *testing.T) {
 // TestEdgeCases tests various edge cases
 func TestEdgeCases(t *testing.T) {
 	// Setup
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
 	storeID := registry.ID{Name: "test-store"}
@@ -484,7 +485,7 @@ func TestEdgeCases(t *testing.T) {
 // TestTokenStoreWithoutSigningKey tests token store functionality without a signing key
 func TestTokenStoreWithoutSigningKey(t *testing.T) {
 	// Setup
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
 	storeID := registry.ID{Name: "test-store"}
@@ -543,7 +544,7 @@ func TestTokenStoreWithoutSigningKey(t *testing.T) {
 // TestConcurrentAccess tests the token store under concurrent access
 func TestConcurrentAccess(t *testing.T) {
 	// Setup
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
 	storeID := registry.ID{Name: "test-store"}
@@ -668,7 +669,7 @@ func TestStoreResourceCleanup(t *testing.T) {
 	// This test verifies that resources are properly released even when errors occur
 
 	// Setup
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
 	storeID := registry.ID{Name: "test-store"}

@@ -102,6 +102,7 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 	fromStr := string(p.Format())
 	toStr := string(to)
 
+	// TODO-CLD: Remove The logger from this file entirely
 	logger.Info("Transcoder.Transcode - starting transcoding",
 		zap.String("from_format", fromStr),
 		zap.String("to_format", toStr),
@@ -215,110 +216,35 @@ func (t *Transcoder) findUnmarshalPath(from string) (*graph.Path[string], error)
 
 // Unmarshal unmarshals a payload into a given struct.
 func (t *Transcoder) Unmarshal(p payload.Payload, v interface{}) error {
-	// Get logger from context if available
-	logger := logs.GetLogger(context.Background())
-
 	if p.Format() == "" {
-		logger.Error("Transcoder.Unmarshal - payload format is empty")
 		return fmt.Errorf("payload format is empty")
 	}
 
 	fromStr := string(p.Format())
-	targetType := fmt.Sprintf("%T", v)
-
-	logger.Info("Transcoder.Unmarshal - starting unmarshal",
-		zap.String("from_format", fromStr),
-		zap.String("target_type", targetType),
-		zap.String("payload_data_type", fmt.Sprintf("%T", p.Data())),
-	)
 
 	// Check if the current format has a direct unmarshaler
 	unmarshaler, ok := t.unmarshalers[fromStr]
 	if ok {
-		logger.Info("Transcoder.Unmarshal - using direct unmarshaler",
-			zap.String("from_format", fromStr),
-			zap.String("unmarshaler_type", fmt.Sprintf("%T", unmarshaler)),
-		)
-		err := unmarshaler.Unmarshal(p, v)
-		if err != nil {
-			logger.Error("Transcoder.Unmarshal - direct unmarshal failed",
-				zap.String("from_format", fromStr),
-				zap.Error(err),
-			)
-		} else {
-			logger.Info("Transcoder.Unmarshal - direct unmarshal successful",
-				zap.String("from_format", fromStr),
-			)
-		}
-		return err
+		return unmarshaler.Unmarshal(p, v)
 	}
-
-	logger.Info("Transcoder.Unmarshal - no direct unmarshaler, finding path",
-		zap.String("from_format", fromStr),
-	)
 
 	path, err := t.findUnmarshalPath(fromStr)
 	if err != nil {
-		logger.Error("Transcoder.Unmarshal - no unmarshal path found",
-			zap.String("from_format", fromStr),
-			zap.Error(err),
-		)
 		return err
 	}
 
-	logger.Info("Transcoder.Unmarshal - found unmarshal path",
-		zap.String("from_format", fromStr),
-		zap.String("to_format", path.Nodes[len(path.Nodes)-1]),
-		zap.Int("path_length", len(path.Nodes)),
-		zap.Int("path_cost", path.Cost),
-	)
-
 	transcodedPayload, err := t.Transcode(p, payload.Format(path.Nodes[len(path.Nodes)-1]))
 	if err != nil {
-		logger.Error("Transcoder.Unmarshal - transcoding failed",
-			zap.String("from_format", fromStr),
-			zap.String("to_format", path.Nodes[len(path.Nodes)-1]),
-			zap.Error(err),
-		)
 		return fmt.Errorf("error transcoding payload for unmarshaling: %w", err)
 	}
 
-	logger.Info("Transcoder.Unmarshal - transcoding successful",
-		zap.String("from_format", fromStr),
-		zap.String("to_format", string(transcodedPayload.Format())),
-	)
-
 	unmarshaler, ok = t.unmarshalers[path.Nodes[len(path.Nodes)-1]]
 	if !ok {
-		logger.Error("Transcoder.Unmarshal - unmarshaler not found after transcoding",
-			zap.String("from_format", fromStr),
-			zap.String("to_format", path.Nodes[len(path.Nodes)-1]),
-		)
 		return fmt.Errorf(
 			"unmarshaler not found for format %s, even though a path was found",
 			path.Nodes[len(path.Nodes)-1],
 		)
 	}
 
-	logger.Info("Transcoder.Unmarshal - using transcoded unmarshaler",
-		zap.String("from_format", fromStr),
-		zap.String("to_format", path.Nodes[len(path.Nodes)-1]),
-		zap.String("unmarshaler_type", fmt.Sprintf("%T", unmarshaler)),
-	)
-
-	err = unmarshaler.Unmarshal(transcodedPayload, v)
-	if err != nil {
-		logger.Error("Transcoder.Unmarshal - final unmarshal failed",
-			zap.String("from_format", fromStr),
-			zap.String("to_format", path.Nodes[len(path.Nodes)-1]),
-			zap.Error(err),
-		)
-	} else {
-		logger.Info("Transcoder.Unmarshal - final unmarshal successful",
-			zap.String("from_format", fromStr),
-			zap.String("to_format", path.Nodes[len(path.Nodes)-1]),
-		)
-	}
-
-	return err
+	return unmarshaler.Unmarshal(transcodedPayload, v)
 }

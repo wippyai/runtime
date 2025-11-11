@@ -2,6 +2,7 @@ package library
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -57,7 +58,7 @@ func TestManager_Add_InvalidConfig(t *testing.T) {
 	}
 
 	// Create context with transcoder
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	transcoder := systempayload.NewTranscoder()
 	json.Register(transcoder)
 	ctx = payload.WithTranscoder(ctx, transcoder)

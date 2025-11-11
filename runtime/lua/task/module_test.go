@@ -1,7 +1,7 @@
 package task
 
 import (
-	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -43,7 +43,7 @@ func TestModule_Loader(t *testing.T) {
 	defer L.Close()
 
 	// Set up context
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	L.SetContext(ctx)
 
 	// Load the module
@@ -171,7 +171,7 @@ func TestTaskInput_Success(t *testing.T) {
 	module.Loader(L)
 
 	// Set up context with mock transcoder
-	ctx := payload.WithTranscoder(context.Background(), &MockTranscoder{})
+	ctx := payload.WithTranscoder(ctxapi.NewRootContext(), &MockTranscoder{})
 	L.SetContext(ctx)
 
 	// Create a task with string input
@@ -199,7 +199,7 @@ func TestTaskInput_NoTranscoder(t *testing.T) {
 	defer L.Close()
 
 	// Don't set up transcoder in context
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	L.SetContext(ctx)
 
 	// Create a task
@@ -227,7 +227,7 @@ func TestTaskComplete_Success(t *testing.T) {
 	defer L.Close()
 
 	// Set up context
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	L.SetContext(ctx)
 
 	// Create a task
@@ -262,7 +262,7 @@ func TestTaskComplete_AlreadyCompleted(t *testing.T) {
 	defer L.Close()
 
 	// Set up context
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	L.SetContext(ctx)
 
 	// Create a task and complete it
@@ -297,7 +297,7 @@ func TestTaskFail_Success(t *testing.T) {
 	defer L.Close()
 
 	// Set up context
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	L.SetContext(ctx)
 
 	// Create a task
@@ -332,7 +332,7 @@ func TestTaskFail_AlreadyCompleted(t *testing.T) {
 	defer L.Close()
 
 	// Set up context
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	L.SetContext(ctx)
 
 	// Create a task and complete it
@@ -370,7 +370,7 @@ func TestTaskComplete_WithDifferentTypes(t *testing.T) {
 	module.Loader(L)
 
 	// Set up context with mock transcoder
-	ctx := payload.WithTranscoder(context.Background(), &MockTranscoder{})
+	ctx := payload.WithTranscoder(ctxapi.NewRootContext(), &MockTranscoder{})
 	L.SetContext(ctx)
 
 	// Only test string case since ExportPayload has issues with other types

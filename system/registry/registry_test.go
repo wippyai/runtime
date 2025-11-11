@@ -10,6 +10,7 @@ import (
 	"testing/fstest"
 
 	"github.com/pkg/errors"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/internal/version"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
@@ -654,7 +655,7 @@ data:
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
 
 	// 3. Load entries from the folder
-	entries, err := folderLoader.LoadFS(context.Background(), mapFS)
+	entries, err := folderLoader.LoadFS(ctxapi.NewRootContext(), mapFS)
 	if err != nil {
 		t.Fatalf("failed to load entries from folder: %v", err)
 	}
@@ -695,7 +696,7 @@ data:
 	// 5. Apply the loaded entries as the initial ChangeSet
 	initialChangeSet, _ := topology.CreateChangeSetFromEntries(entries)
 
-	newVersion, err := reg.Apply(context.Background(), initialChangeSet)
+	newVersion, err := reg.Apply(ctxapi.NewRootContext(), initialChangeSet)
 	if err != nil {
 		t.Fatalf("failed to apply initial ChangeSet: %v", err)
 	}

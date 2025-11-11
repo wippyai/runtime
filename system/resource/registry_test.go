@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
@@ -105,7 +106,7 @@ func (m *mockResourceProvider) Acquire(ctx context.Context, id registry.ID, mode
 }
 
 func TestService_StartStop(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, _ := setupTest()
 
 	err := service.Start(ctx)
@@ -117,7 +118,7 @@ func TestService_StartStop(t *testing.T) {
 }
 
 func TestService_ResourceLifecycle(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() {
@@ -192,7 +193,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 }
 
 func TestService_ResourceAccess(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() {
@@ -309,21 +310,21 @@ func TestService_ContextCancellation(t *testing.T) {
 }
 
 func TestService_GetResources(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, _ := setupTest()
 
 	// Test without registry in context
-	assert.Nil(t, resource.GetResources(ctx))
+	assert.Nil(t, resource.GetRegistry(ctx))
 
 	// Test with registry in context
-	ctxWithReg := resource.WithResources(ctx, service)
-	reg := resource.GetResources(ctxWithReg)
+	ctxWithReg := resource.WithRegistry(ctx, service)
+	reg := resource.GetRegistry(ctxWithReg)
 	assert.NotNil(t, reg)
 	assert.Equal(t, service, reg)
 }
 
 func TestService_ResourceListing(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() { assert.NoError(t, service.Stop()) }()
@@ -385,7 +386,7 @@ func TestService_ResourceListing(t *testing.T) {
 }
 
 func TestService_UpdateResource(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() { assert.NoError(t, service.Stop()) }()
@@ -447,7 +448,7 @@ func TestService_UpdateResource(t *testing.T) {
 }
 
 func TestService_HandleEvent(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() { assert.NoError(t, service.Stop()) }()
@@ -545,7 +546,7 @@ func TestService_EventHandlingErrors(t *testing.T) {
 }
 
 func TestService_ResourceUpdateScenarios(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() {
@@ -608,7 +609,7 @@ func TestService_ResourceUpdateScenarios(t *testing.T) {
 }
 
 func TestService_ResourceAcquisitionEdgeCases(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() {
@@ -653,7 +654,7 @@ func TestService_ResourceAcquisitionEdgeCases(t *testing.T) {
 }
 
 func TestService_ResourceListingEdgeCases(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() {

@@ -14,7 +14,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/registry"
 
-	"github.com/go-chi/chi/v5/middleware"
 	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/deps"
 	"github.com/ponyruntime/pony/runtime/lua/code"
@@ -73,6 +72,7 @@ import (
 	"github.com/ponyruntime/pony/service/http"
 	"github.com/ponyruntime/pony/service/http/cors"
 	"github.com/ponyruntime/pony/service/http/firewall"
+	"github.com/ponyruntime/pony/service/http/realip"
 	"github.com/ponyruntime/pony/service/http/websocketrelay"
 	"github.com/ponyruntime/pony/service/memstore"
 	"github.com/ponyruntime/pony/service/policy"
@@ -192,27 +192,8 @@ func withHTTPService(a *App) eventbus.EventHandler {
 		http.WithLogger(a.logger.Named("http.md")),
 
 		http.WithMiddlewareCreator(cors.MiddlewareName, cors.CreateCORSMiddleware),
-
-		// Standard Chi middlewares
-		http.WithMiddleware("recoverer", middleware.Recoverer),
-		http.WithMiddleware("request_id", middleware.RequestID),
-		http.WithMiddleware("real_ip", middleware.RealIP),
-
-		// Timeout middleware with options
-		http.WithMiddlewareCreator("timeout", func(options map[string]string) func(handler httpbase.Handler) httpbase.Handler {
-			timeoutVal := options["timeout"]
-			if timeoutVal == "" {
-				timeoutVal = "60s"
-			}
-			duration, err := time.ParseDuration(timeoutVal)
-			if err != nil {
-				return nil
-			}
-			return middleware.Timeout(duration)
-		}),
-
-		// WebSocket relay middleware
-		http.WithMiddleware("websocket_relay", relayManager.Middleware),
+		http.WithMiddlewareCreator(realip.MiddlewareName, realip.CreateRealIPMiddleware),
+		http.WithMiddlewareCreator("websocket_relay", relayManager.CreateMiddleware),
 		http.WithMiddlewareCreator(tokenstore.MiddlewareName, tokenstore.CreateTokenAuthMiddleware),
 		http.WithMiddlewareCreator(firewall.ResourceMiddlewareName, firewall.CreateResourceFirewallMiddleware),
 		http.WithMiddlewareCreator(firewall.EndpointMiddlewareName, firewall.CreateEndpointFirewallMiddleware),

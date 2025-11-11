@@ -24,6 +24,7 @@ import (
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	logapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/pidgen"
 	procapi "github.com/ponyruntime/pony/api/process"
 	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
 	regapi "github.com/ponyruntime/pony/api/registry"
@@ -36,6 +37,7 @@ import (
 	requirementresolver2 "github.com/ponyruntime/pony/deps/requirementresolver"
 	"github.com/ponyruntime/pony/embed"
 	"github.com/ponyruntime/pony/internal/runtimeconfig"
+	"github.com/ponyruntime/pony/internal/uniqid"
 	contractsys "github.com/ponyruntime/pony/system/contract"
 	"github.com/ponyruntime/pony/system/env"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -305,25 +307,27 @@ func (a *App) StartWithState(ctx context.Context, state regapi.ChangeSet) error 
 	appContext := contextapi.NewAppContext()
 	appCtx = contextapi.WithAppContext(appCtx, appContext)
 
+	// Initialize shared PID generator with local node ID
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, a.node.Node().ID())
+	appCtx = pidgen.WithGenerator(appCtx, pidGen)
+
 	appCtx = event.WithBus(appCtx, a.eventBus)
 	appCtx = secapi.WithRegistry(appCtx, a.security)
-	appCtx = fsapi.WithFSRegistry(appCtx, a.fsRegistry)
+	appCtx = fsapi.WithRegistry(appCtx, a.fsRegistry)
 	appCtx = envapi.WithRegistry(appCtx, a.envRegistry)
 	appCtx = regapi.WithRegistry(appCtx, a.reg)
 	appCtx = payload.WithTranscoder(appCtx, a.dtt)
-	appCtx = funcapi.WithFunctions(appCtx, a.funcs)
-	appCtx = procapi.WithProcesses(appCtx, a.processes)
-	appCtx = resourceapi.WithResources(appCtx, a.resources)
+	appCtx = funcapi.WithRegistry(appCtx, a.funcs)
+	appCtx = procapi.WithManager(appCtx, a.processes)
+	appCtx = resourceapi.WithRegistry(appCtx, a.resources)
 	appCtx = pubsubapi.WithRouter(appCtx, a.router)
 	appCtx = pubsubapi.WithNode(appCtx, a.node.Node())
 	appCtx = topapi.WithTopology(appCtx, a.topo)
-	appCtx = topapi.WithPIDRegistry(appCtx, a.pidReg)
+	appCtx = topapi.WithRegistry(appCtx, a.pidReg)
 	appCtx = logapi.WithLogger(appCtx, a.logger)
 	appCtx = apiinterceptor.WithInterceptor(appCtx, a.interceptor)
-	appCtx = contract.WithServices(appCtx, a.contractRegistry, a.contractInstantiator)
-
-	// Lock AppContext to make it immutable
-	appContext.Lock()
+	appCtx = contract.WithContracts(appCtx, a.contractRegistry, a.contractInstantiator)
 
 	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
 	if err != nil {
@@ -531,25 +535,27 @@ func (a *App) Start() error {
 	appContext := contextapi.NewAppContext()
 	appCtx = contextapi.WithAppContext(appCtx, appContext)
 
+	// Initialize shared PID generator with local node ID
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, a.node.Node().ID())
+	appCtx = pidgen.WithGenerator(appCtx, pidGen)
+
 	appCtx = event.WithBus(appCtx, a.eventBus)
 	appCtx = secapi.WithRegistry(appCtx, a.security)
-	appCtx = fsapi.WithFSRegistry(appCtx, a.fsRegistry)
+	appCtx = fsapi.WithRegistry(appCtx, a.fsRegistry)
 	appCtx = envapi.WithRegistry(appCtx, a.envRegistry)
 	appCtx = regapi.WithRegistry(appCtx, a.reg)
 	appCtx = payload.WithTranscoder(appCtx, a.dtt)
-	appCtx = funcapi.WithFunctions(appCtx, a.funcs)
-	appCtx = procapi.WithProcesses(appCtx, a.processes)
-	appCtx = resourceapi.WithResources(appCtx, a.resources)
+	appCtx = funcapi.WithRegistry(appCtx, a.funcs)
+	appCtx = procapi.WithManager(appCtx, a.processes)
+	appCtx = resourceapi.WithRegistry(appCtx, a.resources)
 	appCtx = pubsubapi.WithRouter(appCtx, a.router)
 	appCtx = pubsubapi.WithNode(appCtx, a.node.Node())
 	appCtx = topapi.WithTopology(appCtx, a.topo)
-	appCtx = topapi.WithPIDRegistry(appCtx, a.pidReg)
+	appCtx = topapi.WithRegistry(appCtx, a.pidReg)
 	appCtx = logapi.WithLogger(appCtx, a.logger)
 	appCtx = apiinterceptor.WithInterceptor(appCtx, a.interceptor)
-	appCtx = contract.WithServices(appCtx, a.contractRegistry, a.contractInstantiator)
-
-	// Lock AppContext to make it immutable
-	appContext.Lock()
+	appCtx = contract.WithContracts(appCtx, a.contractRegistry, a.contractInstantiator)
 
 	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
 	if err != nil {

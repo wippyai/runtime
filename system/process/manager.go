@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ponyruntime/pony/api/pidgen"
 	api "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/internal/uniqid"
 	"go.uber.org/zap"
 )
 
@@ -27,7 +27,6 @@ type Manager struct {
 	prototypes api.Factory
 	nodeID     pubsub.NodeID
 	logger     *zap.Logger
-	generator  *uniqid.Generator
 }
 
 // NewProcessManager creates a new Manager.
@@ -42,27 +41,31 @@ func NewProcessManager(
 		prototypes: prototypes,
 		nodeID:     nodeID,
 		logger:     logger,
-		generator:  uniqid.NewGenerator(),
 	}
 }
 
 // preparePID creates and validates a pid for the process
-func (m *Manager) preparePID(ps *api.Start, managed bool) pubsub.PID {
-	pid := pubsub.PID{
-		Host:   ps.HostID,
-		ID:     ps.Source,
-		UniqID: ps.UniqID,
+func (m *Manager) preparePID(ctx context.Context, ps *api.Start, managed bool) pubsub.PID {
+	// If UniqID is already provided, construct PID directly
+	if ps.UniqID != "" {
+		pid := pubsub.PID{
+			Host:   ps.HostID,
+			ID:     ps.Source,
+			UniqID: ps.UniqID,
+		}
+		if managed {
+			pid.Node = m.nodeID
+		}
+		return pid.Precomputed()
 	}
+
+	// Use centralized PID generator
+	gen := pidgen.GetGenerator(ctx)
 
 	if managed {
-		pid.Node = m.nodeID
+		return gen.GenerateWithNode(m.nodeID, ps.HostID, ps.Source)
 	}
-
-	if pid.UniqID == "" {
-		pid.UniqID = m.generator.Generate()
-	}
-
-	return pid.Precomputed()
+	return gen.Generate(ps.HostID, ps.Source)
 }
 
 // launchOnHost handles the actual process launch on either managed or delegated hosts
@@ -113,7 +116,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pubsub.PID, erro
 	}
 
 	_, managed := host.(api.Managed)
-	pid := m.preparePID(start, managed)
+	pid := m.preparePID(ctx, start, managed)
 
 	// The topology registration and monitoring/linking will be handled by the host
 	// during the actual process launch, so we don't need to do it here anymore.
@@ -205,7 +208,7 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 		}
 
 		// Get pid registry from context
-		pidReg := topology.GetPIDRegistry(ctx)
+		pidReg := topology.GetRegistry(ctx)
 		if pidReg == nil {
 			m.logger.Error("pid registry not found in context",
 				zap.String("pid", pid.String()))

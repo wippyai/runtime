@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 )
@@ -334,7 +335,7 @@ func (ev *EntryValidator) ValidateSingleEntry(content *FileContent) error {
 // Legacy function for backward compatibility
 func ExtractDependenciesToEntries(p payload.Payload, dtt payload.Transcoder) ([]registry.Entry, error) {
 	processor := NewEntryProcessor(dtt)
-	return processor.ExtractDependenciesToEntries(context.Background(), p)
+	return processor.ExtractDependenciesToEntries(ctxapi.NewRootContext(), p)
 }
 
 // mergeMeta merges base and override metadata (legacy function for backward compatibility)

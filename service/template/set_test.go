@@ -1,12 +1,13 @@
 package template
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"reflect"
 	"sync"
 	"testing"
+
+	ctxapi "github.com/ponyruntime/pony/api/context"
 
 	"github.com/CloudyKit/jet/v6"
 	"github.com/ponyruntime/pony/api/payload"
@@ -239,7 +240,7 @@ func TestTemplateSet_Acquire(t *testing.T) {
 	require.NoError(t, err)
 
 	// Acquire the set itself
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	setResource, err := set.Acquire(ctx, set.ID(), resource.ModeNormal)
 	require.NoError(t, err)
 
@@ -254,7 +255,7 @@ func TestTemplateSet_ResourceRelease(t *testing.T) {
 	set := createTestSet(t)
 
 	// Acquire the set
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	res, err := set.Acquire(ctx, set.ID(), resource.ModeNormal)
 	require.NoError(t, err)
 

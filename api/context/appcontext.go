@@ -6,26 +6,21 @@ import (
 )
 
 // AppContext stores application-level key-value pairs.
-// Immutable after Lock() is called.
+// Uses immutable builder pattern - each With() returns the same instance for chaining.
+// Keys are write-once: setting the same key twice will panic.
 type AppContext interface {
 	// Get retrieves a value by key. Returns nil if not found.
 	Get(key any) any
 
-	// Set stores a value by key. Panics if locked.
-	Set(key any, value any)
-
-	// Lock makes this AppContext immutable.
-	Lock()
-
-	// IsLocked returns true if locked.
-	IsLocked() bool
+	// With stores a value by key and returns this AppContext for chaining.
+	// Panics if the key is already set (write-once enforcement).
+	With(key any, value any) AppContext
 }
 
 // appContext is the concrete implementation of AppContext.
 type appContext struct {
 	mu     sync.RWMutex
 	values map[any]any
-	locked bool
 }
 
 // NewAppContext creates a new AppContext instance.
@@ -41,29 +36,18 @@ func (a *appContext) Get(key any) any {
 	return a.values[key]
 }
 
-func (a *appContext) Set(key any, value any) {
+func (a *appContext) With(key any, value any) AppContext {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.locked {
-		panic("cannot modify locked AppContext")
+	if _, exists := a.values[key]; exists {
+		panic("cannot overwrite AppContext key: key already set")
 	}
 	a.values[key] = value
-}
-
-func (a *appContext) Lock() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.locked = true
-}
-
-func (a *appContext) IsLocked() bool {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return a.locked
+	return a
 }
 
 // appContextKey is the context key for storing AppContext.
-var appContextKey = &Key{Name: "context.app"}
+var appContextKey = &Key{Name: "context.app", Scope: ScopeThread}
 
 // WithAppContext attaches AppContext to the provided context.
 // This should be called ONCE at application startup.
@@ -78,4 +62,12 @@ func AppFromContext(ctx context.Context) AppContext {
 		return ac
 	}
 	return nil
+}
+
+// NewRootContext creates a new root context with an empty AppContext attached.
+// This is the standard way to create contexts for both application and test code.
+func NewRootContext() context.Context {
+	ctx := context.Background()
+	appCtx := NewAppContext()
+	return WithAppContext(ctx, appCtx)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"sync"
 	"testing"
 	"time"
@@ -50,7 +51,7 @@ func createTestEntryWithTTL(key string, value any, ttl time.Duration) store.Entr
 // TestMemoryStore_Get tests the Get functionality
 func TestMemoryStore_Get(t *testing.T) {
 	ms := createTestStore(t)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Set a test value
 	testKey := registry.ParseID("test:key1")
@@ -95,7 +96,7 @@ func TestMemoryStore_Get(t *testing.T) {
 // TestMemoryStore_Set tests the Set functionality
 func TestMemoryStore_Set(t *testing.T) {
 	ms := createTestStore(t)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Test setting a new value
 	testKey := registry.ParseID("test:key1")
@@ -147,7 +148,7 @@ func TestMemoryStore_Set(t *testing.T) {
 // TestMemoryStore_Delete tests the Delete functionality
 func TestMemoryStore_Delete(t *testing.T) {
 	ms := createTestStore(t)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Set a test value
 	testKey := registry.ParseID("test:key1")
@@ -178,7 +179,7 @@ func TestMemoryStore_Delete(t *testing.T) {
 // TestMemoryStore_Has tests the Has functionality
 func TestMemoryStore_Has(t *testing.T) {
 	ms := createTestStore(t)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Test checking a non-existent key
 	testKey := registry.ParseID("test:key1")
@@ -223,7 +224,7 @@ func TestMemoryStore_Has(t *testing.T) {
 // TestMemoryStore_Acquire tests the resource.Provider interface implementation
 func TestMemoryStore_Acquire(t *testing.T) {
 	ms := createTestStore(t)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Acquire the store resource in normal mode
 	res, err := ms.Acquire(ctx, registry.ParseID("test:resource"), resource.ModeNormal)
@@ -260,7 +261,7 @@ func TestMemoryStore_Acquire(t *testing.T) {
 // TestMemoryStore_Start tests the Start functionality and cleanup routine
 func TestMemoryStore_Start(t *testing.T) {
 	ms := createTestStore(t)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Start the service
 	statusChan, err := ms.Start(ctx)
@@ -298,7 +299,7 @@ func TestMemoryStore_Start(t *testing.T) {
 // TestMemoryStore_Stop tests the Stop functionality
 func TestMemoryStore_Stop(t *testing.T) {
 	ms := createTestStore(t)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Start the service
 	_, err := ms.Start(ctx)
@@ -320,7 +321,7 @@ func TestMemoryStore_Stop(t *testing.T) {
 // TestMemoryStore_StopWithTimeout tests the Stop functionality with timeout
 func TestMemoryStore_StopWithTimeout(t *testing.T) {
 	ms := createTestStore(t)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Start the service
 	_, err := ms.Start(ctx)
@@ -345,7 +346,7 @@ func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 		CleanupInterval: 50 * time.Millisecond,
 	}
 	ms := memstore.NewMemoryStore(registry.ID{NS: "test", Name: "store"}, config, logger)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Start the service
 	_, err := ms.Start(ctx)
@@ -424,7 +425,7 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 		CleanupInterval: 50 * time.Millisecond, // Short interval for testing
 	}
 	ms := memstore.NewMemoryStore(registry.ID{NS: "test", Name: "cleanup-test"}, config, logger)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Start the service
 	_, err := ms.Start(ctx)

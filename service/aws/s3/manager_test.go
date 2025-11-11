@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/ponyruntime/pony/api/cloudstorage"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -197,7 +198,7 @@ func setupTestEnvironment() (*Manager, event.Bus, *MockResourceRegistry, context
 	resourceRegistry.RegisterProvider(configID, awsConfigProvider)
 
 	// Create context with resource registry
-	ctx := resource.WithResources(context.Background(), resourceRegistry)
+	ctx := resource.WithRegistry(ctxapi.NewRootContext(), resourceRegistry)
 
 	return manager, bus, resourceRegistry, ctx
 }

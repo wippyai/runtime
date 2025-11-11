@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	basehttp "net/http"
 	"net/http/httptest"
 	"testing"
@@ -44,7 +45,7 @@ func TestResponse_Basic(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -66,7 +67,7 @@ func TestResponse_Basic(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -86,7 +87,7 @@ func TestResponse_Basic(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -108,7 +109,7 @@ func TestResponse_Basic(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -128,7 +129,7 @@ func TestResponse_Basic(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -177,7 +178,7 @@ func TestResponse_ServerSentEvents(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -199,7 +200,7 @@ func TestResponse_ServerSentEvents(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -231,7 +232,7 @@ func TestResponse_TransferEncoding(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -255,7 +256,7 @@ func TestResponse_TransferEncoding(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -280,7 +281,7 @@ func TestResponse_ContentTypeHandling(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -301,7 +302,7 @@ func TestResponse_ContentTypeHandling(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -327,7 +328,7 @@ func TestResponse_JSONHandling(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -395,7 +396,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -416,7 +417,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -437,7 +438,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -463,7 +464,7 @@ func TestResponse_Flush(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -487,7 +488,7 @@ func TestResponse_Flush(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -510,7 +511,7 @@ func TestResponse_Flush(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))

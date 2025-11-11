@@ -11,9 +11,11 @@ import (
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/pidgen"
 	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/internal/uniqid"
 	functionSys "github.com/ponyruntime/pony/system/function"
 	"github.com/ponyruntime/pony/system/pubsub"
 
@@ -28,7 +30,13 @@ func setupInstantiatorTest() (*Instantiator, event.Bus, *Registry, *functionSys.
 	bus := eventbus.NewBus()
 
 	contractRegistry := NewContractRegistry(bus, logger)
-	host := pubsub.NewHost(context.Background(), pubsub.HostConfig{BufferSize: 100})
+	ctx := ctxapi.NewRootContext()
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
+
+	host := pubsub.NewHost(ctx, pubsub.HostConfig{BufferSize: 100})
 	functionRegistry := functionSys.NewFunctionRegistry(bus, host, logger)
 
 	instantiator := NewContractInstantiator(contractRegistry, functionRegistry)
@@ -45,7 +53,7 @@ func TestNewContractInstantiator(t *testing.T) {
 }
 
 func TestInstantiator_Instantiate(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	instantiator, bus, contractRegistry, _ := setupInstantiatorTest()
 
 	require.NoError(t, contractRegistry.Start(ctx))
@@ -124,7 +132,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 }
 
 func TestInstanceImpl_ScopeValidation(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	instantiator, bus, contractRegistry, _ := setupInstantiatorTest()
 
 	require.NoError(t, contractRegistry.Start(ctx))
@@ -233,8 +241,12 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 }
 
 func TestInstanceImpl_Call_Integration(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 
@@ -337,8 +349,12 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 }
 
 func TestInstanceImpl_ContextMerging(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 
@@ -468,8 +484,12 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 }
 
 func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 
@@ -622,8 +642,12 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 // TestInstanceImpl_ContextValidationIssue demonstrates that the context validation fix works
 // The fix allows required context keys to be found in EITHER scope OR Go context
 func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = pidgen.WithGenerator(ctx, pidGen)
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 

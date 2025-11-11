@@ -2,6 +2,7 @@ package env
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	envapi "github.com/ponyruntime/pony/api/env"
@@ -140,7 +141,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(context.Background())
+	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
 
 	// Add the resource registry to the context
 	ctx = envapi.WithRegistry(ctx, mockRegistry)

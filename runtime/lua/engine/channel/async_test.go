@@ -1,7 +1,7 @@
 package channel
 
 import (
-	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 	"time"
 
@@ -62,7 +62,7 @@ func TestAsyncLayer(t *testing.T) {
 		channels := NewChannelLayer()
 		runner := engine.NewRunner(vm, engine.WithLayer(channels))
 
-		uw, ctx := runner.InitUnitOfWork(context.Background())
+		uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
 		defer func() { _ = uw.Close() }()
 
 		start := time.Now()

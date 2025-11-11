@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
@@ -141,14 +142,14 @@ func setupTestEnvironment(t *testing.T) (*Manager, event.Bus, context.Context) {
 
 	// Create mock registry and populate it with test values
 	envRegistry := NewMockRegistry()
-	require.NoError(t, envRegistry.Set(context.Background(), "AWS_ACCESS_KEY_ID", "test-access-key"))
-	require.NoError(t, envRegistry.Set(context.Background(), "AWS_SECRET_ACCESS_KEY", "test-secret-key"))
+
+	ctx := ctxapi.NewRootContext()
+
+	require.NoError(t, envRegistry.Set(ctx, "AWS_ACCESS_KEY_ID", "test-access-key"))
+	require.NoError(t, envRegistry.Set(ctx, "AWS_SECRET_ACCESS_KEY", "test-secret-key"))
 
 	// Create manager
 	manager := NewManager(bus, transcoder, logger, envRegistry)
-
-	// Just use a plain background context
-	ctx := context.Background()
 
 	return manager, bus, ctx
 }

@@ -65,7 +65,7 @@ func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) htt
 			ctx := r.Context()
 
 			// Get resources from context
-			resources := resource.GetResources(ctx)
+			resources := resource.GetRegistry(ctx)
 			logger := logs.GetLogger(ctx)
 
 			// Extract token from request

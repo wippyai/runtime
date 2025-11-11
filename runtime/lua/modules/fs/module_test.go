@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"errors"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"io"
 	"io/fs"
 	"os"
@@ -480,10 +481,10 @@ func setupLuaWithFS(t *testing.T, mockRes *mockResource) (
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(context.Background())
+	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
 
 	// Add the resource registry to the context
-	ctx = resource.WithResources(ctx, mockRegistry)
+	ctx = resource.WithRegistry(ctx, mockRegistry)
 	ctx = logs.WithLogger(ctx, logger)
 
 	// Set the context in the Lua state
@@ -549,7 +550,7 @@ func TestFSGet(t *testing.T) {
 
 	// Inject our filesystem registry into the context
 	ctx := L.Context()
-	ctx = fsapi.WithFSRegistry(ctx, fsRegistry)
+	ctx = fsapi.WithRegistry(ctx, fsRegistry)
 	L.SetContext(ctx)
 
 	// Imports our test function into the VM

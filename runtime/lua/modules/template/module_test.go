@@ -2,6 +2,7 @@ package template
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	templatesvc "github.com/ponyruntime/pony/service/template"
@@ -93,7 +94,7 @@ func setupLuaWithTemplates(t *testing.T, mockRes *mockResource) (*engine.Corouti
 	dtt := payloadSystem.GlobalTranscoder()
 	json.Register(dtt)
 	lua2.Register(dtt)
-	ctx := payload.WithTranscoder(context.Background(), dtt)
+	ctx := payload.WithTranscoder(ctxapi.NewRootContext(), dtt)
 
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
@@ -102,7 +103,7 @@ func setupLuaWithTemplates(t *testing.T, mockRes *mockResource) (*engine.Corouti
 	uw, ctx := runner.InitUnitOfWork(ctx)
 
 	// Add the resource registry to the context
-	ctx = resource.WithResources(ctx, mockRegistry)
+	ctx = resource.WithRegistry(ctx, mockRegistry)
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)
@@ -355,7 +356,7 @@ func TestTemplateError(t *testing.T) {
 	L.PreloadModule(module.Name(), module.Loader)
 
 	// Set up the context
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	dtt := payloadSystem.GlobalTranscoder()
 	json.Register(dtt)
 	ctx = payload.WithTranscoder(ctx, dtt)
@@ -371,7 +372,7 @@ func TestTemplateError(t *testing.T) {
 	}()
 
 	// Add the empty resource registry to the context
-	ctx = resource.WithResources(ctx, mockRegistry)
+	ctx = resource.WithRegistry(ctx, mockRegistry)
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)

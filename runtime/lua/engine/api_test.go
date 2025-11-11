@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"sync"
 	"testing"
 
@@ -165,7 +166,7 @@ func TestTaskCoordinatorInterface(t *testing.T) {
 	}
 
 	// Test Send
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	state := lua.NewState()
 	defer state.Close()
 	update := NewUpdate(state, nil, nil)
@@ -250,7 +251,7 @@ func TestGetUnitOfWork(t *testing.T) {
 	}
 
 	// Test with context without UnitOfWork
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	if uw := GetUnitOfWork(ctx); uw != nil {
 		t.Errorf("expected nil UnitOfWork for context without UnitOfWork")
 	}

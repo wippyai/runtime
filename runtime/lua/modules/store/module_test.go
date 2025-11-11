@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 	"time"
 
@@ -152,7 +153,7 @@ func setupLuaWithStore(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM
 	// This is a simplified version for testing - in a real environment,
 	// a full transcoder implementation would be available
 	dtt := setupTestTranscoder()
-	ctx := payload.WithTranscoder(context.Background(), dtt)
+	ctx := payload.WithTranscoder(ctxapi.NewRootContext(), dtt)
 
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
@@ -161,7 +162,7 @@ func setupLuaWithStore(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM
 	uw, ctx := runner.InitUnitOfWork(ctx)
 
 	// Add the resource registry to the context
-	ctx = resource.WithResources(ctx, mockRegistry)
+	ctx = resource.WithRegistry(ctx, mockRegistry)
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)
@@ -558,7 +559,7 @@ func TestStoreGetError(t *testing.T) {
 	L.PreloadModule(module.Name(), module.Loader)
 
 	// Set up the context
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	dtt := setupTestTranscoder()
 	ctx = payload.WithTranscoder(ctx, dtt)
 
@@ -573,7 +574,7 @@ func TestStoreGetError(t *testing.T) {
 	}()
 
 	// Add the empty resource registry to the context
-	ctx = resource.WithResources(ctx, mockRegistry)
+	ctx = resource.WithRegistry(ctx, mockRegistry)
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)

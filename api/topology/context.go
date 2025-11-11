@@ -10,23 +10,36 @@ import (
 // Context keys for storing topology-related data
 var (
 	// topologyCtx is used to store the topology instance
-	topologyCtx = &ctxapi.Key{Name: "topology.topology"}
+	topologyCtx = &ctxapi.Key{Name: "topology.topology", Scope: ctxapi.ScopeThread}
 
 	// registryCtx is used to store the Target registry
-	registryCtx = &ctxapi.Key{Name: "topology.registry"}
+	registryCtx = &ctxapi.Key{Name: "topology.registry", Scope: ctxapi.ScopeThread}
 )
 
-// WithPIDRegistry attaches a Target registry to the provided context.
-// This allows the registry to be retrieved later using the GetPIDRegistry function.
-func WithPIDRegistry(ctx context.Context, registry PIDRegistry) context.Context {
-	return context.WithValue(ctx, registryCtx, registry)
+// WithRegistry attaches a Target registry to the provided context.
+// This allows the registry to be retrieved later using the GetRegistry function.
+func WithRegistry(ctx context.Context, registry PIDRegistry) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(registryCtx) == nil {
+		ac.With(registryCtx, registry)
+	}
+	return ctx
 }
 
-// GetPIDRegistry retrieves the Target registry from the provided context.
+// GetRegistry retrieves the Target registry from the provided context.
 // Returns nil if no registry is found in the context.
-func GetPIDRegistry(ctx context.Context) PIDRegistry {
-	if reg, ok := ctx.Value(registryCtx).(PIDRegistry); ok {
-		return reg
+func GetRegistry(ctx context.Context) PIDRegistry {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if val := ac.Get(registryCtx); val != nil {
+		if reg, ok := val.(PIDRegistry); ok {
+			return reg
+		}
 	}
 	return nil
 }
@@ -34,14 +47,27 @@ func GetPIDRegistry(ctx context.Context) PIDRegistry {
 // WithTopology attaches a Topology instance to the provided context.
 // This allows the topology to be retrieved later using the GetTopology function.
 func WithTopology(ctx context.Context, topology Topology) context.Context {
-	return context.WithValue(ctx, topologyCtx, topology)
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(topologyCtx) == nil {
+		ac.With(topologyCtx, topology)
+	}
+	return ctx
 }
 
 // GetTopology retrieves the Topology instance from the provided context.
 // Returns nil if no topology is found in the context.
 func GetTopology(ctx context.Context) Topology {
-	if top, ok := ctx.Value(topologyCtx).(Topology); ok {
-		return top
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if val := ac.Get(topologyCtx); val != nil {
+		if top, ok := val.(Topology); ok {
+			return top
+		}
 	}
 	return nil
 }

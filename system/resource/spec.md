@@ -70,7 +70,7 @@ bus.Send(ctx, event.Event{
 ### Resource Acquisition
 ```go
 // Get registry from context
-registry := resource.GetResources(ctx)
+registry := resource.GetRegistry(ctx)
 
 // Acquire resource with normal access
 dbResource, err := registry.Acquire(ctx, 

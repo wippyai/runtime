@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"io"
 	"net/http"
 	"sync"
@@ -533,7 +534,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		defer vm.Close()
 
 		// Spawn a cancellable context
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 		defer cancel()
 
 		// Run the test in a goroutine

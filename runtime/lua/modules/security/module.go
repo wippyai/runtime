@@ -238,7 +238,7 @@ func (m *Module) tokenStore(l *lua.LState) int {
 		return 0
 	}
 	// Get resource registry from context
-	resources := resource.GetResources(l.Context())
+	resources := resource.GetRegistry(l.Context())
 	if resources == nil {
 		l.RaiseError("no resource registry found in context")
 		return 0

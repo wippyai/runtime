@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
 	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
@@ -72,7 +73,7 @@ func setupTestRegistry() (*Registry, event.Bus, context.Context) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	reg := NewRegistry(bus, logger)
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 	return reg, bus, ctx
 }

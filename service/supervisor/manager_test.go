@@ -1,7 +1,7 @@
 package supervisor
 
 import (
-	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -55,7 +55,7 @@ func TestManager_Add_WithDebugLogging(t *testing.T) {
 	manager := NewSupervisorServiceManager(bus, procManager, logger)
 
 	// Create a test context with transcoder
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = payload.WithTranscoder(ctx, &MockTranscoder{})
 
 	// Create a test entry
@@ -95,7 +95,7 @@ func TestManager_Update_WithDebugLogging(t *testing.T) {
 	manager := NewSupervisorServiceManager(bus, procManager, logger)
 
 	// Create a test context with transcoder
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = payload.WithTranscoder(ctx, &MockTranscoder{})
 
 	// Create a test entry
@@ -152,7 +152,7 @@ func TestManager_Add_WithoutTranscoder(t *testing.T) {
 	manager := NewSupervisorServiceManager(bus, procManager, logger)
 
 	// Create a test context WITHOUT transcoder
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Create a test entry
 	entry := registry.Entry{
@@ -184,7 +184,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	manager := NewSupervisorServiceManager(bus, procManager, logger)
 
 	// Create a test context with transcoder
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	ctx = payload.WithTranscoder(ctx, &MockTranscoder{})
 
 	// Create a test entry with wrong kind

@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -49,7 +50,7 @@ func setupLuaWithSelectModule(t *testing.T) (*engine.CoroutineVM, *engine.Runner
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Create a context for execution
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// Initialize a unit of work with the context
 	_, luaCtx := runner.InitUnitOfWork(ctx)

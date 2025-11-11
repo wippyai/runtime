@@ -1,9 +1,9 @@
 package di
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"sync"
 	"testing"
 
@@ -102,7 +102,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestManager_DefinitionAdd(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := setupDIManagerTest()
 
 	var wg sync.WaitGroup
@@ -259,7 +259,7 @@ func TestManager_DefinitionAdd(t *testing.T) {
 }
 
 func TestManager_DefinitionUpdate(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := setupDIManagerTest()
 
 	var wg sync.WaitGroup
@@ -324,7 +324,7 @@ func TestManager_DefinitionUpdate(t *testing.T) {
 }
 
 func TestManager_DefinitionDelete(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := setupDIManagerTest()
 
 	var wg sync.WaitGroup
@@ -376,7 +376,7 @@ func TestManager_DefinitionDelete(t *testing.T) {
 }
 
 func TestManager_BindingOperations(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := setupDIManagerTest()
 
 	var wg sync.WaitGroup
@@ -542,7 +542,7 @@ func TestManager_BindingOperations(t *testing.T) {
 }
 
 func TestManager_DefaultBindingValidation(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := setupDIManagerTest()
 
 	var wg sync.WaitGroup
@@ -734,7 +734,7 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 }
 
 func TestManager_ValidationEdgeCases(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := setupDIManagerTest()
 
 	var wg sync.WaitGroup
@@ -805,7 +805,7 @@ func TestManager_ValidationEdgeCases(t *testing.T) {
 }
 
 func TestManager_UnmarshalError(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, _ := setupDIManagerTest()
 
 	// Configure transcoder to return error
@@ -824,7 +824,7 @@ func TestManager_UnmarshalError(t *testing.T) {
 
 // TestManager_DefaultBindingValidationEdgeCases tests more complex scenarios
 func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := setupDIManagerTest()
 
 	var wg sync.WaitGroup
@@ -1013,7 +1013,7 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 
 // TestManager_DefaultBindingUpdateScenarios tests complex update scenarios
 func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := setupDIManagerTest()
 
 	var wg sync.WaitGroup
@@ -1275,7 +1275,7 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 
 // TestManager_DefaultBindingDeleteScenarios tests deletion scenarios with default bindings
 func TestManager_DefaultBindingDeleteScenarios(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := setupDIManagerTest()
 
 	var wg sync.WaitGroup
@@ -1419,7 +1419,7 @@ func TestManager_DefaultBindingDeleteScenarios(t *testing.T) {
 
 // TestManager_DefaultBindingErrorMessages tests that error messages are descriptive
 func TestManager_DefaultBindingErrorMessages(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	manager, bus := setupDIManagerTest()
 
 	var wg sync.WaitGroup

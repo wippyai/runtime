@@ -220,7 +220,7 @@ Data:   process.Prototype(protoFunc),
 
 ```go
 // Get process manager from context
-manager := process.GetProcesses(ctx)
+manager := process.GetManager(ctx)
 
 // Configure process start
 start := &process.Start{

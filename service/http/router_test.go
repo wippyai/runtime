@@ -41,14 +41,14 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 		}))
 		require.NoError(t, err)
 
-		// Try adding duplicate route Source
+		// Update existing route (upsert behavior)
 		err = rm.AddRoute(routerID, endpointID, "POST", "/test2", funcID, nil)
-		assert.Error(t, err)
+		assert.NoError(t, err)
 
-		// Try adding route with same path and method
+		// Add different endpoint with same path and method is allowed
 		endpointID2 := registry.ID{NS: "test", Name: "endpoint2"}
 		err = rm.AddRoute(routerID, endpointID2, "GET", "/test", funcID, nil)
-		assert.Error(t, err)
+		assert.NoError(t, err)
 
 		// Done route
 		err = rm.RemoveRoute(routerID, endpointID)
@@ -239,48 +239,34 @@ func TestRouteManager_Middleware(t *testing.T) {
 	assert.NoError(t, resp.Body.Close())
 }
 
-func TestRouteManager_DuplicateRoutes(t *testing.T) {
+func TestRouteManager_RouteUpdates(t *testing.T) {
 	rm, err := NewRouteManager()
 	require.NoError(t, err)
 
-	{
-		// Add router
-		routerID := registry.ID{NS: "test", Name: "router1"}
-		err = rm.AddRouter(routerID, "/api", nil, nil)
-		require.NoError(t, err)
+	// Add router
+	routerID := registry.ID{NS: "test", Name: "router1"}
+	err = rm.AddRouter(routerID, "/api", nil, nil)
+	require.NoError(t, err)
 
-		// Add first test endpoint
-		funcID1 := registry.ID{NS: "test", Name: "func1"}
-		endpointID1 := registry.ID{NS: "test", Name: "endpoint1"}
-		handler1 := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})
+	// Add first test endpoint
+	funcID1 := registry.ID{NS: "test", Name: "func1"}
+	endpointID1 := registry.ID{NS: "test", Name: "endpoint1"}
+	handler1 := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 
-		// Add first route
-		err = rm.AddRoute(routerID, endpointID1, "GET", "/test", funcID1, handler1)
-		require.NoError(t, err)
+	// Add first route
+	err = rm.AddRoute(routerID, endpointID1, "GET", "/test", funcID1, handler1)
+	require.NoError(t, err)
 
-		// Add duplicate route
-		err = rm.AddRoute(routerID, endpointID1, "GET", "/test", funcID1, handler1)
-		require.ErrorContains(t, err, "route with Source test:endpoint1 already exists in router test:router1")
-	}
+	// Update route (upsert behavior - should succeed)
+	err = rm.AddRoute(routerID, endpointID1, "POST", "/test2", funcID1, handler1)
+	require.NoError(t, err)
 
-	{
-		// Add router
-		routerID := registry.ID{NS: "test", Name: "router1"}
-		err = rm.AddRouter(routerID, "/api", nil, nil)
-		require.ErrorContains(t, err, "router with prefix /api already exists")
-
-		// Add second test endpoint
-		funcID1 := registry.ID{NS: "test", Name: "func1"}
-		endpointID1 := registry.ID{NS: "test", Name: "endpoint1"}
-		handler1 := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})
-
-		err = rm.AddRoute(routerID, endpointID1, "GET", "/test", funcID1, handler1)
-		require.ErrorContains(t, err, `route with Source test:endpoint1 already exists in router test:router1`)
-	}
+	// Try to add duplicate router prefix - should still error
+	routerID2 := registry.ID{NS: "test", Name: "router2"}
+	err = rm.AddRouter(routerID2, "/api", nil, nil)
+	require.ErrorContains(t, err, "router with prefix /api already exists")
 
 	err = rm.Build()
 	assert.NoError(t, err)

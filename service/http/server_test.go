@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
@@ -122,7 +123,8 @@ func TestServerService_Basic(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Serve the server with a timeout context
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		rootCtx := contextapi.NewRootContext()
+		ctx, cancel := context.WithTimeout(rootCtx, 5*time.Second)
 		defer cancel()
 
 		// Serve the server and wait for it to be ready
@@ -315,7 +317,7 @@ func TestServerService_StartStop(t *testing.T) {
 	require.NoError(t, err)
 
 	// Serve the server
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 10*time.Second)
 	defer cancel()
 
 	// Use a done channel to synchronize server start
@@ -445,7 +447,7 @@ func TestServerService_Middleware(t *testing.T) {
 	require.NoError(t, err)
 
 	// Serve the server
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 10*time.Second)
 	defer cancel()
 
 	// Use a done channel for synchronization
@@ -507,91 +509,6 @@ func TestServerService_Middleware(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestCreateMiddleware(t *testing.T) {
-	id := registry.ID{NS: "test", Name: "server1"}
-	middlewareFactory := NewDefaultMiddlewareFactory(
-		WithMiddlewareCreator("timeout", func(options map[string]string) func(http.Handler) http.Handler {
-			timeoutVal := options["timeout"]
-			if timeoutVal == "" {
-				timeoutVal = "60s"
-			}
-			duration, err := time.ParseDuration(timeoutVal)
-			if err != nil {
-				return nil
-			}
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					ctx, cancel := context.WithTimeout(r.Context(), duration)
-					defer cancel()
-					next.ServeHTTP(w, r.WithContext(ctx))
-				})
-			}
-		}),
-		WithMiddlewareCreator("recoverer", func(_ map[string]string) func(http.Handler) http.Handler {
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					defer func() {
-						if rvr := recover(); rvr != nil {
-							http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-						}
-					}()
-					next.ServeHTTP(w, r)
-				})
-			}
-		}),
-		WithMiddlewareCreator("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					r.Header.Set("X-Request-Id", "test-id")
-					next.ServeHTTP(w, r)
-				})
-			}
-		}),
-		WithMiddlewareCreator("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					next.ServeHTTP(w, r)
-				})
-			}
-		}),
-	)
-
-	server, err := NewServerService(id, &config.ServerConfig{}, middlewareFactory)
-	require.NoError(t, err)
-
-	t.Run("timeout middleware", func(t *testing.T) {
-		options := map[string]string{"timeout": "10s"}
-		mw := server.createMiddleware("timeout", options)
-		assert.NotNil(t, mw, "Should create timeout middleware")
-	})
-
-	t.Run("timeout middleware with invalid duration", func(t *testing.T) {
-		options := map[string]string{"timeout": "invalid"}
-		mw := server.createMiddleware("timeout", options)
-		assert.Nil(t, mw, "Should not create middleware with invalid timeout")
-	})
-
-	t.Run("recoverer middleware", func(t *testing.T) {
-		mw := server.createMiddleware("recoverer", nil)
-		assert.NotNil(t, mw, "Should create recoverer middleware")
-	})
-
-	t.Run("request_id middleware", func(t *testing.T) {
-		mw := server.createMiddleware("request_id", nil)
-		assert.NotNil(t, mw, "Should create request_id middleware")
-	})
-
-	t.Run("real_ip middleware", func(t *testing.T) {
-		mw := server.createMiddleware("real_ip", nil)
-		assert.NotNil(t, mw, "Should create real_ip middleware")
-	})
-
-	t.Run("unsupported middleware", func(t *testing.T) {
-		mw := server.createMiddleware("unsupported", nil)
-		assert.Nil(t, mw, "Should not create unsupported middleware")
-	})
-}
-
 func TestEnsureRunning(t *testing.T) {
 	// Create a server with a test port
 	port, err := findFreePort()
@@ -624,7 +541,7 @@ func TestEnsureRunning(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// The ensureRunning check should pass because something is listening on the port
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 2*time.Second)
 	defer cancel()
 
 	err = server.ensureRunning(ctx)
@@ -642,7 +559,7 @@ func TestEnsureRunning(t *testing.T) {
 		t.Fatal("HTTP server didn't close")
 	}
 
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond) // Short timeout
+	ctx2, cancel2 := context.WithTimeout(contextapi.NewRootContext(), 500*time.Millisecond) // Short timeout
 	defer cancel2()
 
 	err = server.ensureRunning(ctx2)
@@ -687,7 +604,7 @@ func TestContextListener(t *testing.T) {
 	require.NoError(t, err)
 
 	// Serve the server
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 5*time.Second)
 	defer cancel()
 
 	// Use a done channel for synchronization

@@ -3,6 +3,7 @@ package queued
 import (
 	"context"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"runtime"
 	"strings"
 	"sync"
@@ -158,7 +159,7 @@ func TestQueuedPool_Execute_Basic(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 5*time.Second)
 	defer cancel()
 
 	arg := lua.LString("hello")
@@ -189,7 +190,7 @@ func TestQueuedPool_Execute_ContextCancellation(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	cancel() // Cancel immediately
 
 	_, err = p.Execute(ctx, "test", lua.LNil)
@@ -218,7 +219,7 @@ func TestQueuedPool_Execute_Failure(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 5*time.Second)
 	defer cancel()
 
 	// Run failing function
@@ -404,7 +405,7 @@ func TestQueuedPool_QueueBehavior(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 5*time.Second)
 			defer cancel()
 
 			result, err := p.Execute(ctx, "sleep", lua.LNil)
@@ -443,7 +444,7 @@ func BenchmarkQueuedPool_Execute(b *testing.B) {
 	require.NoError(b, err)
 	defer p.Close()
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	arg := lua.LString("benchmark")
 
 	b.ResetTimer()

@@ -8,13 +8,17 @@ import (
 )
 
 // transcoderCtx is the context key used to store and retrieve the transcoder instance
-var transcoderCtx = &ctxapi.Key{Name: "payload.transcoder"}
+var transcoderCtx = &ctxapi.Key{Name: "payload.transcoder", Scope: ctxapi.ScopeThread}
 
 // GetTranscoder retrieves the Transcoder from the provided context.
 // Returns nil if no Transcoder is found in the context.
 func GetTranscoder(ctx context.Context) Transcoder {
-	if t, ok := ctx.Value(transcoderCtx).(Transcoder); ok {
-		return t
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if t := ac.Get(transcoderCtx); t != nil {
+		return t.(Transcoder)
 	}
 	return nil
 }
@@ -22,5 +26,12 @@ func GetTranscoder(ctx context.Context) Transcoder {
 // WithTranscoder returns a new context with the provided Transcoder attached.
 // This allows the Transcoder to be retrieved later using the GetTranscoder function.
 func WithTranscoder(ctx context.Context, transcoder Transcoder) context.Context {
-	return context.WithValue(ctx, transcoderCtx, transcoder)
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(transcoderCtx) == nil {
+		ac.With(transcoderCtx, transcoder)
+	}
+	return ctx
 }

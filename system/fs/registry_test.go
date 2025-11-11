@@ -3,12 +3,12 @@ package fs
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"sync"
 	"testing"
 	"time"
 
-	"io/fs"
-
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -324,19 +324,25 @@ func TestFSRegistry_GetFS(t *testing.T) {
 }
 
 func TestFSRegistry_WithContext(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	fsRegistry, _ := newTestFSRegistry(t)
 
 	// Test adding registry to context
-	ctxWithReg := fsapi.WithFSRegistry(ctx, fsRegistry)
+	ctxWithReg := fsapi.WithRegistry(ctx, fsRegistry)
 
 	// Test retrieving registry from context
 	retrievedRegistry := fsapi.GetRegistry(ctxWithReg)
 	assert.NotNil(t, retrievedRegistry)
 	assert.Equal(t, fsRegistry, retrievedRegistry)
 
+	// Test retrieving from original context also works (AppContext is shared)
+	retrievedFromOriginal := fsapi.GetRegistry(ctx)
+	assert.NotNil(t, retrievedFromOriginal)
+	assert.Equal(t, fsRegistry, retrievedFromOriginal)
+
 	// Test retrieving from context without registry
-	emptyRegistry := fsapi.GetRegistry(ctx)
+	emptyCtx := ctxapi.NewRootContext()
+	emptyRegistry := fsapi.GetRegistry(emptyCtx)
 	assert.Nil(t, emptyRegistry)
 }
 

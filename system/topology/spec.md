@@ -170,7 +170,7 @@ topo := topology.GetTopology(ctx)
 topo.Register(myPID)
 
 // Register a friendly name (optional)
-registry := topology.GetPIDRegistry(ctx)
+registry := topology.GetRegistry(ctx)
 registry.Register("worker-1", myPID)
 ```
 
@@ -213,7 +213,7 @@ linkedPIDs := topo.GetLinks(myPID)
 
 ```go
 // Get the registry from context
-registry := topology.GetPIDRegistry(ctx)
+registry := topology.GetRegistry(ctx)
 
 // Look up a process by name
 if targetPID, found := registry.Lookup("worker-1"); found {
@@ -244,7 +244,7 @@ topo.Notify(myPID, result)
 topo.Remove(myPID)
 
 // Unregister name if registered
-registry := topology.GetPIDRegistry(ctx)
+registry := topology.GetRegistry(ctx)
 registry.Unregister("worker-1")
 ```
 

@@ -175,7 +175,7 @@ func (h *Host) prepareContext(ctx context.Context, pid pubsub.PID, lifecycle pro
 	}
 
 	// global lifecycle
-	pCtx = process.GetProcesses(ctx).AttachLifecycle(pCtx, lifecycle)
+	pCtx = process.GetManager(ctx).AttachLifecycle(pCtx, lifecycle)
 
 	// local lifecycle
 	pCtx = process.WithAddedOnComplete(pCtx, h.finalizeProcess)

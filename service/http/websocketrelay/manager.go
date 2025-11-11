@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/ponyruntime/pony/api/topology"
 
@@ -15,6 +16,10 @@ import (
 	httpapi "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/internal/uniqid"
 	"go.uber.org/zap"
+)
+
+const (
+	OptionAllowedOrigins = "allowed_origins"
 )
 
 // RelayManager manages WebSocket connections and their relay to the pubsub system
@@ -33,8 +38,40 @@ func NewWebSocketRelay(ctx context.Context, logger *zap.Logger) *RelayManager {
 	}
 }
 
-// Middleware creates an HTTP middleware function that handles WebSocket relay requests
+// CreateMiddleware creates a configurable WebSocket relay middleware
+func (m *RelayManager) CreateMiddleware(options map[string]string) func(http.Handler) http.Handler {
+	// Parse allowed origins from options (comma-separated)
+	allowedOrigins := options[OptionAllowedOrigins]
+	if allowedOrigins == "" {
+		allowedOrigins = "*"
+	}
+
+	// Split by comma and trim spaces
+	var originPatterns []string
+	for _, origin := range strings.Split(allowedOrigins, ",") {
+		origin = strings.TrimSpace(origin)
+		if origin != "" {
+			originPatterns = append(originPatterns, origin)
+		}
+	}
+
+	// If no patterns after parsing, default to wildcard
+	if len(originPatterns) == 0 {
+		originPatterns = []string{"*"}
+	}
+
+	return func(h http.Handler) http.Handler {
+		return m.middlewareWithOrigins(h, originPatterns)
+	}
+}
+
+// Middleware creates an HTTP middleware function with default wildcard origin
 func (m *RelayManager) Middleware(h http.Handler) http.Handler {
+	return m.middlewareWithOrigins(h, []string{"*"})
+}
+
+// middlewareWithOrigins creates the actual middleware handler with specified origin patterns
+func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wrappedWriter := newResponseWrapper(w)
 
@@ -117,10 +154,9 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 			http.Error(w, "Server ID not found in context", http.StatusInternalServerError)
 			return
 		}
-		// todO: fix options
 		// Upgrade the connection to WebSocket
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-			OriginPatterns: []string{"*"},
+			OriginPatterns: originPatterns,
 		})
 		if err != nil {
 			logger.Error("Error upgrading to WebSocket", zap.Error(err))
