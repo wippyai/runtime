@@ -167,11 +167,6 @@ func (h *Host) prepareContext(ctx context.Context, launch *process.Launch) conte
 	// Create FrameContext with automatic inheritance of actor/scope
 	pCtx, _ := ctxapi.OpenFrameContext(ctx)
 
-	h.log.Info("prepareContext: launch.Context",
-		zap.Int("context_pairs", len(launch.Context)),
-		zap.String("pid", launch.PID.String()),
-		zap.String("source", launch.Source.String()))
-
 	// Store frame metadata and apply launch context overrides
 	if fc := ctxapi.FrameFromContext(pCtx); fc != nil {
 		// Build pairs: frame metadata + launch context overrides
@@ -182,24 +177,11 @@ func (h *Host) prepareContext(ctx context.Context, launch *process.Launch) conte
 
 		// Add launch context overrides (actor, scope, custom values, etc.)
 		if len(launch.Context) > 0 {
-			h.log.Info("prepareContext: applying context overrides", zap.Int("override_count", len(launch.Context)))
-			for i, pair := range launch.Context {
-				h.log.Info("prepareContext: context pair",
-					zap.Int("index", i),
-					zap.Any("key", pair.Key),
-					zap.Any("value", pair.Value))
-			}
 			pairs = append(pairs, launch.Context...)
-		} else {
-			h.log.Info("prepareContext: no context overrides")
 		}
-
-		h.log.Info("prepareContext: total pairs to set", zap.Int("total", len(pairs)))
 
 		if err := fc.SetMultiple(pairs...); err != nil {
 			h.log.Error("failed to set frame context", zap.Error(err))
-		} else {
-			h.log.Info("prepareContext: successfully set frame context")
 		}
 	}
 

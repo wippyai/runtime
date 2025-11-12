@@ -279,37 +279,23 @@ func buildContextPairs(spawner *WithContext) []context.Pair {
 		return nil
 	}
 
-	spawner.module.log.Info("buildContextPairs: starting",
-		zap.Bool("hasActor", spawner.hasActor),
-		zap.Bool("hasScope", spawner.hasScope),
-		zap.Int("values_count", func() int {
-			if spawner.values != nil {
-				return spawner.values.Len()
-			}
-			return 0
-		}()))
-
 	var pairs []context.Pair
 
 	// Add actor if set
 	if spawner.hasActor {
-		spawner.module.log.Info("buildContextPairs: adding actor", zap.Any("actor", spawner.actor))
 		pairs = append(pairs, secapi.ActorPair(spawner.actor))
 	}
 
 	// Add scope if set
 	if spawner.hasScope {
-		spawner.module.log.Info("buildContextPairs: adding scope")
 		pairs = append(pairs, secapi.ScopePair(spawner.scope))
 	}
 
 	// Add custom values if set
 	if spawner.values != nil && spawner.values.Len() > 0 {
-		spawner.module.log.Info("buildContextPairs: adding values")
 		pairs = append(pairs, context.ValuesPair(spawner.values))
 	}
 
-	spawner.module.log.Info("buildContextPairs: complete", zap.Int("pairs_count", len(pairs)))
 	return pairs
 }
 

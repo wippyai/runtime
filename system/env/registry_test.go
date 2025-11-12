@@ -103,6 +103,7 @@ func TestRegistry_Get_VariableWithName(t *testing.T) {
 
 	// Register variable with Name
 	variable := env.Variable{
+		ID:        registry.ParseID("app:my_var"),
 		Name:      "test_var", // getEnvName() will return this
 		StorageID: storageID,
 	}
@@ -138,6 +139,7 @@ func TestRegistry_Get_VariableWithoutName(t *testing.T) {
 
 	// Register variable without Name
 	variable := env.Variable{
+		ID:        registry.ParseID("app:my_var"),
 		Name:      "", // Empty name - getEnvName() will return ID.String()
 		StorageID: storageID,
 	}
@@ -173,6 +175,7 @@ func TestRegistry_Set_VariableWithName(t *testing.T) {
 
 	// Register variable with Name
 	variable := env.Variable{
+		ID:        registry.ParseID("app:my_var"),
 		Name:      "test_var",
 		StorageID: storageID,
 		ReadOnly:  false,
@@ -611,6 +614,7 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		wg.Add(1)
 
 		variable := env.Variable{
+			ID:        registry.ParseID("app:invalid"),
 			Name:      "invalid-name", // Invalid name with dash
 			StorageID: registry.ParseID("app:storage"),
 		}
@@ -653,6 +657,7 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		wg.Add(1)
 
 		variable := env.Variable{
+			ID:        registry.ParseID("app:test_var2"),
 			Name:      "test_var2",
 			StorageID: registry.ParseID("app:nonexistent"), // Storage doesn't exist
 		}
@@ -696,6 +701,7 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 
 		// Register first variable
 		variable1 := env.Variable{
+			ID:        registry.ParseID("app:var1"),
 			Name:      "same_name",
 			StorageID: registry.ParseID("app:storage"),
 		}
@@ -704,6 +710,7 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 
 		// Try to register second variable with same name
 		variable2 := env.Variable{
+			ID:        registry.ParseID("app:var2"),
 			Name:      "same_name", // Same name as first variable
 			StorageID: registry.ParseID("app:storage"),
 		}
@@ -844,6 +851,7 @@ func TestRegistry_EventHandling_VariableDelete(t *testing.T) {
 
 	// Register variable
 	variable := env.Variable{
+		ID:        registry.ParseID("app:test_var"),
 		Name:      "test_var",
 		StorageID: registry.ParseID("app:storage"),
 	}
@@ -962,6 +970,7 @@ func TestRegistry_GetBaseName(t *testing.T) {
 
 	t.Run("WithoutName", func(t *testing.T) {
 		variable := &env.Variable{
+			ID:   registry.ParseID("app:test"),
 			Name: "",
 		}
 		envName := reg.getEnvName(variable)

@@ -18,7 +18,7 @@ type Service struct {
 	ctx              context.Context
 	logger           *zap.Logger
 	connMan          ConnectionManager
-	codec            *MessageCodec
+	codec            cluster.MessageCodec
 	deliveryCallback PackageCallback
 	bus              event.Bus
 	membership       cluster.Membership
@@ -28,7 +28,7 @@ type Service struct {
 func NewService(
 	logger *zap.Logger,
 	connMan ConnectionManager,
-	codec *MessageCodec,
+	codec cluster.MessageCodec,
 	pkgCallback PackageCallback,
 	bus event.Bus,
 	membership cluster.Membership,

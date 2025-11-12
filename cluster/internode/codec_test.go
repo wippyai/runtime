@@ -73,10 +73,8 @@ func TestMessageCodec_PackagePIDs_SourceTarget(t *testing.T) {
 	if decoded.Source.Host != originalPkg.Source.Host {
 		t.Errorf("Source Host mismatch. Expected %q, got %q", originalPkg.Source.Host, decoded.Source.Host)
 	}
-	}
-	// todO: what the fuck is that?
 	if decoded.Source.UniqID != originalPkg.Source.UniqID {
-
+		t.Errorf("Source UniqID mismatch. Expected %q, got %q", originalPkg.Source.UniqID, decoded.Source.UniqID)
 	}
 
 	// Verify Target PID
@@ -86,9 +84,8 @@ func TestMessageCodec_PackagePIDs_SourceTarget(t *testing.T) {
 	if decoded.Target.Host != originalPkg.Target.Host {
 		t.Errorf("Target Host mismatch. Expected %q, got %q", originalPkg.Target.Host, decoded.Target.Host)
 	}
-	}
 	if decoded.Target.UniqID != originalPkg.Target.UniqID {
-
+		t.Errorf("Target UniqID mismatch. Expected %q, got %q", originalPkg.Target.UniqID, decoded.Target.UniqID)
 	}
 
 	// Verify message content
@@ -120,12 +117,12 @@ func TestMessageCodec_EmptyPIDs(t *testing.T) {
 	t.Logf("Original Source (empty): %s", originalPkg.Source.String())
 	t.Logf("Original Target (empty): %s", originalPkg.Target.String())
 
-	// This should be {|:|} for both
-	if originalPkg.Source.String() != "{|:|}" {
-		t.Errorf("Expected empty source to be {|:|}, got %s", originalPkg.Source.String())
+	// This should be {|} for both (new PID format without NS:Name)
+	if originalPkg.Source.String() != "{|}" {
+		t.Errorf("Expected empty source to be {|}, got %s", originalPkg.Source.String())
 	}
-	if originalPkg.Target.String() != "{|:|}" {
-		t.Errorf("Expected empty target to be {|:|}, got %s", originalPkg.Target.String())
+	if originalPkg.Target.String() != "{|}" {
+		t.Errorf("Expected empty target to be {|}, got %s", originalPkg.Target.String())
 	}
 
 	// Encode/decode
@@ -143,10 +140,10 @@ func TestMessageCodec_EmptyPIDs(t *testing.T) {
 	t.Logf("Decoded Target (should be empty): %s", decoded.Target.String())
 
 	// Verify they remain empty after round-trip
-	if decoded.Source.String() != "{|:|}" {
-		t.Errorf("Expected decoded source to be {|:|}, got %s", decoded.Source.String())
+	if decoded.Source.String() != "{|}" {
+		t.Errorf("Expected decoded source to be {|}, got %s", decoded.Source.String())
 	}
-	if decoded.Target.String() != "{|:|}" {
-		t.Errorf("Expected decoded target to be {|:|}, got %s", decoded.Target.String())
+	if decoded.Target.String() != "{|}" {
+		t.Errorf("Expected decoded target to be {|}, got %s", decoded.Target.String())
 	}
 }
