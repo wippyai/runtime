@@ -21,6 +21,43 @@
 - Don't repeat test data - use constants or table-driven tests
 - Don't write code that takes 15 seconds to understand - keep it simple
 
+## Cross-Platform Development
+
+### Platform Support
+- Tests run on: **Linux**, **macOS**, and **Windows**
+- Wippy builds for multiple platforms:
+  - Windows: x86
+  - Linux: amd64, arm
+  - macOS: arm, amd64
+- Write code that works correctly on all supported platforms
+
+### File System Considerations
+- **NEVER** hardcode path separators (`/` or `\`)
+- Use `filepath.Join()` and `filepath.Clean()` for path construction
+- Use `os.PathSeparator` when you need the separator character
+- Use `filepath.IsAbs()` to check absolute paths (works cross-platform)
+- Use `filepath.Rel()` and `filepath.Abs()` for path operations
+- Prefer `os.UserHomeDir()`, `os.UserConfigDir()`, `os.TempDir()` over hardcoded paths
+- Be careful with `~` expansion - it's shell-specific, not OS-specific
+- Test path handling on all three platforms when possible
+
+### Platform-Specific Code
+- Use `runtime.GOOS` for platform detection when necessary:
+  ```go
+  if runtime.GOOS == "windows" {
+      // Windows-specific code
+  }
+  ```
+- Prefer cross-platform solutions over platform-specific workarounds
+- Document any platform-specific behavior clearly
+
+### Common Pitfalls
+- ❌ `"/path/to/file"` - hardcoded Unix path
+- ❌ `"C:\\path\\to\\file"` - hardcoded Windows path
+- ❌ `strings.Split(path, "/")` - assumes Unix separator
+- ✅ `filepath.Join("path", "to", "file")` - cross-platform
+- ✅ `filepath.Split(path)` - cross-platform path splitting
+
 ## Before Commit:
 ```bash
 make lint  # Must be 0 issues

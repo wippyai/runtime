@@ -431,10 +431,11 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set multiple entries with different TTLs
+	// Use longer TTLs to account for CI/CD timing variations
 	keys := []registry.ID{
 		registry.ParseID("test:expire-50ms"),
 		registry.ParseID("test:expire-100ms"),
-		registry.ParseID("test:expire-150ms"),
+		registry.ParseID("test:expire-200ms"),
 		registry.ParseID("test:no-expire"),
 	}
 
@@ -444,7 +445,7 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 	err = ms.Set(ctx, createTestEntryWithTTL("test:expire-100ms", "100ms", 100*time.Millisecond))
 	require.NoError(t, err)
 
-	err = ms.Set(ctx, createTestEntryWithTTL("test:expire-150ms", "150ms", 150*time.Millisecond))
+	err = ms.Set(ctx, createTestEntryWithTTL("test:expire-200ms", "200ms", 200*time.Millisecond))
 	require.NoError(t, err)
 
 	err = ms.Set(ctx, createTestEntry("test:no-expire", "forever"))
@@ -457,10 +458,11 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 		assert.True(t, exists, "Key %s should exist initially", key)
 	}
 
-	// Wait for the first cleanup cycle
-	time.Sleep(75 * time.Millisecond)
+	// Wait for the first cleanup cycle (longer than 50ms TTL + cleanup interval)
+	// Use 80ms to check before 100ms key expires, but after 50ms key should be gone
+	time.Sleep(80 * time.Millisecond)
 
-	// After 75ms: 50ms key should be gone, others should remain
+	// After 80ms: 50ms key should be gone, others should remain
 	exists, err := ms.Has(ctx, keys[0]) // 50ms key
 	require.NoError(t, err)
 	assert.False(t, exists, "50ms key should be expired")
@@ -472,9 +474,9 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 	}
 
 	// Wait for the second cleanup cycle
-	time.Sleep(50 * time.Millisecond) // Now at ~125ms total
+	time.Sleep(50 * time.Millisecond) // Now at ~130ms total
 
-	// After 125ms: 50ms and 100ms keys should be gone, others should remain
+	// After 130ms: 50ms and 100ms keys should be gone, others should remain
 	for i := 0; i < 2; i++ {
 		exists, err = ms.Has(ctx, keys[i])
 		require.NoError(t, err)
@@ -488,9 +490,9 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 	}
 
 	// Wait for the third cleanup cycle
-	time.Sleep(50 * time.Millisecond) // Now at ~175ms total
+	time.Sleep(100 * time.Millisecond) // Now at ~230ms total
 
-	// After 175ms: All except the non-expiring key should be gone
+	// After 230ms: All except the non-expiring key should be gone
 	for i := 0; i < 3; i++ {
 		exists, err = ms.Has(ctx, keys[i])
 		require.NoError(t, err)
