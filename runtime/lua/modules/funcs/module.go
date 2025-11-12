@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -34,14 +32,13 @@ type Module struct {
 type Functions struct {
 	funcs  function.Registry
 	dtt    payload.Transcoder
-	values *contextapi.Contexter[any]
+	values *contextapi.Values
 
 	// Dedicated fields for security context to prevent overwriting/conflicting with user values
 	actor    secapi.Actor
 	hasActor bool
 	scope    secapi.Scope
 	hasScope bool
-	options  interceptor.Options
 }
 
 // NewFunctionModule creates a new function module
@@ -71,7 +68,6 @@ func (m *Module) initModuleTable(l *lua.LState) {
 		"with_context": m.withContext,
 		"with_actor":   m.withActor,
 		"with_scope":   m.withScope,
-		"with_options": m.withOptions,
 		"call":         m.call,
 		"async":        m.async,
 	})
@@ -117,9 +113,11 @@ func (m *Module) new(l *lua.LState) int {
 		return 0
 	}
 
-	values := contextapi.NewContexter[any]()
-	if ctxr, ok := l.Context().Value(contextapi.ValuesCtx).(*contextapi.Contexter[any]); ok {
-		values = ctxr.Clone()
+	values := contextapi.GetValues(l.Context())
+	if values != nil {
+		values = values.Clone()
+	} else {
+		values = contextapi.NewValues()
 	}
 
 	functions := &Functions{
@@ -154,11 +152,11 @@ func (m *Module) withContext(l *lua.LState) int {
 
 	ctxTable := l.CheckTable(2)
 
-	// Create new contexter and copy existing values
-	newValues := contextapi.NewContexter[any]()
+	// Create new Values and copy existing values
+	newValues := contextapi.NewValues()
 	if functions.values != nil {
-		functions.values.Iterate(func(key string, value any) {
-			newValues.SetValue(key, value)
+		functions.values.Iterate(func(key any, value any) {
+			newValues.Set(key, value)
 		})
 	}
 
@@ -169,7 +167,7 @@ func (m *Module) withContext(l *lua.LState) int {
 			l.ArgError(2, "context keys must be strings")
 			return
 		}
-		newValues.SetValue(string(key), luaconv.ToGoAny(v))
+		newValues.Set(string(key), luaconv.ToGoAny(v))
 	})
 
 	// Create new Functions instance with copied security context
@@ -290,90 +288,6 @@ func (m *Module) withScope(l *lua.LState) int {
 	return 1
 }
 
-// withOptions creates a new executor with specific options
-func (m *Module) withOptions(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
-	if !ok {
-		l.ArgError(1, "functions executor expected")
-		return 0
-	}
-
-	// Helper function to recursively convert Lua table to Go map
-	var convertTable func(t *lua.LTable) map[string]any
-	convertTable = func(t *lua.LTable) map[string]any {
-		result := make(map[string]any)
-		t.ForEach(func(k, v lua.LValue) {
-			key, ok := k.(lua.LString)
-			if !ok {
-				l.ArgError(2, "options keys must be strings")
-				return
-			}
-
-			// If value is a table, recursively convert it
-			if tbl, ok := v.(*lua.LTable); ok {
-				result[string(key)] = convertTable(tbl)
-			} else {
-				result[string(key)] = luaconv.ToGoAny(v)
-			}
-		})
-		return result
-	}
-
-	optionsTable := l.CheckTable(2)
-
-	// Convert the options table
-	optionsMap := convertTable(optionsTable)
-
-	options := interceptor.Options{}
-
-	// Convert retry options
-	if retry, ok := optionsMap["retry"].(map[string]any); ok {
-		if maxAttempts, ok := retry["max_attempts"].(int); ok {
-			options.Retry.MaxAttempts = maxAttempts
-		}
-	}
-
-	// Convert rate limit options
-	if rateLimit, ok := optionsMap["ratelimit"].(map[string]any); ok {
-		if rps, ok := rateLimit["requests_per_second"].(int); ok {
-			options.RateLimit.RequestsPerSecond = rps
-		}
-		if burst, ok := rateLimit["burst"].(int); ok {
-			options.RateLimit.Burst = burst
-		}
-	}
-
-	// Convert timeout options
-	if timeout, ok := optionsMap["timeout"].(map[string]any); ok {
-		if timeoutStr, ok := timeout["timeout"].(string); ok {
-			if duration, err := time.ParseDuration(timeoutStr); err == nil {
-				options.Timeout.Timeout = interceptor.Duration(duration)
-			}
-		}
-	}
-
-	// Create new Functions instance with copied values and new options
-	newFunctions := &Functions{
-		funcs:    functions.funcs,
-		dtt:      functions.dtt,
-		values:   functions.values.Clone(),
-		actor:    functions.actor,
-		hasActor: functions.hasActor,
-		scope:    functions.scope,
-		hasScope: functions.hasScope,
-		options:  options,
-	}
-
-	// Create new userdata with the new Functions instance
-	newUd := l.NewUserData()
-	newUd.Value = newFunctions
-	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
-	l.Push(newUd)
-
-	return 1
-}
-
 // validateRegistryID validates a registry ID
 func validateRegistryID(id registry.ID) error {
 	if id.NS == "" {
@@ -439,13 +353,7 @@ func (m *Module) call(l *lua.LState) int {
 
 	// Wrap in coroutine for execution
 	coroutine.Wrap(l, func() *engine.Update {
-		// Create execution context with security context values
-		execCtx := engine.DetachUnitOfWork(uw.Context())
-		execCtx = functions.applySecurityContext(execCtx)
-		execCtx = context.WithValue(execCtx, contextapi.ValuesCtx, functions.values)
-		execCtx = interceptor.WithOptions(execCtx, functions.options)
-
-		resultChan, err := functions.funcs.Call(execCtx, t)
+		resultChan, err := functions.funcs.Call(uw.Context(), t)
 		if err != nil {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
@@ -516,20 +424,14 @@ func (m *Module) async(l *lua.LState) int {
 		return 0
 	}
 
-	// Serve the function execution in a goroutine
+	// Get unit of work context
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("no unit of work context found")
 		return 0
 	}
 
-	baseCtx := engine.DetachUnitOfWork(uw.Context())
-
-	// Apply security context
-	execCtx := functions.applySecurityContext(baseCtx)
-	execCtx = context.WithValue(execCtx, contextapi.ValuesCtx, functions.values)
-
-	ctx, cancel := context.WithCancel(execCtx)
+	ctx, cancel := context.WithCancel(uw.Context())
 
 	// Create a Command for the function call with the task's params
 	cmd := command.NewCommand(
@@ -564,21 +466,6 @@ func (m *Module) async(l *lua.LState) int {
 	// Return the command object
 	l.Push(command.WrapCommand(l, cmd))
 	return 1
-}
-
-// applySecurityContext applies the actor and scope values to the context
-func (f *Functions) applySecurityContext(ctx context.Context) context.Context {
-	// Apply actor if set
-	if f.hasActor {
-		ctx = secapi.WithActor(ctx, f.actor)
-	}
-
-	// Apply scope if set
-	if f.hasScope {
-		ctx = secapi.WithScope(ctx, f.scope)
-	}
-
-	return ctx
 }
 
 // createTask creates a runtime.Task from Lua parameters
@@ -616,8 +503,29 @@ func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 		payloads = append(payloads, luaconv.ExportPayload(val))
 	}
 
-	return runtime.Task{
+	// Build context override pairs from Functions struct fields
+	var ctxPairs []contextapi.Pair
+
+	// Add actor if set
+	if f.hasActor {
+		ctxPairs = append(ctxPairs, secapi.ActorPair(f.actor))
+	}
+
+	// Add scope if set
+	if f.hasScope {
+		ctxPairs = append(ctxPairs, secapi.ScopePair(f.scope))
+	}
+
+	// Add custom values if set
+	if f.values != nil && f.values.Len() > 0 {
+		ctxPairs = append(ctxPairs, contextapi.ValuesPair(f.values))
+	}
+
+	task := runtime.Task{
 		ID:       regID,
 		Payloads: payloads,
-	}, nil
+		Context:  ctxPairs,
+	}
+
+	return task, nil
 }

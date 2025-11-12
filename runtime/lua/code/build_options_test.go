@@ -239,7 +239,6 @@ func TestBuildOptions_Validate(t *testing.T) {
 	// Helper function to create test nodes
 	createNode := func(name string) *Node {
 		return &Node{
-			ID:     registry.ID{Name: name},
 			Kind:   "function.lua",
 			Source: "function " + name + "() return 'test' end",
 			Method: "test",

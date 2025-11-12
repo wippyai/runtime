@@ -1,3 +1,5 @@
+//go:build !plugin_minimal
+
 package service
 
 import (
@@ -11,35 +13,36 @@ import (
 	logapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
 	bootpkg "github.com/ponyruntime/pony/boot"
+	bootsystem "github.com/ponyruntime/pony/boot/system"
 	"github.com/ponyruntime/pony/service/http"
 	"github.com/ponyruntime/pony/service/http/cors"
 	"github.com/ponyruntime/pony/service/http/firewall"
 	"github.com/ponyruntime/pony/service/http/realip"
 	"github.com/ponyruntime/pony/service/http/websocketrelay"
 	"github.com/ponyruntime/pony/service/tokenstore"
-	reghandler "github.com/ponyruntime/pony/system/registry/events"
 )
 
-func init() {
-	bootpkg.MustRegister(bootpkg.NewService(bootpkg.ServiceP{
-		Name:      bootpkg.HTTP,
+func HTTP() boot.Plugin {
+	return boot.New(boot.P{
+		Name:      HTTPName,
 		Phase:     boot.PostInit,
-		DependsOn: []string{bootpkg.Functions, bootpkg.Filesystem},
-		Load: func(ctx context.Context) (context.Context, interface{}, error) {
+		DependsOn: []string{bootsystem.FunctionsName, bootsystem.FilesystemName},
+		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			dtt := payload.GetTranscoder(ctx)
 			bus := event.GetBus(ctx)
 			funcs := funcapi.GetRegistry(ctx)
 			fsRegistry := fsapi.GetRegistry(ctx)
+			handlers := bootpkg.GetHandlerRegistry(ctx)
 
 			endpointFactory, err := http.NewEndpointFactory(funcs)
 			if err != nil {
-				return ctx, nil, fmt.Errorf("failed to create endpoint factory: %w", err)
+				return ctx, fmt.Errorf("failed to create endpoint factory: %w", err)
 			}
 
 			staticFactory, err := http.NewStaticFactory(fsRegistry)
 			if err != nil {
-				return ctx, nil, fmt.Errorf("failed to create static factory: %w", err)
+				return ctx, fmt.Errorf("failed to create static factory: %w", err)
 			}
 
 			relayManager := websocketrelay.NewWebSocketRelay(ctx, logger.Named("ws"))
@@ -63,11 +66,11 @@ func init() {
 				logger.Named("http"),
 			)
 			if err != nil {
-				return ctx, nil, fmt.Errorf("failed to create http manager: %w", err)
+				return ctx, fmt.Errorf("failed to create http manager: %w", err)
 			}
 
-			handler := reghandler.NewRegistryHandler("http.*", manager)
-			return ctx, handler, nil
+			handlers.RegisterListener("http.*", manager)
+			return ctx, nil
 		},
-	}))
+	})
 }

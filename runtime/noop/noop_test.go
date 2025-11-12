@@ -6,7 +6,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -52,14 +51,12 @@ func TestNoopRuntime_Execute(t *testing.T) {
 		{
 			name: "basic execution",
 			task: runtime.Task{
-				ID: registry.ParseID("test-function"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "empty target",
 			task: runtime.Task{
-				ID: registry.ParseID(""),
 			},
 			wantErr: false,
 		},
@@ -96,7 +93,6 @@ func TestNoopRuntime_Add(t *testing.T) {
 		{
 			name: "add function entry",
 			entry: registry.Entry{
-				ID: registry.ID{
 					NS:   "test-ns",
 					Name: "test-function",
 				},
@@ -107,7 +103,6 @@ func TestNoopRuntime_Add(t *testing.T) {
 		{
 			name: "add empty entry",
 			entry: registry.Entry{
-				ID: registry.ID{
 					NS:   "",
 					Name: "",
 				},
@@ -149,7 +144,6 @@ func TestNoopRuntime_Update(t *testing.T) {
 		{
 			name: "update function entry",
 			entry: registry.Entry{
-				ID: registry.ID{
 					NS:   "test-ns",
 					Name: "test-function",
 				},
@@ -160,7 +154,6 @@ func TestNoopRuntime_Update(t *testing.T) {
 		{
 			name: "update empty entry",
 			entry: registry.Entry{
-				ID: registry.ID{
 					NS:   "",
 					Name: "",
 				},
@@ -197,7 +190,6 @@ func TestNoopRuntime_Delete(t *testing.T) {
 		{
 			name: "delete function entry",
 			entry: registry.Entry{
-				ID: registry.ID{
 					NS:   "test-ns",
 					Name: "test-function",
 				},
@@ -208,7 +200,6 @@ func TestNoopRuntime_Delete(t *testing.T) {
 		{
 			name: "delete empty entry",
 			entry: registry.Entry{
-				ID: registry.ID{
 					NS:   "",
 					Name: "",
 				},

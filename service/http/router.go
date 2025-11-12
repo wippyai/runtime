@@ -1,13 +1,13 @@
 package http
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/registry"
 	httpapi "github.com/ponyruntime/pony/api/service/http"
 )
@@ -252,20 +252,42 @@ func (rm *RouteManager) Build() error {
 	}
 
 	// Build routes from all routers
+	registeredOptions := make(map[string]bool)
+
 	for _, routerEntry := range rm.routers {
 		for routeID, route := range routerEntry.routes {
 			// Build full pattern: "METHOD /prefix/path"
 			pattern := buildPattern(route.method, routerEntry.prefix, route.path)
 
-			// Create handler that extracts params and applies middleware
+			// Create handler that extracts params and applies post-middleware
 			handler := rm.createRouteHandler(routeID, route, routerEntry)
 
-			// Apply pre-match middleware
+			// Apply pre-match middleware (CORS, RealIP, etc.)
 			if len(routerEntry.middleware) > 0 {
 				handler = applyMiddlewareChain(routerEntry.middleware, handler)
 			}
 
-			mux.HandleFunc(pattern, handler.ServeHTTP)
+			mux.Handle(pattern, handler)
+
+			// Generate OPTIONS handler for CORS preflight (once per path)
+			if route.method != "OPTIONS" {
+				optionsPattern := buildPattern("OPTIONS", routerEntry.prefix, route.path)
+
+				// Only register if not already registered
+				if !registeredOptions[optionsPattern] {
+					optionsHandler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.WriteHeader(http.StatusNoContent)
+					}))
+
+					// Apply same pre-match middleware to OPTIONS
+					if len(routerEntry.middleware) > 0 {
+						optionsHandler = applyMiddlewareChain(routerEntry.middleware, optionsHandler)
+					}
+
+					mux.Handle(optionsPattern, optionsHandler)
+					registeredOptions[optionsPattern] = true
+				}
+			}
 		}
 	}
 
@@ -294,8 +316,11 @@ func (rm *RouteManager) createRouteHandler(routeID registry.ID, route *RouteEntr
 		routeInfo.Endpoint = routeID
 		routeInfo.Func = route.funcID
 
-		// Add route info to context
-		r = r.WithContext(context.WithValue(r.Context(), httpapi.RouteCtx, routeInfo))
+		// Add route info to FrameContext
+		fc := contextapi.FrameFromContext(r.Context())
+		if fc != nil {
+			_ = fc.Set(httpapi.RouteCtx, routeInfo)
+		}
 
 		// Apply post-match middleware and call endpoint handler
 		finalHandler := route.handler

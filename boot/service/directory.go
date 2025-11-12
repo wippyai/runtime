@@ -1,3 +1,5 @@
+//go:build !plugin_minimal
+
 package service
 
 import (
@@ -9,38 +11,28 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	bootpkg "github.com/ponyruntime/pony/boot"
 	fsdir "github.com/ponyruntime/pony/service/directory"
-	"github.com/ponyruntime/pony/system/eventbus"
-	reghandler "github.com/ponyruntime/pony/system/registry/events"
 )
 
-type directoryPlugin struct {
-	handler eventbus.EventHandler
-}
+func Directory() boot.Plugin {
+	return boot.New(boot.P{
+		Name:      "directory",
+		Phase:     boot.PostInit,
+		DependsOn: nil,
+		Load: func(ctx context.Context) (context.Context, error) {
+			logger := logapi.GetLogger(ctx)
+			dtt := payload.GetTranscoder(ctx)
+			bus := event.GetBus(ctx)
+			handlers := bootpkg.GetHandlerRegistry(ctx)
 
-func (p *directoryPlugin) Name() string        { return "directory" }
-func (p *directoryPlugin) Phase() boot.Phase   { return boot.PostInit }
-func (p *directoryPlugin) DependsOn() []string { return nil }
+			manager := fsdir.NewDirectoryManager(
+				bus,
+				dtt,
+				nil,
+				logger.Named("fs.dir"),
+			)
 
-func (p *directoryPlugin) Load(ctx context.Context) (context.Context, error) {
-	logger := logapi.GetLogger(ctx)
-	dtt := payload.GetTranscoder(ctx)
-	bus := event.GetBus(ctx)
-
-	manager := fsdir.NewDirectoryManager(
-		bus,
-		dtt,
-		nil,
-		logger.Named("fs.dir"),
-	)
-
-	p.handler = reghandler.NewRegistryHandler("fs.directory", manager)
-	return ctx, nil
-}
-
-func (p *directoryPlugin) Handler() eventbus.EventHandler {
-	return p.handler
-}
-
-func init() {
-	bootpkg.MustRegister(&directoryPlugin{})
+			handlers.RegisterListener("fs.directory", manager)
+			return ctx, nil
+		},
+	})
 }

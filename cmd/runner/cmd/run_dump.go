@@ -165,7 +165,6 @@ var runDumpCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		app.SetServices(appbuild.CreateServiceHandlers(app))
 		runtime.GC()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)

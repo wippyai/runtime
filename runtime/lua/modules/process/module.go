@@ -5,10 +5,12 @@ import (
 	"strings"
 	"time"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/security"
@@ -160,7 +162,7 @@ func (m *Module) setOptions(l *lua.LState) int {
 	return 2
 }
 
-// checkPID validates context and returns Target if valid
+// checkPID validates context and returns PID from frame context if valid
 func (m *Module) checkPID(l *lua.LState) (pubsub.PID, bool) {
 	ctx := l.Context()
 	if ctx == nil {
@@ -169,7 +171,7 @@ func (m *Module) checkPID(l *lua.LState) (pubsub.PID, bool) {
 		return pubsub.PID{}, false
 	}
 
-	pid, ok := pubsub.GetPID(ctx)
+	pid, ok := runtime.GetFramePID(ctx)
 	return pid, ok
 }
 
@@ -275,14 +277,38 @@ func (m *Module) pid(l *lua.LState) int {
 	return 1
 }
 
-// id returns the string representation of the current pid
+// id returns the string representation of the current call ID
 func (m *Module) id(l *lua.LState) int {
-	pid, ok := m.checkPID(l)
-	if !ok {
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context found"))
 		return 2
 	}
 
-	l.Push(lua.LString(pid.ID.String()))
+	// Get call ID from FrameContext
+	cc := ctxapi.FrameFromContext(ctx)
+	if cc == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("FrameContext not found"))
+		return 2
+	}
+
+	idValue, ok := cc.Get(runtime.FrameIDKey)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("call ID not found in context"))
+		return 2
+	}
+
+	callID, ok := idValue.(registry.ID)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("invalid call ID type"))
+		return 2
+	}
+
+	l.Push(lua.LString(callID.String()))
 	return 1
 }
 
@@ -471,7 +497,7 @@ func (m *Module) spawnMonitored(l *lua.LState) int {
 		},
 	}
 
-	pid, err := manager.Start(uw.Context(), start)
+	pid, err := manager.Start(l.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))

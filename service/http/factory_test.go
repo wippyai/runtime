@@ -172,8 +172,16 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		registry.Register(cfg.Func, func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 			resultCh := make(chan *runtime.Result, 1)
 
-			// Get request context
-			rctx := ctx.Value(config.RequestCtx).(*config.RequestContext)
+			// Get request context from FrameContext
+			fc := ctxapi.FrameFromContext(ctx)
+			if fc == nil {
+				panic("FrameContext not found")
+			}
+			val, ok := fc.Get(config.RequestCtx)
+			if !ok {
+				panic("RequestCtx not found in FrameContext")
+			}
+			rctx := val.(*config.RequestContext)
 
 			// send response
 			rctx.MarkHandled()
@@ -197,7 +205,10 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		// Test handler
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "http://example.com/test", nil)
-		req = req.WithContext(ctx)
+
+		// Create FrameContext like the HTTP server does
+		ctxWithFrame, _ := ctxapi.OpenFrameContext(ctx)
+		req = req.WithContext(ctxWithFrame)
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -230,7 +241,10 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		// Test handler
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "http://example.com/test", nil)
-		req = req.WithContext(ctx)
+
+		// Create FrameContext like the HTTP server does
+		ctxWithFrame, _ := ctxapi.OpenFrameContext(ctx)
+		req = req.WithContext(ctxWithFrame)
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)

@@ -59,7 +59,10 @@ func (p *mockPlugin) Stop(ctx context.Context) error {
 
 func TestLoaderRegister(t *testing.T) {
 	t.Run("register single plugin", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 		p := &mockPlugin{name: "test", phase: boot.PreInit}
 
 		if err := loader.Register(p); err != nil {
@@ -72,12 +75,15 @@ func TestLoaderRegister(t *testing.T) {
 	})
 
 	t.Run("register duplicate plugin", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 		p1 := &mockPlugin{name: "test", phase: boot.PreInit}
 		p2 := &mockPlugin{name: "test", phase: boot.Init}
 
 		loader.Register(p1)
-		err := loader.Register(p2)
+		err = loader.Register(p2)
 
 		if err == nil {
 			t.Error("Register() expected error for duplicate, got nil")
@@ -85,7 +91,10 @@ func TestLoaderRegister(t *testing.T) {
 	})
 
 	t.Run("register with dependencies", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 		p1 := &mockPlugin{name: "dep", phase: boot.PreInit}
 		p2 := &mockPlugin{name: "main", phase: boot.Init, deps: []string{"dep"}}
 
@@ -100,7 +109,10 @@ func TestLoaderRegister(t *testing.T) {
 
 func TestLoaderLoad(t *testing.T) {
 	t.Run("load single plugin", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 		p := &mockPlugin{name: "test", phase: boot.PreInit}
 		loader.Register(p)
 
@@ -119,7 +131,10 @@ func TestLoaderLoad(t *testing.T) {
 	})
 
 	t.Run("load with dependencies in correct order", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 
 		var order []string
 		trackOrder := func(name string) {
@@ -159,7 +174,7 @@ func TestLoaderLoad(t *testing.T) {
 		loader.Register(p2)
 		loader.Register(p3)
 
-		_, err := loader.Load(context.Background())
+		_, err = loader.Load(context.Background())
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
 		}
@@ -182,7 +197,10 @@ func TestLoaderLoad(t *testing.T) {
 	})
 
 	t.Run("load with circular dependency", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 
 		p1 := &mockPlugin{name: "a", phase: boot.Init, deps: []string{"b"}}
 		p2 := &mockPlugin{name: "b", phase: boot.Init, deps: []string{"a"}}
@@ -190,32 +208,38 @@ func TestLoaderLoad(t *testing.T) {
 		loader.Register(p1)
 		loader.Register(p2)
 
-		_, err := loader.Load(context.Background())
+		_, err = loader.Load(context.Background())
 		if err == nil {
 			t.Error("Load() expected error for circular dependency, got nil")
 		}
 	})
 
 	t.Run("load with missing dependency", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 
 		p := &mockPlugin{name: "main", phase: boot.Init, deps: []string{"missing"}}
 		loader.Register(p)
 
-		_, err := loader.Load(context.Background())
+		_, err = loader.Load(context.Background())
 		if err == nil {
 			t.Error("Load() expected error for missing dependency, got nil")
 		}
 	})
 
 	t.Run("load error propagation", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 
 		expectedErr := errors.New("load failed")
 		p := &mockPlugin{name: "test", phase: boot.PreInit, loadErr: expectedErr}
 		loader.Register(p)
 
-		_, err := loader.Load(context.Background())
+		_, err = loader.Load(context.Background())
 		if err == nil {
 			t.Error("Load() expected error, got nil")
 		}
@@ -227,7 +251,10 @@ func TestLoaderLoad(t *testing.T) {
 
 func TestLoaderStart(t *testing.T) {
 	t.Run("start all plugins", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 
 		p1 := &mockPlugin{name: "a", phase: boot.PreInit}
 		p2 := &mockPlugin{name: "b", phase: boot.Init}
@@ -250,14 +277,17 @@ func TestLoaderStart(t *testing.T) {
 	})
 
 	t.Run("start error propagation", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 
 		expectedErr := errors.New("start failed")
 		p := &mockPlugin{name: "test", phase: boot.PreInit, startErr: expectedErr}
 		loader.Register(p)
 
 		ctx, _ := loader.Load(context.Background())
-		err := loader.Start(ctx)
+		err = loader.Start(ctx)
 
 		if err == nil {
 			t.Error("boot.Start() expected error, got nil")
@@ -268,11 +298,14 @@ func TestLoaderStart(t *testing.T) {
 	})
 
 	t.Run("start without load", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 		p := &mockPlugin{name: "test", phase: boot.PreInit}
 		loader.Register(p)
 
-		err := loader.Start(context.Background())
+		err = loader.Start(context.Background())
 		if err != nil {
 			t.Errorf("boot.Start() error = %v, want nil (no plugins loaded)", err)
 		}
@@ -285,7 +318,10 @@ func TestLoaderStart(t *testing.T) {
 
 func TestLoaderShutdown(t *testing.T) {
 	t.Run("shutdown in reverse order", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 
 		var order []string
 
@@ -341,14 +377,17 @@ func TestLoaderShutdown(t *testing.T) {
 	})
 
 	t.Run("shutdown error propagation", func(t *testing.T) {
-		loader := NewLoader()
+		loader, err := NewLoader()
+		if err != nil {
+			t.Fatalf("NewLoader() error = %v", err)
+		}
 
 		expectedErr := errors.New("stop failed")
 		p := &mockPlugin{name: "test", phase: boot.PreInit, stopErr: expectedErr}
 		loader.Register(p)
 
 		ctx, _ := loader.Load(context.Background())
-		err := loader.Shutdown(ctx)
+		err = loader.Shutdown(ctx)
 
 		if err == nil {
 			t.Error("Shutdown() expected error, got nil")
@@ -360,7 +399,10 @@ func TestLoaderShutdown(t *testing.T) {
 }
 
 func TestLoaderFullLifecycle(t *testing.T) {
-	loader := NewLoader()
+	loader, err := NewLoader()
+	if err != nil {
+		t.Fatalf("NewLoader() error = %v", err)
+	}
 
 	var events []string
 	track := func(event string) {

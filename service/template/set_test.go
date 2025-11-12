@@ -99,7 +99,6 @@ func TestNewTemplateSet(t *testing.T) {
 	require.NotNil(t, set)
 
 	// Check that the set was created correctly
-	assert.Equal(t, id, set.ID())
 	assert.Equal(t, cfg, set.Config())
 	assert.NotNil(t, set.jetSet)
 	assert.NotNil(t, set.loader)

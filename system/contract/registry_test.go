@@ -366,7 +366,6 @@ func TestContractRegistry_GetContract(t *testing.T) {
 	contractObj, err := contractRegistry.GetContract(ctx, contractID)
 	require.NoError(t, err)
 	assert.NotNil(t, contractObj)
-	assert.Equal(t, contractID, contractObj.ID())
 	assert.Len(t, contractObj.Methods(), 1)
 	assert.Equal(t, "testMethod", contractObj.Methods()[0].Name)
 
@@ -435,7 +434,6 @@ func TestContractRegistry_GetBinding(t *testing.T) {
 	binding, err := contractRegistry.GetBinding(ctx, bindingID)
 	require.NoError(t, err)
 	assert.NotNil(t, binding)
-	assert.Equal(t, bindingID, binding.ID)
 	assert.Equal(t, "value", binding.Meta["key"])
 	assert.Len(t, binding.Contracts, 1)
 

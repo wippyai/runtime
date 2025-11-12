@@ -10,43 +10,82 @@ import (
 
 // Context keys
 var (
-	actorCtx = &ctxapi.Key{Name: "security.actor", Scope: ctxapi.ScopeThread}
+	actorCtx = &ctxapi.Key{Name: "security.actor", Inherit: true}
 
-	scopeCtx = &ctxapi.Key{Name: "security.scope", Scope: ctxapi.ScopeThread}
+	scopeCtx = &ctxapi.Key{Name: "security.scope", Inherit: true}
 
-	registryCtx = &ctxapi.Key{Name: "security.registry", Scope: ctxapi.ScopeThread}
+	registryCtx = &ctxapi.Key{Name: "security.registry"}
 )
 
-// WithActor attaches an actor to the context
-func WithActor(ctx context.Context, actor Actor) context.Context {
-	return context.WithValue(ctx, actorCtx, actor)
+// ActorPair creates a context.Pair for setting an actor.
+// Use this to build context override pairs for Task/Launch.
+func ActorPair(actor Actor) ctxapi.Pair {
+	return ctxapi.Pair{Key: actorCtx, Value: actor}
 }
 
-// GetActor retrieves the actor from the context
+// ScopePair creates a context.Pair for setting a scope.
+// Use this to build context override pairs for Task/Launch.
+func ScopePair(scope Scope) ctxapi.Pair {
+	return ctxapi.Pair{Key: scopeCtx, Value: scope}
+}
+
+// SetActor sets the actor in the FrameContext.
+// Returns error if no frame context or frame is sealed.
+func SetActor(ctx context.Context, actor Actor) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return errors.New("no frame context available")
+	}
+	return fc.Set(actorCtx, actor)
+}
+
+// GetActor retrieves the actor from the FrameContext.
 func GetActor(ctx context.Context) (Actor, bool) {
-	actor, ok := ctx.Value(actorCtx).(Actor)
-	return actor, ok
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return Actor{}, false
+	}
+	if val, ok := fc.Get(actorCtx); ok {
+		if actor, ok := val.(Actor); ok {
+			return actor, true
+		}
+	}
+	return Actor{}, false
 }
 
-// WithScope attaches a scope to the context
-func WithScope(ctx context.Context, scope Scope) context.Context {
-	return context.WithValue(ctx, scopeCtx, scope)
+// SetScope sets the scope in the FrameContext.
+// Returns error if no frame context or frame is sealed.
+func SetScope(ctx context.Context, scope Scope) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return errors.New("no frame context available")
+	}
+	return fc.Set(scopeCtx, scope)
 }
 
-// GetScope retrieves the scope from the context
+// GetScope retrieves the scope from the FrameContext.
 func GetScope(ctx context.Context) (Scope, bool) {
-	scope, ok := ctx.Value(scopeCtx).(Scope)
-	return scope, ok
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil, false
+	}
+	if val, ok := fc.Get(scopeCtx); ok {
+		if scope, ok := val.(Scope); ok {
+			return scope, true
+		}
+	}
+	return nil, false
 }
 
-// WithPolicy creates a new context with an added policy
-func WithPolicy(ctx context.Context, policy Policy) context.Context {
+// WithPolicy adds a policy to the current scope in the FrameContext.
+// Returns error if no scope found or frame is sealed.
+func WithPolicy(ctx context.Context, policy Policy) error {
 	scope, ok := GetScope(ctx)
 	if !ok {
-		panic("security scope not found in context")
+		return errors.New("security scope not found in context")
 	}
 
-	return WithScope(ctx, scope.With(policy))
+	return SetScope(ctx, scope.With(policy))
 }
 
 // WithRegistry attaches a security registry to the context
@@ -104,18 +143,4 @@ func IsAllowed(ctx context.Context, action, resource string, meta registry.Metad
 
 	result := scope.Evaluate(actor, action, resource, meta)
 	return result == Allow
-}
-
-func CopyContext(source, target context.Context) context.Context {
-	// Copy the actor
-	if actor, ok := GetActor(source); ok {
-		target = WithActor(target, actor)
-	}
-
-	// Copy the scope
-	if scope, ok := GetScope(source); ok {
-		target = WithScope(target, scope)
-	}
-
-	return target
 }

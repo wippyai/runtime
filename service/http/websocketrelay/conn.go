@@ -92,7 +92,6 @@ func NewConnection(
 	wsPID := pubsub.PID{
 		Node:   node.ID(),
 		Host:   serverID.String(),
-		ID:     registry.ParseID("ws:conn"),
 		UniqID: idGen.Generate(), // Use the passed idGen
 	}.Precomputed()
 
@@ -126,17 +125,11 @@ func NewConnection(
 	}
 
 	// Attach the WebSocket PID to the relay host
-	cancelAttach, err := host.Attach(wsPID, conn.msgCh)
+	_, err := host.Attach(wsPID, conn.msgCh)
 	if err != nil {
+		logger.Error("Failed to attach to host", zap.Error(err))
 		cancel()
 		return nil, fmt.Errorf("failed to attach to relay: %w", err)
-	}
-
-	// Store the cancel function for later use
-	originalCancel := conn.cancelCtx
-	conn.cancelCtx = func() {
-		cancelAttach()
-		originalCancel()
 	}
 
 	return conn, nil
@@ -182,14 +175,16 @@ func (c *Connection) processMessages() {
 			return
 
 		case <-c.readDone:
+			c.logger.Info("Read done, exiting message loop")
 			return
 
 		case <-c.heartbeatTicker.C:
+			c.logger.Debug("Sending heartbeat")
 			c.sendHeartbeat()
 
 		case pkg, ok := <-c.msgCh:
 			if !ok {
-				c.logger.Debug("message channel closed")
+				c.logger.Info("Message channel closed, exiting message loop")
 				return
 			}
 
@@ -244,9 +239,19 @@ func (c *Connection) forwardMessageToPubSub(msgType websocket.MessageType, data 
 		payloadData = payload.NewPayload(data, payload.Bytes)
 	}
 
+	c.logger.Info("Forwarding message from WebSocket to pubsub",
+		zap.String("from", c.wsPID.String()),
+		zap.String("to", c.currentTargetPID.String()),
+		zap.String("topic", string(c.currentMessageTopic)),
+		zap.Int("data_len", len(data)))
+
 	// Send to target PID
 	msg := pubsub.NewPackage(c.wsPID, c.currentTargetPID, c.currentMessageTopic, payloadData)
-	return c.node.Send(msg)
+	err := c.node.Send(msg)
+	if err != nil {
+		c.logger.Error("Failed to send message to node", zap.Error(err))
+	}
+	return err
 }
 
 // handlePubSubPackage processes a package received from pubsub

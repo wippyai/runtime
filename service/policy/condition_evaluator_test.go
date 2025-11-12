@@ -1,11 +1,9 @@
 package policy
 
 import (
-	"testing"
-
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/api/service/policy"
+	"testing"
 )
 
 func newMockActor(id string, meta registry.Metadata) security.Actor {

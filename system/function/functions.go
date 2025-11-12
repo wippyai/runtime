@@ -197,94 +197,89 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (chan *runtim
 		return nil, fmt.Errorf("nil context")
 	}
 
-	// Initialize CallContext if not already present
-	// This allows reusing existing CallContext when called from another function
-	cc := ctxapi.CallFromContext(ctx)
-	if cc == nil {
-		// No CallContext - this is a top-level function call from outside
-		ctx, cc = ctxapi.NewCallContext(ctx)
-	}
-
-	// Note: ScopeThread values are automatically copied to the new CallContext
-
 	handler, exists := f.handlers.Load(task.ID)
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for target: %s", task.ID)
 	}
-
-	// -- down the line we have to transform pretty much all of this shit
-
-	storedOptions, exists := f.options.Load(task.ID)
-	if !exists {
-		storedOptions = interceptor.Options{}
-	}
-	options, ok := storedOptions.(interceptor.Options)
-	if !ok {
-		return nil, fmt.Errorf("invalid options type for target: %s", task.ID)
-	}
-
-	// keep context boundaries todo: we have to remove this, noit allo
 
 	execHandler, ok := handler.(function.Func)
 	if !ok {
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.ID)
 	}
 
-	// Check if PID is already set in CallContext - this is a boundary violation
-	if cc.Has(runtimeapi.CallPIDKey) {
-		return nil, fmt.Errorf("function call boundary violation: PID already set in CallContext")
-	}
+	// Get or create FrameContext for this function call
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
-	// Generate new PID for this function call (node is configured in generator)
+	// Generate PID for this function call
 	gen := pidgen.GetGenerator(ctx)
 	pid := gen.Generate(function.HostID, task.ID)
 
-	// Store call ID (registry.ID) in CallContext
-	if err := cc.Set(runtimeapi.CallIDKey, task.ID); err != nil {
-		return nil, fmt.Errorf("failed to set call ID: %w", err)
+	// Store frame metadata
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil, fmt.Errorf("no frame context available")
 	}
 
-	// Store unique PID (UniqID string) in CallContext
-	if err := cc.Set(runtimeapi.CallPIDKey, pid.UniqID); err != nil {
-		return nil, fmt.Errorf("failed to set call PID: %w", err)
+	// Build pairs to set: frame metadata + task context overrides
+	pairs := []ctxapi.Pair{
+		{Key: runtimeapi.FrameIDKey, Value: task.ID},
+		{Key: runtimeapi.FramePIDKey, Value: pid},
+		{Key: runtimeapi.FrameHostKey, Value: f.host},
 	}
 
-	// --- todo: we need to add proper layers for CTX to avoid so many ctx spans
-	ctx = pubsub.WithHost(ctx, f.host)
-	ctx = pubsub.WithPID(ctx, pid)
-	ctx = interceptor.WithOptions(ctx, options)
-	//ctx, cancel := context.WithCancel(ctx)
-	// defer cancel()
+	// Add task context overrides (actor, scope, custom values, etc.)
+	if len(task.Context) > 0 {
+		pairs = append(pairs, task.Context...)
+	}
 
-	//ctx = interceptor.WithCancel(ctx, cancel)
-	// ---
+	if err := fc.SetMultiple(pairs...); err != nil {
+		return nil, fmt.Errorf("failed to set frame context: %w", err)
+	}
 
-	//interceptorsRegistry := interceptor.GetInterceptors(ctx)
-	//if interceptorsRegistry != nil {
-	//	ch, err := interceptorsRegistry.GetChain().Execute(
-	//		ctx,
-	//		execHandler,
-	//		task,
-	//	)
-	//	if err != nil {
-	//		f.logger.Debug("interceptor chain execution failed",
-	//			zap.String("function", task.ID.String()),
-	//			zap.String("pid", pid.String()),
-	//			zap.Error(err))
-	//
-	//		return nil, err
-	//	}
-	//
-	//	return ch, nil
-	//}
+	// Merge preset and runtime options
+	var mergedOptions interceptor.Options
+	storedOptions, exists := f.options.Load(task.ID)
+	if exists {
+		if presetOpts, ok := storedOptions.(interceptor.Options); ok {
+			mergedOptions = presetOpts
+		}
+	}
+	if mergedOptions == nil {
+		mergedOptions = interceptor.NewBag()
+	}
+	if task.Options != nil {
+		if runtimeOpts, ok := task.Options.(interceptor.Options); ok {
+			mergedOptions = mergedOptions.Merge(runtimeOpts)
+		}
+	}
 
+	// Store options in FrameContext
+	if err := interceptor.SetOptions(ctx, mergedOptions); err != nil {
+		f.logger.Warn("failed to set interceptor options",
+			zap.String("function", task.ID.String()),
+			zap.Error(err))
+	}
+
+	// Execute through interceptor chain if available
+	chain := interceptor.GetChain(ctx)
+	if chain != nil {
+		ch, err := chain.Execute(ctx, execHandler, task)
+		if err != nil {
+			f.logger.Debug("interceptor chain execution failed",
+				zap.String("function", task.ID.String()),
+				zap.String("pid", pid.String()),
+				zap.Error(err))
+			return nil, err
+		}
+		return ch, nil
+	}
+
+	// Execute handler directly if no chain
 	ch, err := execHandler(ctx, task)
 	if err != nil {
-		// Get PID for logging (either newly generated or reused)
-		logPID, _ := pubsub.GetPID(ctx)
 		f.logger.Error(err.Error(),
 			zap.String("function", task.ID.String()),
-			zap.String("pid", logPID.String()))
+			zap.String("pid", pid.String()))
 		return nil, err
 	}
 

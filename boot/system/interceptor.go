@@ -5,36 +5,35 @@ import (
 
 	"github.com/ponyruntime/pony/api/boot"
 	"github.com/ponyruntime/pony/api/event"
-	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
+	intapi "github.com/ponyruntime/pony/api/interceptor"
 	logapi "github.com/ponyruntime/pony/api/logs"
-	bootpkg "github.com/ponyruntime/pony/boot"
 	"github.com/ponyruntime/pony/system/interceptor"
 )
 
-type interceptorPlugin struct{}
+func Interceptor() boot.Plugin {
+	var registry *interceptor.Registry
+	return boot.New(boot.P{
+		Name:      InterceptorName,
+		Phase:     boot.Init,
+		DependsOn: []string{"eventbus", "logger"},
+		Load: func(ctx context.Context) (context.Context, error) {
+			logger := logapi.GetLogger(ctx)
+			bus := event.GetBus(ctx)
 
-func (p *interceptorPlugin) Name() string        { return bootpkg.Interceptor }
-func (p *interceptorPlugin) Phase() boot.Phase   { return boot.Init }
-func (p *interceptorPlugin) DependsOn() []string { return []string{bootpkg.EventBus, bootpkg.Logger} }
-
-func (p *interceptorPlugin) Load(ctx context.Context) (context.Context, error) {
-	logger := logapi.GetLogger(ctx)
-	bus := event.GetBus(ctx)
-
-	interceptorReg := interceptor.NewInterceptorRegistry(bus, logger.Named("interceptor"))
-	return apiinterceptor.WithInterceptor(ctx, interceptorReg), nil
-}
-
-func (p *interceptorPlugin) Start(ctx context.Context) error {
-	interceptorReg := apiinterceptor.GetInterceptor(ctx)
-	return interceptorReg.Start(ctx)
-}
-
-func (p *interceptorPlugin) Stop(ctx context.Context) error {
-	interceptorReg := apiinterceptor.GetInterceptor(ctx)
-	return interceptorReg.Stop()
-}
-
-func init() {
-	bootpkg.MustRegister(&interceptorPlugin{})
+			registry = interceptor.NewInterceptorRegistry(bus, logger.Named("interceptor"))
+			return intapi.WithChain(ctx, registry), nil
+		},
+		Start: func(ctx context.Context) error {
+			if registry != nil {
+				return registry.Start(ctx)
+			}
+			return nil
+		},
+		Stop: func(ctx context.Context) error {
+			if registry != nil {
+				return registry.Stop()
+			}
+			return nil
+		},
+	})
 }

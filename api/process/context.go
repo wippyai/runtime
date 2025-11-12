@@ -2,28 +2,41 @@ package process
 
 import (
 	"context"
+	"errors"
 
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 )
 
+// PrototypeFactory manages process prototypes.
+type PrototypeFactory interface {
+	Start(ctx context.Context) error
+	Stop() error
+}
+
+// HostRegistry manages process hosts.
+type HostRegistry interface {
+	Start(ctx context.Context) error
+	Stop() error
+}
+
 // Context keys for storing process-related information in context.Context
 var (
 	// managerCtx is the context key for storing a process Manager.
-	managerCtx = &ctxapi.Key{Name: "process.manager", Scope: ctxapi.ScopeThread}
+	managerCtx = &ctxapi.Key{Name: "process.manager"}
 
 	// prototypesCtx is the context key for storing a PrototypeFactory.
-	prototypesCtx = &ctxapi.Key{Name: "process.prototypes", Scope: ctxapi.ScopeThread}
+	prototypesCtx = &ctxapi.Key{Name: "process.prototypes"}
 
 	// hostsCtx is the context key for storing a HostRegistry.
-	hostsCtx = &ctxapi.Key{Name: "process.hosts", Scope: ctxapi.ScopeThread}
+	hostsCtx = &ctxapi.Key{Name: "process.hosts"}
 
-	// onCompleteCtx is the context key for storing process completion callbacks (ScopeCall: call-specific).
-	onCompleteCtx = &ctxapi.Key{Name: "process.onComplete", Scope: ctxapi.ScopeCall}
+	// onCompleteCtx is the context key for storing process completion callbacks (ScopeFrame: call-specific).
+	onCompleteCtx = &ctxapi.Key{Name: "process.onComplete"}
 
-	// onStartCtx is the context key for storing process start callbacks (ScopeCall: call-specific).
-	onStartCtx = &ctxapi.Key{Name: "process.onStart", Scope: ctxapi.ScopeCall}
+	// onStartCtx is the context key for storing process start callbacks (ScopeFrame: call-specific).
+	onStartCtx = &ctxapi.Key{Name: "process.onStart"}
 )
 
 // WithManager attaches a process Manager to the context.
@@ -120,58 +133,86 @@ type OnComplete func(pid pubsub.PID, result *runtime.Result)
 // The callback receives the process ID and the process instance.
 type OnStart func(pid pubsub.PID, proc Process)
 
-// WithAddedOnComplete attaches an OnComplete callback to the context.
+// SetOnComplete sets an OnComplete callback in the FrameContext.
 // If there's already one present, it combines them so that both are called.
 // This enables composable process lifecycle management where multiple
 // components can register callbacks for the same lifecycle events.
 // The most recently added callback will be called first.
-func WithAddedOnComplete(ctx context.Context, cb OnComplete) context.Context {
-	if existing, ok := ctx.Value(onCompleteCtx).(OnComplete); ok {
-		combined := func(pid pubsub.PID, result *runtime.Result) {
-			cb(pid, result)
-			existing(pid, result)
-		}
-		return context.WithValue(ctx, onCompleteCtx, OnComplete(combined))
+// Returns error if no frame context or frame is sealed.
+func SetOnComplete(ctx context.Context, cb OnComplete) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return errors.New("no frame context available")
 	}
 
-	return context.WithValue(ctx, onCompleteCtx, cb)
+	if val, ok := fc.Get(onCompleteCtx); ok {
+		if existing, ok := val.(OnComplete); ok {
+			combined := func(pid pubsub.PID, result *runtime.Result) {
+				cb(pid, result)
+				existing(pid, result)
+			}
+			return fc.Set(onCompleteCtx, OnComplete(combined))
+		}
+	}
+
+	return fc.Set(onCompleteCtx, cb)
 }
 
-// WithAddedOnStart attaches an OnStart callback to the context.
+// SetOnStart sets an OnStart callback in the FrameContext.
 // If there's already one present, it combines them so that both are called.
 // This enables composable process lifecycle management where multiple
 // components can register callbacks for the same lifecycle events.
 // The most recently added callback will be called first.
-func WithAddedOnStart(ctx context.Context, cb OnStart) context.Context {
-	if existing, ok := ctx.Value(onStartCtx).(OnStart); ok {
-		combined := func(pid pubsub.PID, proc Process) {
-			cb(pid, proc)
-			existing(pid, proc)
-		}
-		return context.WithValue(ctx, onStartCtx, OnStart(combined))
+// Returns error if no frame context or frame is sealed.
+func SetOnStart(ctx context.Context, cb OnStart) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return errors.New("no frame context available")
 	}
 
-	return context.WithValue(ctx, onStartCtx, cb)
+	if val, ok := fc.Get(onStartCtx); ok {
+		if existing, ok := val.(OnStart); ok {
+			combined := func(pid pubsub.PID, proc Process) {
+				cb(pid, proc)
+				existing(pid, proc)
+			}
+			return fc.Set(onStartCtx, OnStart(combined))
+		}
+	}
+
+	return fc.Set(onStartCtx, cb)
 }
 
-// GetOnComplete retrieves the OnComplete callback from the context.
+// GetOnComplete retrieves the OnComplete callback from the FrameContext.
 // Returns nil if no callback is found.
 // This is typically used by process supervisors to get the callback
 // that should be invoked when a process completes.
 func GetOnComplete(ctx context.Context) OnComplete {
-	if cb, ok := ctx.Value(onCompleteCtx).(OnComplete); ok {
-		return cb
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	if val, ok := fc.Get(onCompleteCtx); ok {
+		if cb, ok := val.(OnComplete); ok {
+			return cb
+		}
 	}
 	return nil
 }
 
-// GetOnStart retrieves the OnStart callback from the context.
+// GetOnStart retrieves the OnStart callback from the FrameContext.
 // Returns nil if no callback is found.
 // This is typically used by process hosts to get the callback
 // that should be invoked when a process starts.
 func GetOnStart(ctx context.Context) OnStart {
-	if cb, ok := ctx.Value(onStartCtx).(OnStart); ok {
-		return cb
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	if val, ok := fc.Get(onStartCtx); ok {
+		if cb, ok := val.(OnStart); ok {
+			return cb
+		}
 	}
 	return nil
 }

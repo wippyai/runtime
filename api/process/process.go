@@ -1,10 +1,11 @@
 package process
 
 import (
-	"context"
+	stdcontext "context"
 	"errors"
 	"time"
 
+	"github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -83,7 +84,7 @@ type (
 
 		// Start initializes the process with the given context, Target, and input payloads.
 		// It prepares the process for execution and returns an error if initialization fails.
-		Start(context.Context, pubsub.PID, payload.Payloads) error
+		Start(stdcontext.Context, pubsub.PID, payload.Payloads) error
 
 		// Step advances process state by one iteration.
 		Step() error
@@ -139,6 +140,11 @@ type (
 		// Lifecycle defines the supervision relationships for this process
 		// including monitoring and linking with the parent process.
 		Lifecycle Lifecycle
+
+		// Context contains context overrides to apply when starting this process.
+		// These pairs are set in the new FrameContext after inheritance but before sealing.
+		// Can include actor, scope, custom values, or any other context keys.
+		Context []context.Pair
 	}
 
 	// Launch contains the information needed to launch a process.
@@ -147,6 +153,9 @@ type (
 	Launch struct {
 		// PID is the process identifier to assign to the new process
 		PID pubsub.PID
+
+		// Source is the registry ID of the process being launched
+		Source registry.ID
 
 		// Process is the process instance to start
 		Process Process
@@ -157,13 +166,18 @@ type (
 		// Lifecycle defines the supervision relationships for this process
 		// including monitoring and linking with the parent process.
 		Lifecycle Lifecycle
+
+		// Context contains context overrides to apply when launching this process.
+		// These pairs are set in the new FrameContext after inheritance but before sealing.
+		// Can include actor, scope, custom values, or any other context keys.
+		Context []context.Pair
 	}
 
 	// Terminator defines the interface for forcefully stopping a running process.
 	Terminator interface {
 		// Terminate forcefully stops a running process identified by pid.
 		// Returns an error if the termination fails.
-		Terminate(context.Context, pubsub.PID) error
+		Terminate(stdcontext.Context, pubsub.PID) error
 	}
 
 	// Canceller defines the interface for gracefully canceling a running process.
@@ -172,7 +186,7 @@ type (
 		// from is the Target of the cancellation requester, and deadline specifies
 		// when the process will be forcefully terminated if it doesn't stop gracefully.
 		// Returns an error if the cancellation request cannot be sent.
-		Cancel(context.Context, pubsub.PID, pubsub.PID, time.Time) error
+		Cancel(stdcontext.Context, pubsub.PID, pubsub.PID, time.Time) error
 	}
 
 	// Manager defines the interface for process lifecycle management.
@@ -185,13 +199,13 @@ type (
 		// Start launches a new process according to the provided configuration.
 		// Returns the Target of the started process or an error if the process
 		// cannot be started.
-		Start(ctx context.Context, start *Start) (pubsub.PID, error)
+		Start(ctx stdcontext.Context, start *Start) (pubsub.PID, error)
 
 		// AttachLifecycle enhances a context with process lifecycle management.
 		// It adds callbacks for process startup and completion events that manage
 		// process registration, monitoring, linking, and cleanup in the topology.
 		// The provided Lifecycle configuration determines the supervision behavior.
-		AttachLifecycle(context.Context, Lifecycle) context.Context
+		AttachLifecycle(stdcontext.Context, Lifecycle) stdcontext.Context
 	}
 
 	// Host defines the interface for process execution environments.
@@ -212,7 +226,7 @@ type (
 		// It handles both the process execution and its lifecycle management.
 		// Returns the Target of the started process or an error if the process
 		// cannot be started.
-		Launch(ctx context.Context, launch *Launch) (pubsub.PID, error)
+		Launch(ctx stdcontext.Context, launch *Launch) (pubsub.PID, error)
 	}
 
 	// Delegated defines the interface for delegated process hosts.
@@ -224,6 +238,6 @@ type (
 		// Launch starts a process with the given Target and input.
 		// Returns the Target of the started process or an error if the process
 		// cannot be started.
-		Launch(ctx context.Context, pid pubsub.PID, lf Lifecycle, input payload.Payloads) (pubsub.PID, error)
+		Launch(ctx stdcontext.Context, pid pubsub.PID, lf Lifecycle, input payload.Payloads) (pubsub.PID, error)
 	}
 )

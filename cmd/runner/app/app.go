@@ -16,7 +16,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/cluster"
 	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/contract"
+	contractapi "github.com/ponyruntime/pony/api/contract"
 	envapi "github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
@@ -24,7 +24,7 @@ import (
 	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
 	logapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pidgen"
+	pidgenapi "github.com/ponyruntime/pony/api/pidgen"
 	procapi "github.com/ponyruntime/pony/api/process"
 	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
 	regapi "github.com/ponyruntime/pony/api/registry"
@@ -307,12 +307,13 @@ func (a *App) StartWithState(ctx context.Context, state regapi.ChangeSet) error 
 	appContext := contextapi.NewAppContext()
 	appCtx = contextapi.WithAppContext(appCtx, appContext)
 
-	// Initialize shared PID generator with local node ID
+	appCtx = event.WithBus(appCtx, a.eventBus)
+
+	// Create and attach PID generator
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, a.node.Node().ID())
-	appCtx = pidgen.WithGenerator(appCtx, pidGen)
+	appCtx = pidgenapi.WithGenerator(appCtx, pidGen)
 
-	appCtx = event.WithBus(appCtx, a.eventBus)
 	appCtx = secapi.WithRegistry(appCtx, a.security)
 	appCtx = fsapi.WithRegistry(appCtx, a.fsRegistry)
 	appCtx = envapi.WithRegistry(appCtx, a.envRegistry)
@@ -326,10 +327,17 @@ func (a *App) StartWithState(ctx context.Context, state regapi.ChangeSet) error 
 	appCtx = topapi.WithTopology(appCtx, a.topo)
 	appCtx = topapi.WithRegistry(appCtx, a.pidReg)
 	appCtx = logapi.WithLogger(appCtx, a.logger)
-	appCtx = apiinterceptor.WithInterceptor(appCtx, a.interceptor)
-	appCtx = contract.WithContracts(appCtx, a.contractRegistry, a.contractInstantiator)
+	appCtx = apiinterceptor.WithChain(appCtx, a.interceptor)
+	appCtx = contractapi.WithContracts(appCtx, a.contractRegistry, a.contractInstantiator)
 
-	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
+	// Register all service handlers
+	a.services = CreateServiceHandlers(a)
+
+	var opts []eventbus.RouterOption
+	if a.services != nil {
+		opts = []eventbus.RouterOption{a.services}
+	}
+	router, err := eventbus.StartRouter(appCtx, a.eventBus, opts...)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to create event router: %w", err)
@@ -402,7 +410,7 @@ func (a *App) StartWithState(ctx context.Context, state regapi.ChangeSet) error 
 		return fmt.Errorf("failed to start supervisor: %w", err)
 	}
 
-	if _, err := a.reg.Apply(ctx, state); err != nil {
+	if _, err := a.reg.Apply(appCtx, state); err != nil {
 		return fmt.Errorf("failed to apply initial state: %w", err)
 	}
 
@@ -535,12 +543,13 @@ func (a *App) Start() error {
 	appContext := contextapi.NewAppContext()
 	appCtx = contextapi.WithAppContext(appCtx, appContext)
 
-	// Initialize shared PID generator with local node ID
+	appCtx = event.WithBus(appCtx, a.eventBus)
+
+	// Create and attach PID generator
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, a.node.Node().ID())
-	appCtx = pidgen.WithGenerator(appCtx, pidGen)
+	appCtx = pidgenapi.WithGenerator(appCtx, pidGen)
 
-	appCtx = event.WithBus(appCtx, a.eventBus)
 	appCtx = secapi.WithRegistry(appCtx, a.security)
 	appCtx = fsapi.WithRegistry(appCtx, a.fsRegistry)
 	appCtx = envapi.WithRegistry(appCtx, a.envRegistry)
@@ -554,10 +563,19 @@ func (a *App) Start() error {
 	appCtx = topapi.WithTopology(appCtx, a.topo)
 	appCtx = topapi.WithRegistry(appCtx, a.pidReg)
 	appCtx = logapi.WithLogger(appCtx, a.logger)
-	appCtx = apiinterceptor.WithInterceptor(appCtx, a.interceptor)
-	appCtx = contract.WithContracts(appCtx, a.contractRegistry, a.contractInstantiator)
+	appCtx = apiinterceptor.WithChain(appCtx, a.interceptor)
+	appCtx = contractapi.WithContracts(appCtx, a.contractRegistry, a.contractInstantiator)
 
-	router, err := eventbus.StartRouter(appCtx, a.eventBus, a.services)
+	// Register all service handlers
+	a.services = CreateServiceHandlers(a)
+
+	// Lock AppContext to make it immutable
+
+	var opts []eventbus.RouterOption
+	if a.services != nil {
+		opts = []eventbus.RouterOption{a.services}
+	}
+	router, err := eventbus.StartRouter(appCtx, a.eventBus, opts...)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to create event router: %w", err)
@@ -648,13 +666,6 @@ func (a *App) Start() error {
 
 	bootCtx, cancel := context.WithTimeout(appCtx, 300*time.Second)
 	defer cancel()
-
-	manager := interceptor.NewManager(a.eventBus, a.logger.Named("interceptor"))
-	err = manager.InitInterceptors(appCtx)
-	if err != nil {
-		a.cancel()
-		return fmt.Errorf("failed to initialize interceptors: %w", err)
-	}
 
 	appState, cleanup, err := a.loadApplicationState(bootCtx, fSys)
 	if err != nil {

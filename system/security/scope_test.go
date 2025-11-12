@@ -33,17 +33,14 @@ func NewMockPolicy(ns, name string, decision security.Result) security.Policy {
 }
 
 func TestNewScope(t *testing.T) {
-	// Test with nil policies
 	scope := NewScope(nil)
 	assert.NotNil(t, scope)
 	assert.Empty(t, scope.Policies())
 
-	// Test with empty policies slice
 	scope = NewScope([]security.Policy{})
 	assert.NotNil(t, scope)
 	assert.Empty(t, scope.Policies())
 
-	// Test with policies
 	policies := []security.Policy{
 		NewMockPolicy("test", "policy1", security.Allow),
 		NewMockPolicy("test", "policy2", security.Deny),
@@ -54,57 +51,46 @@ func TestNewScope(t *testing.T) {
 }
 
 func TestScopeWith(t *testing.T) {
-	// Create initial scope
 	policy1 := NewMockPolicy("test", "policy1", security.Allow)
 	scope := NewScope([]security.Policy{policy1})
 
-	// Add a new policy
 	policy2 := NewMockPolicy("test", "policy2", security.Deny)
 	newScope := scope.With(policy2)
 
-	// Original scope should be unchanged
 	assert.Len(t, scope.Policies(), 1)
 	assert.True(t, scope.Contains(policy1.ID()))
 	assert.False(t, scope.Contains(policy2.ID()))
 
-	// New scope should have both policies
 	assert.Len(t, newScope.Policies(), 2)
 	assert.True(t, newScope.Contains(policy1.ID()))
 	assert.True(t, newScope.Contains(policy2.ID()))
 
-	// Test overwriting an existing policy
 	policy1Override := NewMockPolicy("test", "policy1", security.Deny)
 	overrideScope := newScope.With(policy1Override)
 	assert.Len(t, overrideScope.Policies(), 2)
 
-	// Evaluate to verify it was actually replaced
 	actor := security.Actor{ID: "user1"}
 	result := overrideScope.Evaluate(actor, "read", "resource", nil)
 	assert.Equal(t, security.Deny, result)
 }
 
 func TestScopeWithout(t *testing.T) {
-	// Create initial scope with two policies
 	policy1 := NewMockPolicy("test", "policy1", security.Allow)
 	policy2 := NewMockPolicy("test", "policy2", security.Deny)
 	policies := []security.Policy{policy1, policy2}
 	scope := NewScope(policies)
 
-	// Remove policy1
 	policyID := policy1.ID()
 	newScope := scope.Without(policyID)
 
-	// Original scope should be unchanged
 	assert.Len(t, scope.Policies(), 2)
 	assert.True(t, scope.Contains(policy1.ID()))
 	assert.True(t, scope.Contains(policy2.ID()))
 
-	// New scope should only have policy2
 	assert.Len(t, newScope.Policies(), 1)
 	assert.False(t, newScope.Contains(policy1.ID()))
 	assert.True(t, newScope.Contains(policy2.ID()))
 
-	// Removing a non-existent policy should return the same scope
 	nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
 	sameScope := newScope.Without(nonExistentID)
 	assert.Equal(t, newScope, sameScope)
@@ -196,21 +182,17 @@ func TestScopeContains(t *testing.T) {
 	policies := []security.Policy{policy1, policy2}
 	scope := NewScope(policies)
 
-	// Should contain the policies we added
 	assert.True(t, scope.Contains(policy1.ID()))
 	assert.True(t, scope.Contains(policy2.ID()))
 
-	// Should not contain policies we didn't add
 	nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
 	assert.False(t, scope.Contains(nonExistentID))
 }
 
 func TestScopePolicies(t *testing.T) {
-	// Empty scope should return empty slice
 	emptyScope := NewScope(nil)
 	assert.Empty(t, emptyScope.Policies())
 
-	// Scope with policies should return all policies
 	policy1 := NewMockPolicy("test", "policy1", security.Allow)
 	policy2 := NewMockPolicy("test", "policy2", security.Deny)
 	policies := []security.Policy{policy1, policy2}
@@ -219,8 +201,6 @@ func TestScopePolicies(t *testing.T) {
 	resultPolicies := scope.Policies()
 	assert.Len(t, resultPolicies, 2)
 
-	// Verify we have both policies in the result
-	// (order not guaranteed by the interface)
 	foundPolicy1 := false
 	foundPolicy2 := false
 	for _, p := range resultPolicies {
@@ -231,21 +211,18 @@ func TestScopePolicies(t *testing.T) {
 			foundPolicy2 = true
 		}
 	}
-	assert.True(t, foundPolicy1, "Policy1 not found in result")
-	assert.True(t, foundPolicy2, "Policy2 not found in result")
+	assert.True(t, foundPolicy1)
+	assert.True(t, foundPolicy2)
 }
 
 func TestScopeImmutability(t *testing.T) {
-	// Create an initial scope
 	policy1 := NewMockPolicy("test", "policy1", security.Allow)
 	scope := NewScope([]security.Policy{policy1})
 
-	// Create derived scopes
 	policy2 := NewMockPolicy("test", "policy2", security.Deny)
 	scopeWithAdded := scope.With(policy2)
 	scopeWithRemoved := scopeWithAdded.Without(policy1.ID())
 
-	// Check each scope has the expected policies
 	assert.Len(t, scope.Policies(), 1)
 	assert.True(t, scope.Contains(policy1.ID()))
 	assert.False(t, scope.Contains(policy2.ID()))

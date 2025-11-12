@@ -6,7 +6,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -54,7 +53,6 @@ func TestApp_Start_NoTerminalContext(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	pid := pubsub.PID{
 		Host:   "test_host",
-		ID:     registry.ID{Name: "test_process"},
 		UniqID: "test_uniq",
 	}
 	input := payload.Payloads{}

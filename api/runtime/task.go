@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 )
@@ -13,6 +14,15 @@ type (
 
 		// Payloads contains the input data for the function execution
 		Payloads payload.Payloads `json:"payloads"`
+
+		// Options contains runtime interceptor options for this task execution
+		// Type should be interceptor.Options but stored as interface{} to avoid import cycle
+		Options interface{} `json:"options,omitempty"`
+
+		// Context contains context overrides to apply when executing this task.
+		// These pairs are set in the new FrameContext after inheritance but before sealing.
+		// Can include actor, scope, custom values, or any other context keys.
+		Context []context.Pair `json:"context,omitempty"`
 	}
 
 	// Result represents the outcome of an executed task.

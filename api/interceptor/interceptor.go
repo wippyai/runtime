@@ -1,44 +1,51 @@
 package interceptor
 
 import (
+	"context"
 	"time"
 
 	"github.com/ponyruntime/pony/api/event"
+	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/runtime"
 )
 
 // Event system and kind constants
 const (
-	// System identifies the interceptor system in the event bus
 	System event.System = "interceptor"
 
-	// Register is sent to request registration of a new interceptor
 	Register event.Kind = "interceptor.register"
-	// Update is sent to request update of an existing interceptor
-	Update event.Kind = "interceptor.update"
-	// Delete is sent to request removal of an existing interceptor
-	Delete event.Kind = "interceptor.delete"
+	Update   event.Kind = "interceptor.update"
+	Delete   event.Kind = "interceptor.delete"
 
-	// Accept is sent when an interceptor registration is accepted
 	Accept event.Kind = "interceptor.accept"
-	// Reject is sent when an interceptor registration is rejected
 	Reject event.Kind = "interceptor.reject"
 )
 
-// CommonOptions represents common execution options
-type CommonOptions struct {
-	Timeout     time.Duration
-	RetryPolicy *RetryPolicy
-	RateLimit   *RateLimit
+// Interceptor defines the interface for function execution interceptors
+type Interceptor interface {
+	Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context)
 }
 
-// RetryPolicy defines retry behavior
-type RetryPolicy struct {
-	// MaxAttempts limits how many times to retry a failing operation
-	MaxAttempts int
+// InterceptorFunc is a function adapter for the Interceptor interface
+type InterceptorFunc func(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context)
+
+// Handle implements the Interceptor interface
+func (f InterceptorFunc) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
+	return f(ctx, next)
 }
 
-// RateLimit defines rate limiting behavior
-type RateLimit struct {
-	RequestsPerSecond int
-	Burst             int
+// Chain represents a sequence of interceptors that can be executed in order
+type Chain interface {
+	Execute(ctx context.Context, f function.Func, task runtime.Task) (chan *runtime.Result, error)
+}
+
+// Options defines a flexible bag interface for interceptor configuration
+type Options interface {
+	Get(key string) (any, bool)
+	GetString(key string, def string) string
+	GetInt(key string, def int) int
+	GetBool(key string, def bool) bool
+	GetDuration(key string, def time.Duration) time.Duration
+	Merge(other Options) Options
+	Clone() Options
 }

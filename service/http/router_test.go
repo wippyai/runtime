@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
@@ -102,8 +103,9 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 
 	// Create a handler that checks for request context values
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check for RouteInfo
-		routeInfo := r.Context().Value(config.RouteCtx).(*config.RouteInfo)
+		// Check for RouteInfo from FrameContext
+		routeInfo, ok := config.GetRouteInfo(r.Context())
+		require.True(t, ok, "RouteInfo should be set")
 		assert.Equal(t, funcID, routeInfo.Func)
 
 		// Check params
@@ -119,8 +121,14 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 	err = rm.Build()
 	require.NoError(t, err)
 
+	// Wrap router with FrameContext creation (like HTTP server does)
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, _ := contextapi.OpenFrameContext(r.Context())
+		rm.ServeHTTP(w, r.WithContext(ctx))
+	})
+
 	// Create a test server
-	server := httptest.NewServer(rm)
+	server := httptest.NewServer(wrappedHandler)
 	//nolint:noctx // noctx is not needed because we are not reading the body
 	resp, err := http.Get(server.URL + "/api/users/123")
 	require.NoError(t, err)
@@ -176,8 +184,14 @@ func TestRouteManager_MultipleRouters(t *testing.T) {
 	err = rm.Build()
 	require.NoError(t, err)
 
+	// Wrap router with FrameContext creation (like HTTP server does)
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, _ := contextapi.OpenFrameContext(r.Context())
+		rm.ServeHTTP(w, r.WithContext(ctx))
+	})
+
 	// Create a test server
-	server := httptest.NewServer(rm)
+	server := httptest.NewServer(wrappedHandler)
 	defer server.Close()
 
 	// Test each router's endpoint
@@ -225,8 +239,14 @@ func TestRouteManager_Middleware(t *testing.T) {
 	err = rm.Build()
 	require.NoError(t, err)
 
+	// Wrap router with FrameContext creation (like HTTP server does)
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, _ := contextapi.OpenFrameContext(r.Context())
+		rm.ServeHTTP(w, r.WithContext(ctx))
+	})
+
 	// Create a test server
-	server := httptest.NewServer(rm)
+	server := httptest.NewServer(wrappedHandler)
 	defer server.Close()
 
 	// Test middleware application

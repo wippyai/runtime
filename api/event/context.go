@@ -6,7 +6,7 @@ import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
 )
 
-var busCtx = &ctxapi.Key{Name: "bus", Scope: ctxapi.ScopeThread}
+var busCtx = &ctxapi.Key{Name: "bus"}
 
 // WithBus returns a new context with the provided Bus instance attached.
 // This allows the Bus to be retrieved later using the GetBus function.

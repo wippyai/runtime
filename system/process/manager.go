@@ -50,21 +50,18 @@ func (m *Manager) preparePID(ctx context.Context, ps *api.Start, managed bool) p
 	if ps.UniqID != "" {
 		pid := pubsub.PID{
 			Host:   ps.HostID,
-			ID:     ps.Source,
 			UniqID: ps.UniqID,
 		}
+
 		if managed {
 			pid.Node = m.nodeID
 		}
+
 		return pid.Precomputed()
 	}
 
 	// Use centralized PID generator
 	gen := pidgen.GetGenerator(ctx)
-
-	if managed {
-		return gen.GenerateWithNode(m.nodeID, ps.HostID, ps.Source)
-	}
 	return gen.Generate(ps.HostID, ps.Source)
 }
 
@@ -85,9 +82,11 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PI
 		// Pass the lifecycle information to the managed host
 		newPid, err := h.Launch(ctx, &api.Launch{
 			PID:       pid,
+			Source:    ps.Source,
 			Process:   proc,
 			Input:     ps.Input,
 			Lifecycle: ps.Lifecycle,
+			Context:   ps.Context,
 		})
 		if err != nil {
 			return pubsub.PID{}, fmt.Errorf("failed to launch process on managed host: %w", err)
@@ -154,7 +153,7 @@ func (m *Manager) Terminate(ctx context.Context, pid pubsub.PID) error {
 // AttachLifecycle returns a context with topology callbacks attached for the specified lifecycle
 func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) context.Context {
 	// OnStart callback adds topology integration when a process starts
-	ctx = api.WithAddedOnStart(ctx, func(pid pubsub.PID, _ api.Process) {
+	if err := api.SetOnStart(ctx, func(pid pubsub.PID, _ api.Process) {
 		// Get topology from context
 		topo := topology.GetTopology(ctx)
 		if topo == nil {
@@ -195,10 +194,13 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 					zap.Error(err))
 			}
 		}
-	})
+	}); err != nil {
+		m.logger.Error("failed to set onStart callback", zap.Error(err))
+		return ctx
+	}
 
 	// OnComplete callback handles process termination topology events
-	ctx = api.WithAddedOnComplete(ctx, func(pid pubsub.PID, result *runtime.Result) {
+	if err := api.SetOnComplete(ctx, func(pid pubsub.PID, result *runtime.Result) {
 		// Get topology from context
 		topo := topology.GetTopology(ctx)
 		if topo == nil {
@@ -235,7 +237,10 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 		topo.Notify(pid, result)
 		pidReg.Remove(pid)
 		topo.Remove(pid)
-	})
+	}); err != nil {
+		m.logger.Error("failed to set onComplete callback", zap.Error(err))
+		return ctx
+	}
 
 	return ctx
 }

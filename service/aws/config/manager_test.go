@@ -230,7 +230,6 @@ func TestManager_Add(t *testing.T) {
 		// Verify event data
 		resourceEntry, ok := evt.Data.(resource.Entry)
 		assert.True(t, ok)
-		assert.Equal(t, testID, resourceEntry.ID)
 		assert.Equal(t, manager, resourceEntry.Provider)
 
 		// Verify metadata
@@ -240,7 +239,6 @@ func TestManager_Add(t *testing.T) {
 
 	t.Run("wrong entry kind", func(t *testing.T) {
 		entry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "invalid"},
 			Kind: "invalid.kind",
 			Data: NewMockPayload(&serviceaws.Config{
 				Region: "us-east-1",
@@ -257,7 +255,6 @@ func TestManager_Add(t *testing.T) {
 		manager.dtt = &MockTranscoder{unmarshalError: errors.New("unmarshal error")}
 
 		entry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "error"},
 			Kind: serviceaws.Kind,
 			Data: NewMockPayload("invalid json"),
 		}
@@ -354,7 +351,6 @@ func TestManager_Update(t *testing.T) {
 		// Verify event data
 		resourceEntry, ok := evt.Data.(resource.Entry)
 		assert.True(t, ok)
-		assert.Equal(t, testID, resourceEntry.ID)
 
 		// Verify updated metadata
 		meta := resourceEntry.Meta

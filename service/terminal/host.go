@@ -8,7 +8,6 @@ import (
 	"time"
 
 	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/security"
 
 	logsapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/process"
@@ -140,10 +139,12 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.Launch, respons
 		}
 	}
 
-	rCtx := terminal.WithTerminalContext(
-		t.prepareContext(ctx, pl.PID, pl.Lifecycle),
-		terminal.NewTerminalContext(cfg.Stdin, cfg.Stdout, cfg.Stderr),
-	)
+	rCtx := t.prepareContext(ctx, pl)
+	if err := terminal.SetTerminalContext(rCtx, terminal.NewTerminalContext(cfg.Stdin, cfg.Stdout, cfg.Stderr)); err != nil {
+		t.log.Error("failed to set terminal context", zap.Error(err))
+		close(response)
+		return err
+	}
 
 	// Use the runner factory to create a runner
 	runner, err := t.runnerFactory.CreateRunner(rCtx, cfg, pl)
@@ -164,21 +165,32 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.Launch, respons
 
 func (t *Terminal) prepareContext(
 	ctx context.Context,
-	pid pubsub.PID,
-	lifecycle process.Lifecycle,
+	launch *process.Launch,
 ) context.Context {
-	pCtx := security.CopyContext(ctx, t.ctx)
+	// Start from incoming context to preserve security context
+	pCtx := ctx
 
-	contexter := ctx.Value(ctxapi.ValuesCtx)
-	if ctxr, ok := contexter.(*ctxapi.Contexter[any]); ok {
-		pCtx = context.WithValue(pCtx, ctxapi.ValuesCtx, ctxr)
+	// Get or create FrameContext for this process
+	// If parent frame is sealed, OpenFrameContext creates a new frame and automatically
+	// copies all keys marked with Inherit: true (including actor and scope)
+	// If parent frame is unsealed, this reuses it
+	pCtx, _ = ctxapi.OpenFrameContext(pCtx)
+
+	// Store frame ID and PID in FrameContext
+	if fc := ctxapi.FrameFromContext(pCtx); fc != nil {
+		if err := fc.SetMultiple(
+			ctxapi.Pair{Key: runtime.FrameIDKey, Value: launch.Source},
+			ctxapi.Pair{Key: runtime.FramePIDKey, Value: launch.PID},
+		); err != nil {
+			t.log.Error("failed to set frame context", zap.Error(err))
+		}
 	}
 
 	// global lifecycle
-	pCtx = process.GetManager(ctx).AttachLifecycle(pCtx, lifecycle)
+	pCtx = process.GetManager(ctx).AttachLifecycle(pCtx, launch.Lifecycle)
 
 	// service lifecycle
-	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
+	if err := process.SetOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
 		if result.Error != nil {
 			t.log.Error("terminal process execution failed",
 				zap.String("pid", pid.String()),
@@ -189,10 +201,12 @@ func (t *Terminal) prepareContext(
 				zap.Any("result", result.Value.Data()))
 		}
 		t.cleanup(result)
-	})
+	}); err != nil {
+		t.log.Error("failed to set onComplete callback", zap.Error(err))
+	}
 
 	pCtx = pubsub.WithHost(pCtx, t)
-	pCtx = logsapi.WithLogger(pCtx, t.log.Named(pid.UniqID))
+	pCtx = logsapi.WithLogger(pCtx, t.log.Named(launch.PID.UniqID))
 
 	return pCtx
 }
@@ -309,7 +323,7 @@ func (t *Terminal) Stop(ctx context.Context) error {
 	if runner := t.runner.Load(); runner != nil {
 		err := t.Send(
 			topology.Cancel(
-				pubsub.PID{ID: t.id},
+				pubsub.PID{UniqID: "terminal"},
 				runner.pid,
 				time.Now().Add(t.config.Lifecycle.StopTimeout),
 			),

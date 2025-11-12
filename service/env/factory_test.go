@@ -1,12 +1,10 @@
 package env
 
 import (
-	"testing"
-
-	"github.com/ponyruntime/pony/api/registry"
 	envservice "github.com/ponyruntime/pony/api/service/env"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+	"testing"
 )
 
 func TestDefaultEnvStorageFactory_CreateMemoryEnvStorage(t *testing.T) {

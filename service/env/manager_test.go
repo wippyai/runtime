@@ -6,7 +6,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
 	serviceenv "github.com/ponyruntime/pony/api/service/env"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
@@ -72,7 +71,6 @@ func TestManager_Add_MemoryStorage(t *testing.T) {
 	manager, _ := setupTestManager(t)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "memory"},
 		Kind: serviceenv.KindStorageMemory,
 		Data: payload.New(&serviceenv.MemoryStorageConfig{
 			Meta: registry.Metadata{},

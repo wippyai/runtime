@@ -1,3 +1,5 @@
+//go:build !plugin_minimal
+
 package service
 
 import (
@@ -9,38 +11,28 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	bootpkg "github.com/ponyruntime/pony/boot"
 	envservice "github.com/ponyruntime/pony/service/env"
-	"github.com/ponyruntime/pony/system/eventbus"
-	reghandler "github.com/ponyruntime/pony/system/registry/events"
 )
 
-type envPlugin struct {
-	handler eventbus.EventHandler
-}
+func EnvService() boot.Plugin {
+	return boot.New(boot.P{
+		Name:      "env_service",
+		Phase:     boot.PostInit,
+		DependsOn: nil,
+		Load: func(ctx context.Context) (context.Context, error) {
+			logger := logapi.GetLogger(ctx)
+			dtt := payload.GetTranscoder(ctx)
+			bus := event.GetBus(ctx)
+			handlers := bootpkg.GetHandlerRegistry(ctx)
 
-func (p *envPlugin) Name() string        { return "env_service" }
-func (p *envPlugin) Phase() boot.Phase   { return boot.PostInit }
-func (p *envPlugin) DependsOn() []string { return nil }
+			manager := envservice.NewManager(
+				bus,
+				dtt,
+				logger.Named("env"),
+				envservice.NewDefaultEnvStorageFactory(),
+			)
 
-func (p *envPlugin) Load(ctx context.Context) (context.Context, error) {
-	logger := logapi.GetLogger(ctx)
-	dtt := payload.GetTranscoder(ctx)
-	bus := event.GetBus(ctx)
-
-	manager := envservice.NewManager(
-		bus,
-		dtt,
-		logger.Named("env"),
-		envservice.NewDefaultEnvStorageFactory(),
-	)
-
-	p.handler = reghandler.NewRegistryHandler("env.**", manager)
-	return ctx, nil
-}
-
-func (p *envPlugin) Handler() eventbus.EventHandler {
-	return p.handler
-}
-
-func init() {
-	bootpkg.MustRegister(&envPlugin{})
+			handlers.RegisterListener("env.**", manager)
+			return ctx, nil
+		},
+	})
 }

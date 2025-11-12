@@ -34,6 +34,7 @@ type (
 	ServerConfig struct {
 		Meta      registry.Metadata          `json:"meta"` // todo: migrate to avoid use of this
 		Addr      string                     `json:"addr"`
+		Handler   *registry.ID               `json:"handler,omitempty"` // Optional server-level handler function
 		Timeouts  TimeoutConfig              `json:"timeouts"`
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 		Host      HostConfig                 `json:"host"`

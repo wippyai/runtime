@@ -91,28 +91,32 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 	if err := i.validateContext(ctx, boundContract.ContextRequired); err != nil {
 		return nil, err
 	}
-
+	// todo: this are new!
 	if len(i.context) > 0 {
-		// Get existing values from context or create new contexter
-		var values *ctxapi.Contexter[any]
-		if existing, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any]); ok {
+		// Get existing values from FrameContext or create new
+		values := ctxapi.GetValues(ctx)
+		if values != nil {
 			// Clone existing values to avoid mutation
-			values = existing.Clone()
+			values = values.Clone()
 		} else {
-			values = ctxapi.NewContexter[any]()
+			values = ctxapi.NewValues()
 		}
 
-		// Merge context values into the contexter
+		// Merge context values
 		for k, v := range i.context {
-			values.SetValue(k, v)
+			values.Set(k, v)
 		}
-		ctx = context.WithValue(ctx, ctxapi.ValuesCtx, values)
+
+		if err := ctxapi.SetValues(ctx, values); err != nil {
+			return nil, fmt.Errorf("failed to set context values: %w", err)
+		}
 	}
 
 	// Create task with payloads
 	task := runtime.Task{
 		ID:       funcID,
 		Payloads: args,
+		// todo: set new values here!
 	}
 
 	// Call the function with context

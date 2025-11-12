@@ -146,14 +146,17 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	// Add the resource registry to the context
 	ctx = envapi.WithRegistry(ctx, mockRegistry)
 
+	// Create frame context for security
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+
 	// Add security context
 	actor := security.Actor{ID: "test"}
 	scope := newTestScope()
-	ctx = security.WithActor(ctx, actor)
-	ctx = security.WithScope(ctx, scope)
+	_ = security.SetActor(ctx, actor)
+	_ = security.SetScope(ctx, scope)
 
 	// Add pubsub context
-	pid := pubsub.PID{ID: registry.ID{NS: "test", Name: "test"}}
+	pid := pubsub.PID{}
 	ctx = pubsub.WithPID(ctx, pid)
 
 	// Set the context in the Lua state

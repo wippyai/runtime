@@ -13,7 +13,6 @@ import (
 	pubsubsys "github.com/ponyruntime/pony/system/pubsub"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
@@ -33,7 +32,7 @@ const (
 )
 
 // ContextListener is the context key for the HTTP listener
-var ContextListener = &contextapi.Key{Name: "listener"}
+var ContextListener = &contextapi.Key{Name: "http.listener"}
 
 // ServerService combines HTTP server and router functionality
 type ServerService struct {
@@ -48,6 +47,7 @@ type ServerService struct {
 	mountPaths    map[registry.ID]string // Track mount paths by Source
 	host          pubsub.Host            // pubsub host
 	middlewareFac MiddlewareAPI          // Middleware factory
+	handlerFunc   http.Handler           // Optional server-level handler
 }
 
 // NewServerService creates a new ServerService instance
@@ -65,6 +65,13 @@ func NewServerService(id registry.ID, cfg *config.ServerConfig, middleware Middl
 		mountPaths:    make(map[registry.ID]string),
 		middlewareFac: middleware,
 	}, nil
+}
+
+// SetHandlerFunc sets the server-level handler function
+func (s *ServerService) SetHandlerFunc(handler http.Handler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.handlerFunc = handler
 }
 
 // UpdateConfig updates the server configuration
@@ -169,6 +176,11 @@ func (s *ServerService) Rebuild(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// If handler function is set, don't rebuild router
+	if s.handlerFunc != nil {
+		return nil
+	}
+
 	err := s.routeMgr.Build()
 	if err != nil {
 		return err
@@ -205,24 +217,39 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	// Create the host
 	s.host = pubsubsys.NewHost(ctx, hostConfig)
 
-	ctx = context.WithValue(ctx, config.ContextServerID, s.id)
-	ctx = pubsub.WithHost(ctx, s)
+	s.ctx = ctx
 
-	// Get the interceptor registry from the parent context and add it to the server context
-	if ir := interceptor.GetInterceptors(ctx); ir != nil {
-		ctx = interceptor.WithInterceptor(ctx, ir)
+	// Use handler function if set, otherwise use route manager
+	var baseHandler http.Handler
+	if s.handlerFunc != nil {
+		baseHandler = s.handlerFunc
+	} else {
+		baseHandler = s.routeMgr
 	}
 
-	s.ctx = ctx
+	// Wrap handler with per-request FrameContext creation
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Create unsealed FrameContext for each HTTP request
+		ctx, fc := contextapi.OpenFrameContext(r.Context())
+
+		// Set all HTTP-specific metadata in FrameContext in one place
+		_ = fc.SetMultiple(
+			contextapi.Pair{Key: config.ContextServerID, Value: s.id},
+			contextapi.Pair{Key: config.ContextHost, Value: s},
+		)
+
+		baseHandler.ServeHTTP(w, r.WithContext(ctx))
+	})
 
 	s.server = &http.Server{
 		Addr:         s.config.Addr,
-		Handler:      s.routeMgr,
+		Handler:      handler,
 		ReadTimeout:  s.config.Timeouts.ReadTimeout,
 		WriteTimeout: s.config.Timeouts.WriteTimeout,
 		IdleTimeout:  s.config.Timeouts.IdleTimeout,
 		BaseContext: func(l net.Listener) context.Context {
-			return context.WithValue(s.ctx, ContextListener, l)
+			// Return app-level context only
+			return s.ctx
 		},
 	}
 	s.started = true

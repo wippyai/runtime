@@ -220,7 +220,6 @@ entries:
 			format: payload.YAML,
 			want: []registry.Entry{
 				{
-					ID:   registry.ID{NS: "test-yaml", Name: "service1"},
 					Kind: "service",
 					Meta: registry.Metadata{
 						"version": "1.0",
@@ -237,7 +236,6 @@ entries:
 					}),
 				},
 				{
-					ID:   registry.ID{NS: "test-yaml", Name: "service2"},
 					Kind: "service",
 					Meta: registry.Metadata{
 						"version": "2.0",

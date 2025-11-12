@@ -482,7 +482,7 @@ func newRequest(l *lua.LState) int {
 		cfg = parseRequestOptions(l, 1)
 	}
 
-	// Spawn HTTP context from Lua state context
+	// Get HTTP context from Lua state context
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -490,18 +490,11 @@ func newRequest(l *lua.LState) int {
 		return 2
 	}
 
-	// Spawn HTTP request context
-	val := ctx.Value(http.RequestCtx)
-	if val == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no HTTP request context found"))
-		return 2
-	}
-
-	reqCtx, ok := val.(*http.RequestContext)
+	// Get HTTP request context from FrameContext
+	reqCtx, ok := http.GetRequestContext(ctx)
 	if !ok {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid HTTP request context type"))
+		l.Push(lua.LString("no HTTP request context found"))
 		return 2
 	}
 
@@ -591,18 +584,11 @@ func requestParam(l *lua.LState) int {
 		return 2
 	}
 
-	// Get route info from context
-	routeInfoVal := req.request.Context().Value(http.RouteCtx)
-	if routeInfoVal == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no route parameters found in request context"))
-		return 2
-	}
-
-	routeInfo, ok := routeInfoVal.(*http.RouteInfo)
+	// Get route info from FrameContext
+	routeInfo, ok := http.GetRouteInfo(req.request.Context())
 	if !ok {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid route info type in request context"))
+		l.Push(lua.LString("no route parameters found in request context"))
 		return 2
 	}
 
@@ -627,18 +613,11 @@ func requestParams(l *lua.LState) int {
 		return 0
 	}
 
-	// Get route info from context
-	routeInfoVal := req.request.Context().Value(http.RouteCtx)
-	if routeInfoVal == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no route parameters found in request context"))
-		return 2
-	}
-
-	routeInfo, ok := routeInfoVal.(*http.RouteInfo)
+	// Get route info from FrameContext
+	routeInfo, ok := http.GetRouteInfo(req.request.Context())
 	if !ok {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid route info type in request context"))
+		l.Push(lua.LString("no route parameters found in request context"))
 		return 2
 	}
 

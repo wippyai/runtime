@@ -459,17 +459,13 @@ func TestFunctions_CallErrorHandling(t *testing.T) {
 		expectedErr string
 	}{
 		{
-			name: "non-existent handler",
-			task: runtime.Task{
-				ID: registry.ParseID("nonexistent:handler"),
-			},
+			name:        "non-existent handler",
+			task:        runtime.Task{ID: registry.ParseID("nonexistent:handler")},
 			expectedErr: "no handler registered for target: nonexistent:handler",
 		},
 		{
-			name: "invalid handler type",
-			task: runtime.Task{
-				ID: registry.ParseID("invalid:handler"),
-			},
+			name:        "invalid handler type",
+			task:        runtime.Task{ID: registry.ParseID("invalid:handler")},
 			expectedErr: "invalid handler type for target: invalid:handler",
 		},
 	}
@@ -487,7 +483,7 @@ func TestFunctions_CallErrorHandling(t *testing.T) {
 	}
 }
 
-func TestFunctions_CallContextHandling(t *testing.T) {
+func TestFunctions_FrameContextHandling(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
 
@@ -506,12 +502,10 @@ func TestFunctions_CallContextHandling(t *testing.T) {
 	handlerID := registry.ParseID("test:context-handler")
 	executor.handlers.Store(handlerID, function.Func(func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 		// Verify context has required values
-		pid, exists := pubsubapi.GetPID(ctx)
+		pid, exists := runtime.GetFramePID(ctx)
 		require.True(t, exists)
-		require.NotNil(t, pid)
-		assert.NotEmpty(t, pid.UniqID)
+		require.NotEmpty(t, pid.UniqID)
 		assert.Equal(t, function.HostID, pid.Host)
-		assert.Equal(t, handlerID, pid.ID)
 		return make(chan *runtime.Result), nil
 	}))
 

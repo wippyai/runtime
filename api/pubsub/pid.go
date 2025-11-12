@@ -3,8 +3,6 @@ package pubsub
 import (
 	"strings"
 	"sync"
-
-	"github.com/ponyruntime/pony/api/registry"
 )
 
 type pidError struct {
@@ -26,14 +24,12 @@ var builderPool = sync.Pool{
 }
 
 // PID represents a Process Identifier that uniquely identifies a process in the system.
-// It contains node, host, process ID, and a unique identifier components.
+// It contains node, host, and a unique identifier components.
 type PID struct {
 	// Node identifies which node the process belongs to
 	Node NodeID `json:"node"`
 	// Host identifies which host the process belongs to
 	Host HostID `json:"host"`
-	// ID contains the process's registry identifier
-	ID registry.ID `json:"id"`
 	// UniqID contains a unique instance identifier
 	UniqID string `json:"uniq_id"`
 
@@ -42,8 +38,8 @@ type PID struct {
 }
 
 // String formats the PID as a pipe-delimited string wrapped in curly braces.
-// Without a node it looks like: "{host|ns:name|procname}"
-// With a node it looks like: "{node@host|ns:name|procname}"
+// Without a node it looks like: "{host|uniqid}"
+// With a node it looks like: "{node@host|uniqid}"
 func (p PID) String() string {
 	if p.cachedString != "" {
 		return p.cachedString
@@ -58,7 +54,7 @@ func (p PID) toString() string {
 	defer builderPool.Put(b)
 
 	// Pre-allocate rough capacity to avoid reallocations
-	b.Grow(len(p.Host) + len(p.UniqID) + len(p.Node) + len(p.ID.NS) + len(p.ID.Name) + 32)
+	b.Grow(len(p.Host) + len(p.UniqID) + len(p.Node) + 8)
 
 	b.WriteByte('{')
 
@@ -68,12 +64,6 @@ func (p PID) toString() string {
 	}
 
 	b.WriteString(p.Host)
-	b.WriteByte('|')
-
-	b.WriteString(p.ID.NS)
-	b.WriteByte(':')
-	b.WriteString(p.ID.Name)
-
 	b.WriteByte('|')
 	b.WriteString(p.UniqID)
 	b.WriteByte('}')
@@ -86,14 +76,13 @@ func (p PID) Precomputed() PID {
 	return PID{
 		Node:         p.Node,
 		Host:         p.Host,
-		ID:           p.ID,
 		UniqID:       p.UniqID,
 		cachedString: p.toString(),
 	}
 }
 
 // ParsePID parses a pipe-delimited string wrapped in curly braces into a PID.
-// Optimized version using manual parsing instead of strings.Split
+// Format: "{host|uniqid}" or "{node@host|uniqid}"
 func ParsePID(s string) (PID, error) {
 	var pid PID
 
@@ -103,21 +92,14 @@ func ParsePID(s string) (PID, error) {
 	}
 	s = s[1 : len(s)-1] // Remove braces
 
-	// Find first pipe
-	pipe1 := strings.IndexByte(s, '|')
-	if pipe1 == -1 {
-		return pid, newError("invalid pid format: missing first pipe")
+	// Find pipe separator
+	pipe := strings.IndexByte(s, '|')
+	if pipe == -1 {
+		return pid, newError("invalid pid format: missing pipe")
 	}
-
-	// Find second pipe
-	pipe2 := strings.IndexByte(s[pipe1+1:], '|')
-	if pipe2 == -1 {
-		return pid, newError("invalid pid format: missing second pipe")
-	}
-	pipe2 += pipe1 + 1
 
 	// Parse host part (may contain node@host)
-	hostPart := s[:pipe1]
+	hostPart := s[:pipe]
 	if at := strings.IndexByte(hostPart, '@'); at != -1 {
 		pid.Node = hostPart[:at]
 		pid.Host = hostPart[at+1:]
@@ -125,9 +107,16 @@ func ParsePID(s string) (PID, error) {
 		pid.Host = hostPart
 	}
 
-	// Parse registry ID and unique ID
-	pid.ID = registry.ParseID(s[pipe1+1 : pipe2])
-	pid.UniqID = s[pipe2+1:]
+	// Parse unique ID (handle old 3-part format during migration)
+	uniqPart := s[pipe+1:]
+	// Check if there's a second pipe (old format with ID in middle)
+	if secondPipe := strings.IndexByte(uniqPart, '|'); secondPipe != -1 {
+		// Old format: {node@host|ns:name|uniqid} - skip the ID part
+		pid.UniqID = uniqPart[secondPipe+1:]
+	} else {
+		// New format: {node@host|uniqid}
+		pid.UniqID = uniqPart
+	}
 
 	return pid.Precomputed(), nil
 }
@@ -139,7 +128,7 @@ func (p PID) MarshalJSON() ([]byte, error) {
 	defer builderPool.Put(b)
 
 	// Pre-allocate capacity
-	b.Grow(len(p.Host) + len(p.UniqID) + len(p.Node) + len(p.ID.NS) + len(p.ID.Name) + 34)
+	b.Grow(len(p.Host) + len(p.UniqID) + len(p.Node) + 10)
 	b.WriteByte('"')
 	b.WriteString(p.String())
 	b.WriteByte('"')

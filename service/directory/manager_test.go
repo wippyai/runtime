@@ -199,7 +199,6 @@ func TestManager_Add(t *testing.T) {
 
 	t.Run("wrong entry kind", func(t *testing.T) {
 		entry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "invalid"},
 			Kind: "invalid.kind",
 			Data: NewMockPayload(&dirapi.Config{
 				Directory: "/tmp/test",
@@ -217,7 +216,6 @@ func TestManager_Add(t *testing.T) {
 		manager.dtt = &MockTranscoder{unmarshalError: assert.AnError}
 
 		entry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "error"},
 			Kind: dirapi.Kind,
 			Data: NewMockPayload("invalid json"),
 		}
@@ -305,7 +303,6 @@ func TestManager_Update(t *testing.T) {
 
 	t.Run("directory not found", func(t *testing.T) {
 		nonExistentEntry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "nonexistent"},
 			Kind: dirapi.Kind,
 			Data: NewMockPayload(&dirapi.Config{
 				Directory: "/tmp/test2",

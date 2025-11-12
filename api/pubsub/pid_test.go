@@ -3,8 +3,6 @@ package pubsub
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/ponyruntime/pony/api/registry"
 )
 
 func TestPIDJSONMarshaling(t *testing.T) {
@@ -19,19 +17,17 @@ func TestPIDJSONMarshaling(t *testing.T) {
 			pid: PID{
 				Node:   "node1",
 				Host:   "host1",
-				ID:     registry.ParseID("namespace:name"),
 				UniqID: "proc1",
 			},
-			expect: `"{node1@host1|namespace:name|proc1}"`,
+			expect: `"{node1@host1|proc1}"`,
 		},
 		{
 			name: "without node",
 			pid: PID{
 				Host:   "host1",
-				ID:     registry.ParseID("namespace:name"),
 				UniqID: "proc1",
 			},
-			expect: `"{host1|namespace:name|proc1}"`,
+			expect: `"{host1|proc1}"`,
 		},
 	}
 
@@ -60,9 +56,6 @@ func TestPIDJSONMarshaling(t *testing.T) {
 			if pid.Host != tc.pid.Host {
 				t.Errorf("Host mismatch: expected %s, got %s", tc.pid.Host, pid.Host)
 			}
-			if pid.ID.String() != tc.pid.ID.String() {
-				t.Errorf("ID mismatch: expected %s, got %s", tc.pid.ID.String(), pid.ID.String())
-			}
 			if pid.UniqID != tc.pid.UniqID {
 				t.Errorf("UniqID mismatch: expected %s, got %s", tc.pid.UniqID, pid.UniqID)
 			}
@@ -79,7 +72,6 @@ func TestPIDJSONMarshaling(t *testing.T) {
 		ThePID: PID{
 			Node:   "node1",
 			Host:   "host1",
-			ID:     registry.ParseID("namespace:name"),
 			UniqID: "proc1",
 		},
 		Value: 42,

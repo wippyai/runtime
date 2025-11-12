@@ -288,23 +288,17 @@ func responseToString(l *lua.LState) int {
 
 // newResponse creates a new Response from the context
 func newResponse(l *lua.LState) int {
-	// Spawn HTTP context from Lua state context
+	// Get HTTP context from Lua state context
 	ctx := l.Context()
 	if ctx == nil {
 		l.ArgError(1, "no context available")
 		return 0
 	}
 
-	// Spawn HTTP request context
-	val := ctx.Value(http.RequestCtx)
-	if val == nil {
-		l.ArgError(1, "no HTTP request context found")
-		return 0
-	}
-
-	reqCtx, ok := val.(*http.RequestContext)
+	// Get HTTP request context from FrameContext
+	reqCtx, ok := http.GetRequestContext(ctx)
 	if !ok {
-		l.ArgError(1, "invalid HTTP request context type")
+		l.ArgError(1, "no HTTP request context found")
 		return 0
 	}
 

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
-
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 )
@@ -48,7 +47,6 @@ func (sdk *DepTestSDK) EntryFromJSON(jsonStr string) registry.Entry {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ParseID(entryData.ID),
 		Kind: entryData.Kind,
 		Meta: entryData.Meta,
 	}

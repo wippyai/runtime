@@ -363,7 +363,6 @@ func TestManager_Add(t *testing.T) {
 				case evt := <-supervisorEvents:
 					assert.Equal(t, supervisor.System, evt.System)
 					assert.Equal(t, supervisor.Register, evt.Kind)
-					assert.Equal(t, entry.ID.String(), evt.Path)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for supervisor event")
 				}
@@ -373,7 +372,6 @@ func TestManager_Add(t *testing.T) {
 				case evt := <-resourceEvents:
 					assert.Equal(t, "resource", evt.System)
 					assert.Equal(t, "resource.register", evt.Kind) // Update to match actual implementation
-					assert.Equal(t, entry.ID.String(), evt.Path)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for resource event")
 				}
@@ -485,7 +483,6 @@ func TestManager_Update(t *testing.T) {
 				case evt := <-supervisorEvents:
 					assert.Equal(t, supervisor.System, evt.System)
 					assert.Equal(t, supervisor.Update, evt.Kind)
-					assert.Equal(t, entry.ID.String(), evt.Path)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for supervisor event")
 				}
@@ -592,7 +589,6 @@ func TestManager_Delete(t *testing.T) {
 				case evt := <-supervisorEvents:
 					assert.Equal(t, supervisor.System, evt.System)
 					assert.Equal(t, "supervisor.service.register", evt.Kind) // Match actual value
-					assert.Equal(t, entry.ID.String(), evt.Path)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for supervisor event")
 				}
@@ -602,7 +598,6 @@ func TestManager_Delete(t *testing.T) {
 				case evt := <-resourceEvents:
 					assert.Equal(t, "resource", evt.System)
 					assert.Equal(t, "resource.register", evt.Kind) // Match actual value
-					assert.Equal(t, entry.ID.String(), evt.Path)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for resource event")
 				}
@@ -620,7 +615,6 @@ func TestDecode_NilPayload(t *testing.T) {
 	transcoder := &TestTranscoder{}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "db1"},
 		Kind: apiconfig.KindPostgres,
 		Data: nil,
 	}

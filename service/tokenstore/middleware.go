@@ -83,8 +83,17 @@ func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) htt
 							// Validate token
 							if actor, scope, err := tokenStore.Validate(ctx, security.Token(tokenStr)); err == nil {
 								// Token is valid - add actor and scope to context
-								ctx = security.WithActor(ctx, actor)
-								ctx = security.WithScope(ctx, scope)
+								if err := security.SetActor(ctx, actor); err != nil {
+									logger.Error("failed to set actor in context",
+										zap.Error(err),
+										zap.String("actor_id", actor.ID))
+								}
+
+								if err := security.SetScope(ctx, scope); err != nil {
+									logger.Error("failed to set scope in context",
+										zap.Error(err),
+										zap.Int("policies", len(scope.Policies())))
+								}
 							} else {
 								// Log token validation error at debug level
 								logger.Debug("token validation failed", zap.Error(err), zap.String("actor_id", actor.ID))

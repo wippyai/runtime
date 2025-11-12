@@ -9,6 +9,7 @@ import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
@@ -80,9 +81,10 @@ func (e *Module) ensureSubscriptions(l *lua.LState) bool {
 		return true
 	}
 
-	pid, ok := pubsub.GetPID(l.Context())
+	// Get PID from frame context
+	pid, ok := runtime.GetFramePID(l.Context())
 	if !ok {
-		e.log.Error("no Target found")
+		e.log.Error("no PID found in frame context")
 		return false
 	}
 

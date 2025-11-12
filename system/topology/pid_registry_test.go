@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
@@ -19,14 +18,12 @@ func TestPIDRegistry_Register(t *testing.T) {
 	pid1 := pubsub.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:proc1"),
 		UniqID: "uniq1",
 	}
 
 	pid2 := pubsub.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:proc2"),
 		UniqID: "uniq2",
 	}
 
@@ -60,7 +57,6 @@ func TestPIDRegistry_Lookup(t *testing.T) {
 	pid := pubsub.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:proc"),
 		UniqID: "uniq1",
 	}
 
@@ -87,7 +83,6 @@ func TestPIDRegistry_Unregister(t *testing.T) {
 	pid := pubsub.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:proc"),
 		UniqID: "uniq1",
 	}
 
@@ -126,14 +121,12 @@ func TestPIDRegistry_WithParent(t *testing.T) {
 	parentPID := pubsub.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:parent"),
 		UniqID: "uniq1",
 	}
 
 	childPID := pubsub.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:child"),
 		UniqID: "uniq2",
 	}
 
@@ -180,7 +173,6 @@ func TestPIDRegistry_ThreadSafety(t *testing.T) {
 		pids[i] = pubsub.PID{
 			Node:   "node1",
 			Host:   "host1",
-			ID:     registry.ParseID("test:proc" + string(rune(i))),
 			UniqID: "uniq" + string(rune(i)),
 		}
 		names[i] = "name-" + string(rune(i))

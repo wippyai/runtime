@@ -25,12 +25,22 @@ func NewTerminalContext(stdin io.Reader, stdout, stderr io.Writer) *PipeContext 
 }
 
 func GetTerminalContext(ctx context.Context) *PipeContext {
-	if tc, ok := ctx.Value(terminalCtx).(*PipeContext); ok {
-		return tc
+	fc := contextapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	if val, ok := fc.Get(terminalCtx); ok {
+		if tc, ok := val.(*PipeContext); ok {
+			return tc
+		}
 	}
 	return nil
 }
 
-func WithTerminalContext(ctx context.Context, tc *PipeContext) context.Context {
-	return context.WithValue(ctx, terminalCtx, tc)
+func SetTerminalContext(ctx context.Context, tc *PipeContext) error {
+	fc := contextapi.FrameFromContext(ctx)
+	if fc == nil {
+		return contextapi.ErrNoFrameContext
+	}
+	return fc.Set(terminalCtx, tc)
 }

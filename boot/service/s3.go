@@ -1,3 +1,5 @@
+//go:build !plugin_minimal
+
 package service
 
 import (
@@ -9,37 +11,27 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	bootpkg "github.com/ponyruntime/pony/boot"
 	"github.com/ponyruntime/pony/service/aws/s3"
-	"github.com/ponyruntime/pony/system/eventbus"
-	reghandler "github.com/ponyruntime/pony/system/registry/events"
 )
 
-type s3Plugin struct {
-	handler eventbus.EventHandler
-}
+func S3() boot.Plugin {
+	return boot.New(boot.P{
+		Name:      S3Name,
+		Phase:     boot.PostInit,
+		DependsOn: nil,
+		Load: func(ctx context.Context) (context.Context, error) {
+			logger := logapi.GetLogger(ctx)
+			dtt := payload.GetTranscoder(ctx)
+			bus := event.GetBus(ctx)
+			handlers := bootpkg.GetHandlerRegistry(ctx)
 
-func (p *s3Plugin) Name() string        { return bootpkg.S3 }
-func (p *s3Plugin) Phase() boot.Phase   { return boot.PostInit }
-func (p *s3Plugin) DependsOn() []string { return nil }
+			manager := s3.NewManager(
+				bus,
+				dtt,
+				logger.Named("cloudstorage.s3"),
+			)
 
-func (p *s3Plugin) Load(ctx context.Context) (context.Context, error) {
-	logger := logapi.GetLogger(ctx)
-	dtt := payload.GetTranscoder(ctx)
-	bus := event.GetBus(ctx)
-
-	manager := s3.NewManager(
-		bus,
-		dtt,
-		logger.Named("cloudstorage.s3"),
-	)
-
-	p.handler = reghandler.NewRegistryHandler("cloudstorage.s3", manager)
-	return ctx, nil
-}
-
-func (p *s3Plugin) Handler() eventbus.EventHandler {
-	return p.handler
-}
-
-func init() {
-	bootpkg.MustRegister(&s3Plugin{})
+			handlers.RegisterListener("cloudstorage.s3", manager)
+			return ctx, nil
+		},
+	})
 }

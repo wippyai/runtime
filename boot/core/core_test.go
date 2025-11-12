@@ -11,7 +11,10 @@ import (
 )
 
 func TestCorePlugins(t *testing.T) {
-	loader := bootpkg.New()
+	loader, err := bootpkg.NewLoader(All()...)
+	if err != nil {
+		t.Fatalf("NewLoader() error = %v", err)
+	}
 
 	ctx, err := loader.Load(context.Background())
 	if err != nil {

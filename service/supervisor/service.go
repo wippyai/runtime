@@ -42,9 +42,9 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 
 	// Setup monitor pid
 	svc.supervisorPID = pubsub.PID{
-		Node:   node.ID(),
-		Host:   topology.ControlHost,
-		ID:     registry.ID{Name: "supervisor"},
+		Node: node.ID(),
+		Host: topology.ControlHost,
+
 		UniqID: supID.Generate(),
 	}.Precomputed()
 
@@ -134,7 +134,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop implements supervisor.Service
 func (svc *Service) Stop(ctx context.Context) error {
-	if svc.pid.ID.Name == "" {
+	if svc.pid.UniqID == "" {
 		return nil // Not running
 	}
 

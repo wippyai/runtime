@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -51,9 +52,11 @@ func NewTerminalRunner(
 	// Derive a runner context from the provided terminal context.
 	runnerCtx, cancel := context.WithCancel(ctx)
 
-	runnerCtx = process.WithAddedOnComplete(runnerCtx, func(_ pubsub.PID, _ *runtime.Result) {
+	if err := process.SetOnComplete(runnerCtx, func(_ pubsub.PID, _ *runtime.Result) {
 		cancel()
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("failed to set onComplete callback: %w", err)
+	}
 
 	runner := &Runner{
 		pid:    launch.PID,

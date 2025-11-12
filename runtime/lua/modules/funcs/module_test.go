@@ -10,7 +10,6 @@ import (
 	lua2 "github.com/yuin/gopher-lua"
 
 	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	secapi "github.com/ponyruntime/pony/api/security"
 

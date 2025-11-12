@@ -7,7 +7,6 @@ import (
 	"time"
 
 	api "github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
@@ -57,7 +56,6 @@ func TestHost_Attach(t *testing.T) {
 	pid := api.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
 		UniqID: "uniq1",
 	}
 
@@ -92,7 +90,6 @@ func TestHost_Send(t *testing.T) {
 	pid := api.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
 		UniqID: "uniq1",
 	}
 
@@ -130,7 +127,6 @@ func TestHost_SendCancelledContext(t *testing.T) {
 	pid := api.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
 		UniqID: "uniq1",
 	}
 
@@ -157,7 +153,6 @@ func TestHost_NoReceiver(t *testing.T) {
 	pid := api.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
 		UniqID: "uniq1",
 	}
 
@@ -184,7 +179,6 @@ func TestHost_DetachDuringDelivery(t *testing.T) {
 	pid := api.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
 		UniqID: "uniq1",
 	}
 
@@ -223,7 +217,6 @@ func TestHost_MultipleWorkers(t *testing.T) {
 	pid := api.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
 		UniqID: "uniq1",
 	}
 
@@ -282,7 +275,6 @@ func TestHost_HostShutdown(t *testing.T) {
 	pid := api.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
 		UniqID: "uniq1",
 	}
 
@@ -416,7 +408,6 @@ func TestHost_SendMultipleMessages(t *testing.T) {
 	pid := api.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
 		UniqID: "uniq1",
 	}
 
@@ -461,7 +452,6 @@ func TestHost_SendEmptyMessages(t *testing.T) {
 	pid := api.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
 		UniqID: "uniq1",
 	}
 
@@ -499,7 +489,6 @@ func TestHost_SendNilMessages(t *testing.T) {
 	pid := api.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
 		UniqID: "uniq1",
 	}
 

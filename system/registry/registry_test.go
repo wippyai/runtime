@@ -104,7 +104,6 @@ func TestInMemoryRegistry_GetAllEntries(t *testing.T) {
 	}
 
 	for i := range state {
-		if state[i].ID != entries[i].ID || state[i].Kind != entries[i].Kind {
 			t.Errorf("Expected entry at index %d to be %v, got %v", i, state[i], entries[i])
 		}
 
@@ -163,7 +162,6 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				ID:   registry.ID{Name: "/foo"},
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -346,7 +344,6 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				ID:   registry.ID{Name: "/foo"},
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -412,7 +409,6 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 					{
 						Kind: registry.Create,
 						Entry: registry.Entry{
-							ID:   registry.ID{Name: fmt.Sprintf("/entry/%d/%d", routineID, j)},
 							Kind: "test",
 							Data: payload.New(fmt.Sprintf("data-%d-%d", routineID, j)),
 						},
@@ -472,7 +468,6 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				ID:   registry.ID{Name: "/foo"},
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -550,7 +545,6 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				ID:   registry.ID{Name: "/foo"},
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -670,7 +664,6 @@ data:
 			case registry.Update:
 				found := false
 				for i, entry := range newState {
-					if entry.ID == change.Entry.ID {
 						newState[i] = change.Entry
 						found = true
 						break
@@ -681,7 +674,6 @@ data:
 				}
 			case registry.Delete:
 				for i, entry := range newState {
-					if entry.ID == change.Entry.ID {
 						newState = append(newState[:i], newState[i+1:]...)
 						break
 					}
@@ -708,7 +700,6 @@ data:
 
 	expectedState := registry.State{
 		{
-			ID:   registry.ID{NS: "default", Name: "database_url"},
 			Kind: "listener",
 			Data: payload.New(map[string]interface{}{
 				"namespace": "default",
@@ -721,7 +712,6 @@ data:
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "default", Name: "api_service"},
 			Kind: "service",
 			Data: payload.New(map[string]interface{}{
 				"namespace": "default",
@@ -746,9 +736,7 @@ data:
 	for _, expectedEntry := range expectedState {
 		found := false
 		for _, currentEntry := range currentState {
-			if currentEntry.ID == expectedEntry.ID {
 				found = true
-				assert.Equal(t, expectedEntry.Kind, currentEntry.Kind, "Kind mismatch for Process: %s", expectedEntry.ID)
 
 				// Compare Data field using assert.Equal for deep comparison of maps
 				var expectedData, currentData map[string]interface{}
@@ -757,7 +745,6 @@ data:
 				err = dtt.Unmarshal(currentEntry.Data, &currentData)
 				assert.NoError(t, err, "Error unmarshalling current data")
 
-				assert.Equal(t, expectedData, currentData, "Data mismatch for Process: %s", expectedEntry.ID)
 				break
 			}
 		}

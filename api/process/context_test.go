@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
 
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -42,7 +41,6 @@ func TestOnCompleteAggregation(t *testing.T) {
 	// Create a dummy pid and runtime.Result.
 	dummyPID := pubsub.PID{
 		Host:   "test",
-		ID:     registry.ID{Name: "dummy"}, // Use a simple string, since the type isn't crucial here.
 		UniqID: "dummy",
 	}
 	dummyResult := &runtime.Result{}
@@ -71,7 +69,7 @@ func TestOnStartAggregation(t *testing.T) {
 		t.Fatal("Expected aggregated onStart callback, got nil")
 	}
 
-	dummyPID := pubsub.PID{Host: "test", ID: registry.ID{Name: "dummy"}, UniqID: "dummy"}
+	dummyPID := pubsub.PID{Host: "test", UniqID: "dummy"}
 	var dummyProc process.Process // No need to initialize, we just need the type.
 
 	onStart(dummyPID, dummyProc)
@@ -108,7 +106,7 @@ func TestSingleCallbacks(t *testing.T) {
 	onComplete := process.GetOnComplete(ctx)
 	onStart := process.GetOnStart(ctx)
 
-	dummyPID := pubsub.PID{Host: "test", ID: registry.ID{Name: "dummy"}, UniqID: "dummy"}
+	dummyPID := pubsub.PID{Host: "test", UniqID: "dummy"}
 	dummyResult := &runtime.Result{}
 	var dummyProc process.Process
 

@@ -11,7 +11,6 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
 )
 
 // DummyProcess implements process.Process for testing purposes.
@@ -54,7 +53,6 @@ func TestTerminalRunnerStopsOnStepError(t *testing.T) {
 	// Create a dummy pid. Note that registry.Process is typically a string.
 	dummyPID := pubsub.PID{
 		Host:   "dummy",
-		ID:     registry.ID{Name: "test-id"},
 		UniqID: "test",
 	}
 
@@ -87,7 +85,6 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 
 	dummyPID := pubsub.PID{
 		Host:   "dummy",
-		ID:     registry.ID{Name: "test-id"},
 		UniqID: "test",
 	}
 

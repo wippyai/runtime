@@ -109,6 +109,7 @@ func (br *BusRunner) applyOperation(
 		op.Entry.Kind = entry.Kind
 	}
 
+	// todo: redo a bit
 	allowProcess := []registry.Kind{
 		registry.KindEntry,
 		registry.KindNamespaceDependency,

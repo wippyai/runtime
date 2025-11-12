@@ -144,7 +144,6 @@ func (m *Manager) createHandler(processID registry.ID, hostID pubsub.HostID) fun
 		callerPID := pubsub.PID{
 			Node:   node.ID(),
 			Host:   topology.ControlHost,
-			ID:     registry.ID{Name: "processfunc"},
 			UniqID: callerUniqID,
 		}.Precomputed()
 

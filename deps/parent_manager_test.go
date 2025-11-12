@@ -36,7 +36,6 @@ func TestCreateParentDependencyMap(t *testing.T) {
 	t.Run("nil load result", func(t *testing.T) {
 		entries := []registry.Entry{
 			{
-				ID:   registry.ParseID("app:test_dependency"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "igor-test-3/test-2",
@@ -51,7 +50,6 @@ func TestCreateParentDependencyMap(t *testing.T) {
 	t.Run("no matching dependency entries", func(t *testing.T) {
 		entries := []registry.Entry{
 			{
-				ID:   registry.ParseID("app:test_dependency"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "igor-test-3/test-2",
@@ -69,7 +67,6 @@ func TestCreateParentDependencyMap(t *testing.T) {
 	t.Run("matching dependency entries with parameters", func(t *testing.T) {
 		entries := []registry.Entry{
 			{
-				ID:   registry.ParseID("app:test_dependency"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "igor-test-3/test-2",
@@ -97,7 +94,6 @@ func TestCreateParentDependencyMap(t *testing.T) {
 	t.Run("multiple dependencies for same module", func(t *testing.T) {
 		entries := []registry.Entry{
 			{
-				ID:   registry.ParseID("app:test_dependency1"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "igor-test-3/test-2",
@@ -110,7 +106,6 @@ func TestCreateParentDependencyMap(t *testing.T) {
 				}},
 			},
 			{
-				ID:   registry.ParseID("app:test_dependency2"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "igor-test-3/test-2",
@@ -136,7 +131,6 @@ func TestCreateParentDependencyMap(t *testing.T) {
 	t.Run("non-dependency entries are ignored", func(t *testing.T) {
 		entries := []registry.Entry{
 			{
-				ID:   registry.ParseID("app:test_requirement"),
 				Kind: registry.KindNamespaceRequirement,
 				Data: &TestPayload{data: map[string]interface{}{
 					"name": "API_ROUTER",
@@ -154,7 +148,6 @@ func TestCreateParentDependencyMap(t *testing.T) {
 	t.Run("entries without component field are ignored", func(t *testing.T) {
 		entries := []registry.Entry{
 			{
-				ID:   registry.ParseID("app:test_dependency"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"name": "test",
@@ -172,7 +165,6 @@ func TestCreateParentDependencyMap(t *testing.T) {
 	t.Run("entries with non-string component are ignored", func(t *testing.T) {
 		entries := []registry.Entry{
 			{
-				ID:   registry.ParseID("app:test_dependency"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": 123,
@@ -193,7 +185,6 @@ func TestSelectBestParentDependency(t *testing.T) {
 
 	t.Run("no parent dependencies", func(t *testing.T) {
 		requirement := registry.Entry{
-			ID:   registry.ParseID("app:API_ROUTER"),
 			Kind: registry.KindNamespaceRequirement,
 		}
 		parentDeps := []ParentDependencyInfo{}
@@ -204,7 +195,6 @@ func TestSelectBestParentDependency(t *testing.T) {
 
 	t.Run("single parent dependency", func(t *testing.T) {
 		requirement := registry.Entry{
-			ID:   registry.ParseID("app:API_ROUTER"),
 			Kind: registry.KindNamespaceRequirement,
 		}
 		parentDeps := []ParentDependencyInfo{
@@ -220,7 +210,6 @@ func TestSelectBestParentDependency(t *testing.T) {
 
 	t.Run("multiple parent dependencies with parameter match", func(t *testing.T) {
 		requirement := registry.Entry{
-			ID:   registry.ParseID("app:API_ROUTER"),
 			Kind: registry.KindNamespaceRequirement,
 		}
 		parentDeps := []ParentDependencyInfo{
@@ -240,7 +229,6 @@ func TestSelectBestParentDependency(t *testing.T) {
 
 	t.Run("multiple parent dependencies without parameter match", func(t *testing.T) {
 		requirement := registry.Entry{
-			ID:   registry.ParseID("app:API_ROUTER"),
 			Kind: registry.KindNamespaceRequirement,
 		}
 		parentDeps := []ParentDependencyInfo{
@@ -373,7 +361,6 @@ func TestComplexIntegrationScenario(t *testing.T) {
 		entries := []registry.Entry{
 			// Module 1: web-service
 			{
-				ID:   registry.ParseID("app:web_service_dep"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "company/web-service",
@@ -384,7 +371,6 @@ func TestComplexIntegrationScenario(t *testing.T) {
 				}},
 			},
 			{
-				ID:   registry.ParseID("app:web_service_alt_dep"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "company/web-service",
@@ -395,7 +381,6 @@ func TestComplexIntegrationScenario(t *testing.T) {
 			},
 			// Module 2: auth-service
 			{
-				ID:   registry.ParseID("app:auth_service_dep"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "company/auth-service",
@@ -407,7 +392,6 @@ func TestComplexIntegrationScenario(t *testing.T) {
 			},
 			// Module 3: payment-service
 			{
-				ID:   registry.ParseID("app:payment_service_dep"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "company/payment-service",
@@ -418,7 +402,6 @@ func TestComplexIntegrationScenario(t *testing.T) {
 				}},
 			},
 			{
-				ID:   registry.ParseID("app:payment_service_alt_dep"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "company/payment-service",
@@ -429,7 +412,6 @@ func TestComplexIntegrationScenario(t *testing.T) {
 			},
 			// Module 4: notification-service
 			{
-				ID:   registry.ParseID("app:notification_service_dep"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "company/notification-service",
@@ -441,7 +423,6 @@ func TestComplexIntegrationScenario(t *testing.T) {
 			},
 			// Module 5: analytics-service
 			{
-				ID:   registry.ParseID("app:analytics_service_dep"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "company/analytics-service",
@@ -453,7 +434,6 @@ func TestComplexIntegrationScenario(t *testing.T) {
 			},
 			// Module 6: file-service
 			{
-				ID:   registry.ParseID("app:file_service_dep"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "company/file-service",
@@ -465,7 +445,6 @@ func TestComplexIntegrationScenario(t *testing.T) {
 			},
 			// Module 7: search-service
 			{
-				ID:   registry.ParseID("app:search_service_dep"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "company/search-service",
@@ -476,7 +455,6 @@ func TestComplexIntegrationScenario(t *testing.T) {
 			},
 			// Module 8: monitoring-service
 			{
-				ID:   registry.ParseID("app:monitoring_service_dep"),
 				Kind: registry.KindNamespaceDependency,
 				Data: &TestPayload{data: map[string]interface{}{
 					"component": "company/monitoring-service",

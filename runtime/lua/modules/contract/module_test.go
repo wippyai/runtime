@@ -275,7 +275,6 @@ func setupContractTest(t *testing.T) (*engine.CoroutineVM, engine.UnitOfWork, co
 		},
 		bindings: map[registry.ID]*contract.Binding{
 			registry.ParseID("test:binding"): {
-				ID:   registry.ParseID("test:binding"),
 				Meta: registry.Metadata{"version": "1.0"},
 				Contracts: []contract.BoundContract{
 					{
@@ -330,12 +329,15 @@ func setupContractTest(t *testing.T) (*engine.CoroutineVM, engine.UnitOfWork, co
 	// since STRICT = false in runtime/lua/security/access.go
 	// This is simpler than setting up complex policy evaluation
 
+	// Create frame context for security
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+
 	// Optionally add just actor (incomplete context triggers allow-by-default)
 	testActor := secapi.Actor{
 		ID:   "test_actor",
 		Meta: registry.Metadata{},
 	}
-	ctx = secapi.WithActor(ctx, testActor)
+	_ = secapi.SetActor(ctx, testActor)
 	// NOTE: Not setting scope, so security context is incomplete -> defaults to allow
 
 	// Set context in VM
@@ -1012,7 +1014,6 @@ func TestContractMultipleContracts(t *testing.T) {
 	// Add to mocks
 	mockReg.contracts[registry.ParseID("test:contract2")] = secondContract
 	mockReg.bindings[registry.ParseID("test:binding2")] = &contract.Binding{
-		ID:   registry.ParseID("test:binding2"),
 		Meta: registry.Metadata{"version": "2.0"},
 	}
 	mockReg.bindingsForContract[registry.ParseID("test:contract2")] = []registry.ID{registry.ParseID("test:binding2")}

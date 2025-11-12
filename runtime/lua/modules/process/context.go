@@ -1,14 +1,13 @@
 package process
 
 import (
-	contextbase "context"
 	"strings"
 
 	"github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	runtimeapi "github.com/ponyruntime/pony/api/runtime"
 	secapi "github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/security"
@@ -20,7 +19,7 @@ import (
 // WithContext represents a process spawner with context values
 type WithContext struct {
 	module *Module
-	values *context.Contexter[any]
+	values *context.Values
 
 	// Dedicated fields for security context to prevent overwriting/conflicting with user values
 	actor    secapi.Actor
@@ -75,11 +74,11 @@ func (m *Module) withContext(l *lua.LState) int {
 			return 0
 		}
 
-		// Create new contexter and copy existing values
-		newValues := context.NewContexter[any]()
+		// Create new Values and copy existing values
+		newValues := context.NewValues()
 		if spawner.values != nil {
-			spawner.values.Iterate(func(key string, value any) {
-				newValues.SetValue(key, value)
+			spawner.values.Iterate(func(key any, value any) {
+				newValues.Set(key, value)
 			})
 		}
 
@@ -91,7 +90,7 @@ func (m *Module) withContext(l *lua.LState) int {
 				return
 			}
 
-			newValues.SetValue(string(key), luaconv.ToGoAny(v))
+			newValues.Set(string(key), luaconv.ToGoAny(v))
 		})
 
 		// Create new spawner with merged context, preserving security context
@@ -118,12 +117,12 @@ func (m *Module) withContext(l *lua.LState) int {
 		return 0
 	}
 
-	// First call - create a new contexter
-	values := context.NewContexter[any]()
-
-	// check existing
-	if ctxr, ok := l.Context().Value(context.ValuesCtx).(*context.Contexter[any]); ok {
-		values = ctxr.Clone()
+	// First call - create new Values
+	values := context.GetValues(l.Context())
+	if values != nil {
+		values = values.Clone()
+	} else {
+		values = context.NewValues()
 	}
 
 	// Get context table from first argument
@@ -139,15 +138,32 @@ func (m *Module) withContext(l *lua.LState) int {
 			return
 		}
 
-		values.SetValue(string(key), luaconv.ToGoAny(v))
+		values.Set(string(key), luaconv.ToGoAny(v))
 	})
 
-	// Create new spawner with context
+	// Check for existing security context to inherit
+	var actor secapi.Actor
+	var scope secapi.Scope
+	hasActor := false
+	hasScope := false
+
+	if a, ok := secapi.GetActor(l.Context()); ok {
+		actor = a
+		hasActor = true
+	}
+	if s, ok := secapi.GetScope(l.Context()); ok {
+		scope = s
+		hasScope = true
+	}
+
+	// Create new spawner with context, inheriting security context from current frame
 	spawner := &WithContext{
 		module:   m,
 		values:   values,
-		hasActor: false,
-		hasScope: false,
+		actor:    actor,
+		hasActor: hasActor,
+		scope:    scope,
+		hasScope: hasScope,
 	}
 
 	// Create userdata with metatable for method chaining
@@ -257,28 +273,44 @@ func (m *Module) withScope(l *lua.LState) int {
 	return 1
 }
 
-// applyContextToProcess applies context values from a Contexter to a process context
-func applyContextToProcess(ctx contextbase.Context, spawner *WithContext) contextbase.Context {
+// buildContextPairs builds context.Pair slice from WithContext spawner
+func buildContextPairs(spawner *WithContext) []context.Pair {
 	if spawner == nil {
-		return ctx
+		return nil
 	}
 
-	// Apply regular context values
-	if spawner.values != nil && spawner.values.Len() > 0 {
-		ctx = contextbase.WithValue(ctx, context.ValuesCtx, spawner.values)
-	}
+	spawner.module.log.Info("buildContextPairs: starting",
+		zap.Bool("hasActor", spawner.hasActor),
+		zap.Bool("hasScope", spawner.hasScope),
+		zap.Int("values_count", func() int {
+			if spawner.values != nil {
+				return spawner.values.Len()
+			}
+			return 0
+		}()))
 
-	// Apply actor if set
+	var pairs []context.Pair
+
+	// Add actor if set
 	if spawner.hasActor {
-		ctx = secapi.WithActor(ctx, spawner.actor)
+		spawner.module.log.Info("buildContextPairs: adding actor", zap.Any("actor", spawner.actor))
+		pairs = append(pairs, secapi.ActorPair(spawner.actor))
 	}
 
-	// Apply scope if set
+	// Add scope if set
 	if spawner.hasScope {
-		ctx = secapi.WithScope(ctx, spawner.scope)
+		spawner.module.log.Info("buildContextPairs: adding scope")
+		pairs = append(pairs, secapi.ScopePair(spawner.scope))
 	}
 
-	return ctx
+	// Add custom values if set
+	if spawner.values != nil && spawner.values.Len() > 0 {
+		spawner.module.log.Info("buildContextPairs: adding values")
+		pairs = append(pairs, context.ValuesPair(spawner.values))
+	}
+
+	spawner.module.log.Info("buildContextPairs: complete", zap.Int("pairs_count", len(pairs)))
+	return pairs
 }
 
 // contextSpawn spawns a process with context values
@@ -306,16 +338,13 @@ func (m *Module) contextSpawn(l *lua.LState) int {
 		return 0
 	}
 
-	// Get context and PID
+	// Get PID from frame context
 	ctx := l.Context()
-	self, ok := pubsub.GetPID(ctx)
+	self, ok := runtimeapi.GetFramePID(ctx)
 	if !ok {
-		l.RaiseError("no PID found in context")
+		l.RaiseError("no PID found in frame context")
 		return 0
 	}
-
-	// Apply context values using the updated function
-	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
 	manager := process.GetManager(ctx)
@@ -330,7 +359,7 @@ func (m *Module) contextSpawn(l *lua.LState) int {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
 	}
 
-	// Create start configuration
+	// Create start configuration with context overrides
 	start := &process.Start{
 		HostID: hostID,
 		Source: registry.ParseID(id),
@@ -340,6 +369,7 @@ func (m *Module) contextSpawn(l *lua.LState) int {
 			Monitor: false,
 			Link:    false,
 		},
+		Context: buildContextPairs(spawner),
 	}
 
 	// Start the process with our context
@@ -395,16 +425,13 @@ func (m *Module) contextSpawnMonitored(l *lua.LState) int {
 		return 0
 	}
 
-	// Get context and PID
+	// Get PID from frame context
 	ctx := l.Context()
-	self, ok := pubsub.GetPID(ctx)
+	self, ok := runtimeapi.GetFramePID(ctx)
 	if !ok {
-		l.RaiseError("no PID found in context")
+		l.RaiseError("no PID found in frame context")
 		return 0
 	}
-
-	// Apply context values using the updated function
-	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
 	manager := process.GetManager(ctx)
@@ -419,7 +446,7 @@ func (m *Module) contextSpawnMonitored(l *lua.LState) int {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
 	}
 
-	// Create start configuration with monitoring
+	// Create start configuration with monitoring and context overrides
 	start := &process.Start{
 		HostID: hostID,
 		Source: registry.ParseID(id),
@@ -429,6 +456,7 @@ func (m *Module) contextSpawnMonitored(l *lua.LState) int {
 			Monitor: true,
 			Link:    false,
 		},
+		Context: buildContextPairs(spawner),
 	}
 
 	// Start the process with monitoring
@@ -484,16 +512,13 @@ func (m *Module) contextSpawnLinked(l *lua.LState) int {
 		return 0
 	}
 
-	// Get context and PID
+	// Get PID from frame context
 	ctx := l.Context()
-	self, ok := pubsub.GetPID(ctx)
+	self, ok := runtimeapi.GetFramePID(ctx)
 	if !ok {
-		l.RaiseError("no PID found in context")
+		l.RaiseError("no PID found in frame context")
 		return 0
 	}
-
-	// Apply context values using the updated function
-	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
 	manager := process.GetManager(ctx)
@@ -508,7 +533,7 @@ func (m *Module) contextSpawnLinked(l *lua.LState) int {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
 	}
 
-	// Create start configuration with linking
+	// Create start configuration with linking and context overrides
 	start := &process.Start{
 		HostID: hostID,
 		Source: registry.ParseID(id),
@@ -518,6 +543,7 @@ func (m *Module) contextSpawnLinked(l *lua.LState) int {
 			Monitor: false,
 			Link:    true,
 		},
+		Context: buildContextPairs(spawner),
 	}
 
 	// Start the process with linking
@@ -579,16 +605,13 @@ func (m *Module) contextSpawnLinkedMonitored(l *lua.LState) int {
 		return 0
 	}
 
-	// Get context and PID
+	// Get PID from frame context
 	ctx := l.Context()
-	self, ok := pubsub.GetPID(ctx)
+	self, ok := runtimeapi.GetFramePID(ctx)
 	if !ok {
-		l.RaiseError("no PID found in context")
+		l.RaiseError("no PID found in frame context")
 		return 0
 	}
-
-	// Apply context values using the updated function
-	ctx = applyContextToProcess(ctx, spawner)
 
 	// Get process manager
 	manager := process.GetManager(ctx)
@@ -603,7 +626,7 @@ func (m *Module) contextSpawnLinkedMonitored(l *lua.LState) int {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
 	}
 
-	// Create start configuration with both linking and monitoring
+	// Create start configuration with linking, monitoring, and context overrides
 	start := &process.Start{
 		HostID: hostID,
 		Source: registry.ParseID(id),
@@ -613,6 +636,7 @@ func (m *Module) contextSpawnLinkedMonitored(l *lua.LState) int {
 			Monitor: true,
 			Link:    true,
 		},
+		Context: buildContextPairs(spawner),
 	}
 
 	// Start the process with linking and monitoring

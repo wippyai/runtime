@@ -9,7 +9,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/stretchr/testify/assert"
 )
@@ -54,13 +53,11 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 
 	pid1 := pubsub.PID{
 		Host:   "host1",
-		ID:     registry.ID{Name: "test1"},
 		UniqID: "1",
 	}.Precomputed()
 
 	pid2 := pubsub.PID{
 		Host:   "host2",
-		ID:     registry.ID{Name: "test2"},
 		UniqID: "2",
 	}.Precomputed()
 
@@ -69,7 +66,7 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 		if err == nil {
 			t.Error("expected error when monitoring unregistered process")
 		}
-		if err != nil && err.Error() != "cannot monitor unregistered pid: {host1|:test1|1}" {
+		if err != nil && err.Error() != "cannot monitor unregistered pid: {host1|1}" {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
@@ -136,19 +133,16 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 
 	pid1 := pubsub.PID{
 		Host:   "host1",
-		ID:     registry.ID{Name: "test1"},
 		UniqID: "1",
 	}.Precomputed()
 
 	pid2 := pubsub.PID{
 		Host:   "host2",
-		ID:     registry.ID{Name: "test2"},
 		UniqID: "2",
 	}.Precomputed()
 
 	pid3 := pubsub.PID{
 		Host:   "host3",
-		ID:     registry.ID{Name: "test3"},
 		UniqID: "3",
 	}.Precomputed()
 
@@ -160,7 +154,6 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 	t.Run("cannot link unregistered process", func(t *testing.T) {
 		unregisteredPid := pubsub.PID{
 			Host:   "host4",
-			ID:     registry.ID{Name: "test4"},
 			UniqID: "4",
 		}
 
@@ -277,7 +270,6 @@ func TestTopology_Concurrency(t *testing.T) {
 
 	mainPid := pubsub.PID{
 		Host:   "host1",
-		ID:     registry.ID{Name: "main"},
 		UniqID: "main",
 	}
 
@@ -290,7 +282,6 @@ func TestTopology_Concurrency(t *testing.T) {
 	for i := 0; i < workerCount; i++ {
 		workers[i] = pubsub.PID{
 			Host:   "worker",
-			ID:     registry.ID{Name: "worker"},
 			UniqID: string(rune('0' + i)),
 		}
 		assert.NoError(t, topo.Register(workers[i]))
@@ -382,13 +373,11 @@ func TestTopology_UpstreamError(t *testing.T) {
 
 	pid1 := pubsub.PID{
 		Host:   "host1",
-		ID:     registry.ID{Name: "test1"},
 		UniqID: "1",
 	}
 
 	pid2 := pubsub.PID{
 		Host:   "host2",
-		ID:     registry.ID{Name: "test2"},
 		UniqID: "2",
 	}
 
@@ -414,13 +403,11 @@ func TestTopology_EdgeCases(t *testing.T) {
 
 	pid1 := pubsub.PID{
 		Host:   "host1",
-		ID:     registry.ID{Name: "test1"},
 		UniqID: "1",
 	}
 
 	pid2 := pubsub.PID{
 		Host:   "host2",
-		ID:     registry.ID{Name: "test2"},
 		UniqID: "2",
 	}
 
@@ -472,13 +459,11 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 
 	pid1 := pubsub.PID{
 		Host:   "host1",
-		ID:     registry.ID{Name: "test1"},
 		UniqID: "1",
 	}
 
 	pid2 := pubsub.PID{
 		Host:   "host2",
-		ID:     registry.ID{Name: "test2"},
 		UniqID: "2",
 	}
 
@@ -650,19 +635,16 @@ func TestTopology_NotificationScenarios(t *testing.T) {
 
 	pid1 := pubsub.PID{
 		Host:   "host1",
-		ID:     registry.ID{Name: "test1"},
 		UniqID: "1",
 	}
 
 	pid2 := pubsub.PID{
 		Host:   "host2",
-		ID:     registry.ID{Name: "test2"},
 		UniqID: "2",
 	}
 
 	pid3 := pubsub.PID{
 		Host:   "host3",
-		ID:     registry.ID{Name: "test3"},
 		UniqID: "3",
 	}
 

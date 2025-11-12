@@ -23,7 +23,7 @@ func TestAppContext_WithAndGet(t *testing.T) {
 	}
 
 	// Test with *Key
-	key := &Key{Name: "test.key", Scope: ScopeThread}
+	key := &Key{Name: "test.key"}
 	ac = ac.With(key, 42)
 	if got := ac.Get(key); got != 42 {
 		t.Errorf("Get(key) = %v, want 42", got)

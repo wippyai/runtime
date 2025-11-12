@@ -32,7 +32,6 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	manager := NewManager(log, codeManager)
 
 	entry := registry.Entry{
-		ID:   registry.ID{Name: "test"},
 		Kind: registry.Kind("invalid"),
 	}
 
@@ -52,7 +51,6 @@ func TestManager_Add_InvalidConfig(t *testing.T) {
 
 	payloadData := payload.NewPayload(testData, payload.JSON)
 	entry := registry.Entry{
-		ID:   registry.ID{Name: "test"},
 		Kind: api.KindLibrary,
 		Data: payloadData,
 	}
@@ -75,7 +73,6 @@ func TestManager_Update_InvalidKind(t *testing.T) {
 	manager := NewManager(log, codeManager)
 
 	entry := registry.Entry{
-		ID:   registry.ID{Name: "test"},
 		Kind: registry.Kind("invalid"),
 	}
 
@@ -91,7 +88,6 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	manager := NewManager(log, codeManager)
 
 	entry := registry.Entry{
-		ID:   registry.ID{Name: "test"},
 		Kind: registry.Kind("invalid"),
 	}
 

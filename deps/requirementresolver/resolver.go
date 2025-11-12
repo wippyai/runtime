@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/itchyny/gojq"
@@ -154,7 +153,6 @@ func ApplyPathValueToEntriesWithGojq(jqQuery string, value string, entries []reg
 		} else {
 			// Try Data first, fallback to entire entry for meta fields
 			err := updateEntryDataWithGojq(entry, jqQuery, value)
-			log.Printf("%+v %v %v", entry.Meta, err, jqQuery)
 
 			if err != nil && strings.HasPrefix(trimmedQuery, ".meta") { // todo: what?
 				// If Data update failed and it's a meta query, try entire entry

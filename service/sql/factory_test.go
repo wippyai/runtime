@@ -5,8 +5,6 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3" // Import SQLite driver
-
-	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/sql"
 	"github.com/stretchr/testify/assert"
 )

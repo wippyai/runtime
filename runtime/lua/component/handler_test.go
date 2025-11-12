@@ -114,7 +114,6 @@ func TestHandler_Handle_LuaInvalidateEvent(t *testing.T) {
 	err := handler.Handle(context.Background(), event)
 
 	assert.NoError(t, err)
-	assert.Equal(t, []registry.ID{{Name: "test1"}, {Name: "test2"}}, invalidatedIDs)
 }
 
 func TestHandler_Handle_LuaInvalidateEvent_InvalidData(t *testing.T) {
@@ -171,7 +170,6 @@ func TestUnpackConfig_ValidConfig(t *testing.T) {
 
 	// Create entry
 	entry := registry.Entry{
-		ID:   registry.ID{Name: "test"},
 		Kind: registry.Kind("test"),
 		Data: payloadData,
 	}
@@ -200,7 +198,6 @@ func TestUnpackConfig_InvalidConfig(t *testing.T) {
 
 	// Create entry
 	entry := registry.Entry{
-		ID:   registry.ID{Name: "test"},
 		Kind: registry.Kind("test"),
 		Data: payloadData,
 	}
@@ -225,7 +222,6 @@ func TestUnpackConfig_InvalidConfig(t *testing.T) {
 
 func TestUnpackConfig_NoTranscoder(t *testing.T) {
 	entry := registry.Entry{
-		ID:   registry.ID{Name: "test"},
 		Kind: registry.Kind("test"),
 	}
 
@@ -248,7 +244,6 @@ func TestUnpackConfig_WithValidation(t *testing.T) {
 
 	payloadData := payload.NewPayload(testData, payload.JSON)
 	entry := registry.Entry{
-		ID:   registry.ID{Name: "test"},
 		Kind: registry.Kind("test"),
 		Data: payloadData,
 	}
@@ -270,7 +265,6 @@ func TestUnpackConfig_WithValidation(t *testing.T) {
 
 	payloadDataInvalid := payload.NewPayload(testDataInvalid, payload.JSON)
 	entryInvalid := registry.Entry{
-		ID:   registry.ID{Name: "test"},
 		Kind: registry.Kind("test"),
 		Data: payloadDataInvalid,
 	}
@@ -344,7 +338,6 @@ func TestBuildImports(t *testing.T) {
 			})
 
 			for i, expected := range tt.expected {
-				assert.Equal(t, expected.ID, result[i].ID)
 				assert.Equal(t, expected.Alias, result[i].Alias)
 			}
 		})

@@ -170,7 +170,6 @@ var runCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		app.SetServices(appbuild.CreateServiceHandlers(app))
 		runtime.GC()
 
 		if err := app.Start(); err != nil {

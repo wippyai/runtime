@@ -60,7 +60,6 @@ func TestManager_Add_WithDebugLogging(t *testing.T) {
 
 	// Create a test entry
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "test-service"},
 		Kind: processapi.KindProcessService,
 		Data: payload.NewPayload(map[string]interface{}{
 			"process": "test:test-process",
@@ -100,7 +99,6 @@ func TestManager_Update_WithDebugLogging(t *testing.T) {
 
 	// Create a test entry
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "test-service"},
 		Kind: processapi.KindProcessService,
 		Data: payload.NewPayload(map[string]interface{}{
 			"process": "test:test-process",
@@ -156,7 +154,6 @@ func TestManager_Add_WithoutTranscoder(t *testing.T) {
 
 	// Create a test entry
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "test-service"},
 		Kind: processapi.KindProcessService,
 		Data: payload.NewPayload(map[string]interface{}{
 			"process": "test:test-process",
@@ -189,7 +186,6 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 
 	// Create a test entry with wrong kind
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "test-service"},
 		Kind: "wrong.kind",
 		Data: payload.NewPayload(map[string]interface{}{
 			"process": "test:test-process",
