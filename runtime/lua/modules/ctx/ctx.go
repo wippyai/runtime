@@ -62,14 +62,14 @@ func (m *Module) get(l *lua.LState) int {
 		return 0
 	}
 
-	ctxter, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any])
-	if !ok {
+	values := ctxapi.GetValues(ctx)
+	if values == nil {
 		l.ArgError(1, "invalid context")
 		return 0
 	}
 
-	vv, ok := ctxter.Value(k)
-	if !ok {
+	vv := values.Get(k)
+	if vv == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no value found for key: " + k))
 		return 2
@@ -103,13 +103,13 @@ func (m *Module) set(l *lua.LState) int {
 		return 0
 	}
 
-	ctxter, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any])
-	if !ok {
+	values := ctxapi.GetValues(ctx)
+	if values == nil {
 		l.ArgError(1, "invalid context")
 		return 0
 	}
 
-	ctxter.SetValue(k, transcoder.ToGoAny(l.CheckAny(2)))
+	values.Set(k, transcoder.ToGoAny(l.CheckAny(2)))
 
 	l.Push(lua.LTrue)
 	l.Push(lua.LNil)
@@ -126,27 +126,33 @@ func (m *Module) all(l *lua.LState) int {
 		return 0
 	}
 
-	ctxter, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any])
-	if !ok {
+	values := ctxapi.GetValues(ctx)
+	if values == nil {
 		l.ArgError(1, "invalid context")
 		return 0
 	}
 
 	// Create a new table to hold all the values
-	t := l.CreateTable(0, ctxter.Len())
+	t := l.CreateTable(0, values.Len())
 
-	// Iterate over all key-value pairs in the contexter
-	ctxter.Iterate(func(key string, value any) {
+	// Iterate over all key-value pairs
+	values.Iterate(func(key any, value any) {
+		// Only support string keys for Lua
+		keyStr, ok := key.(string)
+		if !ok {
+			return
+		}
+
 		// Convert the Go value to a Lua value
 		luaValue, err := transcoder.GoToLua(value)
 		if err != nil {
 			// Skip values that cannot be converted
-			m.log.Warn("error converting value to Lua", zap.String("key", key), zap.Error(err))
+			m.log.Warn("error converting value to Lua", zap.String("key", keyStr), zap.Error(err))
 			return
 		}
 
 		// Set the key-value pair in the table
-		t.RawSetString(key, luaValue)
+		t.RawSetString(keyStr, luaValue)
 	})
 
 	l.Push(t)

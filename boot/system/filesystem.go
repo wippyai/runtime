@@ -7,34 +7,34 @@ import (
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	logapi "github.com/ponyruntime/pony/api/logs"
-	bootpkg "github.com/ponyruntime/pony/boot"
 	"github.com/ponyruntime/pony/system/fs"
 )
 
-type filesystemPlugin struct{}
+func Filesystem() boot.Plugin {
+	var fsRegistry *fs.Registry
 
-func (p *filesystemPlugin) Name() string        { return bootpkg.Filesystem }
-func (p *filesystemPlugin) Phase() boot.Phase   { return boot.Init }
-func (p *filesystemPlugin) DependsOn() []string { return []string{bootpkg.EventBus, bootpkg.Logger} }
+	return boot.New(boot.P{
+		Name:      FilesystemName,
+		Phase:     boot.Init,
+		DependsOn: []string{"eventbus", "logger"},
+		Load: func(ctx context.Context) (context.Context, error) {
+			logger := logapi.GetLogger(ctx)
+			bus := event.GetBus(ctx)
 
-func (p *filesystemPlugin) Load(ctx context.Context) (context.Context, error) {
-	logger := logapi.GetLogger(ctx)
-	bus := event.GetBus(ctx)
-
-	fsRegistry := fs.NewFSRegistry(bus, logger.Named("fs"))
-	return fsapi.WithRegistry(ctx, fsRegistry), nil
-}
-
-func (p *filesystemPlugin) Start(ctx context.Context) error {
-	fsRegistry := fsapi.GetRegistry(ctx)
-	return fsRegistry.Start(ctx)
-}
-
-func (p *filesystemPlugin) Stop(ctx context.Context) error {
-	fsRegistry := fsapi.GetRegistry(ctx)
-	return fsRegistry.Stop()
-}
-
-func init() {
-	bootpkg.MustRegister(&filesystemPlugin{})
+			fsRegistry = fs.NewFSRegistry(bus, logger.Named("fs"))
+			return fsapi.WithRegistry(ctx, fsRegistry), nil
+		},
+		Start: func(ctx context.Context) error {
+			if fsRegistry != nil {
+				return fsRegistry.Start(ctx)
+			}
+			return nil
+		},
+		Stop: func(ctx context.Context) error {
+			if fsRegistry != nil {
+				return fsRegistry.Stop()
+			}
+			return nil
+		},
+	})
 }

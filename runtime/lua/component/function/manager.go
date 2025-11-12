@@ -117,7 +117,6 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to add function: %w", err)
 	}
 
-	options := cfg.Meta.Options
 	// Spawn and store pool
 	if err = m.pushHandler(entry.ID, cfg); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
@@ -127,7 +126,10 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	// Register function caller
 	m.registerCaller(ctx, entry.ID, cfg.Method)
 
-	m.registerCallerOptions(ctx, entry.ID, options)
+	// Register options if configured
+	if cfg.Meta.Options != nil {
+		m.registerCallerOptions(ctx, entry.ID, cfg.Meta.Options)
+	}
 
 	return nil
 }

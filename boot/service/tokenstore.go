@@ -1,3 +1,5 @@
+//go:build !plugin_minimal
+
 package service
 
 import (
@@ -10,42 +12,34 @@ import (
 	resourceapi "github.com/ponyruntime/pony/api/resource"
 	secapi "github.com/ponyruntime/pony/api/security"
 	bootpkg "github.com/ponyruntime/pony/boot"
+	bootcore "github.com/ponyruntime/pony/boot/core"
+	bootsystem "github.com/ponyruntime/pony/boot/system"
 	"github.com/ponyruntime/pony/service/tokenstore"
-	"github.com/ponyruntime/pony/system/eventbus"
-	reghandler "github.com/ponyruntime/pony/system/registry/events"
 )
 
-type tokenStorePlugin struct {
-	handler eventbus.EventHandler
-}
+func TokenStore() boot.Plugin {
+	return boot.New(boot.P{
+		Name:      TokenStoreName,
+		Phase:     boot.PostInit,
+		DependsOn: []string{bootsystem.ResourcesName, bootcore.SecurityName},
+		Load: func(ctx context.Context) (context.Context, error) {
+			logger := logapi.GetLogger(ctx)
+			dtt := payload.GetTranscoder(ctx)
+			bus := event.GetBus(ctx)
+			resources := resourceapi.GetRegistry(ctx)
+			security, _ := secapi.GetRegistry(ctx)
+			handlers := bootpkg.GetHandlerRegistry(ctx)
 
-func (p *tokenStorePlugin) Name() string        { return bootpkg.TokenStore }
-func (p *tokenStorePlugin) Phase() boot.Phase   { return boot.PostInit }
-func (p *tokenStorePlugin) DependsOn() []string { return []string{bootpkg.Resources, bootpkg.Security} }
+			manager := tokenstore.NewManager(
+				bus,
+				dtt,
+				resources,
+				security,
+				logger.Named("tstore"),
+			)
 
-func (p *tokenStorePlugin) Load(ctx context.Context) (context.Context, error) {
-	logger := logapi.GetLogger(ctx)
-	dtt := payload.GetTranscoder(ctx)
-	bus := event.GetBus(ctx)
-	resources := resourceapi.GetRegistry(ctx)
-	security := secapi.GetRegistry(ctx)
-
-	manager := tokenstore.NewManager(
-		bus,
-		dtt,
-		resources,
-		security,
-		logger.Named("tstore"),
-	)
-
-	p.handler = reghandler.NewRegistryHandler("security.token_store", manager)
-	return ctx, nil
-}
-
-func (p *tokenStorePlugin) Handler() eventbus.EventHandler {
-	return p.handler
-}
-
-func init() {
-	bootpkg.MustRegister(&tokenStorePlugin{})
+			handlers.RegisterListener("security.token_store", manager)
+			return ctx, nil
+		},
+	})
 }

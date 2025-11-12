@@ -17,12 +17,12 @@ require (
 	github.com/coder/websocket v1.8.12
 	github.com/expr-lang/expr v1.17.6
 	github.com/fatih/color v1.17.0
+	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-sql-driver/mysql v1.9.2
 	github.com/goccy/go-yaml v1.17.1
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-msgpack v0.5.5
-	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/hashicorp/memberlist v0.5.3
 	github.com/itchyny/gojq v0.12.17
 	github.com/lib/pq v1.10.9
@@ -58,7 +58,6 @@ require (
 	go.uber.org/mock v0.5.2
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.38.0
-	golang.org/x/time v0.5.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

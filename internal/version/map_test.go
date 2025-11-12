@@ -3,11 +3,9 @@ package version
 import (
 	"errors"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"reflect"
 	"testing"
-
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/stretchr/testify/require"
 )
 
 // TestVersionMap_Path_Simple tests a simple linear path.

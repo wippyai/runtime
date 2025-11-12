@@ -305,7 +305,6 @@ package requirementresolver
 //
 //			if tc.shouldFind {
 //				require.NoError(t, err, "Should find dependency parameter")
-//				assert.Equal(t, "hello_world_dependency", dependency.ID.Name)
 //				assert.Equal(t, tc.expectedValue, paramValue)
 //			} else {
 //				require.Error(t, err, "Should not find dependency parameter")
@@ -431,7 +430,6 @@ package requirementresolver
 //
 //			if tc.shouldFind {
 //				require.NoError(t, err, "Should find dependency parameter")
-//				assert.Equal(t, "dependency1", dependency.ID.Name)
 //				assert.Equal(t, "value1", paramValue)
 //			} else {
 //				require.Error(t, err, "Should not find dependency parameter")
@@ -562,7 +560,6 @@ package requirementresolver
 //
 //			if tc.shouldFind {
 //				require.NoError(t, err, "Should find dependency parameter")
-//				assert.Equal(t, tc.expectedDepID, dependency.ID.String())
 //				assert.Equal(t, tc.expectedValue, paramValue)
 //			} else {
 //				require.Error(t, err, "Should not find dependency parameter")

@@ -115,7 +115,6 @@ func TestNewRegistryHandler(t *testing.T) {
 				System: registry.System,
 				Kind:   registry.Create,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),
 				},
@@ -130,7 +129,6 @@ func TestNewRegistryHandler(t *testing.T) {
 				System: registry.System,
 				Kind:   registry.Update,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 					Data: payload.NewString("updated-data"),
 				},
@@ -145,7 +143,6 @@ func TestNewRegistryHandler(t *testing.T) {
 				System: registry.System,
 				Kind:   registry.Delete,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 				},
 			},
@@ -159,7 +156,6 @@ func TestNewRegistryHandler(t *testing.T) {
 				System: registry.System,
 				Kind:   registry.Create,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "other1"},
 					Kind: "other.resource",
 					Data: payload.NewString("test-data"),
 				},
@@ -173,7 +169,6 @@ func TestNewRegistryHandler(t *testing.T) {
 				System: registry.System,
 				Kind:   registry.Create,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 				},
 			},
@@ -187,7 +182,6 @@ func TestNewRegistryHandler(t *testing.T) {
 				System: registry.System,
 				Kind:   registry.Create,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),
 				},
@@ -203,7 +197,6 @@ func TestNewRegistryHandler(t *testing.T) {
 				System: registry.System,
 				Kind:   registry.Create,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),
 				},
@@ -320,7 +313,6 @@ func TestNewTransactionHandler(t *testing.T) {
 				System: registry.System,
 				Kind:   registry.Create,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),
 				},

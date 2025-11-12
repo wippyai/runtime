@@ -7,7 +7,7 @@ import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
 )
 
-var registryCtxKey = &ctxapi.Key{Name: "env.registry", Scope: ctxapi.ScopeThread}
+var registryCtxKey = &ctxapi.Key{Name: "env.registry"}
 
 // WithRegistry returns a new context with the provided Registry attached
 func WithRegistry(ctx context.Context, reg Registry) context.Context {

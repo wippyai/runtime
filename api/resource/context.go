@@ -8,7 +8,7 @@ import (
 )
 
 // Context key for storing resource-related data
-var resourcesCtx = &ctxapi.Key{Name: "resource.registry", Scope: ctxapi.ScopeThread}
+var resourcesCtx = &ctxapi.Key{Name: "resource.registry"}
 
 // WithRegistry attaches a Resource Registry instance to the provided context.
 // This allows the Registry to be retrieved later using the GetRegistry function.

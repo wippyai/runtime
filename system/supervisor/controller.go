@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	securitysys "github.com/ponyruntime/pony/system/security"
 
 	"github.com/ponyruntime/pony/api/supervisor"
@@ -75,9 +76,15 @@ func NewController(
 		ops:           make(chan controlOp, 10),
 	}
 
+	// Create FrameContext for this service lifecycle
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+
 	if config.Security != nil {
 		ctx = securitysys.WithSecurityConfig(ctx, config.Security)
 	}
+
+	// Seal the frame since this is service-level and won't be modified
+	fc.Seal()
 
 	ctrl.ctx, ctrl.cancel = context.WithCancel(ctx)
 

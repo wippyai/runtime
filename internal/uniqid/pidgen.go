@@ -25,18 +25,6 @@ func (p *PIDGenerator) Generate(host pubsub.HostID, id registry.ID) pubsub.PID {
 	return pubsub.PID{
 		Node:   p.nodeID,
 		Host:   host,
-		ID:     id,
-		UniqID: p.gen.Generate(),
-	}.Precomputed()
-}
-
-// GenerateWithNode creates a PID with node, host, and id, auto-generating UniqID
-// Deprecated: Use Generate() instead. The node is now configured at generator creation.
-func (p *PIDGenerator) GenerateWithNode(node pubsub.NodeID, host pubsub.HostID, id registry.ID) pubsub.PID {
-	return pubsub.PID{
-		Node:   node,
-		Host:   host,
-		ID:     id,
 		UniqID: p.gen.Generate(),
 	}.Precomputed()
 }

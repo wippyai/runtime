@@ -8,42 +8,42 @@ import (
 	funcapi "github.com/ponyruntime/pony/api/function"
 	logapi "github.com/ponyruntime/pony/api/logs"
 	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
-	bootpkg "github.com/ponyruntime/pony/boot"
 	"github.com/ponyruntime/pony/system/function"
 )
 
-type functionsPlugin struct{}
+func Functions() boot.Plugin {
+	var funcs *function.Registry
 
-func (p *functionsPlugin) Name() string      { return bootpkg.Functions }
-func (p *functionsPlugin) Phase() boot.Phase { return boot.Init }
-func (p *functionsPlugin) DependsOn() []string {
-	return []string{bootpkg.EventBus, bootpkg.Logger, bootpkg.PubSub}
-}
+	return boot.New(boot.P{
+		Name:      FunctionsName,
+		Phase:     boot.Init,
+		DependsOn: []string{"eventbus", "logger"},
+		Load: func(ctx context.Context) (context.Context, error) {
+			logger := logapi.GetLogger(ctx)
+			bus := event.GetBus(ctx)
+			node := pubsubapi.GetNode(ctx)
 
-func (p *functionsPlugin) Load(ctx context.Context) (context.Context, error) {
-	logger := logapi.GetLogger(ctx)
-	bus := event.GetBus(ctx)
-	node := pubsubapi.GetNode(ctx)
+			if node != nil {
+				if err := node.RegisterHost(funcapi.HostID, node); err != nil {
+					return ctx, err
+				}
 
-	funcHost, err := node.Host(funcapi.HostID)
-	if err != nil {
-		return ctx, err
-	}
+				funcs = function.NewFunctionRegistry(bus, node, logger.Named("funcs"))
+			}
 
-	funcs := function.NewFunctionRegistry(bus, funcHost, logger.Named("funcs"))
-	return funcapi.WithRegistry(ctx, funcs), nil
-}
-
-func (p *functionsPlugin) Start(ctx context.Context) error {
-	funcs := funcapi.GetRegistry(ctx)
-	return funcs.Start(ctx)
-}
-
-func (p *functionsPlugin) Stop(ctx context.Context) error {
-	funcs := funcapi.GetRegistry(ctx)
-	return funcs.Stop()
-}
-
-func init() {
-	bootpkg.MustRegister(&functionsPlugin{})
+			return funcapi.WithRegistry(ctx, funcs), nil
+		},
+		Start: func(ctx context.Context) error {
+			if funcs != nil {
+				return funcs.Start(ctx)
+			}
+			return nil
+		},
+		Stop: func(ctx context.Context) error {
+			if funcs != nil {
+				return funcs.Stop()
+			}
+			return nil
+		},
+	})
 }

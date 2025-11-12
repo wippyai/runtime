@@ -66,6 +66,12 @@ func NewUnitOfWork(parentCtx context.Context, state *lua.LState) (UnitOfWork, co
 		})
 	}
 
+	// Seal the frame now that UoW is created
+	// This is the final step before runtime execution
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		fc.Seal()
+	}
+
 	// Store in context
 	ctx = context.WithValue(ctx, unitOfWorkKey, uw)
 	uw.ctx = ctx

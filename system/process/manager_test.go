@@ -76,7 +76,6 @@ func (m *managerManagedHost) Launch(_ context.Context, launch *process.Launch) (
 	return pubsub.PID{
 		Node:   launch.PID.Node,
 		Host:   launch.PID.Host,
-		ID:     launch.PID.ID,
 		UniqID: "managed-host-assigned-" + launch.PID.UniqID,
 	}, nil
 }
@@ -119,7 +118,6 @@ func (m *managerDelegatedHost) Launch(_ context.Context, pid pubsub.PID, lf proc
 	return pubsub.PID{
 		Node:   "delegated-node",
 		Host:   pid.Host,
-		ID:     pid.ID,
 		UniqID: "delegated-host-assigned-" + pid.UniqID,
 	}, nil
 }
@@ -270,7 +268,6 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 	parentPID := pubsub.PID{
 		Node:   "parent-node",
 		Host:   "parent-host",
-		ID:     registry.ID{NS: "parent", Name: "process"},
 		UniqID: "parent-uniq",
 	}
 
@@ -294,7 +291,6 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 	assert.True(t, managedHost.launched, "Expected host Launch to be called")
 	assert.Equal(t, "managed-host-assigned-test-uniq", resultPID.UniqID)
 	assert.Equal(t, hostID, resultPID.Host)
-	assert.Equal(t, sourceID, resultPID.ID)
 	assert.Equal(t, nodeID, resultPID.Node)
 
 	// Verify Launch parameters
@@ -302,7 +298,6 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 	assert.Equal(t, uniqID, managedHost.lastLaunch.PID.UniqID)
 	assert.Equal(t, nodeID, managedHost.lastLaunch.PID.Node)
 	assert.Equal(t, hostID, managedHost.lastLaunch.PID.Host)
-	assert.Equal(t, sourceID, managedHost.lastLaunch.PID.ID)
 	assert.Equal(t, inputs, managedHost.lastLaunch.Input)
 	assert.Equal(t, parentPID, managedHost.lastLaunch.Lifecycle.Parent)
 	assert.True(t, managedHost.lastLaunch.Lifecycle.Monitor)
@@ -351,13 +346,11 @@ func TestManager_Start_DelegatedHost(t *testing.T) {
 	assert.True(t, delegatedHost.launched, "Expected host Launch to be called")
 	assert.Equal(t, "delegated-host-assigned-test-uniq", resultPID.UniqID)
 	assert.Equal(t, hostID, resultPID.Host)
-	assert.Equal(t, sourceID, resultPID.ID)
 	assert.Equal(t, "delegated-node", resultPID.Node)
 
 	// Verify Launch parameters
 	assert.Equal(t, uniqID, delegatedHost.lastPID.UniqID)
 	assert.Equal(t, hostID, delegatedHost.lastPID.Host)
-	assert.Equal(t, sourceID, delegatedHost.lastPID.ID)
 	assert.Equal(t, inputs, delegatedHost.lastInput)
 	assert.Equal(t, lifecycle, delegatedHost.lastLifecycle)
 }
@@ -448,14 +441,12 @@ func TestManager_Cancel(t *testing.T) {
 	fromPID := pubsub.PID{
 		Node:   "from-node",
 		Host:   "from-host",
-		ID:     registry.ID{NS: "from", Name: "process"},
 		UniqID: "from-uniq",
 	}
 
 	targetPID := pubsub.PID{
 		Node:   "target-node",
 		Host:   hostID,
-		ID:     registry.ID{NS: "target", Name: "process"},
 		UniqID: "target-uniq",
 	}
 
@@ -511,14 +502,12 @@ func TestManager_Cancel_HostNotFound(t *testing.T) {
 	fromPID := pubsub.PID{
 		Node:   "from-node",
 		Host:   "from-host",
-		ID:     registry.ID{NS: "from", Name: "process"},
 		UniqID: "from-uniq",
 	}
 
 	targetPID := pubsub.PID{
 		Node:   "target-node",
 		Host:   "nonexistent-host",
-		ID:     registry.ID{NS: "target", Name: "process"},
 		UniqID: "target-uniq",
 	}
 
@@ -553,7 +542,6 @@ func TestManager_Terminate(t *testing.T) {
 	pid := pubsub.PID{
 		Node:   "node",
 		Host:   hostID,
-		ID:     registry.ID{NS: "test", Name: "process"},
 		UniqID: "uniq",
 	}
 
@@ -581,7 +569,6 @@ func TestManager_Terminate_HostNotFound(t *testing.T) {
 	pid := pubsub.PID{
 		Node:   "node",
 		Host:   "nonexistent-host",
-		ID:     registry.ID{NS: "test", Name: "process"},
 		UniqID: "uniq",
 	}
 
@@ -609,7 +596,6 @@ func TestManager_AttachLifecycle(t *testing.T) {
 	parentPID := pubsub.PID{
 		Node:   "parent-node",
 		Host:   "parent-host",
-		ID:     registry.ID{NS: "parent", Name: "process"},
 		UniqID: "parent-uniq",
 	}
 
@@ -624,7 +610,6 @@ func TestManager_AttachLifecycle(t *testing.T) {
 	pid := pubsub.PID{
 		Node:   "node",
 		Host:   "host",
-		ID:     registry.ID{NS: "test", Name: "process"},
 		UniqID: "uniq",
 	}
 
@@ -800,7 +785,7 @@ func TestManager_AttachLifecycle_MissingTopology(t *testing.T) {
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
-		Parent:  pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")},
+		Parent:  pubsub.PID{Node: "test-node", Host: "test-host"},
 	}
 
 	ctx = manager.AttachLifecycle(ctx, lifecycle)
@@ -813,7 +798,7 @@ func TestManager_AttachLifecycle_MissingTopology(t *testing.T) {
 	assert.NotNil(t, onComplete)
 
 	// Test the callbacks with missing topology
-	pid := pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")}
+	pid := pubsub.PID{Node: "test-node", Host: "test-host"}
 	onStart(pid, &mockProcess{})
 	onComplete(pid, &runtime.Result{})
 }
@@ -834,7 +819,7 @@ func TestManager_AttachLifecycle_MissingPIDRegistry(t *testing.T) {
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
-		Parent:  pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")},
+		Parent:  pubsub.PID{Node: "test-node", Host: "test-host"},
 	}
 
 	ctx = manager.AttachLifecycle(ctx, lifecycle)
@@ -844,7 +829,7 @@ func TestManager_AttachLifecycle_MissingPIDRegistry(t *testing.T) {
 	assert.NotNil(t, onComplete)
 
 	// Test the callback with missing PID registry
-	pid := pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")}
+	pid := pubsub.PID{Node: "test-node", Host: "test-host"}
 	onComplete(pid, &runtime.Result{})
 }
 
@@ -868,7 +853,7 @@ func TestManager_AttachLifecycle_RegistrationError(t *testing.T) {
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
-		Parent:  pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")},
+		Parent:  pubsub.PID{Node: "test-node", Host: "test-host"},
 	}
 
 	ctx = manager.AttachLifecycle(ctx, lifecycle)
@@ -877,7 +862,7 @@ func TestManager_AttachLifecycle_RegistrationError(t *testing.T) {
 	onStart := process.GetOnStart(ctx)
 	assert.NotNil(t, onStart)
 
-	pid := pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")}
+	pid := pubsub.PID{Node: "test-node", Host: "test-host"}
 	onStart(pid, &mockProcess{})
 }
 
@@ -901,7 +886,7 @@ func TestManager_AttachLifecycle_MonitoringError(t *testing.T) {
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
-		Parent:  pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")},
+		Parent:  pubsub.PID{Node: "test-node", Host: "test-host"},
 	}
 
 	ctx = manager.AttachLifecycle(ctx, lifecycle)
@@ -910,7 +895,7 @@ func TestManager_AttachLifecycle_MonitoringError(t *testing.T) {
 	onStart := process.GetOnStart(ctx)
 	assert.NotNil(t, onStart)
 
-	pid := pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")}
+	pid := pubsub.PID{Node: "test-node", Host: "test-host"}
 	onStart(pid, &mockProcess{})
 }
 
@@ -934,7 +919,7 @@ func TestManager_AttachLifecycle_LinkingError(t *testing.T) {
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
-		Parent:  pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")},
+		Parent:  pubsub.PID{Node: "test-node", Host: "test-host"},
 	}
 
 	ctx = manager.AttachLifecycle(ctx, lifecycle)
@@ -943,6 +928,6 @@ func TestManager_AttachLifecycle_LinkingError(t *testing.T) {
 	onStart := process.GetOnStart(ctx)
 	assert.NotNil(t, onStart)
 
-	pid := pubsub.PID{Node: "test-node", Host: "test-host", ID: registry.ParseID("test-id")}
+	pid := pubsub.PID{Node: "test-node", Host: "test-host"}
 	onStart(pid, &mockProcess{})
 }

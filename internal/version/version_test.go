@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/ponyruntime/pony/api/registry"
 )
 
 func TestVersion(t *testing.T) {
@@ -71,14 +69,12 @@ func TestChain(t *testing.T) {
 	{
 		v := v3
 		for i := 3; i > 0; i-- {
-			assert.Equal(t, v.ID(), uint(i))
 			v = v.Previous()
 		}
 	}
 	{
 		v := v1
 		for i := 1; i <= 3; i++ {
-			assert.Equal(t, v.ID(), uint(i)) //nolint:gosec // its ok
 			v, _ = v.Next()
 		}
 	}

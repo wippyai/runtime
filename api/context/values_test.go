@@ -268,19 +268,19 @@ func TestValues_MultipleTypes(t *testing.T) {
 	}
 }
 
-func TestValues_UsedInCallContext(t *testing.T) {
-	// Example usage: Values stored inside CallContext
+func TestValues_UsedInFrameContext(t *testing.T) {
+	// Example usage: Values stored inside FrameContext
 	ctx := context.Background()
-	_, callCtx := NewCallContext(ctx)
+	_, callCtx := OpenFrameContext(ctx)
 	values := NewValues()
 
 	values.Set("user.id", "123")
 	values.Set("user.name", "john")
 
-	valuesKey := &Key{Name: "context.values", Scope: ScopeThread}
+	valuesKey := &Key{Name: "context.values"}
 	callCtx.Set(valuesKey, values)
 
-	// Retrieve Values from CallContext
+	// Retrieve Values from FrameContext
 	retrievedVal, ok := callCtx.Get(valuesKey)
 	if !ok {
 		t.Fatal("retrieved Values not found")

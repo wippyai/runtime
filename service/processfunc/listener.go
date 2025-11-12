@@ -146,7 +146,6 @@ func (l *Listener) createProcessHandler(processID registry.ID, hostID pubsub.Hos
 		callerPID := pubsub.PID{
 			Node:   node.ID(),
 			Host:   topology.ControlHost,
-			ID:     registry.ID{Name: "pfunc"},
 			UniqID: l.uniqID.Generate(),
 		}.Precomputed()
 

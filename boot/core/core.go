@@ -4,61 +4,80 @@ import (
 	"context"
 
 	"github.com/ponyruntime/pony/api/boot"
-	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	logapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/pidgen"
-	bootpkg "github.com/ponyruntime/pony/boot"
 	"github.com/ponyruntime/pony/internal/uniqid"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
-const (
-	AppContext = "appcontext"
-	Logger     = "logger"
-	EventBus   = "eventbus"
-	PIDGen     = "pidgen"
-)
-
-func init() {
-	bootpkg.MustRegister(boot.New(boot.P{
-		Name:  AppContext,
+func Logger() boot.Plugin {
+	return boot.New(boot.P{
+		Name:  LoggerName,
 		Phase: boot.PreInit,
 		Load: func(ctx context.Context) (context.Context, error) {
-			appCtx := contextapi.NewAppContext()
-			return contextapi.WithAppContext(ctx, appCtx), nil
-		},
-	}))
+			var logger *zap.Logger
+			var err error
 
-	bootpkg.MustRegister(boot.New(boot.P{
-		Name:  Logger,
-		Phase: boot.PreInit,
-		Load: func(ctx context.Context) (context.Context, error) {
-			logger, err := zap.NewProduction()
+			cfg := boot.GetConfig(ctx)
+			if cfg != nil {
+				logCfg := cfg.Sub(LoggerName)
+				mode := logCfg.GetString(string(LoggerMode), "production")
+				levelStr := logCfg.GetString(string(LoggerLevel), "info")
+				encoding := logCfg.GetString(string(LoggerEncoding), "json")
+
+				var level zapcore.Level
+				if err := level.UnmarshalText([]byte(levelStr)); err != nil {
+					level = zapcore.InfoLevel
+				}
+
+				zapConfig := zap.Config{
+					Level:            zap.NewAtomicLevelAt(level),
+					Encoding:         encoding,
+					EncoderConfig:    zap.NewProductionEncoderConfig(),
+					OutputPaths:      []string{"stdout"},
+					ErrorOutputPaths: []string{"stderr"},
+				}
+
+				if mode == "development" {
+					zapConfig.Development = true
+					zapConfig.EncoderConfig = zap.NewDevelopmentEncoderConfig()
+				}
+
+				logger, err = zapConfig.Build()
+			} else {
+				logger, err = zap.NewProduction()
+			}
+
 			if err != nil {
 				return ctx, err
 			}
 			return logapi.WithLogger(ctx, logger), nil
 		},
-	}))
+	})
+}
 
-	bootpkg.MustRegister(boot.New(boot.P{
-		Name:  EventBus,
+func EventBus() boot.Plugin {
+	return boot.New(boot.P{
+		Name:  EventBusName,
 		Phase: boot.PreInit,
 		Load: func(ctx context.Context) (context.Context, error) {
 			bus := eventbus.NewBus()
 			return event.WithBus(ctx, bus), nil
 		},
-	}))
+	})
+}
 
-	bootpkg.MustRegister(boot.New(boot.P{
-		Name:  PIDGen,
+func PIDGen() boot.Plugin {
+	return boot.New(boot.P{
+		Name:  PIDGenName,
 		Phase: boot.PreInit,
 		Load: func(ctx context.Context) (context.Context, error) {
 			uniqGen := uniqid.NewGenerator()
-			gen := uniqid.NewPIDGenerator(uniqGen)
+			gen := uniqid.NewPIDGenerator(uniqGen, "local")
 			return pidgen.WithGenerator(ctx, gen), nil
 		},
-	}))
+	})
 }

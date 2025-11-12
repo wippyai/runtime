@@ -47,7 +47,7 @@ func (a *appContext) With(key any, value any) AppContext {
 }
 
 // appContextKey is the context key for storing AppContext.
-var appContextKey = &Key{Name: "context.app", Scope: ScopeThread}
+var appContextKey = &Key{Name: "context.app"}
 
 // WithAppContext attaches AppContext to the provided context.
 // This should be called ONCE at application startup.

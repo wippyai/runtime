@@ -103,7 +103,6 @@ func TestRegistry_Get_VariableWithName(t *testing.T) {
 
 	// Register variable with Name
 	variable := env.Variable{
-		ID:        registry.ParseID("app:my_var"),
 		Name:      "test_var", // getEnvName() will return this
 		StorageID: storageID,
 	}
@@ -139,7 +138,6 @@ func TestRegistry_Get_VariableWithoutName(t *testing.T) {
 
 	// Register variable without Name
 	variable := env.Variable{
-		ID:        registry.ParseID("app:my_var"),
 		Name:      "", // Empty name - getEnvName() will return ID.String()
 		StorageID: storageID,
 	}
@@ -175,7 +173,6 @@ func TestRegistry_Set_VariableWithName(t *testing.T) {
 
 	// Register variable with Name
 	variable := env.Variable{
-		ID:        registry.ParseID("app:my_var"),
 		Name:      "test_var",
 		StorageID: storageID,
 		ReadOnly:  false,
@@ -216,7 +213,6 @@ func TestRegistry_Set_VariableWithoutName(t *testing.T) {
 
 	// Register variable without Name
 	variable := env.Variable{
-		ID:        registry.ParseID("app:my_var"),
 		Name:      "",
 		StorageID: storageID,
 		ReadOnly:  false,
@@ -248,7 +244,6 @@ func TestRegistry_ReadOnlyVariable(t *testing.T) {
 
 	// Register read-only variable
 	variable := env.Variable{
-		ID:        registry.ParseID("app:readonly"),
 		Name:      "readonly_var",
 		StorageID: storageID,
 		ReadOnly:  true,
@@ -279,7 +274,6 @@ func TestRegistry_DefaultValue(t *testing.T) {
 
 	// Register variable with default value
 	variable := env.Variable{
-		ID:           registry.ParseID("app:default_test"),
 		Name:         "default_var",
 		StorageID:    storageID,
 		DefaultValue: "default_value",
@@ -318,7 +312,6 @@ func TestRegistry_ErrorCases(t *testing.T) {
 	t.Run("StorageNotFound", func(t *testing.T) {
 		// Register variable pointing to nonexistent storage
 		variable := env.Variable{
-			ID:        registry.ParseID("app:test"),
 			Name:      "test_var",
 			StorageID: registry.ParseID("app:nonexistent"),
 		}
@@ -373,7 +366,6 @@ func TestRegistry_Variable_Validation(t *testing.T) {
 		{
 			name: "valid_with_name",
 			variable: env.Variable{
-				ID:        registry.ParseID("app:test"),
 				Name:      "valid_name",
 				StorageID: registry.ParseID("app:storage"),
 			},
@@ -382,7 +374,6 @@ func TestRegistry_Variable_Validation(t *testing.T) {
 		{
 			name: "valid_without_name",
 			variable: env.Variable{
-				ID:        registry.ParseID("app:test"),
 				Name:      "",
 				StorageID: registry.ParseID("app:storage"),
 			},
@@ -391,7 +382,6 @@ func TestRegistry_Variable_Validation(t *testing.T) {
 		{
 			name: "invalid_name_dash",
 			variable: env.Variable{
-				ID:        registry.ParseID("app:test"),
 				Name:      "invalid-name",
 				StorageID: registry.ParseID("app:storage"),
 			},
@@ -400,7 +390,6 @@ func TestRegistry_Variable_Validation(t *testing.T) {
 		{
 			name: "invalid_name_space",
 			variable: env.Variable{
-				ID:        registry.ParseID("app:test"),
 				Name:      "invalid name",
 				StorageID: registry.ParseID("app:storage"),
 			},
@@ -409,7 +398,6 @@ func TestRegistry_Variable_Validation(t *testing.T) {
 		{
 			name: "empty_name_allowed",
 			variable: env.Variable{
-				ID:        registry.ParseID("app:test"),
 				Name:      "",
 				StorageID: registry.ParseID("app:storage"),
 			},
@@ -418,7 +406,6 @@ func TestRegistry_Variable_Validation(t *testing.T) {
 		{
 			name: "invalid_storage_id_empty_ns",
 			variable: env.Variable{
-				ID:        registry.ParseID("app:test"),
 				Name:      "valid_name",
 				StorageID: registry.ID{NS: "", Name: "storage"},
 			},
@@ -427,7 +414,6 @@ func TestRegistry_Variable_Validation(t *testing.T) {
 		{
 			name: "invalid_storage_id_empty_name",
 			variable: env.Variable{
-				ID:        registry.ParseID("app:test"),
 				Name:      "valid_name",
 				StorageID: registry.ID{NS: "app", Name: ""},
 			},
@@ -579,7 +565,6 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		wg.Add(1)
 
 		variable := env.Variable{
-			ID:        registry.ParseID("app:test_var"),
 			Name:      "test_var",
 			StorageID: registry.ParseID("app:storage"),
 		}
@@ -611,9 +596,8 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		assert.Equal(t, variable, stored)
 
 		// Verify variable was registered by name
-		storedID, exists := reg.variablesByName.Load("test_var")
+		_, exists = reg.variablesByName.Load("test_var")
 		assert.True(t, exists)
-		assert.Equal(t, variable.ID, storedID)
 
 		// Verify accept event was sent
 		mu.Lock()
@@ -627,7 +611,6 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		wg.Add(1)
 
 		variable := env.Variable{
-			ID:        registry.ParseID("app:invalid"),
 			Name:      "invalid-name", // Invalid name with dash
 			StorageID: registry.ParseID("app:storage"),
 		}
@@ -670,7 +653,6 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		wg.Add(1)
 
 		variable := env.Variable{
-			ID:        registry.ParseID("app:test_var2"),
 			Name:      "test_var2",
 			StorageID: registry.ParseID("app:nonexistent"), // Storage doesn't exist
 		}
@@ -714,7 +696,6 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 
 		// Register first variable
 		variable1 := env.Variable{
-			ID:        registry.ParseID("app:var1"),
 			Name:      "same_name",
 			StorageID: registry.ParseID("app:storage"),
 		}
@@ -723,7 +704,6 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 
 		// Try to register second variable with same name
 		variable2 := env.Variable{
-			ID:        registry.ParseID("app:var2"),
 			Name:      "same_name", // Same name as first variable
 			StorageID: registry.ParseID("app:storage"),
 		}
@@ -791,7 +771,6 @@ func TestRegistry_EventHandling_VariableUpdate(t *testing.T) {
 
 	// Register initial variable
 	variable := env.Variable{
-		ID:        registry.ParseID("app:test_var"),
 		Name:      "test_var",
 		StorageID: registry.ParseID("app:storage1"),
 	}
@@ -804,7 +783,6 @@ func TestRegistry_EventHandling_VariableUpdate(t *testing.T) {
 
 		// Update variable to use different storage
 		updatedVariable := env.Variable{
-			ID:        registry.ParseID("app:test_var"),
 			Name:      "test_var",
 			StorageID: registry.ParseID("app:storage2"), // Different storage
 		}
@@ -866,7 +844,6 @@ func TestRegistry_EventHandling_VariableDelete(t *testing.T) {
 
 	// Register variable
 	variable := env.Variable{
-		ID:        registry.ParseID("app:test_var"),
 		Name:      "test_var",
 		StorageID: registry.ParseID("app:storage"),
 	}
@@ -977,7 +954,6 @@ func TestRegistry_GetBaseName(t *testing.T) {
 
 	t.Run("WithName", func(t *testing.T) {
 		variable := &env.Variable{
-			ID:   registry.ParseID("app:test"),
 			Name: "my_var",
 		}
 		envName := reg.getEnvName(variable)
@@ -986,7 +962,6 @@ func TestRegistry_GetBaseName(t *testing.T) {
 
 	t.Run("WithoutName", func(t *testing.T) {
 		variable := &env.Variable{
-			ID:   registry.ParseID("app:test"),
 			Name: "",
 		}
 		envName := reg.getEnvName(variable)
@@ -1008,7 +983,6 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 
 	// Register variable
 	variable := env.Variable{
-		ID:        registry.ParseID("app:concurrent_test"),
 		Name:      "concurrent_var",
 		StorageID: storageID,
 		ReadOnly:  false,

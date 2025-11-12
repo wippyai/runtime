@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"sync"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/env"
 	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -60,9 +61,17 @@ func (r *Registry) getCurrentNamespaceFromContext(ctx context.Context) string {
 		return ""
 	}
 
-	// Try to get namespace from PID in context
-	pid, _ := pubsub.GetPID(ctx)
-	return pid.ID.NS
+	// Try to get namespace from FrameContext
+	cc := ctxapi.FrameFromContext(ctx)
+	if cc != nil {
+		if idValue, ok := cc.Get(runtime.FrameIDKey); ok {
+			if callID, ok := idValue.(registry.ID); ok {
+				return callID.NS
+			}
+		}
+	}
+
+	return ""
 }
 
 func (r *Registry) handleEvent(e event.Event) {

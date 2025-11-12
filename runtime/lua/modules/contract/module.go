@@ -42,15 +42,15 @@ const (
 	TypeNameInstance = "contract.Instance"
 )
 
-// callContext holds both security and application context for contract method calls
+// frameContext holds both security and application context for contract method calls
 // This combines security context (actor, scope) with application context (custom values)
 // following the same pattern as the funcs module
-type callContext struct {
-	values   *contextapi.Contexter[any] // Application context values
-	actor    secapi.Actor               // Security actor
-	hasActor bool                       // Whether actor is set
-	scope    secapi.Scope               // Security scope
-	hasScope bool                       // Whether scope is set
+type frameContext struct {
+	values   *contextapi.Values // Application context values
+	actor    secapi.Actor       // Security actor
+	hasActor bool               // Whether actor is set
+	scope    secapi.Scope       // Security scope
+	hasScope bool               // Whether scope is set
 }
 
 // Module represents the contract module for Lua runtime
@@ -63,10 +63,10 @@ type Module struct {
 // Wrapper holds contract definition with call context (like Functions in funcs module)
 // Supports immutable chaining of security context through with_* methods
 type Wrapper struct {
-	definition  contract.Contract     // Contract definition from registry
-	registry    contract.Registry     // Contract registry for lookups
-	inst        contract.Instantiator // Instantiator for creating instances
-	callContext                       // Embedded call context for security + app context
+	definition   contract.Contract     // Contract definition from registry
+	registry     contract.Registry     // Contract registry for lookups
+	inst         contract.Instantiator // Instantiator for creating instances
+	frameContext                       // Embedded call context for security + app context
 }
 
 // InstanceWrapper holds contract instance with inherited call context
@@ -74,7 +74,7 @@ type Wrapper struct {
 type InstanceWrapper struct {
 	instance        contract.Instance // Actual contract instance
 	owningContracts map[string]string // method name -> contract ID mapping for fast lookup
-	callContext                       // Inherited call context from Wrapper
+	frameContext                      // Inherited call context from Wrapper
 }
 
 // NewContractModule creates a new contract module for the Lua runtime
@@ -188,19 +188,21 @@ func parseBindingArgs(bindingID string) (string, map[string]any, error) {
 // CALL CONTEXT UTILITIES (COMBINED SECURITY + APP CONTEXT)
 // ================================
 
-// newCallContext creates a call context from current Lua context
+// newFrameContext creates a call context from current Lua context
 // Extracts existing application context values if present
-func (m *Module) newCallContext(l *lua.LState) callContext {
-	values := contextapi.NewContexter[any]()
-	if ctxr, ok := l.Context().Value(contextapi.ValuesCtx).(*contextapi.Contexter[any]); ok {
-		values = ctxr.Clone()
+func (m *Module) newFrameContext(l *lua.LState) frameContext {
+	values := contextapi.GetValues(l.Context())
+	if values != nil {
+		values = values.Clone()
+	} else {
+		values = contextapi.NewValues()
 	}
-	return callContext{values: values}
+	return frameContext{values: values}
 }
 
 // clone creates a deep copy of call context for immutable chaining pattern
-func (sc callContext) clone() callContext {
-	return callContext{
+func (sc frameContext) clone() frameContext {
+	return frameContext{
 		values:   sc.values.Clone(),
 		actor:    sc.actor,
 		hasActor: sc.hasActor,
@@ -211,20 +213,26 @@ func (sc callContext) clone() callContext {
 
 // applyToContext applies both security and application context to base context
 // This is the key method that combines all context types into the execution context
-func (sc callContext) applyToContext(baseCtx context.Context) context.Context {
-	ctx := baseCtx
+func (sc frameContext) applyToContext(baseCtx context.Context) (context.Context, error) {
+	// Create unsealed frame for setting actor/scope
+	ctx, _ := contextapi.OpenFrameContext(baseCtx)
+
 	// Apply security context
 	if sc.hasActor {
-		ctx = secapi.WithActor(ctx, sc.actor)
+		if err := secapi.SetActor(ctx, sc.actor); err != nil {
+			return ctx, err
+		}
 	}
 	if sc.hasScope {
-		ctx = secapi.WithScope(ctx, sc.scope)
+		if err := secapi.SetScope(ctx, sc.scope); err != nil {
+			return ctx, err
+		}
 	}
 	// Apply application context values
 	if sc.values != nil {
-		ctx = context.WithValue(ctx, contextapi.ValuesCtx, sc.values)
+		_ = contextapi.SetValues(ctx, sc.values)
 	}
-	return ctx
+	return ctx, nil
 }
 
 // createUserData creates Lua userdata with proper metatable for type safety
@@ -271,10 +279,10 @@ func (m *Module) getContract(l *lua.LState) int {
 
 	// Create wrapper with empty call context (like funcs.new())
 	wrapper := &Wrapper{
-		definition:  contractDef,
-		registry:    reg,
-		inst:        inst,
-		callContext: m.newCallContext(l),
+		definition:   contractDef,
+		registry:     reg,
+		inst:         inst,
+		frameContext: m.newFrameContext(l),
 	}
 
 	l.Push(createUserData(l, wrapper, TypeNameContract))
@@ -369,7 +377,7 @@ func (m *Module) withContext(l *lua.LState) int {
 	ctxTable.ForEach(func(k, v lua.LValue) {
 		if key, ok := k.(lua.LString); ok {
 			v := luaconv.ToGoAny(v)
-			newCallCtx.values.SetValue(string(key), v)
+			newCallCtx.values.Set(string(key), v)
 		} else {
 			l.ArgError(2, "context keys must be strings")
 		}
@@ -377,10 +385,10 @@ func (m *Module) withContext(l *lua.LState) int {
 
 	// Create new wrapper with updated call context (immutable pattern)
 	newWrapper := &Wrapper{
-		definition:  wrapper.definition,
-		registry:    wrapper.registry,
-		inst:        wrapper.inst,
-		callContext: newCallCtx,
+		definition:   wrapper.definition,
+		registry:     wrapper.registry,
+		inst:         wrapper.inst,
+		frameContext: newCallCtx,
 	}
 
 	l.Push(createUserData(l, newWrapper, TypeNameContract))
@@ -417,10 +425,10 @@ func (m *Module) withActor(l *lua.LState) int {
 
 	// Create new wrapper with updated call context (immutable pattern)
 	newWrapper := &Wrapper{
-		definition:  wrapper.definition,
-		registry:    wrapper.registry,
-		inst:        wrapper.inst,
-		callContext: newCallCtx,
+		definition:   wrapper.definition,
+		registry:     wrapper.registry,
+		inst:         wrapper.inst,
+		frameContext: newCallCtx,
 	}
 
 	l.Push(createUserData(l, newWrapper, TypeNameContract))
@@ -457,10 +465,10 @@ func (m *Module) withScope(l *lua.LState) int {
 
 	// Create new wrapper with updated call context (immutable pattern)
 	newWrapper := &Wrapper{
-		definition:  wrapper.definition,
-		registry:    wrapper.registry,
-		inst:        wrapper.inst,
-		callContext: newCallCtx,
+		definition:   wrapper.definition,
+		registry:     wrapper.registry,
+		inst:         wrapper.inst,
+		frameContext: newCallCtx,
 	}
 
 	l.Push(createUserData(l, newWrapper, TypeNameContract))
@@ -517,7 +525,7 @@ func contractOpen(l *lua.LState) int {
 
 	// Merge query parameters from binding ID (second priority)
 	for k, v := range queryArgs {
-		mergedCallCtx.values.SetValue(k, v)
+		mergedCallCtx.values.Set(k, v)
 	}
 
 	// Merge additional context values from optional Lua table (highest priority)
@@ -532,13 +540,18 @@ func contractOpen(l *lua.LState) int {
 	if l.GetTop() >= contextArgIndex && l.Get(contextArgIndex).Type() == lua.LTTable {
 		l.CheckTable(contextArgIndex).ForEach(func(k, v lua.LValue) {
 			if kStr, ok := k.(lua.LString); ok {
-				mergedCallCtx.values.SetValue(string(kStr), luaconv.ToGoAny(v))
+				mergedCallCtx.values.Set(string(kStr), luaconv.ToGoAny(v))
 			}
 		})
 	}
 
 	// Apply merged call context (security + app context) and instantiate binding
-	ctx := mergedCallCtx.applyToContext(l.Context())
+	ctx, err := mergedCallCtx.applyToContext(l.Context())
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("failed to apply context: " + err.Error()))
+		return 2
+	}
 	regID := registry.ParseID(bindingID)
 
 	// Get the binding to check what context keys are required
@@ -580,7 +593,7 @@ func contractOpen(l *lua.LState) int {
 	instWrapper := &InstanceWrapper{
 		instance:        instance,
 		owningContracts: owningContracts,
-		callContext:     mergedCallCtx, // Use merged context, not original wrapper context
+		frameContext:    mergedCallCtx, // Use merged context, not original wrapper context
 	}
 
 	l.Push(createUserData(l, instWrapper, TypeNameInstance))
@@ -793,7 +806,11 @@ func collectPayloadArgs(l *lua.LState, startIndex int) []payload.Payload {
 func executeAsync(l *lua.LState, wrapper *InstanceWrapper, methodName string, args []payload.Payload, uw engine.UnitOfWork) int {
 	// Detach from unit of work and apply inherited call context
 	baseCtx := engine.DetachUnitOfWork(uw.Context())
-	execCtx := wrapper.applyToContext(baseCtx)
+	execCtx, err := wrapper.applyToContext(baseCtx)
+	if err != nil {
+		l.RaiseError("failed to apply context: %s", err.Error())
+		return 0
+	}
 	ctx, cancel := context.WithCancel(execCtx)
 	cmd := command.NewCommand(l, methodName, func(_ runtime.Command) { cancel() }, args...)
 
@@ -823,7 +840,10 @@ func executeSync(l *lua.LState, wrapper *InstanceWrapper, methodName string, arg
 	coroutine.Wrap(l, func() *engine.Update {
 		// Detach from unit of work and apply inherited call context
 		baseCtx := engine.DetachUnitOfWork(uw.Context())
-		execCtx := wrapper.applyToContext(baseCtx)
+		execCtx, err := wrapper.applyToContext(baseCtx)
+		if err != nil {
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("failed to apply context: " + err.Error())}, nil)
+		}
 
 		resultChan, err := wrapper.instance.Call(execCtx, methodName, args)
 		if err != nil {

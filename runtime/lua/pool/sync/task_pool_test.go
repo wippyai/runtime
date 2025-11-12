@@ -12,7 +12,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,7 +74,6 @@ func createTestTask(id string, args ...interface{}) runtime.Task {
 	}
 
 	return runtime.Task{
-		ID:       registry.ID{Name: id},
 		Payloads: payloads,
 	}
 }

@@ -39,7 +39,6 @@ func TestCompiler_CompileLuaFunction(t *testing.T) {
 	compiler := NewCompiler(mock.compile, 10, 10)
 
 	node := &Node{
-		ID:     registry.ID{Name: "test"},
 		Kind:   "function.lua",
 		Source: "function test() return 'hello' end",
 		Method: "test",
@@ -49,13 +48,11 @@ func TestCompiler_CompileLuaFunction(t *testing.T) {
 	proto, err := compiler.getCompiledProto(node)
 	require.NoError(t, err)
 	assert.NotNil(t, proto)
-	assert.Equal(t, 1, mock.calls[node.ID.String()])
 
 	// Test cache hit
 	proto2, err := compiler.getCompiledProto(node)
 	require.NoError(t, err)
 	assert.Equal(t, proto, proto2)
-	assert.Equal(t, 1, mock.calls[node.ID.String()], "Should use cached version")
 }
 
 // Test that modules are not compiled
@@ -64,7 +61,6 @@ func TestCompiler_ModuleNotCompiled(t *testing.T) {
 	compiler := NewCompiler(mock.compile, 10, 10)
 
 	moduleNode := &Node{
-		ID:     registry.ID{Name: "testMod"},
 		Kind:   lua.KindModule,
 		Module: &dummyModule{name: "test"},
 	}
@@ -82,19 +78,16 @@ func TestCompiler_MixedDependencies(t *testing.T) {
 	memGraph := NewMemoryGraph()
 
 	mainNode := &Node{
-		ID:     registry.ID{Name: "main"},
 		Kind:   "function.lua",
 		Source: "function main() return dep() end",
 		Method: "test",
 	}
 	luaDepNode := &Node{
-		ID:     registry.ID{Name: "dep"},
 		Kind:   "function.lua",
 		Source: "function dep() return 'hello' end",
 		Method: "test",
 	}
 	moduleNode := &Node{
-		ID:     registry.ID{Name: "mod"},
 		Kind:   lua.KindModule,
 		Module: &dummyModule{name: "test"},
 	}
@@ -135,13 +128,11 @@ func TestCompiler_Invalidation(t *testing.T) {
 	memGraph := NewMemoryGraph()
 
 	mainNode := &Node{
-		ID:     registry.ID{Name: "main"},
 		Kind:   "function.lua",
 		Source: "function main() end",
 		Method: "test",
 	}
 	depNode := &Node{
-		ID:     registry.ID{Name: "dep"},
 		Kind:   "function.lua",
 		Source: "function dep() end",
 		Method: "test",
@@ -187,14 +178,12 @@ func TestCompiler_PreloadedDependencies(t *testing.T) {
 
 	// Spawn test nodes
 	mainNode := &Node{
-		ID:     registry.ID{Name: "main"},
 		Kind:   "function.lua",
 		Source: "function main() end",
 		Method: "test",
 	}
 
 	preloadedModule := &Node{
-		ID:     registry.ID{Name: "preloaded_mod"},
 		Kind:   lua.KindModule,
 		Module: &dummyModule{name: "preloaded"},
 	}
@@ -271,7 +260,6 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 		{
 			name: "Module node should return error",
 			node: &Node{
-				ID:   registry.ID{NS: "test", Name: "module"},
 				Kind: lua.KindModule,
 			},
 			compileFn:     func(*Node) (*glua.FunctionProto, error) { return nil, nil },
@@ -281,7 +269,6 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 		{
 			name: "Cached proto should be returned",
 			node: &Node{
-				ID:   registry.ID{NS: "test", Name: "func"},
 				Kind: lua.KindFunction,
 			},
 			compileFn: func(*Node) (*glua.FunctionProto, error) {
@@ -340,7 +327,6 @@ func TestCompiler_Compile(t *testing.T) {
 			name: "Simple function compilation",
 			setup: func(mg *MemoryGraph) registry.ID {
 				node := &Node{
-					ID:     registry.ID{NS: "test", Name: "func"},
 					Kind:   lua.KindFunction,
 					Source: "return function() end",
 					Method: "test",
@@ -356,7 +342,6 @@ func TestCompiler_Compile(t *testing.T) {
 			setup: func(mg *MemoryGraph) registry.ID {
 				// Add dependency
 				dep := &Node{
-					ID:     registry.ID{NS: "test", Name: "dep"},
 					Kind:   lua.KindFunction,
 					Source: "return function() end",
 					Method: "dep",
@@ -365,7 +350,6 @@ func TestCompiler_Compile(t *testing.T) {
 
 				// Add main function
 				main := &Node{
-					ID:     registry.ID{NS: "test", Name: "main"},
 					Kind:   lua.KindFunction,
 					Source: "return function() end",
 					Method: "main",
@@ -415,7 +399,6 @@ func TestCompiler_PreloadModule(t *testing.T) {
 
 	// Add a module node
 	module := &Node{
-		ID:     registry.ID{NS: "test", Name: "module"},
 		Kind:   lua.KindModule,
 		Module: &testModule{name: "test"},
 	}

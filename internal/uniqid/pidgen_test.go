@@ -29,9 +29,6 @@ func TestPIDGenerator_Generate(t *testing.T) {
 	if pid.Host != host {
 		t.Errorf("Expected host %q, got %q", host, pid.Host)
 	}
-	if pid.ID != id {
-		t.Errorf("Expected id %v, got %v", id, pid.ID)
-	}
 	if pid.UniqID == "" {
 		t.Error("Expected UniqID to be generated, got empty string")
 	}
@@ -43,7 +40,7 @@ func TestPIDGenerator_Generate(t *testing.T) {
 	}
 }
 
-func TestPIDGenerator_GenerateWithNode(t *testing.T) {
+func TestPIDGenerator_GenerateWithConfiguredNode(t *testing.T) {
 	gen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(gen, "")
 
@@ -51,16 +48,14 @@ func TestPIDGenerator_GenerateWithNode(t *testing.T) {
 	host := pubsub.HostID("functions")
 	id := registry.ID{NS: "process", Name: "worker"}
 
-	pid := pidGen.GenerateWithNode(node, host, id)
+	pidGen = uniqid.NewPIDGenerator(gen, node)
+	pid := pidGen.Generate(host, id)
 
 	if pid.Node != node {
 		t.Errorf("Expected node %q, got %q", node, pid.Node)
 	}
 	if pid.Host != host {
 		t.Errorf("Expected host %q, got %q", host, pid.Host)
-	}
-	if pid.ID != id {
-		t.Errorf("Expected id %v, got %v", id, pid.ID)
 	}
 	if pid.UniqID == "" {
 		t.Error("Expected UniqID to be generated, got empty string")
@@ -88,9 +83,6 @@ func TestPIDGenerator_SequentialUniqID(t *testing.T) {
 }
 
 func TestPIDGenerator_StringFormat(t *testing.T) {
-	gen := uniqid.NewGenerator()
-	pidGen := uniqid.NewPIDGenerator(gen, "")
-
 	tests := []struct {
 		name        string
 		node        pubsub.NodeID
@@ -103,7 +95,7 @@ func TestPIDGenerator_StringFormat(t *testing.T) {
 			name:        "without node",
 			host:        pubsub.HostID("functions"),
 			id:          registry.ID{NS: "process", Name: "worker"},
-			expectedFmt: "{functions|process:worker|0x00001}",
+			expectedFmt: "{functions|0x00001}",
 			useNode:     false,
 		},
 		{
@@ -111,17 +103,20 @@ func TestPIDGenerator_StringFormat(t *testing.T) {
 			node:        pubsub.NodeID("node1"),
 			host:        pubsub.HostID("functions"),
 			id:          registry.ID{NS: "process", Name: "worker"},
-			expectedFmt: "{node1@functions|process:worker|0x00002}",
+			expectedFmt: "{node1@functions|0x00001}",
 			useNode:     true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			gen := uniqid.NewGenerator()
 			var pid pubsub.PID
 			if tt.useNode {
-				pid = pidGen.GenerateWithNode(tt.node, tt.host, tt.id)
+				pidGenWithNode := uniqid.NewPIDGenerator(gen, tt.node)
+				pid = pidGenWithNode.Generate(tt.host, tt.id)
 			} else {
+				pidGen := uniqid.NewPIDGenerator(gen, "")
 				pid = pidGen.Generate(tt.host, tt.id)
 			}
 

@@ -591,11 +591,8 @@ func TestContextListener(t *testing.T) {
 	endpointID := registry.ID{NS: "test", Name: "endpoint6"}
 
 	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if the listener is in the context
-		if listener := r.Context().Value(ContextListener); listener == nil {
-			http.Error(w, "listener not found in context", http.StatusInternalServerError)
-			return
-		}
+		// ContextListener is no longer set - HTTP metadata now in FrameContext
+		// Just return success
 		w.WriteHeader(http.StatusOK)
 	}))
 	require.NoError(t, err)

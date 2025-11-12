@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ponyruntime/pony/api/boot"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/internal/graph"
 	"github.com/ponyruntime/pony/system/eventbus"
 )
@@ -14,15 +15,25 @@ type Loader struct {
 	plugins map[string]boot.Plugin
 	graph   *graph.Graph[string, boot.Plugin]
 	loaded  []boot.Plugin
+	ctx     context.Context
 }
 
 // NewLoader creates a new plugin loader.
-func NewLoader() *Loader {
-	return &Loader{
+// If plugins are provided, they will be registered automatically.
+func NewLoader(plugins ...boot.Plugin) (*Loader, error) {
+	l := &Loader{
 		plugins: make(map[string]boot.Plugin),
 		graph:   graph.New[string, boot.Plugin](),
 		loaded:  make([]boot.Plugin, 0),
 	}
+
+	for _, p := range plugins {
+		if err := l.Register(p); err != nil {
+			return nil, err
+		}
+	}
+
+	return l, nil
 }
 
 // Register adds a plugin to the loader.
@@ -43,7 +54,16 @@ func (l *Loader) Register(p boot.Plugin) error {
 }
 
 // Load executes all plugins Load() in dependency order.
+// Config should be attached to context via boot.WithConfig() before calling Load.
 func (l *Loader) Load(ctx context.Context) (context.Context, error) {
+	// Initialize AppContext first, before any plugins
+	appCtx := contextapi.NewAppContext()
+	ctx = contextapi.WithAppContext(ctx, appCtx)
+
+	// Initialize HandlerRegistry before plugins
+	handlerRegistry := NewHandlerRegistry()
+	ctx = WithHandlerRegistry(ctx, handlerRegistry)
+
 	levels, err := l.graph.DependencyLevels()
 	if err != nil {
 		return ctx, fmt.Errorf("dependency resolution: %w", err)
@@ -67,6 +87,7 @@ func (l *Loader) Load(ctx context.Context) (context.Context, error) {
 		}
 	}
 
+	l.ctx = ctx
 	return ctx, nil
 }
 
@@ -98,19 +119,16 @@ func (l *Loader) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// Handlers collects event handlers from all loaded service plugins.
+// Handlers returns all handlers registered via HandlerRegistry during plugin loading.
 func (l *Loader) Handlers() []eventbus.EventHandler {
-	var handlers []eventbus.EventHandler
-
-	for _, p := range l.loaded {
-		if sp, ok := p.(ServicePlugin); ok {
-			if h := sp.Handler(); h != nil {
-				if handler, ok := h.(eventbus.EventHandler); ok {
-					handlers = append(handlers, handler)
-				}
-			}
-		}
+	if l.ctx == nil {
+		return []eventbus.EventHandler{}
 	}
 
-	return handlers
+	handlerReg := GetHandlerRegistry(l.ctx)
+	if handlerReg == nil {
+		return []eventbus.EventHandler{}
+	}
+
+	return handlerReg.Handlers()
 }

@@ -1,45 +1,45 @@
+//go:build !plugin_minimal
+
 package service
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/ponyruntime/pony/api/boot"
 	"github.com/ponyruntime/pony/api/event"
 	logapi "github.com/ponyruntime/pony/api/logs"
 	procapi "github.com/ponyruntime/pony/api/process"
 	bootpkg "github.com/ponyruntime/pony/boot"
+	bootsystem "github.com/ponyruntime/pony/boot/system"
 	service "github.com/ponyruntime/pony/service/supervisor"
-	"github.com/ponyruntime/pony/system/eventbus"
-	reghandler "github.com/ponyruntime/pony/system/registry/events"
+	"github.com/ponyruntime/pony/system/process"
 )
 
-type processSupervisorPlugin struct {
-	handler eventbus.EventHandler
-}
+func ProcessSupervisor() boot.Plugin {
+	return boot.New(boot.P{
+		Name:      ProcessSupervisorName,
+		Phase:     boot.PostInit,
+		DependsOn: []string{bootsystem.ProcessName},
+		Load: func(ctx context.Context) (context.Context, error) {
+			logger := logapi.GetLogger(ctx)
+			bus := event.GetBus(ctx)
+			processes := procapi.GetManager(ctx)
+			handlers := bootpkg.GetHandlerRegistry(ctx)
 
-func (p *processSupervisorPlugin) Name() string        { return bootpkg.ProcessSupervisor }
-func (p *processSupervisorPlugin) Phase() boot.Phase   { return boot.PostInit }
-func (p *processSupervisorPlugin) DependsOn() []string { return []string{bootpkg.Process} }
+			processManager, ok := processes.(*process.Manager)
+			if !ok {
+				return ctx, fmt.Errorf("process manager is not of expected type")
+			}
 
-func (p *processSupervisorPlugin) Load(ctx context.Context) (context.Context, error) {
-	logger := logapi.GetLogger(ctx)
-	bus := event.GetBus(ctx)
-	processes := procapi.GetManager(ctx)
+			manager := service.NewSupervisorServiceManager(
+				bus,
+				processManager,
+				logger.Named("super"),
+			)
 
-	manager := service.NewSupervisorServiceManager(
-		bus,
-		processes,
-		logger.Named("super"),
-	)
-
-	p.handler = reghandler.NewRegistryHandler("process.service", manager)
-	return ctx, nil
-}
-
-func (p *processSupervisorPlugin) Handler() eventbus.EventHandler {
-	return p.handler
-}
-
-func init() {
-	bootpkg.MustRegister(&processSupervisorPlugin{})
+			handlers.RegisterListener("process.service", manager)
+			return ctx, nil
+		},
+	})
 }

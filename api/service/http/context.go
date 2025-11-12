@@ -12,10 +12,11 @@ import (
 // Context keys for storing HTTP-specific values in the request context
 var (
 	// todo: privatize
-	RequestCtx        = &ctxapi.Key{Name: "http.request", Scope: ctxapi.ScopeThread}
-	RouteCtx          = &ctxapi.Key{Name: "http.route", Scope: ctxapi.ScopeThread}
-	ContextServerID   = &ctxapi.Key{Name: "http.server_id", Scope: ctxapi.ScopeThread}
-	EndpointConfigCtx = &ctxapi.Key{Name: "http.endpoint_config", Scope: ctxapi.ScopeThread}
+	RequestCtx        = &ctxapi.Key{Name: "http.request"}
+	RouteCtx          = &ctxapi.Key{Name: "http.route"}
+	ContextServerID   = &ctxapi.Key{Name: "http.server_id"}
+	ContextHost       = &ctxapi.Key{Name: "http.server.host"}
+	EndpointConfigCtx = &ctxapi.Key{Name: "http.endpoint_config"}
 )
 
 // RouteInfo contains information about the matched route for the current request.
@@ -35,9 +36,31 @@ type RequestContext struct {
 	responseHandled bool
 }
 
-// GetRouteInfo retrieves route information from the context
+// GetRequestContext retrieves HTTP request context from FrameContext
+func GetRequestContext(ctx context.Context) (*RequestContext, bool) {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil, false
+	}
+	val, ok := fc.Get(RequestCtx)
+	if !ok {
+		return nil, false
+	}
+	reqCtx, ok := val.(*RequestContext)
+	return reqCtx, ok
+}
+
+// GetRouteInfo retrieves route information from FrameContext
 func GetRouteInfo(ctx context.Context) (*RouteInfo, bool) {
-	info, ok := ctx.Value(RouteCtx).(*RouteInfo)
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil, false
+	}
+	val, ok := fc.Get(RouteCtx)
+	if !ok {
+		return nil, false
+	}
+	info, ok := val.(*RouteInfo)
 	return info, ok
 }
 

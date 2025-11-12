@@ -14,6 +14,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/registry"
 
+	"github.com/go-chi/chi/v5/middleware" // todo: deprecate it
 	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/deps"
 	"github.com/ponyruntime/pony/runtime/lua/code"
@@ -71,6 +72,7 @@ import (
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
 	"github.com/ponyruntime/pony/service/http/cors"
+	"github.com/ponyruntime/pony/service/http/fileserve"
 	"github.com/ponyruntime/pony/service/http/firewall"
 	"github.com/ponyruntime/pony/service/http/realip"
 	"github.com/ponyruntime/pony/service/http/websocketrelay"
@@ -193,10 +195,32 @@ func withHTTPService(a *App) eventbus.EventHandler {
 
 		http.WithMiddlewareCreator(cors.MiddlewareName, cors.CreateCORSMiddleware),
 		http.WithMiddlewareCreator(realip.MiddlewareName, realip.CreateRealIPMiddleware),
-		http.WithMiddlewareCreator("websocket_relay", relayManager.CreateMiddleware),
+
+		// Standard Chi middlewares (deprecated, kept for compatibility)
+		http.WithMiddleware("recoverer", middleware.Recoverer),
+		http.WithMiddleware("request_id", middleware.RequestID),
+
+		// Timeout middleware with options
+		http.WithMiddlewareCreator("timeout", func(options map[string]string) func(handler httpbase.Handler) httpbase.Handler {
+			timeoutVal := options["timeout"]
+			if timeoutVal == "" {
+				timeoutVal = "60s"
+			}
+			duration, err := time.ParseDuration(timeoutVal)
+			if err != nil {
+				return nil
+			}
+			return middleware.Timeout(duration)
+		}),
+
+		// WebSocket relay middleware
+		http.WithMiddleware("websocket_relay", relayManager.Middleware),
 		http.WithMiddlewareCreator(tokenstore.MiddlewareName, tokenstore.CreateTokenAuthMiddleware),
 		http.WithMiddlewareCreator(firewall.ResourceMiddlewareName, firewall.CreateResourceFirewallMiddleware),
 		http.WithMiddlewareCreator(firewall.EndpointMiddlewareName, firewall.CreateEndpointFirewallMiddleware),
+		http.WithMiddlewareCreator(fileserve.MiddlewareName, func(options map[string]string) func(handler httpbase.Handler) httpbase.Handler {
+			return fileserve.CreateFileServeMiddleware(options, a.fsRegistry)
+		}),
 	)
 
 	// Create manager with all required factories

@@ -7,7 +7,6 @@ import (
 
 	api "github.com/ponyruntime/pony/api/pubsub"
 
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -43,7 +42,6 @@ func TestNodeSendLocal(t *testing.T) {
 	pidLocalEmpty := api.PID{
 		Node:   "",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
 	pkg := &api.Package{
@@ -60,7 +58,6 @@ func TestNodeSendLocal(t *testing.T) {
 	pidLocal := api.PID{
 		Node:   nodeID,
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
 	pkg.Target = pidLocal
@@ -74,7 +71,6 @@ func TestNodeSendHostNotFound(t *testing.T) {
 	pid := api.PID{
 		Node:   "",
 		Host:   "nonexistent",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
 	pkg := &api.Package{
@@ -95,7 +91,6 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 	pid := api.PID{
 		Node:   "",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
 	pkg := &api.Package{
@@ -114,7 +109,6 @@ func TestNodeSendNonLocalNoUpstream(t *testing.T) {
 	pid := api.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
 	pkg := &api.Package{
@@ -138,7 +132,6 @@ func TestNodeAttachLocal(t *testing.T) {
 	pidLocal := api.PID{
 		Node:   "",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
 	ch := make(chan *api.Package, 1)
@@ -153,7 +146,6 @@ func TestNodeAttachNonLocal(t *testing.T) {
 	pid := api.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
 	ch := make(chan *api.Package, 1)
@@ -170,7 +162,6 @@ func TestNodeAttachInvalidHostType(t *testing.T) {
 	pid := api.PID{
 		Node:   "",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
 	ch := make(chan *api.Package, 1)
@@ -190,7 +181,6 @@ func TestNodeDetach(t *testing.T) {
 	pidLocal := api.PID{
 		Node:   "",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
 	node.Detach(pidLocal) // Should not panic
@@ -199,7 +189,6 @@ func TestNodeDetach(t *testing.T) {
 	pidNonLocal := api.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
 	node.Detach(pidNonLocal) // Should not panic
@@ -208,7 +197,6 @@ func TestNodeDetach(t *testing.T) {
 	pidInvalidHost := api.PID{
 		Node:   "",
 		Host:   "nonexistent",
-		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
 	node.Detach(pidInvalidHost) // Should not panic
@@ -238,7 +226,6 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 	pid := api.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ID{NS: "test", Name: "proc"},
 		UniqID: "test",
 	}
 

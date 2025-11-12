@@ -262,8 +262,8 @@ var remoteRunCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// CRITICAL: Use CreateServiceHandlersWithStaticEnv to inject environment variables
-		app.SetServices(appbuild.CreateServiceHandlersWithStaticEnv(app, config.EnvVariables))
+		// TODO: Static environment variables from config server need to be injected
+		// into the env plugin before initialization
 		runtime.GC()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)

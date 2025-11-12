@@ -10,10 +10,10 @@ import (
 // Context keys for storing topology-related data
 var (
 	// topologyCtx is used to store the topology instance
-	topologyCtx = &ctxapi.Key{Name: "topology.topology", Scope: ctxapi.ScopeThread}
+	topologyCtx = &ctxapi.Key{Name: "topology.topology"}
 
 	// registryCtx is used to store the Target registry
-	registryCtx = &ctxapi.Key{Name: "topology.registry", Scope: ctxapi.ScopeThread}
+	registryCtx = &ctxapi.Key{Name: "topology.registry"}
 )
 
 // WithRegistry attaches a Target registry to the provided context.

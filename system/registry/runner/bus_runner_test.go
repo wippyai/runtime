@@ -385,7 +385,6 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Update,
 					Entry: registry.Entry{
-						ID:   registry.ParseID("component/listener/key1"),
 						Kind: "different_kind",
 						Data: payload.NewString("value2"),
 					},
@@ -402,7 +401,6 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Delete,
 					Entry: registry.Entry{
-						ID:   registry.ParseID("component/listener/nonexistent"),
 						Kind: "listener",
 					},
 				},

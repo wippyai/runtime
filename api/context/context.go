@@ -1,24 +1,18 @@
 // Package context is used to pass context between different parts of the application and not allocate
 package context
 
-// KeyScope defines the propagation behavior of context keys
-type KeyScope int
+import "errors"
 
-const (
-	// ScopeCall keys are call-specific: write-once, not inherited by child contexts
-	// Examples: PID, cancel function, callbacks
-	ScopeCall KeyScope = iota
-
-	// ScopeThread keys thread through call chains: mutable, inherited by child contexts
-	// Examples: security context, options, user values
-	ScopeThread
-)
+// ErrNoFrameContext is returned when trying to set a frame value without a frame context
+var ErrNoFrameContext = errors.New("no frame context available")
 
 // Key represents a context key used for storing and retrieving values from the context.
 // It provides a type-safe way to store context values using string names.
+// When Inherit is true, the value will be automatically copied to new frames
+// created from sealed parent frames.
 type Key struct {
-	Name  string
-	Scope KeyScope
+	Name    string
+	Inherit bool // Auto-copy to child frames when parent sealed
 }
 
 func (ck *Key) String() string {
@@ -26,7 +20,7 @@ func (ck *Key) String() string {
 }
 
 // wakeupKey is the context key for UnitOfWork wakeup callbacks
-var wakeupKey = &Key{Name: "wakeup", Scope: ScopeCall}
+var wakeupKey = &Key{Name: "wakeup"}
 
 // WakeUpKey is the public accessor for the wakeup context key
 // Represents a callback that can be used to notify process host about async process activity

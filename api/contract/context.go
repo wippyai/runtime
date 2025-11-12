@@ -6,7 +6,7 @@ import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
 )
 
-var contractsCtx = &ctxapi.Key{Name: "contracts", Scope: ctxapi.ScopeThread}
+var contractsCtx = &ctxapi.Key{Name: "contracts"}
 
 // contractServices holds both registry and instantiator for context storage
 type contractServices struct {

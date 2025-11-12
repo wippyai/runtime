@@ -8,7 +8,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/event"
 	api "github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -267,7 +266,6 @@ func TestManager_Send(t *testing.T) {
 			pid := api.PID{
 				Node:   "test-node",
 				Host:   "test-host",
-				ID:     registry.ID{NS: "test", Name: "proc"},
 				UniqID: "test",
 			}
 
@@ -299,7 +297,6 @@ func TestManager_Attach(t *testing.T) {
 	pid := api.PID{
 		Node:   "test-node",
 		Host:   "test-host",
-		ID:     registry.ID{NS: "test", Name: "proc"},
 		UniqID: "test",
 	}
 	ch := make(chan *api.Package)

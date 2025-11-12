@@ -9,7 +9,7 @@ import (
 )
 
 // loggerCtx is the context key used to store and retrieve the logger instance
-var loggerCtx = &ctxapi.Key{Name: "logger", Scope: ctxapi.ScopeThread}
+var loggerCtx = &ctxapi.Key{Name: "logger"}
 
 // WithLogger creates a new context with the provided logger instance.
 // This function is used to inject a logger into the context for later retrieval.

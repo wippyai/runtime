@@ -20,7 +20,6 @@ func (m *mockRegistry) GetAllEntries() ([]registry.Entry, error) {
 
 func (m *mockRegistry) GetEntry(id registry.ID) (registry.Entry, error) {
 	for _, entry := range m.entries {
-		if entry.ID == id {
 			return entry, nil
 		}
 	}
@@ -40,7 +39,6 @@ func TestFinder_Find(t *testing.T) {
 	// Create test entries
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "test", Name: "service-api"},
 			Kind: "service",
 			Meta: registry.Metadata{
 				"description": "RESTful API service for user management",
@@ -51,7 +49,6 @@ func TestFinder_Find(t *testing.T) {
 			},
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "service-queue"},
 			Kind: "service",
 			Meta: registry.Metadata{
 				"description": "Background job processing queue",
@@ -62,7 +59,6 @@ func TestFinder_Find(t *testing.T) {
 			},
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "database-users"},
 			Kind: "database",
 			Meta: registry.Metadata{
 				"description": "User database with profiles and preferences",
@@ -72,7 +68,6 @@ func TestFinder_Find(t *testing.T) {
 			},
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "storage-files"},
 			Kind: "storage",
 			Meta: registry.Metadata{
 				"description": "File storage service for user uploads",

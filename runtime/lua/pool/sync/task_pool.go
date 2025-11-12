@@ -110,7 +110,7 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 	// Create the result channel with buffer size 1 to avoid blocking
 	resultChan := make(chan *runtime.Result, 1)
 
-	// Ensure context has a logger
+	// Ensure context has a logger (todo: drop it)
 	ctx = logs.WithLogger(ctx, p.logger)
 
 	// Get transcoder from context

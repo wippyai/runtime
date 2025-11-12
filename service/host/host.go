@@ -8,8 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ponyruntime/pony/api/security"
-
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/service/host"
@@ -135,7 +133,7 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, 
 		return pubsub.PID{}, process.ErrHostDead
 	}
 
-	ctx = h.prepareContext(ctx, launch.PID, launch.Lifecycle)
+	ctx = h.prepareContext(ctx, launch)
 
 	if err := launch.Process.Start(ctx, launch.PID, launch.Input); err != nil {
 		return pubsub.PID{}, err
@@ -165,25 +163,58 @@ func (h *Host) getQueueForPID(pid pubsub.PID) chan *pubsub.Package {
 }
 
 // prepareContext sets up the context for a process
-func (h *Host) prepareContext(ctx context.Context, pid pubsub.PID, lifecycle process.Lifecycle) context.Context {
-	pCtx := security.CopyContext(ctx, h.ctx)
+func (h *Host) prepareContext(ctx context.Context, launch *process.Launch) context.Context {
+	// Create FrameContext with automatic inheritance of actor/scope
+	pCtx, _ := ctxapi.OpenFrameContext(ctx)
 
-	// check for ctx
-	contexter := ctx.Value(ctxapi.ValuesCtx)
-	if ctxr, ok := contexter.(*ctxapi.Contexter[any]); ok {
-		pCtx = context.WithValue(pCtx, ctxapi.ValuesCtx, ctxr)
+	h.log.Info("prepareContext: launch.Context",
+		zap.Int("context_pairs", len(launch.Context)),
+		zap.String("pid", launch.PID.String()),
+		zap.String("source", launch.Source.String()))
+
+	// Store frame metadata and apply launch context overrides
+	if fc := ctxapi.FrameFromContext(pCtx); fc != nil {
+		// Build pairs: frame metadata + launch context overrides
+		pairs := []ctxapi.Pair{
+			{Key: runtime.FrameIDKey, Value: launch.Source},
+			{Key: runtime.FramePIDKey, Value: launch.PID},
+		}
+
+		// Add launch context overrides (actor, scope, custom values, etc.)
+		if len(launch.Context) > 0 {
+			h.log.Info("prepareContext: applying context overrides", zap.Int("override_count", len(launch.Context)))
+			for i, pair := range launch.Context {
+				h.log.Info("prepareContext: context pair",
+					zap.Int("index", i),
+					zap.Any("key", pair.Key),
+					zap.Any("value", pair.Value))
+			}
+			pairs = append(pairs, launch.Context...)
+		} else {
+			h.log.Info("prepareContext: no context overrides")
+		}
+
+		h.log.Info("prepareContext: total pairs to set", zap.Int("total", len(pairs)))
+
+		if err := fc.SetMultiple(pairs...); err != nil {
+			h.log.Error("failed to set frame context", zap.Error(err))
+		} else {
+			h.log.Info("prepareContext: successfully set frame context")
+		}
 	}
 
-	// global lifecycle
-	pCtx = process.GetManager(ctx).AttachLifecycle(pCtx, lifecycle)
+	// Attach global lifecycle
+	pCtx = process.GetManager(ctx).AttachLifecycle(pCtx, launch.Lifecycle)
 
-	// local lifecycle
-	pCtx = process.WithAddedOnComplete(pCtx, h.finalizeProcess)
+	// Setup local lifecycle
+	if err := process.SetOnComplete(pCtx, h.finalizeProcess); err != nil {
+		h.log.Error("failed to set onComplete callback", zap.Error(err))
+	}
 	pCtx = context.WithValue(pCtx, ctxapi.WakeUpKey, func() {
-		_ = h.pool.Schedule(pid)
+		_ = h.pool.Schedule(launch.PID)
 	})
 
-	pCtx = logs.WithLogger(pCtx, h.log.With(zap.String("pid", pid.String())))
+	pCtx = logs.WithLogger(pCtx, h.log.With(zap.String("pid", launch.PID.String())))
 
 	return pCtx
 }

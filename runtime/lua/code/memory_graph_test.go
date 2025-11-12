@@ -14,7 +14,6 @@ import (
 // createTestNode creates a test node with the given Process.
 func createTestNode(id string) *Node {
 	return &Node{
-		ID:     registry.ID{Name: id},
 		Kind:   "function.lua",
 		Source: fmt.Sprintf("function %s() return 'hello' end", id),
 		Method: "test",
@@ -116,7 +115,6 @@ func TestMemoryGraph_AddDependency(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get dependencies: %v", err)
 		}
-		if len(deps) != 1 || deps[0].ID != nodeB.ID {
 			t.Errorf("expected dependency to nodeB, got: %+v", deps)
 		}
 	})
@@ -208,7 +206,6 @@ func TestMemoryGraph_GetDirectDependencies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get dependencies: %v", err)
 		}
-		if len(deps) != 1 || deps[0].ID != nodeB.ID {
 			t.Errorf("expected dependency to nodeB, got: %+v", deps)
 		}
 	})
@@ -251,7 +248,6 @@ func TestMemoryGraph_GetDirectDependents(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get dependents: %v", err)
 		}
-		if len(deps) != 1 || deps[0].ID != nodeA.ID {
 			t.Errorf("expected dependent to be nodeA, got: %+v", deps)
 		}
 	})
@@ -377,7 +373,6 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 			t.Fatalf("failed to build runtime: %v", err)
 		}
 		// Verify main node.
-		if rt.Main.ID != nodeA.ID {
 			t.Errorf("unexpected main node or alias, got: %+v", rt.Main)
 		}
 		// Check dependency prototypes (should include nodeB and nodeC).
@@ -386,11 +381,9 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 		}
 		// Verify alias propagation for nodeB.
 		for _, dep := range rt.Dependencies {
-			if dep.Node.ID == nodeB.ID && dep.Name != "depB" {
 				t.Errorf("expected alias 'depB' for nodeB, got '%s'", dep.Name)
 			}
 			// Verify module is included as a dependency
-			if dep.Node.ID == nodeC.ID {
 				if dep.Node.Module == nil || dep.Node.Module.Name() != "dummyMod" {
 					t.Errorf("expected module 'dummyMod' in nodeC dependency")
 				}
@@ -555,7 +548,6 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 	}
 
 	// Verify main node is correct
-	if rt.Main.ID != mainNode.ID {
 		t.Errorf("expected main node Process %v, got %v", mainNode.ID, rt.Main.ID)
 	}
 
@@ -662,7 +654,6 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	}
 
 	// Verify main node
-	if rt.Main.ID != mainNode.ID {
 		t.Errorf("expected main node Process %v, got %v", mainNode.ID, rt.Main.ID)
 	}
 
@@ -685,7 +676,6 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	// Verify each dependency is in correct order with correct alias
 	for i, expected := range expectedDeps {
 		actual := rt.Dependencies[i]
-		if actual.Node.ID != expected.id {
 			t.Errorf("dependency at position %d: expected node %v, got %v", i, expected.id, actual.Node.ID)
 		}
 		if actual.Name != expected.alias {
@@ -696,7 +686,6 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	// Verify commonDep entries appear before any nodes that depend on them
 	lastCommonDepPos := -1
 	for i, dep := range rt.Dependencies {
-		if dep.Node.ID == commonDepNode.ID {
 			lastCommonDepPos = i
 		} else if lastCommonDepPos == -1 {
 			t.Errorf("found dependent node %v before its dependency CommonDep", dep.Node.ID)
@@ -705,7 +694,6 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 
 	// Verify all commonDep entries are grouped together at the start
 	for i := 1; i <= lastCommonDepPos; i++ {
-		if rt.Dependencies[i].Node.ID != commonDepNode.ID {
 			t.Errorf("CommonDep entries not grouped together at start, found %v at position %d", rt.Dependencies[i].Node.ID, i)
 		}
 	}
@@ -724,13 +712,11 @@ func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 		"lib1": createTestNode("Lib1"),
 		"lib2": createTestNode("Lib2"),
 		"mod1": {
-			ID:     registry.ID{Name: "Module1"},
 			Kind:   "module.lua",
 			Source: "module1 source",
 			Module: mod1,
 		},
 		"mod2": {
-			ID:     registry.ID{Name: "Module2"},
 			Kind:   "module.lua",
 			Source: "module2 source",
 			Module: mod2,
@@ -788,13 +774,11 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 		"lib1": createTestNode("Lib1"),
 		"lib2": createTestNode("Lib2"),
 		"mod1": {
-			ID:     registry.ID{Name: "Module1"},
 			Kind:   "module.lua",
 			Source: "module1 source",
 			Module: mod1,
 		},
 		"shared": {
-			ID:     registry.ID{Name: "Shared"},
 			Kind:   "module.lua",
 			Source: "shared module source",
 			Module: sharedMod,

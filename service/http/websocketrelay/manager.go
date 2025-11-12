@@ -10,6 +10,7 @@ import (
 	"github.com/ponyruntime/pony/api/topology"
 
 	"github.com/coder/websocket"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
@@ -115,9 +116,27 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 		}
 
 		// Get dependencies from request context
-		host := pubsub.GetHost(r.Context())
-		if host == nil {
-			errMsg := "Host not found in context"
+		// Get the HTTP server's host from FrameContext
+		// (not the app-level pubsub host which belongs to the process host service)
+		fc := contextapi.FrameFromContext(r.Context())
+		if fc == nil {
+			errMsg := "FrameContext not found"
+			logger.Error(errMsg)
+			http.Error(w, errMsg, http.StatusInternalServerError)
+			return
+		}
+
+		hostVal, ok := fc.Get(httpapi.ContextHost)
+		if !ok {
+			errMsg := "HTTP server host not found in context"
+			logger.Error(errMsg)
+			http.Error(w, errMsg, http.StatusInternalServerError)
+			return
+		}
+
+		pubsubHost, ok := hostVal.(pubsub.Host)
+		if !ok {
+			errMsg := fmt.Sprintf("Invalid host type: %T", hostVal)
 			logger.Error(errMsg)
 			http.Error(w, errMsg, http.StatusInternalServerError)
 			return
@@ -147,10 +166,17 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 			return
 		}
 
-		// Get server ID from context
-		serverID, ok := r.Context().Value(httpapi.ContextServerID).(registry.ID)
-		if !ok || serverID.String() == "" {
+		// Get server ID from FrameContext
+		serverIDVal, ok := fc.Get(httpapi.ContextServerID)
+		if !ok {
 			logger.Error("Server ID not found in context")
+			http.Error(w, "Server ID not found in context", http.StatusInternalServerError)
+			return
+		}
+
+		serverID, ok := serverIDVal.(registry.ID)
+		if !ok || serverID.String() == "" {
+			logger.Error("Invalid server ID in context")
 			http.Error(w, "Server ID not found in context", http.StatusInternalServerError)
 			return
 		}
@@ -175,7 +201,7 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 			config,
 			messageTopic,
 			serverID,
-			host,
+			pubsubHost,
 			node,
 			topo,
 			transcoder,

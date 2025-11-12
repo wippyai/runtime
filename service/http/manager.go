@@ -41,6 +41,9 @@ type Server interface {
 	// UpdateConfig updates the server configuration
 	UpdateConfig(cfg *config.ServerConfig) error
 
+	// SetHandlerFunc sets the server-level handler function
+	SetHandlerFunc(handler http.Handler)
+
 	// UpsertRouter adds a new router or updates an existing one
 	UpsertRouter(id registry.ID, router *config.RouterConfig) error
 
@@ -236,6 +239,18 @@ func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) 
 		return fmt.Errorf("server %s already exists", entry.ID)
 	}
 
+	// If handler function is configured, create handler
+	if cfg.Handler != nil {
+		handlerCfg := &config.EndpointConfig{
+			Func: *cfg.Handler,
+		}
+		handler, err := m.endpointFactory.CreateHandler(ctx, handlerCfg)
+		if err != nil {
+			return fmt.Errorf("failed to create server handler: %w", err)
+		}
+		server.SetHandlerFunc(handler)
+	}
+
 	m.servers[entry.ID] = server
 
 	// Register with supervisor
@@ -271,6 +286,21 @@ func (m *Manager) handleServerUpdate(ctx context.Context, entry registry.Entry) 
 	if err := server.UpdateConfig(cfg); err != nil {
 		return fmt.Errorf("failed to update server config: %w", err)
 	}
+
+	// Update handler function if configured
+	if cfg.Handler != nil {
+		handlerCfg := &config.EndpointConfig{
+			Func: *cfg.Handler,
+		}
+		handler, err := m.endpointFactory.CreateHandler(ctx, handlerCfg)
+		if err != nil {
+			return fmt.Errorf("failed to create server handler: %w", err)
+		}
+		server.SetHandlerFunc(handler)
+	} else {
+		server.SetHandlerFunc(nil)
+	}
+
 	m.pending[entry.ID] = true
 
 	// Update supervisor

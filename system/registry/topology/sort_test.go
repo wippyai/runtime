@@ -72,7 +72,7 @@ func compareChangeSets(t *testing.T, got, want registry.ChangeSet) bool {
 		}
 
 		if got[i].Entry.ID != want[i].Entry.ID {
-			t.Errorf("Operation[%d].Entry.Process mismatch: got %v, want %v", i, got[i].Entry.ID, want[i].Entry.ID)
+			t.Errorf("Operation[%d].Entry.ID mismatch: got %v, want %v", i, got[i].Entry.ID, want[i].Entry.ID)
 			return false
 		}
 

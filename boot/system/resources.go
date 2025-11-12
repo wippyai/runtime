@@ -6,35 +6,35 @@ import (
 	"github.com/ponyruntime/pony/api/boot"
 	"github.com/ponyruntime/pony/api/event"
 	logapi "github.com/ponyruntime/pony/api/logs"
-	resourceapi "github.com/ponyruntime/pony/api/resource"
-	bootpkg "github.com/ponyruntime/pony/boot"
+	resapi "github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/system/resource"
 )
 
-type resourcesPlugin struct{}
+func Resources() boot.Plugin {
+	var resources *resource.Registry
 
-func (p *resourcesPlugin) Name() string        { return bootpkg.Resources }
-func (p *resourcesPlugin) Phase() boot.Phase   { return boot.Init }
-func (p *resourcesPlugin) DependsOn() []string { return []string{bootpkg.EventBus, bootpkg.Logger} }
+	return boot.New(boot.P{
+		Name:      ResourcesName,
+		Phase:     boot.Init,
+		DependsOn: []string{"eventbus", "logger"},
+		Load: func(ctx context.Context) (context.Context, error) {
+			logger := logapi.GetLogger(ctx)
+			bus := event.GetBus(ctx)
 
-func (p *resourcesPlugin) Load(ctx context.Context) (context.Context, error) {
-	logger := logapi.GetLogger(ctx)
-	bus := event.GetBus(ctx)
-
-	resources := resource.NewResourceRegistry(bus, logger.Named("resources"))
-	return resourceapi.WithRegistry(ctx, resources), nil
-}
-
-func (p *resourcesPlugin) Start(ctx context.Context) error {
-	resources := resourceapi.GetRegistry(ctx)
-	return resources.Start(ctx)
-}
-
-func (p *resourcesPlugin) Stop(ctx context.Context) error {
-	resources := resourceapi.GetRegistry(ctx)
-	return resources.Stop()
-}
-
-func init() {
-	bootpkg.MustRegister(&resourcesPlugin{})
+			resources = resource.NewResourceRegistry(bus, logger.Named("resources"))
+			return resapi.WithRegistry(ctx, resources), nil
+		},
+		Start: func(ctx context.Context) error {
+			if resources != nil {
+				return resources.Start(ctx)
+			}
+			return nil
+		},
+		Stop: func(ctx context.Context) error {
+			if resources != nil {
+				return resources.Stop()
+			}
+			return nil
+		},
+	})
 }

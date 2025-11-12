@@ -8,7 +8,6 @@ import (
 
 	processapi "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	topologyapi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -32,7 +31,6 @@ func newMockProcessManager() *mockProcessManager {
 func (m *mockProcessManager) Start(_ context.Context, start *processapi.Start) (pubsub.PID, error) {
 	pid := pubsub.PID{
 		Host:   start.HostID,
-		ID:     start.Source,
 		UniqID: start.UniqID,
 	}
 	m.processes[pid] = true
@@ -192,7 +190,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
 
 	// Add pubsub context
-	pid := pubsub.PID{ID: registry.ID{NS: "test", Name: "test"}}
+	pid := pubsub.PID{}
 	ctx = pubsub.WithPID(ctx, pid)
 
 	// Add mock node

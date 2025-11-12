@@ -8,7 +8,7 @@ import (
 )
 
 // Context key for storing PID generator
-var generatorCtx = &ctxapi.Key{Name: "pidgen.generator", Scope: ctxapi.ScopeThread}
+var generatorCtx = &ctxapi.Key{Name: "pidgen.generator"}
 
 // WithGenerator attaches a PID generator to the context (app-level service)
 func WithGenerator(ctx context.Context, gen *uniqid.PIDGenerator) context.Context {

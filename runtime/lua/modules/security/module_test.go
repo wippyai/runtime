@@ -134,8 +134,9 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	// Add security context with a test actor and scope
 	actor := secapi.Actor{ID: "test-actor"}
 	scope := security.NewScope(nil)
-	ctx = secapi.WithActor(ctx, actor)
-	ctx = secapi.WithScope(ctx, scope)
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_ = secapi.SetActor(ctx, actor)
+	_ = secapi.SetScope(ctx, scope)
 
 	// Add resource registry
 	mockRegistry := newMockResourceRegistry()

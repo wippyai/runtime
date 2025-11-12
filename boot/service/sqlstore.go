@@ -1,3 +1,5 @@
+//go:build !plugin_minimal
+
 package service
 
 import (
@@ -9,37 +11,27 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	bootpkg "github.com/ponyruntime/pony/boot"
 	"github.com/ponyruntime/pony/service/sqlstore"
-	"github.com/ponyruntime/pony/system/eventbus"
-	reghandler "github.com/ponyruntime/pony/system/registry/events"
 )
 
-type sqlStorePlugin struct {
-	handler eventbus.EventHandler
-}
+func SQLStore() boot.Plugin {
+	return boot.New(boot.P{
+		Name:      SQLStoreName,
+		Phase:     boot.PostInit,
+		DependsOn: nil,
+		Load: func(ctx context.Context) (context.Context, error) {
+			logger := logapi.GetLogger(ctx)
+			dtt := payload.GetTranscoder(ctx)
+			bus := event.GetBus(ctx)
+			handlers := bootpkg.GetHandlerRegistry(ctx)
 
-func (p *sqlStorePlugin) Name() string        { return bootpkg.SQLStore }
-func (p *sqlStorePlugin) Phase() boot.Phase   { return boot.PostInit }
-func (p *sqlStorePlugin) DependsOn() []string { return nil }
+			manager := sqlstore.NewManager(
+				bus,
+				dtt,
+				logger.Named("sqlstore"),
+			)
 
-func (p *sqlStorePlugin) Load(ctx context.Context) (context.Context, error) {
-	logger := logapi.GetLogger(ctx)
-	dtt := payload.GetTranscoder(ctx)
-	bus := event.GetBus(ctx)
-
-	manager := sqlstore.NewManager(
-		bus,
-		dtt,
-		logger.Named("sqlstore"),
-	)
-
-	p.handler = reghandler.NewRegistryHandler("store.sql", manager)
-	return ctx, nil
-}
-
-func (p *sqlStorePlugin) Handler() eventbus.EventHandler {
-	return p.handler
-}
-
-func init() {
-	bootpkg.MustRegister(&sqlStorePlugin{})
+			handlers.RegisterListener("store.sql", manager)
+			return ctx, nil
+		},
+	})
 }

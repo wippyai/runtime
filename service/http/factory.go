@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/interceptor"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/service/http"
@@ -78,11 +78,13 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 		// Return to pool when request is done
 		defer putRequestContext(rCtx)
 
-		execCtx := context.WithValue(r.Context(), config.RequestCtx, rCtx)
+		// Use existing context (FrameContext already created in handler wrapper)
+		execCtx := r.Context()
 
-		// Get the interceptor registry from the parent context
-		if ir := interceptor.GetInterceptors(r.Context()); ir != nil {
-			execCtx = interceptor.WithInterceptor(execCtx, ir)
+		// Store HTTP request data in FrameContext
+		fc := contextapi.FrameFromContext(execCtx)
+		if fc != nil {
+			_ = fc.Set(config.RequestCtx, rCtx)
 		}
 
 		task := runtime.Task{ID: cfg.Func}
