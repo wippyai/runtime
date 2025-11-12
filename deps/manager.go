@@ -18,9 +18,6 @@ import (
 	modulev1 "github.com/wippyai/module-registry-proto-go/registry/module/v1"
 )
 
-// VendorFolder is a name of vendor folder.
-const VendorFolder = ".wippy/vendor"
-
 // ManifestLoader provides the way to load manifest information into the manager.
 type ManifestLoader interface {
 	LoadManifest(ctx context.Context) (*Manifest, error)

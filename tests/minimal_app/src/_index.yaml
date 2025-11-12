@@ -1,0 +1,11 @@
+version: "1.0"
+namespace: app
+
+entries:
+  - name: test_handler
+    kind: function
+    meta:
+      comment: Test handler from main src
+      depends_on:
+        - ns:system
+

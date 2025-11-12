@@ -152,6 +152,12 @@ var runCmd = &cobra.Command{
 		consoleLogging, eventStreaming := GetLoggingConfig()
 		minLevel := GetVerboseLevel()
 
+		// Prepare list of directories to exclude from source scanning
+		excludeDirs := prepareExcludeDirs(appDir, absModulesDir, absLockDir, lockFileObj, logger)
+		if len(excludeDirs) > 0 {
+			logger.Debug("Excluding directories from source scanning", zap.Strings("directories", excludeDirs))
+		}
+
 		app, err := appbuild.NewApp(
 			logger,
 			appbuild.WithPaths(appDir, absLockPath, absModulesDir, absLockDir, useEmbed),
@@ -159,6 +165,7 @@ var runCmd = &cobra.Command{
 			appbuild.WithProfiling(enableProfiling),
 			appbuild.WithCluster(clusterEnabled, clusterName, clusterBind, clusterPort, clusterJoin, clusterSecret, clusterSecretFile, clusterAdvertise),
 			appbuild.WithRuntimeConfig(runtimeCfg),
+			appbuild.WithExcludeDirs(excludeDirs),
 		)
 		if err != nil {
 			logger.Error("failed to create application", zap.Error(err))
@@ -210,9 +217,7 @@ func init() {
 	runCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
 	runCmd.Flags().BoolP("profiling", "p", false, "enable performance profiling")
 	runCmd.Flags().Bool("use-embed", false, "use embedded files")
-
 	runCmd.Flags().StringSliceP("runtime-config", "r", []string{}, "runtime configuration in format namespace:entry:field=value (can be specified multiple times). Entry and field can contain dots.")
-
 	runCmd.Flags().BoolP("cluster", "C", false, "enable cluster membership")
 	runCmd.Flags().StringP("cluster-name", "n", "", "cluster node name (defaults to hostname)")
 	runCmd.Flags().String("cluster-bind", "0.0.0.0", "cluster bind address")
@@ -221,4 +226,52 @@ func init() {
 	runCmd.Flags().String("cluster-secret", "", "cluster secret key (base64 encoded string)")
 	runCmd.Flags().String("cluster-secret-file", "", "path to file containing cluster secret key")
 	runCmd.Flags().String("cluster-advertise", "", "cluster advertise IP address")
+}
+
+// prepareExcludeDirs prepares a list of directories to exclude from source scanning.
+//
+// It calculates relative paths for:
+//   - modules directory (if inside source directory)
+//   - replacement directories from lock file (if inside source directory)
+//
+// Parameters:
+//   - folderPath: absolute path to the source/application directory
+//   - modulesDirPath: absolute path to the modules directory
+//   - lockFileDir: directory containing the lock file
+//   - lockFile: parsed lock file (may be nil)
+//   - logger: logger instance for debug output
+//
+// Returns a list of relative paths to exclude. Paths outside the source directory
+// or paths that fail validation are silently skipped with debug logging.
+//
+// Example:
+//
+//	folderPath = "/app"
+//	modulesDirPath = "/app/.wippy/vendor"
+//	→ returns [".wippy/vendor"]
+func prepareExcludeDirs(folderPath, modulesDirPath, lockFileDir string, lockFile *deps.LockFile, _ *zap.Logger) []string {
+	if folderPath == "" {
+		return []string{}
+	}
+
+	var excludeDirs []string
+
+	// Add modules directory
+	if modulesDirPath != "" {
+		if relPath, err := filepath.Rel(folderPath, modulesDirPath); err == nil && !strings.HasPrefix(relPath, "..") {
+			excludeDirs = append(excludeDirs, relPath)
+		}
+	}
+
+	// Add replacements directories
+	if lockFile != nil && len(lockFile.Replacements) > 0 {
+		for _, replacement := range lockFile.Replacements {
+			absPath := filepath.Join(lockFileDir, replacement.To)
+			if relPath, err := filepath.Rel(folderPath, absPath); err == nil && !strings.HasPrefix(relPath, "..") {
+				excludeDirs = append(excludeDirs, relPath)
+			}
+		}
+	}
+
+	return excludeDirs
 }
