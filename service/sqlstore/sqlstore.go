@@ -38,7 +38,6 @@ type SQLStore struct {
 func NewSQLStore(id registry.ID, config *sqlstore.SQLConfig, log *zap.Logger) *SQLStore {
 	if config == nil {
 		config = &sqlstore.SQLConfig{}
-		config.InitDefaults()
 	}
 
 	return &SQLStore{

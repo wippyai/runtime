@@ -13,6 +13,7 @@ type PathConfig struct {
 	AllowWildcard bool
 }
 
+// todo: isolate, dynamize and move?
 var DependencyPaths = []PathConfig{
 	{Path: "meta.server", Description: "Reference to HTTP server in metadata"},
 	{Path: "meta.router", Description: "Reference to router component in metadata"},

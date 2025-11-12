@@ -2,6 +2,8 @@ package metamatch
 
 import (
 	"testing"
+
+	"github.com/ponyruntime/pony/api/registry"
 )
 
 func TestBasicMatchers(t *testing.T) {

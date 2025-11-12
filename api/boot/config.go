@@ -12,6 +12,9 @@ const ConfigSep = "."
 // ConfigKey is a string alias for typed config key declarations in plugins.
 type ConfigKey string
 
+// ConfigSection is a string alias for config section names.
+type ConfigSection string
+
 type configCtxKey struct{}
 
 // WithConfig attaches Config to context.
@@ -54,20 +57,49 @@ type Config interface {
 }
 
 type config struct {
-	prefix string
-	values map[string]any
+	prefix  string
+	buckets map[string]map[string]any
 }
 
-// NewConfig creates a new Config from a map of string keys to arbitrary values.
-func NewConfig(values map[string]any) Config {
-	return &config{
-		prefix: "",
-		values: values,
+// ConfigOption is a functional option for configuring Config.
+type ConfigOption func(*config)
+
+// WithSection adds a configuration section with the given name and values.
+func WithSection(name string, values map[string]any) ConfigOption {
+	return func(c *config) {
+		c.buckets[name] = values
 	}
 }
 
+// NewConfig creates a new Config with the provided options.
+func NewConfig(opts ...ConfigOption) Config {
+	cfg := &config{
+		prefix:  "",
+		buckets: make(map[string]map[string]any),
+	}
+
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	return cfg
+}
+
 func (c *config) Get(key string) (any, bool) {
-	v, ok := c.values[c.prefix+key]
+	fullKey := c.prefix + key
+	parts := strings.Split(fullKey, ConfigSep)
+
+	if len(parts) < 2 {
+		return nil, false
+	}
+
+	bucket, ok := c.buckets[parts[0]]
+	if !ok {
+		return nil, false
+	}
+
+	subKey := strings.Join(parts[1:], ConfigSep)
+	v, ok := bucket[subKey]
 	return v, ok
 }
 
@@ -117,17 +149,44 @@ func (c *config) GetDuration(key string, def time.Duration) time.Duration {
 
 func (c *config) Keys() []string {
 	keys := make([]string, 0)
-	for k := range c.values {
-		if strings.HasPrefix(k, c.prefix) {
-			keys = append(keys, strings.TrimPrefix(k, c.prefix))
+
+	if c.prefix == "" {
+		for section := range c.buckets {
+			for key := range c.buckets[section] {
+				keys = append(keys, section+ConfigSep+key)
+			}
+		}
+		return keys
+	}
+
+	parts := strings.Split(strings.TrimSuffix(c.prefix, ConfigSep), ConfigSep)
+	if len(parts) == 0 {
+		return keys
+	}
+
+	section := parts[0]
+	bucket, ok := c.buckets[section]
+	if !ok {
+		return keys
+	}
+
+	prefixInBucket := ""
+	if len(parts) > 1 {
+		prefixInBucket = strings.Join(parts[1:], ConfigSep) + ConfigSep
+	}
+
+	for key := range bucket {
+		if strings.HasPrefix(key, prefixInBucket) {
+			keys = append(keys, strings.TrimPrefix(key, prefixInBucket))
 		}
 	}
+
 	return keys
 }
 
 func (c *config) Sub(prefix string) Config {
 	return &config{
-		prefix: c.prefix + prefix + ConfigSep,
-		values: c.values,
+		prefix:  c.prefix + prefix + ConfigSep,
+		buckets: c.buckets,
 	}
 }

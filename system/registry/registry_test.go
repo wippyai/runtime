@@ -15,8 +15,8 @@ import (
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/yaml"
-	"github.com/ponyruntime/pony/system/registry/loader"
-	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
+	"github.com/ponyruntime/pony/boot/loader"
+	"github.com/ponyruntime/pony/boot/loader/interpolate"
 	"github.com/stretchr/testify/assert"
 
 	"go.uber.org/zap"

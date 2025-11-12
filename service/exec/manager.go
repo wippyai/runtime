@@ -12,6 +12,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/service/exec"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -72,8 +73,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Decode the configuration
-	cfg := new(exec.NativeExecutorConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
+	cfg, err := entryutil.DecodeEntryConfig[exec.NativeExecutorConfig](ctx, m.dtt, entry)
+	if err != nil {
 		return fmt.Errorf("failed to decode configuration: %w", err)
 	}
 
@@ -123,8 +124,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Decode the configuration
-	cfg := new(exec.NativeExecutorConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
+	cfg, err := entryutil.DecodeEntryConfig[exec.NativeExecutorConfig](ctx, m.dtt, entry)
+	if err != nil {
 		return fmt.Errorf("failed to decode configuration: %w", err)
 	}
 

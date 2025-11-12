@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -132,11 +133,19 @@ func TestContextIntegration(t *testing.T) {
 
 	t.Run("stores and retrieves from context", func(t *testing.T) {
 		ctx := context.Background()
-		ctx = context.WithValue(ctx, RequestCtx, reqCtx)
-		ctx = context.WithValue(ctx, RouteCtx, routeInfo)
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+
+		fc := ctxapi.FrameFromContext(ctx)
+		require.NotNil(t, fc)
+
+		err := fc.SetMultiple(
+			ctxapi.Pair{Key: RequestCtx, Value: reqCtx},
+			ctxapi.Pair{Key: RouteCtx, Value: routeInfo},
+		)
+		require.NoError(t, err)
 
 		// Retrieve and verify RequestContext
-		retrievedReqCtx, ok := ctx.Value(RequestCtx).(*RequestContext)
+		retrievedReqCtx, ok := GetRequestContext(ctx)
 		require.True(t, ok)
 		assert.Equal(t, req, retrievedReqCtx.Request())
 		assert.Equal(t, w, retrievedReqCtx.ResponseWriter())

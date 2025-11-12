@@ -44,11 +44,11 @@ func NewUnitOfWork(parentCtx context.Context, state *lua.LState) (UnitOfWork, co
 	ctx, cancel := context.WithCancel(parentCtx)
 
 	uw.ctx = ctx
-	uw.cancel = cancel // todo: get from call context, dont fork here
+	uw.cancel = cancel
 	uw.state = state
 	uw.closed.Store(false)
 
-	// Check for wake-up function in context
+	// Check for wake-up function in context (todo: in frame)
 	if awake := parentCtx.Value(ctxapi.WakeUpKey); awake != nil {
 		if fn, ok := awake.(func()); ok {
 			uw.tasks.wakeupFunc = fn

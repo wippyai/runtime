@@ -1,18 +1,20 @@
 package policy
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/api/service/policy"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 )
 
 // FactoryAPI defines the interface for creating policy entries
 type FactoryAPI interface {
 	// CreatePolicyEntry creates a policy entry from the given registry entry
-	CreatePolicyEntry(entry registry.Entry) (*security.PolicyEntry, error)
+	CreatePolicyEntry(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error)
 }
 
 // DefaultFactory is the default implementation of FactoryAPI
@@ -28,16 +30,11 @@ func NewDefaultFactory(dtt payload.Transcoder) *DefaultFactory {
 }
 
 // CreatePolicyEntry implements FactoryAPI
-func (f *DefaultFactory) CreatePolicyEntry(entry registry.Entry) (*security.PolicyEntry, error) {
+func (f *DefaultFactory) CreatePolicyEntry(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error) {
 	// Extract payload from registry entry
-	cfg := new(policy.Config)
-	if err := f.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal policy config: %w", err)
-	}
-
-	// Validate the configuration
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid policy config: %w", err)
+	cfg, err := entryutil.DecodeEntryConfig[policy.Config](ctx, f.dtt, entry)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode policy config: %w", err)
 	}
 
 	// Create the policy

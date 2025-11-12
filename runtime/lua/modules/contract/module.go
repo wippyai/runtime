@@ -193,7 +193,7 @@ func parseBindingArgs(bindingID string) (string, map[string]any, error) {
 func (m *Module) newFrameContext(l *lua.LState) frameContext {
 	values := contextapi.GetValues(l.Context())
 	if values != nil {
-		values = values.Clone()
+		values = values.Clone().(*contextapi.Values)
 	} else {
 		values = contextapi.NewValues()
 	}
@@ -203,7 +203,7 @@ func (m *Module) newFrameContext(l *lua.LState) frameContext {
 // clone creates a deep copy of call context for immutable chaining pattern
 func (sc frameContext) clone() frameContext {
 	return frameContext{
-		values:   sc.values.Clone(),
+		values:   sc.values.Clone().(*contextapi.Values),
 		actor:    sc.actor,
 		hasActor: sc.hasActor,
 		scope:    sc.scope,
@@ -228,9 +228,23 @@ func (sc frameContext) applyToContext(baseCtx context.Context) (context.Context,
 			return ctx, err
 		}
 	}
-	// Apply application context values
+	// Merge application context values with existing values from parent frame
 	if sc.values != nil {
-		_ = contextapi.SetValues(ctx, sc.values)
+		// Get existing values from the frame (inherited from parent)
+		existingValues := contextapi.GetValues(ctx)
+		if existingValues != nil {
+			// Merge: copy existing values first, then overlay with new values
+			mergedValues := contextapi.NewValues()
+			existingValues.Iterate(func(key any, value any) {
+				mergedValues.Set(key, value)
+			})
+			sc.values.Iterate(func(key any, value any) {
+				mergedValues.Set(key, value)
+			})
+			_ = contextapi.SetValues(ctx, mergedValues)
+		} else {
+			_ = contextapi.SetValues(ctx, sc.values)
+		}
 	}
 	return ctx, nil
 }

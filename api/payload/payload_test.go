@@ -1,11 +1,14 @@
 package payload
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewPayload(t *testing.T) {
@@ -165,4 +168,78 @@ func TestNewError(t *testing.T) {
 			}
 		})
 	}
+}
+
+type mockTranscoder struct{}
+
+func (m *mockTranscoder) Transcode(p Payload, f Format) (Payload, error) {
+	return NewPayload(p.Data(), f), nil
+}
+
+func (m *mockTranscoder) Unmarshal(p Payload, target interface{}) error {
+	return nil
+}
+
+func TestGetTranscoder(t *testing.T) {
+	t.Run("returns nil when AppContext is nil", func(t *testing.T) {
+		ctx := context.Background()
+		transcoder := GetTranscoder(ctx)
+		assert.Nil(t, transcoder)
+	})
+
+	t.Run("returns nil when transcoder not set", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
+		transcoder := GetTranscoder(ctx)
+		assert.Nil(t, transcoder)
+	})
+
+	t.Run("returns transcoder when set", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
+		mockTc := &mockTranscoder{}
+		ctx = WithTranscoder(ctx, mockTc)
+
+		transcoder := GetTranscoder(ctx)
+		require.NotNil(t, transcoder)
+		assert.Equal(t, mockTc, transcoder)
+	})
+}
+
+func TestWithTranscoder(t *testing.T) {
+	t.Run("returns same context when AppContext is nil", func(t *testing.T) {
+		ctx := context.Background()
+		mockTc := &mockTranscoder{}
+		newCtx := WithTranscoder(ctx, mockTc)
+
+		assert.Equal(t, ctx, newCtx)
+		assert.Nil(t, GetTranscoder(newCtx))
+	})
+
+	t.Run("attaches transcoder successfully", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
+		mockTc := &mockTranscoder{}
+
+		ctx = WithTranscoder(ctx, mockTc)
+		transcoder := GetTranscoder(ctx)
+
+		require.NotNil(t, transcoder)
+		assert.Equal(t, mockTc, transcoder)
+	})
+
+	t.Run("idempotent when transcoder already set", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
+
+		firstTc := &mockTranscoder{}
+		ctx = WithTranscoder(ctx, firstTc)
+
+		secondTc := &mockTranscoder{}
+		ctx = WithTranscoder(ctx, secondTc)
+
+		transcoder := GetTranscoder(ctx)
+		require.NotNil(t, transcoder)
+		assert.Equal(t, firstTc, transcoder)
+	})
 }

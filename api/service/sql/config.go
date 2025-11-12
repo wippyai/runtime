@@ -1,12 +1,12 @@
 package sql
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/api/types"
 )
 
 // Registry kind constants for different SQL database types
@@ -42,9 +42,9 @@ const (
 type (
 	// PoolConfig defines settings for a database connection pool
 	PoolConfig struct {
-		MaxOpen     int           `json:"max_open"`     // Maximum number of open connections
-		MaxIdle     int           `json:"max_idle"`     // Maximum number of idle connections
-		MaxLifetime time.Duration `json:"max_lifetime"` // Maximum lifetime of a connection
+		MaxOpen     int            `json:"max_open"`     // Maximum number of open connections
+		MaxIdle     int            `json:"max_idle"`     // Maximum number of idle connections
+		MaxLifetime types.Duration `json:"max_lifetime"` // Maximum lifetime of a connection
 	}
 
 	// DBConfig defines the base configuration for SQL databases
@@ -74,43 +74,6 @@ type (
 	}
 )
 
-// UnmarshalJSON provides custom unmarshaling for PoolConfig to handle time.Duration
-func (c *PoolConfig) UnmarshalJSON(data []byte) error {
-	type Alias PoolConfig
-	aux := &struct {
-		MaxLifetime string `json:"max_lifetime"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	if aux.MaxLifetime != "" {
-		duration, err := time.ParseDuration(aux.MaxLifetime)
-		if err != nil {
-			return fmt.Errorf("invalid max_lifetime duration format: %w", err)
-		}
-		c.MaxLifetime = duration
-	}
-
-	return nil
-}
-
-// MarshalJSON provides custom marshaling for PoolConfig to handle time.Duration
-func (c *PoolConfig) MarshalJSON() ([]byte, error) {
-	type Alias PoolConfig
-	return json.Marshal(&struct {
-		MaxLifetime string `json:"max_lifetime"`
-		*Alias
-	}{
-		MaxLifetime: c.MaxLifetime.String(),
-		Alias:       (*Alias)(c),
-	})
-}
-
 // InitDefaults initializes the PoolConfig with default values if not set
 func (c *PoolConfig) InitDefaults() {
 	if c.MaxOpen <= 0 {
@@ -119,13 +82,13 @@ func (c *PoolConfig) InitDefaults() {
 	if c.MaxIdle <= 0 {
 		c.MaxIdle = DefaultMaxIdle
 	}
-	if c.MaxLifetime <= 0 {
-		c.MaxLifetime = DefaultMaxLifetime
+	if c.MaxLifetime == 0 {
+		c.MaxLifetime = types.Duration(DefaultMaxLifetime)
 	}
 }
 
-// InitDefaults initializes the DBConfig with default values if not set
-func (c *DBConfig) InitDefaults() {
+// initDefaults initializes the DBConfig with default values if not set
+func (c *DBConfig) initDefaults() {
 	// Initialize pool configuration
 	c.Pool.InitDefaults()
 
@@ -138,8 +101,8 @@ func (c *DBConfig) InitDefaults() {
 	c.Lifecycle.InitDefaults()
 }
 
-// InitDefaults initializes the SQLiteConfig with default values if not set
-func (c *SQLiteConfig) InitDefaults() {
+// initDefaults initializes the SQLiteConfig with default values if not set
+func (c *SQLiteConfig) initDefaults() {
 	// Initialize pool configuration
 	c.Pool.InitDefaults()
 
@@ -154,6 +117,8 @@ func (c *SQLiteConfig) InitDefaults() {
 
 // Validate checks if the DBConfig has all required fields set to valid values
 func (c *DBConfig) Validate() error {
+	c.initDefaults()
+
 	if c.Host == "" && c.HostEnv == "" {
 		return fmt.Errorf("host is required")
 	}
@@ -191,6 +156,8 @@ func (c *DBConfig) Validate() error {
 
 // Validate checks if the SQLiteConfig has all required fields set to valid values
 func (c *SQLiteConfig) Validate() error {
+	c.initDefaults()
+
 	if c.File == "" {
 		return fmt.Errorf("file is required")
 	}

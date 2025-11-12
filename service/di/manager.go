@@ -11,6 +11,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	apidi "github.com/ponyruntime/pony/api/service/di"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -191,7 +192,7 @@ func (m *Manager) validateUniqueDefaults(binding *contract.Binding, bindingID re
 // --- Contract Definition handlers ---
 
 func (m *Manager) handleDefinitionAdd(ctx context.Context, entry registry.Entry) error {
-	cfg, err := m.decodeDefinition(entry)
+	cfg, err := entryutil.DecodeEntryConfig[apidi.DefinitionConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return fmt.Errorf("failed to decode definition '%s': %w", entry.ID, err)
 	}
@@ -228,7 +229,7 @@ func (m *Manager) handleDefinitionAdd(ctx context.Context, entry registry.Entry)
 }
 
 func (m *Manager) handleDefinitionUpdate(ctx context.Context, entry registry.Entry) error {
-	cfg, err := m.decodeDefinition(entry)
+	cfg, err := entryutil.DecodeEntryConfig[apidi.DefinitionConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return fmt.Errorf("failed to decode definition for update '%s': %w", entry.ID, err)
 	}
@@ -321,7 +322,7 @@ func (m *Manager) handleDefinitionDelete(ctx context.Context, entry registry.Ent
 // --- Contract Binding handlers ---
 
 func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) error {
-	cfg, err := m.decodeBinding(entry)
+	cfg, err := entryutil.DecodeEntryConfig[apidi.BindingConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return fmt.Errorf("failed to decode binding '%s': %w", entry.ID, err)
 	}
@@ -365,7 +366,7 @@ func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) er
 }
 
 func (m *Manager) handleBindingUpdate(ctx context.Context, entry registry.Entry) error {
-	cfg, err := m.decodeBinding(entry)
+	cfg, err := entryutil.DecodeEntryConfig[apidi.BindingConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return fmt.Errorf("failed to decode binding for update '%s': %w", entry.ID, err)
 	}
@@ -425,28 +426,4 @@ func (m *Manager) handleBindingDelete(ctx context.Context, entry registry.Entry)
 
 	m.log.Info("contract binding deleted", zap.String("id", entry.ID.String()))
 	return nil
-}
-
-// --- Helper methods for decoding ---
-
-func (m *Manager) decodeDefinition(entry registry.Entry) (*apidi.DefinitionConfig, error) {
-	if entry.Data == nil {
-		return nil, fmt.Errorf("definition data is required for entry '%s'", entry.ID)
-	}
-	cfg := &apidi.DefinitionConfig{Meta: entry.Meta}
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal definition config for entry '%s': %w", entry.ID, err)
-	}
-	return cfg, nil
-}
-
-func (m *Manager) decodeBinding(entry registry.Entry) (*apidi.BindingConfig, error) {
-	if entry.Data == nil {
-		return nil, fmt.Errorf("binding data is required for entry '%s'", entry.ID)
-	}
-	cfg := &apidi.BindingConfig{Meta: entry.Meta}
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal binding config for entry '%s': %w", entry.ID, err)
-	}
-	return cfg, nil
 }

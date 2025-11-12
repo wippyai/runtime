@@ -13,7 +13,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	services3 "github.com/ponyruntime/pony/api/service/aws/s3"
-	internalconfig "github.com/ponyruntime/pony/internal/config"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -172,7 +172,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 func (m *Manager) set(ctx context.Context, entry registry.Entry) (registry.Metadata, error) {
 	// Decode and initialize configuration
-	cfg, err := internalconfig.DecodeAndInitConfig[services3.Config](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[services3.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}

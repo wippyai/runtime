@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	processapi "github.com/ponyruntime/pony/api/service/supervisor"
-	"github.com/ponyruntime/pony/internal/config"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"github.com/ponyruntime/pony/system/process"
 
 	"github.com/ponyruntime/pony/api/event"
@@ -99,7 +99,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	)
 
 	// Unmarshal config
-	cfg, err := config.DecodeAndInitConfig[processapi.ServiceConfig](ctx, dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[processapi.ServiceConfig](ctx, dtt, entry)
 	if err != nil {
 		m.log.Error("process supervisor add - config decode failed",
 			zap.String("id", entry.ID.String()),
@@ -194,7 +194,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	)
 
 	// Unmarshal new config
-	cfg, err := config.DecodeAndInitConfig[processapi.ServiceConfig](ctx, dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[processapi.ServiceConfig](ctx, dtt, entry)
 	if err != nil {
 		m.log.Error("process supervisor update - config decode failed",
 			zap.String("id", entry.ID.String()),

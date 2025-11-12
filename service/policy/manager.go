@@ -39,7 +39,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Create policy entry using factory
-	policyEntry, err := m.factory.CreatePolicyEntry(entry)
+	policyEntry, err := m.factory.CreatePolicyEntry(ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to create policy entry: %w", err)
 	}
@@ -66,7 +66,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Create updated policy entry using factory
-	policyEntry, err := m.factory.CreatePolicyEntry(entry)
+	policyEntry, err := m.factory.CreatePolicyEntry(ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to create policy entry: %w", err)
 	}

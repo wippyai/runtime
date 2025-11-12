@@ -13,6 +13,7 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -52,15 +53,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg := new(host.EntryConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal cfg: %w", err)
-	}
-
-	cfg.InitDefaults()
-
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid cfg: %w", err)
+	cfg, err := entryutil.DecodeEntryConfig[host.EntryConfig](ctx, m.dtt, entry)
+	if err != nil {
+		return fmt.Errorf("failed to decode cfg: %w", err)
 	}
 
 	m.mu.Lock()

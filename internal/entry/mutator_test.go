@@ -9,23 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Mock transcoder for testing
-type mockTranscoder struct{}
-
-func (m *mockTranscoder) Transcode(p payload.Payload, f payload.Format) (payload.Payload, error) {
-	// For testing, just return Golang format
-	data := p.Data()
-	return payload.NewPayload(data, payload.Golang), nil
-}
-
-func (m *mockTranscoder) Marshal(v interface{}) (payload.Payload, error) {
-	return payload.New(v), nil
-}
-
-func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
-	return nil // Not used in mutator
-}
-
 func TestParsePath(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -76,9 +59,28 @@ func TestParsePath(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "invalid target",
-			path:    "invalid.field",
-			wantErr: true,
+			name:         "bare path treated as data",
+			path:         "root",
+			wantTarget:   "data",
+			wantSegments: []string{"root"},
+		},
+		{
+			name:         "bare path with dot treated as data",
+			path:         ".root",
+			wantTarget:   "data",
+			wantSegments: []string{"root"},
+		},
+		{
+			name:         "nested bare path treated as data",
+			path:         "config.database.host",
+			wantTarget:   "data",
+			wantSegments: []string{"config", "database", "host"},
+		},
+		{
+			name:         "bare nested with leading dot",
+			path:         ".storage.path",
+			wantTarget:   "data",
+			wantSegments: []string{"storage", "path"},
 		},
 		{
 			name:         "data only",
@@ -200,6 +202,47 @@ func TestMutator_Set_Data(t *testing.T) {
 
 		data := entry.Data.Data().(map[string]any)
 		assert.Equal(t, "value", data["field"])
+	})
+
+	t.Run("bare path without prefix", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "entry"},
+			Data: payload.New(map[string]any{}),
+		}
+
+		err := mutator.Set(entry, "root", "value")
+		require.NoError(t, err)
+
+		data := entry.Data.Data().(map[string]any)
+		assert.Equal(t, "value", data["root"])
+	})
+
+	t.Run("bare path with leading dot", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "entry"},
+			Data: payload.New(map[string]any{}),
+		}
+
+		err := mutator.Set(entry, ".storage", "/tmp/data")
+		require.NoError(t, err)
+
+		data := entry.Data.Data().(map[string]any)
+		assert.Equal(t, "/tmp/data", data["storage"])
+	})
+
+	t.Run("nested bare path", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "entry"},
+			Data: payload.New(map[string]any{}),
+		}
+
+		err := mutator.Set(entry, "config.database.host", "localhost")
+		require.NoError(t, err)
+
+		data := entry.Data.Data().(map[string]any)
+		config := data["config"].(map[string]any)
+		database := config["database"].(map[string]any)
+		assert.Equal(t, "localhost", database["host"])
 	})
 }
 
@@ -346,6 +389,36 @@ func TestMutator_Append(t *testing.T) {
 		err := mutator.Append(entry, "data.field", "value")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot append to non-array")
+	})
+
+	t.Run("append to bare path", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "entry"},
+			Data: payload.New(map[string]any{}),
+		}
+
+		err := mutator.Append(entry, "depends_on", "dep1", "dep2")
+		require.NoError(t, err)
+
+		data := entry.Data.Data().(map[string]any)
+		deps := data["depends_on"].([]any)
+		assert.Equal(t, []any{"dep1", "dep2"}, deps)
+	})
+
+	t.Run("append to bare path with leading dot", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID: registry.ID{NS: "test", Name: "entry"},
+			Data: payload.New(map[string]any{
+				"tags": []any{"existing"},
+			}),
+		}
+
+		err := mutator.Append(entry, ".tags", "new1", "new2")
+		require.NoError(t, err)
+
+		data := entry.Data.Data().(map[string]any)
+		tags := data["tags"].([]any)
+		assert.Equal(t, []any{"existing", "new1", "new2"}, tags)
 	})
 }
 

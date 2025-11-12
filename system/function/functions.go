@@ -229,7 +229,37 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (chan *runtim
 
 	// Add task context overrides (actor, scope, custom values, etc.)
 	if len(task.Context) > 0 {
-		pairs = append(pairs, task.Context...)
+		// Special handling for Values: merge with existing instead of replacing
+		var mergedPairs []ctxapi.Pair
+		for _, pair := range task.Context {
+			if key, ok := pair.Key.(*ctxapi.Key); ok && key.Name == "values" {
+				if newVals, ok := pair.Value.(*ctxapi.Values); ok {
+					// Get existing values from frame
+					existingVals := ctxapi.GetValues(ctx)
+					mergedValues := ctxapi.NewValues()
+
+					// Copy existing values first
+					if existingVals != nil {
+						existingVals.Iterate(func(k any, v any) {
+							mergedValues.Set(k, v)
+						})
+					}
+
+					// Overlay new values
+					newVals.Iterate(func(k any, v any) {
+						mergedValues.Set(k, v)
+					})
+
+					// Replace the pair with merged values
+					mergedPairs = append(mergedPairs, ctxapi.ValuesPair(mergedValues))
+				} else {
+					mergedPairs = append(mergedPairs, pair)
+				}
+			} else {
+				mergedPairs = append(mergedPairs, pair)
+			}
+		}
+		pairs = append(pairs, mergedPairs...)
 	}
 
 	if err := fc.SetMultiple(pairs...); err != nil {

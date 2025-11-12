@@ -75,6 +75,7 @@ func (m *Mutator) Delete(entry *registry.Entry, path string) error {
 
 // parsePath parses a path string into target and segments.
 // Supports both "data.field" and ".data.field" formats.
+// If path doesn't start with "data" or "meta", treats it as "data.*"
 func parsePath(path string) (target string, segments []string, err error) {
 	// Trim leading dot if present
 	path = strings.TrimPrefix(path, ".")
@@ -89,14 +90,17 @@ func parsePath(path string) (target string, segments []string, err error) {
 		return "", nil, fmt.Errorf("empty path after split")
 	}
 
-	// First part is target
+	// Check if first part is explicit target
 	target = parts[0]
-	if target != "data" && target != "meta" {
-		return "", nil, fmt.Errorf("invalid target: %s (must be 'data' or 'meta')", target)
+	if target == "data" || target == "meta" {
+		// Explicit target specified
+		segments = parts[1:]
+		return target, segments, nil
 	}
 
-	// Rest are segments
-	segments = parts[1:]
+	// No explicit target, treat entire path as data.*
+	target = "data"
+	segments = parts
 	return target, segments, nil
 }
 

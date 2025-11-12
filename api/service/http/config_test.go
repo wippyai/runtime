@@ -7,6 +7,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,9 +22,9 @@ func TestTimeoutConfig_MarshalJSON(t *testing.T) {
 		{
 			name: "basic timeouts",
 			config: TimeoutConfig{
-				ReadTimeout:  30 * time.Second,
-				WriteTimeout: 45 * time.Second,
-				IdleTimeout:  60 * time.Second,
+				ReadTimeout:  types.Duration(30 * time.Second),
+				WriteTimeout: types.Duration(45 * time.Second),
+				IdleTimeout:  types.Duration(60 * time.Second),
 			},
 			expected: `{"read":"30s","write":"45s","idle":"1m0s"}`,
 			wantErr:  false,
@@ -37,9 +38,9 @@ func TestTimeoutConfig_MarshalJSON(t *testing.T) {
 		{
 			name: "complex durations",
 			config: TimeoutConfig{
-				ReadTimeout:  1*time.Hour + 30*time.Minute,
-				WriteTimeout: 2*time.Hour + 15*time.Minute,
-				IdleTimeout:  45*time.Minute + 30*time.Second,
+				ReadTimeout:  types.Duration(1*time.Hour + 30*time.Minute),
+				WriteTimeout: types.Duration(2*time.Hour + 15*time.Minute),
+				IdleTimeout:  types.Duration(45*time.Minute + 30*time.Second),
 			},
 			expected: `{"read":"1h30m0s","write":"2h15m0s","idle":"45m30s"}`,
 			wantErr:  false,
@@ -80,9 +81,9 @@ func TestTimeoutConfig_UnmarshalJSON(t *testing.T) {
 				"idle": "1m"
 			}`,
 			expected: TimeoutConfig{
-				ReadTimeout:  30 * time.Second,
-				WriteTimeout: 45 * time.Second,
-				IdleTimeout:  60 * time.Second,
+				ReadTimeout:  types.Duration(30 * time.Second),
+				WriteTimeout: types.Duration(45 * time.Second),
+				IdleTimeout:  types.Duration(60 * time.Second),
 			},
 			wantErr: false,
 		},
@@ -146,17 +147,17 @@ func TestServerConfig_MarshalUnmarshal(t *testing.T) {
 			config: ServerConfig{
 				Addr: ":8080",
 				Timeouts: TimeoutConfig{
-					ReadTimeout:  30 * time.Second,
-					WriteTimeout: 45 * time.Second,
-					IdleTimeout:  60 * time.Second,
+					ReadTimeout:  types.Duration(30 * time.Second),
+					WriteTimeout: types.Duration(45 * time.Second),
+					IdleTimeout:  types.Duration(60 * time.Second),
 				},
 				Lifecycle: supervisor.LifecycleConfig{
 					AutoStart:    true,
-					StartTimeout: 30 * time.Second,
-					StopTimeout:  60 * time.Second,
+					StartTimeout: types.Duration(30 * time.Second),
+					StopTimeout:  types.Duration(60 * time.Second),
 					RetryPolicy: supervisor.RetryPolicy{
-						InitialDelay:  1 * time.Second,
-						MaxDelay:      30 * time.Second,
+						InitialDelay:  types.Duration(1 * time.Second),
+						MaxDelay:      types.Duration(30 * time.Second),
 						BackoffFactor: 2.0,
 						Jitter:        0.1,
 						MaxAttempts:   5,
@@ -204,9 +205,9 @@ func TestServerConfig_Validate(t *testing.T) {
 			config: ServerConfig{
 				Addr: ":8080",
 				Timeouts: TimeoutConfig{
-					ReadTimeout:  30 * time.Second,
-					WriteTimeout: 45 * time.Second,
-					IdleTimeout:  60 * time.Second,
+					ReadTimeout:  types.Duration(30 * time.Second),
+					WriteTimeout: types.Duration(45 * time.Second),
+					IdleTimeout:  types.Duration(60 * time.Second),
 				},
 			},
 			wantErr: false,
@@ -430,8 +431,8 @@ func TestServerConfig_Validate_Lifecycle(t *testing.T) {
 			config: ServerConfig{
 				Addr: ":8080",
 				Lifecycle: supervisor.LifecycleConfig{
-					StartTimeout: 30 * time.Second,
-					StopTimeout:  60 * time.Second,
+					StartTimeout: types.Duration(30 * time.Second),
+					StopTimeout:  types.Duration(60 * time.Second),
 				},
 			},
 			wantErr: false,
@@ -452,8 +453,8 @@ func TestServerConfig_Validate_Lifecycle(t *testing.T) {
 			config: ServerConfig{
 				Addr: ":8080",
 				Lifecycle: supervisor.LifecycleConfig{
-					StartTimeout: -1 * time.Second,
-					StopTimeout:  30 * time.Second,
+					StartTimeout: types.Duration(-1 * time.Second),
+					StopTimeout:  types.Duration(30 * time.Second),
 				},
 			},
 			wantErr: true,
@@ -463,8 +464,8 @@ func TestServerConfig_Validate_Lifecycle(t *testing.T) {
 			config: ServerConfig{
 				Addr: ":8080",
 				Lifecycle: supervisor.LifecycleConfig{
-					StartTimeout: 30 * time.Second,
-					StopTimeout:  -1 * time.Second,
+					StartTimeout: types.Duration(30 * time.Second),
+					StopTimeout:  types.Duration(-1 * time.Second),
 				},
 			},
 			wantErr: true,
@@ -559,4 +560,150 @@ func TestServerConfig_UnmarshalJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServerConfig_SetMeta(t *testing.T) {
+	t.Run("sets meta when nil", func(t *testing.T) {
+		config := &ServerConfig{}
+		meta := registry.Metadata{"key": "value"}
+		config.SetMeta(meta)
+		assert.Equal(t, meta, config.Meta)
+	})
+
+	t.Run("does not override existing meta", func(t *testing.T) {
+		existingMeta := registry.Metadata{"existing": "value"}
+		config := &ServerConfig{Meta: existingMeta}
+		newMeta := registry.Metadata{"new": "value"}
+		config.SetMeta(newMeta)
+		assert.Equal(t, existingMeta, config.Meta)
+	})
+}
+
+func TestRouterConfig_SetMeta(t *testing.T) {
+	t.Run("sets meta when nil", func(t *testing.T) {
+		config := &RouterConfig{}
+		meta := registry.Metadata{"key": "value"}
+		config.SetMeta(meta)
+		assert.Equal(t, meta, config.Meta)
+	})
+
+	t.Run("does not override existing meta", func(t *testing.T) {
+		existingMeta := registry.Metadata{"existing": "value"}
+		config := &RouterConfig{Meta: existingMeta}
+		newMeta := registry.Metadata{"new": "value"}
+		config.SetMeta(newMeta)
+		assert.Equal(t, existingMeta, config.Meta)
+	})
+}
+
+func TestEndpointConfig_SetMeta(t *testing.T) {
+	t.Run("sets meta when nil", func(t *testing.T) {
+		config := &EndpointConfig{}
+		meta := registry.Metadata{"key": "value"}
+		config.SetMeta(meta)
+		assert.Equal(t, meta, config.Meta)
+	})
+
+	t.Run("does not override existing meta", func(t *testing.T) {
+		existingMeta := registry.Metadata{"existing": "value"}
+		config := &EndpointConfig{Meta: existingMeta}
+		newMeta := registry.Metadata{"new": "value"}
+		config.SetMeta(newMeta)
+		assert.Equal(t, existingMeta, config.Meta)
+	})
+}
+
+func TestStaticConfig_SetMeta(t *testing.T) {
+	t.Run("sets meta when nil", func(t *testing.T) {
+		config := &StaticConfig{}
+		meta := registry.Metadata{"key": "value"}
+		config.SetMeta(meta)
+		assert.Equal(t, meta, config.Meta)
+	})
+
+	t.Run("does not override existing meta", func(t *testing.T) {
+		existingMeta := registry.Metadata{"existing": "value"}
+		config := &StaticConfig{Meta: existingMeta}
+		newMeta := registry.Metadata{"new": "value"}
+		config.SetMeta(newMeta)
+		assert.Equal(t, existingMeta, config.Meta)
+	})
+}
+
+func TestStaticConfig_Validate(t *testing.T) {
+	t.Run("valid config", func(t *testing.T) {
+		config := &StaticConfig{
+			Path: "/static",
+			Meta: registry.Metadata{
+				ServerID: "server1",
+			},
+		}
+		err := config.Validate()
+		assert.NoError(t, err)
+	})
+
+	t.Run("empty path", func(t *testing.T) {
+		config := &StaticConfig{
+			Path: "",
+			Meta: registry.Metadata{ServerID: "server1"},
+		}
+		err := config.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path cannot be empty")
+	})
+
+	t.Run("path without leading slash", func(t *testing.T) {
+		config := &StaticConfig{
+			Path: "static",
+			Meta: registry.Metadata{ServerID: "server1"},
+		}
+		err := config.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must start with /")
+	})
+
+	t.Run("nil metadata", func(t *testing.T) {
+		config := &StaticConfig{
+			Path: "/static",
+			Meta: nil,
+		}
+		err := config.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "metadata cannot be nil")
+	})
+
+	t.Run("missing server in metadata", func(t *testing.T) {
+		config := &StaticConfig{
+			Path: "/static",
+			Meta: registry.Metadata{},
+		}
+		err := config.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "server in metadata cannot be empty")
+	})
+}
+
+func TestRequestContext_Pooling(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+
+	t.Run("SetRequest", func(t *testing.T) {
+		reqCtx := &RequestContext{}
+		reqCtx.SetRequest(req)
+		assert.Equal(t, req, reqCtx.Request())
+	})
+
+	t.Run("SetResponseWriter", func(t *testing.T) {
+		reqCtx := &RequestContext{}
+		reqCtx.SetResponseWriter(w)
+		assert.Equal(t, w, reqCtx.ResponseWriter())
+	})
+
+	t.Run("ResetHandled", func(t *testing.T) {
+		reqCtx := &RequestContext{}
+		reqCtx.MarkHandled()
+		assert.True(t, reqCtx.ResponseHandled())
+		reqCtx.ResetHandled()
+		assert.False(t, reqCtx.ResponseHandled())
+	})
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	envsvc "github.com/ponyruntime/pony/api/service/env"
 	"github.com/ponyruntime/pony/api/supervisor"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -51,16 +52,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) handleMemoryStorageAdd(ctx context.Context, entry registry.Entry) error {
-	var cfg envsvc.MemoryStorageConfig
-	if err := m.dtt.Unmarshal(entry.Data, &cfg); err != nil {
+	cfg, err := entryutil.DecodeEntryConfig[envsvc.MemoryStorageConfig](ctx, m.dtt, entry)
+	if err != nil {
 		return fmt.Errorf("failed to decode memory storage config: %w", err)
 	}
 
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid memory storage config: %w", err)
-	}
-
-	storage, err := m.factory.CreateMemoryEnvStorage(&cfg, m.logger)
+	storage, err := m.factory.CreateMemoryEnvStorage(cfg, m.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create memory storage: %w", err)
 	}
@@ -73,16 +70,12 @@ func (m *Manager) handleMemoryStorageAdd(ctx context.Context, entry registry.Ent
 }
 
 func (m *Manager) handleFileStorageAdd(ctx context.Context, entry registry.Entry) error {
-	var cfg envsvc.FileStorageConfig
-	if err := m.dtt.Unmarshal(entry.Data, &cfg); err != nil {
+	cfg, err := entryutil.DecodeEntryConfig[envsvc.FileStorageConfig](ctx, m.dtt, entry)
+	if err != nil {
 		return fmt.Errorf("failed to decode file storage config: %w", err)
 	}
 
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid file storage config: %w", err)
-	}
-
-	storage, err := m.factory.CreateFileEnvStorage(&cfg, m.logger)
+	storage, err := m.factory.CreateFileEnvStorage(cfg, m.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create file storage: %w", err)
 	}
@@ -95,16 +88,12 @@ func (m *Manager) handleFileStorageAdd(ctx context.Context, entry registry.Entry
 }
 
 func (m *Manager) handleOSStorageAdd(ctx context.Context, entry registry.Entry) error {
-	var cfg envsvc.OSStorageConfig
-	if err := m.dtt.Unmarshal(entry.Data, &cfg); err != nil {
+	cfg, err := entryutil.DecodeEntryConfig[envsvc.OSStorageConfig](ctx, m.dtt, entry)
+	if err != nil {
 		return fmt.Errorf("failed to decode OS storage config: %w", err)
 	}
 
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid OS storage config: %w", err)
-	}
-
-	storage, err := m.factory.CreateOSEnvStorage(&cfg, m.logger)
+	storage, err := m.factory.CreateOSEnvStorage(cfg, m.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create OS storage: %w", err)
 	}
@@ -117,13 +106,9 @@ func (m *Manager) handleOSStorageAdd(ctx context.Context, entry registry.Entry) 
 }
 
 func (m *Manager) handleRouterStorageAdd(ctx context.Context, entry registry.Entry) error {
-	var cfg envsvc.RouterStorageConfig
-	if err := m.dtt.Unmarshal(entry.Data, &cfg); err != nil {
+	cfg, err := entryutil.DecodeEntryConfig[envsvc.RouterStorageConfig](ctx, m.dtt, entry)
+	if err != nil {
 		return fmt.Errorf("failed to decode router storage config: %w", err)
-	}
-
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid router storage config: %w", err)
 	}
 
 	m.mu.RLock()
@@ -133,7 +118,7 @@ func (m *Manager) handleRouterStorageAdd(ctx context.Context, entry registry.Ent
 	}
 	m.mu.RUnlock()
 
-	storage, err := m.factory.CreateRouterEnvStorage(&cfg, storagesCopy, m.logger)
+	storage, err := m.factory.CreateRouterEnvStorage(cfg, storagesCopy, m.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create router storage: %w", err)
 	}
@@ -146,14 +131,9 @@ func (m *Manager) handleRouterStorageAdd(ctx context.Context, entry registry.Ent
 }
 
 func (m *Manager) handleVariableAdd(ctx context.Context, entry registry.Entry) error {
-	var variable env.Variable
-	if err := m.dtt.Unmarshal(entry.Data, &variable); err != nil {
+	variable, err := entryutil.DecodeEntryConfig[env.Variable](ctx, m.dtt, entry)
+	if err != nil {
 		return fmt.Errorf("failed to decode variable: %w", err)
-	}
-	variable.ID = entry.ID
-
-	if err := variable.Validate(); err != nil {
-		return fmt.Errorf("invalid variable: %w", err)
 	}
 
 	m.mu.RLock()
@@ -168,7 +148,7 @@ func (m *Manager) handleVariableAdd(ctx context.Context, entry registry.Entry) e
 		System: env.System,
 		Kind:   env.VariableRegister,
 		Path:   entry.ID.String(),
-		Data:   variable,
+		Data:   *variable,
 	})
 
 	return nil
@@ -179,14 +159,9 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	case envsvc.KindStorageMemory, envsvc.KindStorageFile, envsvc.KindStorageOS, envsvc.KindStorageRouter:
 		return m.Add(ctx, entry)
 	case envsvc.KindVariable:
-		var variable env.Variable
-		if err := m.dtt.Unmarshal(entry.Data, &variable); err != nil {
+		variable, err := entryutil.DecodeEntryConfig[env.Variable](ctx, m.dtt, entry)
+		if err != nil {
 			return fmt.Errorf("failed to decode variable: %w", err)
-		}
-		variable.ID = entry.ID
-
-		if err := variable.Validate(); err != nil {
-			return fmt.Errorf("invalid variable: %w", err)
 		}
 
 		m.mu.RLock()
@@ -201,7 +176,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 			System: env.System,
 			Kind:   env.VariableUpdate,
 			Path:   entry.ID.String(),
-			Data:   variable,
+			Data:   *variable,
 		})
 
 		m.logger.Info("updated environment variable",

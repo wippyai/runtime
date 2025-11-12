@@ -5,8 +5,8 @@ import (
 
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/system/registry/loader"
-	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
+	"github.com/ponyruntime/pony/boot/loader"
+	"github.com/ponyruntime/pony/boot/loader/interpolate"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

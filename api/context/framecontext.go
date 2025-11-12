@@ -12,6 +12,12 @@ type Pair struct {
 	Value any
 }
 
+// Cloner is implemented by types that can create a copy of themselves.
+// Used during frame inheritance to prevent shared mutable state.
+type Cloner interface {
+	Clone() any
+}
+
 // FrameContext stores execution-level key-value pairs.
 // Keys can be any comparable type (*Key, string, etc.).
 // Values are mutable until the frame is sealed.
@@ -83,7 +89,13 @@ func OpenFrameContext(ctx context.Context) (context.Context, FrameContext) {
 			fc.Iterate(func(key any, value any) {
 				// Check if key is a *Key with Inherit=true
 				if ctxKey, ok := key.(*Key); ok && ctxKey.Inherit {
-					_ = newFC.Set(key, value)
+					// Clone value if it implements Cloner to prevent shared mutable state
+					if cloner, ok := value.(Cloner); ok {
+						cloned := cloner.Clone()
+						_ = newFC.Set(key, cloned)
+					} else {
+						_ = newFC.Set(key, value)
+					}
 				}
 			})
 		}

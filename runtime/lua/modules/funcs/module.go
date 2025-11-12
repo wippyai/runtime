@@ -8,6 +8,7 @@ import (
 
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
+	logapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -20,6 +21,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/security"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
 // Module represents the function module
@@ -115,7 +117,7 @@ func (m *Module) new(l *lua.LState) int {
 
 	values := contextapi.GetValues(l.Context())
 	if values != nil {
-		values = values.Clone()
+		values = values.Clone().(*contextapi.Values)
 	} else {
 		values = contextapi.NewValues()
 	}
@@ -223,7 +225,7 @@ func (m *Module) withActor(l *lua.LState) int {
 	newFunctions := &Functions{
 		funcs:    functions.funcs,
 		dtt:      functions.dtt,
-		values:   functions.values.Clone(), // Clone the values
+		values:   functions.values.Clone().(*contextapi.Values), // Clone the values
 		actor:    actor,
 		hasActor: true,
 		scope:    functions.scope,
@@ -272,7 +274,7 @@ func (m *Module) withScope(l *lua.LState) int {
 	newFunctions := &Functions{
 		funcs:    functions.funcs,
 		dtt:      functions.dtt,
-		values:   functions.values.Clone(), // Clone the values
+		values:   functions.values.Clone().(*contextapi.Values), // Clone the values
 		actor:    functions.actor,
 		hasActor: functions.hasActor,
 		scope:    scope,
@@ -344,7 +346,8 @@ func (m *Module) call(l *lua.LState) int {
 	}
 
 	// Create task with proper context
-	t, err := functions.createTask(l)
+	log := logapi.GetLogger(l.Context()).Named("funcs")
+	t, err := functions.createTask(l, log)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -418,7 +421,8 @@ func (m *Module) async(l *lua.LState) int {
 	}
 
 	// Create task with proper validation
-	runtimeTask, err := functions.createTask(l)
+	log := logapi.GetLogger(l.Context()).Named("funcs")
+	runtimeTask, err := functions.createTask(l, log)
 	if err != nil {
 		l.RaiseError("failed to create task: %v", err)
 		return 0
@@ -469,7 +473,7 @@ func (m *Module) async(l *lua.LState) int {
 }
 
 // createTask creates a runtime.Task from Lua parameters
-func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
+func (f *Functions) createTask(l *lua.LState, log *zap.Logger) (runtime.Task, error) {
 	targetIndex := 1
 	if l.Get(1).Type() == lua.LTUserData {
 		targetIndex = 2 // Skip self parameter
