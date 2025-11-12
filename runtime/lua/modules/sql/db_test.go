@@ -1,9 +1,11 @@
 package sql
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
+	"github.com/ponyruntime/pony/api/resource"
 	sqlapi "github.com/ponyruntime/pony/api/service/sql"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -126,7 +128,20 @@ func TestDBExecute(t *testing.T) {
 
 	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
+
+	// Preserve resources from context before closing UOW
+	// runner.Execute creates its own UOW, so we need to close the initial one
+	// but preserve resources in a new context
+	mockRegistry := resource.GetResources(ctx)
+	require.NotNil(t, mockRegistry, "Resource registry should be in context")
+
+	// Close the initial UOW before Execute - runner.Execute creates its own UOW
+	// This prevents deadlock as coroutines would use the wrong UOW
+	err = uw.Close()
+	require.NoError(t, err)
+
+	// Create a new context with resources but without UOW
+	execCtx := resource.WithResources(context.Background(), mockRegistry)
 
 	err = vm.Import(`
 		function test_db_execute()
@@ -142,7 +157,7 @@ func TestDBExecute(t *testing.T) {
 	`, "test", "test_db_execute")
 	require.NoError(t, err)
 
-	result, err := runner.Execute(ctx, "test_db_execute")
+	result, err := runner.Execute(execCtx, "test_db_execute")
 	require.NoError(t, err)
 	assert.Equal(t, lua.LString("new"), result)
 }

@@ -453,8 +453,8 @@ func TestExecutor_Stderr(t *testing.T) {
 		// On Windows, we need to use CMD to redirect to stderr
 		command = "cmd /c echo error message 1>&2"
 	} else {
-		// On Unix systems - use a more reliable approach
-		command = "bash -c 'echo error message >&2'"
+		// On Unix systems - use sh instead of bash for better compatibility
+		command = "sh -c 'echo error message >&2'"
 	}
 
 	// Create the process
@@ -462,16 +462,15 @@ func TestExecutor_Stderr(t *testing.T) {
 	process, err := nativeExecutor.NewProcess(command, exec.ProcessOptions{})
 	assert.NoError(t, err)
 
-	err = process.Start()
-	assert.NoError(t, err)
-
-	// Start reading immediately in a goroutine
+	// Start reading BEFORE starting the process to avoid race conditions
 	sb := new(strings.Builder)
 	readDone := make(chan struct{})
 	processDone := make(chan struct{})
+	readStarted := make(chan struct{})
 
 	go func() {
 		defer close(readDone)
+		close(readStarted)
 		timeout := time.After(3 * time.Second)
 
 		for {
@@ -495,6 +494,13 @@ func TestExecutor_Stderr(t *testing.T) {
 			}
 		}
 	}()
+
+	// Wait for reading goroutine to start
+	<-readStarted
+
+	// Now start the process
+	err = process.Start()
+	assert.NoError(t, err)
 
 	// Wait for the process to complete in a separate goroutine
 	go func() {

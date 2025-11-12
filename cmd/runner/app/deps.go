@@ -72,15 +72,27 @@ func (dm *DependencyManager) InstallDependenciesFromLockFile(ctx context.Context
 
 // UpdateDependencies updates dependencies and regenerates lock file
 func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
-	var srcDir string
+	var srcDir, modulesDir string
+	var excludeDirs []string
+
 	existingLockPath := filepath.Join(dm.folderPath, dm.lockFile)
-	if existingLock, err := deps.LoadLockFile(existingLockPath); err == nil {
+	var existingLock *deps.LockFile
+	if lock, err := deps.LoadLockFile(existingLockPath); err == nil {
+		existingLock = lock
 		srcDir = existingLock.Directories.Src
+		modulesDir = existingLock.Directories.Modules
 	} else {
 		srcDir = "."
+		modulesDir = deps.WippyFolder
 	}
 
-	entries, err := dm.loadRegistryEntries(ctx, srcDir)
+	// Prepare list of directories to exclude from source scanning
+	excludeDirs = dm.prepareExcludeDirs(srcDir, modulesDir, existingLock, existingLockPath)
+	if len(excludeDirs) > 0 {
+		dm.logger.Debug("Excluding directories from source scanning", zap.Strings("directories", excludeDirs))
+	}
+
+	entries, err := dm.loadRegistryEntries(ctx, srcDir, excludeDirs)
 	if err != nil {
 		return fmt.Errorf("load registry entries: %w", err)
 	}
@@ -116,13 +128,6 @@ func (dm *DependencyManager) UpdateDependencies(ctx context.Context) error {
 	loadResult, err := registryLoader.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load dependencies: %w", err)
-	}
-
-	var modulesDir string
-	if existingLock, err := deps.LoadLockFile(existingLockPath); err == nil {
-		modulesDir = existingLock.Directories.Modules
-	} else {
-		modulesDir = ".wippy"
 	}
 
 	lockFile := deps.ConvertToLockFile(loadResult, modulesDir, srcDir)
@@ -175,7 +180,7 @@ func (dm *DependencyManager) CleanUnusedPackages(lockFile *deps.LockFile) error 
 	return nil
 }
 
-func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir string) ([]regapi.Entry, error) {
+func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir string, excludeDirs []string) ([]regapi.Entry, error) {
 	dtt := transcoder.GlobalTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
@@ -186,7 +191,12 @@ func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir str
 	))
 
 	srcPath := filepath.Join(dm.folderPath, srcDir)
-	fsys := os.DirFS(srcPath)
+	var fsys = os.DirFS(srcPath)
+
+	// Apply filtering if we have directories to exclude
+	if len(excludeDirs) > 0 {
+		fsys = newFilteredFS(fsys, excludeDirs)
+	}
 
 	entries, err := folderLoader.LoadFS(ctx, fsys)
 	if err != nil {
@@ -194,6 +204,36 @@ func (dm *DependencyManager) loadRegistryEntries(ctx context.Context, srcDir str
 	}
 
 	return entries, nil
+}
+
+func (dm *DependencyManager) prepareExcludeDirs(srcDir, modulesDir string, lockFile *deps.LockFile, lockPath string) []string {
+	if srcDir == "" {
+		srcDir = "."
+	}
+
+	absSrcPath := filepath.Join(dm.folderPath, srcDir)
+	var excludeDirs []string
+
+	// Add modules directory
+	if modulesDir != "" {
+		absModulesPath := filepath.Join(dm.folderPath, modulesDir)
+		if relPath, err := filepath.Rel(absSrcPath, absModulesPath); err == nil && !strings.HasPrefix(relPath, "..") {
+			excludeDirs = append(excludeDirs, relPath)
+		}
+	}
+
+	// Add replacements directories
+	if lockFile != nil && len(lockFile.Replacements) > 0 {
+		lockFileDir := filepath.Dir(lockPath)
+		for _, replacement := range lockFile.Replacements {
+			absPath := filepath.Join(lockFileDir, replacement.To)
+			if relPath, err := filepath.Rel(absSrcPath, absPath); err == nil && !strings.HasPrefix(relPath, "..") {
+				excludeDirs = append(excludeDirs, relPath)
+			}
+		}
+	}
+
+	return excludeDirs
 }
 
 // createModuleLoaderManagerWithTempDirAndReplacements creates a module loader manager

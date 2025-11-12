@@ -89,6 +89,90 @@ type appConfig struct {
 	clusterAdvertise  string
 
 	runtimeConfig *runtimeconfig.Config
+
+	// Directories to exclude from source scanning
+	excludeDirs []string
+}
+
+// filteredFS wraps an fs.FS and filters out multiple directories.
+// It pre-cleans all exclude paths for efficient comparison.
+type filteredFS struct {
+	fs                 iofs.FS
+	excludeDirs        []string
+	cleanedExcludeDirs []string // Pre-cleaned paths for performance
+}
+
+// Open implements fs.FS
+func (f *filteredFS) Open(name string) (iofs.File, error) {
+	if f.shouldExclude(name) {
+		return nil, iofs.ErrNotExist
+	}
+	return f.fs.Open(name)
+}
+
+// ReadDir implements fs.ReadDirFS
+func (f *filteredFS) ReadDir(name string) ([]iofs.DirEntry, error) {
+	if f.shouldExclude(name) {
+		return nil, iofs.ErrNotExist
+	}
+
+	entries, err := iofs.ReadDir(f.fs, name)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter out the excluded directories from the results
+	filtered := make([]iofs.DirEntry, 0, len(entries))
+	for _, entry := range entries {
+		entryPath := filepath.Join(name, entry.Name())
+		if !f.shouldExclude(entryPath) {
+			filtered = append(filtered, entry)
+		}
+	}
+
+	return filtered, nil
+}
+
+// newFilteredFS creates a new filteredFS with pre-cleaned exclude paths for performance.
+func newFilteredFS(fs iofs.FS, excludeDirs []string) *filteredFS {
+	cleanedDirs := make([]string, 0, len(excludeDirs))
+	for _, dir := range excludeDirs {
+		if dir != "" {
+			cleanedDirs = append(cleanedDirs, filepath.Clean(dir))
+		}
+	}
+	return &filteredFS{
+		fs:                 fs,
+		excludeDirs:        excludeDirs,
+		cleanedExcludeDirs: cleanedDirs,
+	}
+}
+
+// shouldExclude checks if a path should be excluded.
+// It uses pre-cleaned paths for efficient O(n) comparison where n is the number of exclude directories.
+func (f *filteredFS) shouldExclude(name string) bool {
+	if len(f.cleanedExcludeDirs) == 0 {
+		return false
+	}
+
+	// Clean the path once for comparison
+	cleanName := filepath.Clean(name)
+
+	// Check against each pre-cleaned excluded directory
+	for _, cleanExclude := range f.cleanedExcludeDirs {
+		// Check if the path is exactly the exclude directory
+		if cleanName == cleanExclude {
+			return true
+		}
+
+		// Check if the path is inside the exclude directory
+		rel, err := filepath.Rel(cleanExclude, cleanName)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return true
+		}
+	}
+
+	return false
 }
 
 type Option func(*appConfig)
@@ -133,6 +217,12 @@ func WithProfiling(enabled bool) Option {
 func WithRuntimeConfig(cfg *runtimeconfig.Config) Option {
 	return func(c *appConfig) {
 		c.runtimeConfig = cfg
+	}
+}
+
+func WithExcludeDirs(excludeDirs []string) Option {
+	return func(c *appConfig) {
+		c.excludeDirs = excludeDirs
 	}
 }
 
@@ -522,6 +612,11 @@ func (a *App) Start() error {
 			return fmt.Errorf("open folder %s: %w", a.config.folderPath, err)
 		}
 		fSys = osRoot.FS()
+	}
+
+	// Apply filtering if we have directories to exclude
+	if len(a.config.excludeDirs) > 0 {
+		fSys = newFilteredFS(fSys, a.config.excludeDirs)
 	}
 
 	bootCtx, cancel := context.WithTimeout(appCtx, 300*time.Second)

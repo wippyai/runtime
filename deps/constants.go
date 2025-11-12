@@ -17,6 +17,8 @@ const (
 	// Default directories
 	DefaultModulesDir = ".wippy"
 	DefaultSrcDir     = "."
+	WippyFolder       = ".wippy"
+	VendorFolder      = ".wippy/vendor"
 	TempUpdateDir     = ".wippy-update.tmp"
 	TempVendorFolder  = ".wippy-update.tmp/vendor"
 
