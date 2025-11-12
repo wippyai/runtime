@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/ponyruntime/pony/api/boot"
-	contextapi "github.com/ponyruntime/pony/api/context"
 	logapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/boot/loader"
@@ -30,27 +29,9 @@ func Loader() boot.Component {
 
 			ldr := loader.NewLoader(dtt, logger.Named("loader"), interpolator)
 
-			ac := contextapi.AppFromContext(ctx)
-			if ac != nil {
-				ac.With(loaderKey{}, ldr)
-			}
+			boot.WithLoader(ctx, ldr)
 
 			return ctx, nil
 		},
 	})
-}
-
-// loaderKey is the context key for the loader component.
-type loaderKey struct{}
-
-// GetLoader retrieves the loader from context.
-func GetLoader(ctx context.Context) *loader.Loader {
-	ac := contextapi.AppFromContext(ctx)
-	if ac == nil {
-		return nil
-	}
-	if ldr, ok := ac.Get(loaderKey{}).(*loader.Loader); ok {
-		return ldr
-	}
-	return nil
 }

@@ -114,7 +114,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	// We can't update running store configuration, so we need to recreate it
 	// First stop the current store
-	stopCtx, cancel := context.WithTimeout(ctx, cfg.Lifecycle.StopTimeout.D())
+	stopCtx, cancel := context.WithTimeout(ctx, cfg.Lifecycle.StopTimeout)
 	defer cancel()
 
 	if err := store.Stop(stopCtx); err != nil {
@@ -165,7 +165,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	cfg := store.config
 
 	// Stop the store (but don't wait for it to complete)
-	stopCtx, cancel := context.WithTimeout(ctx, cfg.Lifecycle.StopTimeout.D())
+	stopCtx, cancel := context.WithTimeout(ctx, cfg.Lifecycle.StopTimeout)
 	defer cancel()
 
 	if err := store.Stop(stopCtx); err != nil {

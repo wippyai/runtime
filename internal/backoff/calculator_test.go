@@ -104,8 +104,8 @@ func TestBackoffCalculator_Jitter(t *testing.T) {
 		interval := calc.NextInterval()
 
 		// Calculate expected range
-		minInterval := time.Duration(float64(policy.InitialDelay) * (1 - policy.Jitter))
-		maxInterval := time.Duration(float64(policy.InitialDelay) * (1 + policy.Jitter))
+		minInterval := float64(policy.InitialDelay * (1 - policy.Jitter))
+		maxInterval := float64(policy.InitialDelay * (1 + policy.Jitter))
 
 		if interval < minInterval || interval > maxInterval {
 			t.Errorf("Interval %v outside expected range [%v, %v]", interval, minInterval, maxInterval)

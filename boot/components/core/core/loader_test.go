@@ -43,7 +43,7 @@ func TestLoader(t *testing.T) {
 	}
 
 	// Verify loader is in context
-	ldr := GetLoader(ctx)
+	ldr := boot.GetLoader(ctx)
 	if ldr == nil {
 		t.Fatal("loader not found in context")
 	}
@@ -51,7 +51,7 @@ func TestLoader(t *testing.T) {
 
 func TestGetLoader_NoContext(t *testing.T) {
 	ctx := context.Background()
-	ldr := GetLoader(ctx)
+	ldr := boot.GetLoader(ctx)
 	if ldr != nil {
 		t.Error("expected nil loader with no AppContext")
 	}
@@ -62,7 +62,7 @@ func TestGetLoader_NoLoader(t *testing.T) {
 	appCtx := contextapi.NewAppContext()
 	ctx = contextapi.WithAppContext(ctx, appCtx)
 
-	ldr := GetLoader(ctx)
+	ldr := boot.GetLoader(ctx)
 	if ldr != nil {
 		t.Error("expected nil loader when not set")
 	}
