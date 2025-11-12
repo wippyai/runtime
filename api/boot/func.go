@@ -2,16 +2,16 @@ package boot
 
 import "context"
 
-// LoadFunc is the function signature for plugin Load.
+// LoadFunc is the function signature for component Load.
 type LoadFunc func(context.Context) (context.Context, error)
 
-// StartFunc is the function signature for plugin Start.
+// StartFunc is the function signature for component Start.
 type StartFunc func(context.Context) error
 
-// StopFunc is the function signature for plugin Stop.
+// StopFunc is the function signature for component Stop.
 type StopFunc func(context.Context) error
 
-// P defines a functional plugin using callbacks.
+// P defines a functional component using callbacks.
 type P struct {
 	Name      string
 	Phase     Phase
@@ -21,8 +21,8 @@ type P struct {
 	Stop      StopFunc
 }
 
-// funcPlugin implements Plugin using function callbacks.
-type funcPlugin struct {
+// funcComponent implements Component using function callbacks.
+type funcComponent struct {
 	name      string
 	phase     Phase
 	deps      []string
@@ -31,34 +31,34 @@ type funcPlugin struct {
 	stopFunc  StopFunc
 }
 
-func (p *funcPlugin) Name() string        { return p.name }
-func (p *funcPlugin) Phase() Phase        { return p.phase }
-func (p *funcPlugin) DependsOn() []string { return p.deps }
+func (p *funcComponent) Name() string        { return p.name }
+func (p *funcComponent) Phase() Phase        { return p.phase }
+func (p *funcComponent) DependsOn() []string { return p.deps }
 
-func (p *funcPlugin) Load(ctx context.Context) (context.Context, error) {
+func (p *funcComponent) Load(ctx context.Context) (context.Context, error) {
 	if p.loadFunc == nil {
 		return ctx, nil
 	}
 	return p.loadFunc(ctx)
 }
 
-func (p *funcPlugin) Start(ctx context.Context) error {
+func (p *funcComponent) Start(ctx context.Context) error {
 	if p.startFunc == nil {
 		return nil
 	}
 	return p.startFunc(ctx)
 }
 
-func (p *funcPlugin) Stop(ctx context.Context) error {
+func (p *funcComponent) Stop(ctx context.Context) error {
 	if p.stopFunc == nil {
 		return nil
 	}
 	return p.stopFunc(ctx)
 }
 
-// New creates a functional plugin.
-func New(p P) Plugin {
-	return &funcPlugin{
+// New creates a functional component.
+func New(p P) Component {
+	return &funcComponent{
 		name:      p.Name,
 		phase:     p.Phase,
 		deps:      p.DependsOn,

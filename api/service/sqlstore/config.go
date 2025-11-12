@@ -1,14 +1,13 @@
 package sqlstore
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/api/types"
 )
 
 // Registry kind constant for the SQL KV store
@@ -37,7 +36,7 @@ type SQLConfig struct {
 	// CleanupInterval is how often the store checks for expired entries
 	// The store will run a background task at this interval to remove entries with expired TTLs
 	// Set to 0 to disable automatic cleanup
-	CleanupInterval time.Duration `json:"cleanup_interval"`
+	CleanupInterval types.Duration `json:"cleanup_interval"`
 
 	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 }
@@ -45,6 +44,8 @@ type SQLConfig struct {
 // Validate checks if the configuration is valid
 // Returns an error if any configuration values are invalid
 func (c *SQLConfig) Validate() error {
+	c.initDefaults()
+
 	// Database ID must be valid
 	if c.Database.Name == "" {
 		return fmt.Errorf("database ID is required")
@@ -103,9 +104,8 @@ func (c *SQLConfig) Validate() error {
 	return nil
 }
 
-// InitDefaults initializes the configuration with sensible defaults
-// Called during configuration loading to ensure all values have reasonable defaults
-func (c *SQLConfig) InitDefaults() {
+// initDefaults initializes the configuration with sensible defaults
+func (c *SQLConfig) initDefaults() {
 	// Set default column names if not specified
 	if c.IDColumnName == "" {
 		c.IDColumnName = "key"
@@ -120,41 +120,6 @@ func (c *SQLConfig) InitDefaults() {
 	}
 
 	c.Lifecycle.InitDefaults()
-}
-
-// UnmarshalJSON implements custom unmarshaling for SQLConfig
-func (c *SQLConfig) UnmarshalJSON(data []byte) error {
-	type Alias SQLConfig
-	aux := &struct {
-		CleanupInterval string `json:"cleanup_interval"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	var err error
-	if aux.CleanupInterval != "" {
-		c.CleanupInterval, err = time.ParseDuration(aux.CleanupInterval)
-		if err != nil {
-			return fmt.Errorf("invalid CleanupInterval duration format: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// MarshalJSON implements custom marshaling for SQLConfig
-func (c *SQLConfig) MarshalJSON() ([]byte, error) {
-	type Alias SQLConfig
-	return json.Marshal(&struct {
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	})
 }
 
 func (c *SQLConfig) IsSafe(input string) bool {

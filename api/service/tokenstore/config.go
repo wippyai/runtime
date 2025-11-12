@@ -1,12 +1,12 @@
 package tokenstore
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/security"
+	"github.com/ponyruntime/pony/api/types"
 )
 
 // TokenType constants
@@ -35,11 +35,13 @@ type Config struct {
 	TokenKey string `json:"token_key,omitempty"`
 
 	// DefaultExpiration is the default token expiration time if not specified
-	DefaultExpiration time.Duration `json:"default_expiration"`
+	DefaultExpiration types.Duration `json:"default_expiration"`
 }
 
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
+	c.initDefaults()
+
 	if c.Store.Name == "" {
 		return fmt.Errorf("store ID is required")
 	}
@@ -51,50 +53,13 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// InitDefaults initializes default values for the configuration
-func (c *Config) InitDefaults() {
+// initDefaults initializes default values for the configuration
+func (c *Config) initDefaults() {
 	if c.TokenLength == 0 {
 		c.TokenLength = 32 // 256 bits
 	}
 
 	if c.DefaultExpiration == 0 {
-		c.DefaultExpiration = 24 * time.Hour // 1 day
+		c.DefaultExpiration = types.Duration(24 * time.Hour) // 1 day
 	}
-}
-
-// UnmarshalJSON implements custom unmarshaling for Config to handle time.Duration fields
-func (c *Config) UnmarshalJSON(data []byte) error {
-	type Alias Config
-	aux := &struct {
-		DefaultExpiration string `json:"default_expiration"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	if aux.DefaultExpiration != "" {
-		var err error
-		c.DefaultExpiration, err = time.ParseDuration(aux.DefaultExpiration)
-		if err != nil {
-			return fmt.Errorf("invalid default_expiration duration format: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// MarshalJSON implements custom marshaling for Config to handle time.Duration fields
-func (c *Config) MarshalJSON() ([]byte, error) {
-	type Alias Config
-	return json.Marshal(&struct {
-		DefaultExpiration string `json:"default_expiration"`
-		*Alias
-	}{
-		DefaultExpiration: c.DefaultExpiration.String(),
-		Alias:             (*Alias)(c),
-	})
 }

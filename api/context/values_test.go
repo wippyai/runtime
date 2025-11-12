@@ -139,7 +139,11 @@ func TestValues_Clone(t *testing.T) {
 	original.Set("key2", 42)
 	original.Set("key3", true)
 
-	clone := original.Clone()
+	cloned := original.Clone()
+	clone, ok := cloned.(*Values)
+	if !ok {
+		t.Fatal("Clone() did not return *Values")
+	}
 
 	// Verify clone has same values
 	if got := clone.Get("key1"); got != "value1" {
@@ -176,10 +180,15 @@ func TestValues_Clone(t *testing.T) {
 
 func TestValues_CloneEmpty(t *testing.T) {
 	original := NewValues()
-	clone := original.Clone()
+	cloned := original.Clone()
 
-	if clone == nil {
+	if cloned == nil {
 		t.Fatal("Clone() of empty Values returned nil")
+	}
+
+	clone, ok := cloned.(*Values)
+	if !ok {
+		t.Fatal("Clone() did not return *Values")
 	}
 
 	if clone.Len() != 0 {

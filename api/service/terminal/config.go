@@ -16,11 +16,12 @@ type (
 	}
 )
 
-// InitDefaults initializes the HostConfig with default values
-func (c *HostConfig) InitDefaults() {
+// initDefaults initializes the HostConfig with default values
+func (c *HostConfig) initDefaults() {
 	c.Lifecycle.InitDefaults()
 }
 
 func (c *HostConfig) Validate() error {
+	c.initDefaults()
 	return nil
 }

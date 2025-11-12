@@ -15,7 +15,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
-	internalconfig "github.com/ponyruntime/pony/internal/config"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -60,7 +60,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Decode and initialize configuration
-	cfg, err := internalconfig.DecodeAndInitConfig[serviceaws.Config](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[serviceaws.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return fmt.Errorf("decode config: %w", err)
 	}
@@ -110,7 +110,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Decode and initialize updated configuration
-	cfg, err := internalconfig.DecodeAndInitConfig[serviceaws.Config](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[serviceaws.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}

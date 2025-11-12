@@ -199,3 +199,70 @@ build-runner-linux-amd64-exp:
 	   -trimpath \
 	   -buildmode=pie \
 	   -o ./dist/runner-linux-amd64-exp ./cmd/runner/
+
+# Wippy CLI build targets
+WIPPY_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+WIPPY_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+WIPPY_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+WIPPY_BUILDER ?= $(shell whoami)@$(shell hostname)
+
+WIPPY_LDFLAGS := -s -w \
+	-X github.com/ponyruntime/pony/cmd/wippy/version.Version=$(WIPPY_VERSION) \
+	-X github.com/ponyruntime/pony/cmd/wippy/version.Commit=$(WIPPY_COMMIT) \
+	-X github.com/ponyruntime/pony/cmd/wippy/version.Date=$(WIPPY_DATE) \
+	-X github.com/ponyruntime/pony/cmd/wippy/version.BuiltBy=$(WIPPY_BUILDER)
+
+.PHONY: build-wippy
+build-wippy: build-wippy-local
+
+.PHONY: build-wippy-local
+build-wippy-local:
+	mkdir -p ./dist
+	CGO_ENABLED=0 go build \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-o ./dist/wippy-$(shell go env GOOS)-$(shell go env GOARCH) \
+		./cmd/wippy/
+
+.PHONY: build-wippy-all
+build-wippy-all: build-wippy-linux-amd64 build-wippy-darwin-amd64 build-wippy-darwin-arm64 build-wippy-windows-amd64
+
+.PHONY: build-wippy-linux-amd64
+build-wippy-linux-amd64:
+	mkdir -p ./dist
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-o ./dist/wippy-linux-amd64 \
+		./cmd/wippy/
+
+.PHONY: build-wippy-darwin-amd64
+build-wippy-darwin-amd64:
+	mkdir -p ./dist
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-o ./dist/wippy-darwin-amd64 \
+		./cmd/wippy/
+
+.PHONY: build-wippy-darwin-arm64
+build-wippy-darwin-arm64:
+	mkdir -p ./dist
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-o ./dist/wippy-darwin-arm64 \
+		./cmd/wippy/
+
+.PHONY: build-wippy-windows-amd64
+build-wippy-windows-amd64:
+	mkdir -p ./dist
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-o ./dist/wippy-windows-amd64.exe \
+		./cmd/wippy/
+
+.PHONY: run-wippy
+run-wippy:
+	go run -ldflags="$(WIPPY_LDFLAGS)" ./cmd/wippy/ $(ARGS)

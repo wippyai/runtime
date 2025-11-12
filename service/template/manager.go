@@ -12,6 +12,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/service/template"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -120,13 +121,13 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // handleTemplateAdd adds a new template to its corresponding set
-func (m *Manager) handleTemplateAdd(_ context.Context, entry registry.Entry) error {
+func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cfg, err := decodeEntity[template.Config](entry, m.dtt)
+	cfg, err := entryutil.DecodeEntryConfig[template.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unmarshal template config: %w", err)
+		return fmt.Errorf("failed to decode template config: %w", err)
 	}
 	if entry.Meta != nil {
 		cfg.Meta = entry.Meta
@@ -174,7 +175,7 @@ func (m *Manager) handleTemplateAdd(_ context.Context, entry registry.Entry) err
 }
 
 // handleTemplateUpdate updates an existing template in its set
-func (m *Manager) handleTemplateUpdate(_ context.Context, entry registry.Entry) error {
+func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -184,19 +185,13 @@ func (m *Manager) handleTemplateUpdate(_ context.Context, entry registry.Entry) 
 		return fmt.Errorf("%w: %s", ErrTemplateNotFound, entry.ID)
 	}
 
-	cfg, err := decodeEntity[template.Config](entry, m.dtt)
+	cfg, err := entryutil.DecodeEntryConfig[template.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unmarshal template config: %w", err)
+		return fmt.Errorf("failed to decode template config: %w", err)
 	}
 
 	if entry.Meta != nil {
 		cfg.Meta = entry.Meta
-	}
-
-	// Initialize defaults and validate
-	cfg.InitDefaults()
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid template config: %w", err)
 	}
 
 	// Set namespace if not specified
@@ -354,15 +349,9 @@ func (m *Manager) handleSetAdd(ctx context.Context, entry registry.Entry) error 
 		return fmt.Errorf("template set %s already exists", entry.ID)
 	}
 
-	cfg, err := decodeEntity[template.SetConfig](entry, m.dtt)
+	cfg, err := entryutil.DecodeEntryConfig[template.SetConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unmarshal set config: %w", err)
-	}
-
-	// Initialize defaults and validate
-	cfg.InitDefaults()
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid set config: %w", err)
+		return fmt.Errorf("failed to decode set config: %w", err)
 	}
 
 	// Create the template set
@@ -405,15 +394,9 @@ func (m *Manager) handleSetUpdate(ctx context.Context, entry registry.Entry) err
 	}
 
 	// Decode configuration
-	cfg, err := decodeEntity[template.SetConfig](entry, m.dtt)
+	cfg, err := entryutil.DecodeEntryConfig[template.SetConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unmarshal set config: %w", err)
-	}
-
-	// Initialize defaults and validate
-	cfg.InitDefaults()
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid set config: %w", err)
+		return fmt.Errorf("failed to decode set config: %w", err)
 	}
 
 	// Create a new template set with updated configuration
@@ -536,29 +519,3 @@ func (m *Manager) Acquire(
 //
 // Helper functions
 //
-
-// decodeEntity is a helper to decode registry entries into specific configs
-func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*T, error) {
-	if entry.Data == nil {
-		return nil, fmt.Errorf("configuration data is required")
-	}
-
-	cfg := new(T)
-	if err := transcoder.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	// Validate if the config implements Validate()
-	if df, ok := interface{}(cfg).(interface{ InitDefaults() }); ok {
-		df.InitDefaults()
-	}
-
-	// Validate if the config implements Validate()
-	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
-		if err := validator.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid configuration: %w", err)
-		}
-	}
-
-	return cfg, nil
-}

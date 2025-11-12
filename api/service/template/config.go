@@ -61,12 +61,8 @@ type SetConfig struct {
 	Engine EngineConfig `json:"engine"`
 }
 
-// InitDefaults initializes default values for Config
-func (c *Config) InitDefaults() {
-}
-
-// InitDefaults initializes default values for EngineConfig
-func (e *EngineConfig) InitDefaults() {
+// initDefaults initializes default values for EngineConfig
+func (e *EngineConfig) initDefaults() {
 	// Default delimiters if not specified
 	if e.Delimiters.Left == "" {
 		e.Delimiters.Left = "{{"
@@ -92,12 +88,6 @@ func (e *EngineConfig) InitDefaults() {
 	}
 }
 
-// InitDefaults initializes default values for SetConfig
-func (c *SetConfig) InitDefaults() {
-	// Initialize engine defaults
-	c.Engine.InitDefaults()
-}
-
 // Validate checks if the Config is valid
 func (c *Config) Validate() error {
 	if c.Source == "" {
@@ -114,6 +104,8 @@ func (c *Config) Validate() error {
 
 // Validate checks if the EngineConfig is valid
 func (e *EngineConfig) Validate() error {
+	e.initDefaults()
+
 	// Validate delimiters
 	if e.Delimiters.Left == "" || e.Delimiters.Right == "" {
 		return fmt.Errorf("template delimiters cannot be empty")

@@ -116,7 +116,8 @@ func (v *Values) Len() int {
 }
 
 // Clone creates a copy of this Values with same key-value pairs.
-func (v *Values) Clone() *Values {
+// Implements Cloner interface for frame inheritance.
+func (v *Values) Clone() any {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 

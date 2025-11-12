@@ -35,30 +35,30 @@ func (p Phase) String() string {
 	}
 }
 
-// Plugin represents a component loaded during application boot.
-type Plugin interface {
-	// Name returns unique plugin identifier.
+// Component represents a component loaded during application boot.
+type Component interface {
+	// Name returns unique component identifier.
 	Name() string
 
-	// Phase returns when this plugin should load.
+	// Phase returns when this component should load.
 	Phase() Phase
 
-	// DependsOn returns names of plugins that must load before this one.
+	// DependsOn returns names of components that must load before this one.
 	// Return nil or empty slice for no dependencies.
 	DependsOn() []string
 
 	// Load creates the service and attaches it to context.
-	// Returns error if plugin failed to load.
+	// Returns error if component failed to load.
 	Load(ctx context.Context) (context.Context, error)
 }
 
-// Starter is implemented by plugins that need activation after Load.
+// Starter is implemented by components that need activation after Load.
 type Starter interface {
 	// Start activates the service (listeners, background tasks, etc).
 	Start(ctx context.Context) error
 }
 
-// Stopper is implemented by plugins that need graceful shutdown.
+// Stopper is implemented by components that need graceful shutdown.
 type Stopper interface {
 	// Stop gracefully shuts down the service.
 	Stop(ctx context.Context) error

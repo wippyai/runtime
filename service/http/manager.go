@@ -12,6 +12,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/api/supervisor"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -225,7 +226,7 @@ func (m *Manager) Discard(_ context.Context) {
 
 // handleServerCreate creates a new HTTP server
 func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.ServerConfig](entry, m.dtt)
+	cfg, err := entryutil.DecodeEntryConfig[config.ServerConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -273,7 +274,7 @@ func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) 
 
 // handleServerUpdate updates an existing HTTP server
 func (m *Manager) handleServerUpdate(ctx context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.ServerConfig](entry, m.dtt)
+	cfg, err := entryutil.DecodeEntryConfig[config.ServerConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -366,8 +367,8 @@ func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) 
 //
 
 // handleRouterCreate adds a new router to a server
-func (m *Manager) handleRouterCreate(_ context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.RouterConfig](entry, m.dtt)
+func (m *Manager) handleRouterCreate(ctx context.Context, entry registry.Entry) error {
+	cfg, err := entryutil.DecodeEntryConfig[config.RouterConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -395,8 +396,8 @@ func (m *Manager) handleRouterCreate(_ context.Context, entry registry.Entry) er
 // handleRouterUpdate updates an existing router
 // CRITICAL: When moving a router between servers, we must ensure all endpoints
 // are properly migrated to prevent data loss.
-func (m *Manager) handleRouterUpdate(_ context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.RouterConfig](entry, m.dtt)
+func (m *Manager) handleRouterUpdate(ctx context.Context, entry registry.Entry) error {
+	cfg, err := entryutil.DecodeEntryConfig[config.RouterConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -495,7 +496,7 @@ func (m *Manager) handleRouterDelete(_ context.Context, entry registry.Entry) er
 // handleEndpointUpsert adds or updates an endpoint in a router
 // Uses upsert pattern - if the endpoint already exists, it will be updated
 func (m *Manager) handleEndpointUpsert(ctx context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.EndpointConfig](entry, m.dtt)
+	cfg, err := entryutil.DecodeEntryConfig[config.EndpointConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -575,7 +576,7 @@ func (m *Manager) handleEndpointDelete(_ context.Context, entry registry.Entry) 
 // handleStaticUpsert adds or updates a static file handler
 // Uses upsert pattern - if the handler already exists, it will be updated
 func (m *Manager) handleStaticUpsert(ctx context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.StaticConfig](entry, m.dtt)
+	cfg, err := entryutil.DecodeEntryConfig[config.StaticConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -633,34 +634,4 @@ func (m *Manager) handleStaticDelete(_ context.Context, entry registry.Entry) er
 	delete(m.staticServers, entry.ID)
 	m.pending[serverID] = true
 	return nil
-}
-
-//
-// Helper functions
-//
-
-// decodeEntity is a helper to decode registry entries into specific configs
-func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*T, error) {
-	if entry.Data == nil {
-		return nil, fmt.Errorf("configuration data is required")
-	}
-
-	cfg := new(T)
-	if err := transcoder.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	// set meta if applicable
-	if metaHolder, ok := interface{}(cfg).(interface{ SetMeta(registry.Metadata) }); ok {
-		metaHolder.SetMeta(entry.Meta)
-	}
-
-	// Validate if the config implements Validate()
-	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
-		if err := validator.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid configuration: %w", err)
-		}
-	}
-
-	return cfg, nil
 }

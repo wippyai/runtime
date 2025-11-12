@@ -12,7 +12,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/internal/config"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -53,7 +53,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Decode and initialize configuration
-	cfg, err := config.DecodeAndInitConfig[memstore.MemoryConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[memstore.MemoryConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -107,14 +107,14 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Decode and initialize updated configuration
-	cfg, err := config.DecodeAndInitConfig[memstore.MemoryConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[memstore.MemoryConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
 
 	// We can't update running store configuration, so we need to recreate it
 	// First stop the current store
-	stopCtx, cancel := context.WithTimeout(ctx, cfg.Lifecycle.StopTimeout)
+	stopCtx, cancel := context.WithTimeout(ctx, cfg.Lifecycle.StopTimeout.D())
 	defer cancel()
 
 	if err := store.Stop(stopCtx); err != nil {
@@ -165,7 +165,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	cfg := store.config
 
 	// Stop the store (but don't wait for it to complete)
-	stopCtx, cancel := context.WithTimeout(ctx, cfg.Lifecycle.StopTimeout)
+	stopCtx, cancel := context.WithTimeout(ctx, cfg.Lifecycle.StopTimeout.D())
 	defer cancel()
 
 	if err := store.Stop(stopCtx); err != nil {

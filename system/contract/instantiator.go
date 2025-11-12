@@ -97,7 +97,7 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 		values := ctxapi.GetValues(ctx)
 		if values != nil {
 			// Clone existing values to avoid mutation
-			values = values.Clone()
+			values = values.Clone().(*ctxapi.Values)
 		} else {
 			values = ctxapi.NewValues()
 		}

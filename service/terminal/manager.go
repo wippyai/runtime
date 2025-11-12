@@ -8,7 +8,7 @@ import (
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/internal/config"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
@@ -58,7 +58,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg, err := config.DecodeAndInitConfig[api.HostConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[api.HostConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg, err := config.DecodeAndInitConfig[api.HostConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[api.HostConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}

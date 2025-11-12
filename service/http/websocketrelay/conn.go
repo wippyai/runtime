@@ -179,7 +179,6 @@ func (c *Connection) processMessages() {
 			return
 
 		case <-c.heartbeatTicker.C:
-			c.logger.Debug("Sending heartbeat")
 			c.sendHeartbeat()
 
 		case pkg, ok := <-c.msgCh:

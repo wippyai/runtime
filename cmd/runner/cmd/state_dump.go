@@ -11,13 +11,13 @@ import (
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/boot/loader"
+	"github.com/ponyruntime/pony/boot/loader/interpolate"
 	"github.com/ponyruntime/pony/deps"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	json2 "github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/lua"
 	"github.com/ponyruntime/pony/system/payload/yaml"
-	"github.com/ponyruntime/pony/system/registry/loader"
-	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )

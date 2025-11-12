@@ -31,7 +31,7 @@ type Config struct {
 	MessageWorkerCount int `json:"message_worker_count"` // Number of concurrent message workers
 }
 
-func (cfg *EntryConfig) InitDefaults() {
+func (cfg *EntryConfig) initDefaults() {
 	cfg.Lifecycle.InitDefaults()
 
 	if cfg.HostConfig.MaxProcesses == 0 {
@@ -58,6 +58,8 @@ func (cfg *EntryConfig) InitDefaults() {
 
 // Validate checks if the configuration is valid
 func (cfg *EntryConfig) Validate() error {
+	cfg.initDefaults()
+
 	c := cfg.HostConfig
 
 	if c.MaxProcesses < 0 {

@@ -11,7 +11,7 @@ import (
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/security"
 	"github.com/ponyruntime/pony/api/service/tokenstore"
-	"github.com/ponyruntime/pony/internal/config"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -60,7 +60,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Decode and initialize configuration
-	cfg, err := config.DecodeAndInitConfig[tokenstore.Config](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[tokenstore.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Decode and initialize updated configuration
-	cfg, err := config.DecodeAndInitConfig[tokenstore.Config](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[tokenstore.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}

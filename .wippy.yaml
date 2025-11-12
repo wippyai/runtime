@@ -1,0 +1,26 @@
+# Wippy Configuration File
+# Version 1.0
+version: "1.0"
+
+# Logger configuration
+# Controls system logging behavior
+logger:
+  mode: development          # production | development
+  level: debug               # debug | info | warn | error
+  encoding: console          # json | console
+
+# Log Manager configuration
+# Controls log propagation and streaming
+logmanager:
+  propagate_downstream: true  # Propagate logs to downstream components
+  stream_to_events: false     # Stream logs to event bus
+  min_level: 0                # Minimum log level (0=debug, 1=info, 2=warn, 3=error)
+
+# Profiler configuration
+# Enables pprof profiling endpoints for performance analysis
+profiler:
+  enabled: false              # Enable profiler HTTP server
+  address: localhost:6060     # Profiler server address
+  read_timeout: 15s           # HTTP read timeout
+  write_timeout: 15s          # HTTP write timeout
+  idle_timeout: 60s           # HTTP idle timeout

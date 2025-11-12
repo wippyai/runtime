@@ -10,6 +10,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/api/security"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 )
 
 // Factory creates token stores from configuration
@@ -33,17 +34,11 @@ func NewFactory(
 }
 
 // CreateTokenStore creates a token store from a registry entry
-func (f *Factory) CreateTokenStore(_ context.Context, entry registry.Entry) (security.TokenStore, error) {
+func (f *Factory) CreateTokenStore(ctx context.Context, entry registry.Entry) (security.TokenStore, error) {
 	// Decode configuration
-	cfg := new(tokenstore.Config)
-	if err := f.dtt.Unmarshal(entry.Data, cfg); err != nil {
+	cfg, err := entryutil.DecodeEntryConfig[tokenstore.Config](ctx, f.dtt, entry)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode token store config: %w", err)
-	}
-
-	// Initialize defaults and validate
-	cfg.InitDefaults()
-	if err := cfg.Validate(); err != nil {
-		return nil, err
 	}
 
 	// Create token store with lazy loading capability

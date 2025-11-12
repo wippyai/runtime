@@ -40,7 +40,6 @@ type storeEntry struct {
 func NewMemoryStore(id registry.ID, config *memstore.MemoryConfig, log *zap.Logger) *MemoryStore {
 	if config == nil {
 		config = &memstore.MemoryConfig{}
-		config.InitDefaults()
 	}
 
 	return &MemoryStore{

@@ -17,7 +17,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	apiconfig "github.com/ponyruntime/pony/api/service/sql"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/internal/config"
+	entryutil "github.com/ponyruntime/pony/internal/entry"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -619,7 +619,7 @@ func TestDecode_NilPayload(t *testing.T) {
 		Data: nil,
 	}
 
-	_, err := config.DecodeAndInitConfig[apiconfig.DBConfig](ctx, transcoder, entry)
+	_, err := entryutil.DecodeEntryConfig[apiconfig.DBConfig](ctx, transcoder, entry)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "configuration data is required")
 }
