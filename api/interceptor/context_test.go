@@ -163,3 +163,46 @@ func TestChainInAppContext(t *testing.T) {
 		t.Error("Chain should be same instance")
 	}
 }
+
+func TestWithChainNoAppContext(t *testing.T) {
+	ctx := context.Background()
+	chain := &mockChain{}
+
+	resultCtx := WithChain(ctx, chain)
+	if resultCtx != ctx {
+		t.Error("WithChain should return same context when no AppContext")
+	}
+
+	retrieved := GetChain(resultCtx)
+	if retrieved != nil {
+		t.Error("GetChain should return nil when chain not set due to missing AppContext")
+	}
+}
+
+func TestInterceptorFunc_Handle(t *testing.T) {
+	called := false
+	nextCalled := false
+
+	interceptor := InterceptorFunc(func(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
+		called = true
+		return next(ctx)
+	})
+
+	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+		nextCalled = true
+		return &runtime.Result{}, ctx
+	}
+
+	ctx := context.Background()
+	result, _ := interceptor.Handle(ctx, next)
+
+	if !called {
+		t.Error("InterceptorFunc should have been called")
+	}
+	if !nextCalled {
+		t.Error("next function should have been called")
+	}
+	if result == nil {
+		t.Error("result should not be nil")
+	}
+}
