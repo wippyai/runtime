@@ -1,3 +1,4 @@
+// Package pubsub provides a publish-subscribe messaging system for inter-component communication.
 package pubsub
 
 import (

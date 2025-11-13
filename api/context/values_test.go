@@ -1,3 +1,4 @@
+// Package context provides application-level context management utilities.
 package context
 
 import (
@@ -278,7 +279,6 @@ func TestValues_MultipleTypes(t *testing.T) {
 }
 
 func TestValues_UsedInFrameContext(t *testing.T) {
-	// Example usage: Values stored inside FrameContext
 	ctx := context.Background()
 	_, callCtx := OpenFrameContext(ctx)
 	values := NewValues()
@@ -289,7 +289,6 @@ func TestValues_UsedInFrameContext(t *testing.T) {
 	valuesKey := &Key{Name: "context.values"}
 	callCtx.Set(valuesKey, values)
 
-	// Retrieve Values from FrameContext
 	retrievedVal, ok := callCtx.Get(valuesKey)
 	if !ok {
 		t.Fatal("retrieved Values not found")
@@ -305,5 +304,135 @@ func TestValues_UsedInFrameContext(t *testing.T) {
 
 	if got := retrieved.Get("user.name"); got != "john" {
 		t.Errorf("retrieved.Get(user.name) = %v, want john", got)
+	}
+}
+
+func TestValuesPair(t *testing.T) {
+	values := NewValues()
+	values.Set("test", "value")
+
+	pair := ValuesPair(values)
+	if pair.Key != ValuesCtx {
+		t.Errorf("ValuesPair().Key = %v, want ValuesCtx", pair.Key)
+	}
+	if pair.Value != values {
+		t.Errorf("ValuesPair().Value = %v, want values", pair.Value)
+	}
+}
+
+func TestSetValues(t *testing.T) {
+	ctx, fc := OpenFrameContext(context.Background())
+	values := NewValues()
+	values.Set("key1", "value1")
+
+	err := SetValues(ctx, values)
+	if err != nil {
+		t.Errorf("SetValues() error = %v, want nil", err)
+	}
+
+	retrieved, ok := fc.Get(ValuesCtx)
+	if !ok {
+		t.Fatal("SetValues should store values in frame context")
+	}
+
+	retrievedValues, ok := retrieved.(*Values)
+	if !ok {
+		t.Fatal("stored value should be *Values")
+	}
+
+	if retrievedValues.Get("key1") != "value1" {
+		t.Errorf("retrievedValues.Get(key1) = %v, want value1", retrievedValues.Get("key1"))
+	}
+}
+
+func TestSetValues_NoFrameContext(t *testing.T) {
+	ctx := context.Background()
+	values := NewValues()
+
+	err := SetValues(ctx, values)
+	if err == nil {
+		t.Error("SetValues() without frame context should return error")
+	}
+}
+
+func TestGetValues(t *testing.T) {
+	ctx, fc := OpenFrameContext(context.Background())
+	values := NewValues()
+	values.Set("key1", "value1")
+
+	fc.Set(ValuesCtx, values)
+
+	retrieved := GetValues(ctx)
+	if retrieved == nil {
+		t.Fatal("GetValues() should return Values")
+	}
+
+	if retrieved.Get("key1") != "value1" {
+		t.Errorf("retrieved.Get(key1) = %v, want value1", retrieved.Get("key1"))
+	}
+}
+
+func TestGetValues_NoFrameContext(t *testing.T) {
+	ctx := context.Background()
+
+	retrieved := GetValues(ctx)
+	if retrieved != nil {
+		t.Error("GetValues() without frame context should return nil")
+	}
+}
+
+func TestGetValues_NotFound(t *testing.T) {
+	ctx, _ := OpenFrameContext(context.Background())
+
+	retrieved := GetValues(ctx)
+	if retrieved != nil {
+		t.Error("GetValues() when not set should return nil")
+	}
+}
+
+func TestGetValues_WrongType(t *testing.T) {
+	ctx, fc := OpenFrameContext(context.Background())
+	fc.Set(ValuesCtx, "not a values")
+
+	retrieved := GetValues(ctx)
+	if retrieved != nil {
+		t.Error("GetValues() with wrong type should return nil")
+	}
+}
+
+func TestGetOrCreateValues(t *testing.T) {
+	ctx, _ := OpenFrameContext(context.Background())
+
+	values, err := GetOrCreateValues(ctx)
+	if err != nil {
+		t.Errorf("GetOrCreateValues() error = %v, want nil", err)
+	}
+	if values == nil {
+		t.Fatal("GetOrCreateValues() should create new Values")
+	}
+
+	values.Set("key1", "value1")
+
+	values2, err := GetOrCreateValues(ctx)
+	if err != nil {
+		t.Errorf("GetOrCreateValues() error = %v, want nil", err)
+	}
+	if values2 != values {
+		t.Error("GetOrCreateValues() should return same instance")
+	}
+	if values2.Get("key1") != "value1" {
+		t.Errorf("values2.Get(key1) = %v, want value1", values2.Get("key1"))
+	}
+}
+
+func TestGetOrCreateValues_NoFrameContext(t *testing.T) {
+	ctx := context.Background()
+
+	values, err := GetOrCreateValues(ctx)
+	if err == nil {
+		t.Error("GetOrCreateValues() without frame context should return error")
+	}
+	if values != nil {
+		t.Error("GetOrCreateValues() without frame context should return nil")
 	}
 }

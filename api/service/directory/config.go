@@ -1,3 +1,4 @@
+// Package directory provides directory service configuration.
 package directory
 
 import (

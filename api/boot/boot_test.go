@@ -1,9 +1,15 @@
+// Package boot provides application boot and component loading.
 package boot
 
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"testing"
+	"time"
+
+	ctxapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/registry"
 )
 
 // Mock plugin for testing
@@ -256,4 +262,162 @@ func TestPluginLifecycle(t *testing.T) {
 			t.Error("Stop() not called")
 		}
 	}
+}
+
+func TestWithConfig_GetConfig(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := GetConfig(ctx)
+	if cfg != nil {
+		t.Error("GetConfig() should return nil when no config in context")
+	}
+
+	mockCfg := &mockConfig{data: map[string]any{"key": "value"}}
+	ctx = WithConfig(ctx, mockCfg)
+
+	retrieved := GetConfig(ctx)
+	if retrieved == nil {
+		t.Error("GetConfig() should return config instance")
+	}
+}
+
+func TestWithLoader_GetLoader(t *testing.T) {
+	ctx := context.Background()
+
+	ldr := GetLoader(ctx)
+	if ldr != nil {
+		t.Error("GetLoader() should return nil when no app context")
+	}
+
+	ctx = ctxapi.NewRootContext()
+
+	ldr = GetLoader(ctx)
+	if ldr != nil {
+		t.Error("GetLoader() should return nil when no loader set")
+	}
+
+	mockLdr := &mockLoader{}
+	WithLoader(ctx, mockLdr)
+
+	retrieved := GetLoader(ctx)
+	if retrieved != mockLdr {
+		t.Error("GetLoader() should return the same loader instance")
+	}
+}
+
+func TestNew(t *testing.T) {
+	loadCalled := false
+	startCalled := false
+	stopCalled := false
+
+	p := New(P{
+		Name:      "test-func",
+		Phase:     Init,
+		DependsOn: []string{"dep1"},
+		Load: func(ctx context.Context) (context.Context, error) {
+			loadCalled = true
+			return ctx, nil
+		},
+		Start: func(ctx context.Context) error {
+			startCalled = true
+			return nil
+		},
+		Stop: func(ctx context.Context) error {
+			stopCalled = true
+			return nil
+		},
+	})
+
+	if p.Name() != "test-func" {
+		t.Errorf("Name() = %q, want %q", p.Name(), "test-func")
+	}
+	if p.Phase() != Init {
+		t.Errorf("Phase() = %v, want %v", p.Phase(), Init)
+	}
+	if len(p.DependsOn()) != 1 || p.DependsOn()[0] != "dep1" {
+		t.Errorf("DependsOn() = %v, want %v", p.DependsOn(), []string{"dep1"})
+	}
+
+	ctx := context.Background()
+	if _, err := p.Load(ctx); err != nil {
+		t.Errorf("Load() failed: %v", err)
+	}
+	if !loadCalled {
+		t.Error("Load function not called")
+	}
+
+	if starter, ok := p.(Starter); ok {
+		if err := starter.Start(ctx); err != nil {
+			t.Errorf("Start() failed: %v", err)
+		}
+		if !startCalled {
+			t.Error("Start function not called")
+		}
+	}
+
+	if stopper, ok := p.(Stopper); ok {
+		if err := stopper.Stop(ctx); err != nil {
+			t.Errorf("Stop() failed: %v", err)
+		}
+		if !stopCalled {
+			t.Error("Stop function not called")
+		}
+	}
+}
+
+func TestNew_NilFunctions(t *testing.T) {
+	p := New(P{
+		Name:  "test-nil",
+		Phase: PreInit,
+	})
+
+	ctx := context.Background()
+
+	if _, err := p.Load(ctx); err != nil {
+		t.Errorf("Load() with nil function should not error: %v", err)
+	}
+
+	if starter, ok := p.(Starter); ok {
+		if err := starter.Start(ctx); err != nil {
+			t.Errorf("Start() with nil function should not error: %v", err)
+		}
+	}
+
+	if stopper, ok := p.(Stopper); ok {
+		if err := stopper.Stop(ctx); err != nil {
+			t.Errorf("Stop() with nil function should not error: %v", err)
+		}
+	}
+}
+
+type mockConfig struct {
+	data map[string]any
+}
+
+func (m *mockConfig) Get(key string) (any, bool) {
+	v, ok := m.data[key]
+	return v, ok
+}
+func (m *mockConfig) GetString(key string, def string) string                 { return def }
+func (m *mockConfig) GetInt(key string, def int) int                          { return def }
+func (m *mockConfig) GetBool(key string, def bool) bool                       { return def }
+func (m *mockConfig) GetDuration(key string, def time.Duration) time.Duration { return def }
+func (m *mockConfig) GetStringMap(key string) map[string]any                  { return nil }
+func (m *mockConfig) GetStringSlice(key string) []string                      { return nil }
+func (m *mockConfig) Bind(key string, v any) error                            { return nil }
+func (m *mockConfig) Section(prefix string) Config                            { return m }
+func (m *mockConfig) Sub(prefix string) Config                                { return m }
+func (m *mockConfig) Keys() []string                                          { return []string{"key"} }
+func (m *mockConfig) Has(key string) bool                                     { return false }
+
+type mockLoader struct{}
+
+func (m *mockLoader) LoadFS(ctx context.Context, filesystem fs.FS) ([]registry.Entry, error) {
+	return nil, nil
+}
+func (m *mockLoader) LoadDir(ctx context.Context, filesystem fs.FS, dirPath string) ([]registry.Entry, error) {
+	return nil, nil
+}
+func (m *mockLoader) LoadFile(ctx context.Context, filesystem fs.FS, filePath string) ([]registry.Entry, error) {
+	return nil, nil
 }

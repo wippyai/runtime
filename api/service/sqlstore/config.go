@@ -1,3 +1,4 @@
+// Package sqlstore provides SQL-backed store service configuration.
 package sqlstore
 
 import (
@@ -17,7 +18,7 @@ const (
 	KindSQLKV registry.Kind = "store.sql"
 )
 
-// SQLConfig defines configuration for a SQL-based key-value store
+// SQLConfig provides configuration for a SQL-based key-value store with TTL support.
 type SQLConfig struct {
 	// Database is the ID of the database resource to use
 	Database registry.ID `json:"database"`
@@ -103,8 +104,7 @@ func (c *SQLConfig) Validate() error {
 	return nil
 }
 
-// InitDefaults initializes the configuration with sensible defaults
-// Called during configuration loading to ensure all values have reasonable defaults
+// InitDefaults sets sensible defaults for the SQL store configuration.
 func (c *SQLConfig) InitDefaults() {
 	// Set default column names if not specified
 	if c.IDColumnName == "" {
@@ -122,7 +122,7 @@ func (c *SQLConfig) InitDefaults() {
 	c.Lifecycle.InitDefaults()
 }
 
-// UnmarshalJSON implements custom unmarshaling for SQLConfig
+// UnmarshalJSON deserializes SQLConfig from JSON, parsing duration strings.
 func (c *SQLConfig) UnmarshalJSON(data []byte) error {
 	type Alias SQLConfig
 	aux := &struct {
@@ -147,7 +147,7 @@ func (c *SQLConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MarshalJSON implements custom marshaling for SQLConfig
+// MarshalJSON serializes SQLConfig to JSON.
 func (c *SQLConfig) MarshalJSON() ([]byte, error) {
 	type Alias SQLConfig
 	return json.Marshal(&struct {
@@ -157,6 +157,7 @@ func (c *SQLConfig) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// IsSafe validates that the input string is safe for SQL use and not an injection attempt.
 func (c *SQLConfig) IsSafe(input string) bool {
 	// Check for SQL reserved words that might indicate an injection attempt
 	reservedWords := map[string]bool{

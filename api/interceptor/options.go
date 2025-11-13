@@ -1,3 +1,4 @@
+// Package interceptor provides request and operation interception.
 package interceptor
 
 import "time"

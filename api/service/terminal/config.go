@@ -1,3 +1,4 @@
+// Package terminal provides terminal service configuration.
 package terminal
 
 import (

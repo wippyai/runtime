@@ -1,3 +1,4 @@
+// Package template provides template service configuration.
 package template
 
 import (

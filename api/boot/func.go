@@ -1,3 +1,4 @@
+// Package boot provides application boot and component loading.
 package boot
 
 import "context"

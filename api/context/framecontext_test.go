@@ -1,3 +1,4 @@
+// Package context provides application-level context management utilities.
 package context
 
 import (
@@ -311,5 +312,160 @@ func TestFrameContext_InheritanceDoesNotAffectParent(t *testing.T) {
 	// Child should have its own value
 	if got, _ := child.Get(testKey); got != "child_value" {
 		t.Errorf("child.Get(testKey) = %v, want child_value", got)
+	}
+}
+
+func TestFrameContext_Seal(t *testing.T) {
+	_, fc := newFrameContext(context.Background())
+	key := &Key{Name: "test.key"}
+
+	if fc.IsSealed() {
+		t.Error("new frame should not be sealed")
+	}
+
+	fc.Set(key, "value1")
+	fc.Seal()
+
+	if !fc.IsSealed() {
+		t.Error("frame should be sealed after Seal()")
+	}
+
+	err := fc.Set(key, "value2")
+	if err == nil {
+		t.Error("Set() on sealed frame should return error")
+	}
+}
+
+func TestFrameContext_SetMultiple(t *testing.T) {
+	_, fc := newFrameContext(context.Background())
+
+	key1 := &Key{Name: "key1"}
+	key2 := &Key{Name: "key2"}
+	key3 := &Key{Name: "key3"}
+
+	pairs := []Pair{
+		{Key: key1, Value: "value1"},
+		{Key: key2, Value: 42},
+		{Key: key3, Value: true},
+	}
+
+	err := fc.SetMultiple(pairs...)
+	if err != nil {
+		t.Errorf("SetMultiple() error = %v, want nil", err)
+	}
+
+	if val, ok := fc.Get(key1); !ok || val != "value1" {
+		t.Errorf("Get(key1) = %v, %v, want value1, true", val, ok)
+	}
+	if val, ok := fc.Get(key2); !ok || val != 42 {
+		t.Errorf("Get(key2) = %v, %v, want 42, true", val, ok)
+	}
+	if val, ok := fc.Get(key3); !ok || val != true {
+		t.Errorf("Get(key3) = %v, %v, want true, true", val, ok)
+	}
+}
+
+func TestFrameContext_SetMultipleSealed(t *testing.T) {
+	_, fc := newFrameContext(context.Background())
+	fc.Seal()
+
+	key1 := &Key{Name: "key1"}
+	pairs := []Pair{{Key: key1, Value: "value1"}}
+
+	err := fc.SetMultiple(pairs...)
+	if err == nil {
+		t.Error("SetMultiple() on sealed frame should return error")
+	}
+}
+
+func TestOpenFrameContext_Unsealed(t *testing.T) {
+	ctx, fc := newFrameContext(context.Background())
+	key := &Key{Name: "test.key"}
+	fc.Set(key, "value1")
+
+	newCtx, newFC := OpenFrameContext(ctx)
+	if newFC != fc {
+		t.Error("OpenFrameContext should return existing unsealed frame")
+	}
+	if newCtx != ctx {
+		t.Error("OpenFrameContext should return same context for unsealed frame")
+	}
+
+	if val, ok := newFC.Get(key); !ok || val != "value1" {
+		t.Errorf("OpenFrameContext returned frame should have existing values")
+	}
+}
+
+func TestOpenFrameContext_NilFrame(t *testing.T) {
+	ctx := context.Background()
+	newCtx, fc := OpenFrameContext(ctx)
+
+	if fc == nil {
+		t.Fatal("OpenFrameContext should create new frame when none exists")
+	}
+	if newCtx == ctx {
+		t.Error("OpenFrameContext should return new context when creating frame")
+	}
+}
+
+func TestOpenFrameContext_InheritWithCloner(t *testing.T) {
+	parentCtx, parent := newFrameContext(context.Background())
+
+	type testCloner struct {
+		value string
+	}
+
+	cloner := &testCloner{value: "original"}
+
+	inheritKey := &Key{Name: "test.cloner", Inherit: true}
+	parent.Set(inheritKey, cloner)
+	parent.Seal()
+
+	_, child := OpenFrameContext(parentCtx)
+
+	val, ok := child.Get(inheritKey)
+	if !ok {
+		t.Fatal("child should inherit key")
+	}
+
+	inheritedVal, ok := val.(*testCloner)
+	if !ok {
+		t.Fatal("inherited value should be *testCloner")
+	}
+
+	if inheritedVal.value != "original" {
+		t.Errorf("inherited value = %v, want original", inheritedVal.value)
+	}
+}
+
+func TestOpenFrameContext_InheritWithValuesCloner(t *testing.T) {
+	parentCtx, parent := newFrameContext(context.Background())
+
+	values := NewValues()
+	values.Set("key1", "value1")
+
+	inheritKey := &Key{Name: "test.values", Inherit: true}
+	parent.Set(inheritKey, values)
+	parent.Seal()
+
+	_, child := OpenFrameContext(parentCtx)
+
+	val, ok := child.Get(inheritKey)
+	if !ok {
+		t.Fatal("child should inherit Values")
+	}
+
+	clonedValues, ok := val.(*Values)
+	if !ok {
+		t.Fatal("inherited value should be *Values")
+	}
+
+	if clonedValues.Get("key1") != "value1" {
+		t.Errorf("cloned Values.Get(key1) = %v, want value1", clonedValues.Get("key1"))
+	}
+
+	clonedValues.Set("key2", "value2")
+	if values.Get("key2") != nil {
+		t.Error("parent Values should not have child's new values")
 	}
 }

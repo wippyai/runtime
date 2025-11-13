@@ -1,13 +1,14 @@
+// Package http provides HTTP service configuration.
 package http
 
 import (
 	"encoding/json"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,9 +23,9 @@ func TestTimeoutConfig_MarshalJSON(t *testing.T) {
 		{
 			name: "basic timeouts",
 			config: TimeoutConfig{
-				ReadTimeout:  types.Duration(30 * time.Second),
-				WriteTimeout: types.Duration(45 * time.Second),
-				IdleTimeout:  types.Duration(60 * time.Second),
+				ReadTimeout:  (30 * time.Second),
+				WriteTimeout: (45 * time.Second),
+				IdleTimeout:  (60 * time.Second),
 			},
 			expected: `{"read":"30s","write":"45s","idle":"1m0s"}`,
 			wantErr:  false,
@@ -38,9 +39,9 @@ func TestTimeoutConfig_MarshalJSON(t *testing.T) {
 		{
 			name: "complex durations",
 			config: TimeoutConfig{
-				ReadTimeout:  types.Duration(1*time.Hour + 30*time.Minute),
-				WriteTimeout: types.Duration(2*time.Hour + 15*time.Minute),
-				IdleTimeout:  types.Duration(45*time.Minute + 30*time.Second),
+				ReadTimeout:  (1*time.Hour + 30*time.Minute),
+				WriteTimeout: (2*time.Hour + 15*time.Minute),
+				IdleTimeout:  (45*time.Minute + 30*time.Second),
 			},
 			expected: `{"read":"1h30m0s","write":"2h15m0s","idle":"45m30s"}`,
 			wantErr:  false,
@@ -81,9 +82,9 @@ func TestTimeoutConfig_UnmarshalJSON(t *testing.T) {
 				"idle": "1m"
 			}`,
 			expected: TimeoutConfig{
-				ReadTimeout:  types.Duration(30 * time.Second),
-				WriteTimeout: types.Duration(45 * time.Second),
-				IdleTimeout:  types.Duration(60 * time.Second),
+				ReadTimeout:  (30 * time.Second),
+				WriteTimeout: (45 * time.Second),
+				IdleTimeout:  (60 * time.Second),
 			},
 			wantErr: false,
 		},
@@ -147,17 +148,17 @@ func TestServerConfig_MarshalUnmarshal(t *testing.T) {
 			config: ServerConfig{
 				Addr: ":8080",
 				Timeouts: TimeoutConfig{
-					ReadTimeout:  types.Duration(30 * time.Second),
-					WriteTimeout: types.Duration(45 * time.Second),
-					IdleTimeout:  types.Duration(60 * time.Second),
+					ReadTimeout:  (30 * time.Second),
+					WriteTimeout: (45 * time.Second),
+					IdleTimeout:  (60 * time.Second),
 				},
 				Lifecycle: supervisor.LifecycleConfig{
 					AutoStart:    true,
-					StartTimeout: types.Duration(30 * time.Second),
-					StopTimeout:  types.Duration(60 * time.Second),
+					StartTimeout: (30 * time.Second),
+					StopTimeout:  (60 * time.Second),
 					RetryPolicy: supervisor.RetryPolicy{
-						InitialDelay:  types.Duration(1 * time.Second),
-						MaxDelay:      types.Duration(30 * time.Second),
+						InitialDelay:  (1 * time.Second),
+						MaxDelay:      (30 * time.Second),
 						BackoffFactor: 2.0,
 						Jitter:        0.1,
 						MaxAttempts:   5,
@@ -205,9 +206,9 @@ func TestServerConfig_Validate(t *testing.T) {
 			config: ServerConfig{
 				Addr: ":8080",
 				Timeouts: TimeoutConfig{
-					ReadTimeout:  types.Duration(30 * time.Second),
-					WriteTimeout: types.Duration(45 * time.Second),
-					IdleTimeout:  types.Duration(60 * time.Second),
+					ReadTimeout:  (30 * time.Second),
+					WriteTimeout: (45 * time.Second),
+					IdleTimeout:  (60 * time.Second),
 				},
 			},
 			wantErr: false,
@@ -431,8 +432,8 @@ func TestServerConfig_Validate_Lifecycle(t *testing.T) {
 			config: ServerConfig{
 				Addr: ":8080",
 				Lifecycle: supervisor.LifecycleConfig{
-					StartTimeout: types.Duration(30 * time.Second),
-					StopTimeout:  types.Duration(60 * time.Second),
+					StartTimeout: (30 * time.Second),
+					StopTimeout:  (60 * time.Second),
 				},
 			},
 			wantErr: false,
@@ -453,8 +454,8 @@ func TestServerConfig_Validate_Lifecycle(t *testing.T) {
 			config: ServerConfig{
 				Addr: ":8080",
 				Lifecycle: supervisor.LifecycleConfig{
-					StartTimeout: types.Duration(-1 * time.Second),
-					StopTimeout:  types.Duration(30 * time.Second),
+					StartTimeout: (-1 * time.Second),
+					StopTimeout:  (30 * time.Second),
 				},
 			},
 			wantErr: true,
@@ -464,8 +465,8 @@ func TestServerConfig_Validate_Lifecycle(t *testing.T) {
 			config: ServerConfig{
 				Addr: ":8080",
 				Lifecycle: supervisor.LifecycleConfig{
-					StartTimeout: types.Duration(30 * time.Second),
-					StopTimeout:  types.Duration(-1 * time.Second),
+					StartTimeout: (30 * time.Second),
+					StopTimeout:  (-1 * time.Second),
 				},
 			},
 			wantErr: true,

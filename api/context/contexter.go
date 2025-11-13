@@ -1,3 +1,4 @@
+// Package context provides application-level context management utilities.
 package context
 
 // Contexter provides a generic type-safe context value store.

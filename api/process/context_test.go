@@ -1,3 +1,4 @@
+// Package process provides process abstraction and lifecycle.
 package process_test
 
 import (

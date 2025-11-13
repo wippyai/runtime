@@ -1,3 +1,4 @@
+// Package config provides AWS service configuration.
 package config
 
 import (

@@ -1,3 +1,6 @@
+// Package context provides application-level context management utilities.
+// It includes AppContext for global key-value storage and FrameContext for
+// hierarchical scoped values with parent-child relationships.
 package context
 
 import (

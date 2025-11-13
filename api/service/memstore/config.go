@@ -1,3 +1,4 @@
+// Package memstore provides in-memory store service configuration.
 package memstore
 
 import (

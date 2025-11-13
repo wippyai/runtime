@@ -1,3 +1,4 @@
+// Package supervisor provides service lifecycle management and supervision.
 package supervisor
 
 import (

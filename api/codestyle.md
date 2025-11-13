@@ -46,9 +46,6 @@ api/
 │   ├── registry.go
 │   ├── id.go
 │   └── meta.go
-├── types/
-│   ├── duration.go
-│   └── duration_test.go
 ```
 
 ---
@@ -484,7 +481,6 @@ import (
     // Internal API packages
     "github.com/ponyruntime/pony/api/registry"
     "github.com/ponyruntime/pony/api/supervisor"
-    "github.com/ponyruntime/pony/api/types"
 )
 ```
 
@@ -585,24 +581,130 @@ func (c *Config) Validate() error {
 
 ## Time and Duration Handling
 
-### Duration Fields
+### Duration Fields with Custom JSON Marshaling
 
-**Use `types.Duration` instead of `time.Duration`** to get automatic JSON string marshaling:
+Use `time.Duration` with custom `UnmarshalJSON`/`MarshalJSON` methods to parse duration strings like "10s", "5m", "1h":
 
 ```go
-import "github.com/ponyruntime/pony/api/types"
+import (
+    "encoding/json"
+    "fmt"
+    "time"
+)
 
 type Config struct {
-    // Serializes as "10s", "5m", "1h" in JSON
-    CleanupInterval types.Duration `json:"cleanup_interval"`
-    StartTimeout    types.Duration `json:"start_timeout"`
+    CleanupInterval time.Duration `json:"cleanup_interval"`
+    StartTimeout    time.Duration `json:"start_timeout"`
+}
+
+// UnmarshalJSON implements custom unmarshaling to parse duration strings
+func (c *Config) UnmarshalJSON(data []byte) error {
+    type Alias Config
+    aux := &struct {
+        CleanupInterval string `json:"cleanup_interval"`
+        StartTimeout    string `json:"start_timeout"`
+        *Alias
+    }{
+        Alias: (*Alias)(c),
+    }
+
+    if err := json.Unmarshal(data, &aux); err != nil {
+        return err
+    }
+
+    if aux.CleanupInterval != "" {
+        duration, err := time.ParseDuration(aux.CleanupInterval)
+        if err != nil {
+            return fmt.Errorf("invalid cleanup_interval: %w", err)
+        }
+        c.CleanupInterval = duration
+    }
+
+    if aux.StartTimeout != "" {
+        duration, err := time.ParseDuration(aux.StartTimeout)
+        if err != nil {
+            return fmt.Errorf("invalid start_timeout: %w", err)
+        }
+        c.StartTimeout = duration
+    }
+
+    return nil
+}
+
+// MarshalJSON implements custom marshaling to output duration strings
+func (c *Config) MarshalJSON() ([]byte, error) {
+    type Alias Config
+    return json.Marshal(&struct {
+        CleanupInterval string `json:"cleanup_interval"`
+        StartTimeout    string `json:"start_timeout"`
+        *Alias
+    }{
+        CleanupInterval: c.CleanupInterval.String(),
+        StartTimeout:    c.StartTimeout.String(),
+        Alias:          (*Alias)(c),
+    })
 }
 ```
 
-**Benefits:**
-- No manual UnmarshalJSON/MarshalJSON boilerplate
-- Consistent string format ("10s", "5m", "1h")
-- Helper methods: `IsZero()`, `String()`, `Std()`
+**Pattern for nested config structs:**
+
+When duration fields are in a nested struct, implement marshal methods on that struct:
+
+```go
+type TimeoutConfig struct {
+    ReadTimeout  time.Duration `json:"read"`
+    WriteTimeout time.Duration `json:"write"`
+    IdleTimeout  time.Duration `json:"idle"`
+}
+
+func (c *TimeoutConfig) UnmarshalJSON(data []byte) error {
+    type Alias TimeoutConfig
+    aux := &struct {
+        ReadTimeout  string `json:"read"`
+        WriteTimeout string `json:"write"`
+        IdleTimeout  string `json:"idle"`
+        *Alias
+    }{
+        Alias: (*Alias)(c),
+    }
+
+    if err := json.Unmarshal(data, &aux); err != nil {
+        return err
+    }
+
+    var err error
+    if aux.ReadTimeout != "" {
+        c.ReadTimeout, err = time.ParseDuration(aux.ReadTimeout)
+        if err != nil {
+            return fmt.Errorf("invalid read timeout: %w", err)
+        }
+    }
+
+    // ... repeat for write and idle
+
+    return nil
+}
+
+func (c *TimeoutConfig) MarshalJSON() ([]byte, error) {
+    type Alias TimeoutConfig
+    return json.Marshal(&struct {
+        ReadTimeout  string `json:"read"`
+        WriteTimeout string `json:"write"`
+        IdleTimeout  string `json:"idle"`
+        *Alias
+    }{
+        ReadTimeout:  c.ReadTimeout.String(),
+        WriteTimeout: c.WriteTimeout.String(),
+        IdleTimeout:  c.IdleTimeout.String(),
+        Alias:       (*Alias)(c),
+    })
+}
+```
+
+**Real examples in codebase:**
+- `api/service/http/config.go` - TimeoutConfig
+- `api/service/sql/config.go` - PoolConfig
+- `api/supervisor/config.go` - LifecycleConfig and RetryPolicy
 
 ### Time Fields
 
@@ -618,47 +720,48 @@ type Event struct {
 
 ### Default Values
 
-Set defaults in `initDefaults()`:
+Set defaults in `initDefaults()` using direct assignment:
 
 ```go
 func (c *Config) initDefaults() {
-    if c.CleanupInterval.IsZero() {
-        c.CleanupInterval = types.Duration(5 * time.Minute)
+    if c.CleanupInterval == 0 {
+        c.CleanupInterval = 5 * time.Minute
     }
 
-    if c.StartTimeout.IsZero() {
-        c.StartTimeout = types.Duration(10 * time.Second)
+    if c.StartTimeout == 0 {
+        c.StartTimeout = 10 * time.Second
     }
 }
 ```
 
 ### Validation
 
-Check for valid ranges:
+Check for valid ranges using comparison operators:
 
 ```go
 func (c *Config) Validate() error {
     c.initDefaults()
 
-    if c.CleanupInterval.Std() < 0 {
+    if c.CleanupInterval < 0 {
         return fmt.Errorf("cleanup_interval must be positive or zero")
+    }
+
+    if c.StartTimeout <= 0 {
+        return fmt.Errorf("start_timeout must be greater than zero")
     }
 
     return nil
 }
 ```
 
-### Converting to time.Duration
+### Using Duration Values
 
-Use the `Std()` method:
+Use `time.Duration` values directly in time operations:
 
 ```go
-func (c *Config) GetCleanupInterval() time.Duration {
-    return c.CleanupInterval.Std()
-}
-
-// Or use directly in time operations
-ticker := time.NewTicker(c.CleanupInterval.Std())
+// No conversion needed - it's already time.Duration
+ticker := time.NewTicker(c.CleanupInterval)
+ctx, cancel := context.WithTimeout(ctx, c.StartTimeout)
 ```
 
 ---
@@ -714,7 +817,7 @@ func (c *Config) initDefaults() {
 ### Checklist for New API Files
 
 - [ ] Follow naming conventions (camelCase vars, PascalCase types)
-- [ ] Use `types.Duration` for duration fields
+- [ ] Implement custom JSON marshal/unmarshal for `time.Duration` fields
 - [ ] Implement `Validate()` and `initDefaults()` on configs
 - [ ] Use `registry.ID` for service dependencies
 - [ ] Document all exported types and methods
@@ -735,12 +838,12 @@ package myservice
 
 import (
     "context"
+    "encoding/json"
     "fmt"
     "time"
 
     "github.com/ponyruntime/pony/api/registry"
     "github.com/ponyruntime/pony/api/supervisor"
-    "github.com/ponyruntime/pony/api/types"
 )
 
 // Config represents the configuration for MyService.
@@ -752,7 +855,7 @@ type Config struct {
     MaxSize int `json:"max_size"`
 
     // CleanupInterval is how often to run cleanup
-    CleanupInterval types.Duration `json:"cleanup_interval"`
+    CleanupInterval time.Duration `json:"cleanup_interval"`
 
     // Timeouts contains timeout configuration
     Timeouts TimeoutConfig `json:"timeouts"`
@@ -764,10 +867,47 @@ type Config struct {
 // TimeoutConfig contains timeout settings.
 type TimeoutConfig struct {
     // Read is the read timeout
-    Read types.Duration `json:"read"`
+    Read time.Duration `json:"read"`
 
     // Write is the write timeout
-    Write types.Duration `json:"write"`
+    Write time.Duration `json:"write"`
+}
+
+// UnmarshalJSON implements custom unmarshaling for Config to handle time.Duration fields
+func (c *Config) UnmarshalJSON(data []byte) error {
+    type Alias Config
+    aux := &struct {
+        CleanupInterval string `json:"cleanup_interval"`
+        *Alias
+    }{
+        Alias: (*Alias)(c),
+    }
+
+    if err := json.Unmarshal(data, &aux); err != nil {
+        return err
+    }
+
+    if aux.CleanupInterval != "" {
+        duration, err := time.ParseDuration(aux.CleanupInterval)
+        if err != nil {
+            return fmt.Errorf("invalid cleanup_interval: %w", err)
+        }
+        c.CleanupInterval = duration
+    }
+
+    return nil
+}
+
+// MarshalJSON implements custom marshaling for Config to handle time.Duration fields
+func (c *Config) MarshalJSON() ([]byte, error) {
+    type Alias Config
+    return json.Marshal(&struct {
+        CleanupInterval string `json:"cleanup_interval"`
+        *Alias
+    }{
+        CleanupInterval: c.CleanupInterval.String(),
+        Alias:          (*Alias)(c),
+    })
 }
 
 // Validate checks the configuration for errors and initializes defaults.
@@ -794,16 +934,16 @@ func (c *Config) initDefaults() {
         c.MaxSize = 10000
     }
 
-    if c.CleanupInterval.IsZero() {
-        c.CleanupInterval = types.Duration(5 * time.Minute)
+    if c.CleanupInterval == 0 {
+        c.CleanupInterval = 5 * time.Minute
     }
 
-    if c.Timeouts.Read.IsZero() {
-        c.Timeouts.Read = types.Duration(30 * time.Second)
+    if c.Timeouts.Read == 0 {
+        c.Timeouts.Read = 30 * time.Second
     }
 
-    if c.Timeouts.Write.IsZero() {
-        c.Timeouts.Write = types.Duration(30 * time.Second)
+    if c.Timeouts.Write == 0 {
+        c.Timeouts.Write = 30 * time.Second
     }
 
     c.Lifecycle.InitDefaults()

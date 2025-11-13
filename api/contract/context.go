@@ -1,3 +1,4 @@
+// Package contract provides contract and service definitions.
 package contract
 
 import (

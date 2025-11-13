@@ -15,10 +15,11 @@ const (
 	ActionSkipped   = "skipped"
 
 	// Default directories
-	DefaultModulesDir = ".wippy"
-	DefaultSrcDir     = "."
-	TempUpdateDir     = ".wippy-update.tmp"
-	TempVendorFolder  = ".wippy-update.tmp/vendor"
+	DefaultModulesDir  = ".wippy"
+	DefaultSrcDir      = "."
+	TempUpdateDir      = ".wippy-update.tmp"
+	TempVendorFolder   = ".wippy-update.tmp/vendor"
+	VendorSubdirectory = "vendor"
 
 	// Log messages
 	LogInstallingDependencies = "Installing dependencies from lock file"

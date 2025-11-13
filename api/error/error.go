@@ -1,3 +1,4 @@
+// Package error provides error categorization and retry metadata.
 package error
 
 // Error extends the standard error interface with categorization and retry metadata.

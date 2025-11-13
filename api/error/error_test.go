@@ -1,3 +1,4 @@
+// Package error provides error categorization and retry metadata.
 package error
 
 import "testing"

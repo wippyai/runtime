@@ -1,3 +1,4 @@
+// Package cluster provides cluster communication and message encoding.
 package cluster
 
 import "github.com/ponyruntime/pony/api/pubsub"

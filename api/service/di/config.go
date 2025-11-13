@@ -1,3 +1,4 @@
+// Package di provides dependency injection service configuration.
 package di
 
 import (

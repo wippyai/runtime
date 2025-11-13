@@ -1,3 +1,4 @@
+// Package registry provides service registry and entry management.
 package registry
 
 import (
@@ -209,6 +210,114 @@ func TestParseID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ParseID(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestID_String(t *testing.T) {
+	tests := []struct {
+		name     string
+		id       ID
+		expected string
+	}{
+		{
+			name:     "with namespace and name",
+			id:       ID{NS: "test-ns", Name: "test-name"},
+			expected: "test-ns:test-name",
+		},
+		{
+			name:     "name only",
+			id:       ID{NS: "", Name: "test-name"},
+			expected: ":test-name",
+		},
+		{
+			name:     "namespace only",
+			id:       ID{NS: "test-ns", Name: ""},
+			expected: "test-ns:",
+		},
+		{
+			name:     "empty ID",
+			id:       ID{NS: "", Name: ""},
+			expected: ":",
+		},
+		{
+			name:     "complex namespace and name",
+			id:       ID{NS: "my.namespace", Name: "my/name"},
+			expected: "my.namespace:my/name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.id.String()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestID_MarshalJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		id       ID
+		expected string
+	}{
+		{
+			name:     "with namespace and name",
+			id:       ID{NS: "test-ns", Name: "test-name"},
+			expected: `"test-ns:test-name"`,
+		},
+		{
+			name:     "name only",
+			id:       ID{NS: "", Name: "test-name"},
+			expected: `"test-name"`,
+		},
+		{
+			name:     "complex namespace and name",
+			id:       ID{NS: "my.namespace", Name: "my/name"},
+			expected: `"my.namespace:my/name"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := json.Marshal(tt.id)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, string(result))
+		})
+	}
+}
+
+func TestID_WithDefaultNS(t *testing.T) {
+	tests := []struct {
+		name      string
+		id        ID
+		defaultNS Namespace
+		expected  ID
+	}{
+		{
+			name:      "id without namespace",
+			id:        ID{NS: "", Name: "test-name"},
+			defaultNS: "default-ns",
+			expected:  ID{NS: "default-ns", Name: "test-name"},
+		},
+		{
+			name:      "id with namespace",
+			id:        ID{NS: "existing-ns", Name: "test-name"},
+			defaultNS: "default-ns",
+			expected:  ID{NS: "existing-ns", Name: "test-name"},
+		},
+		{
+			name:      "empty default namespace",
+			id:        ID{NS: "", Name: "test-name"},
+			defaultNS: "",
+			expected:  ID{NS: "", Name: "test-name"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.id.WithDefaultNS(tt.defaultNS)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

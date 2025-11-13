@@ -1,3 +1,4 @@
+// Package registry provides service registry and entry management.
 package registry
 
 import (
