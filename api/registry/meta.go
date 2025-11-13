@@ -1,3 +1,4 @@
+// Package registry provides service registry and entry management.
 package registry
 
 // Metadata is a map for storing arbitrary key-value metadata associated with an entry.

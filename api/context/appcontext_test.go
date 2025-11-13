@@ -1,3 +1,4 @@
+// Package context provides application-level context management utilities.
 package context
 
 import (
@@ -157,5 +158,22 @@ func TestAppContext_MultipleTypes(t *testing.T) {
 	}
 	if got := ac.Get("map").(map[string]int)["a"]; got != 1 {
 		t.Errorf("Get(map)[a] = %v, want 1", got)
+	}
+}
+
+func TestNewRootContext(t *testing.T) {
+	ctx := NewRootContext()
+	if ctx == nil {
+		t.Fatal("NewRootContext() returned nil")
+	}
+
+	ac := AppFromContext(ctx)
+	if ac == nil {
+		t.Fatal("NewRootContext() should have AppContext attached")
+	}
+
+	ac.With("test.key", "test.value")
+	if got := ac.Get("test.key"); got != "test.value" {
+		t.Errorf("Get(test.key) = %v, want test.value", got)
 	}
 }

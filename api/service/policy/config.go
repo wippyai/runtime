@@ -1,3 +1,4 @@
+// Package policy provides policy service configuration.
 package policy
 
 import (

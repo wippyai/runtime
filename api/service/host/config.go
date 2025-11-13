@@ -1,3 +1,4 @@
+// Package host provides host service configuration.
 package host
 
 import (
@@ -14,6 +15,7 @@ const (
 	KindHost registry.Kind = "process.host"
 )
 
+// EntryConfig represents the full configuration entry for a process host service including lifecycle management.
 type EntryConfig struct {
 	HostConfig Config                     `json:"host"`
 	Lifecycle  supervisor.LifecycleConfig `json:"lifecycle"`

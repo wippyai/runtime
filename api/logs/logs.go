@@ -2,8 +2,9 @@
 package logs
 
 import (
-	"github.com/ponyruntime/pony/api/event"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/ponyruntime/pony/api/event"
 )
 
 const (

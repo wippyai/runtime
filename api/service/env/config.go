@@ -1,3 +1,4 @@
+// Package env provides environment service configuration.
 package env
 
 import (
@@ -17,10 +18,12 @@ const (
 	KindVariable      registry.Kind = "env.variable"
 )
 
+// MemoryStorageConfig provides configuration for in-memory environment variable storage.
 type MemoryStorageConfig struct {
 	Meta registry.Metadata `json:"meta"`
 }
 
+// FileStorageConfig provides configuration for file-based environment variable storage.
 type FileStorageConfig struct {
 	Meta       registry.Metadata `json:"meta"`
 	FilePath   string            `json:"file_path"`
@@ -29,10 +32,12 @@ type FileStorageConfig struct {
 	DirMode    uint32            `json:"dir_mode,omitempty"`
 }
 
+// OSStorageConfig provides configuration for OS environment variable storage.
 type OSStorageConfig struct {
 	Meta registry.Metadata `json:"meta"`
 }
 
+// RouterStorageConfig provides configuration for routing environment variable requests across multiple storages.
 type RouterStorageConfig struct {
 	Meta     registry.Metadata `json:"meta"`
 	Storages []string          `json:"storages"`

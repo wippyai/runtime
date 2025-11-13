@@ -1,3 +1,4 @@
+// Package pidgen provides process ID generation.
 package pidgen
 
 import (

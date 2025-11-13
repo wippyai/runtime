@@ -1,3 +1,4 @@
+// Package runtime provides runtime execution and command management.
 package runtime
 
 import (

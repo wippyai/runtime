@@ -1,3 +1,4 @@
+// Package security provides security and authentication abstractions.
 package security
 
 import (

@@ -1,3 +1,4 @@
+// Package lua provides Lua runtime integration.
 package lua
 
 import (

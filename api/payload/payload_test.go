@@ -1,3 +1,4 @@
+// Package payload provides data encoding and transcoding.
 package payload
 
 import (

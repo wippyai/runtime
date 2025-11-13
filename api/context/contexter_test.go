@@ -1,3 +1,4 @@
+// Package context provides application-level context management utilities.
 package context
 
 import (
@@ -200,4 +201,63 @@ func TestContexter_Iterate(t *testing.T) {
 			t.Errorf("Iterate() called function %d times on empty contexter, want 0", count)
 		}
 	})
+}
+
+func TestContexter_Len(t *testing.T) {
+	ctx := NewContexter[string]()
+	if ctx.Len() != 0 {
+		t.Errorf("Len() = %d, want 0 for empty contexter", ctx.Len())
+	}
+
+	ctx.SetValue("key1", "value1")
+	if ctx.Len() != 1 {
+		t.Errorf("Len() = %d, want 1 after one insert", ctx.Len())
+	}
+
+	ctx.SetValue("key2", "value2")
+	if ctx.Len() != 2 {
+		t.Errorf("Len() = %d, want 2 after two inserts", ctx.Len())
+	}
+
+	ctx.SetValue("key1", "value3")
+	if ctx.Len() != 2 {
+		t.Errorf("Len() = %d, want 2 after overwrite", ctx.Len())
+	}
+}
+
+func TestContexter_Clone(t *testing.T) {
+	original := NewContexter[string]()
+	original.SetValue("key1", "value1")
+	original.SetValue("key2", "value2")
+
+	cloned := original.Clone()
+	if cloned == nil {
+		t.Fatal("Clone() returned nil")
+	}
+
+	if cloned.Len() != original.Len() {
+		t.Errorf("Clone().Len() = %d, want %d", cloned.Len(), original.Len())
+	}
+
+	val1, ok1 := cloned.Value("key1")
+	if !ok1 || val1 != "value1" {
+		t.Errorf("cloned.Value(key1) = %v, %v, want value1, true", val1, ok1)
+	}
+
+	val2, ok2 := cloned.Value("key2")
+	if !ok2 || val2 != "value2" {
+		t.Errorf("cloned.Value(key2) = %v, %v, want value2, true", val2, ok2)
+	}
+
+	original.SetValue("key3", "value3")
+	val3, ok3 := cloned.Value("key3")
+	if ok3 || val3 != "" {
+		t.Errorf("cloned.Value(key3) = %v, %v, want empty, false (should be independent)", val3, ok3)
+	}
+
+	cloned.SetValue("key4", "value4")
+	val4, ok4 := original.Value("key4")
+	if ok4 || val4 != "" {
+		t.Errorf("original.Value(key4) = %v, %v, want empty, false (should be independent)", val4, ok4)
+	}
 }

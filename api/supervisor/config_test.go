@@ -1,3 +1,4 @@
+// Package supervisor provides service lifecycle management and supervision.
 package supervisor
 
 import (
@@ -5,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,12 +21,12 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 			name: "basic config",
 			config: LifecycleConfig{
 				AutoStart:       true,
-				StartTimeout:    types.Duration(30 * time.Second),
-				StopTimeout:     types.Duration(1 * time.Minute),
-				StableThreshold: types.Duration(5 * time.Second),
+				StartTimeout:    (30 * time.Second),
+				StopTimeout:     (1 * time.Minute),
+				StableThreshold: (5 * time.Second),
 				RetryPolicy: RetryPolicy{
-					InitialDelay:  types.Duration(1 * time.Second),
-					MaxDelay:      types.Duration(30 * time.Second),
+					InitialDelay:  (1 * time.Second),
+					MaxDelay:      (30 * time.Second),
 					BackoffFactor: 2.0,
 					Jitter:        0.1,
 					MaxAttempts:   5,
@@ -73,12 +73,12 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 		{
 			name: "custom durations",
 			config: LifecycleConfig{
-				StartTimeout:    types.Duration(1*time.Hour + 30*time.Minute),
-				StopTimeout:     types.Duration(2*time.Hour + 15*time.Minute),
-				StableThreshold: types.Duration(45 * time.Second),
+				StartTimeout:    (1*time.Hour + 30*time.Minute),
+				StopTimeout:     (2*time.Hour + 15*time.Minute),
+				StableThreshold: (45 * time.Second),
 				RetryPolicy: RetryPolicy{
-					InitialDelay: types.Duration(1*time.Minute + 30*time.Second),
-					MaxDelay:     types.Duration(5*time.Minute + 45*time.Second),
+					InitialDelay: (1*time.Minute + 30*time.Second),
+					MaxDelay:     (5*time.Minute + 45*time.Second),
 				},
 			},
 			expected: `{

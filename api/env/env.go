@@ -1,3 +1,4 @@
+// Package env provides environment variable access and management.
 package env
 
 import (
@@ -31,6 +32,7 @@ var (
 	ErrInvalidVariableName = errors.New("invalid environment variable name")
 )
 
+// Variable represents an environment variable with optional default value and access control.
 type Variable struct {
 	ID           registry.ID       `json:"id"`
 	Meta         registry.Metadata `json:"meta,omitempty"`
@@ -40,6 +42,7 @@ type Variable struct {
 	StorageID    registry.ID       `json:"storage"`
 }
 
+// Storage provides the interface for environment variable storage backends.
 type Storage interface {
 	Get(ctx context.Context, name string) (string, error)
 	Set(ctx context.Context, name, value string) error
@@ -47,6 +50,7 @@ type Storage interface {
 	List(ctx context.Context) (map[string]string, error)
 }
 
+// Registry provides the interface for managing environment variables across registered storages.
 type Registry interface {
 	Get(ctx context.Context, name string) (string, error)
 	Set(ctx context.Context, name string, value string) error

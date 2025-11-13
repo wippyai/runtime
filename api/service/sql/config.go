@@ -1,3 +1,4 @@
+// Package sql provides SQL database service configuration.
 package sql
 
 import (

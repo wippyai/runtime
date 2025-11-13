@@ -1,3 +1,4 @@
+// Package registry provides service registry and entry management.
 package registry
 
 import (
@@ -41,9 +42,7 @@ func (t ID) WithDefaultNS(defaultNS Namespace) ID {
 	}
 }
 
-// ParseID creates an ID from a string in either "namespace:name" or "name-only" format.
-// For "namespace:name" format, the first colon is used as the separator.
-// For "name-only" format, an empty namespace is used.
+// ParseID parses a string in "namespace:name" or "name-only" format into an ID.
 func ParseID(s string) ID {
 	// Fast path: find first colon using IndexByte (faster than strings.SplitN)
 	if idx := strings.IndexByte(s, ':'); idx != -1 {
@@ -61,6 +60,7 @@ func ParseID(s string) ID {
 	}
 }
 
+// UnmarshalJSON deserializes an ID from JSON, supporting both string and object formats.
 func (t *ID) UnmarshalJSON(data []byte) error {
 	// Check if the data is a JSON string
 	if len(data) > 0 && data[0] == '"' {

@@ -142,7 +142,7 @@ func (r *Registry) registerVariable(e event.Event) {
 		return
 	}
 
-	// rquired to pass
+	// required to pass todo: ??? reason about it
 	//	// Allow overriding variables with the same envName (e.g., router storage can override OS storage)
 	//	if existingID, exists := r.variablesByName.Load(envName); exists {
 	//		r.log.Info("overriding existing variable", zap.String("env_name", envName), zap.String("old_id", fmt.Sprintf("%v", existingID)), zap.String("new_id", variable.ID.String()))

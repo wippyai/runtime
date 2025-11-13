@@ -1,3 +1,4 @@
+// Package store provides generic storage abstractions.
 package store
 
 import (

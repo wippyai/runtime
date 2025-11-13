@@ -1,3 +1,4 @@
+// Package supervisor provides service lifecycle management and supervision.
 package supervisor
 
 import (
@@ -11,6 +12,7 @@ import (
 
 const KindProcessService = "process.service"
 
+// ServiceConfig provides configuration for a process service with lifecycle management.
 type ServiceConfig struct {
 	// Process that will be used to start the process
 	Process registry.ID `json:"process" yaml:"process"`

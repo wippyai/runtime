@@ -1,3 +1,4 @@
+// Package tokenstore provides token store service configuration.
 package tokenstore
 
 import (

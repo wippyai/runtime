@@ -1,3 +1,4 @@
+// Package otel provides OpenTelemetry service integration.
 package otel
 
 import (

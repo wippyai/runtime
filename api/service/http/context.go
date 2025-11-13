@@ -1,3 +1,4 @@
+// Package http provides HTTP service configuration.
 package http
 
 import (
