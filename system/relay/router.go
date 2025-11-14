@@ -1,9 +1,9 @@
-package pubsub
+package relay
 
 import (
 	"fmt"
 
-	api "github.com/ponyruntime/pony/api/pubsub"
+	api "github.com/wippyai/runtime/api/relay"
 )
 
 // Router orchestrates message delivery between a local node and external upstreams.

@@ -1,4 +1,4 @@
-package pubsub_test
+package relay_test
 
 import (
 	"context"
@@ -6,13 +6,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	api "github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/system/pubsub"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	api "github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/system/relay"
 )
 
-// mockNode is a mock implementation of the pubsub.Node interface.
+// mockNode is a mock implementation of the relay.Node interface.
 type mockNode struct {
 	id           api.NodeID
 	sendCalled   int32
@@ -33,7 +33,7 @@ func (m *mockNode) Attach(api.PID, chan *api.Package) (context.CancelFunc, error
 }
 func (m *mockNode) Detach(api.PID) {}
 
-// mockReceiver is a mock implementation of the pubsub.Receiver interface.
+// mockReceiver is a mock implementation of the relay.Receiver interface.
 type mockReceiver struct {
 	sendCalled int32
 	sendErr    error
@@ -55,7 +55,7 @@ func TestRouter_Send(t *testing.T) {
 	t.Run("Route to local node", func(t *testing.T) {
 		localNode.sendCalled = 0
 		internode.sendCalled = 0
-		router := pubsub.NewRouter(localNode, internode)
+		router := relay.NewRouter(localNode, internode)
 
 		err := router.Send(pkgToLocal)
 		require.NoError(t, err)
@@ -67,7 +67,7 @@ func TestRouter_Send(t *testing.T) {
 	t.Run("Route to local node (implicit)", func(t *testing.T) {
 		localNode.sendCalled = 0
 		internode.sendCalled = 0
-		router := pubsub.NewRouter(localNode, internode)
+		router := relay.NewRouter(localNode, internode)
 
 		err := router.Send(pkgToLocalImplicit)
 		require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestRouter_Send(t *testing.T) {
 	t.Run("Route to remote node with internode", func(t *testing.T) {
 		localNode.sendCalled = 0
 		internode.sendCalled = 0
-		router := pubsub.NewRouter(localNode, internode)
+		router := relay.NewRouter(localNode, internode)
 
 		err := router.Send(pkgToRemote)
 		require.NoError(t, err)
@@ -90,7 +90,7 @@ func TestRouter_Send(t *testing.T) {
 
 	t.Run("Error when routing to remote node without internode", func(t *testing.T) {
 		localNode.sendCalled = 0
-		router := pubsub.NewRouter(localNode, nil) // No internode receiver
+		router := relay.NewRouter(localNode, nil) // No internode receiver
 
 		err := router.Send(pkgToRemote)
 		require.Error(t, err)
@@ -99,7 +99,7 @@ func TestRouter_Send(t *testing.T) {
 	})
 
 	t.Run("Error on nil package", func(t *testing.T) {
-		router := pubsub.NewRouter(localNode, internode)
+		router := relay.NewRouter(localNode, internode)
 		err := router.Send(nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot send nil package")
@@ -108,7 +108,7 @@ func TestRouter_Send(t *testing.T) {
 	t.Run("Propagate error from local node", func(t *testing.T) {
 		errToSend := errors.New("local send failed")
 		errNode := &mockNode{id: "local", sendErr: errToSend}
-		router := pubsub.NewRouter(errNode, internode)
+		router := relay.NewRouter(errNode, internode)
 
 		err := router.Send(pkgToLocal)
 		require.Error(t, err)
@@ -118,7 +118,7 @@ func TestRouter_Send(t *testing.T) {
 	t.Run("Propagate error from internode", func(t *testing.T) {
 		errToSend := errors.New("internode send failed")
 		errInternode := &mockReceiver{sendErr: errToSend}
-		router := pubsub.NewRouter(localNode, errInternode)
+		router := relay.NewRouter(localNode, errInternode)
 
 		err := router.Send(pkgToRemote)
 		require.Error(t, err)

@@ -1,22 +1,22 @@
-// Package pubsub provides a publish-subscribe messaging system for inter-component communication.
-package pubsub
+// Package relay provides message relay and routing system for inter-component communication.
+package relay
 
 import (
 	"context"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
 // Context keys for storing pubsub-related data in context
 var (
 	// nodeCtx is used to store the Node instance in context (ScopeThread: inherited, mutable)
-	nodeCtx        = &ctxapi.Key{Name: "pubsub.node"}
-	routerCtx      = &ctxapi.Key{Name: "pubsub.router"}
-	nodeManagerCtx = &ctxapi.Key{Name: "pubsub.nodemanager"}
-	hostCtx        = &ctxapi.Key{Name: "pubsub.host"}
+	nodeCtx        = &ctxapi.Key{Name: "relay.node"}
+	routerCtx      = &ctxapi.Key{Name: "relay.router"}
+	nodeManagerCtx = &ctxapi.Key{Name: "relay.nodemanager"}
+	hostCtx        = &ctxapi.Key{Name: "relay.host"}
 )
 
-// NodeManager manages pubsub nodes and hosts.
+// NodeManager manages relay nodes and hosts.
 type NodeManager interface {
 	Node() Node
 	Start(ctx context.Context) error

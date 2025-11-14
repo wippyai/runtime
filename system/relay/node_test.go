@@ -1,11 +1,11 @@
-package pubsub
+package relay
 
 import (
 	"context"
 	"sync/atomic"
 	"testing"
 
-	api "github.com/ponyruntime/pony/api/pubsub"
+	api "github.com/wippyai/runtime/api/relay"
 
 	"github.com/stretchr/testify/assert"
 )

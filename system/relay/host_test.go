@@ -1,4 +1,4 @@
-package pubsub
+package relay
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/ponyruntime/pony/api/pubsub"
 	"github.com/stretchr/testify/assert"
+	api "github.com/wippyai/runtime/api/relay"
 	"go.uber.org/zap"
 )
 

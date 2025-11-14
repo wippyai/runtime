@@ -1,11 +1,11 @@
-package pubsub
+package relay
 
 import (
 	"context"
 	"fmt"
 	"sync"
 
-	api "github.com/ponyruntime/pony/api/pubsub"
+	api "github.com/wippyai/runtime/api/relay"
 )
 
 // Node represents a messaging node in the pub/sub system that manages a

@@ -1,14 +1,14 @@
-// Package pubsub provides a publish-subscribe messaging system for inter-component communication.
-package pubsub
+// Package relay provides message relay and routing system for inter-component communication.
+package relay
 
 import (
 	"context"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 func TestPID_String(t *testing.T) {
