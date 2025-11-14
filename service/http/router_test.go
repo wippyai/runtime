@@ -5,11 +5,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/registry"
-	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	contextapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
+	config "github.com/wippyai/runtime/api/service/http"
 )
 
 func TestRouteManager_BasicOperations(t *testing.T) {

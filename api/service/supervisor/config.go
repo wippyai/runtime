@@ -4,10 +4,10 @@ package supervisor
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/api/topology"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/api/topology"
 )
 
 const KindProcessService = "process.service"
@@ -18,7 +18,7 @@ type ServiceConfig struct {
 	Process registry.ID `json:"process" yaml:"process"`
 
 	// Host Process where the process should be started
-	HostID pubsub.HostID `json:"host" yaml:"host"`
+	HostID relay.HostID `json:"host" yaml:"host"`
 
 	// Input to be passed to the process as input
 	Input []any `json:"input" yaml:"input"`

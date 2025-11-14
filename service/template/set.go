@@ -8,10 +8,10 @@ import (
 	"sync"
 
 	"github.com/CloudyKit/jet/v6"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/api/service/template"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/service/template"
 )
 
 // TemplateSet represents a set of templates with shared configuration

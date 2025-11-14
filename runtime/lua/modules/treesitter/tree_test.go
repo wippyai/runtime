@@ -7,9 +7,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

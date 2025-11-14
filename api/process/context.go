@@ -5,9 +5,9 @@ import (
 	"context"
 	"errors"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // PrototypeFactory manages process prototypes.
@@ -127,12 +127,12 @@ func GetHosts(ctx context.Context) HostRegistry {
 // OnComplete is the type for a process completion callback.
 // It is called when a process finishes execution, either successfully or with an error.
 // The callback receives the process ID and the execution result.
-type OnComplete func(pid pubsub.PID, result *runtime.Result)
+type OnComplete func(pid relay.PID, result *runtime.Result)
 
 // OnStart is the type for a process start callback.
 // It is called when a process begins execution.
 // The callback receives the process ID and the process instance.
-type OnStart func(pid pubsub.PID, proc Process)
+type OnStart func(pid relay.PID, proc Process)
 
 // SetOnComplete sets an OnComplete callback in the FrameContext.
 // If there's already one present, it combines them so that both are called.
@@ -148,7 +148,7 @@ func SetOnComplete(ctx context.Context, cb OnComplete) error {
 
 	if val, ok := fc.Get(onCompleteCtx); ok {
 		if existing, ok := val.(OnComplete); ok {
-			combined := func(pid pubsub.PID, result *runtime.Result) {
+			combined := func(pid relay.PID, result *runtime.Result) {
 				cb(pid, result)
 				existing(pid, result)
 			}
@@ -173,7 +173,7 @@ func SetOnStart(ctx context.Context, cb OnStart) error {
 
 	if val, ok := fc.Get(onStartCtx); ok {
 		if existing, ok := val.(OnStart); ok {
-			combined := func(pid pubsub.PID, proc Process) {
+			combined := func(pid relay.PID, proc Process) {
 				cb(pid, proc)
 				existing(pid, proc)
 			}

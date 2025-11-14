@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
 

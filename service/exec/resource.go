@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/api/service/exec"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/service/exec"
 )
 
 // executorProvider implements resource.Provider for ProcessExecutor

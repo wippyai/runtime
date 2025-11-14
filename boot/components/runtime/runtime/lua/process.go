@@ -5,11 +5,11 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
-	processmodapi "github.com/ponyruntime/pony/runtime/lua/modules/processmod"
+	"github.com/wippyai/runtime/api/boot"
+	logapi "github.com/wippyai/runtime/api/logs"
+	bootpkg "github.com/wippyai/runtime/boot"
+	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
+	processmodapi "github.com/wippyai/runtime/runtime/lua/modules/processmod"
 )
 
 func LuaProcess() boot.Component {

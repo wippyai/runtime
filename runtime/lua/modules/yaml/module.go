@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"gopkg.in/yaml.v3"
 )

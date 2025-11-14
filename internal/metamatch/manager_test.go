@@ -3,7 +3,7 @@ package metamatch
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 func TestBasicMatchers(t *testing.T) {

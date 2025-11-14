@@ -3,10 +3,10 @@ package security
 import (
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/security"
 	"github.com/stretchr/testify/assert"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/security"
 )
 
 func TestWithSecurityConfig(t *testing.T) {

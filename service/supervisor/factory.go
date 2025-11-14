@@ -1,9 +1,9 @@
 package supervisor
 
 import (
-	"github.com/ponyruntime/pony/api/registry"
-	processApi "github.com/ponyruntime/pony/api/service/supervisor"
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/registry"
+	processApi "github.com/wippyai/runtime/api/service/supervisor"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 // DefaultServiceFactory is the standard implementation of ServiceFactory

@@ -2,22 +2,22 @@ package template
 
 import (
 	"context"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
-	templatesvc "github.com/ponyruntime/pony/service/template"
-	lua2 "github.com/ponyruntime/pony/system/payload/lua"
+	templatesvc "github.com/wippyai/runtime/service/template"
+	lua2 "github.com/wippyai/runtime/system/payload/lua"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/api/service/template"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	payloadSystem "github.com/ponyruntime/pony/system/payload"
-	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/service/template"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
+	payloadSystem "github.com/wippyai/runtime/system/payload"
+	"github.com/wippyai/runtime/system/payload/json"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap/zaptest"
 )

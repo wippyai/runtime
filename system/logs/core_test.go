@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/ponyruntime/pony/api/logs"
+	api "github.com/wippyai/runtime/api/logs"
 
-	"github.com/ponyruntime/pony/api/event"
+	"github.com/wippyai/runtime/api/event"
 	"go.uber.org/zap/zapcore"
 )
 

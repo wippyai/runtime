@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 
 	lua "github.com/yuin/gopher-lua"
 )

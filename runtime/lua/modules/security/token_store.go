@@ -5,12 +5,12 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	secapi "github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	securityapi "github.com/ponyruntime/pony/runtime/lua/security"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	securityapi "github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

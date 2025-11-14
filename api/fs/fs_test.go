@@ -5,9 +5,9 @@ import (
 	"context"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/event"
 	"github.com/stretchr/testify/assert"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
 )
 
 func TestEventConstants(t *testing.T) {

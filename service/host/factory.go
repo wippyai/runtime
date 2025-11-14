@@ -5,25 +5,25 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/service/host"
-	"github.com/ponyruntime/pony/api/supervisor"
-	msg "github.com/ponyruntime/pony/system/pubsub"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/service/host"
+	"github.com/wippyai/runtime/api/supervisor"
+	msg "github.com/wippyai/runtime/system/relay"
 	"go.uber.org/zap"
 )
 
 // ProcessPoolAPI defines the interface that a process pool must implement
 type ProcessPoolAPI interface {
 	// Add registers a new process with the pool
-	Add(pid pubsub.PID, proc process.Process) error
+	Add(pid relay.PID, proc process.Process) error
 
 	// Schedule adds a process to the work queue
-	Schedule(pid pubsub.PID) error
+	Schedule(pid relay.PID) error
 
 	// Has checks if a process exists in the pool
-	Has(pid pubsub.PID) bool
+	Has(pid relay.PID) bool
 
 	// Start launches the worker goroutines
 	Start()
@@ -32,25 +32,25 @@ type ProcessPoolAPI interface {
 	Close()
 
 	// Terminate notifies a process about termination
-	Terminate(pid pubsub.PID)
+	Terminate(pid relay.PID)
 
 	// Remove removes a process from the pool
-	Remove(pid pubsub.PID)
+	Remove(pid relay.PID)
 
 	// Cancel sends a cancellation signal to a specific process
-	Cancel(pid pubsub.PID, deadline time.Time) error
+	Cancel(pid relay.PID, deadline time.Time) error
 
 	// CancelAll sends cancellation signals to all processes and waits for completion
 	CancelAll(ctx context.Context, deadline time.Time) error
 
 	// Send sends a message to a specific process
-	Send(pid pubsub.PID, pkg *pubsub.Package) error
+	Send(pid relay.PID, pkg *relay.Package) error
 }
 
 // MessageHostFactory defines an interface for creating message hosts
 type MessageHostFactory interface {
 	// CreateMessageHost creates a new message host
-	CreateMessageHost(ctx context.Context, config *host.EntryConfig, logger *zap.Logger) (pubsub.Host, error)
+	CreateMessageHost(ctx context.Context, config *host.EntryConfig, logger *zap.Logger) (relay.Host, error)
 }
 
 // DefaultMessageHostFactory is the standard implementation of MessageHostFactory
@@ -61,7 +61,7 @@ func (f *DefaultMessageHostFactory) CreateMessageHost(
 	ctx context.Context,
 	config *host.EntryConfig,
 	logger *zap.Logger,
-) (pubsub.Host, error) {
+) (relay.Host, error) {
 	if logger == nil {
 		return nil, fmt.Errorf("logger is required")
 	}

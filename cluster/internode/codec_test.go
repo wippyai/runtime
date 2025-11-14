@@ -3,8 +3,8 @@ package internode
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 // mockTranscoder for testing
@@ -22,23 +22,23 @@ func TestMessageCodec_PackagePIDs_SourceTarget(t *testing.T) {
 	codec := NewMessageCodec(&mockTranscoder{})
 
 	// Create PIDs with actual values
-	sourcePID := pubsub.PID{
+	sourcePID := relay.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "src123",
 	}
 
-	targetPID := pubsub.PID{
+	targetPID := relay.PID{
 		Node:   "node2",
 		Host:   "host2",
 		UniqID: "tgt456",
 	}
 
 	// Create package with both Source and Target
-	originalPkg := &pubsub.Package{
+	originalPkg := &relay.Package{
 		Source: sourcePID,
 		Target: targetPID,
-		Messages: []*pubsub.Message{
+		Messages: []*relay.Message{
 			{
 				Topic: "test.topic",
 				Payloads: []payload.Payload{
@@ -101,10 +101,10 @@ func TestMessageCodec_EmptyPIDs(t *testing.T) {
 	codec := NewMessageCodec(&mockTranscoder{})
 
 	// Package with empty PIDs (this is what we're seeing in logs)
-	originalPkg := &pubsub.Package{
-		Source: pubsub.PID{}, // Empty
-		Target: pubsub.PID{}, // Empty
-		Messages: []*pubsub.Message{
+	originalPkg := &relay.Package{
+		Source: relay.PID{}, // Empty
+		Target: relay.PID{}, // Empty
+		Messages: []*relay.Message{
 			{
 				Topic: "test.topic",
 				Payloads: []payload.Payload{

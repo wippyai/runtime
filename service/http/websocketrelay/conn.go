@@ -9,16 +9,16 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/internal/uniqid"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/internal/uniqid"
 	"go.uber.org/zap"
 )
 
-// Connection represents a single WebSocket connection and its pubsub relay
+// Connection represents a single WebSocket connection and its relay
 type Connection struct {
 	// Context and cancellation
 	ctx       context.Context
@@ -27,12 +27,12 @@ type Connection struct {
 	// WebSocket connection
 	conn *websocket.Conn
 
-	// PubSub components
-	wsPID               pubsub.PID
-	currentTargetPID    pubsub.PID
-	currentMessageTopic pubsub.Topic
-	host                pubsub.Host
-	node                pubsub.Node
+	// Relay components
+	wsPID               relay.PID
+	currentTargetPID    relay.PID
+	currentMessageTopic relay.Topic
+	host                relay.Host
+	node                relay.Node
 	topo                topology.Topology
 	transcoder          payload.Transcoder
 
@@ -47,7 +47,7 @@ type Connection struct {
 	msgCount    atomic.Int64
 
 	// Channels
-	msgCh    chan *pubsub.Package
+	msgCh    chan *relay.Package
 	readDone chan struct{}
 
 	// Logger
@@ -58,12 +58,12 @@ type Connection struct {
 func NewConnection(
 	appCtx context.Context,
 	wsConn *websocket.Conn,
-	targetPID pubsub.PID,
+	targetPID relay.PID,
 	config RelayCommand,
-	messageTopic pubsub.Topic,
+	messageTopic relay.Topic,
 	serverID registry.ID,
-	host pubsub.Host,
-	node pubsub.Node,
+	host relay.Host,
+	node relay.Node,
 	topo topology.Topology,
 	transcoder payload.Transcoder,
 	idGen *uniqid.Generator, // Add idGen parameter
@@ -89,7 +89,7 @@ func NewConnection(
 	}
 
 	// Create a unique PID for this WebSocket connection
-	wsPID := pubsub.PID{
+	wsPID := relay.PID{
 		Node:   node.ID(),
 		Host:   serverID.String(),
 		UniqID: idGen.Generate(), // Use the passed idGen
@@ -119,7 +119,7 @@ func NewConnection(
 		heartbeatInterval:   heartbeatInterval,
 		heartbeatTicker:     time.NewTicker(heartbeatInterval),
 		connectedAt:         time.Now(),
-		msgCh:               make(chan *pubsub.Package, 10),
+		msgCh:               make(chan *relay.Package, 10),
 		readDone:            make(chan struct{}),
 		logger:              logger.With(zap.String("pid", wsPID.String())),
 	}
@@ -165,7 +165,7 @@ func (c *Connection) Serve() {
 	c.processMessages()
 }
 
-// processMessages handles incoming messages from pubsub and heartbeat events
+// processMessages handles incoming messages from relay and heartbeat events
 func (c *Connection) processMessages() {
 	defer c.cleanup()
 
@@ -187,12 +187,12 @@ func (c *Connection) processMessages() {
 				return
 			}
 
-			c.handlePubSubPackage(pkg)
+			c.handleRelayPackage(pkg)
 		}
 	}
 }
 
-// handleWebSocketRead continuously reads messages from WebSocket and forwards them to pubsub
+// handleWebSocketRead continuously reads messages from WebSocket and forwards them to relay
 func (c *Connection) handleWebSocketRead() {
 	defer close(c.readDone)
 	defer c.cancelCtx()
@@ -219,18 +219,18 @@ func (c *Connection) handleWebSocketRead() {
 			// Increment message counter
 			c.msgCount.Add(1)
 
-			// Forward message to pubsub
-			if err := c.forwardMessageToPubSub(msgType, data); err != nil {
-				c.logger.Error("error forwarding message to pubsub", zap.Error(err))
+			// Forward message to relay
+			if err := c.forwardMessageToRelay(msgType, data); err != nil {
+				c.logger.Error("error forwarding message to relay", zap.Error(err))
 				return
 			}
 		}
 	}
 }
 
-// forwardMessageToPubSub converts WebSocket message to pubsub message and sends it
-func (c *Connection) forwardMessageToPubSub(msgType websocket.MessageType, data []byte) error {
-	// Convert to pubsub payload
+// forwardMessageToRelay converts WebSocket message to relay message and sends it
+func (c *Connection) forwardMessageToRelay(msgType websocket.MessageType, data []byte) error {
+	// Convert to relay payload
 	var payloadData payload.Payload
 	if msgType == websocket.MessageText {
 		payloadData = payload.NewString(string(data))
@@ -238,14 +238,14 @@ func (c *Connection) forwardMessageToPubSub(msgType websocket.MessageType, data 
 		payloadData = payload.NewPayload(data, payload.Bytes)
 	}
 
-	c.logger.Info("Forwarding message from WebSocket to pubsub",
+	c.logger.Info("Forwarding message from WebSocket to relay",
 		zap.String("from", c.wsPID.String()),
 		zap.String("to", c.currentTargetPID.String()),
 		zap.String("topic", string(c.currentMessageTopic)),
 		zap.Int("data_len", len(data)))
 
 	// Send to target PID
-	msg := pubsub.NewPackage(c.wsPID, c.currentTargetPID, c.currentMessageTopic, payloadData)
+	msg := relay.NewPackage(c.wsPID, c.currentTargetPID, c.currentMessageTopic, payloadData)
 	err := c.node.Send(msg)
 	if err != nil {
 		c.logger.Error("Failed to send message to node", zap.Error(err))
@@ -253,9 +253,9 @@ func (c *Connection) forwardMessageToPubSub(msgType websocket.MessageType, data 
 	return err
 }
 
-// handlePubSubPackage processes a package received from pubsub
-func (c *Connection) handlePubSubPackage(pkg *pubsub.Package) {
-	defer pubsub.ReleasePackage(pkg)
+// handleRelayPackage processes a package received from relay
+func (c *Connection) handleRelayPackage(pkg *relay.Package) {
+	defer relay.ReleasePackage(pkg)
 
 	for _, msg := range pkg.Messages {
 		// Handle exit events for the target PID
@@ -289,7 +289,7 @@ func (c *Connection) handlePubSubPackage(pkg *pubsub.Package) {
 	}
 }
 
-// handleExitEvent processes exit events from pubsub
+// handleExitEvent processes exit events from relay
 func (c *Connection) handleExitEvent(payloads []payload.Payload) bool {
 	for _, p := range payloads {
 		// Check if the payload is an exit event
@@ -314,7 +314,7 @@ func (c *Connection) handleExitEvent(payloads []payload.Payload) bool {
 	return false
 }
 
-// handleControlMessage processes control messages from pubsub
+// handleControlMessage processes control messages from relay
 func (c *Connection) handleControlMessage(p payload.Payload) {
 	var command RelayCommand
 	if err := c.transcoder.Unmarshal(p, &command); err != nil {
@@ -352,7 +352,7 @@ func (c *Connection) handleControlMessage(p payload.Payload) {
 // handleTargetPIDChange processes a change in target PID
 func (c *Connection) handleTargetPIDChange(command RelayCommand) {
 	oldTarget := c.currentTargetPID
-	newTarget, err := pubsub.ParsePID(command.TargetPID)
+	newTarget, err := relay.ParsePID(command.TargetPID)
 	if err != nil {
 		c.logger.Error("invalid target PID in control command", zap.Error(err))
 		return
@@ -392,7 +392,7 @@ func (c *Connection) handleTargetPIDChange(command RelayCommand) {
 	c.logger.Debug("updated target PID", zap.String("newTarget", newTarget.String()))
 }
 
-// handleCloseMessage processes a close message from pubsub
+// handleCloseMessage processes a close message from relay
 func (c *Connection) handleCloseMessage(payloads []payload.Payload) {
 	reason := "Connection closed by server"
 
@@ -412,7 +412,7 @@ func (c *Connection) handleCloseMessage(payloads []payload.Payload) {
 
 // forwardPayloadToWebSocket sends payloads to the WebSocket client
 // with topic information and support for multiple payloads
-func (c *Connection) forwardPayloadToWebSocket(topic pubsub.Topic, payloads ...payload.Payload) error {
+func (c *Connection) forwardPayloadToWebSocket(topic relay.Topic, payloads ...payload.Payload) error {
 	if len(payloads) == 0 {
 		return nil
 	}
@@ -494,7 +494,7 @@ func (c *Connection) forwardPayloadToWebSocket(topic pubsub.Topic, payloads ...p
 }
 
 // sendJoinNotification sends a join notification to the target PID
-func (c *Connection) sendJoinNotification(targetPID pubsub.PID) error {
+func (c *Connection) sendJoinNotification(targetPID relay.PID) error {
 	// Create a join info structure that includes both client PID and metadata
 	joinInfo := JoinInfo{
 		ClientPID: c.wsPID.String(),
@@ -508,7 +508,7 @@ func (c *Connection) sendJoinNotification(targetPID pubsub.PID) error {
 	}
 
 	// Create and send a single package containing both the client PID and metadata
-	joinMsg := pubsub.NewPackage(
+	joinMsg := relay.NewPackage(
 		c.wsPID,
 		targetPID,
 		WSJoinTopic,
@@ -519,7 +519,7 @@ func (c *Connection) sendJoinNotification(targetPID pubsub.PID) error {
 }
 
 // sendLeaveNotification sends a leave notification to the target PID
-func (c *Connection) sendLeaveNotification(targetPID pubsub.PID) error {
+func (c *Connection) sendLeaveNotification(targetPID relay.PID) error {
 	// Create a join info structure that includes both client PID and metadata
 	leaveInfo := JoinInfo{
 		ClientPID: c.wsPID.String(),
@@ -533,7 +533,7 @@ func (c *Connection) sendLeaveNotification(targetPID pubsub.PID) error {
 	}
 
 	// Create and send a single package containing both the client PID and metadata
-	leaveMsg := pubsub.NewPackage(
+	leaveMsg := relay.NewPackage(
 		c.wsPID,
 		targetPID,
 		WSLeaveTopic,
@@ -561,7 +561,7 @@ func (c *Connection) sendHeartbeat() {
 	}
 
 	// Create and send a single heartbeat message
-	heartbeatMsg := pubsub.NewPackage(
+	heartbeatMsg := relay.NewPackage(
 		c.wsPID,
 		c.currentTargetPID,
 		WSHeartbeatTopic,

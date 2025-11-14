@@ -4,8 +4,8 @@ package registry
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 // Registry system constants define the various event types and identifiers used throughout the registry.

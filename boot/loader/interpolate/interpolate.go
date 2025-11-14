@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 
-	"github.com/ponyruntime/pony/api/payload"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 // EntryContext holds the context for loading and interpolating configuration entries.

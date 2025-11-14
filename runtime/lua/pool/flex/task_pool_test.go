@@ -3,21 +3,21 @@ package flex
 import (
 	"context"
 	"fmt"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	runtime2 "runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	api "github.com/wippyai/runtime/api/runtime/lua"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/runtime"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

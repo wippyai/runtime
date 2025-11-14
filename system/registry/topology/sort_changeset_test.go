@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
 	"go.uber.org/zap"
 )
 

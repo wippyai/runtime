@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 // Helper function to create a new Bus for testing

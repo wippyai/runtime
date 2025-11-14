@@ -6,11 +6,11 @@ import (
 	"context"
 	httpbase "net/http"
 
-	"github.com/ponyruntime/pony/api/boot"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	httpapimod "github.com/ponyruntime/pony/runtime/lua/modules/http"
-	"github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
+	"github.com/wippyai/runtime/api/boot"
+	logapi "github.com/wippyai/runtime/api/logs"
+	bootpkg "github.com/wippyai/runtime/boot"
+	httpapimod "github.com/wippyai/runtime/runtime/lua/modules/http"
+	"github.com/wippyai/runtime/runtime/lua/modules/httpclient"
 )
 
 func LuaHTTP() boot.Component {

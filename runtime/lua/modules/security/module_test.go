@@ -2,16 +2,16 @@ package security
 
 import (
 	"context"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	secapi "github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/system/security"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/system/security"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/deps/lock"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	"go.uber.org/zap"
 )
 

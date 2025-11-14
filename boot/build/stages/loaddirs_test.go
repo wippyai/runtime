@@ -6,13 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	transcoder "github.com/ponyruntime/pony/system/payload"
-	jpayload "github.com/ponyruntime/pony/system/payload/json"
-	ypayload "github.com/ponyruntime/pony/system/payload/yaml"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	transcoder "github.com/wippyai/runtime/system/payload"
+	jpayload "github.com/wippyai/runtime/system/payload/json"
+	ypayload "github.com/wippyai/runtime/system/payload/yaml"
 	"go.uber.org/zap"
 )
 

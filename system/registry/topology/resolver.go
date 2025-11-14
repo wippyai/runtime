@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // PathConfig defines a dependency extraction pattern.

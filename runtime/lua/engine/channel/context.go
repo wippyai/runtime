@@ -3,8 +3,8 @@ package channel
 import (
 	"context"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 var uowContext = ctxapi.Key{Name: "channel.context"}

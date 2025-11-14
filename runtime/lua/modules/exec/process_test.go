@@ -3,22 +3,22 @@ package exec
 import (
 	"context"
 	"fmt" // Import fmt
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"runtime"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	apiexec "github.com/ponyruntime/pony/api/service/exec"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	luatime "github.com/ponyruntime/pony/runtime/lua/modules/time"
-	native "github.com/ponyruntime/pony/service/exec/native" // Import the native implementation
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	apiexec "github.com/wippyai/runtime/api/service/exec"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
+	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
+	luatime "github.com/wippyai/runtime/runtime/lua/modules/time"
+	native "github.com/wippyai/runtime/service/exec/native" // Import the native implementation
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

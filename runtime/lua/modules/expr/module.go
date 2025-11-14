@@ -6,9 +6,9 @@ import (
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
-	lru "github.com/ponyruntime/pony/internal/cache"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"github.com/ponyruntime/pony/system/payload/lua"
+	lru "github.com/wippyai/runtime/internal/cache"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/system/payload/lua"
 	luavm "github.com/yuin/gopher-lua"
 )
 

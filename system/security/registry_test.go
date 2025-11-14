@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/security"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/security"
 	"go.uber.org/zap"
 )
 

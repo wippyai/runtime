@@ -10,8 +10,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ponyruntime/pony/api/registry"
-	lru "github.com/ponyruntime/pony/internal/cache"
+	"github.com/wippyai/runtime/api/registry"
+	lru "github.com/wippyai/runtime/internal/cache"
 )
 
 const (

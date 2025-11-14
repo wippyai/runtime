@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	apierror "github.com/ponyruntime/pony/api/error"
-	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
-	"github.com/ponyruntime/pony/api/runtime"
-	retryapi "github.com/ponyruntime/pony/api/service/interceptor/retry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
+	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
+	"github.com/wippyai/runtime/api/runtime"
+	retryapi "github.com/wippyai/runtime/api/service/interceptor/retry"
 )
 
 type testError struct {

@@ -1,10 +1,10 @@
 package command
 
 import (
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 

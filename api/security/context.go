@@ -5,8 +5,8 @@ import (
 	"context"
 	"errors"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/registry"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Context keys

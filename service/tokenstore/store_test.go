@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"strings"
 	"sync"
 	"testing"
@@ -13,17 +13,17 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/api/service/memstore"
-	"github.com/ponyruntime/pony/api/service/tokenstore"
-	memstore2 "github.com/ponyruntime/pony/service/memstore"
-	tokenstore2 "github.com/ponyruntime/pony/service/tokenstore"
-	securitysys "github.com/ponyruntime/pony/system/security"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/api/service/memstore"
+	"github.com/wippyai/runtime/api/service/tokenstore"
+	memstore2 "github.com/wippyai/runtime/service/memstore"
+	tokenstore2 "github.com/wippyai/runtime/service/tokenstore"
+	securitysys "github.com/wippyai/runtime/system/security"
 )
 
 // jsonTranscoder is a simple JSON implementation of payload.Transcoder

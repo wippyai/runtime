@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ponyruntime/pony/deps/graph"
-	"github.com/ponyruntime/pony/deps/lock"
-	"github.com/ponyruntime/pony/deps/storage"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/boot/deps/graph"
+	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/boot/deps/storage"
 	"go.uber.org/zap"
 )
 

@@ -2,7 +2,7 @@
 // use to observe membership changes, leader transitions, and KV mutations.
 package cluster
 
-import "github.com/ponyruntime/pony/api/event"
+import "github.com/wippyai/runtime/api/event"
 
 /*
    Constants

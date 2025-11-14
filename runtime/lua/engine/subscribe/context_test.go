@@ -2,11 +2,11 @@ package subscribe
 
 import (
 	"context"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
 

@@ -1,6 +1,6 @@
 package cli
 
-import "github.com/ponyruntime/pony/api/boot"
+import "github.com/wippyai/runtime/api/boot"
 
 const (
 	// Component name (also used as config section name)

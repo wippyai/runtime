@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/registry"
-	config "github.com/ponyruntime/pony/api/service/sql"
+	"github.com/wippyai/runtime/api/registry"
+	config "github.com/wippyai/runtime/api/service/sql"
 )
 
 // PoolFactoryAPI defines the interface for creating database connection pools

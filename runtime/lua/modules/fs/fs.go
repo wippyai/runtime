@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	fsapi "github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	fsapi "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 

@@ -5,8 +5,8 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	jsonmod "github.com/ponyruntime/pony/runtime/lua/modules/json"
+	"github.com/wippyai/runtime/api/boot"
+	jsonmod "github.com/wippyai/runtime/runtime/lua/modules/json"
 )
 
 func LuaJSON() boot.Component {

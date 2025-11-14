@@ -1,14 +1,14 @@
 package security
 
 import (
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/registry"
-	secapi "github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/system/security"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/registry"
+	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )
 

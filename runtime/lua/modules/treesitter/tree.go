@@ -7,8 +7,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"

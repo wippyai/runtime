@@ -5,9 +5,9 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
+	"github.com/wippyai/runtime/api/boot"
+	bootpkg "github.com/wippyai/runtime/boot"
+	fsmod "github.com/wippyai/runtime/runtime/lua/modules/fs"
 )
 
 func LuaFS() boot.Component {

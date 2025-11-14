@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/boot/components/core/core"
-	lua "github.com/ponyruntime/pony/boot/components/runtime/runtime/lua"
-	"github.com/ponyruntime/pony/boot/components/service/service"
-	"github.com/ponyruntime/pony/boot/components/system/system"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/components/core/core"
+	lua "github.com/wippyai/runtime/boot/components/runtime/runtime/lua"
+	"github.com/wippyai/runtime/boot/components/service/service"
+	"github.com/wippyai/runtime/boot/components/system/system"
 )
 
 // StandardComponents returns the default component set for wippy runtime.

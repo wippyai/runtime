@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/env"
-	"github.com/ponyruntime/pony/api/event"
-	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/system/eventbus"
-	"github.com/ponyruntime/pony/system/pubsub"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	relayapi "github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/system/eventbus"
+	"github.com/wippyai/runtime/system/relay"
 	"go.uber.org/zap"
 )
 
@@ -74,7 +74,7 @@ func setupTestRegistry() (*Registry, event.Bus, context.Context) {
 	bus := eventbus.NewBus()
 	reg := NewRegistry(bus, logger)
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 	return reg, bus, ctx
 }
 

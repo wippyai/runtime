@@ -2,34 +2,34 @@ package process
 
 import (
 	"context"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 	"time"
 
-	processapi "github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
-	topologyapi "github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	processapi "github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	topologyapi "github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
 // mockProcessManager implements process.Manager for testing
 type mockProcessManager struct {
-	processes map[pubsub.PID]bool
+	processes map[relay.PID]bool
 }
 
 func newMockProcessManager() *mockProcessManager {
 	return &mockProcessManager{
-		processes: make(map[pubsub.PID]bool),
+		processes: make(map[relay.PID]bool),
 	}
 }
 
-func (m *mockProcessManager) Start(_ context.Context, start *processapi.Start) (pubsub.PID, error) {
-	pid := pubsub.PID{
+func (m *mockProcessManager) Start(_ context.Context, start *processapi.Start) (relay.PID, error) {
+	pid := relay.PID{
 		Host:   start.HostID,
 		UniqID: start.UniqID,
 	}
@@ -37,12 +37,12 @@ func (m *mockProcessManager) Start(_ context.Context, start *processapi.Start) (
 	return pid, nil
 }
 
-func (m *mockProcessManager) Terminate(_ context.Context, pid pubsub.PID) error {
+func (m *mockProcessManager) Terminate(_ context.Context, pid relay.PID) error {
 	delete(m.processes, pid)
 	return nil
 }
 
-func (m *mockProcessManager) Cancel(_ context.Context, _ pubsub.PID, pid pubsub.PID, _ time.Time) error {
+func (m *mockProcessManager) Cancel(_ context.Context, _ relay.PID, pid relay.PID, _ time.Time) error {
 	delete(m.processes, pid)
 	return nil
 }
@@ -53,30 +53,30 @@ func (m *mockProcessManager) AttachLifecycle(ctx context.Context, _ processapi.L
 
 // mockTopology implements topology.Topology for testing
 type mockTopology struct {
-	processes map[pubsub.PID]bool
-	monitors  map[pubsub.PID][]pubsub.PID
-	links     map[pubsub.PID][]pubsub.PID
+	processes map[relay.PID]bool
+	monitors  map[relay.PID][]relay.PID
+	links     map[relay.PID][]relay.PID
 }
 
 func newMockTopology() *mockTopology {
 	return &mockTopology{
-		processes: make(map[pubsub.PID]bool),
-		monitors:  make(map[pubsub.PID][]pubsub.PID),
-		links:     make(map[pubsub.PID][]pubsub.PID),
+		processes: make(map[relay.PID]bool),
+		monitors:  make(map[relay.PID][]relay.PID),
+		links:     make(map[relay.PID][]relay.PID),
 	}
 }
 
-func (m *mockTopology) Register(pid pubsub.PID) error {
+func (m *mockTopology) Register(pid relay.PID) error {
 	m.processes[pid] = true
 	return nil
 }
 
-func (m *mockTopology) Wait(caller, pid pubsub.PID) error {
+func (m *mockTopology) Wait(caller, pid relay.PID) error {
 	m.monitors[pid] = append(m.monitors[pid], caller)
 	return nil
 }
 
-func (m *mockTopology) Release(caller, pid pubsub.PID) error {
+func (m *mockTopology) Release(caller, pid relay.PID) error {
 	if monitors, exists := m.monitors[pid]; exists {
 		for i, monitor := range monitors {
 			if monitor == caller {
@@ -88,13 +88,13 @@ func (m *mockTopology) Release(caller, pid pubsub.PID) error {
 	return nil
 }
 
-func (m *mockTopology) Link(from, to pubsub.PID) error {
+func (m *mockTopology) Link(from, to relay.PID) error {
 	m.links[from] = append(m.links[from], to)
 	m.links[to] = append(m.links[to], from)
 	return nil
 }
 
-func (m *mockTopology) Unlink(from, to pubsub.PID) error {
+func (m *mockTopology) Unlink(from, to relay.PID) error {
 	if links, exists := m.links[from]; exists {
 		for i, link := range links {
 			if link == to {
@@ -114,55 +114,55 @@ func (m *mockTopology) Unlink(from, to pubsub.PID) error {
 	return nil
 }
 
-func (m *mockTopology) GetLinks(pid pubsub.PID) []pubsub.PID {
+func (m *mockTopology) GetLinks(pid relay.PID) []relay.PID {
 	return m.links[pid]
 }
 
-func (m *mockTopology) Notify(_ pubsub.PID, _ *runtime.Result) {
+func (m *mockTopology) Notify(_ relay.PID, _ *runtime.Result) {
 	// No-op for testing
 }
 
-func (m *mockTopology) Remove(pid pubsub.PID) {
+func (m *mockTopology) Remove(pid relay.PID) {
 	delete(m.processes, pid)
 	delete(m.monitors, pid)
 	delete(m.links, pid)
 }
 
-// mockNode implements pubsub.Node for testing
+// mockNode implements relay.Node for testing
 type mockNode struct {
-	attached map[pubsub.PID]chan *pubsub.Package
+	attached map[relay.PID]chan *relay.Package
 }
 
 func newMockNode() *mockNode {
 	return &mockNode{
-		attached: make(map[pubsub.PID]chan *pubsub.Package),
+		attached: make(map[relay.PID]chan *relay.Package),
 	}
 }
 
-func (m *mockNode) Attach(pid pubsub.PID, inbox chan *pubsub.Package) (context.CancelFunc, error) {
+func (m *mockNode) Attach(pid relay.PID, inbox chan *relay.Package) (context.CancelFunc, error) {
 	m.attached[pid] = inbox
 	return func() {
 		delete(m.attached, pid)
 	}, nil
 }
 
-func (m *mockNode) Detach(pid pubsub.PID) {
+func (m *mockNode) Detach(pid relay.PID) {
 	delete(m.attached, pid)
 }
 
-func (m *mockNode) Send(_ *pubsub.Package) error {
+func (m *mockNode) Send(_ *relay.Package) error {
 	return nil
 }
 
-func (m *mockNode) ID() pubsub.NodeID {
+func (m *mockNode) ID() relay.NodeID {
 	return "test-node"
 }
 
-func (m *mockNode) RegisterHost(_ pubsub.HostID, _ pubsub.Host) error {
+func (m *mockNode) RegisterHost(_ relay.HostID, _ relay.Host) error {
 	return nil
 }
 
-func (m *mockNode) UnregisterHost(_ pubsub.HostID) {
+func (m *mockNode) UnregisterHost(_ relay.HostID) {
 	// No-op for testing
 }
 
@@ -190,12 +190,12 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
 
 	// Add pubsub context
-	pid := pubsub.PID{}
-	ctx = pubsub.WithPID(ctx, pid)
+	pid := relay.PID{}
+	ctx = relay.WithPID(ctx, pid)
 
 	// Add mock node
 	mockNode := newMockNode()
-	ctx = pubsub.WithNode(ctx, mockNode)
+	ctx = relay.WithNode(ctx, mockNode)
 
 	// Add topology context
 	mockTopo := newMockTopology()

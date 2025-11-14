@@ -2,18 +2,18 @@ package env
 
 import (
 	"context"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
-	envapi "github.com/ponyruntime/pony/api/env"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	envapi "github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap/zaptest"
 )
@@ -156,8 +156,8 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	_ = security.SetScope(ctx, scope)
 
 	// Add pubsub context
-	pid := pubsub.PID{}
-	ctx = pubsub.WithPID(ctx, pid)
+	pid := relay.PID{}
+	ctx = relay.WithPID(ctx, pid)
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)

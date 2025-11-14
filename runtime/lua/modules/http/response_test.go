@@ -3,15 +3,15 @@ package http
 import (
 	"context"
 	"encoding/json"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	basehttp "net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
 

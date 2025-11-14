@@ -3,10 +3,10 @@ package code
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
 )
 

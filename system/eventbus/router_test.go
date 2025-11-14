@@ -11,8 +11,8 @@ import (
 
 	"sync/atomic"
 
-	"github.com/ponyruntime/pony/api/event"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/event"
 	"go.uber.org/zap"
 )
 

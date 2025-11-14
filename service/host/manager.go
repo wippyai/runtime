@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/service/host"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/service/host"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
-	entryutil "github.com/ponyruntime/pony/internal/entry"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/supervisor"
+	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -104,10 +104,10 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 // registerHost registers the process host with necessary subsystems
 func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, cfg *host.EntryConfig) {
-	// Register with pubsub
+	// Register with relay
 	m.bus.Send(ctx, event.Event{
-		System: pubsub.System,
-		Kind:   pubsub.HostRegister,
+		System: relay.System,
+		Kind:   relay.HostRegister,
 		Path:   id.String(),
 		Data:   process.Host(host),
 	})
@@ -134,10 +134,10 @@ func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, 
 
 // removeHost removes the process host from all subsystems
 func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
-	// Done from pubsub
+	// Done from relay
 	m.bus.Send(ctx, event.Event{
-		System: pubsub.System,
-		Kind:   pubsub.HostDelete,
+		System: relay.System,
+		Kind:   relay.HostDelete,
 		Path:   id.String(),
 	})
 

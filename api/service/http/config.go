@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 // Registry kind constants for HTTP service components.

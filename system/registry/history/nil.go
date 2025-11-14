@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // NilHistory is a minimal History implementation that only tracks the current version

@@ -3,11 +3,11 @@ package builder
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/service/sql"
+	"github.com/wippyai/runtime/api/service/sql"
 
 	"github.com/Masterminds/squirrel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 

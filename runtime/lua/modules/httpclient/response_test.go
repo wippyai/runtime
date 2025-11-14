@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

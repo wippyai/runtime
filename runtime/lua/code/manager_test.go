@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	api "github.com/wippyai/runtime/api/runtime/lua"
 	"go.uber.org/zap"
 )
 

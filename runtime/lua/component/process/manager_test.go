@@ -2,17 +2,17 @@ package process
 
 import (
 	"context"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/runtime/lua/code"
-	systempayload "github.com/ponyruntime/pony/system/payload"
-	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code"
+	systempayload "github.com/wippyai/runtime/system/payload"
+	"github.com/wippyai/runtime/system/payload/json"
 	"go.uber.org/zap"
 )
 

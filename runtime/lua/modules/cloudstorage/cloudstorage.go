@@ -7,9 +7,9 @@ import (
 	"io"
 	"time"
 
-	csapi "github.com/ponyruntime/pony/api/cloudstorage"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	csapi "github.com/wippyai/runtime/api/cloudstorage"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 

@@ -2,9 +2,9 @@
 package runtime
 
 import (
-	"github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 type (

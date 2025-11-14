@@ -1,4 +1,4 @@
-module github.com/ponyruntime/pony
+module github.com/wippyai/runtime
 
 go 1.24.4
 
@@ -17,15 +17,12 @@ require (
 	github.com/coder/websocket v1.8.12
 	github.com/expr-lang/expr v1.17.6
 	github.com/fatih/color v1.17.0
-	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-sql-driver/mysql v1.9.2
-	github.com/goccy/go-yaml v1.17.1
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-msgpack/v2 v2.1.1
 	github.com/hashicorp/golang-lru v0.5.0
 	github.com/hashicorp/memberlist v0.5.3
-	github.com/itchyny/gojq v0.12.17
 	github.com/klauspost/compress v1.17.6
 	github.com/lib/pq v1.10.9
 	github.com/lrstanley/bubblezone v0.0.0-20250110055121-b45205ce63e2
@@ -52,7 +49,6 @@ require (
 	github.com/xuri/excelize/v2 v2.9.0
 	github.com/yuin/gopher-lua v0.0.0-00010101000000-000000000000
 	go.opentelemetry.io/otel v1.36.0
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.36.0
 	go.opentelemetry.io/otel/sdk v1.36.0
 	go.opentelemetry.io/otel/trace v1.36.0
 	go.temporal.io/api v1.44.1
@@ -94,7 +90,6 @@ require (
 	github.com/aws/smithy-go v1.22.2 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
-	github.com/cenkalti/backoff/v5 v5.0.2 // indirect
 	github.com/charmbracelet/harmonica v0.2.0 // indirect
 	github.com/charmbracelet/x/ansi v0.7.0 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
@@ -113,7 +108,6 @@ require (
 	github.com/hashicorp/go-multierror v1.0.0 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/itchyny/timefmt-go v0.1.6 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
@@ -144,9 +138,7 @@ require (
 	gitlab.com/golang-commonmark/mdurl v0.0.0-20191124015652-932350d1cb84 // indirect
 	gitlab.com/golang-commonmark/puny v0.0.0-20191124015043-9f83538fa04f // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.36.0 // indirect
 	go.opentelemetry.io/otel/metric v1.36.0 // indirect
-	go.opentelemetry.io/proto/otlp v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/net v0.40.0 // indirect

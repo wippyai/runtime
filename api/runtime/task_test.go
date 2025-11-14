@@ -6,12 +6,12 @@ import (
 	"errors"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 func TestTask_MarshalUnmarshal(t *testing.T) {
@@ -162,9 +162,9 @@ func TestContext_FramePID(t *testing.T) {
 
 		pid, ok := GetFramePID(ctx)
 		assert.False(t, ok)
-		assert.Equal(t, pubsub.PID{}, pid)
+		assert.Equal(t, relay.PID{}, pid)
 
-		testPID := pubsub.PID{UniqID: "test-pid-123"}
+		testPID := relay.PID{UniqID: "test-pid-123"}
 		err := SetFramePID(ctx, testPID)
 		require.NoError(t, err)
 
@@ -178,9 +178,9 @@ func TestContext_FramePID(t *testing.T) {
 
 		pid, ok := GetFramePID(ctx)
 		assert.False(t, ok)
-		assert.Equal(t, pubsub.PID{}, pid)
+		assert.Equal(t, relay.PID{}, pid)
 
-		testPID := pubsub.PID{UniqID: "test-pid-123"}
+		testPID := relay.PID{UniqID: "test-pid-123"}
 		err := SetFramePID(ctx, testPID)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no frame context available")
@@ -196,7 +196,7 @@ func TestContext_FrameHost(t *testing.T) {
 		assert.False(t, ok)
 		assert.Nil(t, host)
 
-		type mockHost struct{ pubsub.Host }
+		type mockHost struct{ relay.Host }
 		mockH := &mockHost{}
 		err := SetFrameHost(ctx, mockH)
 		require.NoError(t, err)
@@ -213,7 +213,7 @@ func TestContext_FrameHost(t *testing.T) {
 		assert.False(t, ok)
 		assert.Nil(t, host)
 
-		type mockHost struct{ pubsub.Host }
+		type mockHost struct{ relay.Host }
 		mockH := &mockHost{}
 		err := SetFrameHost(ctx, mockH)
 		assert.Error(t, err)

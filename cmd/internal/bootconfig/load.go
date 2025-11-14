@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ponyruntime/pony/api/boot"
+	"github.com/wippyai/runtime/api/boot"
 	"gopkg.in/yaml.v3"
 )
 

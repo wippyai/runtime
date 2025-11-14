@@ -5,45 +5,45 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/process"
+	"github.com/wippyai/runtime/api/process"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
 // Mock implementations
 type mockManagedHost struct{}
 
-func (m *mockManagedHost) Send(_ *pubsub.Package) error {
+func (m *mockManagedHost) Send(_ *relay.Package) error {
 	return nil
 }
 
-func (m *mockManagedHost) Terminate(_ context.Context, _ pubsub.PID) error {
+func (m *mockManagedHost) Terminate(_ context.Context, _ relay.PID) error {
 	return nil
 }
 
-func (m *mockManagedHost) Launch(_ context.Context, _ *process.Launch) (pubsub.PID, error) {
-	return pubsub.PID{}, nil
+func (m *mockManagedHost) Launch(_ context.Context, _ *process.Launch) (relay.PID, error) {
+	return relay.PID{}, nil
 }
 
 type mockDelegatedHost struct{}
 
-func (m *mockDelegatedHost) Send(_ *pubsub.Package) error {
+func (m *mockDelegatedHost) Send(_ *relay.Package) error {
 	return nil
 }
 
-func (m *mockDelegatedHost) Terminate(_ context.Context, _ pubsub.PID) error {
+func (m *mockDelegatedHost) Terminate(_ context.Context, _ relay.PID) error {
 	return nil
 }
 
 // Updated to match the Delegated interface with Lifecycle parameter
-func (m *mockDelegatedHost) Launch(_ context.Context, _ pubsub.PID, _ process.Lifecycle, _ payload.Payloads) (pubsub.PID, error) {
-	return pubsub.PID{}, nil
+func (m *mockDelegatedHost) Launch(_ context.Context, _ relay.PID, _ process.Lifecycle, _ payload.Payloads) (relay.PID, error) {
+	return relay.PID{}, nil
 }
 
 type invalidHost struct{}

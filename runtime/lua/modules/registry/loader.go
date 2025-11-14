@@ -3,10 +3,10 @@ package registry
 import (
 	"fmt"
 
-	fsapi "github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/boot/loader"
-	"github.com/ponyruntime/pony/boot/loader/interpolate"
+	fsapi "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/boot/loader"
+	"github.com/wippyai/runtime/boot/loader/interpolate"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 const (

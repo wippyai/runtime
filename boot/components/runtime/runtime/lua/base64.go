@@ -5,8 +5,8 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/runtime/lua/modules/base64"
 )
 
 func LuaBase64() boot.Component {

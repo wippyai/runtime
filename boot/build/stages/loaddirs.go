@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/boot/loader"
-	"github.com/ponyruntime/pony/boot/loader/interpolate"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/loader"
+	"github.com/wippyai/runtime/boot/loader/interpolate"
 	"go.uber.org/zap"
 )
 

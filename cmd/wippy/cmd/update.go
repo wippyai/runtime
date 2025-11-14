@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"os"
 
-	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/deps/client"
-	"github.com/ponyruntime/pony/deps/graph"
-	"github.com/ponyruntime/pony/deps/lock"
-	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/spf13/cobra"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/deps/client"
+	"github.com/wippyai/runtime/boot/deps/graph"
+	"github.com/wippyai/runtime/boot/deps/lock"
+	transcoder "github.com/wippyai/runtime/system/payload"
 	"go.uber.org/zap"
 )
 

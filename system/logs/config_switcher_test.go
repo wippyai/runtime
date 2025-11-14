@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/ponyruntime/pony/api/logs"
+	api "github.com/wippyai/runtime/api/logs"
 
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

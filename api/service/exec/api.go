@@ -4,7 +4,7 @@ package exec
 import (
 	"io"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Registry kind constants for executor types

@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 // Keep existing structs - no changes to your data model
@@ -25,8 +25,8 @@ type encodedMessage struct {
 }
 
 type encodedPackage struct {
-	Source   pubsub.PID
-	Target   pubsub.PID
+	Source   relay.PID
+	Target   relay.PID
 	Messages []*encodedMessage
 }
 
@@ -44,7 +44,7 @@ func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 	mh.SliceType = reflect.TypeOf([]any(nil))
 
 	if err := registerPIDExtension(mh); err != nil {
-		panic(fmt.Errorf("failed to register pubsub.PID extension: %w", err))
+		panic(fmt.Errorf("failed to register relay.PID extension: %w", err))
 	}
 
 	return &MessageCodec{
@@ -64,8 +64,8 @@ func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 }
 
 func (c *MessageCodec) resetEncodedPackage(p *encodedPackage) {
-	p.Source = pubsub.PID{}
-	p.Target = pubsub.PID{}
+	p.Source = relay.PID{}
+	p.Target = relay.PID{}
 
 	for i := range p.Messages {
 		p.Messages[i] = nil
@@ -73,7 +73,7 @@ func (c *MessageCodec) resetEncodedPackage(p *encodedPackage) {
 	p.Messages = p.Messages[:0]
 }
 
-func (c *MessageCodec) Encode(pkg *pubsub.Package) ([]byte, error) {
+func (c *MessageCodec) Encode(pkg *relay.Package) ([]byte, error) {
 	encPkg := c.encPkgPool.Get().(*encodedPackage)
 	defer func() {
 		c.resetEncodedPackage(encPkg)
@@ -122,7 +122,7 @@ func (c *MessageCodec) Encode(pkg *pubsub.Package) ([]byte, error) {
 	return result, nil
 }
 
-func (c *MessageCodec) Decode(data []byte) (*pubsub.Package, error) {
+func (c *MessageCodec) Decode(data []byte) (*relay.Package, error) {
 	encPkg := c.encPkgPool.Get().(*encodedPackage)
 	defer func() {
 		c.resetEncodedPackage(encPkg)
@@ -137,19 +137,19 @@ func (c *MessageCodec) Decode(data []byte) (*pubsub.Package, error) {
 		return nil, fmt.Errorf("failed to msgpack decode package: %w", err)
 	}
 
-	finalPkg := pubsub.AcquirePackage()
+	finalPkg := relay.AcquirePackage()
 	finalPkg.Source = encPkg.Source
 	finalPkg.Target = encPkg.Target
 
 	// Reuse existing Messages slice capacity if possible
 	if cap(finalPkg.Messages) < len(encPkg.Messages) {
-		finalPkg.Messages = make([]*pubsub.Message, len(encPkg.Messages))
+		finalPkg.Messages = make([]*relay.Message, len(encPkg.Messages))
 	} else {
 		finalPkg.Messages = finalPkg.Messages[:len(encPkg.Messages)]
 	}
 
 	for i, encMsg := range encPkg.Messages {
-		finalMsg := &pubsub.Message{
+		finalMsg := &relay.Message{
 			Topic:    encMsg.Topic,
 			Payloads: make(payload.Payloads, len(encMsg.Payloads)),
 		}
@@ -177,18 +177,18 @@ func (c *MessageCodec) normalizePayload(p payload.Payload) (payload.Payload, err
 
 func registerPIDExtension(mh *codec.MsgpackHandle) error {
 	err := mh.AddExt(
-		reflect.TypeOf(pubsub.PID{}),
+		reflect.TypeOf(relay.PID{}),
 		1, // extension tag
 		// Encode function: reflect.Value -> []byte
 		// Note: v2 passes structs as pointers to the encode function
 		func(v reflect.Value) ([]byte, error) {
 			// For struct types, v2 passes a pointer to the value
-			var pid *pubsub.PID
+			var pid *relay.PID
 			if v.Kind() == reflect.Ptr {
-				pid = v.Interface().(*pubsub.PID)
+				pid = v.Interface().(*relay.PID)
 			} else {
 				// Fallback for non-pointer case
-				p := v.Interface().(pubsub.PID)
+				p := v.Interface().(relay.PID)
 				pid = &p
 			}
 
@@ -198,7 +198,7 @@ func registerPIDExtension(mh *codec.MsgpackHandle) error {
 		// Decode function: (reflect.Value, []byte) -> error
 		func(v reflect.Value, data []byte) error {
 			// Parse PID from byte data
-			pid, err := pubsub.ParsePID(string(data))
+			pid, err := relay.ParsePID(string(data))
 			if err != nil {
 				return fmt.Errorf("failed to parse PID: %w", err)
 			}

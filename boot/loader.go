@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/boot"
-	contextapi "github.com/ponyruntime/pony/api/context"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/internal/graph"
-	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/wippyai/runtime/api/boot"
+	contextapi "github.com/wippyai/runtime/api/context"
+	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/internal/graph"
+	"github.com/wippyai/runtime/system/eventbus"
 )
 
 // Loader orchestrates component loading with dependency resolution.

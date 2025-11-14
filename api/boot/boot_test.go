@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/registry"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Mock plugin for testing

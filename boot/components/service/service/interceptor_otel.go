@@ -3,11 +3,11 @@ package service
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	otelapi "github.com/ponyruntime/pony/api/service/otel"
-	otelinterceptor "github.com/ponyruntime/pony/service/interceptor/otel"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	otelapi "github.com/wippyai/runtime/api/service/otel"
+	otelinterceptor "github.com/wippyai/runtime/service/interceptor/otel"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace/noop"
 )

@@ -3,7 +3,7 @@ package version
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // version represents a version with simple double-linked list structure

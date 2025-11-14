@@ -8,11 +8,11 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	lru "github.com/hashicorp/golang-lru"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/boot/loader"
-	"github.com/ponyruntime/pony/boot/loader/interpolate"
-	"github.com/ponyruntime/pony/deps/graph"
 	modulev1 "github.com/wippyai/module-registry-proto-go/registry/module/v1"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/boot/deps/graph"
+	"github.com/wippyai/runtime/boot/loader"
+	"github.com/wippyai/runtime/boot/loader/interpolate"
 	"go.uber.org/zap"
 )
 

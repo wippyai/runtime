@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/ponyruntime/pony/api/cluster"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/wippyai/runtime/api/cluster"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
-type PackageCallback func(*pubsub.Package) error
+type PackageCallback func(*relay.Package) error
 
 type Service struct {
 	ctx              context.Context
@@ -94,10 +94,10 @@ func (s *Service) Stop() error {
 	return s.connMan.Stop()
 }
 
-func (s *Service) Send(pkg *pubsub.Package) error {
+func (s *Service) Send(pkg *relay.Package) error {
 	data, err := s.codec.Encode(pkg)
 	targetNode := pkg.Target
-	pubsub.ReleasePackage(pkg)
+	relay.ReleasePackage(pkg)
 	if err != nil {
 		return fmt.Errorf("failed to encode package for node %s: %w", targetNode, err)
 	}

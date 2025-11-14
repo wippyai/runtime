@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
-	sqlres "github.com/ponyruntime/pony/service/sql"
+	sqlres "github.com/wippyai/runtime/service/sql"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"

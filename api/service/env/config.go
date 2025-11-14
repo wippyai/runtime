@@ -5,9 +5,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/env"
+	"github.com/wippyai/runtime/api/env"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 const (

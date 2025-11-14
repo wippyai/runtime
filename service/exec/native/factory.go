@@ -1,8 +1,8 @@
 package native
 
 import (
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/service/exec"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/service/exec"
 	"go.uber.org/zap"
 )
 

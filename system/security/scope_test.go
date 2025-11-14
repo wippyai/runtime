@@ -3,9 +3,9 @@ package security
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/security"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/security"
 )
 
 // MockPolicy implements the security.Policy interface for testing

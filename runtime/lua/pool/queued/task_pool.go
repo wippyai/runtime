@@ -6,12 +6,12 @@ import (
 	"sync"
 	"sync/atomic"
 
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/runtime"
+	api "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

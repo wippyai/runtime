@@ -7,16 +7,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 
-	logsapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/service/terminal"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/system/logs"
+	logsapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/service/terminal"
+	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/system/logs"
 	"go.uber.org/zap"
 )
 
@@ -33,10 +33,10 @@ type op struct {
 	typ      opType
 	ctx      context.Context
 	launch   *process.Launch
-	msg      *pubsub.Package
+	msg      *relay.Package
 	cfg      *terminal.HostConfig
 	result   chan error
-	response chan pubsub.PID
+	response chan relay.PID
 	// For attach operation
 }
 
@@ -88,7 +88,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	defer close(status)
 	defer t.cleanup(nil)
 
-	t.ctx = logsapi.WithLogger(pubsub.WithHost(ctx, t), t.log)
+	t.ctx = logsapi.WithLogger(relay.WithHost(ctx, t), t.log)
 
 	for {
 		select {
@@ -120,7 +120,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	}
 }
 
-func (t *Terminal) handleLaunch(ctx context.Context, pl *process.Launch, response chan pubsub.PID) error {
+func (t *Terminal) handleLaunch(ctx context.Context, pl *process.Launch, response chan relay.PID) error {
 	if t.runner.Load() != nil {
 		close(response)
 		return process.ErrHostBusy
@@ -190,7 +190,7 @@ func (t *Terminal) prepareContext(
 	pCtx = process.GetManager(ctx).AttachLifecycle(pCtx, launch.Lifecycle)
 
 	// service lifecycle
-	if err := process.SetOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
+	if err := process.SetOnComplete(pCtx, func(pid relay.PID, result *runtime.Result) {
 		if result.Error != nil {
 			t.log.Error("terminal process execution failed",
 				zap.String("pid", pid.String()),
@@ -205,7 +205,7 @@ func (t *Terminal) prepareContext(
 		t.log.Error("failed to set onComplete callback", zap.Error(err))
 	}
 
-	pCtx = pubsub.WithHost(pCtx, t)
+	pCtx = relay.WithHost(pCtx, t)
 	pCtx = logsapi.WithLogger(pCtx, t.log.Named(launch.PID.UniqID))
 
 	return pCtx
@@ -219,7 +219,7 @@ func (t *Terminal) handleTerminate() error {
 	return nil
 }
 
-func (t *Terminal) handleSend(msgBatch *pubsub.Package) error {
+func (t *Terminal) handleSend(msgBatch *relay.Package) error {
 	runner := t.runner.Load()
 	if runner == nil {
 		return process.ErrNoProcess
@@ -262,21 +262,21 @@ func (t *Terminal) execOp(ctx context.Context, op op) error {
 // Attach attaches a process to the terminal.
 // This implementation always returns an error as only terminal processes
 // can be attached to the terminal host.
-// It implements part of the pubsub.Host interface.
-func (t *Terminal) Attach(_ pubsub.PID, _ chan *pubsub.Package) (context.CancelFunc, error) {
+// It implements part of the relay.Host interface.
+func (t *Terminal) Attach(_ relay.PID, _ chan *relay.Package) (context.CancelFunc, error) {
 	return nil, errors.New("only terminal process can be attached to the host")
 }
 
 // Detach detaches a process from the terminal.
 // This is a no-op in the current implementation.
-// It implements part of the pubsub.Host interface.
-func (t *Terminal) Detach(_ pubsub.PID) {
+// It implements part of the relay.Host interface.
+func (t *Terminal) Detach(_ relay.PID) {
 	// nothing
 }
 
 // Send sends a message to the currently running process.
-// It implements part of the pubsub.Host interface.
-func (t *Terminal) Send(msg *pubsub.Package) error {
+// It implements part of the relay.Host interface.
+func (t *Terminal) Send(msg *relay.Package) error {
 	// we dont really use pid since we always host a single process
 	return t.execOp(t.ctx, op{
 		typ:    opSend,
@@ -287,8 +287,8 @@ func (t *Terminal) Send(msg *pubsub.Package) error {
 
 // Launch launches a new process in the terminal.
 // It implements part of the process.Host interface.
-func (t *Terminal) Launch(ctx context.Context, pl *process.Launch) (pubsub.PID, error) {
-	resp := make(chan pubsub.PID, 1)
+func (t *Terminal) Launch(ctx context.Context, pl *process.Launch) (relay.PID, error) {
+	resp := make(chan relay.PID, 1)
 	err := t.execOp(ctx, op{
 		ctx:      ctx,
 		typ:      opLaunch,
@@ -297,20 +297,20 @@ func (t *Terminal) Launch(ctx context.Context, pl *process.Launch) (pubsub.PID, 
 		response: resp,
 	})
 	if err != nil {
-		return pubsub.PID{}, err
+		return relay.PID{}, err
 	}
 
 	select {
 	case newPid := <-resp:
 		return newPid, nil
 	case <-ctx.Done():
-		return pubsub.PID{}, ctx.Err()
+		return relay.PID{}, ctx.Err()
 	}
 }
 
 // Terminate terminates the currently running process.
 // It implements part of the process.Host interface.
-func (t *Terminal) Terminate(ctx context.Context, _ pubsub.PID) error {
+func (t *Terminal) Terminate(ctx context.Context, _ relay.PID) error {
 	return t.execOp(ctx, op{
 		typ:    opTerminate,
 		result: make(chan error, 1),
@@ -323,7 +323,7 @@ func (t *Terminal) Stop(ctx context.Context) error {
 	if runner := t.runner.Load(); runner != nil {
 		err := t.Send(
 			topology.Cancel(
-				pubsub.PID{UniqID: "terminal"},
+				relay.PID{UniqID: "terminal"},
 				runner.pid,
 				time.Now().Add(t.config.Lifecycle.StopTimeout),
 			),

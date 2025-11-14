@@ -5,9 +5,9 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
+	"github.com/wippyai/runtime/api/boot"
+	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea"
 )
 
 func LuaBTEA() boot.Component {

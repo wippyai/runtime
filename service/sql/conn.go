@@ -7,10 +7,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	config "github.com/ponyruntime/pony/api/service/sql"
+	config "github.com/wippyai/runtime/api/service/sql"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
 )
 
 // ConnPool represents a database connection pool that acts both as a service

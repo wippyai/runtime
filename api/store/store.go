@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Common errors that can be returned by Store implementations

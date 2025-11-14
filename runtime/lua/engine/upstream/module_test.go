@@ -4,15 +4,15 @@ package upstream
 import (
 	"context"
 	"fmt"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

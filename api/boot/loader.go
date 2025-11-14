@@ -5,8 +5,8 @@ import (
 	"context"
 	"io/fs"
 
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/registry"
+	contextapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Loader provides filesystem loading and entry extraction.

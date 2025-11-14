@@ -5,10 +5,10 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
+	"github.com/wippyai/runtime/api/boot"
+	logapi "github.com/wippyai/runtime/api/logs"
+	bootpkg "github.com/wippyai/runtime/boot"
+	"github.com/wippyai/runtime/runtime/lua/modules/websocket"
 )
 
 func LuaWebSocket() boot.Component {

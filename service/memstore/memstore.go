@@ -5,13 +5,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponyruntime/pony/api/service/memstore"
+	"github.com/wippyai/runtime/api/service/memstore"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/api/store"
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/store"
+	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
 

@@ -3,10 +3,10 @@ package process
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -30,7 +30,7 @@ func NewLuaProcess(log *zap.Logger, runner *engine.Runner, funcName string) (pro
 }
 
 // Start initializes and starts the Lua process
-func (p *LuaProcess) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads) error {
+func (p *LuaProcess) Start(ctx context.Context, pid relay.PID, input payload.Payloads) error {
 	// Initialize the process state
 	if err := p.state.InitContext(ctx, pid); err != nil {
 		return err
@@ -59,7 +59,7 @@ func (p *LuaProcess) Ready() int {
 }
 
 // Send handles incoming messages to the process
-func (p *LuaProcess) Send(pkg *pubsub.Package) error {
+func (p *LuaProcess) Send(pkg *relay.Package) error {
 	return p.state.SendPackage(pkg)
 }
 

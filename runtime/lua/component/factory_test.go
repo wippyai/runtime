@@ -3,12 +3,12 @@ package component
 import (
 	"testing"
 
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/runtime/lua/code"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	mocklogger "github.com/ponyruntime/pony/tests/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	mocklogger "github.com/wippyai/runtime/tests/mock"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

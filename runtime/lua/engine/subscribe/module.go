@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 )
 

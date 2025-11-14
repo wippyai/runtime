@@ -4,9 +4,9 @@ package di
 import (
 	"encoding/json"
 
-	"github.com/ponyruntime/pony/api/contract"
+	"github.com/wippyai/runtime/api/contract"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Registry kind constants for contract entries

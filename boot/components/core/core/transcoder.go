@@ -3,12 +3,12 @@ package core
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/payload"
-	transcoder "github.com/ponyruntime/pony/system/payload"
-	"github.com/ponyruntime/pony/system/payload/json"
-	"github.com/ponyruntime/pony/system/payload/lua"
-	"github.com/ponyruntime/pony/system/payload/yaml"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/payload"
+	transcoder "github.com/wippyai/runtime/system/payload"
+	"github.com/wippyai/runtime/system/payload/json"
+	"github.com/wippyai/runtime/system/payload/lua"
+	"github.com/wippyai/runtime/system/payload/yaml"
 )
 
 func Transcoder() boot.Component {

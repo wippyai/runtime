@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/topology"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/topology"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -294,7 +294,7 @@ func TestGoToLuaExtended(t *testing.T) {
 			input: topology.CancelEvent{
 				Kind: topology.KindCancel,
 				At:   fixedTime,
-				From: pubsub.PID{
+				From: relay.PID{
 					Node:   "node",
 					Host:   "host",
 					UniqID: "id",

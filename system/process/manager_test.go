@@ -6,20 +6,20 @@ import (
 	"testing"
 	"time"
 
-	toposystem "github.com/ponyruntime/pony/system/topology"
+	toposystem "github.com/wippyai/runtime/system/topology"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pidgen"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/internal/uniqid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pidgen"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/internal/uniqid"
 	"go.uber.org/zap"
 )
 
@@ -51,29 +51,29 @@ type managerManagedHost struct {
 	launched     bool
 	terminated   bool
 	lastLaunch   *process.Launch
-	lastCancel   *pubsub.Package
+	lastCancel   *relay.Package
 }
 
-func (m *managerManagedHost) Send(pkg *pubsub.Package) error {
+func (m *managerManagedHost) Send(pkg *relay.Package) error {
 	m.lastCancel = pkg
 	return m.sendErr
 }
 
-func (m *managerManagedHost) Terminate(_ context.Context, _ pubsub.PID) error {
+func (m *managerManagedHost) Terminate(_ context.Context, _ relay.PID) error {
 	m.terminated = true
 	return m.terminateErr
 }
 
-func (m *managerManagedHost) Launch(_ context.Context, launch *process.Launch) (pubsub.PID, error) {
+func (m *managerManagedHost) Launch(_ context.Context, launch *process.Launch) (relay.PID, error) {
 	if m.launchErr != nil {
-		return pubsub.PID{}, m.launchErr
+		return relay.PID{}, m.launchErr
 	}
 
 	m.launched = true
 	m.lastLaunch = launch
 
 	// Return a Target with the provided values but a modified UniqID
-	return pubsub.PID{
+	return relay.PID{
 		Node:   launch.PID.Node,
 		Host:   launch.PID.Host,
 		UniqID: "managed-host-assigned-" + launch.PID.UniqID,
@@ -87,26 +87,26 @@ type managerDelegatedHost struct {
 	sendErr       error
 	launched      bool
 	terminated    bool
-	lastPID       pubsub.PID
+	lastPID       relay.PID
 	lastLifecycle process.Lifecycle
 	lastInput     payload.Payloads
-	lastCancel    *pubsub.Package
+	lastCancel    *relay.Package
 }
 
-func (m *managerDelegatedHost) Send(pkg *pubsub.Package) error {
+func (m *managerDelegatedHost) Send(pkg *relay.Package) error {
 	m.lastCancel = pkg
 	return m.sendErr
 }
 
-func (m *managerDelegatedHost) Terminate(_ context.Context, _ pubsub.PID) error {
+func (m *managerDelegatedHost) Terminate(_ context.Context, _ relay.PID) error {
 	m.terminated = true
 	return m.terminateErr
 }
 
 // Updated to match the Delegated interface with Lifecycle parameter
-func (m *managerDelegatedHost) Launch(_ context.Context, pid pubsub.PID, lf process.Lifecycle, input payload.Payloads) (pubsub.PID, error) {
+func (m *managerDelegatedHost) Launch(_ context.Context, pid relay.PID, lf process.Lifecycle, input payload.Payloads) (relay.PID, error) {
 	if m.launchErr != nil {
-		return pubsub.PID{}, m.launchErr
+		return relay.PID{}, m.launchErr
 	}
 
 	m.launched = true
@@ -115,7 +115,7 @@ func (m *managerDelegatedHost) Launch(_ context.Context, pid pubsub.PID, lf proc
 	m.lastInput = input
 
 	// Return a Target with the provided values but a modified UniqID
-	return pubsub.PID{
+	return relay.PID{
 		Node:   "delegated-node",
 		Host:   pid.Host,
 		UniqID: "delegated-host-assigned-" + pid.UniqID,
@@ -141,11 +141,11 @@ type mockProcess struct {
 	stepErr error
 }
 
-func (m *mockProcess) Send(_ *pubsub.Package) error {
+func (m *mockProcess) Send(_ *relay.Package) error {
 	return m.sendErr
 }
 
-func (m *mockProcess) Start(_ context.Context, _ pubsub.PID, _ payload.Payloads) error {
+func (m *mockProcess) Start(_ context.Context, _ relay.PID, _ payload.Payloads) error {
 	return nil
 }
 
@@ -167,22 +167,22 @@ type managerTopology struct {
 	waitErr     error
 	linkErr     error
 
-	registered []pubsub.PID
-	waited     map[pubsub.PID]pubsub.PID
-	linked     map[pubsub.PID]pubsub.PID
-	notified   map[pubsub.PID]*runtime.Result
-	removed    []pubsub.PID
+	registered []relay.PID
+	waited     map[relay.PID]relay.PID
+	linked     map[relay.PID]relay.PID
+	notified   map[relay.PID]*runtime.Result
+	removed    []relay.PID
 }
 
 func newManagerTopology() *managerTopology {
 	return &managerTopology{
-		waited:   make(map[pubsub.PID]pubsub.PID),
-		linked:   make(map[pubsub.PID]pubsub.PID),
-		notified: make(map[pubsub.PID]*runtime.Result),
+		waited:   make(map[relay.PID]relay.PID),
+		linked:   make(map[relay.PID]relay.PID),
+		notified: make(map[relay.PID]*runtime.Result),
 	}
 }
 
-func (m *managerTopology) Register(pid pubsub.PID) error {
+func (m *managerTopology) Register(pid relay.PID) error {
 	if m.registerErr != nil {
 		return m.registerErr
 	}
@@ -190,7 +190,7 @@ func (m *managerTopology) Register(pid pubsub.PID) error {
 	return nil
 }
 
-func (m *managerTopology) Wait(from, to pubsub.PID) error {
+func (m *managerTopology) Wait(from, to relay.PID) error {
 	if m.waitErr != nil {
 		return m.waitErr
 	}
@@ -198,7 +198,7 @@ func (m *managerTopology) Wait(from, to pubsub.PID) error {
 	return nil
 }
 
-func (m *managerTopology) Link(from, to pubsub.PID) error {
+func (m *managerTopology) Link(from, to relay.PID) error {
 	if m.linkErr != nil {
 		return m.linkErr
 	}
@@ -206,24 +206,24 @@ func (m *managerTopology) Link(from, to pubsub.PID) error {
 	return nil
 }
 
-func (m *managerTopology) Notify(pid pubsub.PID, result *runtime.Result) {
+func (m *managerTopology) Notify(pid relay.PID, result *runtime.Result) {
 	m.notified[pid] = result
 }
 
-func (m *managerTopology) Remove(pid pubsub.PID) {
+func (m *managerTopology) Remove(pid relay.PID) {
 	m.removed = append(m.removed, pid)
 }
 
-func (m *managerTopology) Unlink(from, _ pubsub.PID) error {
+func (m *managerTopology) Unlink(from, _ relay.PID) error {
 	delete(m.linked, from)
 	return nil
 }
 
-func (m *managerTopology) GetLinks(_ pubsub.PID) []pubsub.PID {
+func (m *managerTopology) GetLinks(_ relay.PID) []relay.PID {
 	return nil
 }
 
-func (m *managerTopology) Release(caller, _ pubsub.PID) error {
+func (m *managerTopology) Release(caller, _ relay.PID) error {
 	delete(m.waited, caller)
 	return nil
 }
@@ -246,7 +246,7 @@ func contextWithManagerTopology() (context.Context, *managerTopology) {
 
 func TestManager_Start_ManagedHost(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -265,7 +265,7 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 	sourceID := registry.ID{NS: "test", Name: "process"}
 	uniqID := "test-uniq"
 	inputs := payload.Payloads{}
-	parentPID := pubsub.PID{
+	parentPID := relay.PID{
 		Node:   "parent-node",
 		Host:   "parent-host",
 		UniqID: "parent-uniq",
@@ -306,7 +306,7 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 
 func TestManager_Start_DelegatedHost(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -357,7 +357,7 @@ func TestManager_Start_DelegatedHost(t *testing.T) {
 
 func TestManager_Start_HostNotFound(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -386,7 +386,7 @@ func TestManager_Start_HostNotFound(t *testing.T) {
 
 func TestManager_Start_ProcessCreationFails(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -422,7 +422,7 @@ func TestManager_Start_ProcessCreationFails(t *testing.T) {
 
 func TestManager_Cancel(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -438,13 +438,13 @@ func TestManager_Cancel(t *testing.T) {
 	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
 
 	// Test data
-	fromPID := pubsub.PID{
+	fromPID := relay.PID{
 		Node:   "from-node",
 		Host:   "from-host",
 		UniqID: "from-uniq",
 	}
 
-	targetPID := pubsub.PID{
+	targetPID := relay.PID{
 		Node:   "target-node",
 		Host:   hostID,
 		UniqID: "target-uniq",
@@ -488,7 +488,7 @@ func TestManager_Cancel(t *testing.T) {
 
 func TestManager_Cancel_HostNotFound(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -499,13 +499,13 @@ func TestManager_Cancel_HostNotFound(t *testing.T) {
 	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
 
 	// Test data
-	fromPID := pubsub.PID{
+	fromPID := relay.PID{
 		Node:   "from-node",
 		Host:   "from-host",
 		UniqID: "from-uniq",
 	}
 
-	targetPID := pubsub.PID{
+	targetPID := relay.PID{
 		Node:   "target-node",
 		Host:   "nonexistent-host",
 		UniqID: "target-uniq",
@@ -523,7 +523,7 @@ func TestManager_Cancel_HostNotFound(t *testing.T) {
 
 func TestManager_Terminate(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -539,7 +539,7 @@ func TestManager_Terminate(t *testing.T) {
 	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
 
 	// Test data
-	pid := pubsub.PID{
+	pid := relay.PID{
 		Node:   "node",
 		Host:   hostID,
 		UniqID: "uniq",
@@ -555,7 +555,7 @@ func TestManager_Terminate(t *testing.T) {
 
 func TestManager_Terminate_HostNotFound(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -566,7 +566,7 @@ func TestManager_Terminate_HostNotFound(t *testing.T) {
 	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
 
 	// Test data
-	pid := pubsub.PID{
+	pid := relay.PID{
 		Node:   "node",
 		Host:   "nonexistent-host",
 		UniqID: "uniq",
@@ -582,7 +582,7 @@ func TestManager_Terminate_HostNotFound(t *testing.T) {
 
 func TestManager_AttachLifecycle(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -593,7 +593,7 @@ func TestManager_AttachLifecycle(t *testing.T) {
 	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
 
 	// Test data
-	parentPID := pubsub.PID{
+	parentPID := relay.PID{
 		Node:   "parent-node",
 		Host:   "parent-host",
 		UniqID: "parent-uniq",
@@ -607,7 +607,7 @@ func TestManager_AttachLifecycle(t *testing.T) {
 
 	// Set up a process and Target for the callbacks
 	proc := &mockProcess{}
-	pid := pubsub.PID{
+	pid := relay.PID{
 		Node:   "node",
 		Host:   "host",
 		UniqID: "uniq",
@@ -667,7 +667,7 @@ func TestManager_AttachLifecycle(t *testing.T) {
 
 func TestManager_GeneratesUniqID(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -703,17 +703,17 @@ func TestManager_GeneratesUniqID(t *testing.T) {
 // Invalid host type for testing
 type managerInvalidHost struct{}
 
-func (h *managerInvalidHost) Send(_ *pubsub.Package) error {
+func (h *managerInvalidHost) Send(_ *relay.Package) error {
 	return nil
 }
 
-func (h *managerInvalidHost) Terminate(_ context.Context, _ pubsub.PID) error {
+func (h *managerInvalidHost) Terminate(_ context.Context, _ relay.PID) error {
 	return nil
 }
 
 func TestManager_Start_InvalidHostType(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -741,7 +741,7 @@ func TestManager_Start_InvalidHostType(t *testing.T) {
 
 func TestManager_Start_ProcessCreationError(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 
 	hostLookup := newManagerHostLookup()
@@ -772,7 +772,7 @@ func TestManager_Start_ProcessCreationError(t *testing.T) {
 
 func TestManager_AttachLifecycle_MissingTopology(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 	hostLookup := newManagerHostLookup()
 	factory := &managerProcessMock{}
@@ -785,7 +785,7 @@ func TestManager_AttachLifecycle_MissingTopology(t *testing.T) {
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
-		Parent:  pubsub.PID{Node: "test-node", Host: "test-host"},
+		Parent:  relay.PID{Node: "test-node", Host: "test-host"},
 	}
 
 	ctx = manager.AttachLifecycle(ctx, lifecycle)
@@ -798,14 +798,14 @@ func TestManager_AttachLifecycle_MissingTopology(t *testing.T) {
 	assert.NotNil(t, onComplete)
 
 	// Test the callbacks with missing topology
-	pid := pubsub.PID{Node: "test-node", Host: "test-host"}
+	pid := relay.PID{Node: "test-node", Host: "test-host"}
 	onStart(pid, &mockProcess{})
 	onComplete(pid, &runtime.Result{})
 }
 
 func TestManager_AttachLifecycle_MissingPIDRegistry(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 	hostLookup := newManagerHostLookup()
 	factory := &managerProcessMock{}
@@ -819,7 +819,7 @@ func TestManager_AttachLifecycle_MissingPIDRegistry(t *testing.T) {
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
-		Parent:  pubsub.PID{Node: "test-node", Host: "test-host"},
+		Parent:  relay.PID{Node: "test-node", Host: "test-host"},
 	}
 
 	ctx = manager.AttachLifecycle(ctx, lifecycle)
@@ -829,13 +829,13 @@ func TestManager_AttachLifecycle_MissingPIDRegistry(t *testing.T) {
 	assert.NotNil(t, onComplete)
 
 	// Test the callback with missing PID registry
-	pid := pubsub.PID{Node: "test-node", Host: "test-host"}
+	pid := relay.PID{Node: "test-node", Host: "test-host"}
 	onComplete(pid, &runtime.Result{})
 }
 
 func TestManager_AttachLifecycle_RegistrationError(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 	hostLookup := newManagerHostLookup()
 	factory := &managerProcessMock{}
@@ -853,7 +853,7 @@ func TestManager_AttachLifecycle_RegistrationError(t *testing.T) {
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
-		Parent:  pubsub.PID{Node: "test-node", Host: "test-host"},
+		Parent:  relay.PID{Node: "test-node", Host: "test-host"},
 	}
 
 	ctx = manager.AttachLifecycle(ctx, lifecycle)
@@ -862,13 +862,13 @@ func TestManager_AttachLifecycle_RegistrationError(t *testing.T) {
 	onStart := process.GetOnStart(ctx)
 	assert.NotNil(t, onStart)
 
-	pid := pubsub.PID{Node: "test-node", Host: "test-host"}
+	pid := relay.PID{Node: "test-node", Host: "test-host"}
 	onStart(pid, &mockProcess{})
 }
 
 func TestManager_AttachLifecycle_MonitoringError(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 	hostLookup := newManagerHostLookup()
 	factory := &managerProcessMock{}
@@ -886,7 +886,7 @@ func TestManager_AttachLifecycle_MonitoringError(t *testing.T) {
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
-		Parent:  pubsub.PID{Node: "test-node", Host: "test-host"},
+		Parent:  relay.PID{Node: "test-node", Host: "test-host"},
 	}
 
 	ctx = manager.AttachLifecycle(ctx, lifecycle)
@@ -895,13 +895,13 @@ func TestManager_AttachLifecycle_MonitoringError(t *testing.T) {
 	onStart := process.GetOnStart(ctx)
 	assert.NotNil(t, onStart)
 
-	pid := pubsub.PID{Node: "test-node", Host: "test-host"}
+	pid := relay.PID{Node: "test-node", Host: "test-host"}
 	onStart(pid, &mockProcess{})
 }
 
 func TestManager_AttachLifecycle_LinkingError(t *testing.T) {
 	// Setup test dependencies
-	nodeID := pubsub.NodeID("test-node")
+	nodeID := relay.NodeID("test-node")
 	logger := zap.NewNop()
 	hostLookup := newManagerHostLookup()
 	factory := &managerProcessMock{}
@@ -919,7 +919,7 @@ func TestManager_AttachLifecycle_LinkingError(t *testing.T) {
 	lifecycle := process.Lifecycle{
 		Monitor: true,
 		Link:    true,
-		Parent:  pubsub.PID{Node: "test-node", Host: "test-host"},
+		Parent:  relay.PID{Node: "test-node", Host: "test-host"},
 	}
 
 	ctx = manager.AttachLifecycle(ctx, lifecycle)
@@ -928,6 +928,6 @@ func TestManager_AttachLifecycle_LinkingError(t *testing.T) {
 	onStart := process.GetOnStart(ctx)
 	assert.NotNil(t, onStart)
 
-	pid := pubsub.PID{Node: "test-node", Host: "test-host"}
+	pid := relay.PID{Node: "test-node", Host: "test-host"}
 	onStart(pid, &mockProcess{})
 }

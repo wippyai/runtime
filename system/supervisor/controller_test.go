@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 // mockService implements supervisor.Topology for testing

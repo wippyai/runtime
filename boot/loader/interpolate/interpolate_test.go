@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/stretchr/testify/assert"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 // MockTranscoder implements payload.Transcoder interface for testing

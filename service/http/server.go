@@ -10,14 +10,14 @@ import (
 	"sync"
 	"time"
 
-	pubsubsys "github.com/ponyruntime/pony/system/pubsub"
+	relaysys "github.com/wippyai/runtime/system/relay"
 
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	config "github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/api/supervisor"
+	contextapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	config "github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 const (
@@ -45,7 +45,7 @@ type ServerService struct {
 	statusChan    chan any
 	started       bool                   // Track if server has been started
 	mountPaths    map[registry.ID]string // Track mount paths by Source
-	host          pubsub.Host            // pubsub host
+	host          relay.Host             // pubsub host
 	middlewareFac MiddlewareAPI          // Middleware factory
 	handlerFunc   http.Handler           // Optional server-level handler
 }
@@ -199,7 +199,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
 
 	// Initialize host with config
-	hostConfig := pubsubsys.HostConfig{
+	hostConfig := relaysys.HostConfig{
 		BufferSize:  s.config.Host.BufferSize,
 		WorkerCount: s.config.Host.WorkerCount,
 		Logger:      logs.GetLogger(ctx),
@@ -215,7 +215,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Create the host
-	s.host = pubsubsys.NewHost(ctx, hostConfig)
+	s.host = relaysys.NewHost(ctx, hostConfig)
 
 	s.ctx = ctx
 
@@ -344,8 +344,8 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 
 // Implement Host interface methods by delegating to embedded host
 
-// Attach implements pubsub.Host Attach method
-func (s *ServerService) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFunc, error) {
+// Attach implements relay.Host Attach method
+func (s *ServerService) Attach(pid relay.PID, ch chan *relay.Package) (context.CancelFunc, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -356,8 +356,8 @@ func (s *ServerService) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context
 	return s.host.Attach(pid, ch)
 }
 
-// Detach implements pubsub.Host Detach method
-func (s *ServerService) Detach(pid pubsub.PID) {
+// Detach implements relay.Host Detach method
+func (s *ServerService) Detach(pid relay.PID) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -368,8 +368,8 @@ func (s *ServerService) Detach(pid pubsub.PID) {
 	s.host.Detach(pid)
 }
 
-// Send implements pubsub.Host Send method
-func (s *ServerService) Send(pkg *pubsub.Package) error {
+// Send implements relay.Host Send method
+func (s *ServerService) Send(pkg *relay.Package) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

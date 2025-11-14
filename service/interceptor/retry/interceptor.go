@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
-	apierror "github.com/ponyruntime/pony/api/error"
-	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
-	"github.com/ponyruntime/pony/api/runtime"
-	retryapi "github.com/ponyruntime/pony/api/service/interceptor/retry"
+	apierror "github.com/wippyai/runtime/api/error"
+	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
+	"github.com/wippyai/runtime/api/runtime"
+	retryapi "github.com/wippyai/runtime/api/service/interceptor/retry"
 )
 
 // Interceptor implements retry functionality

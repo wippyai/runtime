@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/protocol"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/render"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"

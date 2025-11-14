@@ -4,12 +4,12 @@ import (
 	"database/sql"
 	"testing"
 
-	sqlapi "github.com/ponyruntime/pony/api/service/sql"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 
 	_ "github.com/mattn/go-sqlite3"
-	sqlres "github.com/ponyruntime/pony/service/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sqlres "github.com/wippyai/runtime/service/sql"
 	lua "github.com/yuin/gopher-lua"
 )
 

@@ -4,7 +4,7 @@ package boot
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Stage processes registry entries in a build pipeline.

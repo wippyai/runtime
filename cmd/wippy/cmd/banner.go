@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/fatih/color"
-	"github.com/ponyruntime/pony/cmd/wippy/version"
+	"github.com/wippyai/runtime/cmd/wippy/version"
 )
 
 func printBanner() {

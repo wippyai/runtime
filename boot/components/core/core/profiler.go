@@ -7,8 +7,8 @@ import (
 	"net/http/pprof"
 	"time"
 
-	"github.com/ponyruntime/pony/api/boot"
-	logapi "github.com/ponyruntime/pony/api/logs"
+	"github.com/wippyai/runtime/api/boot"
+	logapi "github.com/wippyai/runtime/api/logs"
 	"go.uber.org/zap"
 )
 

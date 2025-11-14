@@ -5,16 +5,16 @@ import (
 	"strings"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/security"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/security"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -163,12 +163,12 @@ func (m *Module) setOptions(l *lua.LState) int {
 }
 
 // checkPID validates context and returns PID from frame context if valid
-func (m *Module) checkPID(l *lua.LState) (pubsub.PID, bool) {
+func (m *Module) checkPID(l *lua.LState) (relay.PID, bool) {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no context found"))
-		return pubsub.PID{}, false
+		return relay.PID{}, false
 	}
 
 	pid, ok := runtime.GetFramePID(ctx)
@@ -234,13 +234,13 @@ func (m *Module) getTopology(l *lua.LState) (topology.Topology, bool) {
 
 // resolvePID attempts to resolve a string to a Target, either by direct parsing
 // or by looking up in the registry if it's not a valid Target format
-func (m *Module) resolvePID(l *lua.LState, pidOrName string, permission string) (pubsub.PID, error) {
+func (m *Module) resolvePID(l *lua.LState, pidOrName string, permission string) (relay.PID, error) {
 	// Try to parse as Target first
-	pid, err := pubsub.ParsePID(pidOrName)
+	pid, err := relay.ParsePID(pidOrName)
 	if err == nil {
 		// Check security for resolved PID
 		if !security.IsAllowed(l.Context(), permission, pid.String(), nil) {
-			return pubsub.PID{}, fmt.Errorf("not allowed to %s: %s",
+			return relay.PID{}, fmt.Errorf("not allowed to %s: %s",
 				strings.TrimPrefix(permission, "process."), pidOrName)
 		}
 		return pid, nil
@@ -249,17 +249,17 @@ func (m *Module) resolvePID(l *lua.LState, pidOrName string, permission string) 
 	// If parsing failed, try to lookup as a name
 	reg, ok := m.getRegistry(l)
 	if !ok {
-		return pubsub.PID{}, fmt.Errorf("could not access registry")
+		return relay.PID{}, fmt.Errorf("could not access registry")
 	}
 
 	pid, found := reg.Lookup(pidOrName)
 	if !found {
-		return pubsub.PID{}, fmt.Errorf("could not resolve '%s' as PID or registered name", pidOrName)
+		return relay.PID{}, fmt.Errorf("could not resolve '%s' as PID or registered name", pidOrName)
 	}
 
 	// Check security for resolved PID from registry
 	if !security.IsAllowed(l.Context(), permission, pid.String(), nil) {
-		return pubsub.PID{}, fmt.Errorf("not allowed to %s: %s",
+		return relay.PID{}, fmt.Errorf("not allowed to %s: %s",
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 
@@ -314,7 +314,7 @@ func (m *Module) id(l *lua.LState) int {
 
 // send sends a message to another process (accepts pid or registered name)
 func (m *Module) send(l *lua.LState) int {
-	router := pubsub.GetRouter(l.Context())
+	router := relay.GetRouter(l.Context())
 	if router == nil {
 		return 2
 	}
@@ -346,15 +346,15 @@ func (m *Module) send(l *lua.LState) int {
 		return 2
 	}
 
-	messages := make([]*pubsub.Message, 0, l.GetTop()-2)
+	messages := make([]*relay.Message, 0, l.GetTop()-2)
 	for i := 3; i <= l.GetTop(); i++ {
-		messages = append(messages, &pubsub.Message{
+		messages = append(messages, &relay.Message{
 			Topic:    topic,
 			Payloads: []payload.Payload{luaconv.ExportPayload(l.Get(i))},
 		})
 	}
 
-	pkg := pubsub.NewMessagePackage(self, pid, messages...)
+	pkg := relay.NewMessagePackage(self, pid, messages...)
 
 	if err := router.Send(pkg); err != nil {
 		l.Push(lua.LNil)
@@ -952,11 +952,11 @@ func (m *Module) registryRegister(l *lua.LState) int {
 		return 2
 	}
 
-	var pid pubsub.PID
+	var pid relay.PID
 	if l.GetTop() >= 2 {
 		pidStr := l.CheckString(2)
 		var err error
-		pid, err = pubsub.ParsePID(pidStr)
+		pid, err = relay.ParsePID(pidStr)
 		if err != nil {
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))

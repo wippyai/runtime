@@ -7,13 +7,13 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/ponyruntime/pony/api/cloudstorage"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	services3 "github.com/ponyruntime/pony/api/service/aws/s3"
-	entryutil "github.com/ponyruntime/pony/internal/entry"
+	"github.com/wippyai/runtime/api/cloudstorage"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	services3 "github.com/wippyai/runtime/api/service/aws/s3"
+	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
 

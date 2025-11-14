@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/version"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/version"
 	"go.uber.org/zap"
 )
 

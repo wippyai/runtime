@@ -3,9 +3,9 @@ package security
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/security"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/security"
 	"go.uber.org/zap"
 )
 

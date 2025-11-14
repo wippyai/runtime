@@ -1,16 +1,16 @@
 package events
 
 import (
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/system/eventbus"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
+	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
+	"github.com/wippyai/runtime/system/eventbus"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	luaapi "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

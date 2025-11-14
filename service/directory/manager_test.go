@@ -3,19 +3,19 @@ package directory
 import (
 	"errors"
 	"fmt"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"io/fs"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	fsapi "github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	dirapi "github.com/ponyruntime/pony/api/service/directory"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/event"
+	fsapi "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	dirapi "github.com/wippyai/runtime/api/service/directory"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 

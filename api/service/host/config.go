@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 // Registry kind constants for Process Host components
@@ -27,7 +27,7 @@ type Config struct {
 	MaxProcesses int `json:"max_processes"` // Maximum number of concurrent processes
 	Workers      int `json:"workers"`       // Number of workers processing steps
 
-	// Messaging settings (from pubsub)
+	// Messaging settings (from relay)
 	BufferSize         int `json:"buffer_size"`          // Internal job channel buffer size
 	WorkerCount        int `json:"worker_count"`         // Number of concurrent message workers
 	MessageWorkerCount int `json:"message_worker_count"` // Number of concurrent message workers

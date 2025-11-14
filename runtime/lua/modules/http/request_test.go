@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"io"
 	"mime/multipart"
 	"net/http/httptest"
@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

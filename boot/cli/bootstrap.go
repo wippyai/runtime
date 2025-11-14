@@ -3,7 +3,7 @@ package cli
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/deps/client"
+	"github.com/wippyai/runtime/boot/deps/client"
 )
 
 // RegistryClient context helpers

@@ -5,10 +5,10 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
-	"github.com/ponyruntime/pony/runtime/lua/modules/hash"
+	"github.com/wippyai/runtime/api/boot"
+	bootpkg "github.com/wippyai/runtime/boot"
+	"github.com/wippyai/runtime/runtime/lua/modules/crypto"
+	"github.com/wippyai/runtime/runtime/lua/modules/hash"
 )
 
 func LuaCrypto() boot.Component {

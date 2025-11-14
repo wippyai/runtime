@@ -3,10 +3,10 @@ package directory
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/service/directory"
-	"github.com/ponyruntime/pony/tests/tempfiles"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/service/directory"
+	"github.com/wippyai/runtime/tests/tempfiles"
 )
 
 func TestNewDirectoryFSFactory(t *testing.T) {

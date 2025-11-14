@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Common token errors

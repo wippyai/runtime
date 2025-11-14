@@ -5,10 +5,10 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	registrymod "github.com/ponyruntime/pony/runtime/lua/modules/registry"
+	"github.com/wippyai/runtime/api/boot"
+	logapi "github.com/wippyai/runtime/api/logs"
+	bootpkg "github.com/wippyai/runtime/boot"
+	registrymod "github.com/wippyai/runtime/runtime/lua/modules/registry"
 )
 
 func LuaRegistry() boot.Component {

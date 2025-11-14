@@ -7,9 +7,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/registry"
-	httpapi "github.com/ponyruntime/pony/api/service/http"
+	contextapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
+	httpapi "github.com/wippyai/runtime/api/service/http"
 )
 
 // RouteInfoPool safely pools RouteInfo objects to reduce allocations

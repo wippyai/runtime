@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/wildcard"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/wildcard"
 )
 
 const (

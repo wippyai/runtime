@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	execapi "github.com/ponyruntime/pony/api/service/exec"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 
 	"go.uber.org/zap"
 )

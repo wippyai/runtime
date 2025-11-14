@@ -10,21 +10,21 @@ import (
 	"testing/fstest"
 
 	"github.com/pkg/errors"
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/boot/loader"
-	"github.com/ponyruntime/pony/boot/loader/interpolate"
-	"github.com/ponyruntime/pony/internal/version"
-	transcoder "github.com/ponyruntime/pony/system/payload"
-	"github.com/ponyruntime/pony/system/payload/json"
-	"github.com/ponyruntime/pony/system/payload/yaml"
 	"github.com/stretchr/testify/assert"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/boot/loader"
+	"github.com/wippyai/runtime/boot/loader/interpolate"
+	"github.com/wippyai/runtime/internal/version"
+	transcoder "github.com/wippyai/runtime/system/payload"
+	"github.com/wippyai/runtime/system/payload/json"
+	"github.com/wippyai/runtime/system/payload/yaml"
 
 	"go.uber.org/zap"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/system/registry/history"
-	"github.com/ponyruntime/pony/system/registry/topology"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/registry/history"
+	"github.com/wippyai/runtime/system/registry/topology"
 )
 
 // MockRunner is a mock implementation of the registry.process interface for testing.

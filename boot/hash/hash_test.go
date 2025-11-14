@@ -3,11 +3,11 @@ package hash
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	systempayload "github.com/ponyruntime/pony/system/payload"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	systempayload "github.com/wippyai/runtime/system/payload"
 )
 
 func TestHashEntries(t *testing.T) {

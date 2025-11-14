@@ -7,9 +7,9 @@ import (
 	"os"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // RunnerConfig holds the configuration for a Runner.
@@ -30,7 +30,7 @@ func DefaultRunnerConfig() *RunnerConfig {
 
 // Runner manages the lifecycle of a process.
 type Runner struct {
-	pid    pubsub.PID
+	pid    relay.PID
 	proc   process.Process
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -52,7 +52,7 @@ func NewTerminalRunner(
 	// Derive a runner context from the provided terminal context.
 	runnerCtx, cancel := context.WithCancel(ctx)
 
-	if err := process.SetOnComplete(runnerCtx, func(_ pubsub.PID, _ *runtime.Result) {
+	if err := process.SetOnComplete(runnerCtx, func(_ relay.PID, _ *runtime.Result) {
 		cancel()
 	}); err != nil {
 		return nil, fmt.Errorf("failed to set onComplete callback: %w", err)
@@ -97,7 +97,7 @@ func (r *Runner) run() {
 
 // Send forwards a package to the underlying process.
 // Returns an error if the process cannot receive the package.
-func (r *Runner) Send(pkg *pubsub.Package) error {
+func (r *Runner) Send(pkg *relay.Package) error {
 	return r.proc.Send(pkg)
 }
 

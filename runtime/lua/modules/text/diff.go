@@ -3,8 +3,8 @@ package text
 import (
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/sergi/go-diff/diffmatchpatch"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 

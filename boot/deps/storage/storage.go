@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ponyruntime/pony/api/payload"
-	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/boot/hash"
 	modulev1 "github.com/wippyai/module-registry-proto-go/registry/module/v1"
+	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/hash"
 )
 
 // Loader interface for loading entries from filesystem

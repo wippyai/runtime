@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/service/exec/native"
+	"github.com/wippyai/runtime/service/exec/native"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/api/service/exec"
-	entryutil "github.com/ponyruntime/pony/internal/entry"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/service/exec"
+	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
 

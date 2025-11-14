@@ -6,12 +6,12 @@ import (
 	"sync"
 	"sync/atomic"
 
-	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
+	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 )
 

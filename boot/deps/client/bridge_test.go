@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/deps/graph"
-	transcoder "github.com/ponyruntime/pony/system/payload"
-	jpayload "github.com/ponyruntime/pony/system/payload/json"
-	ypayload "github.com/ponyruntime/pony/system/payload/yaml"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/deps/graph"
+	transcoder "github.com/wippyai/runtime/system/payload"
+	jpayload "github.com/wippyai/runtime/system/payload/json"
+	ypayload "github.com/wippyai/runtime/system/payload/yaml"
 )
 
 func TestExtractDependenciesFromEntries(t *testing.T) {

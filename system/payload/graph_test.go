@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/system/payload/json"
-	"github.com/ponyruntime/pony/system/payload/yaml"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/system/payload/json"
+	"github.com/wippyai/runtime/system/payload/yaml"
 )
 
 func TestTranscoder_Unmarshal_Simple(t *testing.T) {

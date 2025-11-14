@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	envsvc "github.com/ponyruntime/pony/api/service/env"
+	envsvc "github.com/wippyai/runtime/api/service/env"
 
-	"github.com/ponyruntime/pony/api/env"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/registry"
 	"go.uber.org/zap"
 )
 

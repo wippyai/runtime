@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-	lua "github.com/ponyruntime/pony/runtime/lua/code"
-	"github.com/ponyruntime/pony/system/eventbus"
-	eventhandlers "github.com/ponyruntime/pony/system/registry/events"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	api "github.com/wippyai/runtime/api/runtime/lua"
+	lua "github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/system/eventbus"
+	eventhandlers "github.com/wippyai/runtime/system/registry/events"
 )
 
 type EntityHandler interface {

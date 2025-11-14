@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/runtime"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )

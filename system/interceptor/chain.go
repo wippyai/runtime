@@ -3,9 +3,9 @@ package interceptor
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/function"
-	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
-	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/wippyai/runtime/api/function"
+	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // Chain represents a sequence of interceptors that can be executed in order

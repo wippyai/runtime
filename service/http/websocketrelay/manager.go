@@ -7,15 +7,15 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ponyruntime/pony/api/topology"
+	"github.com/wippyai/runtime/api/topology"
 
 	"github.com/coder/websocket"
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	httpapi "github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/internal/uniqid"
+	contextapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	httpapi "github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/internal/uniqid"
 	"go.uber.org/zap"
 )
 
@@ -23,7 +23,7 @@ const (
 	OptionAllowedOrigins = "allowed_origins"
 )
 
-// RelayManager manages WebSocket connections and their relay to the pubsub system
+// RelayManager manages WebSocket connections and their relay to the relay system
 type RelayManager struct {
 	appCtx context.Context
 	logger *zap.Logger
@@ -102,7 +102,7 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 		}
 
 		// Parse the target PID
-		targetPID, err := pubsub.ParsePID(config.TargetPID)
+		targetPID, err := relay.ParsePID(config.TargetPID)
 		if err != nil {
 			logger.Error("Invalid target PID", zap.Error(err), zap.String("pid", config.TargetPID))
 			http.Error(w, "Invalid target PID: "+err.Error(), http.StatusBadRequest)
@@ -134,7 +134,7 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 			return
 		}
 
-		pubsubHost, ok := hostVal.(pubsub.Host)
+		relayHost, ok := hostVal.(relay.Host)
 		if !ok {
 			errMsg := fmt.Sprintf("Invalid host type: %T", hostVal)
 			logger.Error(errMsg)
@@ -142,7 +142,7 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 			return
 		}
 
-		node := pubsub.GetNode(r.Context())
+		node := relay.GetNode(r.Context())
 		if node == nil {
 			errMsg := "Node not found in context"
 			logger.Error(errMsg)
@@ -208,7 +208,7 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 			config,
 			messageTopic,
 			serverID,
-			pubsubHost,
+			relayHost,
 			node,
 			topo,
 			transcoder,

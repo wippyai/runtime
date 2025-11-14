@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ponyruntime/pony/internal/graph"
 	identityv1 "github.com/wippyai/module-registry-proto-go/registry/identity/v1"
 	modulev1 "github.com/wippyai/module-registry-proto-go/registry/module/v1"
+	"github.com/wippyai/runtime/internal/graph"
 )
 
 // Name represents a module name in org/module format.

@@ -3,11 +3,11 @@ package core
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	secapi "github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/system/security"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/system/security"
 )
 
 func Security() boot.Component {

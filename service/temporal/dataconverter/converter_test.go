@@ -5,12 +5,12 @@ import (
 	"strconv"
 	"testing"
 
-	jpayload "github.com/ponyruntime/pony/system/payload/json"
-	ypayload "github.com/ponyruntime/pony/system/payload/yaml"
+	jpayload "github.com/wippyai/runtime/system/payload/json"
+	ypayload "github.com/wippyai/runtime/system/payload/yaml"
 
-	"github.com/ponyruntime/pony/api/payload"
-	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/payload"
+	transcoder "github.com/wippyai/runtime/system/payload"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 )

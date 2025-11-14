@@ -7,7 +7,7 @@ import (
 
 	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/fatih/color"
-	"github.com/ponyruntime/pony/cmd/wippy/cmd"
+	"github.com/wippyai/runtime/cmd/wippy/cmd"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"

@@ -6,10 +6,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ponyruntime/pony/api/process"
+	"github.com/wippyai/runtime/api/process"
 
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/topology"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
 
@@ -26,10 +26,10 @@ type ProcessPool struct {
 	numProcesses atomic.Int32
 	maxProcesses int
 	log          *zap.Logger
-	processes    sync.Map        // map[pubsub.Target]*processEntry
-	workCh       chan pubsub.PID // Channel for scheduling work
-	wg           sync.WaitGroup  // Worker goroutines WaitGroup
-	processWG    sync.WaitGroup  // Active processes WaitGroup
+	processes    sync.Map       // map[relay.Target]*processEntry
+	workCh       chan relay.PID // Channel for scheduling work
+	wg           sync.WaitGroup // Worker goroutines WaitGroup
+	processWG    sync.WaitGroup // Active processes WaitGroup
 	ctx          context.Context
 	cancel       context.CancelFunc
 }
@@ -47,14 +47,14 @@ func NewProcessPool(
 		workers:      workers,
 		maxProcesses: maxProcesses,
 		log:          log,
-		workCh:       make(chan pubsub.PID, maxProcesses+1),
+		workCh:       make(chan relay.PID, maxProcesses+1),
 		ctx:          ctx,
 		cancel:       cancel,
 	}
 }
 
 // Add registers a new process with the pool
-func (p *ProcessPool) Add(pid pubsub.PID, proc process.Process) error {
+func (p *ProcessPool) Add(pid relay.PID, proc process.Process) error {
 	if p.maxProcesses != 0 && int(p.numProcesses.Load()) >= p.maxProcesses {
 		p.log.Warn("max processes reached, cannot add new process", zap.String("pid", pid.String()))
 		return process.ErrMaxProcesses
@@ -76,7 +76,7 @@ func (p *ProcessPool) Add(pid pubsub.PID, proc process.Process) error {
 }
 
 // Cancel sends a cancellation signal to a specific process
-func (p *ProcessPool) Cancel(pid pubsub.PID, deadline time.Time) error {
+func (p *ProcessPool) Cancel(pid relay.PID, deadline time.Time) error {
 	entryVal, exists := p.processes.Load(pid.String())
 	if !exists {
 		return process.ErrNoProcess
@@ -98,7 +98,7 @@ func (p *ProcessPool) Cancel(pid pubsub.PID, deadline time.Time) error {
 // CancelAll sends cancellation signals to all processes and waits for completion
 func (p *ProcessPool) CancelAll(ctx context.Context, deadline time.Time) error {
 	p.processes.Range(func(key, _ interface{}) bool {
-		pid, _ := pubsub.ParsePID(key.(string))
+		pid, _ := relay.ParsePID(key.(string))
 		if err := p.Cancel(pid, deadline); err != nil {
 			p.log.Warn("failed to cancel process",
 				zap.String("pid", pid.String()),
@@ -129,13 +129,13 @@ func (p *ProcessPool) Close() {
 }
 
 // Has checks if a process exists in the pool
-func (p *ProcessPool) Has(pid pubsub.PID) bool {
+func (p *ProcessPool) Has(pid relay.PID) bool {
 	_, exists := p.processes.Load(pid.String())
 	return exists
 }
 
 // Remove removes a process from the pool
-func (p *ProcessPool) Remove(pid pubsub.PID) {
+func (p *ProcessPool) Remove(pid relay.PID) {
 	if _, exists := p.processes.LoadAndDelete(pid.String()); exists {
 		p.processWG.Done()
 		p.numProcesses.Add(^int32(0))
@@ -143,7 +143,7 @@ func (p *ProcessPool) Remove(pid pubsub.PID) {
 }
 
 // Schedule adds a process to the work queue
-func (p *ProcessPool) Schedule(pid pubsub.PID) error {
+func (p *ProcessPool) Schedule(pid relay.PID) error {
 	pr, exists := p.processes.Load(pid.String())
 	if !exists {
 		return process.ErrNoProcess
@@ -162,7 +162,7 @@ func (p *ProcessPool) Schedule(pid pubsub.PID) error {
 }
 
 // Send sends a message to a specific process
-func (p *ProcessPool) Send(pid pubsub.PID, pkg *pubsub.Package) error {
+func (p *ProcessPool) Send(pid relay.PID, pkg *relay.Package) error {
 	entryVal, exists := p.processes.Load(pid.String())
 	if !exists {
 		return process.ErrNoProcess
@@ -180,7 +180,7 @@ func (p *ProcessPool) Start() {
 }
 
 // Terminate notifies a process about termination
-func (p *ProcessPool) Terminate(pid pubsub.PID) {
+func (p *ProcessPool) Terminate(pid relay.PID) {
 	entryVal, exists := p.processes.Load(pid.String())
 	if !exists {
 		return

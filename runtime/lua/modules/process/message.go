@@ -1,10 +1,10 @@
 package process
 
 import (
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -17,7 +17,7 @@ const (
 type Message struct {
 	Topic   string
 	Payload payload.Payload
-	From    pubsub.PID // Added From field to track the sender
+	From    relay.PID // Added From field to track the sender
 }
 
 // RegisterMessageType registers the message type with Lua
@@ -75,7 +75,7 @@ func CheckMessage(l *lua.LState) *Message {
 }
 
 // NewMessage creates a new Message object with sender information
-func NewMessage(from pubsub.PID, topic string, p payload.Payload) *Message {
+func NewMessage(from relay.PID, topic string, p payload.Payload) *Message {
 	return &Message{
 		Topic:   topic,
 		Payload: p,

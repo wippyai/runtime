@@ -6,13 +6,10 @@ import (
 	"fmt"
 	"io/fs"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 const Kind registry.Kind = "fs.directory"
-
-// TypeNameEmbed specifies special type of the directory fs - embed.
-const TypeNameEmbed = "embed"
 
 // Config represents configuration for a filesystem directory
 type Config struct {

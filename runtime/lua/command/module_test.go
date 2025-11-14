@@ -1,15 +1,15 @@
 package command
 
 import (
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

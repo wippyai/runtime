@@ -4,10 +4,10 @@ import (
 	"fmt"
 
 	"github.com/Masterminds/squirrel"
-	"github.com/ponyruntime/pony/api/service/sql"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	"github.com/wippyai/runtime/api/service/sql"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/modules/sql/sqlutil"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 

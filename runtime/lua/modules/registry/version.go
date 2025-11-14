@@ -1,8 +1,8 @@
 package registry
 
 import (
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 

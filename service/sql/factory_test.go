@@ -5,8 +5,8 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3" // Import SQLite driver
-	config "github.com/ponyruntime/pony/api/service/sql"
 	"github.com/stretchr/testify/assert"
+	config "github.com/wippyai/runtime/api/service/sql"
 )
 
 func createTestDBConfig() *config.DBConfig {

@@ -6,10 +6,10 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/api/security"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/security"
 )
 
 // Middleware option constants

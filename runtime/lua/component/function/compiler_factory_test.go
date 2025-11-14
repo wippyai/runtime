@@ -3,10 +3,10 @@ package function
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/runtime/lua/code"
-	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/runtime/lua/component"
 	"go.uber.org/zap"
 )
 

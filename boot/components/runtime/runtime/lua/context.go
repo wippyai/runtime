@@ -3,10 +3,10 @@ package lua
 import (
 	"context"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/registry"
-	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/runtime/lua/code"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code"
 )
 
 var codeManagerKey = &ctxapi.Key{Name: "lua.codeManager"}

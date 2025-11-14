@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	procapi "github.com/ponyruntime/pony/api/process"
-	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
-	regapi "github.com/ponyruntime/pony/api/registry"
-	bootcore "github.com/ponyruntime/pony/boot/components/core/core"
-	"github.com/ponyruntime/pony/system/process"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	procapi "github.com/wippyai/runtime/api/process"
+	regapi "github.com/wippyai/runtime/api/registry"
+	relayapi "github.com/wippyai/runtime/api/relay"
+	bootcore "github.com/wippyai/runtime/boot/components/core/core"
+	"github.com/wippyai/runtime/system/process"
 	"go.uber.org/zap"
 )
 
@@ -31,7 +31,7 @@ func Process() boot.Component {
 				return ctx, fmt.Errorf("event bus not available in context")
 			}
 
-			node := pubsubapi.GetNode(ctx)
+			node := relayapi.GetNode(ctx)
 
 			reg := regapi.GetRegistry(ctx)
 			if reg == nil {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 func TestNewBackoffCalculator(t *testing.T) {

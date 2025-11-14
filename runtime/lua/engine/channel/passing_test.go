@@ -6,8 +6,8 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
 

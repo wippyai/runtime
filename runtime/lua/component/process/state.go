@@ -6,17 +6,17 @@ import (
 	"sync"
 	"sync/atomic"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
-	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
+	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -42,7 +42,7 @@ type State struct {
 	Ctx context.Context
 	DTT payload.Transcoder
 	UoW engine.UnitOfWork
-	PID pubsub.PID
+	PID relay.PID
 
 	// State tracking
 	wg        sync.WaitGroup
@@ -78,7 +78,7 @@ func NewState(
 }
 
 // InitContext initializes the process context and unit of work
-func (s *State) InitContext(ctx context.Context, pid pubsub.PID) error {
+func (s *State) InitContext(ctx context.Context, pid relay.PID) error {
 	// Get transcoder
 	s.DTT = payload.GetTranscoder(ctx)
 	if s.DTT == nil {
@@ -289,7 +289,7 @@ func (s *State) Complete(err error, result lua.LValue) {
 }
 
 // SendPackage handles an incoming message package
-func (s *State) SendPackage(pkg *pubsub.Package) error {
+func (s *State) SendPackage(pkg *relay.Package) error {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
@@ -347,13 +347,13 @@ func (s *State) SendPackage(pkg *pubsub.Package) error {
 			}
 		}
 
-		pubsub.ReleasePackage(pkg)
+		relay.ReleasePackage(pkg)
 		return nil
 	}
 }
 
 // handleTopologyEvent processes a topology event and takes appropriate action
-func (s *State) handleTopologyMessage(msg *pubsub.Message) bool {
+func (s *State) handleTopologyMessage(msg *relay.Message) bool {
 	if len(msg.Payloads) != 1 {
 		// topology events should have exactly one payload
 		return false

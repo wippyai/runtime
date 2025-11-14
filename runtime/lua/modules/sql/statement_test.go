@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"testing"
 
-	sqlapi "github.com/ponyruntime/pony/api/service/sql"
-	sqlres "github.com/ponyruntime/pony/service/sql"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
+	sqlres "github.com/wippyai/runtime/service/sql"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

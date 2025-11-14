@@ -1,6 +1,6 @@
 package system
 
-import "github.com/ponyruntime/pony/api/boot"
+import "github.com/wippyai/runtime/api/boot"
 
 const (
 	// System component names

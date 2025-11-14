@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Helper function to create an Process with just a name (no namespace)

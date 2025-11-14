@@ -3,11 +3,11 @@ package core
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/pidgen"
-	"github.com/ponyruntime/pony/internal/uniqid"
-	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/pidgen"
+	"github.com/wippyai/runtime/internal/uniqid"
+	"github.com/wippyai/runtime/system/eventbus"
 )
 
 func EventBus() boot.Component {

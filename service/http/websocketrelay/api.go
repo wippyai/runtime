@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 // Constants for the WebSocket relay
@@ -13,12 +13,12 @@ const (
 	WSRelayHeader = "X-WS-Relay"
 
 	// Topic constants
-	WSMessageTopic   pubsub.Topic = "ws.message"
-	WSJoinTopic      pubsub.Topic = "ws.join"
-	WSLeaveTopic     pubsub.Topic = "ws.leave"
-	WSControlTopic   pubsub.Topic = "ws.control"
-	WSCloseTopic     pubsub.Topic = "ws.close"
-	WSHeartbeatTopic pubsub.Topic = "ws.heartbeat"
+	WSMessageTopic   relay.Topic = "ws.message"
+	WSJoinTopic      relay.Topic = "ws.join"
+	WSLeaveTopic     relay.Topic = "ws.leave"
+	WSControlTopic   relay.Topic = "ws.control"
+	WSCloseTopic     relay.Topic = "ws.close"
+	WSHeartbeatTopic relay.Topic = "ws.heartbeat"
 
 	// Default heartbeat interval
 	DefaultHeartbeatInterval = 30 * time.Second

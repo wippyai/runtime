@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
 

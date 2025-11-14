@@ -5,9 +5,9 @@ import (
 	context "context"
 	"net/http"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
 // Context keys for storing HTTP-specific values in the request context

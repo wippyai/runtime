@@ -10,8 +10,8 @@ import (
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 
-	sqlapi "github.com/ponyruntime/pony/api/service/sql"
-	sqlres "github.com/ponyruntime/pony/service/sql"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
+	sqlres "github.com/wippyai/runtime/service/sql"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"

@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/system/registry/topology"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
 

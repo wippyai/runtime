@@ -3,12 +3,12 @@ package fs
 import (
 	"io/fs"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
-	"github.com/ponyruntime/pony/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/lua/security"
 
-	fsapi "github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	fsapi "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
 

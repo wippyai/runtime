@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/runtime/lua/code"
-	"github.com/ponyruntime/pony/runtime/lua/component"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/runtime/lua/component"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
+	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
 	"go.uber.org/zap"
 )
 

@@ -1,14 +1,14 @@
 package btea
 
 import (
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
 
@@ -51,7 +51,7 @@ func TestApp_Start_NoTerminalContext(t *testing.T) {
 	app, _ := NewApp(log, transcoder, runner, funcName)
 
 	ctx := ctxapi.NewRootContext()
-	pid := pubsub.PID{
+	pid := relay.PID{
 		Host:   "test_host",
 		UniqID: "test_uniq",
 	}

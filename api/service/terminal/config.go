@@ -2,8 +2,8 @@
 package terminal
 
 import (
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 // KindHost identifies a terminal service component

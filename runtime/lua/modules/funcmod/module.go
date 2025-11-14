@@ -6,15 +6,15 @@ import (
 	"strings"
 	"sync"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
-	"github.com/ponyruntime/pony/runtime/lua/modules/process"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
+	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
+	"github.com/wippyai/runtime/runtime/lua/modules/process"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -89,8 +89,8 @@ func (e *Module) ensureSubscriptions(l *lua.LState) bool {
 	}
 
 	// Create inbox receiver
-	inbox := make(chan *pubsub.Package, 1)
-	closer, err := pubsub.GetNode(uw.Context()).Attach(pid, inbox)
+	inbox := make(chan *relay.Package, 1)
+	closer, err := relay.GetNode(uw.Context()).Attach(pid, inbox)
 	if err != nil {
 		e.log.Error("failed to attach to node", zap.Error(err))
 		return false
@@ -104,7 +104,7 @@ func (e *Module) ensureSubscriptions(l *lua.LState) bool {
 			for {
 				select {
 				case pkg := <-inbox:
-					pubsub.ReleasePackage(pkg)
+					relay.ReleasePackage(pkg)
 				default:
 					topology.GetTopology(uw.Context()).Remove(pid)
 					return
@@ -128,7 +128,7 @@ func (e *Module) ensureSubscriptions(l *lua.LState) bool {
 }
 
 // processPackage handles an incoming message package
-func (e *Module) processPackage(uw engine.UnitOfWork, pkg *pubsub.Package) {
+func (e *Module) processPackage(uw engine.UnitOfWork, pkg *relay.Package) {
 	if pkg == nil {
 		return
 	}
@@ -182,7 +182,7 @@ func (e *Module) processPackage(uw engine.UnitOfWork, pkg *pubsub.Package) {
 		}
 	}
 
-	pubsub.ReleasePackage(pkg)
+	relay.ReleasePackage(pkg)
 }
 
 // toLuaPayloads converts a slice of payloads to Lua values

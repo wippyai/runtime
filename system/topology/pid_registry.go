@@ -3,8 +3,8 @@ package topology
 import (
 	"sync"
 
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/topology"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
 
@@ -38,7 +38,7 @@ func NewPIDRegistry(config PIDRegistryConfig) *PIDRegistry {
 
 // Register associates a name with a Target
 // Returns error if name is already taken
-func (r *PIDRegistry) Register(name string, pid pubsub.PID) error {
+func (r *PIDRegistry) Register(name string, pid relay.PID) error {
 	// Store name → Target mapping
 	r.nameToID.Store(name, pid)
 
@@ -77,7 +77,7 @@ func (r *PIDRegistry) Unregister(name string) bool {
 		return false
 	}
 
-	pid := pidVal.(pubsub.PID)
+	pid := pidVal.(relay.PID)
 
 	// Remove from nameToID map
 	r.nameToID.Delete(name)
@@ -111,7 +111,7 @@ func (r *PIDRegistry) Unregister(name string) bool {
 
 // Lookup finds the Target registered with a given name
 // Returns the Target and true if found, empty Target and false if not found
-func (r *PIDRegistry) Lookup(name string) (pubsub.PID, bool) {
+func (r *PIDRegistry) Lookup(name string) (relay.PID, bool) {
 	pidVal, exists := r.nameToID.Load(name)
 	if !exists {
 		if r.parent != nil {
@@ -126,10 +126,10 @@ func (r *PIDRegistry) Lookup(name string) (pubsub.PID, bool) {
 
 		r.logger.Debug("failed to lookup name",
 			zap.String("name", name))
-		return pubsub.PID{}, false
+		return relay.PID{}, false
 	}
 
-	pid := pidVal.(pubsub.PID)
+	pid := pidVal.(relay.PID)
 
 	// no log in hot operation, can be handled on app level
 
@@ -138,7 +138,7 @@ func (r *PIDRegistry) Lookup(name string) (pubsub.PID, bool) {
 
 // Remove completely removes a Target from the registry,
 // removing all name associations for that Target
-func (r *PIDRegistry) Remove(pid pubsub.PID) {
+func (r *PIDRegistry) Remove(pid relay.PID) {
 	// Get all names associated with this Target
 	namesVal, exists := r.idToName.Load(pid)
 	if !exists {

@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/inspect"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/engine/inspect"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 

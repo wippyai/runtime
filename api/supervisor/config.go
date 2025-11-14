@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ponyruntime/pony/api/security"
+	"github.com/wippyai/runtime/api/security"
 )
 
 type (

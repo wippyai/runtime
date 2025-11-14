@@ -1,10 +1,10 @@
 package exec
 
 import (
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 
-	// stream "github.com/ponyruntime/pony/runtime/lua/modules/stream" // No need to import directly if registered globally
+	// stream "github.com/wippyai/runtime/runtime/lua/modules/stream" // No need to import directly if registered globally
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

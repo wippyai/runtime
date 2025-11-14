@@ -10,17 +10,17 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	envapi "github.com/ponyruntime/pony/api/env"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	apiconfig "github.com/ponyruntime/pony/api/service/sql"
-	"github.com/ponyruntime/pony/api/supervisor"
-	entryutil "github.com/ponyruntime/pony/internal/entry"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	envapi "github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	apiconfig "github.com/wippyai/runtime/api/service/sql"
+	"github.com/wippyai/runtime/api/supervisor"
+	entryutil "github.com/wippyai/runtime/internal/entry"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 

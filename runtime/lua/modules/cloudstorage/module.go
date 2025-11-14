@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"github.com/ponyruntime/pony/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
 
-	csapi "github.com/ponyruntime/pony/api/cloudstorage"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	csapi "github.com/wippyai/runtime/api/cloudstorage"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
 

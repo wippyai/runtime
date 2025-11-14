@@ -4,9 +4,9 @@ import (
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/protocol"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
 )
 

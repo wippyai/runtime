@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"sync"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/interceptor"
-	"github.com/ponyruntime/pony/api/pidgen"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	runtimeapi "github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/system/eventbus"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/interceptor"
+	"github.com/wippyai/runtime/api/pidgen"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -21,7 +21,7 @@ import (
 // It uses an event bus for communication and supports dynamic handler registration.
 type Registry struct {
 	ctx        context.Context
-	host       pubsub.Host
+	host       relay.Host
 	logger     *zap.Logger
 	bus        event.Bus
 	handlers   sync.Map
@@ -30,7 +30,7 @@ type Registry struct {
 }
 
 // NewFunctionRegistry creates a new Registry instance with the provided event bus and logger.
-func NewFunctionRegistry(bus event.Bus, host pubsub.Host, logger *zap.Logger) *Registry {
+func NewFunctionRegistry(bus event.Bus, host relay.Host, logger *zap.Logger) *Registry {
 	return &Registry{
 		bus:      bus,
 		host:     host,

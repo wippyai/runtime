@@ -4,14 +4,14 @@ package function
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 const (
 	// HostID identifies the function node in the pub/sub system
-	HostID pubsub.HostID = "node:functions"
+	HostID relay.HostID = "node:functions"
 
 	// System identifies the executor system in the event bus
 	System event.System = "function"

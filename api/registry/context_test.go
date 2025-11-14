@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/stretchr/testify/assert"
+	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
 func TestWithRegistry(t *testing.T) {
