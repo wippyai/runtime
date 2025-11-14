@@ -25,9 +25,8 @@ func Profiler() boot.Component {
 	var logger *zap.Logger
 
 	return boot.New(boot.P{
-		Name:      ProfilerName,
-		Phase:     boot.PreInit,
-		DependsOn: []string{LoggerName},
+		Name:  ProfilerName,
+		Phase: boot.PreInit,
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger = logapi.GetLogger(ctx)
 			return ctx, nil
@@ -38,7 +37,7 @@ func Profiler() boot.Component {
 				return nil
 			}
 
-			cfgSub := cfg.Sub(ProfilerName)
+			cfgSub := cfg.Sub(string(ProfilerName))
 			if !cfgSub.GetBool(string(ProfilerEnabled), false) {
 				return nil
 			}

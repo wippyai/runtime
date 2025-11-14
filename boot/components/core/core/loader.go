@@ -14,7 +14,7 @@ func Loader() boot.Component {
 	return boot.New(boot.P{
 		Name:      LoaderName,
 		Phase:     boot.Init,
-		DependsOn: []string{LoggerName, TranscoderName},
+		DependsOn: []boot.ComponentName{},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			dtt := payload.GetTranscoder(ctx)
@@ -29,9 +29,7 @@ func Loader() boot.Component {
 
 			ldr := loader.NewLoader(dtt, logger.Named("loader"), interpolator)
 
-			boot.WithLoader(ctx, ldr)
-
-			return ctx, nil
+			return boot.WithLoader(ctx, ldr), nil
 		},
 	})
 }

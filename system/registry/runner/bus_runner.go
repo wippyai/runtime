@@ -33,7 +33,7 @@ func NewBusRunner(bus event.Bus, log *zap.Logger) *BusRunner {
 		log:        log,
 		acceptChan: make(chan event.Event),
 		rejectChan: make(chan event.Event),
-		builder:    topology.NewStateBuilder(log),
+		builder:    topology.NewStateBuilder(log, nil),
 	}
 }
 
@@ -118,7 +118,7 @@ func (br *BusRunner) applyOperation(
 	if slices.Contains(allowProcess, op.Entry.Kind) {
 		br.log.Debug("processing entry",
 			zap.String("id", op.Entry.ID.String()),
-			zap.Any("meta", op.Entry.Meta))
+			zap.String("kind", string(op.Entry.Kind)))
 
 		// with entry events we dont propagate any events and handle them internally
 		// use registry.entry for dynamic configs
@@ -131,9 +131,9 @@ func (br *BusRunner) applyOperation(
 	}
 
 	br.log.Debug("starting operation",
-		zap.String("kind", op.Kind),
-		zap.String("id", op.Entry.ID.String()),
-		zap.Any("meta", op.Entry.Meta))
+		zap.String("operation", op.Kind),
+		zap.String("entry_kind", string(op.Entry.Kind)),
+		zap.String("id", op.Entry.ID.String()))
 
 	// send the operation event
 	br.bus.Send(ctx, event.Event{

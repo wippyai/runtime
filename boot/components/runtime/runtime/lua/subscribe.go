@@ -14,7 +14,7 @@ func LuaSubscribe() boot.Component {
 	return boot.New(boot.P{
 		Name:      "lua_subscribe",
 		Phase:     boot.PostInit,
-		DependsOn: []string{LuaEngineName},
+		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			codeManager := GetCodeManager(ctx)
 

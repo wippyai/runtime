@@ -1,5 +1,3 @@
-//go:build !plugin_minimal
-
 package service
 
 import (
@@ -18,7 +16,7 @@ func InterceptorOtel() boot.Component {
 	return boot.New(boot.P{
 		Name:      InterceptorOtelName,
 		Phase:     boot.PostInit,
-		DependsOn: []string{"eventbus", "interceptor-manager"},
+		DependsOn: []boot.ComponentName{InterceptorManagerName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			bus := event.GetBus(ctx)
 

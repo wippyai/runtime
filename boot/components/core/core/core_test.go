@@ -1,22 +1,28 @@
 package core
 
 import (
-	"context"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/event"
 	logapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/pidgen"
 	bootpkg "github.com/ponyruntime/pony/boot"
+	"go.uber.org/zap"
 )
 
 func TestCorePlugins(t *testing.T) {
+	logger := zap.NewExample()
+	ctx, err := bootpkg.NewInfrastructure(logger, nil)
+	if err != nil {
+		t.Fatalf("NewInfrastructure() error = %v", err)
+	}
+
 	loader, err := bootpkg.NewLoader(All()...)
 	if err != nil {
 		t.Fatalf("NewLoader() error = %v", err)
 	}
 
-	ctx, err := loader.Load(context.Background())
+	ctx, err = loader.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}

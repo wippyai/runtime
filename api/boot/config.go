@@ -15,8 +15,8 @@ const ConfigSep = "."
 // ConfigKey is a string alias for typed config key declarations in plugins.
 type ConfigKey string
 
-// ConfigSection is a string alias for config section names.
-type ConfigSection string
+// ComponentName is a string alias for component identifiers.
+type ComponentName string
 
 var configCtxKey = &ctxapi.Key{Name: "boot.config"}
 

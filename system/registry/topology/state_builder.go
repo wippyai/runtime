@@ -20,14 +20,16 @@ func WithCompareFunc(compare func(a, b registry.Entry) bool) BuilderOption {
 
 // StateBuilder constructs registry states and calculates state transitions
 type StateBuilder struct {
-	log     *zap.Logger
-	compare func(a, b registry.Entry) bool
+	log      *zap.Logger
+	compare  func(a, b registry.Entry) bool
+	resolver registry.DependencyResolver
 }
 
 // NewStateBuilder creates a new StateBuilder instance with the provided logger
-func NewStateBuilder(log *zap.Logger, opt ...BuilderOption) *StateBuilder {
+func NewStateBuilder(log *zap.Logger, resolver registry.DependencyResolver, opt ...BuilderOption) *StateBuilder {
 	sb := &StateBuilder{
-		log: log,
+		log:      log,
+		resolver: resolver,
 		compare: func(a, b registry.Entry) bool {
 			return reflect.DeepEqual(a, b)
 		},
@@ -258,7 +260,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 	}
 
 	// Sort entries respecting dependencies
-	sortedEntries, err := SortEntriesByDependency(opEntries)
+	sortedEntries, err := SortEntriesByDependency(opEntries, b.resolver)
 	if err != nil {
 		return nil, err
 	}

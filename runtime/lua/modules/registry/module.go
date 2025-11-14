@@ -8,7 +8,6 @@ import (
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/security"
-	"github.com/ponyruntime/pony/system/registry"
 	"github.com/ponyruntime/pony/system/registry/topology"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -219,7 +218,7 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 	}
 
 	// Create state builder
-	stateBuilder := topology.NewStateBuilder(m.log)
+	stateBuilder := topology.NewStateBuilder(m.log, nil)
 
 	// Build state at the specified version
 	state, err := stateBuilder.BuildState(history, foundVersion)
@@ -446,8 +445,13 @@ func (m *Module) registryFind(l *lua.LState) int {
 	// Convert Lua table to registry metadata
 	meta := convertFilterToMetadata(l, filterTable)
 
-	// Create finder
-	finder := registry.NewFinder(reg, m.log)
+	// Get finder from context
+	finder := regapi.GetFinder(l.Context())
+	if finder == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("finder not available in context"))
+		return 2
+	}
 
 	// Find entries
 	entries, err := finder.Find(meta)

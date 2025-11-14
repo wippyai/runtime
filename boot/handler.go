@@ -54,6 +54,7 @@ func wrapListener(kinds registry.Kind, listener registry.EntryListener) eventbus
 	return eventbus.NewBaseHandler(
 		eventbus.Pattern{System: registry.System, Kind: registry.AllEvents},
 		func(ctx context.Context, evt event.Event) error {
+			bus := event.GetBus(ctx)
 			entry, ok := evt.Data.(registry.Entry)
 			if !ok {
 				// Handle transaction events
@@ -91,7 +92,22 @@ func wrapListener(kinds registry.Kind, listener registry.EntryListener) eventbus
 				err = listener.Delete(ctx, entry)
 			}
 
-			return err
+			if err != nil {
+				bus.Send(ctx, event.Event{
+					System: registry.System,
+					Kind:   registry.Reject,
+					Path:   entry.ID.String(),
+					Data:   err,
+				})
+				return nil
+			}
+
+			bus.Send(ctx, event.Event{
+				System: registry.System,
+				Kind:   registry.Accept,
+				Path:   entry.ID.String(),
+			})
+			return nil
 		},
 	)
 }

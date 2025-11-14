@@ -1,5 +1,3 @@
-//go:build !plugin_minimal
-
 package service
 
 import (
@@ -15,7 +13,7 @@ import (
 
 func EnvService() boot.Component {
 	return boot.New(boot.P{
-		Name:      "env_service",
+		Name:      EnvName,
 		Phase:     boot.PostInit,
 		DependsOn: nil,
 		Load: func(ctx context.Context) (context.Context, error) {

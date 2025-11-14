@@ -211,7 +211,7 @@ func verifyOperationOrder(t *testing.T, sorted registry.ChangeSet, checks []stru
 }
 
 func TestSortChangeSet_Empty(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Empty ChangeSet", func(t *testing.T) {
 		fromState := registry.State{}
@@ -244,7 +244,7 @@ func TestSortChangeSet_Empty(t *testing.T) {
 }
 
 func TestSortChangeSet_SingleOperationType(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Only Creates", func(t *testing.T) {
 		fromState := registry.State{}
@@ -337,7 +337,7 @@ func TestSortChangeSet_SingleOperationType(t *testing.T) {
 }
 
 func TestSortChangeSet_MixedOperations(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Mixed Without Dependencies", func(t *testing.T) {
 		fromState := registry.State{
@@ -401,7 +401,7 @@ func TestSortChangeSet_MixedOperations(t *testing.T) {
 }
 
 func TestSortChangeSet_Dependencies(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Simple Dependency Chain", func(t *testing.T) {
 		fromState := registry.State{}
@@ -496,7 +496,7 @@ func TestSortChangeSet_Dependencies(t *testing.T) {
 }
 
 func TestSortChangeSet_ComplexScenarios(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Complex Dependency Tree", func(t *testing.T) {
 		fromState := registry.State{
@@ -601,7 +601,7 @@ func TestSortChangeSet_ComplexScenarios(t *testing.T) {
 }
 
 func TestSortChangeSet_CircularDependencies(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Simple Circular Dependency", func(t *testing.T) {
 		fromState := registry.State{}
@@ -645,7 +645,7 @@ func TestSortChangeSet_CircularDependencies(t *testing.T) {
 }
 
 func TestSortChangeSet_RealWorldScenarios(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Microservice Deployment", func(t *testing.T) {
 		fromState := registry.State{
@@ -751,7 +751,7 @@ func TestSortChangeSet_RealWorldScenarios(t *testing.T) {
 }
 
 func TestSortChangeSet_EdgeCases(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Operations With No Dependencies", func(t *testing.T) {
 		fromState := registry.State{}
@@ -812,7 +812,7 @@ func TestSortChangeSet_EdgeCases(t *testing.T) {
 }
 
 func TestSortChangeSet_WrongOrder(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Creates in Wrong Dependency Order", func(t *testing.T) {
 		fromState := registry.State{}

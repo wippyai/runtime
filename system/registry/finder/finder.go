@@ -6,23 +6,46 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"go.uber.org/zap"
 
 	"github.com/ponyruntime/pony/api/registry"
+	lru "github.com/ponyruntime/pony/internal/cache"
 )
+
+const (
+	// Default cache limits
+	defaultQueryCacheSize = 1000 // Max number of cached query results
+	defaultRegexCacheSize = 100  // Max number of compiled regex patterns
+)
+
+// Option defines functional options for Finder
+type Option func(*memoryFinder)
+
+// WithQueryCacheSize sets the maximum number of cached query results
+func WithQueryCacheSize(size int) Option {
+	return func(f *memoryFinder) {
+		f.queryCache = lru.New[queryCacheKey, queryResult](lru.WithCapacity(size))
+	}
+}
+
+// WithRegexCacheSize sets the maximum number of compiled regex patterns to cache
+func WithRegexCacheSize(size int) Option {
+	return func(f *memoryFinder) {
+		f.regexCache = lru.New[string, *regexp.Regexp](lru.WithCapacity(size))
+	}
+}
 
 // memoryFinder implements the Finder interface for in-memory registry state with version-aware caching
 type memoryFinder struct {
 	reg registry.EntryReader
 	log *zap.Logger
 
-	// Version-aware caching
-	lastVersion atomic.Uint64 // Last seen version ID
-	queryCache  sync.Map      // map[queryCacheKey][]registry.Entry
-	regexCache  sync.Map      // map[string]*regexp.Regexp
+	// Version-aware caching with bounded LRU
+	lastVersion atomic.Uint64                          // Last seen version ID
+	queryCache  *lru.Cache[queryCacheKey, queryResult] // Bounded query result cache
+	regexCache  *lru.Cache[string, *regexp.Regexp]     // Bounded regex cache - shared across forks
 }
 
 type queryCacheKey struct {
@@ -30,15 +53,50 @@ type queryCacheKey struct {
 	queryHash uint64
 }
 
-// NewFinder creates a new Finder that can search registry entries with caching
-func NewFinder(r registry.EntryReader, log *zap.Logger) registry.Finder {
+type queryResult struct {
+	entries []registry.Entry
+}
+
+// NewFinder creates a new Finder that can search registry entries with bounded LRU caching.
+// Use Option functions to configure cache sizes.
+func NewFinder(r registry.EntryReader, log *zap.Logger, opts ...Option) registry.Finder {
 	if log == nil {
 		log = zap.NewNop()
 	}
-	return &memoryFinder{
-		reg: r,
-		log: log,
+	f := &memoryFinder{
+		reg:        r,
+		log:        log,
+		queryCache: lru.New[queryCacheKey, queryResult](lru.WithCapacity(defaultQueryCacheSize)),
+		regexCache: lru.New[string, *regexp.Regexp](lru.WithCapacity(defaultRegexCacheSize)),
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(f)
+	}
+
+	return f
+}
+
+// Fork creates a new Finder for a different EntryReader (e.g., snapshot) that shares the regex cache
+// from the source finder. This is useful for snapshot finders that are created frequently but can
+// benefit from shared compiled regex patterns.
+func Fork(source registry.Finder, r registry.EntryReader, log *zap.Logger) registry.Finder {
+	// Try to extract regex cache from source if it's a memoryFinder
+	if mf, ok := source.(*memoryFinder); ok {
+		if log == nil {
+			log = mf.log
+		}
+		return &memoryFinder{
+			reg:        r,
+			log:        log,
+			queryCache: lru.New[queryCacheKey, queryResult](lru.WithCapacity(defaultQueryCacheSize)),
+			regexCache: mf.regexCache, // Share regex cache
+		}
+	}
+
+	// Fallback: create new finder if source is not a memoryFinder
+	return NewFinder(r, log)
 }
 
 // Find retrieves all entries matching the provided search criteria.
@@ -85,8 +143,8 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 	if currentVersion != lastVer && currentVersion > 0 {
 		f.lastVersion.Store(currentVersion)
 		if lastVer > 0 {
-			// Version changed - clear query cache only (keep regex cache)
-			f.queryCache = sync.Map{}
+			// Version changed - create new query cache (keep regex cache)
+			f.queryCache = lru.New[queryCacheKey, queryResult](lru.WithCapacity(defaultQueryCacheSize))
 			f.log.Debug("finder cache invalidated due to version change",
 				zap.Uint64("old_version", lastVer),
 				zap.Uint64("new_version", currentVersion))
@@ -101,8 +159,8 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 	}
 
 	// Try cache lookup
-	if cached, ok := f.queryCache.Load(cacheKey); ok {
-		return cached.([]registry.Entry), nil
+	if cached, ok := f.queryCache.Get(cacheKey); ok {
+		return cached.entries, nil
 	}
 
 	// Cache miss - execute search
@@ -170,8 +228,8 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 			// Handle regex matchers with caching
 			if strVal, ok := value.(string); ok {
 				// Check regex cache first
-				if cached, found := f.regexCache.Load(strVal); found {
-					regexMatchers[finalField] = cached.(*regexp.Regexp)
+				if cached, found := f.regexCache.Get(strVal); found {
+					regexMatchers[finalField] = cached
 				} else {
 					regex, err := regexp.Compile(strVal)
 					if err != nil {
@@ -181,7 +239,7 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 							zap.Error(err))
 						continue
 					}
-					f.regexCache.Store(strVal, regex)
+					f.regexCache.Set(strVal, regex)
 					regexMatchers[finalField] = regex
 				}
 			}
@@ -220,7 +278,7 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 	}
 
 	// Cache result
-	f.queryCache.Store(cacheKey, result)
+	f.queryCache.Set(cacheKey, queryResult{entries: result})
 
 	return result, nil
 }
@@ -395,23 +453,21 @@ func hashMetadata(meta registry.Metadata) uint64 {
 
 	// Hash sorted key-value pairs
 	for _, k := range keys {
-		h.Write([]byte(k))
-		h.Write([]byte(":"))
+		_, _ = h.Write([]byte(k))
+		_, _ = h.Write([]byte(":"))
 
 		// Handle different value types for consistent hashing
 		switch v := meta[k].(type) {
 		case string:
-			h.Write([]byte(v))
+			_, _ = h.Write([]byte(v))
 		case []string:
 			for _, s := range v {
-				h.Write([]byte(s))
-				h.Write([]byte(","))
+				_, _ = h.Write([]byte(s))
+				_, _ = h.Write([]byte(","))
 			}
 		default:
 			// Fallback to string representation
-			h.Write([]byte(strings.TrimSpace(strings.Join(strings.Fields(strings.Replace(
-				strings.Replace(string([]byte(fmt.Sprintf("%v", v))), "[", "", -1),
-				"]", "", -1)), " "))))
+			_, _ = h.Write([]byte(fmt.Sprintf("%v", v)))
 		}
 	}
 

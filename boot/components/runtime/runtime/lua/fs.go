@@ -14,7 +14,7 @@ func LuaFS() boot.Component {
 	return boot.New(boot.P{
 		Name:      bootpkg.LuaFS,
 		Phase:     boot.PostInit,
-		DependsOn: []string{LuaEngineName},
+		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			codeManager := GetCodeManager(ctx)
 

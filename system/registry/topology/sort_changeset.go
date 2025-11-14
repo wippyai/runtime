@@ -107,7 +107,7 @@ func (b *StateBuilder) sortCreateUpdateOperations(createUpdateOps []registry.Ope
 
 // sortEntriesWithFallback sorts entries by dependencies with graceful cycle handling
 func (b *StateBuilder) sortEntriesWithFallback(entries []registry.Entry) []registry.Entry {
-	sortedEntries, err := SortEntriesByDependency(entries)
+	sortedEntries, err := SortEntriesByDependency(entries, b.resolver)
 	if err != nil {
 		// On cycle detection, fall back to lexicographical sort
 		sortedEntries = make([]registry.Entry, len(entries))

@@ -16,6 +16,7 @@ type Reg struct {
 	history        registry.History
 	runner         registry.Runner
 	builder        registry.StateBuilder
+	resolver       registry.DependencyResolver
 	state          registry.State
 	mu             sync.RWMutex
 	currentVersion registry.Version
@@ -28,12 +29,14 @@ func NewRegistry(
 	history registry.History,
 	runner registry.Runner,
 	builder registry.StateBuilder,
+	resolver registry.DependencyResolver,
 	log *zap.Logger,
 ) *Reg {
 	reg := &Reg{
 		history:        history,
 		runner:         runner,
 		builder:        builder,
+		resolver:       resolver,
 		state:          registry.State{},
 		log:            log,
 		currentVersion: version.FromParent(nil, 0), // initial version
@@ -71,8 +74,11 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	r.log.Info("apply started", zap.Int("change_count", len(changes)))
+
 	newVersion := version.FromParent(r.currentVersion, r.nextVersionID(r.currentVersion))
 
+	r.log.Debug("calling runner.Transition")
 	newState, err := r.runner.Transition(ctx, r.state, changes)
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))
@@ -181,6 +187,15 @@ func (r *Reg) Current() (registry.Version, error) {
 
 func (r *Reg) History() registry.History {
 	return r.history
+}
+
+// RegisterDependencyPattern adds a pattern for dependency extraction.
+// Implements registry.Registry interface.
+func (r *Reg) RegisterDependencyPattern(pattern registry.DependencyPattern) error {
+	if r.resolver == nil {
+		return fmt.Errorf("dependency resolver not initialized")
+	}
+	return r.resolver.RegisterPattern(pattern)
 }
 
 // --- Helper Functions ---

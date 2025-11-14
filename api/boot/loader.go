@@ -26,11 +26,15 @@ type Loader interface {
 type loaderKey struct{}
 
 // WithLoader attaches Loader to AppContext.
-func WithLoader(ctx context.Context, ldr Loader) {
+func WithLoader(ctx context.Context, ldr Loader) context.Context {
 	ac := contextapi.AppFromContext(ctx)
-	if ac != nil {
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(loaderKey{}) == nil {
 		ac.With(loaderKey{}, ldr)
 	}
+	return ctx
 }
 
 // GetLoader retrieves Loader from AppContext.

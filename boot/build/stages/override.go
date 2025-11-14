@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	sectionOverride boot.ConfigSection = "override"
+	sectionOverride boot.ComponentName = "override"
 )
 
 type overrideStage struct{}
