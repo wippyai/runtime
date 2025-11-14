@@ -1,5 +1,5 @@
-// Package pubsub provides a publish-subscribe messaging system for inter-component communication.
-package pubsub
+// Package relay provides message relay and routing system for inter-component communication.
+package relay
 
 import (
 	"strings"

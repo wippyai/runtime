@@ -1,11 +1,11 @@
-package pubsub
+package relay
 
 import (
 	"context"
 	"fmt"
 	"sync"
 
-	api "github.com/ponyruntime/pony/api/pubsub"
+	api "github.com/wippyai/runtime/api/relay"
 	"go.uber.org/zap"
 )
 
@@ -16,7 +16,7 @@ type HostConfig struct {
 	Logger      *zap.Logger // Logger for operational events.
 }
 
-// Host implements a local pubsub for a single host with asynchronous sending.
+// Host implements a local relay for a single host with asynchronous sending.
 type Host struct {
 	ctx       context.Context
 	receivers sync.Map            // key: api.pid -> chan *api.Messages

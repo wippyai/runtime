@@ -1,10 +1,10 @@
-// Package pubsub provides a publish-subscribe messaging system for inter-component communication.
-package pubsub
+// Package relay provides message relay and routing system for inter-component communication.
+package relay
 
 import (
 	"sync"
 
-	"github.com/ponyruntime/pony/api/payload"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 // Package combines a Process Source with a batch of messages for tracking message origin.
