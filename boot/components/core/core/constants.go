@@ -3,20 +3,20 @@ package core
 import "github.com/ponyruntime/pony/api/boot"
 
 const (
-	// Core plugin names
-	LoggerName     = "logger"
-	EventBusName   = "eventbus"
-	PIDGenName     = "pidgen"
-	TranscoderName = "transcoder"
-	LogManagerName = "logmanager"
-	SecurityName   = "security"
-	RegistryName   = "registry"
-	SupervisorName = "supervisor"
-	ProfilerName   = "profiler"
-	LoaderName     = "loader"
+	// Core component names
+	EventBusName    boot.ComponentName = "eventbus"
+	PIDGenName      boot.ComponentName = "pidgen"
+	TranscoderName  boot.ComponentName = "transcoder"
+	LogManagerName  boot.ComponentName = "logmanager"
+	SecurityName    boot.ComponentName = "security"
+	RegistryName    boot.ComponentName = "registry"
+	FinderName      boot.ComponentName = "finder"
+	SupervisorName  boot.ComponentName = "supervisor"
+	ProfilerName    boot.ComponentName = "profiler"
+	LoaderName      boot.ComponentName = "loader"
+	EventRouterName boot.ComponentName = "eventrouter"
 
-	// Logger configuration keys
-	LoggerMode     boot.ConfigKey = "mode"
-	LoggerLevel    boot.ConfigKey = "level"
-	LoggerEncoding boot.ConfigKey = "encoding"
+	// Finder configuration keys
+	FinderQueryCacheSize boot.ConfigKey = "query_cache_size"
+	FinderRegexCacheSize boot.ConfigKey = "regex_cache_size"
 )

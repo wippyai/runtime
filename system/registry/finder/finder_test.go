@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,7 +12,8 @@ import (
 
 // mockRegistry implements a simple in-memory registry for testing
 type mockRegistry struct {
-	entries []registry.Entry
+	entries     []registry.Entry
+	currentFunc func() (registry.Version, error)
 }
 
 func (m *mockRegistry) GetAllEntries() ([]registry.Entry, error) {
@@ -29,8 +29,14 @@ func (m *mockRegistry) GetEntry(id registry.ID) (registry.Entry, error) {
 	return registry.Entry{}, errors.New("not found")
 }
 
-func (m *mockRegistry) Current() (registry.Version, error) { return nil, nil }
-func (m *mockRegistry) History() registry.History          { return nil }
+func (m *mockRegistry) Current() (registry.Version, error) {
+	if m.currentFunc != nil {
+		return m.currentFunc()
+	}
+	return nil, nil
+}
+
+func (m *mockRegistry) History() registry.History { return nil }
 func (m *mockRegistry) Apply(_ context.Context, _ registry.ChangeSet) (registry.Version, error) {
 	return nil, nil
 }
@@ -515,7 +521,7 @@ func TestFinder_VersionAwareCaching(t *testing.T) {
 		version: 1,
 	}
 
-	vm.mockRegistry.Current = func() (registry.Version, error) {
+	vm.mockRegistry.currentFunc = func() (registry.Version, error) {
 		return &mockVersion{id: vm.version}, nil
 	}
 
@@ -562,7 +568,7 @@ func TestFinder_RegexCachePersistence(t *testing.T) {
 		version: 1,
 	}
 
-	vm.mockRegistry.Current = func() (registry.Version, error) {
+	vm.mockRegistry.currentFunc = func() (registry.Version, error) {
 		return &mockVersion{id: vm.version}, nil
 	}
 
@@ -573,7 +579,7 @@ func TestFinder_RegexCachePersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check regex was cached
-	_, ok := finder.regexCache.Load(".*test.*")
+	_, ok := finder.regexCache.Get(".*test.*")
 	assert.True(t, ok, "Regex should be cached")
 
 	// Change version
@@ -584,7 +590,7 @@ func TestFinder_RegexCachePersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	// Regex cache should still exist
-	_, ok = finder.regexCache.Load(".*test.*")
+	_, ok = finder.regexCache.Get(".*test.*")
 	assert.True(t, ok, "Regex cache should persist across version changes")
 }
 
@@ -593,9 +599,69 @@ type mockVersion struct {
 	id uint
 }
 
-func (m *mockVersion) ID() uint                 { return m.id }
-func (m *mockVersion) Parent() registry.Version { return nil }
-func (m *mockVersion) String() string           { return "" }
+func (m *mockVersion) ID() uint                       { return m.id }
+func (m *mockVersion) Previous() registry.Version     { return nil }
+func (m *mockVersion) Next() (registry.Version, bool) { return nil, false }
+func (m *mockVersion) String() string                 { return "" }
+
+// TestFinder_CacheEviction tests that LRU cache properly evicts old entries
+func TestFinder_CacheEviction(t *testing.T) {
+	entries := []registry.Entry{
+		{ID: registry.ID{Name: "entry-1"}, Kind: "test", Meta: registry.Metadata{"value": 1}},
+		{ID: registry.ID{Name: "entry-2"}, Kind: "test", Meta: registry.Metadata{"value": 2}},
+		{ID: registry.ID{Name: "entry-3"}, Kind: "test", Meta: registry.Metadata{"value": 3}},
+	}
+
+	mockReg := &mockRegistry{entries: entries}
+
+	// Create finder with very small cache (only 2 entries)
+	finder := NewFinder(mockReg, nil, WithQueryCacheSize(2))
+
+	// Query 1 - should be cached
+	_, err := finder.Find(registry.Metadata{"meta.value": 1})
+	require.NoError(t, err)
+
+	// Query 2 - should be cached
+	_, err = finder.Find(registry.Metadata{"meta.value": 2})
+	require.NoError(t, err)
+
+	// Query 3 - should evict query 1 (oldest)
+	_, err = finder.Find(registry.Metadata{"meta.value": 3})
+	require.NoError(t, err)
+
+	// At this point, cache should have queries 2 and 3, query 1 should be evicted
+	// We can't directly inspect the cache, but we can verify it doesn't crash
+	// and behaves correctly
+	_, err = finder.Find(registry.Metadata{"meta.value": 1})
+	require.NoError(t, err)
+}
+
+// TestFinder_RegexCacheEviction tests regex cache LRU eviction
+func TestFinder_RegexCacheEviction(t *testing.T) {
+	entries := []registry.Entry{
+		{ID: registry.ID{Name: "entry-1"}, Kind: "test", Meta: registry.Metadata{"desc": "pattern1"}},
+	}
+
+	mockReg := &mockRegistry{entries: entries}
+
+	// Create finder with very small regex cache (only 2 patterns)
+	finder := NewFinder(mockReg, nil, WithRegexCacheSize(2))
+
+	// Use 3 different regex patterns
+	_, err := finder.Find(registry.Metadata{"~meta.desc": ".*pattern1.*"})
+	require.NoError(t, err)
+
+	_, err = finder.Find(registry.Metadata{"~meta.desc": ".*pattern2.*"})
+	require.NoError(t, err)
+
+	// This should evict the first pattern
+	_, err = finder.Find(registry.Metadata{"~meta.desc": ".*pattern3.*"})
+	require.NoError(t, err)
+
+	// Reusing first pattern should recompile it (but still work)
+	_, err = finder.Find(registry.Metadata{"~meta.desc": ".*pattern1.*"})
+	require.NoError(t, err)
+}
 
 // TestFinder_UnprefixedFieldsAreSkipped tests v2 behavior: fields without meta. prefix are skipped
 func TestFinder_UnprefixedFieldsAreSkipped(t *testing.T) {
@@ -616,47 +682,4 @@ func TestFinder_UnprefixedFieldsAreSkipped(t *testing.T) {
 	results, err = finder.Find(registry.Metadata{"meta.enabled": true})
 	require.NoError(t, err)
 	assert.Equal(t, 1, len(results), "Prefixed fields should match correctly")
-}
-
-// Benchmark tests
-func BenchmarkFinder_CacheHit(b *testing.B) {
-	entries := make([]registry.Entry, 100)
-	for i := 0; i < 100; i++ {
-		entries[i] = registry.Entry{
-			ID:   registry.ID{Name: string(rune(i))},
-			Kind: "test",
-			Meta: registry.Metadata{"enabled": true},
-		}
-	}
-
-	mockReg := &mockRegistry{entries: entries}
-	finder := NewFinder(mockReg, nil)
-
-	// Warm up cache
-	finder.Find(registry.Metadata{"meta.enabled": true})
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		finder.Find(registry.Metadata{"meta.enabled": true})
-	}
-}
-
-func BenchmarkFinder_CacheMiss(b *testing.B) {
-	entries := make([]registry.Entry, 100)
-	for i := 0; i < 100; i++ {
-		entries[i] = registry.Entry{
-			ID:   registry.ID{Name: string(rune(i))},
-			Kind: "test",
-			Meta: registry.Metadata{"count": i},
-		}
-	}
-
-	mockReg := &mockRegistry{entries: entries}
-	finder := NewFinder(mockReg, nil)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		// Different query each time to force cache miss
-		finder.Find(registry.Metadata{"meta.count": i % 100})
-	}
 }

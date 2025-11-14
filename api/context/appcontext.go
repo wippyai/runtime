@@ -18,6 +18,10 @@ type AppContext interface {
 	// With stores a value by key and returns this AppContext for chaining.
 	// Panics if the key is already set (write-once enforcement).
 	With(key any, value any) AppContext
+
+	// Update replaces an existing value by key and returns this AppContext for chaining.
+	// If the key doesn't exist, it behaves like With().
+	Update(key any, value any) AppContext
 }
 
 // appContext is the concrete implementation of AppContext.
@@ -45,6 +49,13 @@ func (a *appContext) With(key any, value any) AppContext {
 	if _, exists := a.values[key]; exists {
 		panic("cannot overwrite AppContext key: key already set")
 	}
+	a.values[key] = value
+	return a
+}
+
+func (a *appContext) Update(key any, value any) AppContext {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.values[key] = value
 	return a
 }

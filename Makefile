@@ -278,3 +278,47 @@ build-wippy-windows-amd64:
 .PHONY: run-wippy
 run-wippy:
 	go run -ldflags="$(WIPPY_LDFLAGS)" ./cmd/wippy/ $(ARGS)
+
+# Build standalone application from pack file
+# Usage: make build-app PACK=myapp.wapp OUTPUT=myapp
+.PHONY: build-app
+build-app:
+	@test -n "$(PACK)" || (echo "Error: PACK parameter required. Usage: make build-app PACK=myapp.wapp OUTPUT=myapp"; exit 1)
+	@test -n "$(OUTPUT)" || (echo "Error: OUTPUT parameter required. Usage: make build-app PACK=myapp.wapp OUTPUT=myapp"; exit 1)
+	@test -f "$(PACK)" || (echo "Error: Pack file $(PACK) not found"; exit 1)
+	@echo "Building application from pack: $(PACK) -> $(OUTPUT)"
+	@mkdir -p cmd/app
+	@cp $(PACK) cmd/app/app.wapp
+	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
+		go build --tags "fts5 sqlite_vec" \
+		-ldflags="-s -w" \
+		-trimpath \
+		-o ./dist/$(OUTPUT) \
+		./cmd/app/
+	@rm cmd/app/app.wapp
+	@echo "✓ Built: ./dist/$(OUTPUT)"
+
+# Build app from current lock file
+# Usage: make build-app-from-lock OUTPUT=myapp META_FLAGS="--meta app.name=MyApp"
+.PHONY: build-app-from-lock
+build-app-from-lock:
+	@test -n "$(OUTPUT)" || (echo "Error: OUTPUT parameter required. Usage: make build-app-from-lock OUTPUT=myapp"; exit 1)
+	@echo "Creating pack from lock file..."
+	./wippy pack /tmp/$(OUTPUT).wapp $(META_FLAGS)
+	@echo "Building application..."
+	$(MAKE) build-app PACK=/tmp/$(OUTPUT).wapp OUTPUT=$(OUTPUT) GOOS=$(GOOS) GOARCH=$(GOARCH)
+	@rm /tmp/$(OUTPUT).wapp
+	@echo "✓ Complete: ./dist/$(OUTPUT)"
+
+# Platform-specific app builds
+.PHONY: build-app-linux-amd64
+build-app-linux-amd64:
+	$(MAKE) build-app GOOS=linux GOARCH=amd64 PACK=$(PACK) OUTPUT=$(OUTPUT)
+
+.PHONY: build-app-darwin-amd64
+build-app-darwin-amd64:
+	$(MAKE) build-app GOOS=darwin GOARCH=amd64 PACK=$(PACK) OUTPUT=$(OUTPUT)
+
+.PHONY: build-app-darwin-arm64
+build-app-darwin-arm64:
+	$(MAKE) build-app GOOS=darwin GOARCH=arm64 PACK=$(PACK) OUTPUT=$(OUTPUT)

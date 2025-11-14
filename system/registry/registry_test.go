@@ -59,9 +59,9 @@ func NewMockRunner() *MockRunner {
 func TestNewRegistry(t *testing.T) {
 	hist := history.NewMemory()
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	if reg.runner != runner {
 		t.Errorf("Expected runner to be %v, got %v", runner, reg.runner)
@@ -155,9 +155,9 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 	hist := history.NewMemory()
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	changes := registry.ChangeSet{
 		{
@@ -211,9 +211,9 @@ func TestInMemoryRegistry_Apply_RunnerError(t *testing.T) {
 	hist := history.NewMemory()
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 	runner.err = errors.New("runner error, failed to rollback: runner error")
 
 	_, err := reg.Apply(context.Background(), registry.ChangeSet{})
@@ -243,9 +243,9 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	}, false)
 
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 	reg.currentVersion = v2 // Set current version to v2
 	// Set initial state to v2 state
 	reg.state = registry.State{
@@ -331,9 +331,9 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 	hist := NewErrorHistory()
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	// Mock the runner to return a new state (so we can test rollback)
 	runner.newState = registry.State{
@@ -386,8 +386,8 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	hist := history.NewMemory()
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	runner := &CustomizableMockRunner{}
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	var wg sync.WaitGroup
 	numGoroutines := 10
@@ -456,8 +456,8 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	initialState := registry.State{
 		{ID: registry.ID{Name: "/initial"}, Kind: "test", Data: payload.New("initial_data")},
@@ -534,8 +534,8 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	initialState := registry.State{
 		{ID: registry.ID{Name: "/initial"}, Kind: "test", Data: payload.New("initial_data")},
@@ -645,11 +645,11 @@ data:
 	// 2. Initialize components
 	hist := history.NewMemory()
 	runner := &CustomizableMockRunner{}
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 	dtt := createTestTranscoder()
 	folderLoader := loader.NewLoader(dtt, zap.NewNop(), interpolate.NewEntryInterpolator(dtt))
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	// 3. Load entries from the folder
 	entries, err := folderLoader.LoadFS(ctxapi.NewRootContext(), mapFS)
@@ -763,9 +763,9 @@ data:
 func TestInMemoryRegistry_Current(t *testing.T) {
 	hist := history.NewMemory()
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	// Test when current version is initialized (v0)
 	version, err := reg.Current()
@@ -780,9 +780,9 @@ func TestInMemoryRegistry_Current(t *testing.T) {
 func TestInMemoryRegistry_History(t *testing.T) {
 	hist := history.NewMemory()
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	// Test that History() returns the correct history instance
 	if reg.History() != hist {
@@ -793,9 +793,9 @@ func TestInMemoryRegistry_History(t *testing.T) {
 func TestInMemoryRegistry_Rollback(t *testing.T) {
 	hist := history.NewMemory()
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	// Test successful rollback
 	fromState := registry.State{
@@ -831,9 +831,9 @@ func TestInMemoryRegistry_Rollback(t *testing.T) {
 func TestInMemoryRegistry_TransitionState(t *testing.T) {
 	hist := history.NewMemory()
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	// Test successful transition
 	fromState := registry.State{
@@ -886,9 +886,9 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 func TestRegistry_WithNilHistory(t *testing.T) {
 	hist := history.NewNil()
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	// Initial state check
 	currentVersion, err := reg.Current()
@@ -945,9 +945,9 @@ func TestRegistry_WithNilHistory(t *testing.T) {
 func TestRegistry_NilHistoryRewindError(t *testing.T) {
 	hist := history.NewNil()
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
 
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	v0 := version.New(registry.RootVersion)
 	v1 := version.FromParent(v0, 1)
@@ -967,8 +967,8 @@ func TestRegistry_NilHistoryRewindError(t *testing.T) {
 func TestRegistry_NilHistoryForwardOnly(t *testing.T) {
 	hist := history.NewNil()
 	runner := &CustomizableMockRunner{}
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	// Mock runner to append changes to state
 	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
@@ -1031,8 +1031,8 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 
 	runner := NewMockRunner()
-	stateBuilder := topology.NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	initialState := registry.State{
 		{ID: registry.ID{Name: "/initial"}, Kind: "test", Data: payload.New("initial_data")},

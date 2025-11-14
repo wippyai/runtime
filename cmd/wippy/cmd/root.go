@@ -19,16 +19,15 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "wippy",
-	Short: "Dynamic runtime for AI agents and adaptive systems",
-	Long: `Wippy Runtime - Live, adaptable environment for AI agents and system extensions
-
-A dedicated runtime for deploying and managing software components that can
-understand, adapt, and evolve - all within defined boundaries and governance.
-
-Perfect for AI agent platforms, dynamic integrations, and self-modifying systems.`,
-	SilenceErrors: true, // We handle errors in main.go
-	SilenceUsage:  true, // Don't show usage on errors
+	Use:           "wippy",
+	Short:         "Adaptive Application Runtime",
+	Long:          `Run applications with dynamic configuration and lifecycle management.`,
+	SilenceErrors: true,
+	SilenceUsage:  true,
+	Run: func(cmd *cobra.Command, args []string) {
+		printBanner()
+		cmd.Help()
+	},
 }
 
 func Execute() error {

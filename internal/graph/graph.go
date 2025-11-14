@@ -202,7 +202,13 @@ func (g *Graph[T, E]) findCycle() ([]T, bool) {
 					current := node
 					for current != neighbor {
 						cycle = append([]T{current}, cycle...)
-						current = parent[current]
+						if p, exists := parent[current]; exists {
+							current = p
+						} else {
+							// Parent not found - return what we have for debugging
+							cycle = append([]T{current}, cycle...)
+							return cycle, true
+						}
 					}
 					return cycle, true
 				}

@@ -13,7 +13,7 @@ func LuaChannel() boot.Component {
 	return boot.New(boot.P{
 		Name:      "lua_channel",
 		Phase:     boot.PostInit,
-		DependsOn: []string{"lua.engine"},
+		DependsOn: []boot.ComponentName{"lua.engine"},
 		Load: func(ctx context.Context) (context.Context, error) {
 			codeManager := GetCodeManager(ctx)
 

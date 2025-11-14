@@ -79,7 +79,7 @@ func TestDeterministicEncoding(t *testing.T) {
 		var files [][]byte
 		for i := 0; i < 5; i++ {
 			path := filepath.Join(tmpDir, "repeat"+string(rune('0'+i))+".pack")
-			err := packer.Pack(entries, path)
+			err := packer.Pack(entries, path, testMetadata(len(entries)))
 			require.NoError(t, err)
 
 			data, err := os.ReadFile(path)

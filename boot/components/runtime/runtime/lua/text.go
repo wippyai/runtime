@@ -14,7 +14,7 @@ func LuaText() boot.Component {
 	return boot.New(boot.P{
 		Name:      bootpkg.LuaText,
 		Phase:     boot.PostInit,
-		DependsOn: []string{LuaEngineName},
+		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

@@ -3,11 +3,15 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/boot/build"
 	"github.com/ponyruntime/pony/boot/build/stages"
 	"github.com/ponyruntime/pony/boot/pack"
+	"github.com/ponyruntime/pony/cmd/wippy/version"
 	"github.com/ponyruntime/pony/deps/lock"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -32,6 +36,9 @@ func init() {
 	rootCmd.AddCommand(packCmd)
 
 	packCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
+	packCmd.Flags().StringP("description", "d", "", "pack description")
+	packCmd.Flags().StringSliceP("tags", "t", nil, "pack tags")
+	packCmd.Flags().StringArrayP("meta", "m", nil, "custom metadata (key=value, supports dotted notation)")
 }
 
 func runPack(cmd *cobra.Command, args []string) error {
@@ -98,21 +105,36 @@ func runPack(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("execute pipeline: %w", err)
 	}
 
-	// Check for link warnings and display them
-	if warnings := stages.GetLinkWarnings(app.Ctx); len(warnings) > 0 {
-		logger.Warn("link stage completed with warnings", zap.Int("count", len(warnings)))
-		for _, w := range warnings {
-			logger.Warn("unresolved requirement",
-				zap.String("requirement", w.Requirement),
-				zap.String("error", w.Error))
-		}
+	logger.Info("pipeline executed, entries fully linked", zap.Int("entries", len(entries)))
+
+	// Build metadata
+	description, _ := cmd.Flags().GetString("description")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+	metaFlags, _ := cmd.Flags().GetStringArray("meta")
+
+	metadata := regapi.Metadata{
+		"wippy_version": version.Version,
+		"wippy_commit":  version.Commit,
+		"wippy_date":    version.Date,
+		"packed_at":     time.Now().UTC().Format(time.RFC3339),
+		"entry_count":   len(entries),
 	}
 
-	logger.Info("pipeline executed, entries fully linked", zap.Int("entries", len(entries)))
+	if description != "" {
+		metadata["description"] = description
+	}
+	if len(tags) > 0 {
+		metadata["tags"] = tags
+	}
+
+	// Parse and merge custom metadata
+	if err := parseMetadataFlags(metaFlags, metadata, logger); err != nil {
+		return fmt.Errorf("parse metadata: %w", err)
+	}
 
 	// Create packer and pack entries
 	packer := pack.New(app.Transcoder)
-	if err := packer.Pack(entries, outputFile); err != nil {
+	if err := packer.Pack(entries, outputFile, metadata); err != nil {
 		return fmt.Errorf("pack entries: %w", err)
 	}
 
@@ -120,7 +142,56 @@ func runPack(cmd *cobra.Command, args []string) error {
 	logger.Info("pack created successfully",
 		zap.String("output", outputFile),
 		zap.Int("entries", len(entries)),
-		zap.Int64("size_bytes", fileInfo.Size()))
+		zap.Int64("size_bytes", fileInfo.Size()),
+		zap.String("version", metadata.StringValue("wippy_version")))
 
 	return nil
+}
+
+func parseMetadataFlags(metaFlags []string, metadata regapi.Metadata, logger *zap.Logger) error {
+	for _, flag := range metaFlags {
+		parts := strings.SplitN(flag, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid metadata format %q, expected key=value", flag)
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		if key == "" {
+			return fmt.Errorf("empty metadata key in %q", flag)
+		}
+
+		if strings.HasPrefix(key, "wippy.") || strings.HasPrefix(key, "system.") {
+			return fmt.Errorf("reserved metadata namespace: %s", key)
+		}
+
+		parsedValue := parseMetadataValue(value)
+		metadata[key] = parsedValue
+
+		logger.Debug("added custom metadata",
+			zap.String("key", key),
+			zap.Any("value", parsedValue))
+	}
+
+	return nil
+}
+
+func parseMetadataValue(value string) any {
+	if value == "true" {
+		return true
+	}
+	if value == "false" {
+		return false
+	}
+
+	if num, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return num
+	}
+
+	if num, err := strconv.ParseFloat(value, 64); err == nil {
+		return num
+	}
+
+	return value
 }

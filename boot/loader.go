@@ -6,6 +6,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/boot"
 	contextapi "github.com/ponyruntime/pony/api/context"
+	logapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/internal/graph"
 	"github.com/ponyruntime/pony/system/eventbus"
 )
@@ -19,6 +20,7 @@ type Loader struct {
 }
 
 // NewLoader creates a new component loader.
+// Infrastructure (AppContext, logger, EventBus) must be initialized via NewInfrastructure before calling Load.
 // If components are provided, they will be registered automatically.
 func NewLoader(components ...boot.Component) (*Loader, error) {
 	l := &Loader{
@@ -28,8 +30,10 @@ func NewLoader(components ...boot.Component) (*Loader, error) {
 	}
 
 	for _, c := range components {
-		if err := l.Register(c); err != nil {
-			return nil, err
+		if c != nil {
+			if err := l.Register(c); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -54,11 +58,16 @@ func (l *Loader) Register(c boot.Component) error {
 }
 
 // Load executes all components Load() in dependency order.
+// Infrastructure (AppContext, logger, EventBus) must already be initialized in context.
 // Config should be attached to context via boot.WithConfig() before calling Load.
 func (l *Loader) Load(ctx context.Context) (context.Context, error) {
-	// Initialize AppContext first, before any components
-	appCtx := contextapi.NewAppContext()
-	ctx = contextapi.WithAppContext(ctx, appCtx)
+	// Verify AppContext and logger are present
+	if contextapi.AppFromContext(ctx) == nil {
+		return ctx, fmt.Errorf("AppContext not initialized - call NewInfrastructure first")
+	}
+	if logapi.GetLogger(ctx) == nil {
+		return ctx, fmt.Errorf("logger not initialized - call NewInfrastructure first")
+	}
 
 	// Initialize HandlerRegistry before components
 	handlerRegistry := NewHandlerRegistry()

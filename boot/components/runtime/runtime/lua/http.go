@@ -17,7 +17,7 @@ func LuaHTTP() boot.Component {
 	return boot.New(boot.P{
 		Name:      bootpkg.LuaHTTP,
 		Phase:     boot.PostInit,
-		DependsOn: []string{LuaEngineName},
+		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			codeManager := GetCodeManager(ctx)

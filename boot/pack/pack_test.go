@@ -13,6 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func testMetadata(entryCount int) registry.Metadata {
+	return registry.Metadata{
+		"wippy_version": "test",
+		"wippy_commit":  "abc123",
+		"wippy_date":    "2024-01-01",
+		"packed_at":     "2024-01-01T00:00:00Z",
+		"entry_count":   entryCount,
+	}
+}
+
 func TestPackUnpack(t *testing.T) {
 	transcoder := systempayload.NewTranscoder()
 	packer := New(transcoder)
@@ -37,7 +47,7 @@ func TestPackUnpack(t *testing.T) {
 		packPath := filepath.Join(tmpDir, "test.pack")
 
 		// Pack
-		err := packer.Pack(entries, packPath)
+		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
 		require.NoError(t, err)
 
 		// Verify file exists
@@ -46,7 +56,7 @@ func TestPackUnpack(t *testing.T) {
 		assert.Greater(t, info.Size(), int64(0))
 
 		// Unpack
-		unpacked, err := packer.Unpack(packPath)
+		unpacked, _, err := packer.Unpack(packPath)
 		require.NoError(t, err)
 
 		// Verify entries match
@@ -62,10 +72,10 @@ func TestPackUnpack(t *testing.T) {
 		tmpDir := t.TempDir()
 		packPath := filepath.Join(tmpDir, "empty.pack")
 
-		err := packer.Pack(entries, packPath)
+		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
 		require.NoError(t, err)
 
-		unpacked, err := packer.Unpack(packPath)
+		unpacked, _, err := packer.Unpack(packPath)
 		require.NoError(t, err)
 		assert.Empty(t, unpacked)
 	})
@@ -87,10 +97,10 @@ func TestPackUnpack(t *testing.T) {
 		tmpDir := t.TempDir()
 		packPath := filepath.Join(tmpDir, "large.pack")
 
-		err := packer.Pack(entries, packPath)
+		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
 		require.NoError(t, err)
 
-		unpacked, err := packer.Unpack(packPath)
+		unpacked, _, err := packer.Unpack(packPath)
 		require.NoError(t, err)
 		assert.Len(t, unpacked, 100)
 	})
@@ -108,10 +118,10 @@ func TestPackUnpack(t *testing.T) {
 		tmpDir := t.TempDir()
 		packPath := filepath.Join(tmpDir, "nil.pack")
 
-		err := packer.Pack(entries, packPath)
+		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
 		require.NoError(t, err)
 
-		unpacked, err := packer.Unpack(packPath)
+		unpacked, _, err := packer.Unpack(packPath)
 		require.NoError(t, err)
 		require.Len(t, unpacked, 1)
 		assert.Equal(t, entries[0].ID, unpacked[0].ID)
@@ -147,10 +157,10 @@ func TestPackUnpack(t *testing.T) {
 		tmpDir := t.TempDir()
 		packPath := filepath.Join(tmpDir, "complex.pack")
 
-		err := packer.Pack(entries, packPath)
+		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
 		require.NoError(t, err)
 
-		unpacked, err := packer.Unpack(packPath)
+		unpacked, _, err := packer.Unpack(packPath)
 		require.NoError(t, err)
 		require.Len(t, unpacked, 1)
 		assert.Equal(t, entries[0].ID, unpacked[0].ID)
@@ -229,7 +239,7 @@ func TestUnpackErrors(t *testing.T) {
 		packPath := filepath.Join(tmpDir, "corrupt.pack")
 
 		// Pack valid file
-		err := packer.Pack(entries, packPath)
+		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
 		require.NoError(t, err)
 
 		// Corrupt the file by modifying compressed data
@@ -307,7 +317,7 @@ func TestCompression(t *testing.T) {
 		tmpDir := t.TempDir()
 		packPath := filepath.Join(tmpDir, "compressed.pack")
 
-		err := packer.Pack(entries, packPath)
+		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
 		require.NoError(t, err)
 
 		info, err := os.Stat(packPath)

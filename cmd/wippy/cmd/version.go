@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/fatih/color"
 	"github.com/ponyruntime/pony/cmd/wippy/version"
 	"github.com/spf13/cobra"
 )
@@ -20,20 +19,7 @@ var versionCmd = &cobra.Command{
 			return
 		}
 
-		titleColor := color.New(color.FgHiCyan, color.Bold)
-		valueColor := color.New(color.FgWhite)
-
-		titleColor.Print("Version:  ")
-		valueColor.Println(version.Version)
-
-		titleColor.Print("Commit:   ")
-		valueColor.Println(version.Commit)
-
-		titleColor.Print("Built:    ")
-		valueColor.Println(version.Date)
-
-		titleColor.Print("Built by: ")
-		valueColor.Println(version.BuiltBy)
+		printBanner()
 	},
 }
 

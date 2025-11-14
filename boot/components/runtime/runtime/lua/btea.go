@@ -14,7 +14,7 @@ func LuaBTEA() boot.Component {
 	return boot.New(boot.P{
 		Name:      "lua.btea",
 		Phase:     boot.PostInit,
-		DependsOn: []string{"lua.engine"},
+		DependsOn: []boot.ComponentName{"lua.engine"},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			codeManager := GetCodeManager(ctx)

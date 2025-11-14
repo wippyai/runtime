@@ -1,5 +1,3 @@
-//go:build !plugin_minimal
-
 package service
 
 import "github.com/ponyruntime/pony/api/boot"

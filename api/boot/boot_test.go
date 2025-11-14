@@ -313,7 +313,7 @@ func TestNew(t *testing.T) {
 	p := New(P{
 		Name:      "test-func",
 		Phase:     Init,
-		DependsOn: []string{"dep1"},
+		DependsOn: []ComponentName{"dep1"},
 		Load: func(ctx context.Context) (context.Context, error) {
 			loadCalled = true
 			return ctx, nil

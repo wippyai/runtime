@@ -7,7 +7,18 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/api/boot"
+	contextapi "github.com/ponyruntime/pony/api/context"
+	logapi "github.com/ponyruntime/pony/api/logs"
+	"go.uber.org/zap"
 )
+
+// Helper to create test context with AppContext and logger
+func testContext() context.Context {
+	appCtx := contextapi.NewAppContext()
+	ctx := contextapi.WithAppContext(context.Background(), appCtx)
+	ctx = logapi.WithLogger(ctx, zap.NewNop())
+	return ctx
+}
 
 // Mock component for testing
 type mockComponent struct {
@@ -59,9 +70,9 @@ func (p *mockComponent) Stop(ctx context.Context) error {
 
 func TestLoaderRegister(t *testing.T) {
 	t.Run("register single component", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 		p := &mockComponent{name: "test", phase: boot.PreInit}
 
@@ -75,9 +86,9 @@ func TestLoaderRegister(t *testing.T) {
 	})
 
 	t.Run("register duplicate component", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 		p1 := &mockComponent{name: "test", phase: boot.PreInit}
 		p2 := &mockComponent{name: "test", phase: boot.Init}
@@ -91,9 +102,9 @@ func TestLoaderRegister(t *testing.T) {
 	})
 
 	t.Run("register with dependencies", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 		p1 := &mockComponent{name: "dep", phase: boot.PreInit}
 		p2 := &mockComponent{name: "main", phase: boot.Init, deps: []string{"dep"}}
@@ -109,14 +120,14 @@ func TestLoaderRegister(t *testing.T) {
 
 func TestLoaderLoad(t *testing.T) {
 	t.Run("load single plugin", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 		p := &mockComponent{name: "test", phase: boot.PreInit}
 		loader.Register(p)
 
-		ctx, err := loader.Load(context.Background())
+		ctx, err := loader.Load(testContext())
 		if err != nil {
 			t.Errorf("Load() error = %v, want nil", err)
 		}
@@ -131,9 +142,9 @@ func TestLoaderLoad(t *testing.T) {
 	})
 
 	t.Run("load with dependencies in correct order", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 
 		var order []string
@@ -174,7 +185,7 @@ func TestLoaderLoad(t *testing.T) {
 		loader.Register(p2)
 		loader.Register(p3)
 
-		_, err = loader.Load(context.Background())
+		_, err = loader.Load(testContext())
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
 		}
@@ -197,9 +208,9 @@ func TestLoaderLoad(t *testing.T) {
 	})
 
 	t.Run("load with circular dependency", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 
 		p1 := &mockComponent{name: "a", phase: boot.Init, deps: []string{"b"}}
@@ -208,38 +219,38 @@ func TestLoaderLoad(t *testing.T) {
 		loader.Register(p1)
 		loader.Register(p2)
 
-		_, err = loader.Load(context.Background())
+		_, err = loader.Load(testContext())
 		if err == nil {
 			t.Error("Load() expected error for circular dependency, got nil")
 		}
 	})
 
 	t.Run("load with missing dependency", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 
 		p := &mockComponent{name: "main", phase: boot.Init, deps: []string{"missing"}}
 		loader.Register(p)
 
-		_, err = loader.Load(context.Background())
+		_, err = loader.Load(testContext())
 		if err == nil {
 			t.Error("Load() expected error for missing dependency, got nil")
 		}
 	})
 
 	t.Run("load error propagation", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 
 		expectedErr := errors.New("load failed")
 		p := &mockComponent{name: "test", phase: boot.PreInit, loadErr: expectedErr}
 		loader.Register(p)
 
-		_, err = loader.Load(context.Background())
+		_, err = loader.Load(testContext())
 		if err == nil {
 			t.Error("Load() expected error, got nil")
 		}
@@ -251,9 +262,9 @@ func TestLoaderLoad(t *testing.T) {
 
 func TestLoaderStart(t *testing.T) {
 	t.Run("start all plugins", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 
 		p1 := &mockComponent{name: "a", phase: boot.PreInit}
@@ -262,7 +273,7 @@ func TestLoaderStart(t *testing.T) {
 		loader.Register(p1)
 		loader.Register(p2)
 
-		ctx, _ := loader.Load(context.Background())
+		ctx, _ := loader.Load(testContext())
 
 		if err := loader.Start(ctx); err != nil {
 			t.Errorf("boot.Start() error = %v, want nil", err)
@@ -277,16 +288,16 @@ func TestLoaderStart(t *testing.T) {
 	})
 
 	t.Run("start error propagation", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 
 		expectedErr := errors.New("start failed")
 		p := &mockComponent{name: "test", phase: boot.PreInit, startErr: expectedErr}
 		loader.Register(p)
 
-		ctx, _ := loader.Load(context.Background())
+		ctx, _ := loader.Load(testContext())
 		err = loader.Start(ctx)
 
 		if err == nil {
@@ -298,9 +309,9 @@ func TestLoaderStart(t *testing.T) {
 	})
 
 	t.Run("start without load", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 		p := &mockComponent{name: "test", phase: boot.PreInit}
 		loader.Register(p)
@@ -318,9 +329,9 @@ func TestLoaderStart(t *testing.T) {
 
 func TestLoaderShutdown(t *testing.T) {
 	t.Run("shutdown in reverse order", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 
 		var order []string
@@ -358,7 +369,7 @@ func TestLoaderShutdown(t *testing.T) {
 		loader.Register(p2)
 		loader.Register(p3)
 
-		ctx, _ := loader.Load(context.Background())
+		ctx, _ := loader.Load(testContext())
 		loader.Shutdown(ctx)
 
 		if len(order) != 3 {
@@ -377,16 +388,16 @@ func TestLoaderShutdown(t *testing.T) {
 	})
 
 	t.Run("shutdown error propagation", func(t *testing.T) {
-		loader, err := NewLoader()
+		loader, err := NewLoader(nil)
 		if err != nil {
-			t.Fatalf("NewLoader() error = %v", err)
+			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 
 		expectedErr := errors.New("stop failed")
 		p := &mockComponent{name: "test", phase: boot.PreInit, stopErr: expectedErr}
 		loader.Register(p)
 
-		ctx, _ := loader.Load(context.Background())
+		ctx, _ := loader.Load(testContext())
 		err = loader.Shutdown(ctx)
 
 		if err == nil {
@@ -399,9 +410,9 @@ func TestLoaderShutdown(t *testing.T) {
 }
 
 func TestLoaderFullLifecycle(t *testing.T) {
-	loader, err := NewLoader()
+	loader, err := NewLoader(nil)
 	if err != nil {
-		t.Fatalf("NewLoader() error = %v", err)
+		t.Fatalf("NewLoader(nil) error = %v", err)
 	}
 
 	var events []string
@@ -450,7 +461,7 @@ func TestLoaderFullLifecycle(t *testing.T) {
 	loader.Register(p1)
 	loader.Register(p2)
 
-	ctx, err := loader.Load(context.Background())
+	ctx, err := loader.Load(testContext())
 	if err != nil {
 		t.Fatalf("Load() failed: %v", err)
 	}

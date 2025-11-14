@@ -1,5 +1,3 @@
-//go:build !plugin_minimal
-
 package service
 
 import (
@@ -20,7 +18,7 @@ func SQL() boot.Component {
 	return boot.New(boot.P{
 		Name:      SQLName,
 		Phase:     boot.PostInit,
-		DependsOn: []string{bootsystem.EnvironmentName},
+		DependsOn: []boot.ComponentName{bootsystem.EnvironmentName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			dtt := payload.GetTranscoder(ctx)

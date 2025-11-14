@@ -6,10 +6,11 @@ import (
 	"strings"
 
 	"github.com/ponyruntime/pony/api/boot"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/entry"
+	"go.uber.org/zap"
 )
 
 // RequirementDefinition represents the data structure of an ns.requirement entry
@@ -55,6 +56,7 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 		return fmt.Errorf("transcoder not found in context")
 	}
 
+	log := logs.GetLogger(ctx)
 	mutator := entry.NewMutator(transcoder)
 
 	// Collect and decode requirements
@@ -93,60 +95,24 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 		}
 	}
 
-	// Process each requirement, collecting warnings instead of failing
-	warnings := []linkWarning{}
+	// Process each requirement, log warnings instead of failing
+	warningCount := 0
 	for _, req := range requirements {
 		if err := s.processRequirement(req, dependencies, entries, mutator); err != nil {
-			warnings = append(warnings, linkWarning{
-				requirement: req.entry.ID.String(),
-				err:         err,
-			})
+			log.Warn("unresolved requirement",
+				zap.String("requirement", req.entry.ID.String()),
+				zap.Error(err))
+			warningCount++
 		}
 	}
 
-	// If there are warnings, store them in context and continue
-	if len(warnings) > 0 {
-		if ac := ctxapi.AppFromContext(ctx); ac != nil {
-			ac.With(linkWarningsKey, warnings)
-		}
+	if warningCount > 0 {
+		log.Info("link stage completed with warnings",
+			zap.Int("warnings", warningCount),
+			zap.Int("total_requirements", len(requirements)))
 	}
 
 	return nil
-}
-
-type linkWarning struct {
-	requirement string
-	err         error
-}
-
-var linkWarningsKey = &ctxapi.Key{Name: "boot.link.warnings"}
-
-// LinkWarning represents a warning from the link stage
-type LinkWarning struct {
-	Requirement string
-	Error       string
-}
-
-// GetLinkWarnings retrieves link warnings from the context
-func GetLinkWarnings(ctx context.Context) []LinkWarning {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return nil
-	}
-
-	warnings, ok := ac.Get(linkWarningsKey).([]linkWarning)
-	if !ok {
-		return nil
-	}
-
-	result := make([]LinkWarning, len(warnings))
-	for i, w := range warnings {
-		result[i] = LinkWarning{
-			Requirement: w.requirement,
-			Error:       w.err.Error(),
-		}
-	}
-	return result
 }
 
 type decodedRequirement struct {

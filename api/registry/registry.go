@@ -103,6 +103,24 @@ type (
 		Entry Entry `json:"entry"`
 	}
 
+	// DependencyPattern defines a pattern for extracting dependencies from entries
+	DependencyPattern struct {
+		// Path is the location in entry metadata/data to search (e.g., "meta.server", "data.fs")
+		Path string
+		// Description explains what this pattern matches
+		Description string
+		// AllowWildcard enables wildcard matching in the path (e.g., "data.imports.*")
+		AllowWildcard bool
+	}
+
+	// DependencyResolver extracts dependencies from registry entries
+	DependencyResolver interface {
+		// Extract returns all dependency IDs from an entry
+		Extract(entry Entry) []string
+		// RegisterPattern adds a new dependency pattern
+		RegisterPattern(pattern DependencyPattern) error
+	}
+
 	// Registry is the primary interface for interacting with the registry
 	Registry interface {
 		EntryReader
@@ -110,6 +128,8 @@ type (
 		// Current returns the current version of the registry's state
 		Current() (Version, error)
 		History() History
+		// RegisterDependencyPattern adds a pattern for dependency extraction
+		RegisterDependencyPattern(pattern DependencyPattern) error
 	}
 
 	// StateWriter defines methods for applying changes to the registry's state

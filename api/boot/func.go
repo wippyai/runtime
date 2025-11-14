@@ -14,9 +14,9 @@ type StopFunc func(context.Context) error
 
 // P defines a functional component using callbacks.
 type P struct {
-	Name      string
+	Name      ComponentName
 	Phase     Phase
-	DependsOn []string
+	DependsOn []ComponentName
 	Load      LoadFunc
 	Start     StartFunc
 	Stop      StopFunc
@@ -24,17 +24,23 @@ type P struct {
 
 // funcComponent implements Component using function callbacks.
 type funcComponent struct {
-	name      string
+	name      ComponentName
 	phase     Phase
-	deps      []string
+	deps      []ComponentName
 	loadFunc  LoadFunc
 	startFunc StartFunc
 	stopFunc  StopFunc
 }
 
-func (p *funcComponent) Name() string        { return p.name }
-func (p *funcComponent) Phase() Phase        { return p.phase }
-func (p *funcComponent) DependsOn() []string { return p.deps }
+func (p *funcComponent) Name() string { return string(p.name) }
+func (p *funcComponent) Phase() Phase { return p.phase }
+func (p *funcComponent) DependsOn() []string {
+	deps := make([]string, len(p.deps))
+	for i, d := range p.deps {
+		deps[i] = string(d)
+	}
+	return deps
+}
 
 func (p *funcComponent) Load(ctx context.Context) (context.Context, error) {
 	if p.loadFunc == nil {

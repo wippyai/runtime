@@ -212,7 +212,7 @@ func verifyDeltaWithinLevel(t *testing.T, got, want registry.ChangeSet) {
 }
 
 func TestValidateOperation(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	baseEntry := testEntry{
 		ns:   "test",
@@ -316,7 +316,7 @@ func TestValidateOperation(t *testing.T) {
 }
 
 func TestApplyOperation(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	baseEntry := testEntry{
 		ns:   "test",
@@ -413,7 +413,7 @@ func TestApplyOperation(t *testing.T) {
 }
 
 func TestGetInverseOperation(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	baseEntry := testEntry{
 		ns:   "test",
@@ -519,7 +519,7 @@ func TestGetInverseOperation(t *testing.T) {
 }
 
 func TestBuildState_Empty(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	v0 := version.New(registry.RootVersion)
@@ -539,7 +539,7 @@ func TestBuildState_Empty(t *testing.T) {
 }
 
 func TestBuildState_SingleVersion(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	// Spawn test entries
@@ -578,7 +578,7 @@ func TestBuildState_SingleVersion(t *testing.T) {
 }
 
 func TestBuildState_MultipleVersions(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	// Spawn test entries
@@ -634,7 +634,7 @@ func TestBuildState_MultipleVersions(t *testing.T) {
 }
 
 func TestBuildState_ConflictingOperations(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	entry := testEntry{
@@ -673,7 +673,7 @@ func TestBuildState_ConflictingOperations(t *testing.T) {
 }
 
 func TestBuildState_UnreachableVersion(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	// Spawn disconnected versions
@@ -703,7 +703,7 @@ func TestBuildState_UnreachableVersion(t *testing.T) {
 }
 
 func TestBuildState_IntermediateVersion(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	// Spawn test entries
@@ -753,7 +753,7 @@ func TestBuildState_IntermediateVersion(t *testing.T) {
 }
 
 func TestBuildDelta_Empty(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Both Empty", func(t *testing.T) {
 		delta, err := builder.BuildDelta(registry.State{}, registry.State{})
@@ -801,7 +801,7 @@ func TestBuildDelta_Empty(t *testing.T) {
 }
 
 func TestBuildDelta_SimpleOperations(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	// Base entries
 	entry1 := testEntry{
@@ -896,7 +896,7 @@ func verifyDelta(t *testing.T, got, want registry.ChangeSet) {
 }
 
 func TestBuildDelta_Groups(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Spawn With Group Dependencies", func(t *testing.T) {
 		// Spawn entries with group dependencies
@@ -1072,7 +1072,7 @@ func TestBuildDelta_Groups(t *testing.T) {
 }
 
 func TestBuildDelta_NamespaceDependencies(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Simple Namespace Dependencies", func(t *testing.T) {
 		// Spawn entries in different namespaces
@@ -1263,7 +1263,7 @@ func validateNamespaceOrder(t *testing.T, delta registry.ChangeSet, dependencies
 }
 
 func TestBuildDelta_Dependencies(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Simple Dependencies", func(t *testing.T) {
 		// Spawn entries with dependencies
@@ -1440,7 +1440,7 @@ func validateDependencyOrder(t *testing.T, delta registry.ChangeSet, checks []st
 }
 
 func TestBuildDelta_CircularDependencies(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	tests := []struct {
 		name    string
@@ -1513,7 +1513,7 @@ func TestBuildDelta_CircularDependencies(t *testing.T) {
 }
 
 func TestBuildDelta_ComplexTransformations(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Mixed Dependency Types", func(t *testing.T) {
 		// Base infrastructure

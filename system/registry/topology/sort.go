@@ -47,7 +47,7 @@ func resolveDependencyID(sourceNS string, depStr string) registry.ID {
 // - Direct references: "service.database" (uses source namespace) or "other-ns:service.database"
 // - Group references: "group:backend-services"
 // - Namespace references: "ns:backend"
-func SortEntriesByDependency(entries []registry.Entry) ([]registry.Entry, error) {
+func SortEntriesByDependency(entries []registry.Entry, resolver registry.DependencyResolver) ([]registry.Entry, error) {
 	if len(entries) == 0 {
 		return nil, nil
 	}
@@ -79,7 +79,9 @@ func SortEntriesByDependency(entries []registry.Entry) ([]registry.Entry, error)
 	for _, entry := range entries {
 		dependencies := entry.Meta.TagValue(registry.TagDependsOn)
 
-		dependencies = append(dependencies, fetchDependencies(entry)...)
+		if resolver != nil {
+			dependencies = append(dependencies, resolver.Extract(entry)...)
+		}
 
 		for _, dep := range dependencies {
 			depType, value := parseDependency(dep)
@@ -147,8 +149,8 @@ func SortEntriesByDependency(entries []registry.Entry) ([]registry.Entry, error)
 
 // CreateChangeSetFromEntries creates a ChangeSet consisting of create operations from a list of entries.
 // The entries are sorted taking into account all types of dependencies (direct, group, and namespace).
-func CreateChangeSetFromEntries(entries []registry.Entry) (registry.ChangeSet, error) {
-	sorted, err := SortEntriesByDependency(entries)
+func CreateChangeSetFromEntries(entries []registry.Entry, resolver registry.DependencyResolver) (registry.ChangeSet, error) {
+	sorted, err := SortEntriesByDependency(entries, resolver)
 	if err != nil {
 		return nil, err
 	}

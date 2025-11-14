@@ -1,5 +1,3 @@
-//go:build !plugin_minimal
-
 package service
 
 import (
@@ -12,7 +10,9 @@ import (
 	funcapi "github.com/ponyruntime/pony/api/function"
 	logapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
+	regapi "github.com/ponyruntime/pony/api/registry"
 	bootpkg "github.com/ponyruntime/pony/boot"
+	bootcore "github.com/ponyruntime/pony/boot/components/core/core"
 	bootsystem "github.com/ponyruntime/pony/boot/components/system/system"
 	"github.com/ponyruntime/pony/service/http"
 	"github.com/ponyruntime/pony/service/http/cors"
@@ -20,20 +20,63 @@ import (
 	"github.com/ponyruntime/pony/service/http/realip"
 	"github.com/ponyruntime/pony/service/http/websocketrelay"
 	"github.com/ponyruntime/pony/service/tokenstore"
+	"go.uber.org/zap"
 )
 
 func HTTP() boot.Component {
 	return boot.New(boot.P{
 		Name:      HTTPName,
 		Phase:     boot.PostInit,
-		DependsOn: []string{bootsystem.FunctionsName, bootsystem.FilesystemName},
+		DependsOn: []boot.ComponentName{bootcore.RegistryName, bootsystem.FunctionsName, bootsystem.FilesystemName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
+			if logger == nil {
+				return ctx, fmt.Errorf("logger not available in context")
+			}
+
 			dtt := payload.GetTranscoder(ctx)
+			if dtt == nil {
+				return ctx, fmt.Errorf("transcoder not available in context")
+			}
+
 			bus := event.GetBus(ctx)
+			if bus == nil {
+				return ctx, fmt.Errorf("event bus not available in context")
+			}
+
 			funcs := funcapi.GetRegistry(ctx)
+			if funcs == nil {
+				return ctx, fmt.Errorf("function registry not available in context")
+			}
+
 			fsRegistry := fsapi.GetRegistry(ctx)
+			if fsRegistry == nil {
+				return ctx, fmt.Errorf("filesystem registry not available in context")
+			}
+
 			handlers := bootpkg.GetHandlerRegistry(ctx)
+			if handlers == nil {
+				return ctx, fmt.Errorf("handler registry not available in context")
+			}
+
+			reg := regapi.GetRegistry(ctx)
+			if reg == nil {
+				return ctx, fmt.Errorf("registry not available in context")
+			}
+
+			// Register HTTP dependency patterns
+			httpPatterns := []regapi.DependencyPattern{
+				{Path: "meta.server", Description: "Reference to HTTP server in metadata"},
+				{Path: "meta.router", Description: "Reference to router component in metadata"},
+				{Path: "data.server", Description: "Reference to HTTP server in data section"},
+				{Path: "data.middleware", Description: "List of middleware components", AllowWildcard: true},
+				{Path: "data.post_middleware", Description: "List of post-middleware components", AllowWildcard: true},
+			}
+			for _, pattern := range httpPatterns {
+				if err := reg.RegisterDependencyPattern(pattern); err != nil {
+					logger.Warn("failed to register HTTP dependency pattern", zap.String("path", pattern.Path), zap.Error(err))
+				}
+			}
 
 			endpointFactory, err := http.NewEndpointFactory(funcs)
 			if err != nil {

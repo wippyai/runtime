@@ -196,29 +196,25 @@ func loadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 		return nil, fmt.Errorf("execute pipeline: %w", err)
 	}
 
-	// Check for link warnings and log them
-	if warnings := stages.GetLinkWarnings(ctx); len(warnings) > 0 {
-		logger.Warn("link stage completed with warnings", zap.Int("count", len(warnings)))
-		for _, w := range warnings {
-			logger.Warn("unresolved requirement",
-				zap.String("requirement", w.Requirement),
-				zap.String("error", w.Error))
-		}
-	}
-
 	return entries, nil
 }
 
 // applyEntriesToRegistry converts entries to a ChangeSet and applies them to the registry.
 func applyEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *zap.Logger) error {
-	changeSet, err := regtop.NewStateBuilder(logger.Named("state-builder")).BuildDelta(regapi.State{}, entries)
-	if err != nil {
-		return fmt.Errorf("build change set: %w", err)
-	}
-
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		return fmt.Errorf("registry not found in context")
+	}
+
+	resolver := regapi.GetResolver(ctx)
+	if resolver == nil {
+		return fmt.Errorf("dependency resolver not found in context")
+	}
+
+	// Use CreateChangeSetFromEntries which properly sorts by dependencies
+	changeSet, err := regtop.CreateChangeSetFromEntries(entries, resolver)
+	if err != nil {
+		return fmt.Errorf("build change set: %w", err)
 	}
 
 	version, err := reg.Apply(ctx, changeSet)

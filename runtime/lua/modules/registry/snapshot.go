@@ -6,7 +6,7 @@ import (
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/security"
-	"github.com/ponyruntime/pony/system/registry"
+	"github.com/ponyruntime/pony/system/registry/finder"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -176,12 +176,22 @@ func snapshotFind(l *lua.LState) int {
 	// Convert filter to metadata for finder
 	meta := convertFilterToMetadata(l, filterTable)
 
-	// Create a finder using the snapshot as an EntryReader
-	// This uses the same implementation as registryFind for consistent behavior
-	finder := registry.NewFinder(snap, snap.log)
+	// Get main finder from context and fork it for this snapshot
+	// This shares the regex cache across all finders (main + snapshots)
+	mainFinder := regapi.GetFinder(l.Context())
+	var entries []regapi.Entry
+	var err error
 
-	// Find entries using the Finder interface
-	entries, err := finder.Find(meta)
+	if mainFinder != nil {
+		// Fork from main finder to share regex cache
+		f := finder.Fork(mainFinder, snap, snap.log)
+		entries, err = f.Find(meta)
+	} else {
+		// Fallback: create new finder if main finder not in context
+		f := finder.NewFinder(snap, snap.log)
+		entries, err = f.Find(meta)
+	}
+
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))

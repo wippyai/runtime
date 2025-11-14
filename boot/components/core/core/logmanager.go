@@ -19,24 +19,25 @@ const (
 
 func LogManager() boot.Component {
 	var logManager *logs.Manager
+	var wrappedLogger *zap.Logger
 
 	return boot.New(boot.P{
 		Name:      LogManagerName,
 		Phase:     boot.PreInit,
-		DependsOn: []string{LoggerName, EventBusName},
+		DependsOn: []boot.ComponentName{EventBusName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)
 
 			logCore := logs.NewCore(logger.Core(), bus)
-			wrappedLogger := logger.WithOptions(zap.WrapCore(func(zapcore.Core) zapcore.Core {
+			wrappedLogger = logger.WithOptions(zap.WrapCore(func(zapcore.Core) zapcore.Core {
 				return logCore
 			}))
 
 			cfg := boot.GetConfig(ctx)
 			var logConfig logapi.Config
 			if cfg != nil {
-				cfgSub := cfg.Sub(LogManagerName)
+				cfgSub := cfg.Sub(string(LogManagerName))
 				logConfig = logapi.Config{
 					PropagateDownstream: cfgSub.GetBool(string(ConfigPropagateDownstream), true),
 					StreamToEvents:      cfgSub.GetBool(string(ConfigStreamToEvents), false),
@@ -52,7 +53,8 @@ func LogManager() boot.Component {
 
 			logManager = logs.NewManager(bus, logCore, wrappedLogger.Named("logs"), logConfig)
 
-			return logapi.WithLogger(ctx, wrappedLogger), nil
+			// Update the logger in context with the wrapped version
+			return logapi.UpdateLogger(ctx, wrappedLogger), nil
 		},
 		Start: func(ctx context.Context) error {
 			if logManager != nil {

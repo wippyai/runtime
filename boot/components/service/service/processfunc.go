@@ -1,5 +1,3 @@
-//go:build !plugin_minimal
-
 package service
 
 import (
@@ -16,9 +14,9 @@ import (
 
 func ProcessFunc() boot.Component {
 	return boot.New(boot.P{
-		Name:      "process_function_bridge",
+		Name:      ProcessFuncName,
 		Phase:     boot.PostInit,
-		DependsOn: []string{bootsystem.ProcessName},
+		DependsOn: []boot.ComponentName{bootsystem.ProcessName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)

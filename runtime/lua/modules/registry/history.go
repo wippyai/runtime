@@ -117,7 +117,7 @@ func historySnapshotAt(l *lua.LState) int {
 	}
 
 	// Create state builder
-	stateBuilder := topology.NewStateBuilder(history.log)
+	stateBuilder := topology.NewStateBuilder(history.log, nil)
 
 	// Build state at the specified version
 	state, err := stateBuilder.BuildState(history.hist, version)
