@@ -192,9 +192,11 @@ func (h *Host) prepareContext(ctx context.Context, launch *process.Launch) conte
 	if err := process.SetOnComplete(pCtx, h.finalizeProcess); err != nil {
 		h.log.Error("failed to set onComplete callback", zap.Error(err))
 	}
-	pCtx = context.WithValue(pCtx, ctxapi.WakeUpKey, func() {
+	if err := ctxapi.SetWakeUp(pCtx, func() {
 		_ = h.pool.Schedule(launch.PID)
-	})
+	}); err != nil {
+		h.log.Error("failed to set wakeup callback", zap.Error(err))
+	}
 
 	pCtx = logs.WithLogger(pCtx, h.log.With(zap.String("pid", launch.PID.String())))
 

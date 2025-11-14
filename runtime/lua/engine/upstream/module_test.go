@@ -24,8 +24,10 @@ func setupTest(t *testing.T, ch chan<- payload.Payload) (*engine.VM, context.Con
 	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 	require.NoError(t, err)
 
-	// Create context with upstream channel
-	ctx := context.WithValue(ctxapi.NewRootContext(), Ctx, ch)
+	// Create context with upstream channel in FrameContext
+	ctx, fc := ctxapi.OpenFrameContext(ctxapi.NewRootContext())
+	err = fc.Set(Ctx, ch)
+	require.NoError(t, err)
 
 	return vm, ctx
 }
@@ -235,8 +237,8 @@ func TestUpstreamModule(t *testing.T) {
 			if ok then
 				error("expected send to fail")
 			end
-			if err ~= "no upstream channel found in context" then
-				error("expected 'no upstream channel found in context' error, got: " .. tostring(err))
+			if err ~= "no frame context found" then
+				error("expected 'no frame context found' error, got: " .. tostring(err))
 			end
 			return ok, err
 		`
@@ -249,6 +251,6 @@ func TestUpstreamModule(t *testing.T) {
 		vm.State().Pop(2)
 
 		assert.Equal(t, lua.LFalse, ok)
-		assert.Equal(t, lua.LString("no upstream channel found in context"), errMsg)
+		assert.Equal(t, lua.LString("no frame context found"), errMsg)
 	})
 }

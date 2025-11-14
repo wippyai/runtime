@@ -5,6 +5,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	ctxapi "github.com/ponyruntime/pony/api/context"
 )
 
 // ConfigSep is the separator used for hierarchical config keys.
@@ -16,18 +18,31 @@ type ConfigKey string
 // ConfigSection is a string alias for config section names.
 type ConfigSection string
 
-type configCtxKey struct{}
+var configCtxKey = &ctxapi.Key{Name: "boot.config"}
 
-// WithConfig attaches Config to context.
+// WithConfig attaches Config to AppContext.
 func WithConfig(ctx context.Context, cfg Config) context.Context {
-	return context.WithValue(ctx, configCtxKey{}, cfg)
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(configCtxKey) == nil {
+		ac.With(configCtxKey, cfg)
+	}
+	return ctx
 }
 
-// GetConfig retrieves Config from context.
+// GetConfig retrieves Config from AppContext.
 // Returns nil if no Config is found.
 func GetConfig(ctx context.Context) Config {
-	if cfg, ok := ctx.Value(configCtxKey{}).(Config); ok {
-		return cfg
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if cfg := ac.Get(configCtxKey); cfg != nil {
+		if c, ok := cfg.(Config); ok {
+			return c
+		}
 	}
 	return nil
 }

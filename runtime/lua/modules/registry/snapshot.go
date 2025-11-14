@@ -178,7 +178,7 @@ func snapshotFind(l *lua.LState) int {
 
 	// Create a finder using the snapshot as an EntryReader
 	// This uses the same implementation as registryFind for consistent behavior
-	finder := registry.NewFinder(snap)
+	finder := registry.NewFinder(snap, snap.log)
 
 	// Find entries using the Finder interface
 	entries, err := finder.Find(meta)

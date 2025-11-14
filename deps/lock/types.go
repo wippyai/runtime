@@ -15,9 +15,10 @@ type Directories struct {
 
 // Module represents a locked dependency.
 type Module struct {
-	Name    string `yaml:"name"`           // Module identifier in org/module format
-	Version string `yaml:"version"`        // Semantic version (e.g., v0.0.11)
-	Hash    string `yaml:"hash,omitempty"` // Optional commit hash for exact pinning
+	Name      string `yaml:"name"`                 // Module identifier in org/module format
+	Version   string `yaml:"version"`              // Semantic version (e.g., v0.0.11)
+	Hash      string `yaml:"hash,omitempty"`       // Optional commit hash for exact pinning
+	LocalHash string `yaml:"local_hash,omitempty"` // Computed hash from loaded entries for verification
 }
 
 // Replacement represents a local module override for development.

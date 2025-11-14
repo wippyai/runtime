@@ -1,7 +1,10 @@
 // Package context is used to pass context between different parts of the application and not allocate
 package context
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 // ErrNoFrameContext is returned when trying to set a frame value without a frame context
 var ErrNoFrameContext = errors.New("no frame context available")
@@ -25,3 +28,28 @@ var wakeupKey = &Key{Name: "wakeup"}
 // WakeUpKey is the public accessor for the wakeup context key
 // Represents a callback that can be used to notify process host about async process activity
 var WakeUpKey = wakeupKey
+
+// SetWakeUp stores a wakeup callback in the FrameContext.
+// Returns error if no frame context or frame is sealed.
+func SetWakeUp(ctx context.Context, fn func()) error {
+	fc := FrameFromContext(ctx)
+	if fc == nil {
+		return ErrNoFrameContext
+	}
+	return fc.Set(wakeupKey, fn)
+}
+
+// GetWakeUp retrieves the wakeup callback from the FrameContext.
+// Returns nil if not found.
+func GetWakeUp(ctx context.Context) func() {
+	fc := FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	if val, ok := fc.Get(wakeupKey); ok {
+		if fn, ok := val.(func()); ok {
+			return fn
+		}
+	}
+	return nil
+}

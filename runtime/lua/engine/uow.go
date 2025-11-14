@@ -48,11 +48,9 @@ func NewUnitOfWork(parentCtx context.Context, state *lua.LState) (UnitOfWork, co
 	uw.state = state
 	uw.closed.Store(false)
 
-	// Check for wake-up function in context (todo: in frame)
-	if awake := parentCtx.Value(ctxapi.WakeUpKey); awake != nil {
-		if fn, ok := awake.(func()); ok {
-			uw.tasks.wakeupFunc = fn
-		}
+	// Check for wake-up function in frame context
+	if awake := ctxapi.GetWakeUp(parentCtx); awake != nil {
+		uw.tasks.wakeupFunc = awake
 	}
 
 	// Add cleanup for state context
@@ -66,29 +64,38 @@ func NewUnitOfWork(parentCtx context.Context, state *lua.LState) (UnitOfWork, co
 		})
 	}
 
-	// Seal the frame now that UoW is created
-	// This is the final step before runtime execution
+	// Store in frame context before sealing
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		if err := fc.Set(unitOfWorkKey, uw); err != nil {
+			// This shouldn't happen as we haven't sealed yet, but handle gracefully
+			cancel()
+			return nil, ctx
+		}
+		// Seal the frame now that UoW is created
+		// This is the final step before runtime execution
 		fc.Seal()
 	}
 
-	// Store in context
-	ctx = context.WithValue(ctx, unitOfWorkKey, uw)
 	uw.ctx = ctx
 
 	return uw, ctx
 }
 
-// todo: migrate to call context
-
-// GetUnitOfWork retrieves the UnitOfWork from a context
+// GetUnitOfWork retrieves the UnitOfWork from FrameContext
 func GetUnitOfWork(ctx context.Context) UnitOfWork {
 	if ctx == nil {
 		return nil
 	}
 
-	if uw, ok := ctx.Value(unitOfWorkKey).(UnitOfWork); ok {
-		return uw
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+
+	if val, ok := fc.Get(unitOfWorkKey); ok {
+		if uw, ok := val.(UnitOfWork); ok {
+			return uw
+		}
 	}
 
 	return nil
@@ -96,16 +103,11 @@ func GetUnitOfWork(ctx context.Context) UnitOfWork {
 
 // DetachUnitOfWork removes any parent UnitOfWork relationship
 // without stopping the existing UnitOfWork
+// Creates a new unsealed frame without the UnitOfWork
 func DetachUnitOfWork(ctx context.Context) context.Context {
-	if _, ok := ctx.Value(ctxapi.WakeUpKey).(func()); ok {
-		ctx = context.WithValue(ctx, ctxapi.WakeUpKey, nil)
-	}
-
-	if GetUnitOfWork(ctx) != nil {
-		ctx = context.WithValue(ctx, unitOfWorkKey, nil)
-	}
-
-	return ctx
+	// Create a new frame without UnitOfWork or WakeUp
+	newCtx, _ := ctxapi.OpenFrameContext(ctx)
+	return newCtx
 }
 
 // Context returns the managed context
@@ -233,6 +235,4 @@ func (u *unitOfWork) reset() {
 }
 
 // Context key for UnitOfWork
-type unitOfWorkKeyType struct{}
-
-var unitOfWorkKey = unitOfWorkKeyType{}
+var unitOfWorkKey = &ctxapi.Key{Name: "uow"}

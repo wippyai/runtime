@@ -20,6 +20,7 @@ func (m *mockRegistry) GetAllEntries() ([]registry.Entry, error) {
 
 func (m *mockRegistry) GetEntry(id registry.ID) (registry.Entry, error) {
 	for _, entry := range m.entries {
+		if entry.ID == id {
 			return entry, nil
 		}
 	}
@@ -39,6 +40,7 @@ func TestFinder_Find(t *testing.T) {
 	// Create test entries
 	entries := []registry.Entry{
 		{
+			ID:   registry.ID{Name: "service-api"},
 			Kind: "service",
 			Meta: registry.Metadata{
 				"description": "RESTful API service for user management",
@@ -49,6 +51,7 @@ func TestFinder_Find(t *testing.T) {
 			},
 		},
 		{
+			ID:   registry.ID{Name: "service-queue"},
 			Kind: "service",
 			Meta: registry.Metadata{
 				"description": "Background job processing queue",
@@ -59,6 +62,7 @@ func TestFinder_Find(t *testing.T) {
 			},
 		},
 		{
+			ID:   registry.ID{Name: "database-users"},
 			Kind: "database",
 			Meta: registry.Metadata{
 				"description": "User database with profiles and preferences",
@@ -68,6 +72,7 @@ func TestFinder_Find(t *testing.T) {
 			},
 		},
 		{
+			ID:   registry.ID{Name: "storage-uploads"},
 			Kind: "storage",
 			Meta: registry.Metadata{
 				"description": "File storage service for user uploads",
@@ -82,7 +87,7 @@ func TestFinder_Find(t *testing.T) {
 	mockReg := &mockRegistry{entries: entries}
 
 	// Create finder
-	finder := NewFinder(mockReg)
+	finder := NewFinder(mockReg, nil)
 
 	// Test cases
 	tests := []struct {
@@ -210,4 +215,86 @@ func TestFinder_Find(t *testing.T) {
 			assert.Equal(t, len(tt.wantIDs), len(resultIDs), "Number of results should match expected")
 		})
 	}
+}
+
+// TestFinder_MalformedRegex tests that invalid regex patterns are handled gracefully
+func TestFinder_MalformedRegex(t *testing.T) {
+	entries := []registry.Entry{
+		{
+			ID:   registry.ID{Name: "test-entry"},
+			Kind: "test",
+			Meta: registry.Metadata{
+				"description": "Test entry for regex",
+			},
+		},
+		{
+			ID:   registry.ID{Name: "test-entry-2"},
+			Kind: "other",
+			Meta: registry.Metadata{
+				"description": "Another entry",
+			},
+		},
+	}
+
+	mockReg := &mockRegistry{entries: entries}
+	finder := NewFinder(mockReg, nil)
+
+	// Test with malformed regex pattern combined with valid matcher
+	results, err := finder.Find(registry.Metadata{
+		"~description": "[invalid(regex", // Invalid regex is silently ignored
+		".kind":        "test",           // This should still match
+	})
+
+	// Should not error, malformed regex is ignored but other matchers work
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(results), "Valid matchers should still work")
+	assert.Equal(t, "test-entry", results[0].ID.Name)
+}
+
+// TestFinder_EmptyMetadata tests searching with empty metadata
+func TestFinder_EmptyMetadata(t *testing.T) {
+	entries := []registry.Entry{
+		{
+			ID:   registry.ID{Name: "entry-1"},
+			Kind: "test",
+			Meta: registry.Metadata{"key": "value"},
+		},
+		{
+			ID:   registry.ID{Name: "entry-2"},
+			Kind: "other",
+			Meta: registry.Metadata{"key": "value"},
+		},
+	}
+
+	mockReg := &mockRegistry{entries: entries}
+	finder := NewFinder(mockReg, nil)
+
+	// Search with empty metadata should return all entries
+	results, err := finder.Find(registry.Metadata{})
+
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(results), "Empty metadata should match all entries")
+}
+
+// TestFinder_NoMatches tests that no results are returned when nothing matches
+func TestFinder_NoMatches(t *testing.T) {
+	entries := []registry.Entry{
+		{
+			ID:   registry.ID{Name: "entry-1"},
+			Kind: "test",
+			Meta: registry.Metadata{"enabled": true},
+		},
+	}
+
+	mockReg := &mockRegistry{entries: entries}
+	finder := NewFinder(mockReg, nil)
+
+	// Search for something that doesn't exist
+	results, err := finder.Find(registry.Metadata{
+		".kind":   "nonexistent",
+		"enabled": false,
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(results), "Should return no results when nothing matches")
 }

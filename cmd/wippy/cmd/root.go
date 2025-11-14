@@ -27,10 +27,17 @@ A dedicated runtime for deploying and managing software components that can
 understand, adapt, and evolve - all within defined boundaries and governance.
 
 Perfect for AI agent platforms, dynamic integrations, and self-modifying systems.`,
+	SilenceErrors: true, // We handle errors in main.go
+	SilenceUsage:  true, // Don't show usage on errors
 }
 
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+// IsConsoleMode returns whether console mode is enabled
+func IsConsoleMode() bool {
+	return console
 }
 
 func init() {

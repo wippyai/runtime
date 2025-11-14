@@ -265,7 +265,7 @@ func TestPluginLifecycle(t *testing.T) {
 }
 
 func TestWithConfig_GetConfig(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	cfg := GetConfig(ctx)
 	if cfg != nil {

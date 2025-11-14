@@ -3,6 +3,7 @@ package boot
 import (
 	"context"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/wildcard"
@@ -95,17 +96,30 @@ func wrapListener(kinds registry.Kind, listener registry.EntryListener) eventbus
 	)
 }
 
-type handlerRegistryKey struct{}
+var handlerRegistryKey = &ctxapi.Key{Name: "boot.handler_registry"}
 
-// WithHandlerRegistry stores the handler registry in the context.
+// WithHandlerRegistry stores the handler registry in AppContext.
 func WithHandlerRegistry(ctx context.Context, registry HandlerRegistry) context.Context {
-	return context.WithValue(ctx, handlerRegistryKey{}, registry)
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(handlerRegistryKey) == nil {
+		ac.With(handlerRegistryKey, registry)
+	}
+	return ctx
 }
 
-// GetHandlerRegistry retrieves the handler registry from the context.
+// GetHandlerRegistry retrieves the handler registry from AppContext.
 func GetHandlerRegistry(ctx context.Context) HandlerRegistry {
-	if registry, ok := ctx.Value(handlerRegistryKey{}).(HandlerRegistry); ok {
-		return registry
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if val := ac.Get(handlerRegistryKey); val != nil {
+		if reg, ok := val.(HandlerRegistry); ok {
+			return reg
+		}
 	}
 	return nil
 }

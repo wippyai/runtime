@@ -1,13 +1,22 @@
 package storage
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 
+	"github.com/ponyruntime/pony/api/payload"
+	regapi "github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/boot/hash"
 	modulev1 "github.com/wippyai/module-registry-proto-go/registry/module/v1"
 )
+
+// Loader interface for loading entries from filesystem
+type Loader interface {
+	LoadFS(ctx context.Context, fsys fs.FS) ([]regapi.Entry, error)
+}
 
 // Storage handles module file I/O operations.
 type Storage interface {
@@ -173,4 +182,27 @@ func (s *FileSystemStorage) Delete(basePath string) error {
 		return fmt.Errorf("remove directory %q: %w", basePath, err)
 	}
 	return nil
+}
+
+// ComputeHash loads entries from a module directory and computes their hash.
+func (s *FileSystemStorage) ComputeHash(basePath string, ctx context.Context, dtt payload.Transcoder, ldr Loader) (string, error) {
+	if basePath == "" {
+		return "", fmt.Errorf("basePath cannot be empty")
+	}
+
+	fullPath := filepath.Join(s.baseDir, basePath)
+
+	dirFS := os.DirFS(fullPath)
+	entries, err := ldr.LoadFS(ctx, dirFS)
+	if err != nil {
+		return "", fmt.Errorf("load entries from %s: %w", basePath, err)
+	}
+
+	hasher := hash.New(dtt)
+	entryHash, err := hasher.Hash(entries)
+	if err != nil {
+		return "", fmt.Errorf("compute hash: %w", err)
+	}
+
+	return entryHash, nil
 }

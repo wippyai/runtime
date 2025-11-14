@@ -11,12 +11,12 @@ import (
 
 	"github.com/pkg/errors"
 	ctxapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/boot/loader"
+	"github.com/ponyruntime/pony/boot/loader/interpolate"
 	"github.com/ponyruntime/pony/internal/version"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/yaml"
-	"github.com/ponyruntime/pony/boot/loader"
-	"github.com/ponyruntime/pony/boot/loader/interpolate"
 	"github.com/stretchr/testify/assert"
 
 	"go.uber.org/zap"
@@ -104,7 +104,8 @@ func TestInMemoryRegistry_GetAllEntries(t *testing.T) {
 	}
 
 	for i := range state {
-			t.Errorf("Expected entry at index %d to be %v, got %v", i, state[i], entries[i])
+		if state[i].ID != entries[i].ID {
+			t.Errorf("Expected entry at index %d to have ID %v, got %v", i, state[i].ID, entries[i].ID)
 		}
 
 		expectedData, ok := state[i].Data.Data().(string)
@@ -468,6 +469,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
+				ID:   registry.ID{Name: "/new-entry"},
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -486,8 +488,8 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 			return newState, nil
 		}
 
-		// Handle rollback
-		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID.Name == "/foo" &&
+		// Handle rollback - expects a Delete of the newly created entry
+		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID.Name == "/new-entry" &&
 			reflect.DeepEqual(state, newState) {
 			return initialState, nil
 		}
@@ -545,6 +547,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
+				ID:   registry.ID{Name: "/new-entry"},
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -561,8 +564,8 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 			return newState, nil
 		}
 
-		// Handle rollback failure
-		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID.Name == "/foo" &&
+		// Handle rollback failure - expects a Delete of the newly created entry
+		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID.Name == "/new-entry" &&
 			reflect.DeepEqual(state, newState) {
 			return state, rollbackErr
 		}
@@ -664,6 +667,7 @@ data:
 			case registry.Update:
 				found := false
 				for i, entry := range newState {
+					if entry.ID == change.Entry.ID {
 						newState[i] = change.Entry
 						found = true
 						break
@@ -674,6 +678,7 @@ data:
 				}
 			case registry.Delete:
 				for i, entry := range newState {
+					if entry.ID == change.Entry.ID {
 						newState = append(newState[:i], newState[i+1:]...)
 						break
 					}
@@ -736,6 +741,7 @@ data:
 	for _, expectedEntry := range expectedState {
 		found := false
 		for _, currentEntry := range currentState {
+			if expectedEntry.Kind == currentEntry.Kind {
 				found = true
 
 				// Compare Data field using assert.Equal for deep comparison of maps
@@ -873,5 +879,214 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "transition failed") {
 		t.Errorf("Expected error message to contain 'transition failed', got: %v", err)
+	}
+}
+
+// TestRegistry_WithNilHistory tests that Registry works correctly with NilHistory
+func TestRegistry_WithNilHistory(t *testing.T) {
+	hist := history.NewNil()
+	runner := NewMockRunner()
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+
+	// Initial state check
+	currentVersion, err := reg.Current()
+	if err != nil {
+		t.Fatalf("Unexpected error getting current version: %v", err)
+	}
+	if currentVersion.ID() != 0 {
+		t.Errorf("Expected initial version to be 0, got: %d", currentVersion.ID())
+	}
+
+	// Apply changes
+	changes := registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   registry.ID{Name: "/test"},
+				Kind: "test",
+				Data: payload.New("data"),
+			},
+		},
+	}
+
+	runner.newState = registry.State{changes[0].Entry}
+
+	newVersion, err := reg.Apply(context.Background(), changes)
+	if err != nil {
+		t.Fatalf("Apply should work with NilHistory, got error: %v", err)
+	}
+
+	if newVersion.ID() != 1 {
+		t.Errorf("Expected new version to be 1, got: %d", newVersion.ID())
+	}
+
+	// Verify state was updated
+	entries, err := reg.GetAllEntries()
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("Expected 1 entry, got %d", len(entries))
+	}
+
+	// Verify head was updated in history
+	head, err := hist.Head()
+	if err != nil {
+		t.Errorf("Head should be accessible with NilHistory: %v", err)
+	}
+	if head.ID() != newVersion.ID() {
+		t.Errorf("Expected head version %d, got %d", newVersion.ID(), head.ID())
+	}
+}
+
+// TestRegistry_NilHistoryRewindError tests that ApplyVersion returns error with NilHistory
+func TestRegistry_NilHistoryRewindError(t *testing.T) {
+	hist := history.NewNil()
+	runner := NewMockRunner()
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+
+	// Save v1 as current
+	_ = hist.Save(v1, registry.ChangeSet{}, true)
+	reg.currentVersion = v1
+
+	// Attempt to rewind to v0
+	err := reg.ApplyVersion(context.Background(), v0)
+	if err == nil {
+		t.Error("ApplyVersion should fail with NilHistory when trying to rewind")
+	}
+}
+
+// TestRegistry_NilHistoryForwardOnly tests that forward-only operations work with NilHistory
+func TestRegistry_NilHistoryForwardOnly(t *testing.T) {
+	hist := history.NewNil()
+	runner := &CustomizableMockRunner{}
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+
+	// Mock runner to append changes to state
+	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+		for _, change := range changes {
+			state = append(state, change.Entry)
+		}
+		return state, nil
+	}
+
+	// Apply multiple versions forward
+	for i := 1; i <= 5; i++ {
+		changes := registry.ChangeSet{
+			{
+				Kind: registry.Create,
+				Entry: registry.Entry{
+					ID:   registry.ID{Name: fmt.Sprintf("/entry-%d", i)},
+					Kind: "test",
+					Data: payload.New(fmt.Sprintf("data-%d", i)),
+				},
+			},
+		}
+
+		newVersion, err := reg.Apply(context.Background(), changes)
+		if err != nil {
+			t.Fatalf("Apply %d failed: %v", i, err)
+		}
+
+		if int(newVersion.ID()) != i {
+			t.Errorf("Expected version %d, got %d", i, newVersion.ID())
+		}
+	}
+
+	// Verify final state has all entries
+	entries, err := reg.GetAllEntries()
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if len(entries) != 5 {
+		t.Errorf("Expected 5 entries, got %d", len(entries))
+	}
+
+	// Verify we can't get historical versions
+	v2 := version.FromParent(version.New(registry.RootVersion), 2)
+	_, err = hist.Get(v2)
+	if err == nil {
+		t.Error("Get should fail with NilHistory")
+	}
+
+	// Verify we can't list versions
+	_, err = hist.Versions()
+	if err == nil {
+		t.Error("Versions should fail with NilHistory")
+	}
+}
+
+// TestInMemoryRegistry_RollbackPartialState tests that partial state is preserved on rollback failure
+func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	hist := NewErrorHistory()
+	_ = hist.Save(v0, registry.ChangeSet{}, true)
+
+	runner := NewMockRunner()
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
+
+	initialState := registry.State{
+		{ID: registry.ID{Name: "/initial"}, Kind: "test", Data: payload.New("initial_data")},
+	}
+	reg.state = initialState
+	reg.currentVersion = v0
+
+	changes := registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   registry.ID{Name: "/new"},
+				Kind: "test",
+				Data: payload.New("new_data"),
+			},
+		},
+	}
+
+	newState := append(initialState, changes[0].Entry)
+	partialRollbackState := registry.State{
+		{ID: registry.ID{Name: "/initial"}, Kind: "test", Data: payload.New("initial_data")},
+		{ID: registry.ID{Name: "/partial"}, Kind: "test", Data: payload.New("partial_data")},
+	}
+
+	callCount := 0
+	runner.RunFunc = func(state registry.State, cs registry.ChangeSet) (registry.State, error) {
+		callCount++
+		// First call: apply changes successfully
+		if callCount == 1 {
+			return newState, nil
+		}
+		// Second call: rollback fails, returns partial state
+		if callCount == 2 {
+			return partialRollbackState, errors.New("rollback partial failure")
+		}
+		return state, errors.New("unexpected call")
+	}
+
+	// Attempt to apply - should fail on history save and then fail rollback
+	_, err := reg.Apply(context.Background(), changes)
+	if err == nil {
+		t.Error("Expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "rollback") {
+		t.Errorf("Expected error to mention rollback, got: %v", err)
+	}
+
+	// Verify state is set to partial rollback state (line 149 in registry.go)
+	if len(reg.state) != 2 {
+		t.Errorf("Expected state to have 2 entries (partial rollback), got %d", len(reg.state))
+	}
+
+	if reg.state[1].ID.Name != "/partial" {
+		t.Errorf("Expected partial state to be preserved, got: %v", reg.state)
 	}
 }

@@ -256,7 +256,8 @@ func TestGetUnitOfWork(t *testing.T) {
 		t.Errorf("expected nil UnitOfWork for context without UnitOfWork")
 	}
 
-	// Test with context containing UnitOfWork
+	// Test with context containing UnitOfWork - need FrameContext
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	state := lua.NewState()
 	defer state.Close()
 	uw, ctx := NewUnitOfWork(ctx, state)
@@ -268,7 +269,8 @@ func TestGetUnitOfWork(t *testing.T) {
 }
 
 func TestDetachUnitOfWork(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -281,7 +283,7 @@ func TestDetachUnitOfWork(t *testing.T) {
 		t.Errorf("expected UnitOfWork to be detached")
 	}
 
-	// Original context should still have UnitOfWork
+	// Original context should still have UnitOfWork (because it's sealed)
 	if GetUnitOfWork(ctx) != uw {
 		t.Errorf("expected original context to still have UnitOfWork")
 	}
