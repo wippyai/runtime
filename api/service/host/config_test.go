@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 func TestKindConstant(t *testing.T) {

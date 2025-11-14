@@ -7,9 +7,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
-	runtime "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/internal/graph"
+	"github.com/wippyai/runtime/api/registry"
+	runtime "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/internal/graph"
 )
 
 type (

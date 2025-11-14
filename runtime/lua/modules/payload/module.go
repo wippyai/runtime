@@ -3,9 +3,9 @@ package payload
 import (
 	"sync"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine/errors"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 

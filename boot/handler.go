@@ -3,11 +3,11 @@ package boot
 import (
 	"context"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/wildcard"
-	"github.com/ponyruntime/pony/system/eventbus"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/wildcard"
+	"github.com/wippyai/runtime/system/eventbus"
 )
 
 // HandlerRegistry collects event handlers during plugin initialization.

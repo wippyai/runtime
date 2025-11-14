@@ -5,13 +5,13 @@ import (
 	"errors"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	otelapi "github.com/ponyruntime/pony/api/service/otel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	otelapi "github.com/wippyai/runtime/api/service/otel"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -81,7 +81,7 @@ func TestInterceptor_AddsPIDAttribute(t *testing.T) {
 	ctx, spanRecorder := setupTestContext(t)
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
-	pid := pubsub.PID{Host: "testhost", UniqID: "test-pid-123"}
+	pid := relay.PID{Host: "testhost", UniqID: "test-pid-123"}
 	err := runtime.SetFramePID(ctx, pid)
 	require.NoError(t, err)
 

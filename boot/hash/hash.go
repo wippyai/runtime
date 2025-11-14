@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Hasher computes stable hashes of registry entries.

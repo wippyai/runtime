@@ -1,15 +1,15 @@
 package subscribe
 
 import (
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -34,14 +34,14 @@ func setupTestVM(t *testing.T) (*engine.CoroutineVM, *engine.Runner) {
 	return vm, runner
 }
 
-func TestPubSub(t *testing.T) {
+func TestRelay(t *testing.T) {
 	t.Run("single subscriber basic flow", func(t *testing.T) {
 		vm, runner := setupTestVM(t)
 		defer runner.Close()
 
 		script := `
 	       function test()
-	           local sub = pubsub.subscribe("test-topic")
+	           local sub = relay.subscribe("test-topic")
 	           local msg = sub:receive()
 	           return msg
 	       end
@@ -89,8 +89,8 @@ func TestPubSub(t *testing.T) {
 
 		script := `
 	      function test()
-	          local sub1 = pubsub.subscribe("test-topic")
-	          local sub2 = pubsub.subscribe("test-topic") -- should fail
+	          local sub1 = relay.subscribe("test-topic")
+	          local sub2 = relay.subscribe("test-topic") -- should fail
 	          return "shouldn't reach here"
 	      end
 	  `
@@ -114,8 +114,8 @@ func TestPubSub(t *testing.T) {
 
 		script := `
 	       function test()
-	           local sub = pubsub.subscribe("test-topic")
-	           local ok = pubsub.unsubscribe(sub)
+	           local sub = relay.subscribe("test-topic")
+	           local ok = relay.unsubscribe(sub)
 	           -- Verify unsubscribe
 	           return ok
 	       end
@@ -141,7 +141,7 @@ func TestPubSub(t *testing.T) {
 		script := `
 	       function test()
 	           local ch = channel.new()
-	           pubsub.unsubscribe(ch)
+	           relay.unsubscribe(ch)
 	       end
 	   `
 		err := vm.Import(script, "test", "test")
@@ -164,7 +164,7 @@ func TestPubSub(t *testing.T) {
 
 		script := `
 	       function test()
-	           local sub = pubsub.subscribe("test-topic")
+	           local sub = relay.subscribe("test-topic")
 	           local results = {}
 	           results[1] = sub:receive()
 	           results[2] = sub:receive()
@@ -230,13 +230,13 @@ func TestLateSubscription(t *testing.T) {
 	script := `
 		function test()
 			-- Subscribe to topic1 first
-			local sub1 = pubsub.subscribe("topic1")
+			local sub1 = relay.subscribe("topic1")
 
 			-- Wait for message on topic1
 			local msg = sub1:receive()
 
 			-- Only now subscribe to topic2
-			local sub2 = pubsub.subscribe("topic2")
+			local sub2 = relay.subscribe("topic2")
 
 			return msg
 		end
@@ -299,8 +299,8 @@ func TestCrossTopicOrdering(t *testing.T) {
 	script := `
 		function test()
 			-- Subscribe to both topics first
-			local sub1 = pubsub.subscribe("topic1")
-			local sub2 = pubsub.subscribe("topic2")
+			local sub1 = relay.subscribe("topic1")
+			local sub2 = relay.subscribe("topic2")
 
 			-- Queue receives in reverse order of sends
 			local msg1 = sub1:receive()
@@ -365,7 +365,7 @@ func TestUnsubscribeWithPendingMessages(t *testing.T) {
 
 	script := `
 		function test()
-			local sub = pubsub.subscribe("test-topic")
+			local sub = relay.subscribe("test-topic")
 			local results = {}
 
 			-- send first message
@@ -436,8 +436,8 @@ func TestMultipleTopicsUnsubscribe(t *testing.T) {
 
 	script := `
 		function test()
-			local sub1 = pubsub.subscribe("topic1")
-			local sub2 = pubsub.subscribe("topic2")
+			local sub1 = relay.subscribe("topic1")
+			local sub2 = relay.subscribe("topic2")
 			local results = {}
 
 			-- Get first messages
@@ -528,11 +528,11 @@ func TestUnsubscribeResubscribe(t *testing.T) {
 			local results = {}
 
 			-- First subscription and message
-			local sub1 = pubsub.subscribe("test-topic")
+			local sub1 = relay.subscribe("test-topic")
 			results[1] = sub1:receive()
 
 			-- First unsubscribe
-			pubsub.unsubscribe(sub1)
+			relay.unsubscribe(sub1)
 
 			-- Try receive after unsubscribe to verify closure
 			local values, ok = sub1:receive()

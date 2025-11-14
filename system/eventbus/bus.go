@@ -8,8 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/internal/wildcard"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/internal/wildcard"
 )
 
 type actionType int

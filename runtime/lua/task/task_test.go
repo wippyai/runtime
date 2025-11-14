@@ -5,9 +5,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 func TestNewTask(t *testing.T) {

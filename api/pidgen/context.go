@@ -4,8 +4,8 @@ package pidgen
 import (
 	"context"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/internal/uniqid"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/internal/uniqid"
 )
 
 // Context key for storing PID generator

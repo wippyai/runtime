@@ -3,12 +3,12 @@ package engine
 import (
 	"context"
 	"fmt"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
+	"github.com/wippyai/runtime/runtime/lua/engine/errors"
 
 	"github.com/stretchr/testify/require"
 	"github.com/yuin/gopher-lua/parse"

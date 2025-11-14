@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/payload"
-	regapi "github.com/ponyruntime/pony/api/registry"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 

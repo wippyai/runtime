@@ -1,9 +1,9 @@
 package registry
 
 import (
-	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"github.com/ponyruntime/pony/system/registry/topology"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/system/registry/topology"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

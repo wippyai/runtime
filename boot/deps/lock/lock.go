@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/ponyruntime/pony/deps/graph"
+	"github.com/wippyai/runtime/boot/deps/graph"
 	"gopkg.in/yaml.v3"
 )
 

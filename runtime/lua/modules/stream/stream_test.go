@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 
 	"github.com/stretchr/testify/assert"

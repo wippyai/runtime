@@ -10,15 +10,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	apifsLib "github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/payload"
-	apiregistry "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	apifsLib "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/payload"
+	apiregistry "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime"
+	config "github.com/wippyai/runtime/api/service/http"
 )
 
 // SimpleFunctionRegistry for testing

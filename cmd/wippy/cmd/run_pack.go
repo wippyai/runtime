@@ -7,15 +7,15 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ponyruntime/pony/api/boot"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
-	regapi "github.com/ponyruntime/pony/api/registry"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	cli "github.com/ponyruntime/pony/boot/cli"
-	"github.com/ponyruntime/pony/boot/pack"
-	regtop "github.com/ponyruntime/pony/system/registry/topology"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/boot"
+	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
+	bootpkg "github.com/wippyai/runtime/boot"
+	cli "github.com/wippyai/runtime/boot/cli"
+	"github.com/wippyai/runtime/boot/pack"
+	regtop "github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
 

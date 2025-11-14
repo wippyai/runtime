@@ -6,22 +6,22 @@ import (
 	"sync"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/contract"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pidgen"
-	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/internal/uniqid"
-	functionSys "github.com/ponyruntime/pony/system/function"
-	"github.com/ponyruntime/pony/system/pubsub"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/contract"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pidgen"
+	"github.com/wippyai/runtime/api/registry"
+	relayapi "github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/internal/uniqid"
+	functionSys "github.com/wippyai/runtime/system/function"
+	"github.com/wippyai/runtime/system/relay"
 
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -36,7 +36,7 @@ func setupInstantiatorTest() (*Instantiator, event.Bus, *Registry, *functionSys.
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
 	ctx = pidgen.WithGenerator(ctx, pidGen)
 
-	host := pubsub.NewHost(ctx, pubsub.HostConfig{BufferSize: 100})
+	host := relay.NewHost(ctx, relay.HostConfig{BufferSize: 100})
 	functionRegistry := functionSys.NewFunctionRegistry(bus, host, logger)
 
 	instantiator := NewContractInstantiator(contractRegistry, functionRegistry)
@@ -241,7 +241,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 
 func TestInstanceImpl_Call_Integration(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
@@ -349,7 +349,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 
 func TestInstanceImpl_ContextMerging(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
@@ -484,7 +484,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 
 func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
@@ -642,7 +642,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 // The fix allows required context keys to be found in EITHER scope OR Go context
 func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")

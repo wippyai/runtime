@@ -3,12 +3,12 @@ package service
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	native "github.com/ponyruntime/pony/service/exec"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/payload"
+	bootpkg "github.com/wippyai/runtime/boot"
+	native "github.com/wippyai/runtime/service/exec"
 )
 
 func Exec() boot.Component {

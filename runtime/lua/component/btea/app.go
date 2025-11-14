@@ -7,18 +7,18 @@ import (
 	"sync"
 	"time"
 
-	baseprocess "github.com/ponyruntime/pony/runtime/lua/component/process"
+	baseprocess "github.com/wippyai/runtime/runtime/lua/component/process"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/service/terminal"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/upstream"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/service/terminal"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/upstream"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -129,7 +129,7 @@ func (a *App) View() string {
 }
 
 // Start initializes the app context, sets up terminal integration, and starts the process
-func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads) error {
+func (a *App) Start(ctx context.Context, pid relay.PID, input payload.Payloads) error {
 	// Get terminal context
 	term := terminal.GetTerminalContext(ctx)
 	if term == nil {
@@ -277,7 +277,7 @@ func (a *App) Ready() int {
 }
 
 // Send handles incoming messages to the process
-func (a *App) Send(pkg *pubsub.Package) error {
+func (a *App) Send(pkg *relay.Package) error {
 	return a.state.SendPackage(pkg)
 }
 

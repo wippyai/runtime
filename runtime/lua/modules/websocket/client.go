@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
-	"github.com/ponyruntime/pony/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/lua/security"
 
 	"github.com/coder/websocket"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 )
 

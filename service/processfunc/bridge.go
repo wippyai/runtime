@@ -6,13 +6,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/topology"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
 
@@ -102,7 +102,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // registerHandler registers a process function handler in the function system
-func (m *Manager) registerHandler(ctx context.Context, id registry.ID, hostID pubsub.HostID) {
+func (m *Manager) registerHandler(ctx context.Context, id registry.ID, hostID relay.HostID) {
 	handler := m.createHandler(id, hostID)
 
 	m.bus.Send(ctx, event.Event{
@@ -125,36 +125,36 @@ func (m *Manager) unregisterHandler(ctx context.Context, id registry.ID) {
 }
 
 // createHandler creates a function handler that starts a process and returns its result
-func (m *Manager) createHandler(processID registry.ID, hostID pubsub.HostID) function.Func {
+func (m *Manager) createHandler(processID registry.ID, hostID relay.HostID) function.Func {
 	return func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 		// Create result channel
 		resultCh := make(chan *runtime.Result, 1)
 
 		// Get node from context
-		node := pubsub.GetNode(ctx)
+		node := relay.GetNode(ctx)
 		if node == nil {
 			close(resultCh)
-			return resultCh, fmt.Errorf("no pubsub node found in context")
+			return resultCh, fmt.Errorf("no relay node found in context")
 		}
 
 		// Generate unique ID for process caller
 		callerUniqID := fmt.Sprintf("processfunc-%s", task.ID.String())
 
 		// Create caller PID
-		callerPID := pubsub.PID{
+		callerPID := relay.PID{
 			Node:   node.ID(),
 			Host:   topology.ControlHost,
 			UniqID: callerUniqID,
 		}.Precomputed()
 
 		// Create monitor channel for process events
-		monitorCh := make(chan *pubsub.Package, 1)
+		monitorCh := make(chan *relay.Package, 1)
 
-		// Attach to pubsub
+		// Attach to relay
 		detach, err := node.Attach(callerPID, monitorCh)
 		if err != nil {
 			close(resultCh)
-			return resultCh, fmt.Errorf("failed to attach to pubsub: %w", err)
+			return resultCh, fmt.Errorf("failed to attach to relay: %w", err)
 		}
 
 		// Start process

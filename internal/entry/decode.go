@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // fieldInfo caches struct field information for efficient field assignment

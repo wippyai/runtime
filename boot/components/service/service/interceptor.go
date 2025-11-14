@@ -3,11 +3,11 @@ package service
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	"github.com/ponyruntime/pony/service/interceptor"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	bootpkg "github.com/wippyai/runtime/boot"
+	"github.com/wippyai/runtime/service/interceptor"
 )
 
 func InterceptorManager() boot.Component {

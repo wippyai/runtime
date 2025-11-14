@@ -3,7 +3,7 @@ package interceptor
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // NopInterceptor is a no-operation interceptor that does nothing

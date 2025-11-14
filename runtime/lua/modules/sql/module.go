@@ -3,9 +3,9 @@ package sql
 import (
 	"sync"
 
-	"github.com/ponyruntime/pony/api/service/sql"
-	"github.com/ponyruntime/pony/runtime/lua/modules/sql/builder"
-	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
+	"github.com/wippyai/runtime/api/service/sql"
+	"github.com/wippyai/runtime/runtime/lua/modules/sql/builder"
+	"github.com/wippyai/runtime/runtime/lua/modules/sql/sqlutil"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

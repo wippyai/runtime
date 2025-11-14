@@ -3,11 +3,11 @@ package system
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	resapi "github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/system/resource"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	resapi "github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/system/resource"
 )
 
 func Resources() boot.Component {

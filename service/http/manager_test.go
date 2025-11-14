@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
-	apiregistry "github.com/ponyruntime/pony/api/registry"
-	config "github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	apiregistry "github.com/wippyai/runtime/api/registry"
+	config "github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 

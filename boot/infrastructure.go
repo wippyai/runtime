@@ -3,22 +3,22 @@ package boot
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/event"
-	funcapi "github.com/ponyruntime/pony/api/function"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
-	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
-	topapi "github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/system/eventbus"
-	"github.com/ponyruntime/pony/system/logs"
-	transcoder "github.com/ponyruntime/pony/system/payload"
-	"github.com/ponyruntime/pony/system/payload/json"
-	"github.com/ponyruntime/pony/system/payload/lua"
-	"github.com/ponyruntime/pony/system/payload/yaml"
-	"github.com/ponyruntime/pony/system/pubsub"
-	"github.com/ponyruntime/pony/system/topology"
+	"github.com/wippyai/runtime/api/boot"
+	contextapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
+	funcapi "github.com/wippyai/runtime/api/function"
+	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/payload"
+	relayapi "github.com/wippyai/runtime/api/relay"
+	topapi "github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/system/eventbus"
+	"github.com/wippyai/runtime/system/logs"
+	transcoder "github.com/wippyai/runtime/system/payload"
+	"github.com/wippyai/runtime/system/payload/json"
+	"github.com/wippyai/runtime/system/payload/lua"
+	"github.com/wippyai/runtime/system/payload/yaml"
+	"github.com/wippyai/runtime/system/relay"
+	"github.com/wippyai/runtime/system/topology"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -53,7 +53,7 @@ func NewInfrastructure(logger *zap.Logger, cfg boot.Config) (context.Context, er
 	wrappedLogger, logManager := wrapLogger(logger, bus, cfg)
 	ctx = logapi.WithLogger(ctx, wrappedLogger)
 
-	// Create pubsub infrastructure (single-node by default)
+	// Create relay infrastructure (single-node by default)
 	nodeName := "local"
 	if cfg != nil {
 		if name := cfg.Sub("pubsub").GetString("node_name", ""); name != "" {
@@ -61,16 +61,16 @@ func NewInfrastructure(logger *zap.Logger, cfg boot.Config) (context.Context, er
 		}
 	}
 
-	node := pubsub.NewNode(nodeName)
-	nodeManager := pubsub.NewNodeManager(node, bus, wrappedLogger.Named("pubsub"))
-	router := pubsub.NewRouter(node, nil)
+	node := relay.NewNode(nodeName)
+	nodeManager := relay.NewNodeManager(node, bus, wrappedLogger.Named("pubsub"))
+	router := relay.NewRouter(node, nil)
 	topo := topology.NewTopology(node)
 	pidReg := topology.NewPIDRegistry(topology.PIDRegistryConfig{
 		Logger: wrappedLogger.Named("pid"),
 	})
 
 	// Register control host for monitoring and management
-	controlHost := pubsub.NewHost(ctx, pubsub.HostConfig{
+	controlHost := relay.NewHost(ctx, relay.HostConfig{
 		BufferSize:  1024,
 		WorkerCount: 16,
 		Logger:      wrappedLogger.Named("control"),
@@ -80,7 +80,7 @@ func NewInfrastructure(logger *zap.Logger, cfg boot.Config) (context.Context, er
 	}
 
 	// Register function host for function execution
-	funcHost := pubsub.NewHost(ctx, pubsub.HostConfig{
+	funcHost := relay.NewHost(ctx, relay.HostConfig{
 		BufferSize:  1024,
 		WorkerCount: 16,
 		Logger:      wrappedLogger.Named("functions"),
@@ -89,9 +89,9 @@ func NewInfrastructure(logger *zap.Logger, cfg boot.Config) (context.Context, er
 		return ctx, err
 	}
 
-	ctx = pubsubapi.WithNode(ctx, node)
-	ctx = pubsubapi.WithRouter(ctx, router)
-	ctx = pubsubapi.WithHost(ctx, funcHost)
+	ctx = relayapi.WithNode(ctx, node)
+	ctx = relayapi.WithRouter(ctx, router)
+	ctx = relayapi.WithHost(ctx, funcHost)
 	ctx = topapi.WithTopology(ctx, topo)
 	ctx = topapi.WithRegistry(ctx, pidReg)
 
@@ -163,7 +163,7 @@ func StartInfrastructure(ctx context.Context) error {
 	}
 
 	if nm := ctx.Value(nodeManagerKey); nm != nil {
-		if nodeManager, ok := nm.(*pubsub.NodeManager); ok {
+		if nodeManager, ok := nm.(*relay.NodeManager); ok {
 			if err := nodeManager.Start(ctx); err != nil {
 				return err
 			}
@@ -176,7 +176,7 @@ func StartInfrastructure(ctx context.Context) error {
 // StopInfrastructure stops infrastructure services (node manager, log manager)
 func StopInfrastructure(ctx context.Context) error {
 	if nm := ctx.Value(nodeManagerKey); nm != nil {
-		if nodeManager, ok := nm.(*pubsub.NodeManager); ok {
+		if nodeManager, ok := nm.(*relay.NodeManager); ok {
 			if err := nodeManager.Stop(); err != nil {
 				return err
 			}

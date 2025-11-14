@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/cmd/wippy/version"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/cmd/wippy/version"
 )
 
 var shortVersion bool

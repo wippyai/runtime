@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/contract"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/contract"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // Instantiator implements contract.Instantiator interface for runtime execution

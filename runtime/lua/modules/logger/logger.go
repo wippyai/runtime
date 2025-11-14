@@ -3,9 +3,9 @@ package logger
 import (
 	"errors"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
-	transcoder "github.com/ponyruntime/pony/system/payload/lua"
+	transcoder "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

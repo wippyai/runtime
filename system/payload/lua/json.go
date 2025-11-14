@@ -3,8 +3,8 @@ package lua
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/runtime/lua/modules/json"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	lua "github.com/yuin/gopher-lua"
 )
 

@@ -3,10 +3,10 @@ package function
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/runtime/lua/code"
-	"github.com/ponyruntime/pony/runtime/lua/component"
+	"github.com/wippyai/runtime/api/registry"
+	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/runtime/lua/component"
 	"go.uber.org/zap"
 )
 

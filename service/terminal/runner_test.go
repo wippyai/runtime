@@ -3,14 +3,14 @@ package terminal
 import (
 	"context"
 	"errors"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
 
-	"github.com/ponyruntime/pony/api/payload"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 // DummyProcess implements process.Process for testing purposes.
@@ -19,7 +19,7 @@ type DummyProcess struct {
 	maxSteps  int
 }
 
-func (dp *DummyProcess) Start(_ context.Context, _ pubsub.PID, _ payload.Payloads) error {
+func (dp *DummyProcess) Start(_ context.Context, _ relay.PID, _ payload.Payloads) error {
 	// No-op startup.
 	return nil
 }
@@ -34,7 +34,7 @@ func (dp *DummyProcess) Step() error {
 	return nil
 }
 
-func (dp *DummyProcess) Send(_ *pubsub.Package) error {
+func (dp *DummyProcess) Send(_ *relay.Package) error {
 	// Accept all messages.
 	return nil
 }
@@ -51,7 +51,7 @@ func TestTerminalRunnerStopsOnStepError(t *testing.T) {
 	dp := &DummyProcess{maxSteps: 3}
 
 	// Create a dummy pid. Note that registry.Process is typically a string.
-	dummyPID := pubsub.PID{
+	dummyPID := relay.PID{
 		Host:   "dummy",
 		UniqID: "test",
 	}
@@ -83,7 +83,7 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 	// Set up a dummy process that will not error on steps.
 	dp := &DummyProcess{maxSteps: 100}
 
-	dummyPID := pubsub.PID{
+	dummyPID := relay.PID{
 		Host:   "dummy",
 		UniqID: "test",
 	}
@@ -103,7 +103,7 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 	}
 
 	// Test the send method.
-	err = runner.Send(&pubsub.Package{Messages: []*pubsub.Message{{Topic: "test"}}})
+	err = runner.Send(&relay.Package{Messages: []*relay.Message{{Topic: "test"}}})
 	if err != nil {
 		t.Errorf("expected no error on send, got: %v", err)
 	}

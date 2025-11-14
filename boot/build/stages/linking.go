@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/entry"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
 

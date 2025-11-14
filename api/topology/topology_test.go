@@ -8,25 +8,25 @@ import (
 	"testing"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 func TestConstants(t *testing.T) {
 	t.Run("ControlHost", func(t *testing.T) {
-		assert.Equal(t, pubsub.HostID("node:control"), ControlHost)
+		assert.Equal(t, relay.HostID("node:control"), ControlHost)
 	})
 
 	t.Run("TopicInbox", func(t *testing.T) {
-		assert.Equal(t, pubsub.Topic("@pid/inbox"), TopicInbox)
+		assert.Equal(t, relay.Topic("@pid/inbox"), TopicInbox)
 	})
 
 	t.Run("TopicEvents", func(t *testing.T) {
-		assert.Equal(t, pubsub.Topic("@pid/events"), TopicEvents)
+		assert.Equal(t, relay.Topic("@pid/events"), TopicEvents)
 	})
 }
 
@@ -63,7 +63,7 @@ func TestExitEvent_Marshal(t *testing.T) {
 	event := ExitEvent{
 		At:   now,
 		Kind: KindExit,
-		From: pubsub.PID{UniqID: "pid-123"},
+		From: relay.PID{UniqID: "pid-123"},
 		Result: &runtime.Result{
 			Value: payload.New("result data"),
 			Error: nil,
@@ -82,7 +82,7 @@ func TestCancelEvent_Marshal(t *testing.T) {
 	event := CancelEvent{
 		At:       now,
 		Kind:     KindCancel,
-		From:     pubsub.PID{UniqID: "pid-123"},
+		From:     relay.PID{UniqID: "pid-123"},
 		Deadline: deadline,
 	}
 
@@ -92,8 +92,8 @@ func TestCancelEvent_Marshal(t *testing.T) {
 }
 
 func TestCancel(t *testing.T) {
-	from := pubsub.PID{UniqID: "from-pid"}
-	to := pubsub.PID{UniqID: "to-pid"}
+	from := relay.PID{UniqID: "from-pid"}
+	to := relay.PID{UniqID: "to-pid"}
 	deadline := time.Now().Add(10 * time.Second)
 
 	pkg := Cancel(from, to, deadline)
@@ -114,7 +114,7 @@ func TestCancel(t *testing.T) {
 }
 
 func TestExit(t *testing.T) {
-	pid := pubsub.PID{UniqID: "test-pid"}
+	pid := relay.PID{UniqID: "test-pid"}
 	result := payload.New("exit result")
 	testErr := errors.New("exit error")
 
@@ -137,7 +137,7 @@ func TestExit(t *testing.T) {
 }
 
 func TestExit_NoError(t *testing.T) {
-	pid := pubsub.PID{UniqID: "test-pid"}
+	pid := relay.PID{UniqID: "test-pid"}
 	result := payload.New("success result")
 
 	pkg := Exit(pid, result, nil)

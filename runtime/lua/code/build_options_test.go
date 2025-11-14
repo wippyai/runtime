@@ -3,8 +3,8 @@ package code
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 func TestBuildOptions_WithMethods(t *testing.T) {

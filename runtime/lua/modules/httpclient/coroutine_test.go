@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
+	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

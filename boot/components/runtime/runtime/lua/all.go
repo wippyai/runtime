@@ -2,7 +2,7 @@
 
 package lua
 
-import "github.com/ponyruntime/pony/api/boot"
+import "github.com/wippyai/runtime/api/boot"
 
 func All() []boot.Component {
 	return []boot.Component{

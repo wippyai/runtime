@@ -7,17 +7,17 @@ import (
 	"sync"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/CloudyKit/jet/v6"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/api/service/template"
-	payloadSystem "github.com/ponyruntime/pony/system/payload"
-	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/service/template"
+	payloadSystem "github.com/wippyai/runtime/system/payload"
+	"github.com/wippyai/runtime/system/payload/json"
 )
 
 // Helper to create test template set

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
+	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // BenchmarkChainExecuteNoInterceptors benchmarks chain execution without interceptors

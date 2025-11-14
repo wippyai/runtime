@@ -8,8 +8,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/ponyruntime/pony/api/cloudstorage"
-	services3 "github.com/ponyruntime/pony/api/service/aws/s3"
+	"github.com/wippyai/runtime/api/cloudstorage"
+	services3 "github.com/wippyai/runtime/api/service/aws/s3"
 	"go.uber.org/zap"
 )
 

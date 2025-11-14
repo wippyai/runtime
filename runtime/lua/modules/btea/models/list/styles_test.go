@@ -5,8 +5,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
 )
 

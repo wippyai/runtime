@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/pubsub"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/relay"
 
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 func TestOnCompleteAggregation(t *testing.T) {
@@ -19,7 +19,7 @@ func TestOnCompleteAggregation(t *testing.T) {
 
 	var sum int
 
-	cb1 := func(_ pubsub.PID, _ *runtime.Result) {
+	cb1 := func(_ relay.PID, _ *runtime.Result) {
 		sum++
 	}
 
@@ -27,7 +27,7 @@ func TestOnCompleteAggregation(t *testing.T) {
 		t.Fatalf("Failed to set first onComplete: %v", err)
 	}
 
-	cb2 := func(_ pubsub.PID, _ *runtime.Result) {
+	cb2 := func(_ relay.PID, _ *runtime.Result) {
 		sum += 2
 	}
 
@@ -40,7 +40,7 @@ func TestOnCompleteAggregation(t *testing.T) {
 		t.Fatal("Expected aggregated onComplete callback, got nil")
 	}
 
-	dummyPID := pubsub.PID{
+	dummyPID := relay.PID{
 		Host:   "test",
 		UniqID: "dummy",
 	}
@@ -58,12 +58,12 @@ func TestOnStartAggregation(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	sum := 0
 
-	cb1 := func(_ pubsub.PID, _ process.Process) { sum++ }
+	cb1 := func(_ relay.PID, _ process.Process) { sum++ }
 	if err := process.SetOnStart(ctx, cb1); err != nil {
 		t.Fatalf("Failed to set first onStart: %v", err)
 	}
 
-	cb2 := func(_ pubsub.PID, _ process.Process) { sum += 2 }
+	cb2 := func(_ relay.PID, _ process.Process) { sum += 2 }
 	if err := process.SetOnStart(ctx, cb2); err != nil {
 		t.Fatalf("Failed to set second onStart: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestOnStartAggregation(t *testing.T) {
 		t.Fatal("Expected aggregated onStart callback, got nil")
 	}
 
-	dummyPID := pubsub.PID{Host: "test", UniqID: "dummy"}
+	dummyPID := relay.PID{Host: "test", UniqID: "dummy"}
 	var dummyProc process.Process
 
 	onStart(dummyPID, dummyProc)
@@ -102,12 +102,12 @@ func TestSingleCallbacks(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	var completeCalled, startCalled bool
 
-	cb1 := func(_ pubsub.PID, _ *runtime.Result) { completeCalled = true }
+	cb1 := func(_ relay.PID, _ *runtime.Result) { completeCalled = true }
 	if err := process.SetOnComplete(ctx, cb1); err != nil {
 		t.Fatalf("Failed to set onComplete: %v", err)
 	}
 
-	cb2 := func(_ pubsub.PID, _ process.Process) { startCalled = true }
+	cb2 := func(_ relay.PID, _ process.Process) { startCalled = true }
 	if err := process.SetOnStart(ctx, cb2); err != nil {
 		t.Fatalf("Failed to set onStart: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestSingleCallbacks(t *testing.T) {
 	onComplete := process.GetOnComplete(ctx)
 	onStart := process.GetOnStart(ctx)
 
-	dummyPID := pubsub.PID{Host: "test", UniqID: "dummy"}
+	dummyPID := relay.PID{Host: "test", UniqID: "dummy"}
 	dummyResult := &runtime.Result{}
 	var dummyProc process.Process
 
@@ -132,11 +132,11 @@ func TestSingleCallbacks(t *testing.T) {
 
 type mockManager struct{}
 
-func (m *mockManager) Start(ctx context.Context, _ *process.Start) (pubsub.PID, error) {
-	return pubsub.PID{}, nil
+func (m *mockManager) Start(ctx context.Context, _ *process.Start) (relay.PID, error) {
+	return relay.PID{}, nil
 }
-func (m *mockManager) Terminate(context.Context, pubsub.PID) error { return nil }
-func (m *mockManager) Cancel(context.Context, pubsub.PID, pubsub.PID, time.Time) error {
+func (m *mockManager) Terminate(context.Context, relay.PID) error { return nil }
+func (m *mockManager) Cancel(context.Context, relay.PID, relay.PID, time.Time) error {
 	return nil
 }
 func (m *mockManager) AttachLifecycle(ctx context.Context, _ process.Lifecycle) context.Context {
@@ -319,7 +319,7 @@ func TestWithHosts_GetHosts(t *testing.T) {
 func TestSetOnComplete_Errors(t *testing.T) {
 	t.Run("returns error when no frame context", func(t *testing.T) {
 		ctx := context.Background()
-		err := process.SetOnComplete(ctx, func(_ pubsub.PID, _ *runtime.Result) {})
+		err := process.SetOnComplete(ctx, func(_ relay.PID, _ *runtime.Result) {})
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -332,7 +332,7 @@ func TestSetOnComplete_Errors(t *testing.T) {
 func TestSetOnStart_Errors(t *testing.T) {
 	t.Run("returns error when no frame context", func(t *testing.T) {
 		ctx := context.Background()
-		err := process.SetOnStart(ctx, func(_ pubsub.PID, _ process.Process) {})
+		err := process.SetOnStart(ctx, func(_ relay.PID, _ process.Process) {})
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}

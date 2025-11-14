@@ -1,10 +1,10 @@
 package security
 
 import (
-	"github.com/ponyruntime/pony/api/registry"
-	secapi "github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	securityapi "github.com/ponyruntime/pony/runtime/lua/security"
+	"github.com/wippyai/runtime/api/registry"
+	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	securityapi "github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 

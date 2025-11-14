@@ -3,7 +3,7 @@ package lua
 import (
 	"sync"
 
-	"github.com/ponyruntime/pony/api/payload"
+	"github.com/wippyai/runtime/api/payload"
 	lua "github.com/yuin/gopher-lua"
 )
 

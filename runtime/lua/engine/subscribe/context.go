@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
 

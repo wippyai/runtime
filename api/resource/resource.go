@@ -5,8 +5,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // System constants define event types and identifiers for the resource system

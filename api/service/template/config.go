@@ -4,7 +4,7 @@ package template
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Registry kind constants for Template components

@@ -4,7 +4,7 @@ package policy
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 const (

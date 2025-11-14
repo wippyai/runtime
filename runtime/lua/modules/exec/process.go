@@ -11,11 +11,11 @@ import (
 	"sync"
 	"syscall" // Import syscall for SIGKILL
 
-	apiexec "github.com/ponyruntime/pony/api/service/exec"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"github.com/ponyruntime/pony/runtime/lua/modules/stream" // Keep stream dependency
+	apiexec "github.com/wippyai/runtime/api/service/exec"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/modules/stream" // Keep stream dependency
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

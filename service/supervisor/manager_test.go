@@ -1,16 +1,16 @@
 package supervisor
 
 import (
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	processapi "github.com/ponyruntime/pony/api/service/supervisor"
-	"github.com/ponyruntime/pony/system/eventbus"
-	"github.com/ponyruntime/pony/system/process"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	processapi "github.com/wippyai/runtime/api/service/supervisor"
+	"github.com/wippyai/runtime/system/eventbus"
+	"github.com/wippyai/runtime/system/process"
 	"go.uber.org/zap"
 )
 

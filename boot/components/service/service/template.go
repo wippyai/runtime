@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
-	regapi "github.com/ponyruntime/pony/api/registry"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	bootcore "github.com/ponyruntime/pony/boot/components/core/core"
-	"github.com/ponyruntime/pony/service/template"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
+	bootpkg "github.com/wippyai/runtime/boot"
+	bootcore "github.com/wippyai/runtime/boot/components/core/core"
+	"github.com/wippyai/runtime/service/template"
 	"go.uber.org/zap"
 )
 

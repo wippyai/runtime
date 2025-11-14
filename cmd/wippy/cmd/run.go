@@ -8,15 +8,15 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ponyruntime/pony/api/boot"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	cli "github.com/ponyruntime/pony/boot/cli"
-	"github.com/ponyruntime/pony/cmd/internal/bootconfig"
-	"github.com/ponyruntime/pony/deps/client"
 	"github.com/spf13/cobra"
 	identityv1connect "github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
 	modulev1connect "github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
+	"github.com/wippyai/runtime/api/boot"
+	logapi "github.com/wippyai/runtime/api/logs"
+	bootpkg "github.com/wippyai/runtime/boot"
+	cli "github.com/wippyai/runtime/boot/cli"
+	"github.com/wippyai/runtime/boot/deps/client"
+	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	"go.uber.org/zap"
 )
 

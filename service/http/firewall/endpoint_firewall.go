@@ -3,9 +3,9 @@ package firewall
 import (
 	"net/http"
 
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/security"
-	httpapi "github.com/ponyruntime/pony/api/service/http"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/security"
+	httpapi "github.com/wippyai/runtime/api/service/http"
 	"go.uber.org/zap"
 )
 

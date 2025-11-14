@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	procapi "github.com/ponyruntime/pony/api/process"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	bootsystem "github.com/ponyruntime/pony/boot/components/system/system"
-	service "github.com/ponyruntime/pony/service/supervisor"
-	"github.com/ponyruntime/pony/system/process"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	procapi "github.com/wippyai/runtime/api/process"
+	bootpkg "github.com/wippyai/runtime/boot"
+	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
+	service "github.com/wippyai/runtime/service/supervisor"
+	"github.com/wippyai/runtime/system/process"
 )
 
 func ProcessSupervisor() boot.Component {

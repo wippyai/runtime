@@ -5,9 +5,9 @@ import (
 	"fmt"
 	iofs "io/fs"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/boot/loader/interpolate"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/loader/interpolate"
 	"go.uber.org/zap"
 )
 

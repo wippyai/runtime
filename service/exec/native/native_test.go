@@ -3,7 +3,7 @@ package native
 import (
 	"context"
 	"errors"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"io"
 	"io/fs"
 	"os"
@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/service/exec"
-	mocklogger "github.com/ponyruntime/pony/tests/mock"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/service/exec"
+	mocklogger "github.com/wippyai/runtime/tests/mock"
 	"go.uber.org/zap"
 )
 

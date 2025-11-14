@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
 

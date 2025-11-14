@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/function"
-	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/function"
+	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 

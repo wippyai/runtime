@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	lua "github.com/yuin/gopher-lua"
 )
 

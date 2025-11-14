@@ -1,7 +1,7 @@
 package metamatch
 
 import (
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // MatchAny creates a matcher that returns true if any of the provided matchers returns true

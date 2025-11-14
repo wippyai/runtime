@@ -5,9 +5,9 @@ import (
 	"context"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/runtime"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // mockChain implements Chain interface for testing

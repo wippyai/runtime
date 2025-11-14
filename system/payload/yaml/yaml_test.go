@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
+	"github.com/wippyai/runtime/api/payload"
 	"gopkg.in/yaml.v3"
 )
 

@@ -4,9 +4,9 @@ package lua
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/interceptor"
+	"github.com/wippyai/runtime/api/interceptor"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Registry kind constants for different Lua component types.

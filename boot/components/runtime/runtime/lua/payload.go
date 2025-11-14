@@ -5,9 +5,9 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
+	"github.com/wippyai/runtime/api/boot"
+	bootpkg "github.com/wippyai/runtime/boot"
+	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 )
 
 func LuaPayload() boot.Component {

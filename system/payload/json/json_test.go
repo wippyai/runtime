@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 func TestJsonToGolangTranscoder_Transcode(t *testing.T) {

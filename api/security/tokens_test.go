@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 func TestTokenErrors(t *testing.T) {

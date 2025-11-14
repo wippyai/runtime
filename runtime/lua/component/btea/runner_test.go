@@ -3,10 +3,10 @@ package btea
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

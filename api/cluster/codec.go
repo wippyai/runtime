@@ -1,15 +1,15 @@
 // Package cluster provides cluster communication and message encoding.
 package cluster
 
-import "github.com/ponyruntime/pony/api/pubsub"
+import "github.com/wippyai/runtime/api/relay"
 
-// MessageCodec handles encoding and decoding of pubsub packages for
+// MessageCodec handles encoding and decoding of relay packages for
 // transmission over the network between cluster nodes.
 type MessageCodec interface {
-	// Encode serializes a pubsub.Package into a byte slice suitable for
+	// Encode serializes a relay.Package into a byte slice suitable for
 	// network transmission.
-	Encode(pkg *pubsub.Package) ([]byte, error)
+	Encode(pkg *relay.Package) ([]byte, error)
 
-	// Decode deserializes a byte slice back into a pubsub.Package.
-	Decode(data []byte) (*pubsub.Package, error)
+	// Decode deserializes a byte slice back into a relay.Package.
+	Decode(data []byte) (*relay.Package, error)
 }

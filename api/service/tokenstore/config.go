@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/security"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/security"
 )
 
 // TokenType constants

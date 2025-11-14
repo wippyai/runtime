@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/topology"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology"
 )
 
 // Topology implements process monitoring, linking, and lifecycle management
@@ -18,33 +18,33 @@ type Topology struct {
 	monitors  sync.Map // map[string]*sync.Map - watchers for each pid
 	registry  sync.Map // map[string]bool - registered PIDs
 	links     sync.Map // map[string]*sync.Map - bidirectional links between PIDs
-	upstream  pubsub.Receiver
+	upstream  relay.Receiver
 	linkMutex sync.Mutex // Mutex for atomic link/unlink operations
 }
 
 // NewTopology creates a new Topology instance with the given context and upstream receiver.
 // The returned Topology implements the topology.Topology interface.
-func NewTopology(upstream pubsub.Receiver) *Topology {
+func NewTopology(upstream relay.Receiver) *Topology {
 	return &Topology{
 		upstream: upstream,
 	}
 }
 
 // Send forwards a package to the upstream receiver.
-func (t *Topology) Send(pkg *pubsub.Package) error {
+func (t *Topology) Send(pkg *relay.Package) error {
 	return t.upstream.Send(pkg)
 }
 
 // Register adds a process ID to the registry, allowing it to be monitored
 // and linked with other processes.
-func (t *Topology) Register(pid pubsub.PID) error {
+func (t *Topology) Register(pid relay.PID) error {
 	t.registry.LoadOrStore(pid.String(), true)
 	return nil
 }
 
 // Wait attaches a caller to monitor a specific pid.
 // Returns error if pid is not registered or already being monitored by caller.
-func (t *Topology) Wait(caller, pid pubsub.PID) error {
+func (t *Topology) Wait(caller, pid relay.PID) error {
 	// Check if pid is registered
 	if _, ok := t.registry.Load(pid.String()); !ok {
 		return fmt.Errorf("cannot monitor unregistered pid: %s", pid)
@@ -63,7 +63,7 @@ func (t *Topology) Wait(caller, pid pubsub.PID) error {
 
 // Release removes a caller's monitoring of a specific pid.
 // Returns nil if the operation is successful or if the pid is not being monitored.
-func (t *Topology) Release(caller, pid pubsub.PID) error {
+func (t *Topology) Release(caller, pid relay.PID) error {
 	value, ok := t.monitors.Load(pid.String())
 	if !ok {
 		return nil
@@ -87,7 +87,7 @@ func (t *Topology) Release(caller, pid pubsub.PID) error {
 // Link establishes a bidirectional link between two processes.
 // Both processes must be registered first.
 // Returns error if either process is not registered.
-func (t *Topology) Link(from, to pubsub.PID) error {
+func (t *Topology) Link(from, to relay.PID) error {
 	// Verify both PIDs are registered
 	if _, ok := t.registry.Load(from.String()); !ok {
 		return fmt.Errorf("cannot link unregistered pid: %s", from)
@@ -122,7 +122,7 @@ func (t *Topology) Link(from, to pubsub.PID) error {
 
 // Unlink removes a bidirectional link between two processes.
 // Returns nil if the operation is successful or if the processes are not linked.
-func (t *Topology) Unlink(from, to pubsub.PID) error {
+func (t *Topology) Unlink(from, to relay.PID) error {
 	// Use a global lock to ensure atomic bidirectional unlinking
 	t.linkMutex.Lock()
 	defer t.linkMutex.Unlock()
@@ -153,8 +153,8 @@ func (t *Topology) Unlink(from, to pubsub.PID) error {
 
 // GetLinks returns all processes linked to the given pid.
 // Returns an empty slice if the pid has no links.
-func (t *Topology) GetLinks(pid pubsub.PID) []pubsub.PID {
-	var linkedPIDs []pubsub.PID
+func (t *Topology) GetLinks(pid relay.PID) []relay.PID {
+	var linkedPIDs []relay.PID
 
 	linksValue, ok := t.links.Load(pid.String())
 	if !ok {
@@ -168,7 +168,7 @@ func (t *Topology) GetLinks(pid pubsub.PID) []pubsub.PID {
 			return true
 		}
 
-		linkedPID, err := pubsub.ParsePID(linkedPIDStr)
+		linkedPID, err := relay.ParsePID(linkedPIDStr)
 		if err != nil {
 			return true
 		}
@@ -182,7 +182,7 @@ func (t *Topology) GetLinks(pid pubsub.PID) []pubsub.PID {
 
 // Notify sends exit event to all watchers and links of a pid.
 // The provided result contains the process exit information to be shared.
-func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
+func (t *Topology) Notify(pid relay.PID, result *runtime.Result) {
 	// Send to all monitors
 	if value, ok := t.monitors.Load(pid.String()); ok {
 		resultPayload := payload.New(&topology.ExitEvent{
@@ -199,12 +199,12 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 				return true
 			}
 
-			wPID, err := pubsub.ParsePID(watcherPID)
+			wPID, err := relay.ParsePID(watcherPID)
 			if err != nil {
 				return true
 			}
 
-			pkg := pubsub.NewPackage(
+			pkg := relay.NewPackage(
 				pid,
 				wPID,
 				topology.TopicEvents,
@@ -230,8 +230,8 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 		})
 
 		for _, linkedPID := range linkedPIDs {
-			pkg := pubsub.NewPackage(
-				pubsub.PID{UniqID: "topology"},
+			pkg := relay.NewPackage(
+				relay.PID{UniqID: "topology"},
 				linkedPID,
 				topology.TopicEvents,
 				exitPayload,
@@ -251,7 +251,7 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 
 // Remove completely removes a pid and all its watchers, destroying all links.
 // This should be called when a process terminates to clean up all its references.
-func (t *Topology) Remove(pid pubsub.PID) {
+func (t *Topology) Remove(pid relay.PID) {
 	// Get linked PIDs before removing them
 	linkedPIDs := t.GetLinks(pid)
 

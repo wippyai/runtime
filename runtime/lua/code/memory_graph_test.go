@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
-	runtime "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/wippyai/runtime/api/registry"
+	runtime "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 )

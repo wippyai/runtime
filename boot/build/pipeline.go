@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // pipeline implements boot.Pipeline

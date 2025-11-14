@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/event"
+	"github.com/wippyai/runtime/api/event"
 )
 
 // Subscriber is a helper struct that simplifies subscribing to and handling events from an event bus.

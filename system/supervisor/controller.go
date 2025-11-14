@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	securitysys "github.com/ponyruntime/pony/system/security"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	securitysys "github.com/wippyai/runtime/system/security"
 
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/internal/backoff"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/internal/backoff"
 )
 
 type controlAction int

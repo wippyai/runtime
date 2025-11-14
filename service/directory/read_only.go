@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 
-	fsapi "github.com/ponyruntime/pony/api/fs"
+	fsapi "github.com/wippyai/runtime/api/fs"
 )
 
 // ReadOnlyFS wraps a standard fs.FS to provide a read-only implementation

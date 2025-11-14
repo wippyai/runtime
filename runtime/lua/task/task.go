@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // ResultCallback is a function called when a task completes

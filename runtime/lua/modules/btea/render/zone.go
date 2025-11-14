@@ -3,7 +3,7 @@ package render
 import (
 	bubbletea "github.com/charmbracelet/bubbletea"
 	zone "github.com/lrstanley/bubblezone"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
 )
 

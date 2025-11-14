@@ -3,7 +3,7 @@ package otel
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"

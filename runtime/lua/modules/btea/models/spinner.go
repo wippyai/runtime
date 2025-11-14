@@ -3,8 +3,8 @@ package models
 import (
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/protocol"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/render"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"

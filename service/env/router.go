@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/env"
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
 

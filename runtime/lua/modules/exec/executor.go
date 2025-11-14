@@ -4,13 +4,13 @@ import (
 	"context"
 	"sync" // Import sync
 
-	"github.com/ponyruntime/pony/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/lua/security"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	apiexec "github.com/ponyruntime/pony/api/service/exec"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	apiexec "github.com/wippyai/runtime/api/service/exec"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ponyruntime/pony/api/pidgen"
-	api "github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/api/topology"
+	"github.com/wippyai/runtime/api/pidgen"
+	api "github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
 
@@ -25,7 +25,7 @@ type HostLookup interface {
 type Manager struct {
 	hosts      HostLookup
 	prototypes api.Factory
-	nodeID     pubsub.NodeID
+	nodeID     relay.NodeID
 	logger     *zap.Logger
 }
 
@@ -33,7 +33,7 @@ type Manager struct {
 func NewProcessManager(
 	hosts HostLookup,
 	prototypes api.Factory,
-	nodeID pubsub.NodeID,
+	nodeID relay.NodeID,
 	logger *zap.Logger,
 ) *Manager {
 	return &Manager{
@@ -45,10 +45,10 @@ func NewProcessManager(
 }
 
 // preparePID creates and validates a pid for the process
-func (m *Manager) preparePID(ctx context.Context, ps *api.Start, managed bool) pubsub.PID {
+func (m *Manager) preparePID(ctx context.Context, ps *api.Start, managed bool) relay.PID {
 	// If UniqID is already provided, construct PID directly
 	if ps.UniqID != "" {
-		pid := pubsub.PID{
+		pid := relay.PID{
 			Host:   ps.HostID,
 			UniqID: ps.UniqID,
 		}
@@ -66,7 +66,7 @@ func (m *Manager) preparePID(ctx context.Context, ps *api.Start, managed bool) p
 }
 
 // launchOnHost handles the actual process launch on either managed or delegated hosts
-func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PID, ps *api.Start) (pubsub.PID, error) {
+func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid relay.PID, ps *api.Start) (relay.PID, error) {
 	m.logger.Debug("launching process",
 		zap.String("host", ps.HostID),
 		zap.String("pid", pid.String()),
@@ -76,7 +76,7 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PI
 	case api.Managed:
 		proc, err := m.prototypes.Create(ps.Source)
 		if err != nil {
-			return pubsub.PID{}, fmt.Errorf("failed to init launch: %w", err)
+			return relay.PID{}, fmt.Errorf("failed to init launch: %w", err)
 		}
 
 		// Pass the lifecycle information to the managed host
@@ -89,7 +89,7 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PI
 			Context:   ps.Context,
 		})
 		if err != nil {
-			return pubsub.PID{}, fmt.Errorf("failed to launch process on managed host: %w", err)
+			return relay.PID{}, fmt.Errorf("failed to launch process on managed host: %w", err)
 		}
 		return newPid, nil
 
@@ -98,20 +98,20 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PI
 		// But we should consider adding a way to pass lifecycle info to delegated hosts as well
 		newPid, err := h.Launch(ctx, pid, ps.Lifecycle, ps.Input)
 		if err != nil {
-			return pubsub.PID{}, fmt.Errorf("failed to launch process on delegated host: %w", err)
+			return relay.PID{}, fmt.Errorf("failed to launch process on delegated host: %w", err)
 		}
 		return newPid, nil
 
 	default:
-		return pubsub.PID{}, fmt.Errorf("invalid host type: %T", host)
+		return relay.PID{}, fmt.Errorf("invalid host type: %T", host)
 	}
 }
 
 // Start launches a process, passing the lifecycle information to the host
-func (m *Manager) Start(ctx context.Context, start *api.Start) (pubsub.PID, error) {
+func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error) {
 	host, exists := m.hosts.GetHost(start.HostID)
 	if !exists {
-		return pubsub.PID{}, fmt.Errorf("host not found: `%s`", start.HostID)
+		return relay.PID{}, fmt.Errorf("host not found: `%s`", start.HostID)
 	}
 
 	_, managed := host.(api.Managed)
@@ -125,7 +125,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pubsub.PID, erro
 }
 
 // Cancel sends a cancellation event to the process and its monitors
-func (m *Manager) Cancel(_ context.Context, from, pid pubsub.PID, deadline time.Time) error {
+func (m *Manager) Cancel(_ context.Context, from, pid relay.PID, deadline time.Time) error {
 	host, exists := m.hosts.GetHost(pid.Host)
 	if !exists {
 		return fmt.Errorf("host not found: %s", pid.Host)
@@ -141,7 +141,7 @@ func (m *Manager) Cancel(_ context.Context, from, pid pubsub.PID, deadline time.
 }
 
 // Terminate forcefully stops a running process
-func (m *Manager) Terminate(ctx context.Context, pid pubsub.PID) error {
+func (m *Manager) Terminate(ctx context.Context, pid relay.PID) error {
 	host, exists := m.hosts.GetHost(pid.Host)
 	if !exists {
 		return fmt.Errorf("host not found: %s", pid.Host)
@@ -153,7 +153,7 @@ func (m *Manager) Terminate(ctx context.Context, pid pubsub.PID) error {
 // AttachLifecycle returns a context with topology callbacks attached for the specified lifecycle
 func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) context.Context {
 	// OnStart callback adds topology integration when a process starts
-	if err := api.SetOnStart(ctx, func(pid pubsub.PID, _ api.Process) {
+	if err := api.SetOnStart(ctx, func(pid relay.PID, _ api.Process) {
 		// Get topology from context
 		topo := topology.GetTopology(ctx)
 		if topo == nil {
@@ -200,7 +200,7 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 	}
 
 	// OnComplete callback handles process termination topology events
-	if err := api.SetOnComplete(ctx, func(pid pubsub.PID, result *runtime.Result) {
+	if err := api.SetOnComplete(ctx, func(pid relay.PID, result *runtime.Result) {
 		// Get topology from context
 		topo := topology.GetTopology(ctx)
 		if topo == nil {

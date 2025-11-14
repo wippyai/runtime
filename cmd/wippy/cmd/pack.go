@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/boot/build"
-	"github.com/ponyruntime/pony/boot/build/stages"
-	"github.com/ponyruntime/pony/boot/pack"
-	"github.com/ponyruntime/pony/cmd/wippy/version"
-	"github.com/ponyruntime/pony/deps/lock"
 	"github.com/spf13/cobra"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/build"
+	"github.com/wippyai/runtime/boot/build/stages"
+	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/boot/pack"
+	"github.com/wippyai/runtime/cmd/wippy/version"
 	"go.uber.org/zap"
 )
 

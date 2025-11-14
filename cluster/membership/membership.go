@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/memberlist"
-	"github.com/ponyruntime/pony/api/cluster"
-	"github.com/ponyruntime/pony/api/event"
+	"github.com/wippyai/runtime/api/cluster"
+	"github.com/wippyai/runtime/api/event"
 	"go.uber.org/zap"
 )
 

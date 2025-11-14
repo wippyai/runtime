@@ -3,7 +3,7 @@ package topology
 import (
 	"sort"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // SortChangeSet sorts a changeset by dependencies to ensure proper application order

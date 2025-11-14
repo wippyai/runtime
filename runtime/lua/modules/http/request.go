@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
-	"github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/runtime/lua/modules/json"
-	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
+	"github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/runtime/lua/modules/json"
+	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 )
 

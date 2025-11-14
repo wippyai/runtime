@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/supervisor"
-	entryutil "github.com/ponyruntime/pony/internal/entry"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/supervisor"
+	entryutil "github.com/wippyai/runtime/internal/entry"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	api "github.com/wippyai/runtime/api/service/terminal"
 	"go.uber.org/zap"
 )
 
@@ -121,12 +121,12 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 // registerHost registers the terminal service as a process host
 func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
-	// connect to pubsub
+	// connect to relay
 	m.bus.Send(ctx, event.Event{
-		System: pubsub.System,
-		Kind:   pubsub.HostRegister,
+		System: relay.System,
+		Kind:   relay.HostRegister,
 		Path:   terminal.id.String(),
-		Data:   pubsub.Host(terminal),
+		Data:   relay.Host(terminal),
 	})
 
 	// we can host processes
@@ -151,10 +151,10 @@ func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
 
 // removeHost removes the terminal service from process host system
 func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
-	// disconnect from pubsub
+	// disconnect from relay
 	m.bus.Send(ctx, event.Event{
-		System: pubsub.System,
-		Kind:   pubsub.HostDelete,
+		System: relay.System,
+		Kind:   relay.HostDelete,
 		Path:   id.String(),
 	})
 

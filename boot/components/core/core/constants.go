@@ -1,6 +1,6 @@
 package core
 
-import "github.com/ponyruntime/pony/api/boot"
+import "github.com/wippyai/runtime/api/boot"
 
 const (
 	// Core component names

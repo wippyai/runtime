@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/env"
-	"github.com/ponyruntime/pony/api/payload"
-	serviceenv "github.com/ponyruntime/pony/api/service/env"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/payload"
+	serviceenv "github.com/wippyai/runtime/api/service/env"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 

@@ -4,7 +4,7 @@ package contract
 import (
 	"context"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
 var contractsCtx = &ctxapi.Key{Name: "contracts"}

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	api "github.com/ponyruntime/pony/api/runtime/lua"
+	api "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

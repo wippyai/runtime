@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/internal/version"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/internal/version"
 	"go.uber.org/zap"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // testEntry is a helper to create test entries with less boilerplate

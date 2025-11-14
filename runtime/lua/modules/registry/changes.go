@@ -3,11 +3,11 @@ package registry
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/system/registry/topology"
+	"github.com/wippyai/runtime/system/registry/topology"
 
-	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"github.com/ponyruntime/pony/runtime/lua/security"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

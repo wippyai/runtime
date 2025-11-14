@@ -1,8 +1,8 @@
 package policy
 
 import (
-	"github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/api/service/policy"
+	"github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/api/service/policy"
 	"testing"
 )
 

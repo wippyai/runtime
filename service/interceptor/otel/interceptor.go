@@ -3,8 +3,8 @@ package otel
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/runtime"
-	otelapi "github.com/ponyruntime/pony/api/service/otel"
+	"github.com/wippyai/runtime/api/runtime"
+	otelapi "github.com/wippyai/runtime/api/service/otel"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"

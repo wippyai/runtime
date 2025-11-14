@@ -3,7 +3,7 @@ package channel
 import (
 	"errors"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
 

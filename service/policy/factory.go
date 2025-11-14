@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/api/service/policy"
-	entryutil "github.com/ponyruntime/pony/internal/entry"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/api/service/policy"
+	entryutil "github.com/wippyai/runtime/internal/entry"
 )
 
 // FactoryAPI defines the interface for creating policy entries

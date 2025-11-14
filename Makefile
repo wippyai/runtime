@@ -180,7 +180,7 @@ lint:
 mock:
 	go tool mockgen -destination tests/mock/identityv1connect/identityv1connect.go github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect OrganizationServiceClient
 	go tool mockgen -destination tests/mock/modulev1connect/modulev1connect.go github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect ModuleServiceClient,CommitServiceClient,LabelServiceClient,DownloadServiceClient
-	go tool mockgen -destination tests/mock/deps/moduleloader.go github.com/ponyruntime/pony/deps ManifestLoader
+	go tool mockgen -destination tests/mock/deps/moduleloader.go github.com/wippyai/runtime/deps ManifestLoader
 
 
 # OpenTelemetry commands
@@ -207,10 +207,10 @@ WIPPY_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 WIPPY_BUILDER ?= $(shell whoami)@$(shell hostname)
 
 WIPPY_LDFLAGS := -s -w \
-	-X github.com/ponyruntime/pony/cmd/wippy/version.Version=$(WIPPY_VERSION) \
-	-X github.com/ponyruntime/pony/cmd/wippy/version.Commit=$(WIPPY_COMMIT) \
-	-X github.com/ponyruntime/pony/cmd/wippy/version.Date=$(WIPPY_DATE) \
-	-X github.com/ponyruntime/pony/cmd/wippy/version.BuiltBy=$(WIPPY_BUILDER)
+	-X github.com/wippyai/runtime/cmd/wippy/version.Version=$(WIPPY_VERSION) \
+	-X github.com/wippyai/runtime/cmd/wippy/version.Commit=$(WIPPY_COMMIT) \
+	-X github.com/wippyai/runtime/cmd/wippy/version.Date=$(WIPPY_DATE) \
+	-X github.com/wippyai/runtime/cmd/wippy/version.BuiltBy=$(WIPPY_BUILDER)
 
 .PHONY: build-wippy
 build-wippy: build-wippy-local

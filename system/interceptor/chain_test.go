@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	apiinterceptor "github.com/ponyruntime/pony/api/interceptor"
-	"github.com/ponyruntime/pony/api/runtime"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 type mockInterceptor struct {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 )
 
 type subscription struct {

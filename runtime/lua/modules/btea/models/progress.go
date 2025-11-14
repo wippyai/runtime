@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
 )
 

@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/system/supervisor"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/supervisor"
 	"go.uber.org/zap"
 )
 

@@ -4,7 +4,7 @@ package logs
 import (
 	"go.uber.org/zap/zapcore"
 
-	"github.com/ponyruntime/pony/api/event"
+	"github.com/wippyai/runtime/api/event"
 )
 
 const (

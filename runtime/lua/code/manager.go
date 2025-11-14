@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	api "github.com/wippyai/runtime/api/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
 	"go.uber.org/zap"

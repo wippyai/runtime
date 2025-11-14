@@ -3,8 +3,8 @@ package topology
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/relay"
 	"go.uber.org/zap"
 )
 
@@ -15,13 +15,13 @@ func TestPIDRegistry_Register(t *testing.T) {
 	})
 
 	// Create test PIDs
-	pid1 := pubsub.PID{
+	pid1 := relay.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
-	pid2 := pubsub.PID{
+	pid2 := relay.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq2",
@@ -54,7 +54,7 @@ func TestPIDRegistry_Lookup(t *testing.T) {
 		Logger: logger,
 	})
 
-	pid := pubsub.PID{
+	pid := relay.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -80,7 +80,7 @@ func TestPIDRegistry_Unregister(t *testing.T) {
 		Logger: logger,
 	})
 
-	pid := pubsub.PID{
+	pid := relay.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -118,13 +118,13 @@ func TestPIDRegistry_WithParent(t *testing.T) {
 	})
 
 	// Create test PIDs
-	parentPID := pubsub.PID{
+	parentPID := relay.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
-	childPID := pubsub.PID{
+	childPID := relay.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq2",
@@ -166,11 +166,11 @@ func TestPIDRegistry_ThreadSafety(t *testing.T) {
 	const numRoutines = 100
 
 	// Create a bunch of unique PIDs and names
-	pids := make([]pubsub.PID, numRoutines)
+	pids := make([]relay.PID, numRoutines)
 	names := make([]string, numRoutines)
 
 	for i := 0; i < numRoutines; i++ {
-		pids[i] = pubsub.PID{
+		pids[i] = relay.PID{
 			Node:   "node1",
 			Host:   "host1",
 			UniqID: "uniq" + string(rune(i)),

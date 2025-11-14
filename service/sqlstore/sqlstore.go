@@ -9,15 +9,15 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	sqlconfig "github.com/ponyruntime/pony/api/service/sql"
-	"github.com/ponyruntime/pony/api/service/sqlstore"
-	"github.com/ponyruntime/pony/api/supervisor"
-	servicesql "github.com/ponyruntime/pony/service/sql"
+	sqlconfig "github.com/wippyai/runtime/api/service/sql"
+	"github.com/wippyai/runtime/api/service/sqlstore"
+	"github.com/wippyai/runtime/api/supervisor"
+	servicesql "github.com/wippyai/runtime/service/sql"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/api/store"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/store"
 	"go.uber.org/zap"
 )
 

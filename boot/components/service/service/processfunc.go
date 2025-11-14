@@ -3,13 +3,13 @@ package service
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	procapi "github.com/ponyruntime/pony/api/process"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	bootsystem "github.com/ponyruntime/pony/boot/components/system/system"
-	"github.com/ponyruntime/pony/service/processfunc"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	procapi "github.com/wippyai/runtime/api/process"
+	bootpkg "github.com/wippyai/runtime/boot"
+	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
+	"github.com/wippyai/runtime/service/processfunc"
 )
 
 func ProcessFunc() boot.Component {

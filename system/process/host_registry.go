@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/event"
-	api "github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/wippyai/runtime/api/event"
+	api "github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 

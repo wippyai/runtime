@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	supervisorapi "github.com/ponyruntime/pony/api/service/supervisor"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/internal/uniqid"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	supervisorapi "github.com/wippyai/runtime/api/service/supervisor"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/internal/uniqid"
 )
 
 var supID = uniqid.NewGenerator()
@@ -20,8 +20,8 @@ var supID = uniqid.NewGenerator()
 // Service represents a running process service instance
 type Service struct {
 	id            registry.ID
-	pid           pubsub.PID
-	supervisorPID pubsub.PID
+	pid           relay.PID
+	supervisorPID relay.PID
 	config        supervisorapi.ServiceConfig
 	status        chan any
 }
@@ -29,7 +29,7 @@ type Service struct {
 // Start implements supervisor.Service
 func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	// Get node from context
-	node := pubsub.GetNode(ctx)
+	node := relay.GetNode(ctx)
 	if node == nil {
 		return nil, fmt.Errorf("no node found in context")
 	}
@@ -41,7 +41,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Setup monitor pid
-	svc.supervisorPID = pubsub.PID{
+	svc.supervisorPID = relay.PID{
 		Node: node.ID(),
 		Host: topology.ControlHost,
 
@@ -49,7 +49,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}.Precomputed()
 
 	// Create monitoring channel
-	monitorCh := make(chan *pubsub.Package, 1)
+	monitorCh := make(chan *relay.Package, 1)
 
 	detach, err := node.Attach(svc.supervisorPID, monitorCh)
 	if err != nil {
@@ -138,7 +138,7 @@ func (svc *Service) Stop(ctx context.Context) error {
 		return nil // Not running
 	}
 
-	err := pubsub.GetNode(ctx).Send(topology.Cancel(
+	err := relay.GetNode(ctx).Send(topology.Cancel(
 		svc.supervisorPID,
 		svc.pid,
 		time.Now().Add(svc.config.Lifecycle.StopTimeout),

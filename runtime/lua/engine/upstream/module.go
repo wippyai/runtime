@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
 	lua "github.com/yuin/gopher-lua"
 )
 

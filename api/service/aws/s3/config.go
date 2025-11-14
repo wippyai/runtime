@@ -4,7 +4,7 @@ package s3
 import (
 	"errors"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Kind identifies the S3 storage service type.

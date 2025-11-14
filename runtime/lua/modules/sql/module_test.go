@@ -3,19 +3,19 @@ package sql
 import (
 	"context"
 	"database/sql"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
-	sqlapi "github.com/ponyruntime/pony/api/service/sql"
-	sqlres "github.com/ponyruntime/pony/service/sql"
 	"github.com/stretchr/testify/assert"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
+	sqlres "github.com/wippyai/runtime/service/sql"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap/zaptest"
 

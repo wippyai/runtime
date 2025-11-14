@@ -3,7 +3,7 @@ package code
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 type AccessMode int

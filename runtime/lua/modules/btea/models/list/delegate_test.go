@@ -7,10 +7,10 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/protocol"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	api "github.com/ponyruntime/pony/api/logs"
+	"github.com/wippyai/runtime/api/event"
+	api "github.com/wippyai/runtime/api/logs"
 	"go.uber.org/zap/zapcore"
 )
 

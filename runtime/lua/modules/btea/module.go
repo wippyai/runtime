@@ -1,12 +1,12 @@
 package btea
 
 import (
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models/list"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
+	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/models"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/models/list"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/protocol"
+	"github.com/wippyai/runtime/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

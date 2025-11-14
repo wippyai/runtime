@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	securitysys "github.com/ponyruntime/pony/system/security"
+	securitysys "github.com/wippyai/runtime/system/security"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/api/service/tokenstore"
-	"github.com/ponyruntime/pony/api/store"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/api/service/tokenstore"
+	"github.com/wippyai/runtime/api/store"
 )
 
 // tokenData is the internal structure stored in the key-value store for each token

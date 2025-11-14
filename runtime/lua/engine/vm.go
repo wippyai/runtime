@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	errors2 "github.com/ponyruntime/pony/runtime/lua/engine/errors"
+	errors2 "github.com/wippyai/runtime/runtime/lua/engine/errors"
 
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"

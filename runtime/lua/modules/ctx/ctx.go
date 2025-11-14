@@ -3,8 +3,8 @@ package ctx
 import (
 	"sync"
 
-	ctxapi "github.com/ponyruntime/pony/api/context" // Spawn sure this import path is correct
-	transcoder "github.com/ponyruntime/pony/system/payload/lua"
+	ctxapi "github.com/wippyai/runtime/api/context" // Spawn sure this import path is correct
+	transcoder "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

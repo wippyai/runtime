@@ -5,15 +5,15 @@ import (
 	"context"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/stretchr/testify/assert"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 func TestConstants(t *testing.T) {
 	t.Run("HostID", func(t *testing.T) {
-		assert.Equal(t, pubsub.HostID("node:functions"), HostID)
+		assert.Equal(t, relay.HostID("node:functions"), HostID)
 	})
 
 	t.Run("System", func(t *testing.T) {

@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	config "github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	config "github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
 
@@ -36,7 +36,7 @@ type StaticFactoryAPI interface {
 // Server represents an HTTP server with routing capabilities
 type Server interface {
 	supervisor.Service
-	pubsub.Host
+	relay.Host
 
 	// UpdateConfig updates the server configuration
 	UpdateConfig(cfg *config.ServerConfig) error
@@ -247,10 +247,10 @@ func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) 
 	})
 
 	m.bus.Send(ctx, event.Event{
-		System: pubsub.System,
-		Kind:   pubsub.HostRegister,
+		System: relay.System,
+		Kind:   relay.HostRegister,
 		Path:   entry.ID.String(),
-		Data:   pubsub.Host(server),
+		Data:   relay.Host(server),
 	})
 
 	return nil
@@ -302,8 +302,8 @@ func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) 
 
 	// Done from process hosts
 	m.bus.Send(ctx, event.Event{
-		System: pubsub.System,
-		Kind:   pubsub.HostDelete,
+		System: relay.System,
+		Kind:   relay.HostDelete,
 		Path:   entry.ID.String(),
 	})
 

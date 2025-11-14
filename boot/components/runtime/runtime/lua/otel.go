@@ -5,9 +5,9 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	otelmod "github.com/ponyruntime/pony/runtime/lua/modules/otel"
+	"github.com/wippyai/runtime/api/boot"
+	bootpkg "github.com/wippyai/runtime/boot"
+	otelmod "github.com/wippyai/runtime/runtime/lua/modules/otel"
 )
 
 func LuaOTel() boot.Component {

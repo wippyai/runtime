@@ -2,8 +2,8 @@
 package runtime
 
 import (
-	"github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
+	"github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 var CancellerCtx = &context.Key{Name: "runtime.canceller"}

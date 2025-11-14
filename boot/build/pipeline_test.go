@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 func TestPipeline_Execute_EmptyPipeline(t *testing.T) {

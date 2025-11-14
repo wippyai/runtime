@@ -6,12 +6,12 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // Event system and kind constants for the process package
@@ -81,11 +81,11 @@ type (
 	// Process defines the interface for a runnable process in the system.
 	// Processes can receive messages, start execution, and advance their state step by step.
 	Process interface {
-		pubsub.Receiver
+		relay.Receiver
 
 		// Start initializes the process with the given context, Target, and input payloads.
 		// It prepares the process for execution and returns an error if initialization fails.
-		Start(stdcontext.Context, pubsub.PID, payload.Payloads) error
+		Start(stdcontext.Context, relay.PID, payload.Payloads) error
 
 		// Step advances process state by one iteration.
 		Step() error
@@ -109,7 +109,7 @@ type (
 	// propagation and termination behavior. @see topology
 	Lifecycle struct {
 		// Parent is the Target of the parent process, used for monitoring and linking
-		Parent pubsub.PID
+		Parent relay.PID
 
 		// Monitor indicates whether the parent process should monitor this process.
 		// When monitoring is enabled, the parent receives notifications about the child's
@@ -126,7 +126,7 @@ type (
 	// It specifies the host, process type, input, and supervision relationships.
 	Start struct {
 		// HostID is the identifier of the host where the process will run
-		HostID pubsub.HostID
+		HostID relay.HostID
 
 		// Source is the registry ID of the process prototype to instantiate
 		Source registry.ID
@@ -153,7 +153,7 @@ type (
 	// includes both the process and its lifecycle configuration.
 	Launch struct {
 		// PID is the process identifier to assign to the new process
-		PID pubsub.PID
+		PID relay.PID
 
 		// Source is the registry ID of the process being launched
 		Source registry.ID
@@ -178,7 +178,7 @@ type (
 	Terminator interface {
 		// Terminate forcefully stops a running process identified by pid.
 		// Returns an error if the termination fails.
-		Terminate(stdcontext.Context, pubsub.PID) error
+		Terminate(stdcontext.Context, relay.PID) error
 	}
 
 	// Canceller defines the interface for gracefully canceling a running process.
@@ -187,7 +187,7 @@ type (
 		// from is the Target of the cancellation requester, and deadline specifies
 		// when the process will be forcefully terminated if it doesn't stop gracefully.
 		// Returns an error if the cancellation request cannot be sent.
-		Cancel(stdcontext.Context, pubsub.PID, pubsub.PID, time.Time) error
+		Cancel(stdcontext.Context, relay.PID, relay.PID, time.Time) error
 	}
 
 	// Manager defines the interface for process lifecycle management.
@@ -200,7 +200,7 @@ type (
 		// Start launches a new process according to the provided configuration.
 		// Returns the Target of the started process or an error if the process
 		// cannot be started.
-		Start(ctx stdcontext.Context, start *Start) (pubsub.PID, error)
+		Start(ctx stdcontext.Context, start *Start) (relay.PID, error)
 
 		// AttachLifecycle enhances a context with process lifecycle management.
 		// It adds callbacks for process startup and completion events that manage
@@ -213,7 +213,7 @@ type (
 	// Hosts are responsible for executing processes and can receive messages
 	// and terminate running processes.
 	Host interface {
-		pubsub.Receiver
+		relay.Receiver
 		Terminator
 	}
 
@@ -227,7 +227,7 @@ type (
 		// It handles both the process execution and its lifecycle management.
 		// Returns the Target of the started process or an error if the process
 		// cannot be started.
-		Launch(ctx stdcontext.Context, launch *Launch) (pubsub.PID, error)
+		Launch(ctx stdcontext.Context, launch *Launch) (relay.PID, error)
 	}
 
 	// Delegated defines the interface for delegated process hosts.
@@ -239,6 +239,6 @@ type (
 		// Launch starts a process with the given Target and input.
 		// Returns the Target of the started process or an error if the process
 		// cannot be started.
-		Launch(ctx stdcontext.Context, pid pubsub.PID, lf Lifecycle, input payload.Payloads) (pubsub.PID, error)
+		Launch(ctx stdcontext.Context, pid relay.PID, lf Lifecycle, input payload.Payloads) (relay.PID, error)
 	}
 )

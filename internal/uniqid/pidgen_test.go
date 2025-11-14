@@ -3,9 +3,9 @@ package uniqid_test
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/uniqid"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/internal/uniqid"
 )
 
 func TestNewPIDGenerator(t *testing.T) {
@@ -21,7 +21,7 @@ func TestPIDGenerator_Generate(t *testing.T) {
 	gen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(gen, "")
 
-	host := pubsub.HostID("functions")
+	host := relay.HostID("functions")
 	id := registry.ID{NS: "process", Name: "worker"}
 
 	pid := pidGen.Generate(host, id)
@@ -44,8 +44,8 @@ func TestPIDGenerator_GenerateWithConfiguredNode(t *testing.T) {
 	gen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(gen, "")
 
-	node := pubsub.NodeID("node1")
-	host := pubsub.HostID("functions")
+	node := relay.NodeID("node1")
+	host := relay.HostID("functions")
 	id := registry.ID{NS: "process", Name: "worker"}
 
 	pidGen = uniqid.NewPIDGenerator(gen, node)
@@ -69,7 +69,7 @@ func TestPIDGenerator_SequentialUniqID(t *testing.T) {
 	gen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(gen, "")
 
-	host := pubsub.HostID("functions")
+	host := relay.HostID("functions")
 	id := registry.ID{NS: "process", Name: "worker"}
 
 	expected := []string{"0x00001", "0x00002", "0x00003", "0x00004", "0x00005"}
@@ -85,23 +85,23 @@ func TestPIDGenerator_SequentialUniqID(t *testing.T) {
 func TestPIDGenerator_StringFormat(t *testing.T) {
 	tests := []struct {
 		name        string
-		node        pubsub.NodeID
-		host        pubsub.HostID
+		node        relay.NodeID
+		host        relay.HostID
 		id          registry.ID
 		expectedFmt string
 		useNode     bool
 	}{
 		{
 			name:        "without node",
-			host:        pubsub.HostID("functions"),
+			host:        relay.HostID("functions"),
 			id:          registry.ID{NS: "process", Name: "worker"},
 			expectedFmt: "{functions|0x00001}",
 			useNode:     false,
 		},
 		{
 			name:        "with node",
-			node:        pubsub.NodeID("node1"),
-			host:        pubsub.HostID("functions"),
+			node:        relay.NodeID("node1"),
+			host:        relay.HostID("functions"),
 			id:          registry.ID{NS: "process", Name: "worker"},
 			expectedFmt: "{node1@functions|0x00001}",
 			useNode:     true,
@@ -111,7 +111,7 @@ func TestPIDGenerator_StringFormat(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gen := uniqid.NewGenerator()
-			var pid pubsub.PID
+			var pid relay.PID
 			if tt.useNode {
 				pidGenWithNode := uniqid.NewPIDGenerator(gen, tt.node)
 				pid = pidGenWithNode.Generate(tt.host, tt.id)

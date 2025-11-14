@@ -3,10 +3,10 @@ package core
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/pidgen"
-	bootpkg "github.com/ponyruntime/pony/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/pidgen"
+	bootpkg "github.com/wippyai/runtime/boot"
 	"go.uber.org/zap"
 )
 

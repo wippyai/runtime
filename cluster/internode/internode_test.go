@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/cluster"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/cluster"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -117,7 +117,7 @@ type mockCodec struct {
 	encoded     []byte
 }
 
-func (m *mockCodec) Encode(pkg *pubsub.Package) ([]byte, error) {
+func (m *mockCodec) Encode(pkg *relay.Package) ([]byte, error) {
 	if m.encodeError != nil {
 		return nil, m.encodeError
 	}
@@ -127,12 +127,12 @@ func (m *mockCodec) Encode(pkg *pubsub.Package) ([]byte, error) {
 	return []byte("encoded"), nil
 }
 
-func (m *mockCodec) Decode(data []byte) (*pubsub.Package, error) {
+func (m *mockCodec) Decode(data []byte) (*relay.Package, error) {
 	if m.decodeError != nil {
 		return nil, m.decodeError
 	}
-	pkg := pubsub.AcquirePackage()
-	pkg.Source = pubsub.PID{Node: "remote-node", Host: "remote-host", UniqID: "123"}
+	pkg := relay.AcquirePackage()
+	pkg.Source = relay.PID{Node: "remote-node", Host: "remote-host", UniqID: "123"}
 	return pkg, nil
 }
 
@@ -168,7 +168,7 @@ func setupService(t *testing.T) (*Service, *mockConnectionManager, *mockCodec, *
 		nodes:     []cluster.NodeInfo{localNode},
 	}
 
-	deliveryCallback := func(pkg *pubsub.Package) error {
+	deliveryCallback := func(pkg *relay.Package) error {
 		return nil
 	}
 
@@ -184,7 +184,7 @@ func TestService_NewService(t *testing.T) {
 	codec := &mockCodec{}
 	bus := eventbus.NewBus()
 	membership := &mockMembership{}
-	callback := func(pkg *pubsub.Package) error { return nil }
+	callback := func(pkg *relay.Package) error { return nil }
 
 	service := NewService(logger, connMan, codec, callback, bus, membership)
 
@@ -231,7 +231,7 @@ func TestService_Start_WithPreExistingNodes(t *testing.T) {
 		nodes:     []cluster.NodeInfo{localNode, remoteNode},
 	}
 
-	service := NewService(logger, connMan, codec, func(pkg *pubsub.Package) error { return nil }, bus, membership)
+	service := NewService(logger, connMan, codec, func(pkg *relay.Package) error { return nil }, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -280,9 +280,9 @@ func TestService_Send_Success(t *testing.T) {
 	require.NoError(t, err)
 	defer service.Stop()
 
-	pkg := pubsub.AcquirePackage()
-	pkg.Target = pubsub.PID{Node: "remote-node", Host: "remote-host", UniqID: "123"}
-	pkg.Messages = []*pubsub.Message{
+	pkg := relay.AcquirePackage()
+	pkg.Target = relay.PID{Node: "remote-node", Host: "remote-host", UniqID: "123"}
+	pkg.Messages = []*relay.Message{
 		{Topic: "test.topic"},
 	}
 
@@ -302,8 +302,8 @@ func TestService_Send_EncodeError(t *testing.T) {
 
 	codec.encodeError = errors.New("encoding failed")
 
-	pkg := pubsub.AcquirePackage()
-	pkg.Target = pubsub.PID{Node: "remote-node"}
+	pkg := relay.AcquirePackage()
+	pkg.Target = relay.PID{Node: "remote-node"}
 
 	err = service.Send(pkg)
 	assert.Error(t, err)
@@ -320,8 +320,8 @@ func TestService_Send_SendError(t *testing.T) {
 
 	connMan.sendError = errors.New("send failed")
 
-	pkg := pubsub.AcquirePackage()
-	pkg.Target = pubsub.PID{Node: "remote-node"}
+	pkg := relay.AcquirePackage()
+	pkg.Target = relay.PID{Node: "remote-node"}
 
 	err = service.Send(pkg)
 	assert.Error(t, err)
@@ -483,7 +483,7 @@ func TestService_ConnectToNode_InvalidPort(t *testing.T) {
 
 func TestService_OnMessage_Success(t *testing.T) {
 	deliveryCalled := false
-	var deliveredPkg *pubsub.Package
+	var deliveredPkg *relay.Package
 
 	logger := zap.NewNop()
 	connMan := newMockConnectionManager()
@@ -491,7 +491,7 @@ func TestService_OnMessage_Success(t *testing.T) {
 	bus := eventbus.NewBus()
 	membership := &mockMembership{localNode: cluster.NodeInfo{ID: "local"}}
 
-	deliveryCallback := func(pkg *pubsub.Package) error {
+	deliveryCallback := func(pkg *relay.Package) error {
 		deliveryCalled = true
 		deliveredPkg = pkg
 		return nil
@@ -518,7 +518,7 @@ func TestService_OnMessage_DecodeError(t *testing.T) {
 	bus := eventbus.NewBus()
 	membership := &mockMembership{localNode: cluster.NodeInfo{ID: "local"}}
 
-	service := NewService(logger, connMan, codec, func(pkg *pubsub.Package) error { return nil }, bus, membership)
+	service := NewService(logger, connMan, codec, func(pkg *relay.Package) error { return nil }, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -536,7 +536,7 @@ func TestService_OnMessage_DeliveryError(t *testing.T) {
 	bus := eventbus.NewBus()
 	membership := &mockMembership{localNode: cluster.NodeInfo{ID: "local"}}
 
-	deliveryCallback := func(pkg *pubsub.Package) error {
+	deliveryCallback := func(pkg *relay.Package) error {
 		return errors.New("delivery failed")
 	}
 

@@ -7,20 +7,20 @@ import (
 	"testing"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/pidgen"
-	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/internal/uniqid"
-	"github.com/ponyruntime/pony/system/pubsub"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/pidgen"
+	relayapi "github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/internal/uniqid"
+	"github.com/wippyai/runtime/system/relay"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -31,7 +31,7 @@ func setupTest() (*Registry, event.Bus) {
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
 	ctx = pidgen.WithGenerator(ctx, pidGen)
-	executor := NewFunctionRegistry(bus, pubsub.NewHost(ctx, pubsub.HostConfig{
+	executor := NewFunctionRegistry(bus, relay.NewHost(ctx, relay.HostConfig{
 		BufferSize: 100,
 	}), logger)
 	return executor, bus
@@ -53,7 +53,7 @@ func TestFunctions_StartStop(t *testing.T) {
 // Keep working test unchanged
 func TestFunctions_InvalidEvents(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -104,7 +104,7 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 
 func TestFunctions_EventResponses(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -223,7 +223,7 @@ func TestFunctions_EventResponses(t *testing.T) {
 
 func TestFunctions_Execute(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	// Add PID generator
 	uniqGen := uniqid.NewGenerator()
@@ -345,7 +345,7 @@ func TestFunctions_Execute(t *testing.T) {
 
 func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
@@ -441,7 +441,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 
 func TestFunctions_CallErrorHandling(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
@@ -485,7 +485,7 @@ func TestFunctions_CallErrorHandling(t *testing.T) {
 
 func TestFunctions_FrameContextHandling(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	// Add PID generator to context
 	uniqGen := uniqid.NewGenerator()
@@ -524,7 +524,7 @@ func TestFunctions_FrameContextHandling(t *testing.T) {
 
 func TestFunctions_EdgeCases(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
@@ -588,7 +588,7 @@ func TestFunctions_EdgeCases(t *testing.T) {
 
 func TestFunctions_ConcurrentExecution(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test"))
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")

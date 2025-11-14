@@ -1,8 +1,8 @@
 package env
 
 import (
-	envservice "github.com/ponyruntime/pony/api/service/env"
 	"github.com/stretchr/testify/assert"
+	envservice "github.com/wippyai/runtime/api/service/env"
 	"go.uber.org/zap"
 	"testing"
 )

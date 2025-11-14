@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 
-	fsapi "github.com/ponyruntime/pony/api/fs"
+	fsapi "github.com/wippyai/runtime/api/fs"
 )
 
 const MiddlewareName = "fileserve"

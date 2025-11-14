@@ -3,8 +3,8 @@ package cmd
 import (
 	"time"
 
-	"github.com/ponyruntime/pony/cmd/internal/logger"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/cmd/internal/logger"
 	"go.uber.org/zap"
 )
 

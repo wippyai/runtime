@@ -4,7 +4,7 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/event"
+	"github.com/wippyai/runtime/api/event"
 
 	lua "github.com/yuin/gopher-lua"
 )

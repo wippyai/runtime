@@ -12,9 +12,9 @@ import (
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/klauspost/compress/zstd"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/boot/hash"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/hash"
 )
 
 const (

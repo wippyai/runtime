@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/cluster"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/cluster"
 	"go.uber.org/zap"
 )
 

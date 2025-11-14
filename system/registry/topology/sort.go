@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/graph"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/graph"
 )
 
 const (

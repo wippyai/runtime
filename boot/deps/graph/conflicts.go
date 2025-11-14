@@ -3,7 +3,7 @@ package graph
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/internal/graph"
+	"github.com/wippyai/runtime/internal/graph"
 )
 
 // overlapDetector tracks constraint requests and detects overlaps.

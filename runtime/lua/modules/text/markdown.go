@@ -1,8 +1,8 @@
 package text
 
 import (
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/tmc/langchaingo/textsplitter"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 

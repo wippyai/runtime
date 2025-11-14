@@ -6,9 +6,9 @@ import (
 	"github.com/Masterminds/semver/v3"
 	modulev1 "github.com/wippyai/module-registry-proto-go/registry/module/v1"
 
-	transcoder "github.com/ponyruntime/pony/system/payload"
-	jpayload "github.com/ponyruntime/pony/system/payload/json"
-	ypayload "github.com/ponyruntime/pony/system/payload/yaml"
+	transcoder "github.com/wippyai/runtime/system/payload"
+	jpayload "github.com/wippyai/runtime/system/payload/json"
+	ypayload "github.com/wippyai/runtime/system/payload/yaml"
 )
 
 func TestFindMatchingLabel(t *testing.T) {

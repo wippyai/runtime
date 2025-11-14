@@ -6,9 +6,9 @@ import (
 	"context"
 	"testing"
 
-	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	contextapi "github.com/wippyai/runtime/api/context"
 )
 
 func TestNewTerminalContext(t *testing.T) {

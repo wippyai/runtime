@@ -3,10 +3,10 @@ package core
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/system/logs"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/system/logs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

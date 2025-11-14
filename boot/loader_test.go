@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/boot"
-	contextapi "github.com/ponyruntime/pony/api/context"
-	logapi "github.com/ponyruntime/pony/api/logs"
+	"github.com/wippyai/runtime/api/boot"
+	contextapi "github.com/wippyai/runtime/api/context"
+	logapi "github.com/wippyai/runtime/api/logs"
 	"go.uber.org/zap"
 )
 

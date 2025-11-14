@@ -5,14 +5,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ponyruntime/pony/api/process"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
+	"github.com/wippyai/runtime/api/process"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 
-	taskmod "github.com/ponyruntime/pony/runtime/lua/task"
+	taskmod "github.com/wippyai/runtime/runtime/lua/task"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

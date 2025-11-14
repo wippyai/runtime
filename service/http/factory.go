@@ -8,12 +8,12 @@ import (
 	"strings"
 	"sync"
 
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	config "github.com/ponyruntime/pony/api/service/http"
+	contextapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime"
+	config "github.com/wippyai/runtime/api/service/http"
 )
 
 // RequestContext pool to reduce allocations

@@ -4,20 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/service/memstore"
+	"github.com/wippyai/runtime/service/memstore"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	memcfg "github.com/ponyruntime/pony/api/service/memstore"
-	"github.com/ponyruntime/pony/api/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	memcfg "github.com/wippyai/runtime/api/service/memstore"
+	"github.com/wippyai/runtime/api/store"
 	"go.uber.org/zap"
 )
 

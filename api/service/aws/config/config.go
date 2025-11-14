@@ -4,7 +4,7 @@ package config
 import (
 	"errors"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Kind identifies the aws config service type.

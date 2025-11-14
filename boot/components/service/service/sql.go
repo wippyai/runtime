@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/boot"
-	envapi "github.com/ponyruntime/pony/api/env"
-	"github.com/ponyruntime/pony/api/event"
-	logapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
-	bootpkg "github.com/ponyruntime/pony/boot"
-	bootsystem "github.com/ponyruntime/pony/boot/components/system/system"
-	"github.com/ponyruntime/pony/service/sql"
+	"github.com/wippyai/runtime/api/boot"
+	envapi "github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/payload"
+	bootpkg "github.com/wippyai/runtime/boot"
+	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
+	"github.com/wippyai/runtime/service/sql"
 )
 
 func SQL() boot.Component {

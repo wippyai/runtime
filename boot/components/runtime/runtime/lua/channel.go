@@ -5,8 +5,8 @@ package lua
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/boot"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 )
 
 func LuaChannel() boot.Component {

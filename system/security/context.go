@@ -3,7 +3,7 @@ package security
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/api/security"
+	"github.com/wippyai/runtime/api/security"
 )
 
 // todo: move to api

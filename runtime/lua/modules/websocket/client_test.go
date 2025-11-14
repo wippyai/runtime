@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
+	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 
 	coderws "github.com/coder/websocket"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	"go.uber.org/zap"
 )
 

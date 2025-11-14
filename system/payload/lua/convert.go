@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/runtime/lua/engine/errors"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -113,7 +113,7 @@ func GoToLua(v any) (lua.LValue, error) {
 		return lua.LNumber(val.Unix()), nil
 	case payload.Payload:
 		return GoToLua(val.Data())
-	case pubsub.PID:
+	case relay.PID:
 		return lua.LString(val.String()), nil
 	case []byte:
 		return lua.LString(val), nil

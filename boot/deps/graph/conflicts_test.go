@@ -3,7 +3,7 @@ package graph
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/internal/graph"
+	"github.com/wippyai/runtime/internal/graph"
 )
 
 func TestOverlapDetector(t *testing.T) {

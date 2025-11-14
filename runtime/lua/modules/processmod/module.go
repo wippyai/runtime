@@ -5,13 +5,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/runtime/lua/component/process"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
-	processbase "github.com/ponyruntime/pony/runtime/lua/modules/process"
+	"github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/runtime/lua/component/process"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/channel"
+	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
+	processbase "github.com/wippyai/runtime/runtime/lua/modules/process"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -22,14 +22,14 @@ var (
 	eventsChannel = &context.Key{Name: "process.channel.events"}
 )
 
-// Module provides pubsub-based inbox and channel functionality for long-running processes
+// Module provides relay-based inbox and channel functionality for long-running processes
 type Module struct {
 	log         *zap.Logger
 	moduleTable *lua.LTable
 	once        sync.Once
 }
 
-// NewProcessAPIModule creates a new pubsub-based inbox module
+// NewProcessAPIModule creates a new relay-based inbox module
 func NewProcessAPIModule(log *zap.Logger) *Module {
 	return &Module{
 		log: log,
