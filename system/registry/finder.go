@@ -1,9 +1,10 @@
 package registry
 
 import (
-	"log"
 	"regexp"
 	"strings"
+
+	"go.uber.org/zap"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/metamatch"
@@ -12,11 +13,15 @@ import (
 // memoryFinder implements the Finder interface for in-memory registry state
 type memoryFinder struct {
 	reg registry.EntryReader
+	log *zap.Logger
 }
 
 // NewFinder creates a new Finder that can search registry entries
-func NewFinder(r registry.EntryReader) registry.Finder {
-	return &memoryFinder{reg: r}
+func NewFinder(r registry.EntryReader, log *zap.Logger) registry.Finder {
+	if log == nil {
+		log = zap.NewNop()
+	}
+	return &memoryFinder{reg: r, log: log}
 }
 
 // Find retrieves all entries matching the provided search criteria.
@@ -118,7 +123,9 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 				}
 			}
 			if !isMetaPrefixed {
-				log.Printf("Deprecated: Using '%s' without 'meta.' prefix. Consider using '%smeta.%s' instead.", key, operatorPrefix, finalField)
+				f.log.Warn("deprecated metadata field usage without 'meta.' prefix",
+					zap.String("field", key),
+					zap.String("suggested", operatorPrefix+"meta."+finalField))
 			}
 
 		case "*":
@@ -127,7 +134,9 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 				containsMatchers[finalField] = strVal
 			}
 			if !isMetaPrefixed {
-				log.Printf("Deprecated: Using '%s' without 'meta.' prefix. Consider using '%smeta.%s' instead.", key, operatorPrefix, finalField)
+				f.log.Warn("deprecated metadata field usage without 'meta.' prefix",
+					zap.String("field", key),
+					zap.String("suggested", operatorPrefix+"meta."+finalField))
 			}
 
 		case "^":
@@ -136,7 +145,9 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 				prefixMatchers[finalField] = strVal
 			}
 			if !isMetaPrefixed {
-				log.Printf("Deprecated: Using '%s' without 'meta.' prefix. Consider using '%smeta.%s' instead.", key, operatorPrefix, finalField)
+				f.log.Warn("deprecated metadata field usage without 'meta.' prefix",
+					zap.String("field", key),
+					zap.String("suggested", operatorPrefix+"meta."+finalField))
 			}
 
 		case "$":
@@ -145,14 +156,18 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 				suffixMatchers[finalField] = strVal
 			}
 			if !isMetaPrefixed {
-				log.Printf("Deprecated: Using '%s' without 'meta.' prefix. Consider using '%smeta.%s' instead.", key, operatorPrefix, finalField)
+				f.log.Warn("deprecated metadata field usage without 'meta.' prefix",
+					zap.String("field", key),
+					zap.String("suggested", operatorPrefix+"meta."+finalField))
 			}
 
 		default:
 			// Standard metadata matching (no operator prefix)
 			standardMeta[finalField] = value
 			if !isMetaPrefixed {
-				log.Printf("Deprecated: Using metadata field '%s' without 'meta.' prefix. Consider using 'meta.%s' instead.", key, finalField)
+				f.log.Warn("deprecated metadata field usage without 'meta.' prefix",
+					zap.String("field", key),
+					zap.String("suggested", "meta."+finalField))
 			}
 		}
 	}

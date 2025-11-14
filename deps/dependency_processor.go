@@ -162,7 +162,7 @@ func (dp *DependencyProcessor) addModuleToQueue(dep ManifestDependency) {
 	dp.moduleQueue = append(dp.moduleQueue, dep)
 }
 
-// isModuleInCache checks if a module with the given hash already exists in the cache
+// isModuleInCache checks if a module already exists in the cache
 func (dp *DependencyProcessor) isModuleInCache(moduleName, hash string) bool {
 	name, err := ParseName(moduleName)
 	if err != nil {
@@ -172,7 +172,7 @@ func (dp *DependencyProcessor) isModuleInCache(moduleName, hash string) bool {
 		return false
 	}
 
-	moduleDir := filepath.Join(dp.vendorFolder, name.Organization, name.Module+"@"+hash)
+	moduleDir := filepath.Join(dp.vendorFolder, name.Organization, name.Module)
 	if _, err := os.Stat(moduleDir); err == nil {
 		dp.logger.Debug("Module found in cache",
 			zap.String("module", moduleName),
@@ -198,7 +198,7 @@ func (dp *DependencyProcessor) createCachedModule(dep ManifestDependency, commit
 	})
 
 	// Return the existing module path
-	moduleDir := filepath.Join(dp.vendorFolder, dep.Name.Organization, dep.Name.Module+"@"+commitID)
+	moduleDir := filepath.Join(dp.vendorFolder, dep.Name.Organization, dep.Name.Module)
 	return &LoadedModule{
 		Name:         dep.Name,
 		Version:      version,
@@ -249,7 +249,7 @@ func (dp *DependencyProcessor) downloadAndStoreModule(ctx context.Context, dep M
 	}
 
 	content := downloadedContents[0]
-	moduleDir := filepath.Join(dp.vendorFolder, dep.Name.Organization, dep.Name.Module+"@"+content.GetCommit().GetId())
+	moduleDir := filepath.Join(dp.vendorFolder, dep.Name.Organization, dep.Name.Module)
 
 	if err := dp.fileService.StoreModuleFiles(moduleDir, content.GetFiles()); err != nil {
 		return "", fmt.Errorf("store module files: %w", err)

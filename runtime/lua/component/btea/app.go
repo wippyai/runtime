@@ -141,7 +141,9 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	a.program = tea.NewProgram(a, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
 
 	// Enhance the context with upstream channel
-	ctx = upstream.WithUpstreamChannel(ctx, a.upstream)
+	if err := upstream.WithUpstreamChannel(ctx, a.upstream); err != nil {
+		return err
+	}
 
 	// Initialize the process state
 	if err := a.state.InitContext(ctx, pid); err != nil {

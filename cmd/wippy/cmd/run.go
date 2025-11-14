@@ -78,6 +78,11 @@ func runApp(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load components: %w", err)
 	}
 
+	if err := loadEntriesFromLockFile(ctx, logger); err != nil {
+		logger.Error("entry loading failed", zap.Error(err))
+		return fmt.Errorf("failed to load entries: %w", err)
+	}
+
 	err = loader.Start(ctx)
 	if err != nil {
 		logger.Error("start failed", zap.Error(err))

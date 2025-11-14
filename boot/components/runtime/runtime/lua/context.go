@@ -3,24 +3,36 @@ package lua
 import (
 	"context"
 
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/registry"
 	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 )
 
-type ctxKey string
+var codeManagerKey = &ctxapi.Key{Name: "lua.codeManager"}
 
-const codeManagerKey ctxKey = "lua.codeManager"
-
-// SetCodeManager stores the code manager in the context.
+// SetCodeManager stores the code manager in AppContext.
 func SetCodeManager(ctx context.Context, cm *code.Manager) context.Context {
-	return context.WithValue(ctx, codeManagerKey, cm)
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(codeManagerKey) == nil {
+		ac.With(codeManagerKey, cm)
+	}
+	return ctx
 }
 
-// GetCodeManager retrieves the code manager from the context.
+// GetCodeManager retrieves the code manager from AppContext.
 func GetCodeManager(ctx context.Context) *code.Manager {
-	if cm, ok := ctx.Value(codeManagerKey).(*code.Manager); ok {
-		return cm
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if val := ac.Get(codeManagerKey); val != nil {
+		if cm, ok := val.(*code.Manager); ok {
+			return cm
+		}
 	}
 	return nil
 }

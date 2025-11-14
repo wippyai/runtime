@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/ponyruntime/pony/deps/graph"
 	"gopkg.in/yaml.v3"
 )
 
@@ -172,6 +173,20 @@ func (l *Lock) SetDirectories(dirs Directories) {
 	l.data.Directories = dirs
 }
 
+// GetVendorPath returns the vendor directory path relative to modules dir.
+// Prevents double "vendor" suffix (e.g., ".wippy/vendor" not ".wippy/vendor/vendor").
+func (l *Lock) GetVendorPath() string {
+	modulesDir := l.data.Directories.Modules
+	if modulesDir == "" {
+		modulesDir = ".wippy"
+	}
+	// Check if already ends with vendor to prevent duplication
+	if filepath.Base(modulesDir) == "vendor" {
+		return modulesDir
+	}
+	return filepath.Join(modulesDir, "vendor")
+}
+
 // GetLoadPaths returns all directories that need to be loaded by the boot pipeline.
 // Returns paths in order: app source directory, replacement directories, module vendor directories.
 // Paths are relative to the lock file location and do not include @hash suffix.
@@ -195,10 +210,7 @@ func (l *Lock) GetLoadPaths() []string {
 	}
 
 	// Add module paths (from vendor directory)
-	modulesDir := l.data.Directories.Modules
-	if modulesDir == "" {
-		modulesDir = ".wippy"
-	}
+	vendorDir := l.GetVendorPath()
 
 	for _, mod := range l.data.Modules {
 		// Skip modules that have replacements
@@ -206,9 +218,17 @@ func (l *Lock) GetLoadPaths() []string {
 			continue
 		}
 
-		// Build path: lockDir/modulesDir/vendor/org/module
-		vendorPath := filepath.Join(lockDir, modulesDir, "vendor", mod.Name)
-		paths = append(paths, vendorPath)
+		// Parse module name to get org/module structure
+		name, err := graph.ParseName(mod.Name)
+		if err != nil {
+			continue
+		}
+
+		// Build path with version: org/module-VERSION
+		moduleDir := ModulePath(name, mod.Version)
+		modulePath := filepath.Join(vendorDir, moduleDir)
+		fullPath := filepath.Join(lockDir, modulePath)
+		paths = append(paths, fullPath)
 	}
 
 	return paths
@@ -249,4 +269,25 @@ func (l *Lock) sort() {
 	sort.Slice(l.data.Replacements, func(i, j int) bool {
 		return l.data.Replacements[i].From < l.data.Replacements[j].From
 	})
+}
+
+// ModulePath returns storage path for a module (e.g., "org/module-v1.0.0").
+func ModulePath(name graph.Name, version string) string {
+	return filepath.Join(name.Organization, name.Module+"-"+version)
+}
+
+// Find locates a lock file in the given directory.
+// Returns absolute path to the lock file.
+func Find(dir, filename string) (string, error) {
+	lockPath := filepath.Join(dir, filename)
+	absPath, err := filepath.Abs(lockPath)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := os.Stat(absPath); err != nil {
+		return "", err
+	}
+
+	return absPath, nil
 }

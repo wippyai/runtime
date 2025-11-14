@@ -191,7 +191,14 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 
 		// Create a context for the WebSocket connection based on the application context
 		// This ensures it won't be canceled when the HTTP request is done
-		wsCtx := context.WithValue(m.appCtx, httpapi.ContextServerID, serverID)
+		wsCtx, wsFC := contextapi.OpenFrameContext(m.appCtx)
+		if err := wsFC.Set(httpapi.ContextServerID, serverID); err != nil {
+			logger.Error("Failed to set server ID in frame context", zap.Error(err))
+			if closeErr := conn.Close(websocket.StatusInternalError, "Failed to set server ID"); closeErr != nil {
+				logger.Error("Error closing WebSocket connection", zap.Error(closeErr))
+			}
+			return
+		}
 
 		// Create and start a new connection with the idGen from the RelayManager
 		wsConn, err := NewConnection(

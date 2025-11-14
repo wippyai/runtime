@@ -62,19 +62,6 @@ func LoadLockFile(path string) (*LockFile, error) {
 
 // SaveLockFile saves the lock file to the given path
 func (lf *LockFile) SaveLockFile(path string) error {
-	// Deduplicate modules by name and version before saving
-	moduleMap := make(map[string]LockedModule)
-	for _, module := range lf.Modules {
-		key := module.Name + "@" + module.Version
-		moduleMap[key] = module
-	}
-
-	// Convert map back to slice
-	lf.Modules = make([]LockedModule, 0, len(moduleMap))
-	for _, module := range moduleMap {
-		lf.Modules = append(lf.Modules, module)
-	}
-
 	// Sort modules by name for consistent output
 	sort.Slice(lf.Modules, func(i, j int) bool {
 		return lf.Modules[i].Name < lf.Modules[j].Name
@@ -251,14 +238,22 @@ func (lf *LockFile) ValidateReplacements(lockFilePath string) error {
 	return nil
 }
 
-// GetModulesVendorPath returns the full vendor path by appending "/vendor" to the modules directory
-// For example: ".wippy" -> ".wippy/vendor"
+// GetModulesVendorPath returns the full vendor path.
+// If modules directory already ends with VendorSubdirectory, returns it as-is.
+// Otherwise appends VendorSubdirectory to the modules directory.
+// For example: ".wippy" -> ".wippy/vendor", ".wippy/vendor" -> ".wippy/vendor"
 func (lf *LockFile) GetModulesVendorPath() string {
 	modulesDir := lf.Directories.Modules
 	if modulesDir == "" {
 		modulesDir = DefaultModulesDir
 	}
-	return filepath.Join(modulesDir, "vendor")
+
+	// Check if modules directory already ends with vendor subdirectory
+	if filepath.Base(modulesDir) == VendorSubdirectory {
+		return modulesDir
+	}
+
+	return filepath.Join(modulesDir, VendorSubdirectory)
 }
 
 // CalculateChanges computes the difference between two lock files and returns categorized operations.

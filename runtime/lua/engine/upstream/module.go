@@ -42,12 +42,16 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
-// WithUpstreamChannel adds an upstream channel to the context
-func WithUpstreamChannel(ctx context.Context, ch chan<- payload.Payload) context.Context {
-	return context.WithValue(ctx, Ctx, ch)
+// WithUpstreamChannel adds an upstream channel to FrameContext
+func WithUpstreamChannel(ctx context.Context, ch chan<- payload.Payload) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return fmt.Errorf("no frame context available")
+	}
+	return fc.Set(Ctx, ch)
 }
 
-// GetUpstreamChannel retrieves the upstream channel from context
+// GetUpstreamChannel retrieves the upstream channel from FrameContext
 func GetUpstreamChannel(l *lua.LState) (chan<- payload.Payload, error) {
 	ctx := l.Context()
 
@@ -55,9 +59,19 @@ func GetUpstreamChannel(l *lua.LState) (chan<- payload.Payload, error) {
 		return nil, fmt.Errorf("no context found")
 	}
 
-	ch, ok := ctx.Value(Ctx).(chan<- payload.Payload)
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil, fmt.Errorf("no frame context found")
+	}
+
+	val, ok := fc.Get(Ctx)
 	if !ok {
 		return nil, fmt.Errorf("no upstream channel found in context")
+	}
+
+	ch, ok := val.(chan<- payload.Payload)
+	if !ok {
+		return nil, fmt.Errorf("invalid upstream channel type in context")
 	}
 
 	return ch, nil

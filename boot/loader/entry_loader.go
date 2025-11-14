@@ -2,6 +2,7 @@ package loader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -22,6 +23,15 @@ func (e ValidationError) Error() string {
 		return fmt.Sprintf("entry[%d].%s: %s", e.Index, e.Field, e.Message)
 	}
 	return fmt.Sprintf("%s: %s", e.Field, e.Message)
+}
+
+// SkipFileError indicates file should be skipped silently
+type SkipFileError struct {
+	Reason string
+}
+
+func (e SkipFileError) Error() string {
+	return fmt.Sprintf("skip file: %s", e.Reason)
 }
 
 // ProcessingError represents an error during entry processing
@@ -84,6 +94,11 @@ func (ep *EntryProcessor) ExtractDependenciesToEntries(ctx context.Context, p pa
 	}
 
 	if err := ep.validator.ValidateFileContent(content); err != nil {
+		// Skip files silently if they don't have required headers
+		var skipErr SkipFileError
+		if errors.As(err, &skipErr) {
+			return []registry.Entry{}, nil
+		}
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 
@@ -285,8 +300,9 @@ func (ev *EntryValidator) ValidateFileContent(content *FileContent) error {
 		return &ValidationError{Field: "content", Message: "content cannot be nil"}
 	}
 
+	// If no namespace, skip file silently (not a wippy entry file)
 	if strings.TrimSpace(content.Namespace) == "" {
-		return &ValidationError{Field: "namespace", Message: "namespace is required"}
+		return SkipFileError{Reason: "no namespace header"}
 	}
 
 	// Validate that we have either batch entries or single entry format

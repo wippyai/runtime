@@ -103,7 +103,7 @@ func (br *BusRunner) applyOperation(
 		// resolve from reg or fail
 		entry, ok := state[op.Entry.ID]
 		if !ok {
-			return state, fmt.Errorf("entry kind can not be found: %s", entry.ID)
+			return state, fmt.Errorf("entry kind not found: %s", op.Entry.ID)
 		}
 
 		op.Entry.Kind = entry.Kind

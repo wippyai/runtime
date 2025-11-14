@@ -274,15 +274,14 @@ func (dm *DependencyManager) installModuleFromLockFile(ctx context.Context, modu
 	vendorPath := lockFile.GetModulesVendorPath()
 	modulesDir := filepath.Join(filepath.Dir(lockPath), vendorPath)
 	moduleBaseDir := filepath.Join(modulesDir, name.Organization)
-	expectedDirName := name.Module + "@" + module.Hash
-	expectedModulePath := filepath.Join(moduleBaseDir, expectedDirName)
+	expectedModulePath := filepath.Join(moduleBaseDir, name.Module)
 
-	// Check if exact hash directory exists and has content
+	// Check if module directory exists and has content
 	if stat, err := os.Stat(expectedModulePath); err == nil && stat.IsDir() {
-		// Check if it has a module- subdirectory
+		// Check if it has content
 		subEntries, err := os.ReadDir(expectedModulePath)
 		if err == nil && len(subEntries) > 0 {
-			// Module with exact hash is already installed and has content
+			// Module is already installed and has content
 			return nil
 		}
 	}

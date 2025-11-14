@@ -236,6 +236,18 @@ build-wippy-linux-amd64:
 		-o ./dist/wippy-linux-amd64 \
 		./cmd/wippy/
 
+.PHONY: build-wippy-linux-amd64-exp
+build-wippy-linux-amd64-exp:
+	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+	GOEXPERIMENT=jsonv2,greenteagc \
+	go build --tags "fts5 sqlite_vec" \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-buildmode=pie \
+		-o ./dist/wippy-linux-amd64-exp \
+		./cmd/wippy/
+
 .PHONY: build-wippy-darwin-amd64
 build-wippy-darwin-amd64:
 	mkdir -p ./dist

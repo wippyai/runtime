@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/hashicorp/go-msgpack/codec"
+	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 )
@@ -180,12 +180,18 @@ func registerPIDExtension(mh *codec.MsgpackHandle) error {
 		reflect.TypeOf(pubsub.PID{}),
 		1, // extension tag
 		// Encode function: reflect.Value -> []byte
+		// Note: v2 passes structs as pointers to the encode function
 		func(v reflect.Value) ([]byte, error) {
-			// Extract the PID from reflect.Value
-			pid, ok := v.Interface().(pubsub.PID)
-			if !ok {
-				return nil, fmt.Errorf("expected pubsub.PID, got %T", v.Interface())
+			// For struct types, v2 passes a pointer to the value
+			var pid *pubsub.PID
+			if v.Kind() == reflect.Ptr {
+				pid = v.Interface().(*pubsub.PID)
+			} else {
+				// Fallback for non-pointer case
+				p := v.Interface().(pubsub.PID)
+				pid = &p
 			}
+
 			// Convert PID string representation to bytes
 			return []byte(pid.String()), nil
 		},
@@ -197,12 +203,18 @@ func registerPIDExtension(mh *codec.MsgpackHandle) error {
 				return fmt.Errorf("failed to parse PID: %w", err)
 			}
 
-			// Set the parsed PID into the reflect.Value
-			if !v.CanSet() {
-				return fmt.Errorf("cannot set PID value: value is not settable")
+			// v2 passes a pointer for struct types
+			if v.Kind() == reflect.Ptr {
+				if !v.Elem().CanSet() {
+					return fmt.Errorf("cannot set PID value: value is not settable")
+				}
+				v.Elem().Set(reflect.ValueOf(pid))
+			} else {
+				if !v.CanSet() {
+					return fmt.Errorf("cannot set PID value: value is not settable")
+				}
+				v.Set(reflect.ValueOf(pid))
 			}
-
-			v.Set(reflect.ValueOf(pid))
 			return nil
 		},
 	)

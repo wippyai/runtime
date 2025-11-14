@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ponyruntime/pony/api/boot"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/entry"
@@ -92,14 +93,60 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 		}
 	}
 
-	// Process each requirement
+	// Process each requirement, collecting warnings instead of failing
+	warnings := []linkWarning{}
 	for _, req := range requirements {
 		if err := s.processRequirement(req, dependencies, entries, mutator); err != nil {
-			return err
+			warnings = append(warnings, linkWarning{
+				requirement: req.entry.ID.String(),
+				err:         err,
+			})
+		}
+	}
+
+	// If there are warnings, store them in context and continue
+	if len(warnings) > 0 {
+		if ac := ctxapi.AppFromContext(ctx); ac != nil {
+			ac.With(linkWarningsKey, warnings)
 		}
 	}
 
 	return nil
+}
+
+type linkWarning struct {
+	requirement string
+	err         error
+}
+
+var linkWarningsKey = &ctxapi.Key{Name: "boot.link.warnings"}
+
+// LinkWarning represents a warning from the link stage
+type LinkWarning struct {
+	Requirement string
+	Error       string
+}
+
+// GetLinkWarnings retrieves link warnings from the context
+func GetLinkWarnings(ctx context.Context) []LinkWarning {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+
+	warnings, ok := ac.Get(linkWarningsKey).([]linkWarning)
+	if !ok {
+		return nil
+	}
+
+	result := make([]LinkWarning, len(warnings))
+	for i, w := range warnings {
+		result[i] = LinkWarning{
+			Requirement: w.requirement,
+			Error:       w.err.Error(),
+		}
+	}
+	return result
 }
 
 type decodedRequirement struct {

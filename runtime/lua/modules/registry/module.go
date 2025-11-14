@@ -447,7 +447,7 @@ func (m *Module) registryFind(l *lua.LState) int {
 	meta := convertFilterToMetadata(l, filterTable)
 
 	// Create finder
-	finder := registry.NewFinder(reg)
+	finder := registry.NewFinder(reg, m.log)
 
 	// Find entries
 	entries, err := finder.Find(meta)

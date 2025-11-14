@@ -39,6 +39,8 @@ func NewRegistry(
 		currentVersion: version.FromParent(nil, 0), // initial version
 	}
 
+	reg.versionNum.Store(0)
+
 	return reg
 }
 
