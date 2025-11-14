@@ -13,6 +13,7 @@ type PathConfig struct {
 	Path          string
 	Description   string
 	AllowWildcard bool
+	segments      []string // cached path segments for performance
 }
 
 // Resolver manages dependency pattern extraction from registry entries.
@@ -32,7 +33,8 @@ func NewResolver() *Resolver {
 }
 
 // RegisterPattern adds a new dependency extraction pattern.
-// Returns error if pattern is invalid or already registered.
+// Returns error if pattern is invalid.
+// Allows duplicate patterns from different components.
 // Implements registry.DependencyResolver interface.
 func (r *Resolver) RegisterPattern(pattern registry.DependencyPattern) error {
 	if pattern.Path == "" {
@@ -42,19 +44,14 @@ func (r *Resolver) RegisterPattern(pattern registry.DependencyPattern) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Check for duplicates
-	for _, p := range r.patterns {
-		if p.Path == pattern.Path {
-			return fmt.Errorf("pattern %q already registered", pattern.Path)
-		}
-	}
-
-	// Convert to internal PathConfig
-	r.patterns = append(r.patterns, PathConfig{
+	// Convert to internal PathConfig with cached segments
+	pathCfg := PathConfig{
 		Path:          pattern.Path,
 		Description:   pattern.Description,
 		AllowWildcard: pattern.AllowWildcard,
-	})
+		segments:      strings.Split(pattern.Path, "."),
+	}
+	r.patterns = append(r.patterns, pathCfg)
 	return nil
 }
 
@@ -82,25 +79,26 @@ func (r *Resolver) Extract(entry registry.Entry) []string {
 func (r *Resolver) fetchDeps(entry registry.Entry) []string {
 	combined := make(map[string]interface{})
 
-	// Merge meta
-	for k, v := range entry.Meta {
-		combined["meta."+k] = v
+	if len(entry.Meta) > 0 {
+		combined["meta"] = map[string]interface{}(entry.Meta)
 	}
 
-	// Merge data - get the underlying data from payload
 	if entry.Data != nil {
-		if dataMap, ok := entry.Data.Data().(map[string]interface{}); ok {
-			for k, v := range dataMap {
-				combined["data."+k] = v
-			}
+		payloadData := entry.Data.Data()
+		if payloadData != nil {
+			combined["data"] = payloadData
 		}
 	}
 
-	// Collect all dependencies
-	depSet := make(map[string]struct{})
+	if len(combined) == 0 {
+		return nil
+	}
+
+	// Collect all dependencies using a set for deduplication
+	depSet := make(map[string]struct{}, len(r.patterns)*2)
 
 	for _, pathCfg := range r.patterns {
-		deps := resolverExtractFromPath(combined, pathCfg.Path, pathCfg.AllowWildcard)
+		deps := resolverExtractFromPath(combined, pathCfg)
 		for _, dep := range deps {
 			if dep != "" {
 				depSet[dep] = struct{}{}
@@ -117,49 +115,42 @@ func (r *Resolver) fetchDeps(entry registry.Entry) []string {
 	return result
 }
 
-// getKeys returns keys from a map for debugging
-func getKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+// resolverExtractFromPath extracts string values from a specific path in the data using cached segments.
+func resolverExtractFromPath(data map[string]interface{}, pathCfg PathConfig) []string {
+	if len(pathCfg.segments) == 0 {
+		return nil
 	}
-	return keys
-}
-
-// resolverExtractFromPath extracts string values from a specific path in the data.
-func resolverExtractFromPath(data map[string]interface{}, path string, allowWildcard bool) []string {
-	// Handle wildcards
-	if allowWildcard && strings.Contains(path, "*") {
-		var deps []string
-		for key, value := range data {
-			if resolverMatchPattern(key, path) {
-				deps = append(deps, resolverProcessLeafValue(value)...)
-			}
-		}
-		return deps
-	}
-
-	// Direct lookup for non-wildcard paths since we have flattened keys like "meta.router"
-	if value, exists := data[path]; exists {
-		return resolverProcessLeafValue(value)
-	}
-	return nil
+	return resolverNavigatePath(data, pathCfg.segments, 0, pathCfg.AllowWildcard)
 }
 
 // resolverMatchPattern checks if a key matches a pattern with wildcards.
 func resolverMatchPattern(key, pattern string) bool {
+	if !strings.Contains(pattern, "*") {
+		return key == pattern
+	}
+
+	// Handle *suffix pattern (e.g., *_env, *_id)
+	if strings.HasPrefix(pattern, "*") && !strings.Contains(pattern[1:], "*") {
+		suffix := pattern[1:]
+		return strings.HasSuffix(key, suffix)
+	}
+
+	// Handle prefix* pattern
+	if strings.HasSuffix(pattern, "*") && !strings.Contains(pattern[:len(pattern)-1], "*") {
+		prefix := pattern[:len(pattern)-1]
+		return strings.HasPrefix(key, prefix)
+	}
+
+	// Handle prefix*suffix pattern (e.g., app*_env)
 	if strings.Contains(pattern, "*") {
-		if strings.HasPrefix(pattern, "*") {
-			suffix := strings.TrimPrefix(pattern, "*")
-			return strings.HasSuffix(key, suffix)
-		}
-		if strings.HasSuffix(pattern, "*") {
-			prefix := strings.TrimSuffix(pattern, "*")
-			return strings.HasPrefix(key, prefix)
+		parts := strings.SplitN(pattern, "*", 2)
+		if len(parts) == 2 {
+			prefix, suffix := parts[0], parts[1]
+			return strings.HasPrefix(key, prefix) && strings.HasSuffix(key, suffix) && len(key) >= len(prefix)+len(suffix)
 		}
 	}
 
-	return key == pattern
+	return false
 }
 
 // resolverNavigatePath recursively navigates through nested data structures.
@@ -171,7 +162,7 @@ func resolverNavigatePath(currentData any, segments []string, index int, allowWi
 	segment := segments[index]
 
 	if allowWildcard && (segment == "*" || strings.Contains(segment, "*")) {
-		var deps []string
+		deps := make([]string, 0, 4)
 		if currentMap, ok := currentData.(map[string]any); ok {
 			if index >= len(segments)-1 {
 				for key, value := range currentMap {
@@ -188,6 +179,7 @@ func resolverNavigatePath(currentData any, segments []string, index int, allowWi
 				}
 			}
 		} else if currentArray, ok := currentData.([]any); ok {
+			deps = make([]string, 0, len(currentArray))
 			if index >= len(segments)-1 {
 				for _, item := range currentArray {
 					deps = append(deps, resolverProcessLeafValue(item)...)

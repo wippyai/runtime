@@ -204,7 +204,7 @@ func TestResolver_WildcardPaths(t *testing.T) {
 		"meta": {
 			"groups": ["admin", "user", "moderator"]
 		}
-	}`).ToBeEmpty()
+	}`).ToEqual("admin", "user", "moderator")
 
 	sdk.ExpectDeps(`{
 		"kind": "function.lua",
@@ -225,6 +225,55 @@ func TestResolver_SecurityPaths(t *testing.T) {
 			"token_store": "security:tokens"
 		}
 	}`).ToEqual("security:tokens")
+}
+
+// Test suffix wildcard patterns (*_env, *_id, *_nth)
+func TestResolver_SuffixPatterns(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	sdk.RegisterPattern("data.*_env", "Environment variables", true)
+	sdk.RegisterPattern("data.*_id", "ID fields", true)
+	sdk.RegisterPattern("data.*_nth", "Nth position fields", true)
+
+	sdk.ExpectDeps(`{
+		"kind": "config",
+		"data": {
+			"db_env": "env:database",
+			"api_env": "env:api_keys",
+			"cache_env": "env:redis",
+			"user_id": "user:123",
+			"team_id": "team:456",
+			"position_nth": "5"
+		}
+	}`).ToEqual("env:database", "env:api_keys", "env:redis", "user:123", "team:456", "5")
+
+	sdk.ExpectDeps(`{
+		"kind": "config",
+		"data": {
+			"environment": "prod",
+			"identifier": "abc"
+		}
+	}`).ToBeEmpty()
+}
+
+// Test middle wildcard patterns (prefix*suffix)
+func TestResolver_MiddleWildcardPatterns(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	sdk.RegisterPattern("data.app*_env", "App environment variables", true)
+	sdk.RegisterPattern("data.service*_config", "Service configurations", true)
+
+	sdk.ExpectDeps(`{
+		"kind": "config",
+		"data": {
+			"app_prod_env": "env:production",
+			"app_dev_env": "env:development",
+			"service_api_config": "config:api",
+			"service_db_config": "config:database",
+			"other_env": "env:other",
+			"app_name": "myapp"
+		}
+	}`).ToEqual("env:production", "env:development", "config:api", "config:database")
 }
 
 // Test env pattern extraction
@@ -425,6 +474,71 @@ func TestResolver_EmptyEntry(t *testing.T) {
 
 	deps := resolver.Extract(entry)
 	assert.Empty(t, deps, "Should return empty for entry with no meta or data")
+}
+
+// Test deep nesting scenarios
+func TestResolver_DeepNesting(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+	sdk.RegisterPattern("data.level1.level2.level3.level4.value", "Deep nested value", false)
+
+	sdk.ExpectDeps(`{
+		"kind": "config",
+		"data": {
+			"level1": {
+				"level2": {
+					"level3": {
+						"level4": {
+							"value": "deep:value"
+						}
+					}
+				}
+			}
+		}
+	}`).ToEqual("deep:value")
+}
+
+// Test empty and null value handling
+func TestResolver_EmptyAndNullValues(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+	sdk.RegisterPattern("data.empty_string", "Empty string", false)
+	sdk.RegisterPattern("data.empty_array", "Empty array", true)
+	sdk.RegisterPattern("data.null_value", "Null value", false)
+
+	sdk.ExpectDeps(`{
+		"kind": "config",
+		"data": {
+			"empty_string": "",
+			"empty_array": [],
+			"null_value": null,
+			"valid": "test:value"
+		}
+	}`).ToBeEmpty()
+
+	sdk.RegisterPattern("data.valid", "Valid value", false)
+	sdk.ExpectDeps(`{
+		"kind": "config",
+		"data": {
+			"valid": "test:value"
+		}
+	}`).ToEqual("test:value")
+}
+
+// Test pattern combinations and overlaps
+func TestResolver_PatternOverlaps(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	sdk.RegisterPattern("data.*_env", "All env vars", true)
+	sdk.RegisterPattern("data.db_env", "Specific DB env", false)
+	sdk.RegisterPattern("data.*", "All data fields", true)
+
+	sdk.ExpectDeps(`{
+		"kind": "config",
+		"data": {
+			"db_env": "env:database",
+			"api_env": "env:api",
+			"config": "some:config"
+		}
+	}`).ToEqual("env:database", "env:api", "some:config")
 }
 
 // Test complex nested structure
