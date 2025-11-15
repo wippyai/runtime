@@ -3,7 +3,6 @@ package native
 import (
 	"context"
 	"errors"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"io"
 	"io/fs"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/service/exec"

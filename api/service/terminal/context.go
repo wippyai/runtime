@@ -8,8 +8,8 @@ import (
 	contextapi "github.com/wippyai/runtime/api/context"
 )
 
-// terminalCtx represents the terminal manager context key
-var terminalCtx = &contextapi.Key{Name: "terminal"}
+// TerminalCtxKey represents the terminal manager context key
+var TerminalCtxKey = &contextapi.Key{Name: "terminal"}
 
 // PipeContext holds the standard input/output/error streams for terminal operations.
 type PipeContext struct {
@@ -33,7 +33,7 @@ func GetTerminalContext(ctx context.Context) *PipeContext {
 	if fc == nil {
 		return nil
 	}
-	if val, ok := fc.Get(terminalCtx); ok {
+	if val, ok := fc.Get(TerminalCtxKey); ok {
 		if tc, ok := val.(*PipeContext); ok {
 			return tc
 		}
@@ -47,5 +47,5 @@ func SetTerminalContext(ctx context.Context, tc *PipeContext) error {
 	if fc == nil {
 		return contextapi.ErrNoFrameContext
 	}
-	return fc.Set(terminalCtx, tc)
+	return fc.Set(TerminalCtxKey, tc)
 }

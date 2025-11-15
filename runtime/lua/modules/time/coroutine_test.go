@@ -1,7 +1,6 @@
 package time
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -59,7 +58,7 @@ func TestSleepInCoroutines(t *testing.T) {
 		}
 
 		start := time.Now()
-		result, err := wrapped.Execute(context.Background(), "test_sleep")
+		result, err := wrapped.Execute(newTestContext(), "test_sleep")
 		duration := time.Since(start)
 		if err != nil {
 			t.Fatal(err)

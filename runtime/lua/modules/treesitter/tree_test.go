@@ -9,10 +9,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestTreeMethods(t *testing.T) {
 	logger := zap.NewNop()
@@ -26,7 +33,7 @@ func TestTreeMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -61,7 +68,7 @@ func TestTreeMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -90,7 +97,7 @@ func TestTreeMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -123,7 +130,7 @@ func TestTreeAdditionalMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			
 			-- Test invalid language
@@ -156,7 +163,7 @@ func TestTreeAdditionalMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -188,7 +195,7 @@ func TestTreeTraversal(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -313,7 +320,7 @@ func TestTreeEditOperations(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local code = "func main() {\n\tprint(42)\n}"
 			local tree = treesitter.parse("go", code)
@@ -368,7 +375,7 @@ func TestTreeEditOperations(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local tree = treesitter.parse("go", "package main")
 			
@@ -397,7 +404,7 @@ func TestTreeEditOperations(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			
 			-- Spawn and manipulate multiple trees
@@ -454,7 +461,7 @@ func TestComplexTreeOperations(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -499,7 +506,7 @@ func TestComplexTreeOperations(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				func main() {
@@ -627,7 +634,7 @@ func TestTreeWalking(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
             local treesitter = require("treesitter")
             
             -- Spawn a slightly complex tree

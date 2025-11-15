@@ -14,6 +14,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 func TestTimeAfter(t *testing.T) {
 	logger := zap.NewNop()
 
@@ -110,7 +116,7 @@ func TestTimeAfter(t *testing.T) {
 				runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 				start := time.Now()
-				result, err := runner.Execute(context.Background(), "test")
+				result, err := runner.Execute(newTestContext(), "test")
 
 				if tc.expectError {
 					assert.Error(t, err)
@@ -186,7 +192,7 @@ func TestAfterTimers(t *testing.T) {
 		wrapped := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 		start := time.Now()
-		result, err := wrapped.Execute(context.Background(), "test")
+		result, err := wrapped.Execute(newTestContext(), "test")
 		duration := time.Since(start)
 		require.NoError(t, err)
 
@@ -257,7 +263,7 @@ func TestAfterTimers(t *testing.T) {
 		)
 
 		start := time.Now()
-		result, err := wrapped.Execute(context.Background(), "test")
+		result, err := wrapped.Execute(newTestContext(), "test")
 		duration := time.Since(start)
 		require.NoError(t, err)
 
@@ -300,7 +306,9 @@ func TestAfterTimers(t *testing.T) {
 		done := make(chan struct{})
 		var execErr error
 
-		ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
+		baseCtx := ctxapi.NewRootContext()
+		baseCtx, _ = ctxapi.OpenFrameContext(baseCtx)
+		ctx, cancel := context.WithCancel(baseCtx)
 
 		go func() {
 			defer close(done)
@@ -351,7 +359,7 @@ func TestAfterTimers(t *testing.T) {
 		wrapped := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 		start := time.Now()
-		result, err := wrapped.Execute(context.Background(), "test")
+		result, err := wrapped.Execute(newTestContext(), "test")
 		duration := time.Since(start)
 		require.NoError(t, err)
 
@@ -414,7 +422,7 @@ func TestAfterTimers(t *testing.T) {
 		wrapped := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 		start := time.Now()
-		result, err := wrapped.Execute(context.Background(), "test")
+		result, err := wrapped.Execute(newTestContext(), "test")
 		duration := time.Since(start)
 		require.NoError(t, err)
 

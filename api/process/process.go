@@ -206,7 +206,7 @@ type (
 		// It adds callbacks for process startup and completion events that manage
 		// process registration, monitoring, linking, and cleanup in the topology.
 		// The provided Lifecycle configuration determines the supervision behavior.
-		AttachLifecycle(stdcontext.Context, Lifecycle) stdcontext.Context
+		AttachLifecycle(stdcontext.Context, Lifecycle) stdcontext.Context // todo: find another path?
 	}
 
 	// Host defines the interface for process execution environments.
