@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -130,7 +131,7 @@ func (m *Module) snapshotCreate(l *lua.LState) int {
 	reg := regapi.GetRegistry(l.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("registry not found in context"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "snapshot"))
 		return 2
 	}
 
@@ -138,7 +139,7 @@ func (m *Module) snapshotCreate(l *lua.LState) int {
 	version, err := reg.Current()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "snapshot"))
 		return 2
 	}
 
@@ -146,7 +147,7 @@ func (m *Module) snapshotCreate(l *lua.LState) int {
 	entries, err := reg.GetAllEntries()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "snapshot"))
 		return 2
 	}
 
@@ -174,7 +175,7 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 	reg := regapi.GetRegistry(l.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("registry not found in context"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "snapshot_at"))
 		return 2
 	}
 
@@ -182,7 +183,7 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 	versionID := l.CheckNumber(1)
 	if versionID <= 0 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid version ID"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("invalid version ID"), "snapshot_at"))
 		return 2
 	}
 
@@ -190,7 +191,7 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 	history := reg.History()
 	if history == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("history not available"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("history not available"), "snapshot_at"))
 		return 2
 	}
 
@@ -198,7 +199,7 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 	versions, err := history.Versions()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "snapshot_at"))
 		return 2
 	}
 
@@ -213,7 +214,7 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 
 	if foundVersion == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("version not found"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("version not found"), "snapshot_at"))
 		return 2
 	}
 
@@ -225,7 +226,7 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 	state, err := stateBuilder.BuildState(history, foundVersion)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "snapshot_at"))
 		return 2
 	}
 
@@ -253,7 +254,7 @@ func (m *Module) currentVersion(l *lua.LState) int {
 	reg := regapi.GetRegistry(l.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("registry not found in context"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "current_version"))
 		return 2
 	}
 
@@ -261,7 +262,7 @@ func (m *Module) currentVersion(l *lua.LState) int {
 	version, err := reg.Current()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "current_version"))
 		return 2
 	}
 
@@ -279,7 +280,7 @@ func (m *Module) versions(l *lua.LState) int {
 	reg := regapi.GetRegistry(l.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("registry not found in context"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "versions"))
 		return 2
 	}
 
@@ -287,7 +288,7 @@ func (m *Module) versions(l *lua.LState) int {
 	history := reg.History()
 	if history == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("history not available"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("history not available"), "versions"))
 		return 2
 	}
 
@@ -295,7 +296,7 @@ func (m *Module) versions(l *lua.LState) int {
 	versions, err := history.Versions()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "versions"))
 		return 2
 	}
 
@@ -321,7 +322,7 @@ func (m *Module) applyVersion(l *lua.LState) int {
 	reg := regapi.GetRegistry(l.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("registry not found in context"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "apply_version"))
 		return 2
 	}
 
@@ -330,7 +331,7 @@ func (m *Module) applyVersion(l *lua.LState) int {
 	version, ok := ud.Value.(regapi.Version)
 	if !ok {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("expected version object"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("expected version object"), "apply_version"))
 		return 2
 	}
 
@@ -342,7 +343,7 @@ func (m *Module) applyVersion(l *lua.LState) int {
 	err := reg.ApplyVersion(ctx, version)
 	if err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "apply_version"))
 		return 2
 	}
 
@@ -357,7 +358,7 @@ func (m *Module) historyCreate(l *lua.LState) int {
 	reg := regapi.GetRegistry(l.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("registry not found in context"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "history"))
 		return 2
 	}
 
@@ -365,7 +366,7 @@ func (m *Module) historyCreate(l *lua.LState) int {
 	history := reg.History()
 	if history == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("history not available"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("history not available"), "history"))
 		return 2
 	}
 
@@ -391,7 +392,7 @@ func (m *Module) registryGet(l *lua.LState) int {
 	reg := regapi.GetRegistry(l.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("registry not found in context"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "get"))
 		return 2
 	}
 
@@ -408,7 +409,7 @@ func (m *Module) registryGet(l *lua.LState) int {
 	entry, err := reg.GetEntry(id)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "get"))
 		return 2
 	}
 
@@ -416,7 +417,7 @@ func (m *Module) registryGet(l *lua.LState) int {
 	entryTable, err := entryToLuaTable(l, entry)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "get"))
 		return 2
 	}
 
@@ -431,7 +432,7 @@ func (m *Module) registryFind(l *lua.LState) int {
 	reg := regapi.GetRegistry(l.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("registry not found in context"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "find"))
 		return 2
 	}
 
@@ -439,7 +440,7 @@ func (m *Module) registryFind(l *lua.LState) int {
 	filterTable := l.CheckTable(1)
 	if filterTable == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("filter criteria table required"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("filter criteria table required"), "find"))
 		return 2
 	}
 
@@ -450,7 +451,7 @@ func (m *Module) registryFind(l *lua.LState) int {
 	finder := regapi.GetFinder(l.Context())
 	if finder == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("finder not available in context"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("finder not available in context"), "find"))
 		return 2
 	}
 
@@ -458,7 +459,7 @@ func (m *Module) registryFind(l *lua.LState) int {
 	entries, err := finder.Find(meta)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "find"))
 		return 2
 	}
 
@@ -473,7 +474,7 @@ func (m *Module) registryFind(l *lua.LState) int {
 
 		if err != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(newRegistryOperationError(l, err, "find"))
 			return 2
 		}
 		entriesTable.Append(entryTable)

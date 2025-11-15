@@ -29,8 +29,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod := l.CreateTable(0, 2)
 
 	// Register module functions
-	l.SetField(mod, "new", l.NewFunction(excelNew))
-	l.SetField(mod, "open", l.NewFunction(excelOpen))
+	mod.RawSetString("new", l.NewFunction(excelNew))
+	mod.RawSetString("open", l.NewFunction(excelOpen))
 
 	// Register Workbook type
 	registerWorkbook(l)
@@ -45,7 +45,7 @@ func excelNew(l *lua.LState) int {
 	workbook, err := NewWorkbook()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newExcelOperationError(l, err, "new"))
 		return 2
 	}
 
@@ -73,7 +73,7 @@ func excelOpen(l *lua.LState) int {
 	workbook, err := OpenReader(reader)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newExcelOperationError(l, err, "open"))
 		return 2
 	}
 

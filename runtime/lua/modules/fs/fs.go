@@ -156,17 +156,18 @@ func fsOpen(l *lua.LState) int {
 	file, err := fsInst.fs.OpenFile(resolved, flag, 0644)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// For TestFileErrorHandling, we need to be consistent with what the test expects
 			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("file not found: %s", path)))
+			l.Push(newFSNotFoundError(l, path))
 			return 2
 		}
 		if os.IsPermission(err) {
-			l.RaiseError("permission denied: %s", path)
-			return 0
+			l.Push(lua.LNil)
+			l.Push(newFSPermissionError(l, path, "open"))
+			return 2
 		}
-		l.RaiseError("failed to open file: %s", err)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(newFSIOError(l, err, path, "open"))
+		return 2
 	}
 
 	// Create and return the wrapped file with UoW integration

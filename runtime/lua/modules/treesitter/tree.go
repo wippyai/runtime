@@ -269,7 +269,7 @@ func treeEdit(l *lua.LState) int {
 
 	if err := tree.edit(edit); err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(err.Error()))
+		pushError(l, err)
 		return 2
 	}
 
@@ -365,7 +365,7 @@ func treePrintDotGraph(l *lua.LState) int {
 	r, w, err := os.Pipe()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to create pipe: " + err.Error()))
+		pushErrorString(l, "failed to create pipe: "+err.Error())
 		return 2
 	}
 	defer func() { _ = r.Close(); _ = w.Close() }()
@@ -391,7 +391,7 @@ func treePrintDotGraph(l *lua.LState) int {
 
 	if readErr != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to read DOT graph: " + readErr.Error()))
+		pushErrorString(l, "failed to read DOT graph: "+readErr.Error())
 		return 2
 	}
 

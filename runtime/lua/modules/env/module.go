@@ -76,7 +76,7 @@ func (m *Module) get(l *lua.LState) int {
 	value, err := envRegistry.Get(l.Context(), key)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newEnvOperationError(l, err, "get"))
 		return 2
 	}
 
@@ -119,7 +119,7 @@ func (m *Module) set(l *lua.LState) int {
 	err := envRegistry.Set(l.Context(), key, value)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newEnvOperationError(l, err, "set"))
 		return 2
 	}
 
@@ -144,7 +144,7 @@ func (m *Module) getAll(l *lua.LState) int {
 	variables, err := envRegistry.All(l.Context())
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newEnvOperationError(l, err, "getall"))
 		return 2
 	}
 

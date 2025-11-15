@@ -2,7 +2,6 @@ package crypto
 
 import (
 	"crypto/rand"
-	"fmt"
 
 	"github.com/google/uuid"
 	lua "github.com/yuin/gopher-lua"
@@ -41,7 +40,7 @@ func randomBytes(l *lua.LState) int {
 	_, err := rand.Read(buf)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newCryptoOperationError(l, err, "random_bytes"))
 		return 2
 	}
 
@@ -88,7 +87,7 @@ func randomString(l *lua.LState) int {
 	_, err := rand.Read(buf)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newCryptoOperationError(l, err, "random_string"))
 		return 2
 	}
 
@@ -112,7 +111,7 @@ func randomUUID(l *lua.LState) int {
 	id, err := uuid.NewRandom()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to generate UUID: %v", err)))
+		l.Push(newCryptoOperationError(l, err, "random_uuid"))
 		return 2
 	}
 

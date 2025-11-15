@@ -206,7 +206,7 @@ func TestHTTPModule(t *testing.T) {
 			local http = require("http_client")
 			local response, err = http.get("https://api.example.com/error")
 			assert(response == nil)
-			assert(err:find("network error") ~= nil)
+			assert(tostring(err):find("network error") ~= nil)
 		`, "test")
 
 		assert.NoError(t, err)
@@ -457,7 +457,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 					timeout = "100ms"  -- Very short timeout
 				})
 				assert(response == nil)
-				assert(err:find("context deadline exceeded") ~= nil)
+				assert(tostring(err):find("context deadline exceeded") ~= nil)
 			`, "test")
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
@@ -504,7 +504,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 				timeout = 2  -- 2 second timeout
 			})
 			assert(response == nil)
-			assert(err:find("context deadline exceeded") ~= nil)
+			assert(tostring(err):find("context deadline exceeded") ~= nil)
 		`, "test")
 
 		assert.NoError(t, err)

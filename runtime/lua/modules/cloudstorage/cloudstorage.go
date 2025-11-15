@@ -3,7 +3,6 @@ package cloudstorage
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"time"
 
@@ -87,7 +86,7 @@ func storageListObjects(l *lua.LState) int {
 	result, err := cs.storage.ListObjects(l.Context(), opts)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("cloudstorage.list_objects: %s", err.Error())))
+		l.Push(newCloudStorageOperationError(l, err, "list_objects"))
 		return 2
 	}
 
@@ -122,7 +121,7 @@ func storageDownloadObject(l *lua.LState) int {
 	err := cs.storage.DownloadObject(l.Context(), key, writer, opts)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("cloudstorage.download_object: %s", err.Error())))
+		l.Push(newCloudStorageOperationError(l, err, "download_object"))
 		return 2
 	}
 
@@ -164,7 +163,7 @@ func storageUploadObject(l *lua.LState) int {
 	err := cs.storage.UploadObject(l.Context(), key, reader)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("cloudstorage.upload_object: %s", err.Error())))
+		l.Push(newCloudStorageOperationError(l, err, "upload_object"))
 		return 2
 	}
 
@@ -189,7 +188,7 @@ func storageDeleteObjects(l *lua.LState) int {
 	err := cs.storage.DeleteObjects(l.Context(), keys)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("cloudstorage.delete_objects: %s", err.Error())))
+		l.Push(newCloudStorageOperationError(l, err, "delete_objects"))
 		return 2
 	}
 
@@ -219,7 +218,7 @@ func storagePresignedGetURL(l *lua.LState) int {
 	url, err := cs.storage.PresignedGetURL(l.Context(), key, opts)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("cloudstorage.presigned_get_url: %s", err.Error())))
+		l.Push(newCloudStorageOperationError(l, err, "presigned_get_url"))
 		return 2
 	}
 
@@ -255,7 +254,7 @@ func storagePresignedPutURL(l *lua.LState) int {
 	url, err := cs.storage.PresignedPutURL(l.Context(), key, opts)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("cloudstorage.presigned_put_url: %s", err.Error())))
+		l.Push(newCloudStorageOperationError(l, err, "presigned_put_url"))
 		return 2
 	}
 

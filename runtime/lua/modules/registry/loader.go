@@ -52,10 +52,12 @@ func (m *LoaderModule) Loader(l *lua.LState) int {
 
 	// Register the loader instance metatable
 	mt := l.NewTypeMetatable(loaderInstanceMetatable)
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	methods := l.NewTable()
+	l.SetFuncs(methods, map[string]lua.LGFunction{
 		"load_directory": loaderLoadDirectory,
 		"load_file":      loaderLoadFile,
-	}))
+	})
+	mt.RawSetString("__index", methods)
 
 	// Add the "new" function to the module table
 	mod.RawSetString("new", l.NewFunction(m.createLoader))

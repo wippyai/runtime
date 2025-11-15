@@ -232,7 +232,10 @@ func (v *VM) callFunction(fn lua.LValue, args []lua.LValue) (lua.LValue, error) 
 		if wrapped != nil {
 			return nil, wrapped
 		}
-		return nil, err
+		// Wrap any raw error that wasn't already wrapped (e.g., plain error("msg"))
+		// This ensures ALL errors leaving the VM are WrappedError with proper API error interface
+		wrapped = errors2.WrapError(v.state, err, "")
+		return nil, wrapped
 	}
 
 	var result lua.LValue

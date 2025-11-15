@@ -43,7 +43,7 @@ type Functions struct {
 	hasScope bool
 
 	// Options for function execution (retry, ratelimit, timeout, etc.)
-	options    interface{}
+	options    runtime.Bag
 	hasOptions bool
 }
 
@@ -314,8 +314,15 @@ func (m *Module) withOptions(l *lua.LState) int {
 	// Get options table
 	optionsTable := l.CheckTable(2)
 
-	// Convert Lua table to Go value for storage
-	options := luaconv.ToGoAny(optionsTable)
+	// Convert Lua table to runtime.Bag (which is attrs.Bag, which is map[string]any)
+	optionsData := luaconv.ToGoAny(optionsTable)
+	var options runtime.Bag
+	if dataMap, ok := optionsData.(map[string]any); ok {
+		options = runtime.Bag(dataMap)
+	} else {
+		// If conversion didn't work, create empty bag
+		options = runtime.Bag{}
+	}
 
 	// Create new Functions instance with copied values and new options
 	newFunctions := &Functions{
@@ -399,37 +406,31 @@ func (m *Module) call(l *lua.LState) int {
 	t, err := functions.createTask(l, log)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newFuncsOperationError(l, err, "create_task"))
 		return 2
 	}
 
 	// Wrap in coroutine for execution
 	coroutine.Wrap(l, func() *engine.Update {
-		resultChan, err := functions.funcs.Call(uw.Context(), t)
+		result, err := functions.funcs.Call(uw.Context(), t)
 		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, newFuncsOperationError(l, err, "call")}, nil)
 		}
 
-		select {
-		case result := <-resultChan:
-			if result.Error != nil {
-				return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(result.Error.Error())}, nil)
-			}
-
-			if result.Value != nil {
-				res, err := functions.dtt.Transcode(result.Value, payload.Lua)
-				if err != nil {
-					return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-				}
-
-				return engine.NewUpdate(nil, []lua.LValue{res.Data().(lua.LValue), lua.LNil}, nil)
-			}
-
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
-
-		case <-uw.Context().Done():
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("execution canceled")}, nil)
+		if result.Error != nil {
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, newFuncsOperationError(l, result.Error, "call")}, nil)
 		}
+
+		if result.Value != nil {
+			res, err := functions.dtt.Transcode(result.Value, payload.Lua)
+			if err != nil {
+				return engine.NewUpdate(nil, []lua.LValue{lua.LNil, newFuncsOperationError(l, err, "transcode")}, nil)
+			}
+
+			return engine.NewUpdate(nil, []lua.LValue{res.Data().(lua.LValue), lua.LNil}, nil)
+		}
+
+		return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
 	})
 
 	return -1 // Yield for coroutine
@@ -496,7 +497,7 @@ func (m *Module) async(l *lua.LState) int {
 
 	uw.Run(func(work engine.UnitOfWork) {
 		// Run the function
-		resultChan, err := functions.funcs.Call(ctx, runtimeTask)
+		result, err := functions.funcs.Call(ctx, runtimeTask)
 		if err != nil {
 			_ = cmd.Complete(&runtime.Result{
 				Error: err,
@@ -504,16 +505,11 @@ func (m *Module) async(l *lua.LState) int {
 			return
 		}
 
-		// Wait for result
-		select {
-		case result := <-resultChan:
-			_ = cmd.Complete(&runtime.Result{
-				Value: result.Value,
-				Error: result.Error,
-			})
-		case <-work.Context().Done():
-			_ = cmd.Cancel()
-		}
+		// Complete with result
+		_ = cmd.Complete(&runtime.Result{
+			Value: result.Value,
+			Error: result.Error,
+		})
 	})
 
 	// Return the command object

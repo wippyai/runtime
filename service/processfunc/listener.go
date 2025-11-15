@@ -18,13 +18,11 @@ import (
 	"go.uber.org/zap"
 )
 
-// DefaultHostMeta is the metadata key used to identify the default host for a process
-const DefaultHostMeta = "default_host"
 const DefaultCancelTimeout = 5 * time.Second // Default timeout for process cancellation
 
 // Listener implements registry.EntryListener for bridging processes to functions.
-// It listens for process.* entries with default_host metadata and creates function
-// handlers that start processes and return their results.
+// It listens for process.* entries with options containing default_host and creates
+// function handlers that start processes and return their results.
 type Listener struct {
 	log        *zap.Logger
 	bus        event.Bus
@@ -52,7 +50,19 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 	}
 
 	processIDStr := entry.ID.String()
-	defaultHost := entry.Meta.GetString(DefaultHostMeta, "")
+
+	// Extract options from Meta
+	opts, hasOptions := entry.Meta.GetBag("options")
+	if !hasOptions {
+		// No options means no registration
+		if _, exists := l.registered[processIDStr]; exists {
+			l.unregisterFunction(ctx, entry.ID)
+		}
+		return
+	}
+
+	// Extract default_host from options
+	defaultHost := opts.GetString("default_host", "")
 
 	switch kind {
 	case registry.Create:
@@ -61,7 +71,7 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 			return
 		}
 		// Register function handler
-		l.registerFunction(ctx, entry.ID, defaultHost)
+		l.registerFunction(ctx, entry.ID, defaultHost, opts)
 
 	case registry.Update:
 		// If entry previously had a host but no longer does, unregister it
@@ -75,13 +85,13 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 		// Check if host changed - if so, update registration
 		if existingHost, exists := l.registered[processIDStr]; exists && existingHost != defaultHost {
 			l.unregisterFunction(ctx, entry.ID)
-			l.registerFunction(ctx, entry.ID, defaultHost)
+			l.registerFunction(ctx, entry.ID, defaultHost, opts)
 			return
 		}
 
 		// If not previously registered, register it now
 		if _, exists := l.registered[processIDStr]; !exists {
-			l.registerFunction(ctx, entry.ID, defaultHost)
+			l.registerFunction(ctx, entry.ID, defaultHost, opts)
 		}
 
 	case registry.Delete:
@@ -93,17 +103,17 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 }
 
 // registerFunction registers a process function handler in the function system
-func (l *Listener) registerFunction(ctx context.Context, id registry.ID, hostID relay.HostID) {
+func (l *Listener) registerFunction(ctx context.Context, id registry.ID, hostID relay.HostID, opts registry.Metadata) {
 	handler := l.createProcessHandler(id, hostID)
 
-	// Register the function handler
+	// Register the function handler with options
 	l.bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Register,
 		Path:   id.String(),
 		Data: &function.FuncEntry{
 			Handler: handler,
-			Options: nil,
+			Options: opts,
 		},
 	})
 
@@ -134,15 +144,11 @@ func (l *Listener) unregisterFunction(ctx context.Context, id registry.ID) {
 
 // createProcessHandler creates a function handler that starts a process and returns its result
 func (l *Listener) createProcessHandler(processID registry.ID, hostID relay.HostID) function.Func {
-	return func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
-		// Create result channel
-		resultCh := make(chan *runtime.Result, 1)
-
+	return func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		// Get node from context
 		node := relay.GetNode(ctx)
 		if node == nil {
-			close(resultCh)
-			return resultCh, fmt.Errorf("no relay node found in context")
+			return nil, fmt.Errorf("no relay node found in context")
 		}
 
 		// Create caller PID
@@ -158,9 +164,9 @@ func (l *Listener) createProcessHandler(processID registry.ID, hostID relay.Host
 		// Attach to relay
 		detach, err := node.Attach(callerPID, monitorCh)
 		if err != nil {
-			close(resultCh)
-			return resultCh, fmt.Errorf("failed to attach to relay: %w", err)
+			return nil, fmt.Errorf("failed to attach to relay: %w", err)
 		}
+		defer detach()
 
 		// Start process
 		pid, err := l.procs.Start(ctx, &process.Start{
@@ -174,83 +180,71 @@ func (l *Listener) createProcessHandler(processID registry.ID, hostID relay.Host
 		})
 
 		if err != nil {
-			detach()
-			close(resultCh)
-			return resultCh, fmt.Errorf("failed to start process: %w", err)
+			return nil, fmt.Errorf("failed to start process: %w", err)
 		}
 
 		l.log.Debug("started process function",
 			zap.String("process_id", processID.String()),
 			zap.String("pid", pid.String()))
 
-		// Monitor process exit
-		go func() {
-			defer close(resultCh)
-			defer detach()
-
-			for {
-				select {
-				case <-ctx.Done():
-					// Context canceled - release the monitor first
-					topo := topology.GetTopology(ctx)
-					if topo != nil {
-						if err := topo.Release(callerPID, pid); err != nil {
-							l.log.Warn("failed to release monitor before cancel",
-								zap.String("pid", pid.String()),
-								zap.Error(err))
-						}
-					} else {
-						l.log.Warn("topology not found in context, skipping monitor release")
-					}
-
-					// Send cancel request
-					if err := node.Send(topology.Cancel(
-						callerPID,
-						pid,
-						time.Now().Add(DefaultCancelTimeout),
-					)); err != nil {
-						l.log.Warn("failed to send cancel request",
+		// Monitor process exit (blocking)
+		for {
+			select {
+			case <-ctx.Done():
+				// Context canceled - release the monitor first
+				topo := topology.GetTopology(ctx)
+				if topo != nil {
+					if err := topo.Release(callerPID, pid); err != nil {
+						l.log.Warn("failed to release monitor before cancel",
 							zap.String("pid", pid.String()),
 							zap.Error(err))
 					}
+				} else {
+					l.log.Warn("topology not found in context, skipping monitor release")
+				}
 
-					// Return context error immediately
-					resultCh <- &runtime.Result{
-						Error: ctx.Err(),
-					}
-					return
+				// Send cancel request
+				if err := node.Send(topology.Cancel(
+					callerPID,
+					pid,
+					time.Now().Add(DefaultCancelTimeout),
+				)); err != nil {
+					l.log.Warn("failed to send cancel request",
+						zap.String("pid", pid.String()),
+						zap.Error(err))
+				}
 
-				case batch, ok := <-monitorCh:
-					if !ok {
-						// Channel closed unexpectedly
-						resultCh <- &runtime.Result{
-							Error: fmt.Errorf("monitor channel closed unexpectedly"),
-						}
-						return
-					}
+				// Return context error immediately
+				return &runtime.Result{
+					Error: ctx.Err(),
+				}, nil
 
-					for _, msg := range batch.Messages {
-						if msg.Topic == topology.TopicEvents {
-							for _, p := range msg.Payloads {
-								// Process exit event
-								if e, ok := p.Data().(*topology.ExitEvent); ok {
-									// Forward process result to function result channel
-									l.log.Debug("received exit event from process",
-										zap.String("process_id", processID.String()),
-										zap.String("pid", pid.String()),
-										zap.Error(e.Result.Error))
+			case batch, ok := <-monitorCh:
+				if !ok {
+					// Channel closed unexpectedly
+					return &runtime.Result{
+						Error: fmt.Errorf("monitor channel closed unexpectedly"),
+					}, nil
+				}
 
-									resultCh <- e.Result
-									return
-								}
+				for _, msg := range batch.Messages {
+					if msg.Topic == topology.TopicEvents {
+						for _, p := range msg.Payloads {
+							// Process exit event
+							if e, ok := p.Data().(*topology.ExitEvent); ok {
+								// Return process result
+								l.log.Debug("received exit event from process",
+									zap.String("process_id", processID.String()),
+									zap.String("pid", pid.String()),
+									zap.Error(e.Result.Error))
+
+								return e.Result, nil
 							}
 						}
 					}
 				}
 			}
-		}()
-
-		return resultCh, nil
+		}
 	}
 }
 

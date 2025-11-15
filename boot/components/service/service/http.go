@@ -11,6 +11,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	httpapi "github.com/wippyai/runtime/api/service/http"
 	bootpkg "github.com/wippyai/runtime/boot"
 	bootcore "github.com/wippyai/runtime/boot/components/core/core"
 	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
@@ -90,20 +91,23 @@ func HTTP() boot.Component {
 
 			relayManager := websocketrelay.NewWebSocketRelay(ctx, logger.Named("ws"))
 
-			midFactory := http.NewDefaultMiddlewareFactory(
-				http.WithLogger(logger.Named("http.md")),
-				http.WithMiddlewareCreator(cors.MiddlewareName, cors.CreateCORSMiddleware),
-				http.WithMiddlewareCreator(realip.MiddlewareName, realip.CreateRealIPMiddleware),
-				http.WithMiddlewareCreator("websocket_relay", relayManager.CreateMiddleware),
-				http.WithMiddlewareCreator(tokenstore.MiddlewareName, tokenstore.CreateTokenAuthMiddleware),
-				http.WithMiddlewareCreator(firewall.ResourceMiddlewareName, firewall.CreateResourceFirewallMiddleware),
-				http.WithMiddlewareCreator(firewall.EndpointMiddlewareName, firewall.CreateEndpointFirewallMiddleware),
-			)
+			midRegistry := http.NewMiddlewareRegistry(logger.Named("http.md"))
+
+			// Register built-in middleware
+			_ = midRegistry.Register(cors.MiddlewareName, cors.CreateCORSMiddleware)
+			_ = midRegistry.Register(realip.MiddlewareName, realip.CreateRealIPMiddleware)
+			_ = midRegistry.Register("websocket_relay", relayManager.CreateMiddleware)
+			_ = midRegistry.Register(tokenstore.MiddlewareName, tokenstore.CreateTokenAuthMiddleware)
+			_ = midRegistry.Register(firewall.ResourceMiddlewareName, firewall.CreateResourceFirewallMiddleware)
+			_ = midRegistry.Register(firewall.EndpointMiddlewareName, firewall.CreateEndpointFirewallMiddleware)
+
+			// Store registry in context for other components
+			ctx = httpapi.WithMiddlewareRegistry(ctx, midRegistry)
 
 			manager, err := http.NewManager(
 				dtt,
 				bus,
-				http.NewServerFactory(midFactory),
+				http.NewServerFactory(midRegistry),
 				endpointFactory,
 				staticFactory,
 				logger.Named("http"),

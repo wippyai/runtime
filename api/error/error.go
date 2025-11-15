@@ -22,51 +22,52 @@ type Error interface {
 }
 
 // Kind categorizes errors semantically across all domains.
-type Kind int
+// Uses strings instead of ints for extensibility and better serialization.
+type Kind string
 
 const (
 	// KindUnknown is the default for uncategorized errors.
-	KindUnknown Kind = iota
+	KindUnknown Kind = "Unknown"
 
 	// KindNotFound indicates a resource, key, token, policy, etc. was not found.
 	// Examples: ErrKeyNotFound, ErrTokenNotFound, ErrResourceNotFound
-	KindNotFound
+	KindNotFound Kind = "NotFound"
 
 	// KindAlreadyExists indicates a conflict with existing state.
 	// Examples: ErrKeyExists, ErrConnectionClosed, ErrResourceReleased
-	KindAlreadyExists
+	KindAlreadyExists Kind = "AlreadyExists"
 
 	// KindInvalid indicates validation failures or malformed input.
 	// Examples: ErrInvalidKey, ValidationError, protocol errors
-	KindInvalid
+	KindInvalid Kind = "Invalid"
 
 	// KindPermissionDenied indicates auth failures or locked resources.
 	// Examples: ErrTokenExpired, ErrTokenRevoked, ErrResourceLocked
-	KindPermissionDenied
+	KindPermissionDenied Kind = "PermissionDenied"
 
 	// KindUnavailable indicates temporary failures (network, capacity, throttling).
 	// Examples: network errors, ErrStoreFull, connection issues
-	KindUnavailable
+	KindUnavailable Kind = "Unavailable"
 
 	// KindInternal indicates unexpected system failures or bugs.
 	// Should not be retried without investigation.
-	KindInternal
+	KindInternal Kind = "Internal"
 
 	// KindCanceled indicates user or context cancellation.
 	// Examples: context.Canceled, ErrTerminated
-	KindCanceled
+	KindCanceled Kind = "Canceled"
 
 	// KindConflict indicates conflicts with concurrent operations.
 	// Examples: ErrCAS (compare-and-swap), optimistic locking failures
-	KindConflict
+	KindConflict Kind = "Conflict"
 
 	// KindTimeout indicates operation exceeded time limit.
 	// Examples: context.DeadlineExceeded, operation timeouts
-	KindTimeout
+	KindTimeout Kind = "Timeout"
 
 	// KindRateLimited indicates throttling or rate limiting.
 	// Examples: too many requests, quota exceeded
-	KindRateLimited
+	KindRateLimited Kind = "RateLimited"
 )
 
 // String returns the string representation of the Kind.

@@ -91,7 +91,7 @@ func parseDuration(l *lua.LState) int {
 	duration, err := parseDurationValue(l.Get(1))
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newTimeOperationError(l, err, "parse_duration"))
 		return 2
 	}
 

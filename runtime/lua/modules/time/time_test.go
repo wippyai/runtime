@@ -104,7 +104,7 @@ func TestTimeModule(t *testing.T) {
 				-- Test error case
 				local bad_t, err = time.parse("2006-01-02", "invalid-date")
 				assert(bad_t == nil)
-				assert(type(err) == "string")
+				assert(type(err) == "userdata")
 			`, "test")
 			assert.NoError(t, err)
 		})

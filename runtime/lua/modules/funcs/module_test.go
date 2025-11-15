@@ -40,49 +40,41 @@ type mockExecutor struct {
 	err    error
 }
 
-func (m *mockExecutor) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+func (m *mockExecutor) Call(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 
-	resultChan := make(chan *runtime.Result, 1)
-	go func() {
-		select {
-		case <-ctx.Done():
-			resultChan <- &runtime.Result{Error: ctx.Err()}
-		default:
-			// Apply task context pairs to create execution context
-			execCtx := ctx
-			if len(task.Context) > 0 {
-				var err error
-				execCtx, err = applyTaskContext(ctx, task.Context)
-				if err != nil {
-					resultChan <- &runtime.Result{Error: err}
-					close(resultChan)
-					return
-				}
-			}
-
-			// Check if we have an actor in the context
-			if actor, ok := secapi.GetActor(execCtx); ok {
-				// Return actor ID as result to verify it was passed correctly
-				resultChan <- &runtime.Result{
-					Value: payload.New(fmt.Sprintf("actor:%s", actor.ID)),
-				}
-			} else if scope, ok := secapi.GetScope(execCtx); ok {
-				// Return scope info as result to verify it was passed correctly
-				policies := scope.Policies()
-				resultChan <- &runtime.Result{
-					Value: payload.New(fmt.Sprintf("scope:%d", len(policies))),
-				}
-			} else {
-				resultChan <- m.result
+	select {
+	case <-ctx.Done():
+		return &runtime.Result{Error: ctx.Err()}, nil
+	default:
+		// Apply task context pairs to create execution context
+		execCtx := ctx
+		if len(task.Context) > 0 {
+			var err error
+			execCtx, err = applyTaskContext(ctx, task.Context)
+			if err != nil {
+				return &runtime.Result{Error: err}, nil
 			}
 		}
-		close(resultChan)
-	}()
 
-	return resultChan, nil
+		// Check if we have an actor in the context
+		if actor, ok := secapi.GetActor(execCtx); ok {
+			// Return actor ID as result to verify it was passed correctly
+			return &runtime.Result{
+				Value: payload.New(fmt.Sprintf("actor:%s", actor.ID)),
+			}, nil
+		} else if scope, ok := secapi.GetScope(execCtx); ok {
+			// Return scope info as result to verify it was passed correctly
+			policies := scope.Policies()
+			return &runtime.Result{
+				Value: payload.New(fmt.Sprintf("scope:%d", len(policies))),
+			}, nil
+		} else {
+			return m.result, nil
+		}
+	}
 }
 
 func applyTaskContext(ctx context.Context, pairs []ctxapi.Pair) (context.Context, error) {

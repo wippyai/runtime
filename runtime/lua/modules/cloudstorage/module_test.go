@@ -517,7 +517,7 @@ func TestCloudStorageModule(t *testing.T) {
 			local storage, err = cs.get("nonexistent_storage")
 			assert(storage == nil, "Storage should be nil for nonexistent resource")
 			assert(err ~= nil, "Error should not be nil for nonexistent resource")
-			assert(string.find(err, "failed to acquire resource"), "Error should mention resource acquisition")
+			assert(string.find(tostring(err), "resource not found"), "Error should mention resource not found")
 		`)
 		assert.NoError(t, err, "ErrorHandling test failed")
 	})

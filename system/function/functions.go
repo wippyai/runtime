@@ -98,7 +98,7 @@ func (f *Registry) registerFunction(e event.Event) {
 	// Store the function handler
 	f.handlers.Store(id, reg.Handler)
 
-	// Store options if provided (note: interceptors not fully working yet)
+	// Store options if provided
 	if reg.Options != nil {
 		f.options.Store(id, reg.Options)
 	} else {
@@ -148,10 +148,10 @@ func (f *Registry) sendReject(path event.Path, reason string) {
 	})
 }
 
-// Call runs the given task using its registered handler and returns a channel
-// for receiving the execution result(s). Returns an error if no handler is registered
-// for the task's target or if the handler type is invalid.
-func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (chan *runtimeapi.Result, error) {
+// Call runs the given task using its registered handler synchronously.
+// Returns an error if no handler is registered for the task's target or if the handler type is invalid.
+// Blocks until execution completes or context is cancelled.
+func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.Result, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("nil context")
 	}
@@ -166,21 +166,66 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (chan *runtim
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.ID)
 	}
 
-	// Get or create FrameContext for this function call
+	// Merge preset and runtime options into task.Options before calling interceptors
+	storedOptions, hasPreset := f.options.Load(task.ID)
+	hasRuntime := task.Options != nil
+
+	if hasPreset || hasRuntime {
+		var bag runtimeapi.Bag
+
+		if hasPreset {
+			if presetBag, ok := storedOptions.(runtimeapi.Bag); ok {
+				bag = presetBag
+			}
+		}
+
+		if hasRuntime {
+			if runtimeBag, ok := task.Options.(runtimeapi.Bag); ok {
+				if bag != nil {
+					bag = bag.Merge(runtimeBag)
+				} else {
+					bag = runtimeBag
+				}
+			}
+		}
+
+		if bag != nil {
+			task.Options = bag
+		}
+	}
+
+	// Create executor wrapper that will be called by chain or directly
+	executorFunc := func(ctx context.Context, task runtimeapi.Task) (*runtimeapi.Result, error) {
+		return f.executor(ctx, execHandler, task)
+	}
+
+	// Execute through interceptor chain if available
+	chain := interceptor.GetChain(ctx)
+	if chain != nil {
+		return chain.Execute(ctx, executorFunc, task)
+	}
+
+	return executorFunc(ctx, task)
+}
+
+// executor creates frame context and executes the function handler.
+// This is called as the final step in the interceptor chain or directly if no chain exists.
+func (f *Registry) executor(ctx context.Context, handler function.Func, task runtimeapi.Task) (*runtimeapi.Result, error) {
+	// Create new frame from sealed parent
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
 
 	// Generate PID for this function call
 	gen := pidgen.GetGenerator(ctx)
 	pid := gen.Generate(function.HostID, task.ID)
 
-	// Pre-allocate pairs slice with exact size to avoid reallocation
+	// Pre-allocate pairs slice with exact size
 	pairsLen := 3 + len(task.Context)
 	pairs := make([]ctxapi.Pair, pairsLen)
 	pairs[0] = ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID}
 	pairs[1] = ctxapi.Pair{Key: runtimeapi.FramePIDKey, Value: pid}
 	pairs[2] = ctxapi.Pair{Key: runtimeapi.FrameHostKey, Value: f.host}
 
-	// Add task context overrides (actor, scope, etc.)
+	// Add task context overrides
 	if len(task.Context) > 0 {
 		copy(pairs[3:], task.Context)
 	}
@@ -189,68 +234,8 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (chan *runtim
 		return nil, fmt.Errorf("failed to set frame context: %w", err)
 	}
 
-	// Merge preset and runtime options
-	var mergedOptions interceptor.Options
-	storedOptions, hasPreset := f.options.Load(task.ID)
-	hasRuntime := task.Options != nil
-
-	if hasPreset || hasRuntime {
-		var bag interceptor.Bag
-
-		if hasPreset {
-			if presetOpts, ok := storedOptions.(interceptor.Bag); ok {
-				bag = presetOpts
-			}
-		}
-
-		if hasRuntime {
-			if runtimeOpts, ok := task.Options.(interceptor.Bag); ok {
-				if bag != nil {
-					bag = bag.Merge(runtimeOpts)
-				} else {
-					bag = runtimeOpts
-				}
-			}
-		}
-
-		if bag == nil {
-			bag = interceptor.NewBag()
-		}
-
-		mergedOptions = bag
-
-		// Store options in FrameContext
-		if err := interceptor.SetOptions(ctx, mergedOptions); err != nil {
-			f.logger.Warn("failed to set interceptor options",
-				zap.String("function", task.ID.String()),
-				zap.Error(err))
-		}
-	}
-
-	// Execute through interceptor chain if available
-	chain := interceptor.GetChain(ctx)
-	if chain != nil {
-		ch, err := chain.Execute(ctx, execHandler, task)
-		if err != nil {
-			f.logger.Debug("interceptor chain execution failed",
-				zap.String("function", task.ID.String()),
-				zap.String("pid", pid.String()),
-				zap.Error(err))
-			return nil, err
-		}
-		return ch, nil
-	}
-
-	// Execute handler directly if no chain
-	ch, err := execHandler(ctx, task)
-	if err != nil {
-		f.logger.Error(err.Error(),
-			zap.String("function", task.ID.String()),
-			zap.String("pid", pid.String()))
-		return nil, err
-	}
-
-	return ch, nil
+	// Execute function handler
+	return handler(ctx, task)
 }
 
 // Ensure Registry implements the operation.Registry interface

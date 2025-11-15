@@ -75,7 +75,7 @@ func tokenStoreValidate(l *lua.LState) int {
 	if ts.resource == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("token store is closed"))
+		l.Push(newSecurityResourceError(l, ts.id.String(), "token store is closed"))
 		return 3
 	}
 
@@ -92,7 +92,7 @@ func tokenStoreValidate(l *lua.LState) int {
 	if !securityapi.IsAllowed(l.Context(), "security.token.validate", storeID, meta) {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to validate token in store: " + storeID))
+		l.Push(newSecurityPermissionError(l, storeID, "validate token in store"))
 		return 3
 	}
 
@@ -101,7 +101,7 @@ func tokenStoreValidate(l *lua.LState) int {
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newSecurityOperationError(l, err, "validate_token"))
 		return 3
 	}
 
@@ -124,7 +124,7 @@ func tokenStoreCreate(l *lua.LState) int {
 
 	if ts.resource == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("token store is closed"))
+		l.Push(newSecurityResourceError(l, ts.id.String(), "token store is closed"))
 		return 2
 	}
 
@@ -153,7 +153,7 @@ func tokenStoreCreate(l *lua.LState) int {
 	storeID := ts.id.String()
 	if !securityapi.IsAllowed(l.Context(), "security.token.create", storeID, meta) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to create token for actor: " + actor.ID + " in store: " + storeID))
+		l.Push(newSecurityPermissionError(l, storeID, "create token for actor: "+actor.ID+" in store"))
 		return 2
 	}
 
@@ -169,7 +169,7 @@ func tokenStoreCreate(l *lua.LState) int {
 			expiration, err = time.ParseDuration(exp.String())
 			if err != nil {
 				l.Push(lua.LNil)
-				l.Push(lua.LString("invalid expiration: " + err.Error()))
+				l.Push(newSecurityValidationError(l, "expiration", "invalid duration format"))
 				return 2
 			}
 		case lua.LTNumber:
@@ -180,7 +180,7 @@ func tokenStoreCreate(l *lua.LState) int {
 			fallthrough
 		default:
 			l.Push(lua.LNil)
-			l.Push(lua.LString("expiration must be string or number"))
+			l.Push(newSecurityValidationError(l, "expiration", "must be string or number"))
 			return 2
 		}
 	}
@@ -207,7 +207,7 @@ func tokenStoreCreate(l *lua.LState) int {
 	token, err := ts.tokenStore.Create(l.Context(), actor, scope, details)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to create token: " + err.Error()))
+		l.Push(newSecurityOperationError(l, err, "create_token"))
 		return 2
 	}
 
@@ -224,7 +224,7 @@ func tokenStoreRevoke(l *lua.LState) int {
 
 	if ts.resource == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("token store is closed"))
+		l.Push(newSecurityResourceError(l, ts.id.String(), "token store is closed"))
 		return 2
 	}
 
@@ -239,14 +239,14 @@ func tokenStoreRevoke(l *lua.LState) int {
 	storeID := ts.id.String()
 	if !securityapi.IsAllowed(l.Context(), "security.token.revoke", storeID, meta) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to revoke token in store: " + storeID))
+		l.Push(newSecurityPermissionError(l, storeID, "revoke token in store"))
 		return 2
 	}
 
 	err := ts.tokenStore.Revoke(l.Context(), secapi.Token(token))
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to revoke token: " + err.Error()))
+		l.Push(newSecurityOperationError(l, err, "revoke_token"))
 		return 2
 	}
 

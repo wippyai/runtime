@@ -623,27 +623,27 @@ func TestUpdateErrors(t *testing.T) {
 		function test_update_errors()
 			-- Create an UPDATE without table
 			local update1 = builder.update()
-			
+
 			-- Try to get SQL (should return nil, error)
 			local sql1, err1 = update1:set("name", "John"):to_sql()
-			
+
 			-- Create an UPDATE without SET clauses
 			local update2 = builder.update("users")
-			
+
 			-- Try to get SQL (should return nil, error)
 			local sql2, err2 = update2:to_sql()
-			
+
 			-- Using bad placeholder format with a non-userdata value
 			local update3 = builder.update("users"):set("name", "John")
 			local success, err3 = pcall(function()
 				update3:placeholder_format("invalid")
 			end)
-			
+
 			return {
 				sql1 = sql1,
-				err1 = err1,
+				err1 = tostring(err1),
 				sql2 = sql2,
-				err2 = err2,
+				err2 = tostring(err2),
 				success = success,
 				err3 = err3
 			}

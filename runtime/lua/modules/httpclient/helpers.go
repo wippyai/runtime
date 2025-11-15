@@ -45,7 +45,7 @@ func decodeURI(l *lua.LState) int {
 	if err != nil {
 		// This is a processing error, not an argument error
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHTTPIOError(l, err, "url_decode"))
 		return 2
 	}
 	l.Push(lua.LString(decoded))

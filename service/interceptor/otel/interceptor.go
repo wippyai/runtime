@@ -20,20 +20,19 @@ func New() *Interceptor {
 }
 
 // Handle implements the interceptor interface
-func (i *Interceptor) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
+func (i *Interceptor) Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
 	tracer := otelapi.GetTracer(ctx)
 	if tracer == nil {
 		tracer = otel.GetTracerProvider().Tracer("pony-runtime")
 	}
 	if tracer == nil {
-		return next(ctx)
+		return next(ctx, task)
 	}
 
-	// Get registry ID for span name
-	registryID, ok := runtime.GetFrameID(ctx)
-	spanName := "function_execution"
-	if ok {
-		spanName = registryID.String()
+	// Use task ID for span name
+	spanName := task.ID.String()
+	if spanName == "" {
+		spanName = "function_execution"
 	}
 
 	// Check for parent span from FrameContext
@@ -58,11 +57,14 @@ func (i *Interceptor) Handle(ctx context.Context, next func(context.Context) (*r
 	otelapi.SetSpan(ctx, span)
 
 	// Pass context to next interceptor
-	result, newCtx := next(ctx)
-	if result != nil && result.Error != nil {
+	result, err := next(ctx, task)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	} else if result != nil && result.Error != nil {
 		span.RecordError(result.Error)
 		span.SetStatus(codes.Error, result.Error.Error())
 	}
 
-	return result, newCtx
+	return result, err
 }

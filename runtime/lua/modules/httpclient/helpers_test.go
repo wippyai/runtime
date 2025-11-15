@@ -115,7 +115,9 @@ func TestDecodeURI(t *testing.T) {
 					// Processing error (returns nil, error)
 					assert.Equal(t, 2, n)
 					assert.Equal(t, lua.LNil, l.Get(-2))
-					assert.NotEqual(t, "", l.ToString(-1))
+					// Error is now a structured error (userdata), not a string
+					err := l.Get(-1)
+					assert.NotEqual(t, lua.LNil, err, "error should not be nil")
 				}
 			} else {
 				assert.Equal(t, 1, n)
@@ -270,6 +272,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 			local result, err = http.decode_uri("%invalid")
 			assert(result == nil, "Should return nil for invalid encoded string")
 			assert(err ~= nil, "Should return error message for invalid encoded string")
+			assert(tostring(err):find("invalid") ~= nil, "Error message should contain 'invalid'")
 			
 			-- Test multiple arguments
 			local success, err = pcall(function() http.decode_uri("test", "extra") end)

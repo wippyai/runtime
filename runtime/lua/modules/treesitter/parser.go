@@ -139,7 +139,7 @@ func parserSetLanguage(l *lua.LState) int {
 	err := p.parser.SetLanguage(treesitter.NewLanguage(lang))
 	if err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(err.Error()))
+		pushError(l, err)
 		return 2
 	}
 	p.lang = langInfo
@@ -190,7 +190,7 @@ func parserParse(l *lua.LState) int {
 	tree, err := parser.parseWithContext(uw.Context(), []byte(code), oldTree)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		pushError(l, err)
 		return 2
 	}
 
@@ -286,13 +286,13 @@ func parserSetRanges(l *lua.LState) int {
 
 	if parseError != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(parseError.Error()))
+		pushError(l, parseError)
 		return 2
 	}
 
 	if err := p.SetIncludedRanges(ranges); err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(err.Error()))
+		pushError(l, err)
 		return 2
 	}
 

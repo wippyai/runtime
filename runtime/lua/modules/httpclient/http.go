@@ -205,7 +205,7 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 	resp, err := client.Do(req)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHTTPNetworkError(l, err, req.URL.String(), req.Method))
 		return 2
 	}
 
@@ -227,7 +227,7 @@ func (m *Module) handleStreamResponse(
 	s, err := stream.NewStream(ctx, resp.Body)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHTTPIOError(l, err, "stream creation"))
 		return 2
 	}
 
@@ -246,13 +246,13 @@ func (m *Module) handleRegularResponse(l *lua.LState, resp *http.Response) int {
 
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHTTPIOError(l, err, "read body"))
 		return 2
 	}
 
 	if err := resp.Body.Close(); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHTTPIOError(l, err, "close body"))
 		return 2
 	}
 

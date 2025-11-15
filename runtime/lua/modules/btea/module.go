@@ -56,7 +56,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	models.RegisterProgress(l, mod)
 
 	// communication channel
-	l.SetField(mod, "events", l.NewFunction(m.events))
+	mod.RawSetString("events", l.NewFunction(m.events))
 
 	// Set the module
 	l.Push(mod)

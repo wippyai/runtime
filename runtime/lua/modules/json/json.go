@@ -122,8 +122,8 @@ func (m *Module) Name() string {
 func (m *Module) Loader(l *lua.LState) int {
 	m.once.Do(func() {
 		t := l.NewTable()
-		l.SetField(t, "decode", l.NewFunction(m.decode))
-		l.SetField(t, "encode", l.NewFunction(m.encode))
+		t.RawSetString("decode", l.NewFunction(m.decode))
+		t.RawSetString("encode", l.NewFunction(m.encode))
 		t.Immutable = true
 		m.moduleTable = t
 	})
@@ -135,20 +135,20 @@ func (m *Module) decode(l *lua.LState) int {
 	str, ok := l.Get(1).(lua.LString)
 	if !ok {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
+		l.Push(newJSONInvalidError(l, "string expected", "decode"))
 		return 2
 	}
 
 	if str == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("empty string is not valid JSON"))
+		l.Push(newJSONInvalidError(l, "empty string is not valid JSON", "decode"))
 		return 2
 	}
 
 	value, err := Decode(l, []byte(str))
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newJSONDecodeError(l, err))
 		return 2
 	}
 	l.Push(value)
@@ -165,7 +165,7 @@ func (m *Module) encode(l *lua.LState) int {
 	data, err := EncodeWithOptions(value, &m.Options)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newJSONDecodeError(l, err))
 		return 2
 	}
 	l.Push(lua.LString(data))

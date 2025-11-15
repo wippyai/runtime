@@ -1,7 +1,6 @@
 package yaml
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -57,7 +56,7 @@ func (m *Module) Loader(l *lua.LState) int {
 func (m *Module) encode(l *lua.LState) int {
 	if l.GetTop() < 1 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("missing input table"))
+		l.Push(newYAMLInvalidError(l, "missing input table", "encode"))
 		return 2
 	}
 
@@ -65,7 +64,7 @@ func (m *Module) encode(l *lua.LState) int {
 	luaVal := l.Get(1)
 	if luaVal.Type() != lua.LTTable {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("first argument must be a table"))
+		l.Push(newYAMLInvalidError(l, "first argument must be a table", "encode"))
 		return 2
 	}
 
@@ -97,7 +96,7 @@ func (m *Module) encode(l *lua.LState) int {
 	err := node.Encode(goVal)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("error encoding to YAML node: %v", err)))
+		l.Push(newYAMLEncodeError(l, err))
 		return 2
 	}
 
@@ -112,7 +111,7 @@ func (m *Module) encode(l *lua.LState) int {
 	err = encoder.Encode(&node)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("error marshaling YAML: %v", err)))
+		l.Push(newYAMLEncodeError(l, err))
 		return 2
 	}
 
@@ -196,14 +195,14 @@ func tableToStringSlice(table *lua.LTable) []string {
 func (m *Module) decode(l *lua.LState) int {
 	if l.GetTop() < 1 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("missing input YAML string"))
+		l.Push(newYAMLInvalidError(l, "missing input YAML string", "decode"))
 		return 2
 	}
 
 	yamlStr := l.CheckString(1)
 	if yamlStr == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("first argument must be a string"))
+		l.Push(newYAMLInvalidError(l, "first argument must be a string", "decode"))
 		return 2
 	}
 
@@ -211,14 +210,14 @@ func (m *Module) decode(l *lua.LState) int {
 	err := yaml.Unmarshal([]byte(yamlStr), &data)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("error unmarshaling YAML: %v", err)))
+		l.Push(newYAMLDecodeError(l, err))
 		return 2
 	}
 
 	lv, err := luaconv.GoToLua(data)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("error converting to Lua: %v", err)))
+		l.Push(newYAMLConversionError(l, err, "decode"))
 		return 2
 	}
 

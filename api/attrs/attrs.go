@@ -11,6 +11,7 @@ type Attributes interface {
 	GetBool(key string, def bool) bool
 	GetDuration(key string, def time.Duration) time.Duration
 	GetSlice(key string) []string
+	GetBag(key string) (Bag, bool)
 }
 
 // Bag is a map-based implementation of Attributes.
@@ -118,6 +119,35 @@ func (b Bag) GetSlice(key string) []string {
 		}
 	}
 	return nil
+}
+
+// GetBag retrieves the value as a Bag.
+// It handles three cases:
+//   - If the value is already a Bag, returns it directly
+//   - If the value is a map[string]any, converts it to Bag
+//   - If the value implements Attributes, attempts to convert to Bag
+//
+// Returns (nil, false) if the key doesn't exist or the value cannot be converted to Bag.
+func (b Bag) GetBag(key string) (Bag, bool) {
+	if v, ok := b.Get(key); ok {
+		// Case 1: Already a Bag
+		if bag, ok := v.(Bag); ok {
+			return bag, true
+		}
+
+		// Case 2: map[string]any
+		if m, ok := v.(map[string]any); ok {
+			return Bag(m), true
+		}
+
+		// Case 3: Attributes interface (try type assertion to Bag)
+		if attrs, ok := v.(Attributes); ok {
+			if bag, ok := attrs.(Bag); ok {
+				return bag, true
+			}
+		}
+	}
+	return nil, false
 }
 
 // Merge creates a new Bag with values from both this Bag and other.

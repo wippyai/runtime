@@ -25,35 +25,37 @@ const (
 	Accept event.Kind = "function.accept"
 	// Reject is sent FROM function nodes when a handler registration is rejected
 	Reject event.Kind = "function.reject"
+
+	// InterceptorOptionsKey is the metadata key for interceptor options in function/process configs
+	InterceptorOptionsKey = "options"
 )
 
 type (
-	// Func represents a core function type that processes tasks asynchronously.
-	// It takes a context and task as input and returns a channel for streaming
-	// results and any immediate initialization errors.
+	// Func represents a core function type that processes tasks synchronously.
+	// It takes a context and task as input and returns the result directly.
+	// The function blocks until execution completes or the context is cancelled.
 	//
 	// Parameters:
 	//   - ctx: Context for cancellation and value propagation
 	//   - task: The task to be executed
 	//
 	// Returns:
-	//   - chan *runtime.Result: Channel for streaming execution results, closed on completion
-	//   - error: Any immediate initialization or validation errors
-	Func func(context.Context, runtime.Task) (chan *runtime.Result, error)
+	//   - *runtime.Result: The execution result
+	//   - error: Any execution or validation errors
+	Func func(context.Context, runtime.Task) (*runtime.Result, error)
 
 	// FuncEntry holds both the function handler and its options for registration.
-	// Options should be of type interceptor.Options but using any to avoid import cycle.
 	FuncEntry struct {
 		Handler Func
-		Options any
+		Options runtime.Options
 	}
 
 	// Registry defines the interface for managing and executing functions.
 	// It abstracts the function lookup and execution process, providing a
 	// unified interface for function calls.
 	Registry interface {
-		// Call executes a function identified by the task and returns a channel
-		// for streaming results and any immediate errors.
-		Call(context.Context, runtime.Task) (chan *runtime.Result, error)
+		// Call executes a function identified by the task synchronously and returns
+		// the result directly. Blocks until execution completes or context is cancelled.
+		Call(context.Context, runtime.Task) (*runtime.Result, error)
 	}
 )

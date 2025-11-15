@@ -100,7 +100,7 @@ func wsConnect(l *lua.LState) int {
 	// Verify permission to establish WebSocket connections
 	if !security.IsAllowed(l.Context(), "websocket.connect", "", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to establish WebSocket connection"))
+		l.Push(newWSPermissionError(l, ""))
 		return 2
 	}
 
@@ -178,7 +178,7 @@ func wsConnect(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "websocket.connect.url", url, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to connect to URL: %s", url)))
+		l.Push(newWSPermissionError(l, url))
 		return 2
 	}
 
@@ -211,7 +211,7 @@ func wsConnect(l *lua.LState) int {
 
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newWSNetworkError(l, err, url))
 		return 2
 	}
 
@@ -295,7 +295,7 @@ func wsSend(l *lua.LState) int {
 	client, err := CheckWSClient(l)
 	if err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newWSValidationError(l, err.Error()))
 		return 2
 	}
 
@@ -320,7 +320,7 @@ func wsSend(l *lua.LState) int {
 
 	if err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newWSOperationError(l, err, "send"))
 		return 2
 	}
 
@@ -333,7 +333,7 @@ func wsClose(l *lua.LState) int {
 	client, err := CheckWSClient(l)
 	if err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newWSValidationError(l, err.Error()))
 		return 2
 	}
 
@@ -354,7 +354,7 @@ func wsClose(l *lua.LState) int {
 
 	if closeErr != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(closeErr.Error()))
+		l.Push(newWSOperationError(l, closeErr, "close"))
 		return 2
 	}
 

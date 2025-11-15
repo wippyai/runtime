@@ -1,6 +1,8 @@
 package registry
 
 import (
+	"fmt"
+
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/system/registry/topology"
@@ -36,7 +38,7 @@ func historyVersions(l *lua.LState) int {
 	versions, err := history.hist.Versions()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "versions"))
 		return 2
 	}
 
@@ -65,7 +67,7 @@ func historyGetVersion(l *lua.LState) int {
 	vID := l.CheckNumber(2)
 	if vID <= 0 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid version ID"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("invalid version ID"), "get_version"))
 		return 2
 	}
 
@@ -73,7 +75,7 @@ func historyGetVersion(l *lua.LState) int {
 	versions, err := history.hist.Versions()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "get_version"))
 		return 2
 	}
 
@@ -88,7 +90,7 @@ func historyGetVersion(l *lua.LState) int {
 
 	if foundVersion == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("version not found"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("version not found"), "get_version"))
 		return 2
 	}
 
@@ -112,7 +114,7 @@ func historySnapshotAt(l *lua.LState) int {
 	version, ok := ud.Value.(regapi.Version)
 	if !ok {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("expected version object"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("expected version object"), "snapshot_at"))
 		return 2
 	}
 
@@ -124,7 +126,7 @@ func historySnapshotAt(l *lua.LState) int {
 	state, err := stateBuilder.BuildState(history.hist, version)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "snapshot_at"))
 		return 2
 	}
 

@@ -13,11 +13,12 @@ import (
 // Context keys for storing HTTP-specific values in the request context
 var (
 	// todo: privatize
-	RequestCtx        = &ctxapi.Key{Name: "http.request"}
-	RouteCtx          = &ctxapi.Key{Name: "http.route"}
-	ContextServerID   = &ctxapi.Key{Name: "http.server_id"}
-	ContextHost       = &ctxapi.Key{Name: "http.server.host"}
-	EndpointConfigCtx = &ctxapi.Key{Name: "http.endpoint_config"}
+	RequestCtx         = &ctxapi.Key{Name: "http.request"}
+	RouteCtx           = &ctxapi.Key{Name: "http.route"}
+	ContextServerID    = &ctxapi.Key{Name: "http.server_id"}
+	ContextHost        = &ctxapi.Key{Name: "http.server.host"}
+	EndpointConfigCtx  = &ctxapi.Key{Name: "http.endpoint_config"}
+	middlewareRegistry = &ctxapi.Key{Name: "http.middleware_registry"}
 )
 
 // RouteInfo contains information about the matched route for the current request.
@@ -104,4 +105,40 @@ func (h *RequestContext) SetResponseWriter(w http.ResponseWriter) {
 // ResetHandled resets the response handled flag (for pooling)
 func (h *RequestContext) ResetHandled() {
 	h.responseHandled = false
+}
+
+// MiddlewareCreator is a function that creates a middleware handler from options
+type MiddlewareCreator = func(options map[string]string) func(http.Handler) http.Handler
+
+// MiddlewareRegistry defines the interface for HTTP middleware registration
+type MiddlewareRegistry interface {
+	Register(name string, creator MiddlewareCreator) error
+	Unregister(name string) error
+	CreateMiddleware(name string, options map[string]string) (func(http.Handler) http.Handler, error)
+}
+
+// WithMiddlewareRegistry adds the middleware registry to the context
+func WithMiddlewareRegistry(ctx context.Context, registry MiddlewareRegistry) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(middlewareRegistry) == nil {
+		ac.With(middlewareRegistry, registry)
+	}
+	return ctx
+}
+
+// GetMiddlewareRegistry retrieves the middleware registry from the context
+func GetMiddlewareRegistry(ctx context.Context) MiddlewareRegistry {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if val := ac.Get(middlewareRegistry); val != nil {
+		if registry, ok := val.(MiddlewareRegistry); ok {
+			return registry
+		}
+	}
+	return nil
 }

@@ -362,7 +362,7 @@ func (m *Module) contextSpawn(l *lua.LState) int {
 	pid, err := manager.Start(ctx, start)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "spawn"))
 		return 2
 	}
 
@@ -449,7 +449,7 @@ func (m *Module) contextSpawnMonitored(l *lua.LState) int {
 	pid, err := manager.Start(ctx, start)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "spawn_monitored"))
 		return 2
 	}
 
@@ -536,7 +536,7 @@ func (m *Module) contextSpawnLinked(l *lua.LState) int {
 	pid, err := manager.Start(ctx, start)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "spawn_linked"))
 		return 2
 	}
 
@@ -629,7 +629,7 @@ func (m *Module) contextSpawnLinkedMonitored(l *lua.LState) int {
 	pid, err := manager.Start(ctx, start)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "spawn_linked_monitored"))
 		return 2
 	}
 

@@ -79,7 +79,7 @@ func apiGet(l *lua.LState) int {
 	res, err := reg.Acquire(uw.Context(), resID, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
+		l.Push(newCloudStorageOperationError(l, err, "acquire_resource"))
 		return 2
 	}
 
@@ -95,7 +95,7 @@ func apiGet(l *lua.LState) int {
 		res.Release()
 
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to get resource: %v", err)))
+		l.Push(newCloudStorageOperationError(l, err, "get_resource"))
 		return 2
 	}
 
@@ -106,7 +106,7 @@ func apiGet(l *lua.LState) int {
 		res.Release()
 
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("resource is not a cloud storage provider: %T", storageRes)))
+		l.Push(newCloudStorageOperationError(l, fmt.Errorf("resource is not a cloud storage provider: %T", storageRes), "type_check"))
 		return 2
 	}
 

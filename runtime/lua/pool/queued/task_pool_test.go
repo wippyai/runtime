@@ -77,17 +77,12 @@ func createTestTask(id string, args ...interface{}) runtime.Task {
 	}
 }
 
-// waitForResult waits for a result from the given channel with timeout
-func waitForResult(_ testing.TB, resultChan chan *runtime.Result, timeout time.Duration) (*runtime.Result, error) {
-	select {
-	case result, ok := <-resultChan:
-		if !ok {
-			return nil, fmt.Errorf("result channel closed unexpectedly")
-		}
-		return result, nil
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("timeout waiting for result")
-	}
+// executeWithTimeout executes a task with timeout
+func executeWithTimeout(ctx context.Context, p *TaskPool, task runtime.Task, timeout time.Duration) (*runtime.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	return p.Execute(ctx, task)
 }
 
 func TestTaskPool_Execute_Basic(t *testing.T) {
@@ -103,10 +98,7 @@ func TestTaskPool_Execute_Basic(t *testing.T) {
 	ctx = setupTestContext(ctx)
 
 	task := createTestTask("test", lua.LString("hello"))
-	resultChan, err := p.Execute(ctx, task)
-	require.NoError(t, err)
-
-	result, err := waitForResult(t, resultChan, 5*time.Second)
+	result, err := executeWithTimeout(ctx, p, task, 5*time.Second)
 	require.NoError(t, err)
 	require.NoError(t, result.Error)
 
@@ -159,10 +151,7 @@ func TestTaskPool_Execute_Failure(t *testing.T) {
 
 	// Run failing function
 	task := createTestTask("fail", lua.LNil)
-	resultChan, err := p.Execute(ctx, task)
-	require.NoError(t, err)
-
-	result, err := waitForResult(t, resultChan, 5*time.Second)
+	result, err := executeWithTimeout(ctx, p, task, 5*time.Second)
 	require.NoError(t, err)
 	assert.Error(t, result.Error)
 	assert.Contains(t, result.Error.Error(), "intentional failure")
@@ -178,10 +167,7 @@ func TestTaskPool_Execute_Failure(t *testing.T) {
 
 	// Verify pool still works
 	task = createTestTask("test", lua.LString("test"))
-	resultChan, err = p2.Execute(ctx2, task)
-	require.NoError(t, err)
-
-	result, err = waitForResult(t, resultChan, 5*time.Second)
+	result, err = executeWithTimeout(ctx2, p2, task, 5*time.Second)
 	require.NoError(t, err)
 	require.NoError(t, result.Error)
 
@@ -212,13 +198,7 @@ func TestTaskPool_ParallelExecution(t *testing.T) {
 			ctx = setupTestContext(ctx)
 
 			task := createTestTask("test", lua.LString(fmt.Sprintf("job-%d", id)))
-			resultChan, err := p.Execute(ctx, task)
-			if err != nil {
-				results <- fmt.Sprintf("error-%d", id)
-				return
-			}
-
-			result, err := waitForResult(t, resultChan, 5*time.Second)
+			result, err := executeWithTimeout(ctx, p, task, 5*time.Second)
 			if err != nil || result.Error != nil {
 				results <- fmt.Sprintf("error-%d", id)
 				return
@@ -278,13 +258,12 @@ func TestTaskPool_WorkerDistribution(t *testing.T) {
 			ctx = setupTestContext(ctx)
 
 			task := createTestTask("get_id", lua.LNil)
-			resultChan, err := p.Execute(ctx, task)
+			result, err := executeWithTimeout(ctx, p, task, 5*time.Second)
 			if err != nil {
 				return
 			}
 
-			result, err := waitForResult(t, resultChan, 5*time.Second)
-			if err != nil || result.Error != nil {
+			if result.Error != nil {
 				return
 			}
 
@@ -336,12 +315,7 @@ func TestTaskPool_StressTest(t *testing.T) {
 					ctx = setupTestContext(ctx)
 
 					task := createTestTask("test", lua.LString(fmt.Sprintf("job-%d", id)))
-					resultChan, err := p.Execute(ctx, task)
-					if err != nil {
-						return
-					}
-
-					result, err := waitForResult(t, resultChan, 2*time.Second)
+					result, err := executeWithTimeout(ctx, p, task, 2*time.Second)
 					if err == nil && result != nil && result.Error == nil {
 						successCount.Add(1)
 					}
@@ -391,13 +365,7 @@ func TestTaskPool_QueueBehavior(t *testing.T) {
 			ctx = setupTestContext(ctx)
 
 			task := createTestTask("sleep", lua.LNil)
-			resultChan, err := p.Execute(ctx, task)
-			if err != nil {
-				results <- fmt.Sprintf("error-%d", id)
-				return
-			}
-
-			result, err := waitForResult(t, resultChan, 5*time.Second)
+			result, err := executeWithTimeout(ctx, p, task, 5*time.Second)
 			if err != nil || result.Error != nil {
 				results <- fmt.Sprintf("error-%d", id)
 				return
@@ -448,12 +416,7 @@ func BenchmarkTaskPool_Execute(b *testing.B) {
 			ctx := newTestContext()
 			ctx = setupTestContext(ctx)
 			ctx = logs.WithLogger(ctx, zap.NewNop())
-			resultChan, err := p.Execute(ctx, task)
-			if err != nil {
-				b.Fatal(err)
-			}
-
-			result, err := waitForResult(b, resultChan, 1*time.Second)
+			result, err := executeWithTimeout(ctx, p, task, 1*time.Second)
 			if err != nil {
 				b.Fatal(err)
 			}

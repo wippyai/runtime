@@ -97,7 +97,7 @@ func setupManager(t *testing.T) (*Manager, context.Context) {
 	fsRegistry := NewSimpleFSRegistry()
 
 	// Create middleware factory
-	middlewareFactory := NewDefaultMiddlewareFactory()
+	middlewareFactory := NewMiddlewareRegistry(zap.NewNop()))
 
 	// Create temporary files directory
 	tempDir, cleanup := createManagerTempDir(t, map[string]string{
@@ -139,7 +139,7 @@ func TestManager_NewManager(t *testing.T) {
 	transcoder := NewSimpleTranscoder()
 	functionRegistry := NewSimpleFunctionRegistry()
 	fsRegistry := NewSimpleFSRegistry()
-	middlewareFactory := NewDefaultMiddlewareFactory()
+	middlewareFactory := NewMiddlewareRegistry(zap.NewNop()))
 
 	serverFactory := NewServerFactory(middlewareFactory)
 	endpointFactory, _ := NewEndpointFactory(functionRegistry)
@@ -277,7 +277,7 @@ func TestManager_RouterOperations(t *testing.T) {
 
 	functionRegistry := NewSimpleFunctionRegistry()
 	fsRegistry := NewSimpleFSRegistry()
-	middlewareFactory := NewDefaultMiddlewareFactory()
+	middlewareFactory := NewMiddlewareRegistry(zap.NewNop()))
 
 	tempDir, cleanup := createManagerTempDir(t, map[string]string{
 		"index.html": "<html><body>Test</body></html>",

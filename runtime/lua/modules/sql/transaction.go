@@ -123,7 +123,7 @@ func txQuery(l *lua.LState) int {
 	params, err := sqlutil.CheckParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newSQLTransactionError(l, err, "commit"))
 		return 2
 	}
 
@@ -208,7 +208,7 @@ func txExecute(l *lua.LState) int {
 	params, err := sqlutil.CheckParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newSQLTransactionError(l, err, "commit"))
 		return 2
 	}
 

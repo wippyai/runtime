@@ -78,7 +78,7 @@ func TestServerService_Basic(t *testing.T) {
 		}
 
 		id := registry.ID{NS: "test", Name: "server1"}
-		middleware := NewDefaultMiddlewareFactory()
+		middleware := NewMiddlewareRegistry(zap.NewNop()))
 		server, err := NewServerService(id, cfg, middleware)
 		require.NoError(t, err)
 
@@ -99,7 +99,7 @@ func TestServerService_Basic(t *testing.T) {
 		}
 
 		id := registry.ID{NS: "test", Name: "server1"}
-		middleware := NewDefaultMiddlewareFactory()
+		middleware := NewMiddlewareRegistry(zap.NewNop()))
 		server, err := NewServerService(id, cfg, middleware)
 		require.NoError(t, err)
 
@@ -166,7 +166,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 	}
 
 	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewDefaultMiddlewareFactory()
+	middleware := NewMiddlewareRegistry(zap.NewNop()))
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
@@ -292,7 +292,7 @@ func TestServerService_StartStop(t *testing.T) {
 	}
 
 	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewDefaultMiddlewareFactory()
+	middleware := NewMiddlewareRegistry(zap.NewNop()))
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
@@ -392,8 +392,8 @@ func TestServerService_Middleware(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "server1"}
 
 	// Create middleware factory for the test
-	middlewareFactory := NewDefaultMiddlewareFactory(
-		WithMiddlewareCreator("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
+	middlewareFactory := NewMiddlewareRegistry(zap.NewNop())
+		RegisterCreator("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
 			return func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					// Pass through any existing request ID
@@ -407,7 +407,7 @@ func TestServerService_Middleware(t *testing.T) {
 				})
 			}
 		}),
-		WithMiddlewareCreator("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
+		RegisterCreator("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
 			return func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					// Simple pass-through middleware for testing
@@ -519,7 +519,7 @@ func TestEnsureRunning(t *testing.T) {
 	}
 
 	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewDefaultMiddlewareFactory()
+	middleware := NewMiddlewareRegistry(zap.NewNop()))
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
@@ -575,7 +575,7 @@ func TestContextListener(t *testing.T) {
 	}
 
 	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewDefaultMiddlewareFactory()
+	middleware := NewMiddlewareRegistry(zap.NewNop()))
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 

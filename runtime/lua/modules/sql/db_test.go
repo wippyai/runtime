@@ -181,7 +181,7 @@ func TestDBGetNotFound(t *testing.T) {
 		function test_db_get_not_found()
 			local sql = require("sql")
 			local db, err = sql.get("nonexistent_resource")
-			if err then return err else return "no error" end
+			if err then return tostring(err) else return "no error" end
 		end
 	`, "test", "test_db_get_not_found")
 	require.NoError(t, err)
@@ -190,7 +190,7 @@ func TestDBGetNotFound(t *testing.T) {
 	require.NoError(t, err)
 	errMsg, ok := result.(lua.LString)
 	require.True(t, ok)
-	assert.Contains(t, string(errMsg), "failed to acquire resource")
+	assert.Contains(t, string(errMsg), "resource not found")
 }
 
 // TestDBQueryNoResults verifies that a query returning no rows is handled correctly.

@@ -64,20 +64,20 @@ func TestSelectBasic(t *testing.T) {
 			-- Create a basic SELECT builder
 			local select = builder.select("id", "name", "email")
 				:from("users")
-			
+
 			-- Convert to SQL
 			local sql, args = select:to_sql()
-			
+
 			-- Empty SELECT builder (should error)
 			local empty_select = builder.select()
 			local empty_sql, empty_error = empty_select:to_sql()
-			
+
 			return {
 				sql = sql,
 				args = args,
 				args_count = #args,
 				empty_sql = empty_sql,
-				empty_error = empty_error
+				empty_error = tostring(empty_error)
 			}
 		end
 	`, "test", "test_select_basic")
@@ -683,20 +683,20 @@ func TestSelectErrors(t *testing.T) {
 			-- Empty SELECT (no columns)
 			local select1 = builder.select()
 			local sql1, err1 = select1:to_sql()
-			
+
 			-- Using bad placeholder format with a non-userdata value
 			local select2 = builder.select("id"):from("users")
 			local success, err2 = pcall(function()
 				select2:placeholder_format("invalid")
 			end)
-			
+
 			-- Missing FROM clause (actually valid in SQL but common error source)
 			local select3 = builder.select("COUNT(*)")
 			local sql3, err3 = select3:to_sql()
-			
+
 			return {
 				sql1 = sql1,
-				err1 = err1,
+				err1 = tostring(err1),
 				success = success,
 				err2 = err2,
 				sql3 = sql3

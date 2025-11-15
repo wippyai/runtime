@@ -84,17 +84,12 @@ func createTestTask(id string, args ...interface{}) runtime.Task {
 	}
 }
 
-// waitForResult waits for a result from the given channel with timeout
-func waitForResult(_ testing.TB, resultChan chan *runtime.Result, timeout time.Duration) (*runtime.Result, error) {
-	select {
-	case result, ok := <-resultChan:
-		if !ok {
-			return nil, fmt.Errorf("result channel closed unexpectedly")
-		}
-		return result, nil
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("timeout waiting for result")
-	}
+// executeWithTimeout executes a task with timeout
+func executeWithTimeout(ctx context.Context, p *TaskPool, task runtime.Task, timeout time.Duration) (*runtime.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	return p.Execute(ctx, task)
 }
 
 // TestFactory is a mock factory for testing
@@ -170,10 +165,7 @@ func TestFlexPool_Execute_Basic(t *testing.T) {
 	ctx = setupTestContext(ctx)
 
 	task := createTestTask("test", lua.LString("hello"))
-	resultChan, err := p.Execute(ctx, task)
-	require.NoError(t, err)
-
-	result, err := waitForResult(t, resultChan, 5*time.Second)
+	result, err := executeWithTimeout(ctx, p, task, 5*time.Second)
 	require.NoError(t, err)
 	require.NoError(t, result.Error)
 
@@ -213,13 +205,9 @@ func TestFlexPool_Execute_FactoryFailure(t *testing.T) {
 	ctx := setupTestContext(ctxapi.NewRootContext())
 	task := createTestTask("test", lua.LNil)
 
-	resultChan, err := p.Execute(ctx, task)
-	require.NoError(t, err)
-
-	result, err := waitForResult(t, resultChan, 5*time.Second)
-	require.NoError(t, err)
-	assert.Error(t, result.Error)
-	assert.Contains(t, result.Error.Error(), "factory failure")
+	_, err = executeWithTimeout(ctx, p, task, 5*time.Second)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "factory failure")
 }
 
 // TestFlexPool_Execute_VMFailure tests handling of VM execution failures
@@ -233,13 +221,9 @@ func TestFlexPool_Execute_VMFailure(t *testing.T) {
 	ctx := setupTestContext(ctxapi.NewRootContext())
 	task := createTestTask("fail", lua.LNil)
 
-	resultChan, err := p.Execute(ctx, task)
-	require.NoError(t, err)
-
-	result, err := waitForResult(t, resultChan, 5*time.Second)
-	require.NoError(t, err)
-	assert.Error(t, result.Error)
-	assert.Contains(t, result.Error.Error(), "intentional failure")
+	_, err = executeWithTimeout(ctx, p, task, 5*time.Second)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "intentional failure")
 }
 
 // TestFlexPool_ParallelExecution tests parallel execution
@@ -265,13 +249,7 @@ func TestFlexPool_ParallelExecution(t *testing.T) {
 			defer cancel()
 
 			task := createTestTask("test", lua.LString(fmt.Sprintf("job-%d", id)))
-			resultChan, err := p.Execute(ctx, task)
-			if err != nil {
-				results <- fmt.Sprintf("error-%d", id)
-				return
-			}
-
-			result, err := waitForResult(t, resultChan, 5*time.Second)
+			result, err := executeWithTimeout(ctx, p, task, 5*time.Second)
 			if err != nil || result.Error != nil {
 				results <- fmt.Sprintf("error-%d", id)
 				return
@@ -315,10 +293,7 @@ func TestFlexPool_VMNotReused(t *testing.T) {
 	// Run multiple times - should get incrementing IDs from same VM
 	for i := 0; i < 5; i++ {
 		task := createTestTask("get_id", lua.LNil)
-		resultChan, err := p.Execute(ctx, task)
-		require.NoError(t, err)
-
-		result, err := waitForResult(t, resultChan, 5*time.Second)
+		result, err := executeWithTimeout(ctx, p, task, 5*time.Second)
 		require.NoError(t, err)
 		require.NoError(t, result.Error)
 
@@ -355,15 +330,14 @@ func TestFlexPool_Concurrency(t *testing.T) {
 			defer wg.Done()
 
 			task := createTestTask("sleep", lua.LNil)
-			resultChan, err := p.Execute(ctx, task)
+			result, err := p.Execute(ctx, task)
 			if err != nil {
 				t.Logf("Error executing task: %v", err)
 				return
 			}
-
-			_, err = waitForResult(t, resultChan, 5*time.Second)
-			if err != nil {
-				t.Logf("Error waiting for result: %v", err)
+			if result.Error != nil {
+				t.Logf("Task execution error: %v", result.Error)
+				return
 			}
 		}()
 	}
@@ -393,12 +367,7 @@ func BenchmarkFlexPool_Execute(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			ctx := logs.WithLogger(baseCtx, zap.NewNop())
-			resultChan, err := p.Execute(ctx, task)
-			if err != nil {
-				b.Fatal(err)
-			}
-
-			result, err := waitForResult(b, resultChan, 1*time.Second)
+			result, err := p.Execute(ctx, task)
 			if err != nil {
 				b.Fatal(err)
 			}

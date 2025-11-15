@@ -269,7 +269,7 @@ func (m *Module) getContract(l *lua.LState) int {
 	// Security check for contract access permission
 	if !security.IsAllowed(l.Context(), PermissionContractGet, contractID, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to access contract"))
+		l.Push(newContractOperationError(l, fmt.Errorf("not allowed to access contract"), "get_contract"))
 		return 2
 	}
 
@@ -278,7 +278,7 @@ func (m *Module) getContract(l *lua.LState) int {
 	inst := contract.GetInstantiator(l.Context())
 	if reg == nil || inst == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("contract registry or instantiator not found"))
+		l.Push(newContractOperationError(l, fmt.Errorf("contract registry or instantiator not found"), "get_contract"))
 		return 2
 	}
 
@@ -287,7 +287,7 @@ func (m *Module) getContract(l *lua.LState) int {
 	contractDef, err := reg.GetContract(l.Context(), regID)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newContractOperationError(l, err, "get_contract"))
 		return 2
 	}
 
@@ -311,14 +311,14 @@ func (m *Module) findImplementations(l *lua.LState) int {
 	// Security check for implementation listing permission
 	if !security.IsAllowed(l.Context(), PermissionContractImplementations, contractID, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to list implementations"))
+		l.Push(newContractOperationError(l, fmt.Errorf("not allowed to list implementations"), "find_implementations"))
 		return 2
 	}
 
 	reg := contract.GetRegistry(l.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("contract registry not found"))
+		l.Push(newContractOperationError(l, fmt.Errorf("contract registry not found"), "find_implementations"))
 		return 2
 	}
 
@@ -326,7 +326,7 @@ func (m *Module) findImplementations(l *lua.LState) int {
 	bindingIDs, err := reg.GetBindingsForContract(l.Context(), regID)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newContractOperationError(l, err, "find_implementations"))
 		return 2
 	}
 
@@ -511,7 +511,7 @@ func contractOpen(l *lua.LState) int {
 		baseID, parsedQueryArgs, parseErr := parseBindingArgs(bindingIDArg)
 		if parseErr != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(parseErr.Error()))
+			l.Push(newContractOperationError(l, parseErr, "parse_binding_args"))
 			return 2
 		}
 		bindingID = baseID
@@ -521,7 +521,7 @@ func contractOpen(l *lua.LState) int {
 		defaultBindingID, err := wrapper.registry.GetDefaultBinding(l.Context(), wrapper.definition.ID())
 		if err != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("no default binding available: %s", err.Error())))
+			l.Push(newContractOperationError(l, fmt.Errorf("no default binding available: %w", err), "get_default_binding"))
 			return 2
 		}
 		bindingID = defaultBindingID.String()
@@ -530,7 +530,7 @@ func contractOpen(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), PermissionContractBindingOpen, bindingID, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to open binding"))
+		l.Push(newContractOperationError(l, fmt.Errorf("not allowed to open binding"), "open"))
 		return 2
 	}
 
@@ -563,7 +563,7 @@ func contractOpen(l *lua.LState) int {
 	ctx, err := mergedCallCtx.applyToContext(l.Context())
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to apply context: " + err.Error()))
+		l.Push(newContractOperationError(l, fmt.Errorf("failed to apply context: %w", err), "apply_context"))
 		return 2
 	}
 	regID := registry.ParseID(bindingID)
@@ -572,7 +572,7 @@ func contractOpen(l *lua.LState) int {
 	binding, err := wrapper.registry.GetBinding(l.Context(), regID)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newContractOperationError(l, err, "get_binding"))
 		return 2
 	}
 
@@ -591,7 +591,7 @@ func contractOpen(l *lua.LState) int {
 	instance, err := wrapper.inst.Instantiate(ctx, regID, scope)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newContractOperationError(l, err, "instantiate"))
 		return 2
 	}
 
@@ -656,7 +656,7 @@ func contractMethod(l *lua.LState) int {
 	method, err := wrapper.definition.Method(methodName)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newContractOperationError(l, err, "get_method"))
 		return 2
 	}
 
@@ -684,7 +684,7 @@ func contractImplementations(l *lua.LState) int {
 	bindingIDs, err := wrapper.registry.GetBindingsForContract(l.Context(), wrapper.definition.ID())
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newContractOperationError(l, err, "get_implementations"))
 		return 2
 	}
 
@@ -791,7 +791,7 @@ func handleError(l *lua.LState, isAsync bool, format string, args ...interface{}
 	}
 	// Sync: return nil, error
 	l.Push(lua.LNil)
-	l.Push(lua.LString(errMsg))
+	l.Push(newContractOperationError(l, fmt.Errorf("%s", errMsg), "call_method"))
 	return 2
 }
 
@@ -830,18 +830,13 @@ func executeAsync(l *lua.LState, wrapper *InstanceWrapper, methodName string, ar
 
 	// Execute method in background with call context applied
 	uw.Run(func(work engine.UnitOfWork) {
-		resultChan, err := wrapper.instance.Call(ctx, methodName, args)
+		result, err := wrapper.instance.Call(ctx, methodName, args)
 		if err != nil {
 			_ = cmd.Complete(&runtime.Result{Error: err})
 			return
 		}
 
-		select {
-		case result := <-resultChan:
-			_ = cmd.Complete(result)
-		case <-work.Context().Done():
-			_ = cmd.Cancel()
-		}
+		_ = cmd.Complete(result)
 	})
 
 	l.Push(command.WrapCommand(l, cmd))
@@ -856,34 +851,28 @@ func executeSync(l *lua.LState, wrapper *InstanceWrapper, methodName string, arg
 		baseCtx := engine.DetachUnitOfWork(uw.Context())
 		execCtx, err := wrapper.applyToContext(baseCtx)
 		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("failed to apply context: " + err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, newContractOperationError(l, fmt.Errorf("failed to apply context: %w", err), "apply_context")}, nil)
 		}
 
-		resultChan, err := wrapper.instance.Call(execCtx, methodName, args)
+		result, err := wrapper.instance.Call(execCtx, methodName, args)
 		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, newContractOperationError(l, err, methodName)}, nil)
 		}
 
-		select {
-		case result := <-resultChan:
-			if result.Error != nil {
-				return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(result.Error.Error())}, nil)
-			}
+		if result.Error != nil {
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, newContractOperationError(l, result.Error, methodName)}, nil)
+		}
 
-			// Transcode result to Lua format if present
-			if result.Value != nil {
-				if dtt := payload.GetTranscoder(uw.Context()); dtt != nil {
-					if luaResult, err := dtt.Transcode(result.Value, payload.Lua); err == nil {
-						return engine.NewUpdate(nil, []lua.LValue{luaResult.Data().(lua.LValue), lua.LNil}, nil)
-					}
+		// Transcode result to Lua format if present
+		if result.Value != nil {
+			if dtt := payload.GetTranscoder(uw.Context()); dtt != nil {
+				if luaResult, err := dtt.Transcode(result.Value, payload.Lua); err == nil {
+					return engine.NewUpdate(nil, []lua.LValue{luaResult.Data().(lua.LValue), lua.LNil}, nil)
 				}
 			}
-
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
-
-		case <-uw.Context().Done():
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("canceled")}, nil)
 		}
+
+		return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
 	})
 
 	return -1 // Yield for coroutine

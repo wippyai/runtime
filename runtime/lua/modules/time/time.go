@@ -183,7 +183,7 @@ func parse(l *lua.LState) int {
 	t, err := time.ParseInLocation(layout, v, loc)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newTimeOperationError(l, err, "parse"))
 		return 2
 	}
 

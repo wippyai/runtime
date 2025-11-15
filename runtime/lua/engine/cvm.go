@@ -235,6 +235,9 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 
 				if wrapped := errors.GetWrappedError(rErr); wrapped != nil {
 					rErr = wrapped
+				} else {
+					// Wrap any raw error to ensure proper API error interface
+					rErr = errors.WrapError(task.thread, rErr, "")
 				}
 
 				if task.output != nil {
@@ -253,6 +256,9 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 				rErr = err
 				if wrapped := errors.GetWrappedError(rErr); wrapped != nil {
 					rErr = wrapped
+				} else {
+					// Wrap any raw error to ensure proper API error interface
+					rErr = errors.WrapError(task.thread, rErr, "")
 				}
 
 				if task.output != nil {

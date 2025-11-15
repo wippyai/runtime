@@ -27,19 +27,19 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	// Splitter sub-module
 	splitterMod := l.CreateTable(0, 2)
-	l.SetField(splitterMod, "recursive", l.NewFunction(newRecursiveSplitter))
-	l.SetField(splitterMod, "markdown", l.NewFunction(newMarkdownSplitter))
-	l.SetField(mod, "splitter", splitterMod)
+	splitterMod.RawSetString("recursive", l.NewFunction(newRecursiveSplitter))
+	splitterMod.RawSetString("markdown", l.NewFunction(newMarkdownSplitter))
+	mod.RawSetString("splitter", splitterMod)
 
 	// Diff sub-module
 	diffMod := l.CreateTable(0, 1)
-	l.SetField(diffMod, "new", l.NewFunction(newDiffer))
-	l.SetField(mod, "diff", diffMod)
+	diffMod.RawSetString("new", l.NewFunction(newDiffer))
+	mod.RawSetString("diff", diffMod)
 
 	// Regexp sub-module
 	regexpMod := l.CreateTable(0, 1)
-	l.SetField(regexpMod, "compile", l.NewFunction(newRegexpCompile))
-	l.SetField(mod, "regexp", regexpMod)
+	regexpMod.RawSetString("compile", l.NewFunction(newRegexpCompile))
+	mod.RawSetString("regexp", regexpMod)
 
 	// Register types
 	registerTextSplitter(l)
@@ -81,7 +81,7 @@ func splitterSplitText(l *lua.LState) int {
 	chunks, err := wrapper.splitter.SplitText(text)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newTextOperationError(l, err, "split_text"))
 		return 2
 	}
 

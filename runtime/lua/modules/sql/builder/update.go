@@ -150,7 +150,7 @@ func updateSet(l *lua.LState) int {
 				v, err = sqlutil.CheckParam(l, 3)
 				if err != nil {
 					l.Push(lua.LNil)
-					l.Push(lua.LString(err.Error()))
+					l.Push(newBuilderInvalidError(l, err, "set"))
 					return 2
 				}
 			}
@@ -164,7 +164,7 @@ func updateSet(l *lua.LState) int {
 		v, err = sqlutil.CheckParam(l, 3)
 		if err != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(newBuilderInvalidError(l, err, "set"))
 			return 2
 		}
 	}
@@ -437,7 +437,7 @@ func updateToSQL(l *lua.LState) int {
 	query, args, err := wrapper.builder.ToSql()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newBuilderInvalidError(l, err, "to_sql"))
 		return 2
 	}
 
@@ -481,7 +481,7 @@ func updateRunWith(l *lua.LState) int {
 	executor, err := NewQueryExecutor(l, wrapper.builder, ud.Value)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newBuilderOperationError(l, err, "run_with"))
 		return 2
 	}
 

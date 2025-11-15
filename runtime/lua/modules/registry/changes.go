@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wippyai/runtime/system/registry/topology"
 
@@ -50,7 +51,7 @@ func changesOps(l *lua.LState) int {
 		entryTable, err := entryToLuaTable(l, op.Entry)
 		if err != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(newRegistryOperationError(l, err, "ops"))
 			return 2
 		}
 
@@ -79,7 +80,7 @@ func changesCreate(l *lua.LState) int {
 	entry, err := luaTableToEntry(l, entryTable)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "create"))
 		return 2
 	}
 
@@ -109,7 +110,7 @@ func changesUpdate(l *lua.LState) int {
 	entry, err := luaTableToEntry(l, entryTable)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "update"))
 		return 2
 	}
 
@@ -150,7 +151,7 @@ func changesDelete(l *lua.LState) int {
 		}
 	default:
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid ID format"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("invalid ID format"), "delete"))
 		return 2
 	}
 
@@ -178,7 +179,7 @@ func changesApply(l *lua.LState) int {
 	// Check if there are any changes - simple check, no coroutine needed
 	if len(changes.ops) == 0 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no changes to apply"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("no changes to apply"), "apply"))
 		return 2
 	}
 
@@ -194,7 +195,7 @@ func changesApply(l *lua.LState) int {
 	sortedOps, err := stateBuilder.SortChangeSet(changes.snapshot.entries, changes.ops)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to sort operations: " + err.Error()))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("failed to sort operations: %w", err), "apply"))
 		return 2
 	}
 
@@ -206,7 +207,7 @@ func changesApply(l *lua.LState) int {
 	version, err := changes.snapshot.reg.Apply(ctx, sortedOps)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "apply"))
 		return 2
 	}
 

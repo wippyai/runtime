@@ -4,7 +4,6 @@ package interceptor
 import (
 	"context"
 
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/runtime"
@@ -22,12 +21,13 @@ const (
 
 type (
 	// Interceptor defines the interface for function execution interceptors.
+	// Interceptors can inspect/modify the task and control execution flow synchronously.
 	Interceptor interface {
-		Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context)
+		Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error)
 	}
 
 	// HandlerFunc is a function adapter for the Interceptor interface.
-	HandlerFunc func(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context)
+	HandlerFunc func(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error)
 
 	// Entry holds the interceptor and its order for registration.
 	Entry struct {
@@ -35,16 +35,20 @@ type (
 		Order       int
 	}
 
-	// Chain represents a sequence of interceptors that can be executed in order.
+	// Chain represents a sequence of interceptors that can be executed in order synchronously.
 	Chain interface {
-		Execute(ctx context.Context, f function.Func, task runtime.Task) (chan *runtime.Result, error)
+		Execute(ctx context.Context, f function.Func, task runtime.Task) (*runtime.Result, error)
 	}
 
-	// Options is an alias to attrs.Attributes for interceptor configuration.
-	Options = attrs.Attributes
+	// Registry manages interceptor registration and execution.
+	Registry interface {
+		Chain
+		Register(name string, interceptor Interceptor, order int) error
+		Unregister(name string) error
+	}
 )
 
 // Handle implements the Interceptor interface.
-func (f HandlerFunc) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
-	return f(ctx, next)
+func (f HandlerFunc) Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
+	return f(ctx, task, next)
 }

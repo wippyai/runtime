@@ -37,7 +37,7 @@ func loadLocation(l *lua.LState) int {
 	loc, err := time.LoadLocation(name)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newTimeOperationError(l, err, "load_location"))
 		return 2
 	}
 

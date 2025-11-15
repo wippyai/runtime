@@ -250,7 +250,7 @@ func TestUnixSocketRequests(t *testing.T) {
 			
 			assert(response == nil, "Response should be nil for invalid socket")
 			assert(err ~= nil, "Error should not be nil")
-			assert(string.find(err, "no such file") ~= nil or string.find(err, "connection refused") ~= nil, "Error should indicate connection failure")
+			assert(string.find(tostring(err), "no such file") ~= nil or string.find(tostring(err), "connection refused") ~= nil, "Error should indicate connection failure")
 		`
 
 		err = vm.DoString(newTestContext(), script, "test")

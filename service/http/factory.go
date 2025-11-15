@@ -81,15 +81,24 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 		// Use existing context (FrameContext already created in handler wrapper)
 		execCtx := r.Context()
 
-		// Store HTTP request data in FrameContext
+		// Seal the frame context before calling the function
+		// This allows middleware to set values (actor, etc.) in unsealed frame
+		// while preventing request context from leaking to child functions
 		fc := contextapi.FrameFromContext(execCtx)
 		if fc != nil {
-			_ = fc.Set(config.RequestCtx, rCtx)
+			fc.Seal()
 		}
 
-		task := runtime.Task{ID: cfg.Func}
+		// Create task with request context as pairs (not in frame)
+		// This prevents request context from leaking to child function calls
+		task := runtime.Task{
+			ID: cfg.Func,
+			Context: []contextapi.Pair{
+				{Key: config.RequestCtx, Value: rCtx},
+			},
+		}
 
-		resultCh, err := f.funcs.Call(execCtx, task)
+		result, err := f.funcs.Call(execCtx, task)
 		if err != nil {
 			if !rCtx.ResponseHandled() {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -97,27 +106,20 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 			return
 		}
 
-		select {
-		case result := <-resultCh:
-			if rCtx.ResponseHandled() {
-				return
-			}
+		if rCtx.ResponseHandled() {
+			return
+		}
 
-			if result == nil {
-				http.Error(w, "received nil result", http.StatusInternalServerError)
-				return
-			}
-			if result.Error != nil {
-				http.Error(w, result.Error.Error(), http.StatusInternalServerError)
-				return
-			}
-			if !rCtx.ResponseHandled() {
-				http.Error(w, "no response sent", http.StatusInternalServerError)
-			}
-		case <-r.Context().Done():
-			if rCtx.ResponseHandled() {
-				return
-			}
+		if result == nil {
+			http.Error(w, "received nil result", http.StatusInternalServerError)
+			return
+		}
+		if result.Error != nil {
+			http.Error(w, result.Error.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !rCtx.ResponseHandled() {
+			http.Error(w, "no response sent", http.StatusInternalServerError)
 		}
 	}), nil
 }
