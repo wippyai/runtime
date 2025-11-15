@@ -189,10 +189,6 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	// Create a UOW
 	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
 
-	// Add pubsub context
-	pid := relay.PID{}
-	ctx = relay.WithPID(ctx, pid)
-
 	// Add mock node
 	mockNode := newMockNode()
 	ctx = relay.WithNode(ctx, mockNode)

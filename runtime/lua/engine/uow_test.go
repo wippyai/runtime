@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -12,7 +11,8 @@ import (
 )
 
 func TestNewUnitOfWork(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -41,14 +41,16 @@ func TestNewUnitOfWork(t *testing.T) {
 }
 
 func TestNewUnitOfWorkWithWakeUp(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
 	// Add wake-up function to parent context
 	wakeupCalled := false
 	wakeupFunc := func() { wakeupCalled = true }
-	parentCtx = context.WithValue(parentCtx, ctxapi.WakeUpKey, wakeupFunc)
+	fc := ctxapi.FrameFromContext(parentCtx)
+	fc.Set(ctxapi.WakeUpKey, wakeupFunc)
 
 	uw, _ := NewUnitOfWork(parentCtx, state)
 	defer uw.Close()
@@ -61,7 +63,8 @@ func TestNewUnitOfWorkWithWakeUp(t *testing.T) {
 }
 
 func TestNewUnitOfWorkWithState(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -74,7 +77,8 @@ func TestNewUnitOfWorkWithState(t *testing.T) {
 }
 
 func TestUnitOfWork_Context(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -87,7 +91,8 @@ func TestUnitOfWork_Context(t *testing.T) {
 }
 
 func TestUnitOfWork_State(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -100,7 +105,8 @@ func TestUnitOfWork_State(t *testing.T) {
 }
 
 func TestUnitOfWork_Values(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -122,7 +128,8 @@ func TestUnitOfWork_Values(t *testing.T) {
 }
 
 func TestUnitOfWork_Tasks(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -143,7 +150,8 @@ func TestUnitOfWork_Tasks(t *testing.T) {
 }
 
 func TestUnitOfWork_AddCleanup(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -169,7 +177,8 @@ func TestUnitOfWork_AddCleanup(t *testing.T) {
 }
 
 func TestUnitOfWork_AddCleanupWithError(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -189,7 +198,8 @@ func TestUnitOfWork_AddCleanupWithError(t *testing.T) {
 }
 
 func TestUnitOfWork_Run(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -223,7 +233,8 @@ func TestUnitOfWork_Run(t *testing.T) {
 }
 
 func TestUnitOfWork_RunWhenClosed(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -254,7 +265,8 @@ func TestUnitOfWork_RunWhenClosed(t *testing.T) {
 }
 
 func TestUnitOfWork_Terminate(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -280,7 +292,8 @@ func TestUnitOfWork_Terminate(t *testing.T) {
 }
 
 func TestUnitOfWork_Close(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 
@@ -303,7 +316,8 @@ func TestUnitOfWork_Close(t *testing.T) {
 }
 
 func TestUnitOfWork_CloseMultipleTimes(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := ctxapi.NewRootContext()
+	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
 	state := lua.NewState()
 	defer state.Close()
 

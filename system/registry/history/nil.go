@@ -38,12 +38,12 @@ func (n *NilHistory) Save(newVersion registry.Version, _ registry.ChangeSet, hea
 
 // Get returns an error as version history is not available with NilHistory.
 func (n *NilHistory) Get(_ registry.Version) (registry.ChangeSet, error) {
-	return nil, fmt.Errorf("version history not available")
+	return nil, fmt.Errorf("version history not available: registry configured with history disabled (enable_history=false)")
 }
 
 // Versions returns an error as version history is not available with NilHistory.
 func (n *NilHistory) Versions() ([]registry.Version, error) {
-	return nil, fmt.Errorf("version history not available")
+	return nil, fmt.Errorf("version history not available: registry configured with history disabled (enable_history=false)")
 }
 
 // Head returns the current head version.
@@ -60,5 +60,5 @@ func (n *NilHistory) Head() (registry.Version, error) {
 
 // SetHead returns an error as rewinding is not supported with NilHistory.
 func (n *NilHistory) SetHead(_ registry.Version) error {
-	return fmt.Errorf("rewinding not supported with nil history")
+	return fmt.Errorf("version rollback not supported: registry configured with history disabled (enable_history=false)")
 }

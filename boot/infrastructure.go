@@ -56,23 +56,30 @@ func NewInfrastructure(logger *zap.Logger, cfg boot.Config) (context.Context, er
 	// Create relay infrastructure (single-node by default)
 	nodeName := "local"
 	if cfg != nil {
-		if name := cfg.Sub("pubsub").GetString("node_name", ""); name != "" {
+		if name := cfg.Sub("relay").GetString("node_name", ""); name != "" {
 			nodeName = name
 		}
 	}
 
 	node := relay.NewNode(nodeName)
-	nodeManager := relay.NewNodeManager(node, bus, wrappedLogger.Named("pubsub"))
+	nodeManager := relay.NewNodeManager(node, bus, wrappedLogger.Named("relay"))
 	router := relay.NewRouter(node, nil)
 	topo := topology.NewTopology(node)
 	pidReg := topology.NewPIDRegistry(topology.PIDRegistryConfig{
 		Logger: wrappedLogger.Named("pid"),
 	})
 
-	// Register control host for monitoring and management
+	// Register control host for supervisor (monitoring and management)
+	supervisorBufferSize := 1024
+	supervisorWorkerCount := 16
+	if cfg != nil {
+		supervisorCfg := cfg.Sub("supervisor")
+		supervisorBufferSize = supervisorCfg.GetInt("host.buffer_size", supervisorBufferSize)
+		supervisorWorkerCount = supervisorCfg.GetInt("host.worker_count", supervisorWorkerCount)
+	}
 	controlHost := relay.NewHost(ctx, relay.HostConfig{
-		BufferSize:  1024,
-		WorkerCount: 16,
+		BufferSize:  supervisorBufferSize,
+		WorkerCount: supervisorWorkerCount,
 		Logger:      wrappedLogger.Named("control"),
 	})
 	if err := node.RegisterHost(topapi.ControlHost, controlHost); err != nil {
@@ -80,9 +87,16 @@ func NewInfrastructure(logger *zap.Logger, cfg boot.Config) (context.Context, er
 	}
 
 	// Register function host for function execution
+	functionsBufferSize := 1024
+	functionsWorkerCount := 16
+	if cfg != nil {
+		functionsCfg := cfg.Sub("functions")
+		functionsBufferSize = functionsCfg.GetInt("host.buffer_size", functionsBufferSize)
+		functionsWorkerCount = functionsCfg.GetInt("host.worker_count", functionsWorkerCount)
+	}
 	funcHost := relay.NewHost(ctx, relay.HostConfig{
-		BufferSize:  1024,
-		WorkerCount: 16,
+		BufferSize:  functionsBufferSize,
+		WorkerCount: functionsWorkerCount,
 		Logger:      wrappedLogger.Named("functions"),
 	})
 	if err := node.RegisterHost(funcapi.HostID, funcHost); err != nil {

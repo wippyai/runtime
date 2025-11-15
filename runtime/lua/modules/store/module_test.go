@@ -126,7 +126,7 @@ func (m *mockStore) Has(_ context.Context, key registry.ID) (bool, error) {
 }
 
 // setupLuaWithStore sets up a Lua state with our store module and a connected store
-func setupLuaWithStore(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner) {
+func setupLuaWithStore(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *engine.Runner, context.Context) {
 	logger := zaptest.NewLogger(t)
 
 	// Create the store module
@@ -153,21 +153,19 @@ func setupLuaWithStore(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM
 	// This is a simplified version for testing - in a real environment,
 	// a full transcoder implementation would be available
 	dtt := setupTestTranscoder()
-	ctx := payload.WithTranscoder(ctxapi.NewRootContext(), dtt)
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx = payload.WithTranscoder(ctx, dtt)
 
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(ctx)
-
 	// Add the resource registry to the context
 	ctx = resource.WithRegistry(ctx, mockRegistry)
 
-	// Set the context in the Lua state
-	L.SetContext(ctx)
+	// runner.Execute() will create its own UOW and set context automatically
 
-	return vm, L, uw, runner
+	return vm, runner, ctx
 }
 
 // setupTestTranscoder creates a minimal transcoder for testing
@@ -248,12 +246,8 @@ func TestStoreBasicGet(t *testing.T) {
 	}
 
 	// Setup Lua with the test store
-	vm, L, uw, runner := setupLuaWithStore(t, mockRes)
+	vm, runner, ctx := setupLuaWithStore(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import our test function
 	err := vm.Import(`
@@ -273,7 +267,7 @@ func TestStoreBasicGet(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_store_get")
+	result, err := runner.Execute(ctx, "test_store_get")
 	require.NoError(t, err, "Lua execution failed")
 
 	assert.Equal(t, lua.LTrue, result, "Store.get should return true on successful release")
@@ -295,12 +289,8 @@ func TestStoreGetValue(t *testing.T) {
 	}
 
 	// Setup Lua with the test store
-	vm, L, uw, runner := setupLuaWithStore(t, mockRes)
+	vm, runner, ctx := setupLuaWithStore(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import our test function
 	err := vm.Import(`
@@ -329,7 +319,7 @@ func TestStoreGetValue(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_store_get_value")
+	result, err := runner.Execute(ctx, "test_store_get_value")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultTable := result.(*lua.LTable)
@@ -351,12 +341,8 @@ func TestStoreSetValue(t *testing.T) {
 	}
 
 	// Setup Lua with the test store
-	vm, L, uw, runner := setupLuaWithStore(t, mockRes)
+	vm, runner, ctx := setupLuaWithStore(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import our test function
 	err := vm.Import(`
@@ -388,7 +374,7 @@ func TestStoreSetValue(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_store_set_value")
+	result, err := runner.Execute(ctx, "test_store_set_value")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultTable := result.(*lua.LTable)
@@ -420,12 +406,8 @@ func TestStoreDelete(t *testing.T) {
 	}
 
 	// Setup Lua with the test store
-	vm, L, uw, runner := setupLuaWithStore(t, mockRes)
+	vm, runner, ctx := setupLuaWithStore(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import our test function
 	err := vm.Import(`
@@ -460,7 +442,7 @@ func TestStoreDelete(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_store_delete")
+	result, err := runner.Execute(ctx, "test_store_delete")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultTable := result.(*lua.LTable)
@@ -494,12 +476,8 @@ func TestStoreHas(t *testing.T) {
 	}
 
 	// Setup Lua with the test store
-	vm, L, uw, runner := setupLuaWithStore(t, mockRes)
+	vm, runner, ctx := setupLuaWithStore(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import our test function
 	err := vm.Import(`
@@ -527,7 +505,7 @@ func TestStoreHas(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_store_has")
+	result, err := runner.Execute(ctx, "test_store_has")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultTable := result.(*lua.LTable)
@@ -560,24 +538,15 @@ func TestStoreGetError(t *testing.T) {
 
 	// Set up the context
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	dtt := setupTestTranscoder()
 	ctx = payload.WithTranscoder(ctx, dtt)
 
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(ctx)
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err)
-	}()
-
 	// Add the empty resource registry to the context
 	ctx = resource.WithRegistry(ctx, mockRegistry)
-
-	// Set the context in the Lua state
-	L.SetContext(ctx)
 
 	// Import our test function that should trigger an error
 	err = vm.Import(`
@@ -593,7 +562,7 @@ func TestStoreGetError(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_store_get_error")
+	result, err := runner.Execute(ctx, "test_store_get_error")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultTable := result.(*lua.LTable)

@@ -115,6 +115,7 @@ func TestMemoryGraph_AddDependency(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get dependencies: %v", err)
 		}
+		if len(deps) == 0 || deps[0].ID != nodeB.ID {
 			t.Errorf("expected dependency to nodeB, got: %+v", deps)
 		}
 	})
@@ -206,6 +207,7 @@ func TestMemoryGraph_GetDirectDependencies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get dependencies: %v", err)
 		}
+		if len(deps) == 0 || deps[0].ID != nodeB.ID {
 			t.Errorf("expected dependency to nodeB, got: %+v", deps)
 		}
 	})
@@ -248,6 +250,7 @@ func TestMemoryGraph_GetDirectDependents(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get dependents: %v", err)
 		}
+		if len(deps) != 1 || deps[0].ID != nodeA.ID {
 			t.Errorf("expected dependent to be nodeA, got: %+v", deps)
 		}
 	})

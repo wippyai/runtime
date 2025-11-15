@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/command"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"

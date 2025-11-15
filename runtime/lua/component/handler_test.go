@@ -112,6 +112,8 @@ func TestHandler_Handle_LuaInvalidateEvent(t *testing.T) {
 	}
 
 	err := handler.Handle(context.Background(), event)
+	assert.NoError(t, err)
+	assert.Equal(t, []registry.ID{{Name: "test1"}, {Name: "test2"}}, invalidatedIDs)
 
 	assert.NoError(t, err)
 }

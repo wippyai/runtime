@@ -108,7 +108,7 @@ func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) htt
 			}
 
 			// Always continue with the request - with enriched context if token was valid
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r)
 		})
 	}
 }

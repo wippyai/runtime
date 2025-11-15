@@ -51,6 +51,7 @@ func setupLuaWithDeleteModule(t *testing.T) (*engine.CoroutineVM, *engine.Runner
 
 	// Create a context for execution
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	// Initialize a unit of work with the context
 	_, luaCtx := runner.InitUnitOfWork(ctx)

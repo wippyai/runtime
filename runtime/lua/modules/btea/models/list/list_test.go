@@ -281,6 +281,7 @@ func TestListUpdate(t *testing.T) {
 
 func TestItemManagement(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	// Test empty list behavior
 	t.Run("empty list operations", func(t *testing.T) {
@@ -525,6 +526,7 @@ func TestItemManagement(t *testing.T) {
 // Test status message handling and lifecycle
 func TestListStatusMessages(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	t.Run("status message operations", func(t *testing.T) {
 		vm := setupListTest(t)
@@ -615,6 +617,7 @@ func TestListStatusMessages(t *testing.T) {
 
 func TestListSpinner(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	t.Run("basic spinner operations", func(t *testing.T) {
 		vm := setupListTest(t)
@@ -779,6 +782,7 @@ func TestListSpinner(t *testing.T) {
 
 func TestListDelegate(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	t.Run("basic delegate operations", func(t *testing.T) {
 		vm := setupListTest(t)

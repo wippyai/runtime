@@ -3,9 +3,11 @@ package version
 import (
 	"errors"
 	"fmt"
-	"github.com/stretchr/testify/require"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // TestVersionMap_Path_Simple tests a simple linear path.

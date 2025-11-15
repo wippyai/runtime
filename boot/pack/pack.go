@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"os"
 	"reflect"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
@@ -85,10 +84,10 @@ func (p *Packer) normalizePayload(pl payload.Payload) (payload.Payload, error) {
 	return p.transcoder.Transcode(pl, payload.Golang)
 }
 
-// Pack serializes entries to a compressed binary file with embedded hash.
-// File format: [magic(8)][version(1)][hash(64)][zstd(msgpack({metadata, entries}))]
+// Pack serializes entries to a compressed binary stream with embedded hash.
+// Format: [magic(8)][version(1)][hash(64)][zstd(msgpack({metadata, entries}))]
 // Hash is computed over both metadata and entries.
-func (p *Packer) Pack(entries []registry.Entry, path string, metadata registry.Metadata) error {
+func (p *Packer) Pack(entries []registry.Entry, w io.Writer, metadata registry.Metadata) error {
 	// Convert entries to encoded format and normalize payloads
 	encodedEntries := make([]encodedEntry, len(entries))
 	normalizedEntries := make([]registry.Entry, len(entries))
@@ -160,34 +159,34 @@ func (p *Packer) Pack(entries []registry.Entry, path string, metadata registry.M
 		return fmt.Errorf("close zstd encoder: %w", err)
 	}
 
-	// Build file content: magic + version + hash + compressed data
-	var fileBuf bytes.Buffer
-	fileBuf.WriteString(magic)
-	fileBuf.WriteByte(version)
-	fileBuf.WriteString(entryHash)
-	fileBuf.Write(compressedBuf.Bytes())
+	// Build pack content: magic + version + hash + compressed data
+	var packBuf bytes.Buffer
+	packBuf.WriteString(magic)
+	packBuf.WriteByte(version)
+	packBuf.WriteString(entryHash)
+	packBuf.Write(compressedBuf.Bytes())
 
-	// Write to file
-	if err := os.WriteFile(path, fileBuf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("write file: %w", err)
+	// Write to writer
+	if _, err := w.Write(packBuf.Bytes()); err != nil {
+		return fmt.Errorf("write pack: %w", err)
 	}
 
 	return nil
 }
 
-// Unpack reads and verifies a pack file, returning the entries and metadata.
-// Returns error if file is corrupted or hash verification fails.
-func (p *Packer) Unpack(path string) ([]registry.Entry, registry.Metadata, error) {
-	// Read file
-	data, err := os.ReadFile(path)
+// Unpack reads and verifies a pack stream, returning the entries and metadata.
+// Returns error if data is corrupted or hash verification fails.
+func (p *Packer) Unpack(r io.Reader) ([]registry.Entry, registry.Metadata, error) {
+	// Read all data
+	data, err := io.ReadAll(r)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read file: %w", err)
+		return nil, nil, fmt.Errorf("read pack: %w", err)
 	}
 
 	// Verify minimum size
 	minSize := len(magic) + 1 + hashLen
 	if len(data) < minSize {
-		return nil, nil, fmt.Errorf("file too small: %d bytes, expected at least %d", len(data), minSize)
+		return nil, nil, fmt.Errorf("data too small: %d bytes, expected at least %d", len(data), minSize)
 	}
 
 	// Verify magic header
@@ -277,18 +276,9 @@ func (p *Packer) Unpack(path string) ([]registry.Entry, registry.Metadata, error
 		// Extract Data
 		if dataMap, ok := encEntryMap["Data"].(map[string]any); ok {
 			if dataMap != nil {
-				format := payload.Format(0)
-				// Handle different types msgpack might use for Format field
-				switch f := dataMap["Format"].(type) {
-				case string:
-					format = payload.Format(f)
-				case float64:
-					format = payload.Format(int(f))
-				case int64:
-					format = payload.Format(f)
-				case int:
-					format = payload.Format(f)
-				case uint8:
+				format := payload.Golang
+				// Extract Format field (should always be a string)
+				if f, ok := dataMap["Format"].(string); ok {
 					format = payload.Format(f)
 				}
 				data := dataMap["Data"]
@@ -403,18 +393,9 @@ func (p *Packer) UnpackBytes(data []byte) ([]registry.Entry, registry.Metadata, 
 		// Extract Data
 		if dataMap, ok := encEntryMap["Data"].(map[string]any); ok {
 			if dataMap != nil {
-				format := payload.Format(0)
-				// Handle different types msgpack might use for Format field
-				switch f := dataMap["Format"].(type) {
-				case string:
-					format = payload.Format(f)
-				case float64:
-					format = payload.Format(int(f))
-				case int64:
-					format = payload.Format(f)
-				case int:
-					format = payload.Format(f)
-				case uint8:
+				format := payload.Golang
+				// Extract Format field (should always be a string)
+				if f, ok := dataMap["Format"].(string); ok {
 					format = payload.Format(f)
 				}
 				data := dataMap["Data"]

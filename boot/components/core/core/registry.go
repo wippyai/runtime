@@ -37,9 +37,24 @@ func Registry() boot.Component {
 				}
 			}
 
+			// Determine history implementation based on config
+			var hist regapi.History
+			cfg := boot.GetConfig(ctx)
+			if cfg != nil {
+				registryCfg := cfg.Sub(string(RegistryName))
+				enableHistory := registryCfg.GetBool(string(RegistryEnableHistory), true)
+				if enableHistory {
+					hist = history.NewMemory()
+				} else {
+					hist = history.NewNil()
+				}
+			} else {
+				hist = history.NewMemory()
+			}
+
 			// Create registry with resolver
 			reg := registry.NewRegistry(
-				history.NewMemory(),
+				hist,
 				runner.NewBusRunner(bus, logger.Named("runner")),
 				regtop.NewStateBuilder(logger, resolver),
 				resolver,

@@ -21,6 +21,7 @@ func TestNewCommand(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	uw, ctx := engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("creates command with valid parameters", func(t *testing.T) {
@@ -111,6 +112,7 @@ func TestCommand_Complete(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("completes command successfully", func(t *testing.T) {
@@ -190,6 +192,7 @@ func TestCommand_Cancel(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("cancels command successfully", func(t *testing.T) {

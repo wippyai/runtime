@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -115,7 +114,7 @@ func (s *testScope) Allow(action, resource string) {
 }
 
 // setupTestEnvironment creates a test environment with Env module and mock storage
-func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner, *mockResourceRegistry) {
+func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *engine.Runner, context.Context, *mockResourceRegistry) {
 	logger := zaptest.NewLogger(t)
 
 	// Create the Env module
@@ -140,14 +139,12 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+	// Create context properly: RootContext -> OpenFrameContext -> add resources
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	// Add the resource registry to the context
 	ctx = envapi.WithRegistry(ctx, mockRegistry)
-
-	// Create frame context for security
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	// Add security context
 	actor := security.Actor{ID: "test"}
@@ -155,27 +152,16 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	_ = security.SetActor(ctx, actor)
 	_ = security.SetScope(ctx, scope)
 
-	// Add pubsub context
-	pid := relay.PID{}
-	ctx = relay.WithPID(ctx, pid)
-
-	// Set the context in the Lua state
-	L.SetContext(ctx)
-
-	return vm, L, uw, runner, mockRegistry
+	return vm, runner, ctx, mockRegistry
 }
 
 func TestEnvModule(t *testing.T) {
 	t.Run("get environment variable", func(t *testing.T) {
-		vm, L, uw, runner, registry := setupTestEnvironment(t)
+		vm, runner, ctx, registry := setupTestEnvironment(t)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 
 		// Allow access to the variable
-		scope, _ := security.GetScope(L.Context())
+		scope, _ := security.GetScope(ctx)
 		scope.(*testScope).Allow("env.get", "test_var")
 
 		err := registry.Set(context.Background(), "test_var", "test_value")
@@ -195,24 +181,20 @@ func TestEnvModule(t *testing.T) {
 		require.NoError(t, err, "Failed to import test function")
 
 		// Execute the function
-		result, err := runner.Execute(L.Context(), "test_env_get")
+		result, err := runner.Execute(ctx, "test_env_get")
 		require.NoError(t, err, "Lua execution failed")
 
 		assert.Equal(t, lua.LString("test_value"), result, "Expected 'test_value'")
 	})
 
 	t.Run("get non-existent variable", func(t *testing.T) {
-		vm, L, uw, runner, registry := setupTestEnvironment(t)
+		vm, runner, ctx, registry := setupTestEnvironment(t)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 
 		_ = registry
 
 		// Allow access to the variable
-		scope, _ := security.GetScope(L.Context())
+		scope, _ := security.GetScope(ctx)
 		scope.(*testScope).Allow("env.get", "NON_EXISTENT")
 
 		// Import our test function
@@ -226,7 +208,7 @@ func TestEnvModule(t *testing.T) {
 		require.NoError(t, err, "Failed to import test function")
 
 		// Execute the function
-		result, err := runner.Execute(L.Context(), "test_env_get_nonexistent")
+		result, err := runner.Execute(ctx, "test_env_get_nonexistent")
 		require.NoError(t, err, "Lua execution failed")
 
 		resultTable := result.(*lua.LTable)
@@ -238,12 +220,8 @@ func TestEnvModule(t *testing.T) {
 	})
 
 	t.Run("get with empty key", func(t *testing.T) {
-		vm, L, uw, runner, registry := setupTestEnvironment(t)
+		vm, runner, ctx, registry := setupTestEnvironment(t)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 		_ = registry
 
 		// Import our test function
@@ -259,7 +237,7 @@ func TestEnvModule(t *testing.T) {
 		require.NoError(t, err, "Failed to import test function")
 
 		// Execute the function
-		result, err := runner.Execute(L.Context(), "test_env_get_empty_key")
+		result, err := runner.Execute(ctx, "test_env_get_empty_key")
 		require.NoError(t, err, "Lua execution failed")
 
 		resultTable := result.(*lua.LTable)
@@ -271,16 +249,12 @@ func TestEnvModule(t *testing.T) {
 	})
 
 	t.Run("get with no context", func(t *testing.T) {
-		vm, L, uw, runner, registry := setupTestEnvironment(t)
+		vm, runner, ctx, registry := setupTestEnvironment(t)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 		_ = registry
 
 		// Clear the context
-		L.SetContext(context.Background())
+		// Context already prepared in setup
 
 		// Import our test function
 		err := vm.Import(`
@@ -295,7 +269,7 @@ func TestEnvModule(t *testing.T) {
 		require.NoError(t, err, "Failed to import test function")
 
 		// Execute the function
-		result, err := runner.Execute(L.Context(), "test_env_get_no_context")
+		result, err := runner.Execute(ctx, "test_env_get_no_context")
 		require.NoError(t, err, "Lua execution failed")
 
 		resultTable := result.(*lua.LTable)
@@ -307,15 +281,11 @@ func TestEnvModule(t *testing.T) {
 	})
 
 	t.Run("set and get environment variable", func(t *testing.T) {
-		vm, L, uw, runner, registry := setupTestEnvironment(t)
+		vm, runner, ctx, registry := setupTestEnvironment(t)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 
 		// Allow access to the variable
-		scope, _ := security.GetScope(L.Context())
+		scope, _ := security.GetScope(ctx)
 		scope.(*testScope).Allow("env.set", "test_var")
 		scope.(*testScope).Allow("env.get", "test_var")
 
@@ -341,7 +311,7 @@ func TestEnvModule(t *testing.T) {
 		require.NoError(t, err, "Failed to import test function")
 
 		// Execute the function
-		result, err := runner.Execute(L.Context(), "test_env_set_get")
+		result, err := runner.Execute(ctx, "test_env_set_get")
 		require.NoError(t, err, "Lua execution failed")
 
 		resultTable := result.(*lua.LTable)

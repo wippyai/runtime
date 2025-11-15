@@ -14,6 +14,7 @@ var (
 	console      bool
 	silentLogs   bool
 	eventStreams bool
+	profiler     bool
 	configFile   string
 	appStartTime = time.Now()
 )
@@ -46,6 +47,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&console, "console", "c", false, "enable colorful humanized console logging")
 	rootCmd.PersistentFlags().BoolVarP(&silentLogs, "silent", "s", false, "disable console logging entirely")
 	rootCmd.PersistentFlags().BoolVarP(&eventStreams, "event-streams", "e", false, "stream logs to event bus instead of console")
+	rootCmd.PersistentFlags().BoolVarP(&profiler, "profiler", "p", false, "enable pprof profiler on localhost:6060")
 }
 
 func CreateLogger() (*zap.Logger, error) {

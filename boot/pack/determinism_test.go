@@ -51,10 +51,16 @@ func TestDeterministicEncoding(t *testing.T) {
 		path1 := filepath.Join(tmpDir, "pack1.pack")
 		path2 := filepath.Join(tmpDir, "pack2.pack")
 
-		err := packer.Pack(entries1, path1)
+		file1, err := os.Create(path1)
+		require.NoError(t, err)
+		err = packer.Pack(entries1, file1, testMetadata(len(entries1)))
+		file1.Close()
 		require.NoError(t, err)
 
-		err = packer.Pack(entries2, path2)
+		file2, err := os.Create(path2)
+		require.NoError(t, err)
+		err = packer.Pack(entries2, file2, testMetadata(len(entries2)))
+		file2.Close()
 		require.NoError(t, err)
 
 		data1, err := os.ReadFile(path1)
@@ -79,7 +85,10 @@ func TestDeterministicEncoding(t *testing.T) {
 		var files [][]byte
 		for i := 0; i < 5; i++ {
 			path := filepath.Join(tmpDir, "repeat"+string(rune('0'+i))+".pack")
-			err := packer.Pack(entries, path, testMetadata(len(entries)))
+			file, err := os.Create(path)
+			require.NoError(t, err)
+			err = packer.Pack(entries, file, testMetadata(len(entries)))
+			file.Close()
 			require.NoError(t, err)
 
 			data, err := os.ReadFile(path)
@@ -136,10 +145,16 @@ func TestDeterministicEncoding(t *testing.T) {
 		path1 := filepath.Join(tmpDir, "nested1.pack")
 		path2 := filepath.Join(tmpDir, "nested2.pack")
 
-		err := packer.Pack(entries1, path1)
+		file1, err := os.Create(path1)
+		require.NoError(t, err)
+		err = packer.Pack(entries1, file1, testMetadata(len(entries1)))
+		file1.Close()
 		require.NoError(t, err)
 
-		err = packer.Pack(entries2, path2)
+		file2, err := os.Create(path2)
+		require.NoError(t, err)
+		err = packer.Pack(entries2, file2, testMetadata(len(entries2)))
+		file2.Close()
 		require.NoError(t, err)
 
 		data1, err := os.ReadFile(path1)

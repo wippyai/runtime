@@ -111,3 +111,6 @@ func (m *mockRegistry) Apply(context.Context, ChangeSet) (Version, error) {
 func (m *mockRegistry) ApplyVersion(context.Context, Version) error { return nil }
 func (m *mockRegistry) Current() (Version, error)                   { return nil, nil }
 func (m *mockRegistry) History() History                            { return nil }
+func (m *mockRegistry) RegisterDependencyPattern(pattern DependencyPattern) error {
+	return nil
+}
