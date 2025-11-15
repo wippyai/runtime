@@ -3,7 +3,6 @@
 package treesitter
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -33,7 +32,7 @@ func TestTreeSitterModule_Parse(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -56,7 +55,7 @@ func TestLanguageOperations(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			
 			-- Test supported languages
@@ -121,7 +120,7 @@ func TestLanguageOperations(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local lang = treesitter.language("go")
 			
@@ -165,7 +164,7 @@ func TestLuaSupport(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(context.Background(), `
+	err = vm.DoString(newTestContext(), `
 		local treesitter = require("treesitter")
 
 		-- Simple Lua code with a function

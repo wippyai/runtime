@@ -3,7 +3,6 @@
 package treesitter
 
 import (
-	"context"
 	"reflect"
 	"testing"
 
@@ -11,16 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 	treesittergo "github.com/tree-sitter/tree-sitter-go/bindings/go"
 	treesitterjs "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
-
-func newTestContext() context.Context {
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-	return ctx
-}
 
 func TestGetLanguageInfo(t *testing.T) {
 	tests := []struct {
@@ -151,10 +143,7 @@ func TestGrammarSupport(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-		defer func() { assert.NoError(t, uw.Close()) }()
-
-		err = vm.DoString(ctx, `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			
 			-- Test various language aliases

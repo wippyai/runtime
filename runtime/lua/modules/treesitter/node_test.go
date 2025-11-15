@@ -3,22 +3,14 @@
 package treesitter
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
-
-func newTestContext() context.Context {
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-	return ctx
-}
 
 func TestNodeMethods(t *testing.T) {
 	logger := zap.NewNop()
