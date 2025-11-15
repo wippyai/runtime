@@ -479,7 +479,7 @@ func TestProcessWaitAndClose(t *testing.T) {
 	require.NoError(t, err)
 
 	// Allow slightly longer for this test due to sleeps and waits
-	ctx, cancel := context.WithTimeout(vm.State().Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(newTestContext(), 10*time.Second)
 	defer cancel()
 
 	_, err = runner.Execute(ctx, "test_process_wait_close")

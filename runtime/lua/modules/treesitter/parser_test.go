@@ -14,12 +14,6 @@ import (
 	"go.uber.org/zap"
 )
 
-func newTestContext() context.Context {
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-	return ctx
-}
-
 func TestParser(t *testing.T) {
 	logger := zap.NewNop()
 
@@ -104,8 +98,9 @@ func TestParser(t *testing.T) {
 
 	t.Run("parser with context deadline", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
-		ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 100*time.Millisecond)
+		rootCtx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 100*time.Millisecond)
 		defer cancel()
+		ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
@@ -195,9 +190,7 @@ func TestParser(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-
-		err = vm.DoString(ctx, `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local parser = treesitter.parser()
 			parser:set_language("go")
@@ -207,8 +200,6 @@ func TestParser(t *testing.T) {
 			collectgarbage()
 		`, "test")
 		assert.NoError(t, err)
-
-		assert.NoError(t, uw.Close())
 	})
 
 	t.Run("get language", func(t *testing.T) {
@@ -253,7 +244,8 @@ func TestParserContextCancellation(t *testing.T) {
 	logger := zap.NewNop()
 	mod := NewTreeSitterModule(logger)
 
-	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
+	rootCtx, cancel := context.WithCancel(ctxapi.NewRootContext())
+	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 	vm, err := engine.NewVM(logger,
 		engine.WithLoader(mod.Name(), mod.Loader),
 	)

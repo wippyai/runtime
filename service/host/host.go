@@ -9,7 +9,6 @@ import (
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/service/host"
 
 	"github.com/wippyai/runtime/api/process"
@@ -190,8 +189,6 @@ func (h *Host) prepareContext(ctx context.Context, launch *process.Launch) conte
 	}); err != nil {
 		h.log.Error("failed to set wakeup callback", zap.Error(err))
 	}
-
-	pCtx = logs.WithLogger(pCtx, h.log.With(zap.String("pid", launch.PID.String())))
 
 	return pCtx
 }

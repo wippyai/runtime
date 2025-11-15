@@ -3,22 +3,14 @@
 package treesitter
 
 import (
-	"context"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
-
-func newTestContext() context.Context {
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-	return ctx
-}
 
 func TestSQLQueries(t *testing.T) {
 	logger := zap.NewNop()
@@ -935,7 +927,7 @@ func TestQueryNestedGrammars(t *testing.T) {
 	code, err := os.ReadFile(file)
 	require.NoError(t, err)
 
-	err = vm.DoString(context.Background(), string(code), "test")
+	err = vm.DoString(newTestContext(), string(code), "test")
 	assert.NoError(t, err)
 }
 
@@ -955,7 +947,7 @@ func TestQueryLuaInLua(t *testing.T) {
 	code, err := os.ReadFile(file)
 	require.NoError(t, err)
 
-	err = vm.DoString(context.Background(), string(code), "test")
+	err = vm.DoString(newTestContext(), string(code), "test")
 	assert.NoError(t, err)
 }
 
@@ -975,6 +967,6 @@ func TestQueryLuaFileStruct(t *testing.T) {
 	code, err := os.ReadFile(file)
 	require.NoError(t, err)
 
-	err = vm.DoString(context.Background(), string(code), "test")
+	err = vm.DoString(newTestContext(), string(code), "test")
 	assert.NoError(t, err)
 }
