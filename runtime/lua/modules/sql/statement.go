@@ -87,7 +87,7 @@ func stmtQuery(l *lua.LState) int {
 	params, err := sqlutil.CheckParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newSQLQueryError(l, err, ""))
 		return 2
 	}
 
@@ -170,7 +170,7 @@ func stmtExecute(l *lua.LState) int {
 	params, err := sqlutil.CheckParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newSQLQueryError(l, err, ""))
 		return 2
 	}
 
@@ -232,7 +232,7 @@ func stmtClose(l *lua.LState) int {
 	err := stmt.stmt.Close()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newSQLQueryError(l, err, ""))
 		return 2
 	}
 

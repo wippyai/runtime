@@ -4,8 +4,7 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/payload"
+	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
 	otelapi "github.com/wippyai/runtime/api/service/otel"
 	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
 	otelinterceptor "github.com/wippyai/runtime/service/interceptor/otel"
@@ -19,8 +18,6 @@ func InterceptorOtel() boot.Component {
 		Phase:     boot.PostInit,
 		DependsOn: []boot.ComponentName{bootsystem.InterceptorName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			bus := event.GetBus(ctx)
-
 			tracerProvider := otel.GetTracerProvider()
 			if tracerProvider == nil || tracerProvider == noop.NewTracerProvider() {
 				return ctx, nil
@@ -29,12 +26,14 @@ func InterceptorOtel() boot.Component {
 			tracer := tracerProvider.Tracer("pony-runtime")
 			ctx = otelapi.WithTracer(ctx, tracer)
 
-			bus.Send(ctx, event.Event{
-				System: "interceptor",
-				Kind:   "interceptor.register",
-				Path:   "interceptor/otel",
-				Data:   payload.New(otelinterceptor.New()),
-			})
+			registry := apiinterceptor.GetRegistry(ctx)
+			if registry == nil {
+				return ctx, nil
+			}
+
+			if err := registry.Register("otel", otelinterceptor.New(), 100); err != nil {
+				return ctx, err
+			}
 
 			return ctx, nil
 		},

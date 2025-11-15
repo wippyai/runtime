@@ -16,7 +16,7 @@ func (m *Module) buildDelta(l *lua.LState) int {
 	fromTable := l.CheckTable(1)
 	if fromTable == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("from_entries table required"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("from_entries table required"), "build_delta"))
 		return 2
 	}
 
@@ -24,7 +24,7 @@ func (m *Module) buildDelta(l *lua.LState) int {
 	toTable := l.CheckTable(2)
 	if toTable == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("to_entries table required"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("to_entries table required"), "build_delta"))
 		return 2
 	}
 
@@ -57,7 +57,7 @@ func (m *Module) buildDelta(l *lua.LState) int {
 	dtt := payload.GetTranscoder(l.Context())
 	if dtt == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transcoder not available"))
+		l.Push(newRegistryOperationError(l, fmt.Errorf("transcoder not available"), "build_delta"))
 		return 2
 	}
 
@@ -90,7 +90,7 @@ func (m *Module) buildDelta(l *lua.LState) int {
 	changeSet, err := stateBuilder.BuildDelta(fromEntries, toEntries)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "build_delta"))
 		return 2
 	}
 
@@ -103,7 +103,7 @@ func (m *Module) buildDelta(l *lua.LState) int {
 		entryTable, err := entryToLuaTable(l, op.Entry)
 		if err != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("failed to convert entry: %v", err)))
+			l.Push(newRegistryOperationError(l, fmt.Errorf("failed to convert entry: %w", err), "build_delta"))
 			return 2
 		}
 

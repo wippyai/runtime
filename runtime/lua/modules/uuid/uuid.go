@@ -63,7 +63,7 @@ func (*Module) v4(l *lua.LState) int {
 	id, err := uuid.NewRandom()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newUUIDOperationError(l, err, "v4"))
 		return 2
 	}
 	l.Push(lua.LString(id.String()))
@@ -76,7 +76,7 @@ func (*Module) v7(l *lua.LState) int {
 	id, err := uuid.NewV7()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newUUIDOperationError(l, err, "v7"))
 		return 2
 	}
 	l.Push(lua.LString(id.String()))
@@ -89,7 +89,7 @@ func (*Module) v1(l *lua.LState) int {
 	id, err := uuid.NewUUID()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newUUIDOperationError(l, err, "v1"))
 		return 2
 	}
 	l.Push(lua.LString(id.String()))

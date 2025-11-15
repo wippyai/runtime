@@ -163,7 +163,7 @@ func streamReadAsync(l *lua.LState) int {
 	stream, err := checkStream(l)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newStreamInvalidError(l, err.Error()))
 		return 2
 	}
 
@@ -182,7 +182,7 @@ func streamReadAsync(l *lua.LState) int {
 
 		if err != nil {
 			_ = stream.Close()
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, newStreamIOError(l, err, "read")}, nil)
 		}
 
 		return engine.NewUpdate(nil, []lua.LValue{lua.LString(chunk), lua.LNil}, nil)
@@ -195,7 +195,7 @@ func streamRead(l *lua.LState) int {
 	stream, err := checkStream(l)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newStreamInvalidError(l, err.Error()))
 		return 2
 	}
 
@@ -215,7 +215,7 @@ func streamRead(l *lua.LState) int {
 	if err != nil {
 		_ = stream.Close()
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newStreamIOError(l, err, "read"))
 		return 2
 	}
 
@@ -227,13 +227,13 @@ func streamClose(l *lua.LState) int {
 	stream, err := checkStream(l)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newStreamInvalidError(l, err.Error()))
 		return 2
 	}
 
 	if err := stream.Close(); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newStreamIOError(l, err, "close"))
 		return 2
 	}
 
@@ -363,13 +363,13 @@ func scannerText(l *lua.LState) int {
 func scannerErr(l *lua.LState) int {
 	scanner, err := checkScanner(l)
 	if err != nil {
-		l.Push(lua.LString(err.Error()))
+		l.Push(newStreamInvalidError(l, err.Error()))
 		return 1
 	}
 
 	scanErr := scanner.Err()
 	if scanErr != nil {
-		l.Push(lua.LString(scanErr.Error()))
+		l.Push(newStreamScannerError(l, scanErr))
 	} else {
 		l.Push(lua.LNil)
 	}

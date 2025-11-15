@@ -3,15 +3,14 @@ package interceptor
 
 import (
 	"context"
-	"errors"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
 // Context keys for storing interceptor-related data
 var (
-	chainCtx   = &ctxapi.Key{Name: "interceptor.chain"}
-	optionsCtx = &ctxapi.Key{Name: "interceptor.options"}
+	chainCtx    = &ctxapi.Key{Name: "interceptor.chain"}
+	registryCtx = &ctxapi.Key{Name: "interceptor.registry"}
 )
 
 // WithChain adds the interceptor chain to the context
@@ -40,25 +39,28 @@ func GetChain(ctx context.Context) Chain {
 	return nil
 }
 
-// SetOptions sets interceptor options in the FrameContext
-func SetOptions(ctx context.Context, options Options) error {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return errors.New("no frame context available")
+// WithRegistry adds the interceptor registry to the context
+func WithRegistry(ctx context.Context, registry Registry) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
 	}
-	return fc.Set(optionsCtx, options)
+	if ac.Get(registryCtx) == nil {
+		ac.With(registryCtx, registry)
+	}
+	return ctx
 }
 
-// GetOptions retrieves interceptor options from the FrameContext
-func GetOptions(ctx context.Context) (Options, bool) {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return nil, false
+// GetRegistry retrieves the interceptor registry from the context
+func GetRegistry(ctx context.Context) Registry {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
 	}
-	if val, ok := fc.Get(optionsCtx); ok {
-		if opts, ok := val.(Options); ok {
-			return opts, true
+	if val := ac.Get(registryCtx); val != nil {
+		if registry, ok := val.(Registry); ok {
+			return registry
 		}
 	}
-	return nil, false
+	return nil
 }

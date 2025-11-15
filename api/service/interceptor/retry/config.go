@@ -9,6 +9,8 @@ type Config struct {
 
 // Options provides runtime options for retry behavior.
 type Options struct {
-	MaxAttempts int `json:"max_attempts"`
-	BackoffMs   int `json:"backoff_ms"`
+	MaxAttempts int      `json:"max_attempts"`
+	BackoffMs   int      `json:"backoff_ms"`
+	RetryKinds  []string `json:"retry_kinds,omitempty"` // Only retry these error kinds (whitelist)
+	SkipKinds   []string `json:"skip_kinds,omitempty"`  // Never retry these error kinds (blacklist)
 }

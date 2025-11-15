@@ -48,13 +48,13 @@ func checkWorkbook(l *lua.LState, idx int) *Workbook {
 func registerWorkbook(l *lua.LState) {
 	mt := l.NewTypeMetatable("Workbook")
 	indexTable := l.CreateTable(0, 6)
-	l.SetField(indexTable, "new_sheet", l.NewFunction(workbookNewSheet))
-	l.SetField(indexTable, "get_sheet_list", l.NewFunction(workbookGetSheetList))
-	l.SetField(indexTable, "get_rows", l.NewFunction(workbookGetRows))
-	l.SetField(indexTable, "set_cell_value", l.NewFunction(workbookSetCellValue))
-	l.SetField(indexTable, "close", l.NewFunction(workbookClose))
-	l.SetField(indexTable, "write_to", l.NewFunction(workbookWriteTo))
-	l.SetField(mt, "__index", indexTable)
+	indexTable.RawSetString("new_sheet", l.NewFunction(workbookNewSheet))
+	indexTable.RawSetString("get_sheet_list", l.NewFunction(workbookGetSheetList))
+	indexTable.RawSetString("get_rows", l.NewFunction(workbookGetRows))
+	indexTable.RawSetString("set_cell_value", l.NewFunction(workbookSetCellValue))
+	indexTable.RawSetString("close", l.NewFunction(workbookClose))
+	indexTable.RawSetString("write_to", l.NewFunction(workbookWriteTo))
+	mt.RawSetString("__index", indexTable)
 }
 
 // workbookNewSheet implements the new_sheet method

@@ -140,10 +140,10 @@ func TestWebSocketClient(t *testing.T) {
                 local ws, err = websocket.connect("` + wsURL + `", {
                     dial_timeout = "100ms"  -- Very short timeout
                 })
-                
+
                 assert(ws == nil, "Expected ws to be nil due to timeout")
                 assert(err ~= nil, "Expected error due to timeout")
-                assert(string.find(err, "deadline exceeded") ~= nil, "Error should mention timeout")
+                assert(string.find(tostring(err), "deadline exceeded") ~= nil, "Error should mention timeout")
                 return "success"
             end
         `

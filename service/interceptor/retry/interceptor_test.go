@@ -9,9 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
-	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	retryapi "github.com/wippyai/runtime/api/service/interceptor/retry"
 )
@@ -37,17 +36,25 @@ func (e *testError) Details() attrs.Attributes {
 	return nil
 }
 
+func makeTask(options runtime.Options) runtime.Task {
+	return runtime.Task{
+		ID:      registry.ID{Name: "test"},
+		Options: options,
+	}
+}
+
 func TestInterceptor_NoOptions(t *testing.T) {
 	interceptor := New()
 	ctx := context.Background()
+	task := makeTask(nil)
 
 	called := false
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		called = true
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, _ := interceptor.Handle(ctx, task, next)
 
 	assert.True(t, called)
 	assert.NotNil(t, result)
@@ -55,19 +62,18 @@ func TestInterceptor_NoOptions(t *testing.T) {
 
 func TestInterceptor_NoRetryOption(t *testing.T) {
 	interceptor := New()
-	rootCtx := ctxapi.NewRootContext()
-	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+	ctx := context.Background()
 
-	opts := apiinterceptor.NewBag()
-	_ = apiinterceptor.SetOptions(ctx, opts)
+	opts := runtime.Bag{}
+	task := makeTask(opts)
 
 	called := false
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		called = true
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, _ := interceptor.Handle(ctx, task, next)
 
 	assert.True(t, called)
 	assert.NotNil(t, result)
@@ -75,20 +81,19 @@ func TestInterceptor_NoRetryOption(t *testing.T) {
 
 func TestInterceptor_MaxAttemptsZero(t *testing.T) {
 	interceptor := New()
-	rootCtx := ctxapi.NewRootContext()
-	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+	ctx := context.Background()
 
-	opts := apiinterceptor.NewBag()
+	opts := runtime.Bag{}
 	opts.Set("retry", &retryapi.Options{MaxAttempts: 0})
-	_ = apiinterceptor.SetOptions(ctx, opts)
+	task := makeTask(opts)
 
 	called := false
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		called = true
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, _ := interceptor.Handle(ctx, task, next)
 
 	assert.True(t, called)
 	assert.NotNil(t, result)
@@ -96,20 +101,19 @@ func TestInterceptor_MaxAttemptsZero(t *testing.T) {
 
 func TestInterceptor_SuccessFirstAttempt(t *testing.T) {
 	interceptor := New()
-	rootCtx := ctxapi.NewRootContext()
-	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+	ctx := context.Background()
 
-	opts := apiinterceptor.NewBag()
+	opts := runtime.Bag{}
 	opts.Set("retry", &retryapi.Options{MaxAttempts: 3})
-	_ = apiinterceptor.SetOptions(ctx, opts)
+	task := makeTask(opts)
 
 	attempts := 0
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		attempts++
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, _ := interceptor.Handle(ctx, task, next)
 
 	assert.NotNil(t, result)
 	assert.Nil(t, result.Error)
@@ -118,23 +122,22 @@ func TestInterceptor_SuccessFirstAttempt(t *testing.T) {
 
 func TestInterceptor_RetryableError(t *testing.T) {
 	interceptor := New()
-	rootCtx := ctxapi.NewRootContext()
-	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+	ctx := context.Background()
 
-	opts := apiinterceptor.NewBag()
+	opts := runtime.Bag{}
 	opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 1})
-	_ = apiinterceptor.SetOptions(ctx, opts)
+	task := makeTask(opts)
 
 	attempts := 0
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		attempts++
 		if attempts < 3 {
-			return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, ctx
+			return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
 		}
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, _ := interceptor.Handle(ctx, task, next)
 
 	assert.NotNil(t, result)
 	assert.Nil(t, result.Error)
@@ -143,21 +146,20 @@ func TestInterceptor_RetryableError(t *testing.T) {
 
 func TestInterceptor_MaxAttemptsReached(t *testing.T) {
 	interceptor := New()
-	rootCtx := ctxapi.NewRootContext()
-	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+	ctx := context.Background()
 
-	opts := apiinterceptor.NewBag()
+	opts := runtime.Bag{}
 	opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 1})
-	_ = apiinterceptor.SetOptions(ctx, opts)
+	task := makeTask(opts)
 
 	attempts := 0
 	testErr := &testError{kind: apierror.KindUnavailable}
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		attempts++
-		return &runtime.Result{Error: testErr}, ctx
+		return &runtime.Result{Error: testErr}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, _ := interceptor.Handle(ctx, task, next)
 
 	assert.NotNil(t, result)
 	assert.Equal(t, testErr, result.Error)
@@ -177,21 +179,20 @@ func TestInterceptor_NonRetryableErrorKind(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			interceptor := New()
-			rootCtx := ctxapi.NewRootContext()
-			ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+			ctx := context.Background()
 
-			opts := apiinterceptor.NewBag()
+			opts := runtime.Bag{}
 			opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 1})
-			_ = apiinterceptor.SetOptions(ctx, opts)
+			task := makeTask(opts)
 
 			attempts := 0
 			testErr := &testError{kind: tc.kind}
-			next := func(ctx context.Context) (*runtime.Result, context.Context) {
+			next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 				attempts++
-				return &runtime.Result{Error: testErr}, ctx
+				return &runtime.Result{Error: testErr}, nil
 			}
 
-			result, _ := interceptor.Handle(ctx, next)
+			result, _ := interceptor.Handle(ctx, task, next)
 
 			assert.NotNil(t, result)
 			assert.Equal(t, testErr, result.Error)
@@ -202,21 +203,20 @@ func TestInterceptor_NonRetryableErrorKind(t *testing.T) {
 
 func TestInterceptor_RetryableFlagFalse(t *testing.T) {
 	interceptor := New()
-	rootCtx := ctxapi.NewRootContext()
-	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+	ctx := context.Background()
 
-	opts := apiinterceptor.NewBag()
+	opts := runtime.Bag{}
 	opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 1})
-	_ = apiinterceptor.SetOptions(ctx, opts)
+	task := makeTask(opts)
 
 	attempts := 0
 	testErr := &testError{kind: apierror.KindUnavailable, retryable: apierror.False}
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		attempts++
-		return &runtime.Result{Error: testErr}, ctx
+		return &runtime.Result{Error: testErr}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, _ := interceptor.Handle(ctx, task, next)
 
 	assert.NotNil(t, result)
 	assert.Equal(t, testErr, result.Error)
@@ -225,49 +225,47 @@ func TestInterceptor_RetryableFlagFalse(t *testing.T) {
 
 func TestInterceptor_UnknownError(t *testing.T) {
 	interceptor := New()
-	rootCtx := ctxapi.NewRootContext()
-	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+	ctx := context.Background()
 
-	opts := apiinterceptor.NewBag()
+	opts := runtime.Bag{}
 	opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 1})
-	_ = apiinterceptor.SetOptions(ctx, opts)
+	task := makeTask(opts)
 
 	attempts := 0
 	testErr := errors.New("unknown error")
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		attempts++
 		if attempts < 2 {
-			return &runtime.Result{Error: testErr}, ctx
+			return &runtime.Result{Error: testErr}, nil
 		}
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, _ := interceptor.Handle(ctx, task, next)
 
 	assert.NotNil(t, result)
 	assert.Nil(t, result.Error)
 	assert.Equal(t, 2, attempts, "Unknown errors should be retryable")
 }
 
-func TestInterceptor_ExponentialBackoff(t *testing.T) {
+func TestInterceptor_FixedBackoff(t *testing.T) {
 	interceptor := New()
-	rootCtx := ctxapi.NewRootContext()
-	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+	ctx := context.Background()
 
-	opts := apiinterceptor.NewBag()
+	opts := runtime.Bag{}
 	opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 50})
-	_ = apiinterceptor.SetOptions(ctx, opts)
+	task := makeTask(opts)
 
 	attempts := 0
 	timestamps := []time.Time{}
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		attempts++
 		timestamps = append(timestamps, time.Now())
-		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, ctx
+		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
 	}
 
 	start := time.Now()
-	interceptor.Handle(ctx, next)
+	interceptor.Handle(ctx, task, next)
 	duration := time.Since(start)
 
 	assert.Equal(t, 3, attempts)
@@ -277,31 +275,30 @@ func TestInterceptor_ExponentialBackoff(t *testing.T) {
 	delay2 := timestamps[2].Sub(timestamps[1])
 
 	assert.GreaterOrEqual(t, delay1.Milliseconds(), int64(50), "First retry should wait at least 50ms")
-	assert.GreaterOrEqual(t, delay2.Milliseconds(), int64(100), "Second retry should wait at least 100ms")
+	assert.GreaterOrEqual(t, delay2.Milliseconds(), int64(50), "Second retry should wait at least 50ms")
 
-	expectedTotal := 50 + 100
+	expectedTotal := 100
 	assert.GreaterOrEqual(t, duration.Milliseconds(), int64(expectedTotal), "Total duration should include backoff")
 }
 
 func TestInterceptor_DefaultBackoff(t *testing.T) {
 	interceptor := New()
-	rootCtx := ctxapi.NewRootContext()
-	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+	ctx := context.Background()
 
-	opts := apiinterceptor.NewBag()
+	opts := runtime.Bag{}
 	opts.Set("retry", &retryapi.Options{MaxAttempts: 2, BackoffMs: 0})
-	_ = apiinterceptor.SetOptions(ctx, opts)
+	task := makeTask(opts)
 
 	attempts := 0
 	timestamps := []time.Time{}
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		attempts++
 		timestamps = append(timestamps, time.Now())
-		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, ctx
+		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
 	}
 
 	start := time.Now()
-	interceptor.Handle(ctx, next)
+	interceptor.Handle(ctx, task, next)
 	duration := time.Since(start)
 
 	assert.Equal(t, 2, attempts)
@@ -312,24 +309,22 @@ func TestInterceptor_DefaultBackoff(t *testing.T) {
 
 func TestInterceptor_ContextCancellation(t *testing.T) {
 	interceptor := New()
-	rootCtx := ctxapi.NewRootContext()
-	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 
-	opts := apiinterceptor.NewBag()
+	opts := runtime.Bag{}
 	opts.Set("retry", &retryapi.Options{MaxAttempts: 10, BackoffMs: 100})
-	_ = apiinterceptor.SetOptions(ctx, opts)
+	task := makeTask(opts)
 
 	attempts := 0
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		attempts++
 		if attempts == 2 {
 			cancel()
 		}
-		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, ctx
+		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, _ := interceptor.Handle(ctx, task, next)
 
 	assert.NotNil(t, result)
 	assert.Error(t, result.Error)
@@ -339,25 +334,105 @@ func TestInterceptor_ContextCancellation(t *testing.T) {
 
 func TestInterceptor_ContextCancelledBeforeStart(t *testing.T) {
 	interceptor := New()
-	rootCtx := ctxapi.NewRootContext()
-	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	opts := apiinterceptor.NewBag()
+	opts := runtime.Bag{}
 	opts.Set("retry", &retryapi.Options{MaxAttempts: 3})
-	_ = apiinterceptor.SetOptions(ctx, opts)
+	task := makeTask(opts)
 
 	attempts := 0
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		attempts++
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, _ := interceptor.Handle(ctx, task, next)
 
 	assert.NotNil(t, result)
 	assert.Error(t, result.Error)
 	assert.Equal(t, context.Canceled, result.Error)
 	assert.Equal(t, 0, attempts, "Should not call next if context already cancelled")
+}
+
+func TestInterceptor_WithRetryKinds(t *testing.T) {
+	interceptor := New()
+	ctx := context.Background()
+
+	opts := runtime.Bag{}
+	opts.Set("retry", map[string]any{
+		"max_attempts": 3,
+		"backoff_ms":   10,
+		"retry_kinds":  []string{"Unavailable", "Timeout"},
+	})
+	task := makeTask(opts)
+
+	// Test that Unavailable is retried
+	attempts := 0
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+		attempts++
+		if attempts < 2 {
+			return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+		}
+		return &runtime.Result{}, nil
+	}
+
+	result, _ := interceptor.Handle(ctx, task, next)
+	assert.NotNil(t, result)
+	assert.Nil(t, result.Error)
+	assert.Equal(t, 2, attempts, "Unavailable should be retried")
+
+	// Test that Invalid is NOT retried (not in retry_kinds)
+	attempts = 0
+	testErr := &testError{kind: apierror.KindInvalid}
+	next = func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+		attempts++
+		return &runtime.Result{Error: testErr}, nil
+	}
+
+	result, _ = interceptor.Handle(ctx, task, next)
+	assert.NotNil(t, result)
+	assert.Equal(t, testErr, result.Error)
+	assert.Equal(t, 1, attempts, "Invalid should not be retried when not in retry_kinds")
+}
+
+func TestInterceptor_WithSkipKinds(t *testing.T) {
+	interceptor := New()
+	ctx := context.Background()
+
+	opts := runtime.Bag{}
+	opts.Set("retry", map[string]any{
+		"max_attempts": 3,
+		"backoff_ms":   10,
+		"skip_kinds":   []string{"Timeout"},
+	})
+	task := makeTask(opts)
+
+	// Test that Unavailable is retried (not in skip_kinds)
+	attempts := 0
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+		attempts++
+		if attempts < 2 {
+			return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+		}
+		return &runtime.Result{}, nil
+	}
+
+	result, _ := interceptor.Handle(ctx, task, next)
+	assert.NotNil(t, result)
+	assert.Nil(t, result.Error)
+	assert.Equal(t, 2, attempts, "Unavailable should be retried")
+
+	// Test that Timeout is NOT retried (in skip_kinds)
+	attempts = 0
+	testErr := &testError{kind: apierror.KindTimeout}
+	next = func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+		attempts++
+		return &runtime.Result{Error: testErr}, nil
+	}
+
+	result, _ = interceptor.Handle(ctx, task, next)
+	assert.NotNil(t, result)
+	assert.Equal(t, testErr, result.Error)
+	assert.Equal(t, 1, attempts, "Timeout should not be retried when in skip_kinds")
 }

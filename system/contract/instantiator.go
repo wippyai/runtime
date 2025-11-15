@@ -68,7 +68,7 @@ func (i *instanceImpl) ID() registry.ID {
 	return i.id
 }
 
-func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Payloads) (chan *runtime.Result, error) {
+func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Payloads) (*runtime.Result, error) {
 	// Find the bound contract and method
 	var funcID registry.ID
 	var boundContract contract.BoundContract

@@ -75,8 +75,9 @@ func NewTaskPool(factory api.Factory, method string, opts ...TaskOption) (*TaskP
 	return p, nil
 }
 
-// Execute executes a task with a VM created on demand
-func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+// Execute executes a task synchronously with a VM created on demand.
+// Blocks until execution completes or context is cancelled.
+func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	// Check if the pool is closed
 	select {
 	case <-p.done:
@@ -84,16 +85,12 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 	default:
 	}
 
-	// Create the result channel with buffer size 1 to avoid blocking
-	resultChan := make(chan *runtime.Result, 1)
-
 	// Ensure context has a logger
 	ctx = logs.WithLogger(ctx, p.logger)
 
 	// Get transcoder from context
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		close(resultChan)
 		return nil, fmt.Errorf("no transcoder found in context")
 	}
 
@@ -103,7 +100,6 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 		// Transcode to Lua format if needed
 		luaPayload, err := dtt.Transcode(p, payload.Lua)
 		if err != nil {
-			close(resultChan)
 			return nil, fmt.Errorf("failed to transcode payload: %w", err)
 		}
 		args[i] = luaPayload.Data().(lua.LValue)
@@ -112,56 +108,31 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 	// Acquire semaphore to limit concurrent executions
 	select {
 	case <-p.done:
-		close(resultChan)
 		return nil, fmt.Errorf("pool is closed")
 	case <-ctx.Done():
-		close(resultChan)
 		return nil, ctx.Err()
 	case p.semaphore <- struct{}{}:
 		// Continue with execution
 	}
+	defer func() { <-p.semaphore }() // Release semaphore on return
 
 	// Create a new VM for this execution
 	vm, err := p.factory.CreateVM()
 	if err != nil {
-		<-p.semaphore // Release semaphore on error
-
-		// Return the error through the result channel instead of as immediate error
-		resultChan <- &runtime.Result{
-			Error: fmt.Errorf("failed to create VM: %w", err),
-		}
-		close(resultChan)
-		return resultChan, nil
+		return nil, fmt.Errorf("failed to create VM: %w", err)
 	}
+	defer vm.Close() // Always close VM after use
 
-	// Execute the function
+	// Execute the function (blocking)
 	result, err := vm.Execute(ctx, p.method, args...)
-
-	// Always close the VM after use - this is the key difference with flex pool
-	vm.Close()
-
-	// Release the semaphore
-	<-p.semaphore
-
-	// Create a runtime.Result
-	runtimeResult := &runtime.Result{
-		Error: err,
+	if err != nil {
+		return nil, err
 	}
 
-	if err == nil {
-		// Set the result value
-		runtimeResult.Value = luaconv.ExportPayload(result)
-	}
-
-	// Send the result to the channel
-	select {
-	case resultChan <- runtimeResult:
-	default:
-		p.logger.Error("failed to send result to channel")
-	}
-	close(resultChan)
-
-	return resultChan, nil
+	// Return result
+	return &runtime.Result{
+		Value: luaconv.ExportPayload(result),
+	}, nil
 }
 
 // Close closes the pool and releases all resources

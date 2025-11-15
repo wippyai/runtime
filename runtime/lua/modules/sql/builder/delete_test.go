@@ -395,19 +395,19 @@ func TestDeleteErrors(t *testing.T) {
 		function test_delete_errors()
 			-- Create a DELETE without table
 			local delete1 = builder.delete()
-			
+
 			-- Try to get SQL (should return nil, error)
 			local sql1, err1 = delete1:to_sql()
-			
+
 			-- Using bad placeholder format with a non-userdata value
 			local delete2 = builder.delete("users")
 			local success, err2 = pcall(function()
 				delete2:placeholder_format("invalid")
 			end)
-			
+
 			return {
 				sql1 = sql1,
-				err1 = err1,
+				err1 = tostring(err1),
 				success = success,
 				err2 = err2
 			}

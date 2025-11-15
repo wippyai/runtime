@@ -119,7 +119,7 @@ func sqlizerToSQL(l *lua.LState) int {
 	query, args, err := sqlizer.ToSql()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newBuilderInvalidError(l, err, "to_sql"))
 		return 2
 	}
 

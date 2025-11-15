@@ -615,3 +615,148 @@ func TestComplexInteropErrorWrapping(t *testing.T) {
 		}
 	}
 }
+
+func TestErrorWithMetadata(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	RegisterErrorsModule(L)
+
+	script := `
+		local err = errors.new({
+			message = "resource not found",
+			kind = errors.NOT_FOUND,
+			retryable = false,
+			details = {
+				resource_id = "user-123",
+				operation = "fetch"
+			}
+		})
+
+		if err:kind() ~= "NotFound" then
+			error("expected kind NotFound, got: " .. err:kind())
+		end
+
+		if err:retryable() ~= false then
+			error("expected retryable false")
+		end
+
+		local details = err:details()
+		if details.resource_id ~= "user-123" then
+			error("expected resource_id user-123, got: " .. tostring(details.resource_id))
+		end
+		if details.operation ~= "fetch" then
+			error("expected operation fetch, got: " .. tostring(details.operation))
+		end
+
+		if err:message() ~= "resource not found" then
+			error("expected message 'resource not found', got: " .. err:message())
+		end
+	`
+
+	if err := L.DoString(script); err != nil {
+		t.Fatalf("test failed: %v", err)
+	}
+}
+
+func TestErrorKindConstants(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	RegisterErrorsModule(L)
+
+	script := `
+		local kinds = {
+			errors.NOT_FOUND,
+			errors.ALREADY_EXISTS,
+			errors.INVALID,
+			errors.PERMISSION_DENIED,
+			errors.UNAVAILABLE,
+			errors.INTERNAL,
+			errors.CANCELED,
+			errors.CONFLICT,
+			errors.TIMEOUT,
+			errors.RATE_LIMITED,
+			errors.UNKNOWN
+		}
+
+		for i, kind in ipairs(kinds) do
+			if type(kind) ~= "string" then
+				error("kind constant " .. i .. " is not a string")
+			end
+		end
+	`
+
+	if err := L.DoString(script); err != nil {
+		t.Fatalf("test failed: %v", err)
+	}
+}
+
+func TestErrorWrapPreservesMetadata(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	RegisterErrorsModule(L)
+
+	script := `
+		local base_err = errors.new({
+			message = "database connection failed",
+			kind = errors.UNAVAILABLE,
+			retryable = true,
+			details = {
+				host = "db.example.com",
+				port = 5432
+			}
+		})
+
+		local wrapped = errors.wrap(base_err, "failed to fetch user")
+
+		if wrapped:kind() ~= "Unavailable" then
+			error("wrapped error lost kind")
+		end
+
+		if wrapped:retryable() ~= true then
+			error("wrapped error lost retryable")
+		end
+
+		local details = wrapped:details()
+		if details.host ~= "db.example.com" then
+			error("wrapped error lost details")
+		end
+	`
+
+	if err := L.DoString(script); err != nil {
+		t.Fatalf("test failed: %v", err)
+	}
+}
+
+func TestErrorBackwardCompatibility(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	RegisterErrorsModule(L)
+
+	script := `
+		local err = errors.new("simple error message")
+
+		if err:kind() ~= "Unknown" then
+			error("simple error should have Unknown kind")
+		end
+
+		if err:retryable() ~= nil then
+			error("simple error should have nil retryable")
+		end
+
+		if err:details() ~= nil then
+			error("simple error should have nil details")
+		end
+
+		if err:message() ~= "simple error message" then
+			error("simple error message mismatch")
+		end
+	`
+
+	if err := L.DoString(script); err != nil {
+		t.Fatalf("test failed: %v", err)
+	}
+}

@@ -2,12 +2,19 @@
 package runtime
 
 import (
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 )
 
 type (
+	// Options is an alias to attrs.Attributes for task options configuration.
+	Options = attrs.Attributes
+
+	// Bag is an alias to attrs.Bag for task options storage.
+	Bag = attrs.Bag
+
 	// Task represents a unit of work to be executed by the runtime system.
 	Task struct {
 		// ID uniquely identifies the function/process/operation to be executed
@@ -16,9 +23,8 @@ type (
 		// Payloads contains the input data for the function execution
 		Payloads payload.Payloads `json:"payloads"`
 
-		// Options contains runtime interceptor options for this task execution
-		// Type should be interceptor.Options but stored as interface{} to avoid import cycle
-		Options interface{} `json:"options,omitempty"`
+		// Options contains runtime options for this task execution (retry, timeout, etc.)
+		Options Options `json:"options,omitempty"`
 
 		// Context contains context overrides to apply when executing this task.
 		// These pairs are set in the new FrameContext after inheritance but before sealing.

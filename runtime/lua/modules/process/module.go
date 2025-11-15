@@ -342,7 +342,7 @@ func (m *Module) send(l *lua.LState) int {
 	pid, err := m.resolvePID(l, pidOrName, "process.send")
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "send"))
 		return 2
 	}
 
@@ -358,7 +358,7 @@ func (m *Module) send(l *lua.LState) int {
 
 	if err := router.Send(pkg); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "send"))
 		return 2
 	}
 
@@ -428,7 +428,7 @@ func (m *Module) spawn(l *lua.LState) int {
 	pid, err := manager.Start(l.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "spawn"))
 		return 2
 	}
 
@@ -454,7 +454,7 @@ func (m *Module) spawnMonitored(l *lua.LState) int {
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no unit of work found"))
+		l.Push(newProcessInvalidError(l, "no unit of work found"))
 		return 2
 	}
 
@@ -500,7 +500,7 @@ func (m *Module) spawnMonitored(l *lua.LState) int {
 	pid, err := manager.Start(l.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "spawn_monitored"))
 		return 2
 	}
 
@@ -565,7 +565,7 @@ func (m *Module) spawnLinked(l *lua.LState) int {
 	pid, err := manager.Start(l.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "spawn_linked"))
 		return 2
 	}
 
@@ -636,7 +636,7 @@ func (m *Module) spawnLinkedMonitored(l *lua.LState) int {
 	pid, err := manager.Start(l.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "spawn_linked_monitored"))
 		return 2
 	}
 
@@ -669,13 +669,13 @@ func (m *Module) terminate(l *lua.LState) int {
 	pid, err := m.resolvePID(l, pidOrName, "process.terminate")
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "terminate"))
 		return 2
 	}
 
 	if err := manager.Terminate(l.Context(), pid); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "terminate"))
 		return 2
 	}
 
@@ -711,7 +711,7 @@ func (m *Module) cancel(l *lua.LState) int {
 	pid, err := m.resolvePID(l, pidOrName, "process.cancel")
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "cancel"))
 		return 2
 	}
 
@@ -750,7 +750,7 @@ func (m *Module) cancel(l *lua.LState) int {
 
 	if err := manager.Cancel(l.Context(), self, pid, deadline); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "cancel"))
 		return 2
 	}
 
@@ -787,13 +787,13 @@ func (m *Module) monitor(l *lua.LState) int {
 	pid, err := m.resolvePID(l, pidOrName, "process.monitor")
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "monitor"))
 		return 2
 	}
 
 	if err := topo.Wait(self, pid); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "monitor"))
 		return 2
 	}
 
@@ -829,13 +829,13 @@ func (m *Module) unmonitor(l *lua.LState) int {
 	pid, err := m.resolvePID(l, pidOrName, "process.unmonitor")
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "unmonitor"))
 		return 2
 	}
 
 	if err := topo.Release(self, pid); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "unmonitor"))
 		return 2
 	}
 
@@ -871,13 +871,13 @@ func (m *Module) link(l *lua.LState) int {
 	pid, err := m.resolvePID(l, pidOrName, "process.link")
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "link"))
 		return 2
 	}
 
 	if err := topo.Link(self, pid); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "link"))
 		return 2
 	}
 
@@ -913,13 +913,13 @@ func (m *Module) unlink(l *lua.LState) int {
 	pid, err := m.resolvePID(l, pidOrName, "process.unlink")
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "unlink"))
 		return 2
 	}
 
 	if err := topo.Unlink(self, pid); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "unlink"))
 		return 2
 	}
 
@@ -959,7 +959,7 @@ func (m *Module) registryRegister(l *lua.LState) int {
 		pid, err = relay.ParsePID(pidStr)
 		if err != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(newProcessOperationError(l, err, "register"))
 			return 2
 		}
 	} else {
@@ -969,7 +969,7 @@ func (m *Module) registryRegister(l *lua.LState) int {
 	err := reg.Register(name, pid)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newProcessOperationError(l, err, "register"))
 		return 2
 	}
 

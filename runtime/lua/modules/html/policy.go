@@ -144,7 +144,7 @@ func attrBuilderMatching(l *lua.LState) int {
 	regex, err := regexp.Compile(pattern)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHTMLRegexError(l, err, pattern))
 		return 2
 	}
 

@@ -13,12 +13,12 @@ func TestMiddlewareFactory(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("create middleware factory", func(t *testing.T) {
-		factory := NewDefaultMiddlewareFactory()
+		factory := NewMiddlewareRegistry(zap.NewNop()))
 		assert.NotNil(t, factory)
 		assert.Empty(t, factory.middlewareMap)
 
 		// Create with logger option
-		factory = NewDefaultMiddlewareFactory(WithLogger(logger))
+		factory = NewMiddlewareRegistry(zap.NewNop())WithLogger(logger))
 		assert.NotNil(t, factory)
 		assert.Equal(t, logger, factory.logger)
 	})
@@ -32,8 +32,8 @@ func TestMiddlewareFactory(t *testing.T) {
 			})
 		}
 
-		factory := NewDefaultMiddlewareFactory(
-			WithMiddleware("test", testMiddleware),
+		factory := NewMiddlewareRegistry(zap.NewNop())
+			Register("test", testMiddleware),
 		)
 
 		// Test the middleware
@@ -80,8 +80,8 @@ func TestMiddlewareFactory(t *testing.T) {
 			}
 		}
 
-		factory := NewDefaultMiddlewareFactory(
-			WithMiddlewareCreator("configurable", testCreator),
+		factory := NewMiddlewareRegistry(zap.NewNop())
+			RegisterCreator("configurable", testCreator),
 		)
 
 		// Test with default options
@@ -115,9 +115,9 @@ func TestMiddlewareFactory(t *testing.T) {
 	})
 
 	t.Run("middleware creator returning nil", func(t *testing.T) {
-		factory := NewDefaultMiddlewareFactory(
+		factory := NewMiddlewareRegistry(zap.NewNop())
 			WithLogger(logger),
-			WithMiddlewareCreator("nil-creator", func(_ map[string]string) func(http.Handler) http.Handler {
+			RegisterCreator("nil-creator", func(_ map[string]string) func(http.Handler) http.Handler {
 				return nil
 			}),
 		)

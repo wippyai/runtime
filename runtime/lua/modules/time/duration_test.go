@@ -265,7 +265,7 @@ func TestDuration(t *testing.T) {
 				script: `
 					local time = require("time")
 					local d, err = time.parse_duration("invalid")
-					return d, err
+					return d, err and tostring(err) or nil
 				`,
 				expectedError: "time: invalid duration",
 			},

@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/payload"
+	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
+	"github.com/wippyai/runtime/api/logs"
 	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
 	"github.com/wippyai/runtime/service/interceptor/retry"
 )
@@ -16,14 +16,15 @@ func InterceptorRetry() boot.Component {
 		Phase:     boot.PostInit,
 		DependsOn: []boot.ComponentName{bootsystem.InterceptorName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			bus := event.GetBus(ctx)
+			logger := logs.GetLogger(ctx).Named("interceptor.retry")
+			registry := apiinterceptor.GetRegistry(ctx)
+			if registry == nil {
+				return ctx, nil
+			}
 
-			bus.Send(ctx, event.Event{
-				System: "interceptor",
-				Kind:   "interceptor.register",
-				Path:   "interceptor/retry",
-				Data:   payload.New(retry.New()),
-			})
+			if err := registry.Register("retry", retry.NewWithLogger(logger), 20); err != nil {
+				return ctx, err
+			}
 
 			return ctx, nil
 		},

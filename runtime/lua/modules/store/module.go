@@ -199,11 +199,11 @@ func storeGetValue(l *lua.LState) int {
 	if err != nil {
 		if errors.Is(err, store.ErrKeyNotFound) {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("key not found"))
+			l.Push(newStoreOperationError(l, err, "get"))
 			return 2
 		}
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newStoreOperationError(l, err, "get"))
 		return 2
 	}
 
@@ -211,7 +211,7 @@ func storeGetValue(l *lua.LState) int {
 	transcoder := payload.GetTranscoder(l.Context())
 	if transcoder == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transcoder not found in context"))
+		l.Push(newStoreOperationError(l, errors.New("transcoder not found in context"), "get"))
 		return 2
 	}
 
@@ -219,7 +219,7 @@ func storeGetValue(l *lua.LState) int {
 	luaPayload, err := transcoder.Transcode(val, payload.Lua)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to transcode: %v", err)))
+		l.Push(newStoreOperationError(l, fmt.Errorf("failed to transcode: %v", err), "get"))
 		return 2
 	}
 
@@ -227,7 +227,7 @@ func storeGetValue(l *lua.LState) int {
 	luaVal, ok := luaPayload.Data().(lua.LValue)
 	if !ok {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("invalid payload data type: %T", luaPayload.Data())))
+		l.Push(newStoreOperationError(l, fmt.Errorf("invalid payload data type: %T", luaPayload.Data()), "get"))
 		return 2
 	}
 
@@ -278,7 +278,7 @@ func storeSetValue(l *lua.LState) int {
 	transcoder := payload.GetTranscoder(l.Context())
 	if transcoder == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transcoder not found in context"))
+		l.Push(newStoreOperationError(l, errors.New("transcoder not found in context"), "set"))
 		return 2
 	}
 
@@ -289,7 +289,7 @@ func storeSetValue(l *lua.LState) int {
 	goPayload, err := transcoder.Transcode(luaPayload, payload.Golang)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to transcode: %v", err)))
+		l.Push(newStoreOperationError(l, fmt.Errorf("failed to transcode: %v", err), "set"))
 		return 2
 	}
 
@@ -304,7 +304,7 @@ func storeSetValue(l *lua.LState) int {
 	err = storeObj.store.Set(l.Context(), entry)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newStoreOperationError(l, err, "set"))
 		return 2
 	}
 
@@ -346,7 +346,7 @@ func storeDelete(l *lua.LState) int {
 			return 2
 		}
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newStoreOperationError(l, err, "delete"))
 		return 2
 	}
 
@@ -383,7 +383,7 @@ func storeHas(l *lua.LState) int {
 	exists, err := storeObj.store.Has(l.Context(), parsedKey)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newStoreOperationError(l, err, "has"))
 		return 2
 	}
 

@@ -32,10 +32,11 @@ func (m *Module) initModuleTable(l *lua.LState) {
 	t := l.CreateTable(0, 1)
 
 	sanitizeMod := l.CreateTable(0, 3)
-	l.SetField(sanitizeMod, "new_policy", l.NewFunction(newPolicy))
-	l.SetField(sanitizeMod, "ugc_policy", l.NewFunction(ugcPolicy))
-	l.SetField(sanitizeMod, "strict_policy", l.NewFunction(strictPolicy))
-	l.SetField(t, "sanitize", sanitizeMod)
+	sanitizeMod.RawSetString("new_policy", l.NewFunction(newPolicy))
+	sanitizeMod.RawSetString("ugc_policy", l.NewFunction(ugcPolicy))
+	sanitizeMod.RawSetString("strict_policy", l.NewFunction(strictPolicy))
+	sanitizeMod.Immutable = true
+	t.RawSetString("sanitize", sanitizeMod)
 
 	registerPolicy(l)
 	registerAttrBuilder(l)

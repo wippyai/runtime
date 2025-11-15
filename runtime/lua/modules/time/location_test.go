@@ -74,7 +74,7 @@ func TestLocation(t *testing.T) {
 				script := `
 					local time = require("time")
 					local loc, err = time.load_location("` + tc.location + `")
-					return loc, err
+					return loc, err and tostring(err) or nil
 				`
 
 				err = vm.DoString(context.Background(), script, "test")

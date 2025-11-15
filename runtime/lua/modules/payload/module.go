@@ -115,7 +115,7 @@ func (m *Module) payloadData(l *lua.LState) int {
 	luaPayload, err := dtt.Transcode(p.Payload, payload.Lua)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newPayloadTranscodeError(l, err, string(p.Payload.Format()), string(payload.Lua)))
 		return 2
 	}
 
@@ -147,7 +147,7 @@ func (m *Module) payloadTranscode(l *lua.LState) int {
 	result, err := dtt.Transcode(p.Payload, format)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newPayloadTranscodeError(l, err, string(p.Payload.Format()), string(format)))
 		return 2
 	}
 
@@ -180,7 +180,7 @@ func (m *Module) payloadUnmarshal(l *lua.LState) int {
 	luaPayload, err := dtt.Transcode(p.Payload, payload.Lua)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newPayloadTranscodeError(l, err, string(p.Payload.Format()), string(payload.Lua)))
 		return 2
 	}
 
@@ -192,7 +192,7 @@ func (m *Module) payloadUnmarshal(l *lua.LState) int {
 
 	// If not a valid Lua value, return nil and error
 	l.Push(lua.LNil)
-	l.Push(lua.LString("transcoded data is not a valid Lua value"))
+	l.Push(newPayloadInvalidError(l, "transcoded data is not a valid Lua value"))
 	return 2
 }
 

@@ -4,8 +4,6 @@ package lua
 import (
 	"fmt"
 
-	"github.com/wippyai/runtime/api/interceptor"
-
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -39,10 +37,6 @@ type (
 		MaxSize   int  `json:"max_size"`   // Maximum size for lazy pool / concurrent executions (default: 100)
 	}
 
-	FunctionConfigMeta struct {
-		Options interceptor.Options `json:"options"`
-	}
-
 	// FunctionConfig defines the configuration for a Lua function component.
 	// It includes the source code, execution method, required libraries and modules,
 	// and VM pool settings.
@@ -52,7 +46,7 @@ type (
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 		Pool    PoolConfig             `json:"pool,omitempty"`    // VM pool configuration
-		Meta    FunctionConfigMeta     `json:"meta,omitempty"`    // meta
+		Meta    registry.Metadata      `json:"meta,omitempty"`    // Metadata including options
 	}
 
 	// LibraryConfig defines the configuration for a Lua library component.

@@ -261,7 +261,7 @@ func TestJsonModule(t *testing.T) {
 				script: `
 					local json = require("json")
 					local value, err = json.decode("invalid json")
-					return value, err
+					return value, err and tostring(err) or nil
 				`,
 				expectedError: "invalid character",
 			},
@@ -272,7 +272,7 @@ func TestJsonModule(t *testing.T) {
 					local t = {}
 					t.x = t
 					local value, err = json.encode(t)
-					return value, err
+					return value, err and tostring(err) or nil
 				`,
 				expectedError: "cannot encode recursively nested tables",
 			},
@@ -284,7 +284,7 @@ func TestJsonModule(t *testing.T) {
 					t[1] = 1
 					t["key"] = 2
 					local value, err = json.encode(t)
-					return value, err
+					return value, err and tostring(err) or nil
 				`,
 				expectedError: "table has both numeric and non-numeric keys",
 			},
@@ -430,19 +430,19 @@ func TestSharedTableReferences(t *testing.T) {
 
 		script := `
 			local json = require("json")
-			
+
 			-- Create a truly recursive structure
 			local recursive = {}
 			recursive.self = recursive  -- circular reference
-			
+
 			-- This should fail because it would create infinite recursion
 			local result, err = json.encode(recursive)
-			
+
 			if not err then
 				return nil, "Expected encoding recursive tables to fail, but it succeeded"
 			end
-			
-			return err
+
+			return tostring(err)
 		`
 
 		err = vm.DoString(context.Background(), script, "test")

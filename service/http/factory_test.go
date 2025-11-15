@@ -468,7 +468,7 @@ func TestWrapWithCacheControl(t *testing.T) {
 
 func TestServerFactory(t *testing.T) {
 	// Create middleware factory for server factory
-	middlewareFactory := NewDefaultMiddlewareFactory()
+	middlewareFactory := NewMiddlewareRegistry(zap.NewNop()))
 
 	factory := NewServerFactory(middlewareFactory)
 

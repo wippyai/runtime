@@ -408,23 +408,23 @@ func TestInsertErrors(t *testing.T) {
 		function test_insert_errors()
 			-- Create an INSERT without table
 			local insert1 = builder.insert()
-			
+
 			-- Try to get SQL (should return nil, error)
 			local sql1, err1 = insert1:to_sql()
-			
+
 			-- Create an INSERT without values
 			local insert2 = builder.insert("users")
 				:columns("id", "name")
 				-- No values set
-			
+
 			-- Try to get SQL (should return nil, error)
 			local sql2, err2 = insert2:to_sql()
-			
+
 			return {
 				sql1 = sql1,
-				err1 = err1,
+				err1 = tostring(err1),
 				sql2 = sql2,
-				err2 = err2
+				err2 = tostring(err2)
 			}
 		end
 	`, "test", "test_insert_errors")

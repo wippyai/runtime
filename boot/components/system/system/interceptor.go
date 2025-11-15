@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/api/event"
 	intapi "github.com/wippyai/runtime/api/interceptor"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/system/interceptor"
@@ -18,22 +17,12 @@ func Interceptor() boot.Component {
 		DependsOn: []boot.ComponentName{},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
-			bus := event.GetBus(ctx)
 
-			registry = interceptor.NewInterceptorRegistry(bus, logger.Named("interceptor"))
-			return intapi.WithChain(ctx, registry), nil
-		},
-		Start: func(ctx context.Context) error {
-			if registry != nil {
-				return registry.Start(ctx)
-			}
-			return nil
-		},
-		Stop: func(ctx context.Context) error {
-			if registry != nil {
-				return registry.Stop()
-			}
-			return nil
+			registry = interceptor.NewInterceptorRegistry(logger.Named("interceptor"))
+			ctx = intapi.WithChain(ctx, registry)
+			ctx = intapi.WithRegistry(ctx, registry)
+
+			return ctx, nil
 		},
 	})
 }

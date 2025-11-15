@@ -94,20 +94,15 @@ func (m *mockInstance) Args() registry.Metadata {
 	return m.scope
 }
 
-func (m *mockInstance) Call(_ context.Context, method string, args payload.Payloads) (chan *runtime.Result, error) {
-	resultChan := make(chan *runtime.Result, 1)
-	go func() {
-		defer close(resultChan)
-		// Simple mock: return method name + first arg if available
-		resultValue := method
-		if len(args) > 0 {
-			resultValue = method + "_called"
-		}
-		resultChan <- &runtime.Result{
-			Value: payload.New(resultValue),
-		}
-	}()
-	return resultChan, nil
+func (m *mockInstance) Call(_ context.Context, method string, args payload.Payloads) (*runtime.Result, error) {
+	// Simple mock: return method name + first arg if available
+	resultValue := method
+	if len(args) > 0 {
+		resultValue = method + "_called"
+	}
+	return &runtime.Result{
+		Value: payload.New(resultValue),
+	}, nil
 }
 
 // mockRegistry implements contract.Registry interface
@@ -700,7 +695,7 @@ func TestContractOpenDefaultBindingNotFound(t *testing.T) {
 			local instance, err = c:open()
 			assert(instance == nil, "instance should be nil when no default binding")
 			assert(err ~= nil, "should return error when no default binding")
-			assert(string.match(err, "no default binding"), "error should mention no default binding")
+			assert(string.match(tostring(err), "no default binding"), "error should mention no default binding")
 			
 			return "success"
 		end

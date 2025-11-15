@@ -160,7 +160,7 @@ func (m *Module) setGCPercent(l *lua.LState) int {
 
 	if l.GetTop() < 1 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("percent value required for set_gc_percent"))
+		l.Push(newSystemValidationError(l, "percent", "value required for set_gc_percent"))
 		return 2
 	}
 	percent := l.CheckInt(1)
@@ -241,7 +241,7 @@ func (*Module) goMaxProcs(l *lua.LState) int {
 		newProcs := l.CheckInt(1)
 		if newProcs <= 0 {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("GOMAXPROCS value must be positive"))
+			l.Push(newSystemValidationError(l, "GOMAXPROCS", "value must be positive"))
 			return 2
 		}
 		previousProcs := runtime.GOMAXPROCS(newProcs)
@@ -288,7 +288,7 @@ func (*Module) hostname(l *lua.LState) int {
 	name, err := os.Hostname()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newSystemIOError(l, err, "hostname"))
 		return 2
 	}
 
@@ -328,7 +328,7 @@ func (m *Module) setMemoryLimit(l *lua.LState) int {
 
 	if l.GetTop() < 1 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("memory limit value (bytes) required for set_memory_limit"))
+		l.Push(newSystemValidationError(l, "memory_limit", "value (bytes) required for set_memory_limit"))
 		return 2
 	}
 	limit := l.CheckInt64(1)
@@ -337,7 +337,7 @@ func (m *Module) setMemoryLimit(l *lua.LState) int {
 			limit = math.MaxInt64 // Go's representation of effectively no limit
 		} else {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("memory limit must be non-negative, or -1 for unlimited"))
+			l.Push(newSystemValidationError(l, "memory_limit", "must be non-negative, or -1 for unlimited"))
 			return 2
 		}
 	}

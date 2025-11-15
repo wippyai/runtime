@@ -96,10 +96,9 @@ func (p *TaskPool) init() error {
 	return nil
 }
 
-// Execute handles a runtime.Task directly, performing the necessary transcoding
-// and executing the Lua function with a VM from the pool.
-// It returns a channel that will receive exactly one result (or be closed on error).
-func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+// Execute handles a runtime.Task synchronously, performing the necessary transcoding
+// and executing the Lua function with a VM from the pool. Blocks until completion.
+func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	// Check if the pool is closed
 	select {
 	case <-p.done:
@@ -107,16 +106,12 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 	default:
 	}
 
-	// Create the result channel with buffer size 1 to avoid blocking
-	resultChan := make(chan *runtime.Result, 1)
-
 	// Ensure context has a logger (todo: drop it)
 	ctx = logs.WithLogger(ctx, p.logger)
 
 	// Get transcoder from context
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		close(resultChan)
 		return nil, fmt.Errorf("no transcoder found in context")
 	}
 
@@ -126,7 +121,6 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 		// Transcode to Lua format if needed
 		luaPayload, err := dtt.Transcode(p, payload.Lua)
 		if err != nil {
-			close(resultChan)
 			return nil, fmt.Errorf("failed to transcode payload: %w", err)
 		}
 		args[i] = luaPayload.Data().(lua.LValue)
@@ -136,62 +130,47 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 	var vm api.VM
 	select {
 	case <-p.done:
-		close(resultChan)
 		return nil, fmt.Errorf("pool is closed")
 	case <-ctx.Done():
-		close(resultChan)
 		return nil, ctx.Err()
 	case vm = <-p.vms:
 	}
 
-	// Execute the function
+	// Execute the function (blocking)
 	result, err := vm.Execute(ctx, p.method, args...)
 
-	// Create a runtime.Result
-	runtimeResult := &runtime.Result{
-		Error: err,
-	}
-
 	if err == nil {
-		// Set the result value
-		runtimeResult.Value = luaconv.ExportPayload(result)
-
 		// Return VM to the pool
 		select {
 		case p.vms <- vm:
 		default:
 			vm.Close()
 		}
-	} else {
-		// Never allow failed VMs to be returned to the pool
-		vm.Close()
 
-		// Try to create a replacement VM
-		select {
-		case <-p.done:
-			// Pool is shutting down, don't create a new VM
-		default:
-			if newVM, createErr := p.factory.CreateVM(); createErr == nil {
-				select {
-				case p.vms <- newVM:
-				default:
-					newVM.Close()
-				}
+		// Return result
+		return &runtime.Result{
+			Value: luaconv.ExportPayload(result),
+		}, nil
+	}
+
+	// Never allow failed VMs to be returned to the pool
+	vm.Close()
+
+	// Try to create a replacement VM
+	select {
+	case <-p.done:
+		// Pool is shutting down, don't create a new VM
+	default:
+		if newVM, createErr := p.factory.CreateVM(); createErr == nil {
+			select {
+			case p.vms <- newVM:
+			default:
+				newVM.Close()
 			}
 		}
-
-		return nil, err
 	}
 
-	// Send the result to the channel
-	select {
-	case resultChan <- runtimeResult:
-	default:
-		p.logger.Error("failed to send result to channel")
-	}
-	close(resultChan)
-
-	return resultChan, nil
+	return nil, err
 }
 
 // cleanupVMs drains and closes all VMs in the pool

@@ -272,7 +272,7 @@ func TestHTTPResponse(t *testing.T) {
 					local response, err = http.get("https://api.example.com/test")
 					assert(response == nil, "Response should be nil")
 					assert(err ~= nil, "Error should not be nil")
-					assert(string.find(err, "mock error") ~= nil, "Error message mismatch")
+					assert(string.find(tostring(err), "mock error") ~= nil, "Error message mismatch")
 				`,
 				shouldError: false,
 			},
@@ -460,7 +460,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 	
 		chunk, err = s:read(6)
 		assert(chunk == nil, "Chunk should be nil due to error")
-		assert(string.find(err, "mock error"), "Error should indicate the injected error")
+		assert(string.find(tostring(err), "mock error"), "Error should indicate the injected error")
 	`
 
 		err = vm.DoString(newTestContext(), script, "test")
@@ -499,7 +499,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 	
 		local chunk, err = s:read()
 		assert(chunk == nil, "Chunk should be nil after closing")
-		assert(string.find(err, "closed"), "Error should indicate stream is closed")
+		assert(string.find(tostring(err), "closed"), "Error should indicate stream is closed")
 	`
 
 		err = vm.DoString(newTestContext(), script, "test")

@@ -545,7 +545,7 @@ func selectToSQL(l *lua.LState) int {
 	query, args, err := wrapper.builder.ToSql()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newBuilderInvalidError(l, err, "to_sql"))
 		return 2
 	}
 
@@ -590,7 +590,7 @@ func selectRunWith(l *lua.LState) int {
 	executor, err := NewQueryExecutor(l, wrapper.builder, ud.Value)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newBuilderOperationError(l, err, "run_with"))
 		return 2
 	}
 

@@ -15,11 +15,9 @@ type mockChain struct {
 	executeCalled bool
 }
 
-func (m *mockChain) Execute(ctx context.Context, f function.Func, task runtime.Task) (chan *runtime.Result, error) {
+func (m *mockChain) Execute(ctx context.Context, f function.Func, task runtime.Task) (*runtime.Result, error) {
 	m.executeCalled = true
-	ch := make(chan *runtime.Result, 1)
-	ch <- &runtime.Result{}
-	return ch, nil
+	return &runtime.Result{}, nil
 }
 
 func TestWithChainGetChain(t *testing.T) {
@@ -183,18 +181,19 @@ func TestHandlerFunc_Handle(t *testing.T) {
 	called := false
 	nextCalled := false
 
-	interceptor := HandlerFunc(func(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
+	interceptor := HandlerFunc(func(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
 		called = true
-		return next(ctx)
+		return next(ctx, task)
 	})
 
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		nextCalled = true
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
 	ctx := context.Background()
-	result, _ := interceptor.Handle(ctx, next)
+	task := runtime.Task{}
+	result, _ := interceptor.Handle(ctx, task, next)
 
 	if !called {
 		t.Error("HandlerFunc should have been called")

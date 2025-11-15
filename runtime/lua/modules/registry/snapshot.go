@@ -58,7 +58,7 @@ func snapshotEntries(l *lua.LState) int {
 	entries, err := snap.GetAllEntries()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "entries"))
 		return 2
 	}
 
@@ -74,7 +74,7 @@ func snapshotEntries(l *lua.LState) int {
 		entryTable, err := entryToLuaTable(l, entry)
 		if err != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(newRegistryOperationError(l, err, "entries"))
 			return 2
 		}
 		entriesTable.RawSetInt(idx, entryTable)
@@ -107,7 +107,7 @@ func snapshotGet(l *lua.LState) int {
 	entry, err := snap.GetEntry(id)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "get"))
 		return 2
 	}
 
@@ -115,7 +115,7 @@ func snapshotGet(l *lua.LState) int {
 	entryTable, err := entryToLuaTable(l, entry)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "get"))
 		return 2
 	}
 
@@ -152,7 +152,7 @@ func snapshotNamespace(l *lua.LState) int {
 		entryTable, err := entryToLuaTable(l, entry)
 		if err != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(newRegistryOperationError(l, err, "namespace"))
 			return 2
 		}
 		entriesTable.RawSetInt(i+1, entryTable)
@@ -194,7 +194,7 @@ func snapshotFind(l *lua.LState) int {
 
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newRegistryOperationError(l, err, "find"))
 		return 2
 	}
 
@@ -210,7 +210,7 @@ func snapshotFind(l *lua.LState) int {
 		entryTable, err := entryToLuaTable(l, entry)
 		if err != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(newRegistryOperationError(l, err, "find"))
 			return 2
 		}
 		entriesTable.RawSetInt(idx, entryTable)

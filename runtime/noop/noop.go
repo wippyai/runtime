@@ -27,12 +27,10 @@ func NewNoopRuntime(bus event.Bus, logger *zap.Logger) *Runtime {
 }
 
 // Execute implements the runtime.Registry interface, does not do anything.
-func (n *Runtime) Execute(_ context.Context, task runtime.Task) (chan *runtime.Result, error) {
-	rspChan := make(chan *runtime.Result, 1)
-	rspChan <- &runtime.Result{
+func (n *Runtime) Execute(_ context.Context, task runtime.Task) (*runtime.Result, error) {
+	return &runtime.Result{
 		Value: payload.New(fmt.Sprintf("noop runtime: task %s executed", task.ID)),
-	}
-	return rspChan, nil
+	}, nil
 }
 
 // Add implements EntryListener.AddCleanup - does nothing and returns nil

@@ -44,14 +44,14 @@ func (m *Module) Loader(l *lua.LState) int {
 	typeTable := l.CreateTable(0, 2)
 	typeTable.RawSetString("FILE", lua.LString(typeFile))
 	typeTable.RawSetString("DIR", lua.LString(typeDir))
-	l.SetField(t, "type", typeTable)
+	t.RawSetString("type", typeTable)
 
 	// Register seek constants
 	seekTable := l.CreateTable(0, 3)
 	seekTable.RawSetString("SET", lua.LString(seekSet))
 	seekTable.RawSetString("CUR", lua.LString(seekCur))
 	seekTable.RawSetString("END", lua.LString(seekEnd))
-	l.SetField(t, "seek", seekTable)
+	t.RawSetString("seek", seekTable)
 
 	t.RawSetString("get", l.NewFunction(apiGet))
 

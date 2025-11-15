@@ -113,7 +113,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 	id := l.CheckString(1)
 	if id == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("resource Source is required"))
+		l.Push(newSQLInvalidError(l, "resource Source is required", ""))
 		return 2
 	}
 
@@ -132,7 +132,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 	reg := resource.GetRegistry(uw.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("resource registry not found"))
+		l.Push(newSQLResourceError(l, fmt.Errorf("resource registry not found"), id))
 		return 2
 	}
 
@@ -143,7 +143,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 	res, err := reg.Acquire(uw.Context(), resID, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
+		l.Push(newSQLResourceError(l, err, id))
 		return 2
 	}
 
@@ -152,7 +152,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 	if err != nil {
 		res.Release()
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to get resource: %v", err)))
+		l.Push(newSQLResourceError(l, err, id))
 		return 2
 	}
 
@@ -162,7 +162,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 		res.Release()
 
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("resource is not a database: %T", dbRes)))
+		l.Push(newSQLInvalidError(l, fmt.Sprintf("resource is not a database: %T", dbRes), ""))
 		return 2
 	}
 
@@ -189,7 +189,7 @@ func dbQuery(l *lua.LState) int {
 	params, err := sqlutil.CheckParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newSQLQueryError(l, err, query))
 		return 2
 	}
 
@@ -273,7 +273,7 @@ func dbExecute(l *lua.LState) int {
 	params, err := sqlutil.CheckParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newSQLQueryError(l, err, query))
 		return 2
 	}
 

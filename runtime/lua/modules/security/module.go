@@ -125,7 +125,7 @@ func (m *Module) policy(l *lua.LState) int {
 	// Check permission to access this policy
 	if !securityapi.IsAllowed(l.Context(), "security.policy.get", idStr, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to access policy: " + idStr))
+		l.Push(newSecurityPermissionError(l, idStr, "access policy"))
 		return 2
 	}
 
@@ -149,14 +149,14 @@ func (m *Module) namedScope(l *lua.LState) int {
 	// Check permission to access this policy group
 	if !securityapi.IsAllowed(l.Context(), "security.policy_group.get", idStr, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to access policy group: " + idStr))
+		l.Push(newSecurityPermissionError(l, idStr, "access policy group"))
 		return 2
 	}
 
 	scope, err := secapi.GetPolicyGroup(l.Context(), id)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newSecurityOperationError(l, err, "get_policy_group"))
 		return 2
 	}
 

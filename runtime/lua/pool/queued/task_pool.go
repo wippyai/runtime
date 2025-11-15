@@ -102,8 +102,9 @@ func (p *TaskPool) init(factory api.Factory) error {
 	return nil
 }
 
-// Execute queues a runtime.Task for execution and returns a channel for the result.
-func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+// Execute queues a runtime.Task for execution synchronously.
+// Internally uses channels for worker communication but blocks until result is ready.
+func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	if p.closed.Load() {
 		return nil, fmt.Errorf("pool is closed")
 	}
@@ -117,19 +118,23 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 		result: resultChan,
 	}
 
-	// Try to queue the task.
+	// Try to queue the task
 	select {
 	case <-ctx.Done():
-		close(resultChan)
 		return nil, ctx.Err()
 	case <-p.done:
-		close(resultChan)
 		return nil, fmt.Errorf("pool is closed")
 	case p.tasks <- t:
-		// Task was successfully queued
+		// Task successfully queued
 	}
 
-	return resultChan, nil
+	// Wait for result from worker (blocking)
+	select {
+	case result := <-resultChan:
+		return result, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // worker runs in its own goroutine and processes tasks.

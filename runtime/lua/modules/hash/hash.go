@@ -90,7 +90,7 @@ func (m *Module) md5(l *lua.LState) int {
 	result, err := computeHash(md5.New(), str, raw) //nolint:gosec // ok for now
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHashOperationError(l, err, "md5"))
 		return 2
 	}
 	l.Push(result)
@@ -112,7 +112,7 @@ func (m *Module) sha1(l *lua.LState) int {
 	result, err := computeHash(sha1.New(), str, raw) //nolint:gosec // ok for now
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHashOperationError(l, err, "sha1"))
 		return 2
 	}
 	l.Push(result)
@@ -134,7 +134,7 @@ func (m *Module) sha256(l *lua.LState) int {
 	result, err := computeHash(sha256.New(), str, raw)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHashOperationError(l, err, "sha256"))
 		return 2
 	}
 	l.Push(result)
@@ -156,7 +156,7 @@ func (m *Module) sha512(l *lua.LState) int {
 	result, err := computeHash(sha512.New(), str, raw)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHashOperationError(l, err, "sha512"))
 		return 2
 	}
 	l.Push(result)
@@ -173,7 +173,7 @@ func (m *Module) fnv32(l *lua.LState) int {
 	h := fnv.New32()
 	if _, err := h.Write([]byte(str)); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHashOperationError(l, err, "fnv32"))
 		return 2
 	}
 	l.Push(lua.LNumber(h.Sum32()))
@@ -190,7 +190,7 @@ func (m *Module) fnv64(l *lua.LState) int {
 	h := fnv.New64()
 	if _, err := h.Write([]byte(str)); err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHashOperationError(l, err, "fnv64"))
 		return 2
 	}
 	l.Push(lua.LNumber(h.Sum64()))
@@ -215,7 +215,7 @@ func (m *Module) hmac_sha256(l *lua.LState) int {
 	result, err := computeHmacHash(sha256.New, l.ToString(1), l.ToString(2), raw)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHashOperationError(l, err, "hmac_sha256"))
 		return 2
 	}
 	l.Push(result)
@@ -242,7 +242,7 @@ func (m *Module) hmac_sha512(l *lua.LState) int {
 	result, err := computeHmacHash(sha512.New, l.ToString(1), l.ToString(2), raw)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHashOperationError(l, err, "hmac_sha512"))
 		return 2
 	}
 	l.Push(result)
@@ -269,7 +269,7 @@ func (m *Module) hmac_sha1(l *lua.LState) int {
 	result, err := computeHmacHash(sha1.New, l.ToString(1), l.ToString(2), raw)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHashOperationError(l, err, "hmac_sha1"))
 		return 2
 	}
 	l.Push(result)
@@ -296,7 +296,7 @@ func (m *Module) hmac_md5(l *lua.LState) int {
 	result, err := computeHmacHash(md5.New, l.ToString(1), l.ToString(2), raw)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newHashOperationError(l, err, "hmac_md5"))
 		return 2
 	}
 	l.Push(result)

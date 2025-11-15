@@ -329,7 +329,7 @@ func TestStatementErrorHandling(t *testing.T) {
 				-- Store error for testing
 				return {
 					has_error = true,
-					error_msg = err
+					error_msg = tostring(err)
 				}
 			end
 
@@ -381,18 +381,18 @@ func TestStatementWithInvalidParams(t *testing.T) {
 				-- Store error for testing
 				local result = {
 					has_error = true,
-					error_msg = err
+					error_msg = tostring(err)
 				}
-				
+
 				local ok, err = stmt:close()
 				if err then error(err) end
-				
+
 				return result
 			else
 				-- This should not execute
 				local ok, err = stmt:close()
 				if err then error(err) end
-				
+
 				return {
 					has_error = false
 				}

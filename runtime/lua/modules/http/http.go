@@ -60,8 +60,8 @@ func (m *Module) initModuleTable(l *lua.LState) {
 	m.registerConstants(l, mod)
 
 	// Register constructors
-	l.SetField(mod, "request", l.NewFunction(newRequest))
-	l.SetField(mod, "response", l.NewFunction(newResponse))
+	mod.RawSetString("request", l.NewFunction(newRequest))
+	mod.RawSetString("response", l.NewFunction(newResponse))
 
 	// Make the module table immutable so it can be safely reused
 	mod.Immutable = true

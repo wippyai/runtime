@@ -123,7 +123,7 @@ type (
 		// Implements returns the list of contracts this instance implements
 		Implements() []Contract
 
-		// Call invokes a method on this instance
-		Call(ctx context.Context, method string, input payload.Payloads) (chan *runtime.Result, error)
+		// Call invokes a method on this instance synchronously
+		Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error)
 	}
 )

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/wippyai/runtime/api/interceptor"
-
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
@@ -46,7 +44,7 @@ func init() {
 }
 
 type pool interface {
-	Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error)
+	Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error)
 	Close()
 }
 
@@ -124,7 +122,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Register function caller with options
-	m.registerCaller(ctx, entry.ID, cfg.Method, cfg.Meta.Options)
+	opts, _ := cfg.Meta.GetBag("options")
+	m.registerCaller(ctx, entry.ID, cfg.Method, opts)
 
 	return nil
 }
@@ -160,7 +159,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Re-register function caller with updated options
-	m.registerCaller(ctx, entry.ID, cfg.Method, cfg.Meta.Options)
+	opts, _ := cfg.Meta.GetBag("options")
+	m.registerCaller(ctx, entry.ID, cfg.Method, opts)
 
 	return nil
 }
@@ -222,14 +222,14 @@ func (m *Manager) getHandler(handler registry.ID) (pool, error) {
 }
 
 // Execute runs a function with given arguments
-func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	// Get handler directly - it already implements our pool interface
 	vm, err := m.getHandler(task.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Use the pool to execute the task directly
+	// Use the pool to execute the task directly (blocking)
 	return vm.Execute(ctx, task)
 }
 
@@ -320,7 +320,7 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) (pool, err
 }
 
 // registerCaller registers function in the function system
-func (m *Manager) registerCaller(ctx context.Context, id registry.ID, _ string, options interceptor.Options) {
+func (m *Manager) registerCaller(ctx context.Context, id registry.ID, _ string, options runtime.Options) {
 	m.bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Register,

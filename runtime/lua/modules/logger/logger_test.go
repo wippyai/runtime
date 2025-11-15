@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -227,5 +228,125 @@ func TestLoggerModule(t *testing.T) {
 		assert.Equal(t, "operation failed", entry.Message)
 		assert.Equal(t, "database connection failed", entry.ContextMap()["error"])
 		assert.Equal(t, "db_connect", entry.ContextMap()["operation"])
+	})
+
+	t.Run("error userdata logging", func(t *testing.T) {
+		core, logs := observer.New(zap.InfoLevel)
+		logger := zap.New(core)
+
+		mod := NewLoggerModule(logger)
+		jsonMod := json.NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(jsonMod.Name(), jsonMod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Clear any initialization logs
+		logs.TakeAll()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local logger = require("logger")
+
+			-- Create an error by decoding invalid JSON
+			local result, err = json.decode("invalid json")
+
+			-- Log the error with a custom field name
+			logger:info("Processing failed", {
+				parse_error = err,
+				operation = "json_decode"
+			})
+		`, "test")
+		require.NoError(t, err)
+
+		entries := logs.All()
+		require.Len(t, entries, 1)
+		entry := entries[0]
+		assert.Equal(t, "Processing failed", entry.Message)
+
+		// Verify the error field is present with the custom name
+		assert.Contains(t, entry.ContextMap(), "parse_error")
+		assert.NotEmpty(t, entry.ContextMap()["parse_error"])
+		assert.Equal(t, "json_decode", entry.ContextMap()["operation"])
+	})
+
+	t.Run("multiple fields including error", func(t *testing.T) {
+		core, logs := observer.New(zap.InfoLevel)
+		logger := zap.New(core)
+
+		mod := NewLoggerModule(logger)
+		jsonMod := json.NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(jsonMod.Name(), jsonMod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		logs.TakeAll()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local logger = require("logger")
+
+			local result, err = json.decode("bad json")
+
+			-- Log multiple fields to verify no early return bug
+			logger:warn("Multiple fields test", {
+				field1 = "value1",
+				error_field = err,
+				field2 = "value2",
+				field3 = 42
+			})
+		`, "test")
+		require.NoError(t, err)
+
+		entries := logs.All()
+		require.Len(t, entries, 1)
+		entry := entries[0]
+
+		// Verify ALL fields are present (no early return)
+		assert.Equal(t, "value1", entry.ContextMap()["field1"])
+		assert.Contains(t, entry.ContextMap(), "error_field")
+		assert.Equal(t, "value2", entry.ContextMap()["field2"])
+		assert.Equal(t, float64(42), entry.ContextMap()["field3"])
+	})
+
+	t.Run("nil error userdata", func(t *testing.T) {
+		core, logs := observer.New(zap.InfoLevel)
+		logger := zap.New(core)
+
+		mod := NewLoggerModule(logger)
+		jsonMod := json.NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(jsonMod.Name(), jsonMod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		logs.TakeAll()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local logger = require("logger")
+
+			-- Create success case (err will be nil)
+			local result, err = json.decode('{"valid": "json"}')
+
+			-- Log with nil error should not create empty error field
+			logger:info("Success case", {
+				result_error = err,
+				status = "ok"
+			})
+		`, "test")
+		require.NoError(t, err)
+
+		entries := logs.All()
+		require.Len(t, entries, 1)
+		entry := entries[0]
+
+		// Verify nil error is not logged
+		assert.NotContains(t, entry.ContextMap(), "result_error")
+		assert.Equal(t, "ok", entry.ContextMap()["status"])
 	})
 }

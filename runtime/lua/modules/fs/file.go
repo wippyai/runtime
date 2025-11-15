@@ -180,7 +180,7 @@ func fileRead(l *lua.LState) int {
 			return 2
 		}
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newFSIOError(l, err, "", "read"))
 		return 2
 	}
 
@@ -203,7 +203,7 @@ func fileWrite(l *lua.LState) int {
 	_, err := f.Write([]byte(data))
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newFSIOError(l, err, "", "write"))
 		return 2
 	}
 
@@ -236,7 +236,7 @@ func fileSeek(l *lua.LState) int {
 	pos, err := f.Seek(offset, w)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newFSIOError(l, err, "", "seek"))
 		return 2
 	}
 
@@ -253,7 +253,7 @@ func fileClose(l *lua.LState) int {
 	err := f.Close()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newFSIOError(l, err, "", "close"))
 		return 2
 	}
 
@@ -291,7 +291,7 @@ func fileSync(l *lua.LState) int {
 	err := f.Sync()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newFSIOError(l, err, "", "sync"))
 		return 2
 	}
 

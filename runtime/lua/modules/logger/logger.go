@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	engerr "github.com/wippyai/runtime/runtime/lua/engine/errors"
 	"github.com/wippyai/runtime/runtime/lua/engine/inspect"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
@@ -74,7 +75,24 @@ func tableToFields(table *lua.LTable) []zap.Field {
 			fields = append(fields, zap.Float64(string(key), float64(v.(lua.LNumber))))
 		case lua.LTBool:
 			fields = append(fields, zap.Bool(string(key), bool(v.(lua.LBool))))
-		case lua.LTNil, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
+		case lua.LTUserData:
+			// Check if userdata contains a Go error type
+			if ud, ok := v.(*lua.LUserData); ok {
+				// Try WrappedError first for richer error information
+				if wrappedErr, ok := ud.Value.(*engerr.WrappedError); ok {
+					fields = append(fields, zap.String(string(key), wrappedErr.Error()))
+				} else if goErr, ok := ud.Value.(error); ok && goErr != nil {
+					// Fallback to generic error interface
+					fields = append(fields, zap.String(string(key), goErr.Error()))
+				} else {
+					// For non-error userdata, use __tostring metamethod
+					strValue := lua.LVAsString(v)
+					if strValue != "" {
+						fields = append(fields, zap.String(string(key), strValue))
+					}
+				}
+			}
+		case lua.LTNil, lua.LTFunction, lua.LTThread, lua.LTTable, lua.LTChannel:
 			fallthrough
 		default:
 			fields = append(fields, zap.Any(string(key), transcoder.ToGoAny(v)))
@@ -190,7 +208,8 @@ func loggerError(l *lua.LState) int {
 		if tbl := l.CheckTable(3); tbl != nil {
 			// Handle special error field
 			if errValue := tbl.RawGetString("error"); errValue != lua.LNil {
-				fields = append(fields, zap.Error(errors.New(errValue.String())))
+				// Use LVAsString to properly invoke __tostring metamethod for error userdata
+				fields = append(fields, zap.Error(errors.New(lua.LVAsString(errValue))))
 				tbl.RawSetString("error", lua.LNil) // Done error from table
 			}
 

@@ -69,9 +69,8 @@ func (*Module) decode(l *lua.LState) int {
 
 	decoded, err := base64.StdEncoding.DecodeString(str)
 	if err != nil {
-		// Base64 decoding errors - return nil and error
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(newBase64DecodeError(l, err))
 		return 2
 	}
 
