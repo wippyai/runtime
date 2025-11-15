@@ -6,15 +6,15 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
-	cliboot "github.com/wippyai/runtime/boot/cli"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/boot/deps/storage"
-	"github.com/wippyai/runtime/boot/loader"
+	cliboot "github.com/wippyai/runtime/cmd/internal/cli"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
@@ -160,16 +160,12 @@ func loadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 		return nil, fmt.Errorf("transcoder not found in context")
 	}
 
-	ldrInterface := cliboot.GetLoader(ctx)
-	if ldrInterface == nil {
+	ldr := boot.GetLoader(ctx)
+	if ldr == nil {
 		return nil, fmt.Errorf("loader not found in context")
 	}
-	ldr, ok := ldrInterface.(*loader.Loader)
-	if !ok {
-		return nil, fmt.Errorf("loader has unexpected type")
-	}
 
-	entries := []regapi.Entry{}
+	var entries []regapi.Entry
 
 	for _, path := range paths {
 		if _, err := os.Stat(path); os.IsNotExist(err) {

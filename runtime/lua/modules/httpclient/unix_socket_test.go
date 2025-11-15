@@ -3,7 +3,6 @@
 package httpclient
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -152,7 +151,7 @@ func TestUnixSocketRequests(t *testing.T) {
 			assert(response.body == '{"message":"hello from unix socket"}', "Body mismatch")
 		`, server.socketPath)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -182,7 +181,7 @@ func TestUnixSocketRequests(t *testing.T) {
 			assert(response.body == '{"received":"ok"}', "Body mismatch")
 		`, server.socketPath)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -208,7 +207,7 @@ func TestUnixSocketRequests(t *testing.T) {
 			assert(response.status_code == 200, "Status code should be 200")
 		`, server.socketPath)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -233,7 +232,7 @@ func TestUnixSocketRequests(t *testing.T) {
 			assert(response.status_code == 500, "Status code should be 500")
 		`, server.socketPath)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -254,7 +253,7 @@ func TestUnixSocketRequests(t *testing.T) {
 			assert(string.find(err, "no such file") ~= nil or string.find(err, "connection refused") ~= nil, "Error should indicate connection failure")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }
@@ -285,7 +284,7 @@ func TestUnixSocketSecurity(t *testing.T) {
 			assert(response.body == '{"message":"security check passed"}', "Body should match expected response")
 		`, server.socketPath)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -314,7 +313,7 @@ func TestUnixSocketSecurity(t *testing.T) {
 			assert(responses[2].status_code == 200, "Second request should succeed")
 		`, server.socketPath, server.socketPath)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }
@@ -353,7 +352,7 @@ func TestUnixSocketBatchRequests(t *testing.T) {
 			assert(string.find(responses[3].body, "version") ~= nil, "Third response should contain version info")
 		`, server.socketPath, server.socketPath, server.socketPath)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }
@@ -395,7 +394,7 @@ func TestUnixSocketStreaming(t *testing.T) {
 			stream:close()
 		`, server.socketPath)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }
@@ -433,7 +432,7 @@ func TestUnixSocketFileUpload(t *testing.T) {
 			assert(response.body == '{"uploaded":"success"}', "Body should indicate success")
 		`, server.socketPath)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }
@@ -495,7 +494,7 @@ func TestDockerAPISimulation(t *testing.T) {
 			assert(string.find(created.body, "newcontainer789") ~= nil, "Should return new container ID")
 		`, server.socketPath)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }
@@ -535,7 +534,7 @@ func TestUnixSocketOptionsValidation(t *testing.T) {
 			assert(response.body == '{"result":"success"}', "Body should match expected response")
 		`, server.socketPath)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 

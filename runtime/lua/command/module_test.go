@@ -29,6 +29,7 @@ func TestModule(t *testing.T) {
 		defer vm.Close()
 
 		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
 		_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 		// Test that the module can be loaded

@@ -64,10 +64,7 @@ func TestStream(t *testing.T) {
 		testData := []byte("Hello, World!")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		// Use ReadChunk with explicit chunk size
@@ -93,10 +90,7 @@ func TestStream(t *testing.T) {
 		testData := []byte("This is a test of different buffer sizes")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		// Use default buffer size (too big for our test data)
@@ -113,10 +107,7 @@ func TestStream(t *testing.T) {
 		testData := []byte("Testing io.Reader interface")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		// Read directly using Read method
@@ -136,10 +127,7 @@ func TestStream(t *testing.T) {
 	t.Run("close handling", func(t *testing.T) {
 		reader := newMockReadCloser([]byte("test"))
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		err = stream.Close()
@@ -151,10 +139,8 @@ func TestStream(t *testing.T) {
 		testData := []byte("context test data")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		ctx, cancel := context.WithCancel(ctx)
+		baseCtx := newTestContext()
+		ctx, cancel := context.WithCancel(baseCtx)
 		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
@@ -173,10 +159,7 @@ func TestStreamLua(t *testing.T) {
 		testData := []byte("Hello from mocked Stream!")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		mod := NewStreamModule()
@@ -215,10 +198,7 @@ func TestStreamLua(t *testing.T) {
 		testData := []byte("Hello from mocked Stream!")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		mod := NewStreamModule()
@@ -260,10 +240,7 @@ func TestStreamLua(t *testing.T) {
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		mod := NewStreamModule()
@@ -300,7 +277,7 @@ func TestStreamLua(t *testing.T) {
 
 		// Test with custom chunk size
 		reader2 := newMockReadCloser(testData)
-		stream2, err := NewStream(ctx, reader2)
+		stream2, err := NewStream(newTestContext(), reader2)
 		require.NoError(t, err)
 
 		luaStream2 := &LuaStream{Stream: stream2}
@@ -355,13 +332,10 @@ func TestLuaStreamAsReadCloser(t *testing.T) {
 		testData := []byte("ReadCloser interface test")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
-		luaStream := NewLuaStream(uw, stream, nil)
+		luaStream := &LuaStream{Stream: stream}
 
 		// Test as io.Reader
 		var readCloser io.ReadCloser = luaStream

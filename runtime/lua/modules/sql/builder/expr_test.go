@@ -13,6 +13,12 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 func setupLuaWithExprModule(t *testing.T) (*engine.CoroutineVM, *engine.Runner, context.Context) {
 	logger := zaptest.NewLogger(t)
 
@@ -39,7 +45,7 @@ func setupLuaWithExprModule(t *testing.T) (*engine.CoroutineVM, *engine.Runner, 
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Create a context for execution
-	ctx := ctxapi.NewRootContext()
+	ctx := newTestContext()
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	// Initialize a unit of work with the context

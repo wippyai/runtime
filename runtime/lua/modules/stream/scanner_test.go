@@ -19,10 +19,7 @@ func TestScanner(t *testing.T) {
 		testData := []byte("line1\nline2\nline3")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		scanner, err := NewScanner(stream, SplitLines)
@@ -52,10 +49,7 @@ func TestScanner(t *testing.T) {
 		testData := []byte("hello world test")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		scanner, err := NewScanner(stream, SplitWords)
@@ -76,10 +70,7 @@ func TestScanner(t *testing.T) {
 		testData := []byte("abc")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		scanner, err := NewScanner(stream, SplitBytes)
@@ -100,10 +91,7 @@ func TestScanner(t *testing.T) {
 		testData := []byte("line1\nline2")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		scanner, err := NewScanner(stream) // No split type specified
@@ -129,10 +117,7 @@ func TestScanner(t *testing.T) {
 		testData := []byte("test")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		_, err = NewScanner(stream, SplitType("invalid"))
@@ -147,10 +132,7 @@ func TestScannerLua(t *testing.T) {
 		testData := []byte("line1\nline2\nline3")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		mod := NewStreamModule()
@@ -195,10 +177,7 @@ func TestScannerLua(t *testing.T) {
 		testData := []byte("hello world test")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		mod := NewStreamModule()
@@ -239,10 +218,7 @@ func TestScannerLua(t *testing.T) {
 		testData := []byte("test")
 		reader := newMockReadCloser(testData)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		mod := NewStreamModule()
@@ -287,12 +263,9 @@ func TestAsyncScannerRead(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
 		testData := []byte("first line\nsecond line\nthird line")
 		reader := newMockReadCloser(testData)
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		luaStream := &LuaStream{Stream: stream}
@@ -325,7 +298,7 @@ func TestAsyncScannerRead(t *testing.T) {
         `, "test", "test_scanner_async")
 		require.NoError(t, err)
 
-		result, err := wrapped.Execute(context.Background(), "test_scanner_async")
+		result, err := wrapped.Execute(newTestContext(), "test_scanner_async")
 		require.NoError(t, err)
 
 		resultTable := result.(*lua.LTable)
@@ -361,12 +334,9 @@ func TestAsyncScannerRead(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
 		testData := []byte("line1\nline2\nline3")
 		reader := newMockReadCloser(testData)
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		luaStream := &LuaStream{Stream: stream}
@@ -411,7 +381,7 @@ func TestAsyncScannerRead(t *testing.T) {
         `, "test", "test_scanner_multi_async")
 		require.NoError(t, err)
 
-		result, err := wrapped.Execute(context.Background(), "test_scanner_multi_async")
+		result, err := wrapped.Execute(newTestContext(), "test_scanner_multi_async")
 		require.NoError(t, err)
 
 		resultTable := result.(*lua.LTable)

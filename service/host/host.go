@@ -28,7 +28,6 @@ type Host struct {
 	msgHost     relay.Host
 	msgQueues   []chan *relay.Package // Multiple queues for message routing, one per worker
 	pool        ProcessPoolAPI
-	ctx         context.Context
 	done        chan struct{}
 	msgWG       sync.WaitGroup
 	running     atomic.Bool // true if host is running
@@ -129,10 +128,6 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (relay.PID, e
 		return relay.PID{}, process.ErrHostBusy
 	}
 
-	if h.ctx == nil {
-		return relay.PID{}, process.ErrHostDead
-	}
-
 	ctx = h.prepareContext(ctx, launch)
 
 	if err := launch.Process.Start(ctx, launch.PID, launch.Input); err != nil {
@@ -165,24 +160,22 @@ func (h *Host) getQueueForPID(pid relay.PID) chan *relay.Package {
 // prepareContext sets up the context for a process
 func (h *Host) prepareContext(ctx context.Context, launch *process.Launch) context.Context {
 	// Create FrameContext with automatic inheritance of actor/scope
-	pCtx, _ := ctxapi.OpenFrameContext(ctx)
+	pCtx, fc := ctxapi.OpenFrameContext(ctx)
 
 	// Store frame metadata and apply launch context overrides
-	if fc := ctxapi.FrameFromContext(pCtx); fc != nil {
-		// Build pairs: frame metadata + launch context overrides
-		pairs := []ctxapi.Pair{
-			{Key: runtime.FrameIDKey, Value: launch.Source},
-			{Key: runtime.FramePIDKey, Value: launch.PID},
-		}
+	pairsLen := 3 + len(launch.Context)
+	pairs := make([]ctxapi.Pair, pairsLen)
+	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: launch.Source}
+	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: launch.PID}
+	pairs[2] = ctxapi.Pair{Key: runtime.FrameHostKey, Value: h.id}
 
-		// Add launch context overrides (actor, scope, custom values, etc.)
-		if len(launch.Context) > 0 {
-			pairs = append(pairs, launch.Context...)
-		}
+	// Add launch context overrides (actor, scope, custom values, etc.)
+	if len(launch.Context) > 0 {
+		copy(pairs[3:], launch.Context)
+	}
 
-		if err := fc.SetMultiple(pairs...); err != nil {
-			h.log.Error("failed to set frame context", zap.Error(err))
-		}
+	if err := fc.SetMultiple(pairs...); err != nil {
+		h.log.Error("failed to set frame context", zap.Error(err))
 	}
 
 	// Attach global lifecycle
@@ -230,19 +223,16 @@ func (h *Host) sendStatus(message string) {
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	h.statusCh = make(chan any, 1)
 
-	// Set up the context
-	h.ctx = relay.WithHost(ctx, h)
-
 	// Create message host using the factory
 	var err error
-	h.msgHost, err = h.msgFactory.CreateMessageHost(h.ctx, h.cfg, h.log)
+	h.msgHost, err = h.msgFactory.CreateMessageHost(ctx, h.cfg, h.log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create message host: %w", err)
 	}
 
 	// Create process pool using the factory
 	h.pool, err = h.poolFactory.CreateProcessPool(
-		h.ctx,
+		ctx,
 		h.cfg.HostConfig.Workers,
 		h.cfg.HostConfig.MaxProcesses,
 		h.log,
@@ -253,7 +243,7 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	h.pool.Start()
-	h.startMessageWorkers()
+	h.startMessageWorkers(ctx)
 	h.sendStatus("host started and accepting processes")
 
 	h.running.Store(true)
@@ -262,7 +252,7 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 }
 
 // startMessageWorkers spawns worker goroutines to process routing messages.
-func (h *Host) startMessageWorkers() {
+func (h *Host) startMessageWorkers(ctx context.Context) {
 	// Serve one worker per message queue for load balancing
 	for i := 0; i < len(h.msgQueues); i++ {
 		h.msgWG.Add(1)
@@ -287,7 +277,7 @@ func (h *Host) startMessageWorkers() {
 							zap.Error(err))
 						continue
 					}
-				case <-h.ctx.Done():
+				case <-ctx.Done():
 					return
 				}
 			}

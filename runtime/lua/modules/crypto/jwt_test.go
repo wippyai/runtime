@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -28,7 +27,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local crypto = require("crypto")
 			assert(type(crypto) == "table")
 			assert(type(crypto.jwt) == "table")
@@ -126,7 +125,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 				convertMapToLuaTable(t, tc.payload, &payloadTable)
 
 				// Serve the function
-				result, err := vm.Execute(context.Background(), "test", &payloadTable, lua.LString(tc.key), lua.LString(tc.alg))
+				result, err := vm.Execute(newTestContext(), "test", &payloadTable, lua.LString(tc.key), lua.LString(tc.alg))
 				require.NoError(t, err)
 
 				resultTable, ok := result.(*lua.LTable)
@@ -264,7 +263,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 				convertMapToLuaTable(t, tc.payload, &payloadTable)
 
 				// Serve the function
-				result, err := vm.Execute(context.Background(), "encode_and_verify", &payloadTable, lua.LString(tc.key), lua.LString(tc.alg))
+				result, err := vm.Execute(newTestContext(), "encode_and_verify", &payloadTable, lua.LString(tc.key), lua.LString(tc.alg))
 				require.NoError(t, err)
 
 				// Verify the result is a table
@@ -332,7 +331,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 		wrongKey := "wrong-secret"
 
 		// Create token
-		result, err := vm.Execute(context.Background(), "create_token", payload, lua.LString(key), lua.LString(alg))
+		result, err := vm.Execute(newTestContext(), "create_token", payload, lua.LString(key), lua.LString(alg))
 		require.NoError(t, err)
 
 		resultTable, ok := result.(*lua.LTable)
@@ -390,7 +389,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				result, err := vm.Execute(context.Background(), "verify_token", lua.LString(tc.token), lua.LString(tc.key), lua.LString(tc.alg))
+				result, err := vm.Execute(newTestContext(), "verify_token", lua.LString(tc.token), lua.LString(tc.key), lua.LString(tc.alg))
 				require.NoError(t, err)
 
 				resultTable, ok := result.(*lua.LTable)
@@ -462,7 +461,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 
 		resultTable, ok := result.(*lua.LTable)
@@ -644,7 +643,7 @@ func TestJWTModuleRS256(t *testing.T) {
 		payload.RawSetString("_header", headerTable)
 
 		// Encode the token
-		result, err := vm.Execute(context.Background(), "test", payload, lua.LString(privateKeyPEM), lua.LString("RS256"))
+		result, err := vm.Execute(newTestContext(), "test", payload, lua.LString(privateKeyPEM), lua.LString("RS256"))
 		require.NoError(t, err)
 
 		resultTable, ok := result.(*lua.LTable)
@@ -741,12 +740,12 @@ func TestJWTModuleRS256(t *testing.T) {
 		payload.RawSetString("_header", headerTable)
 
 		// Encode the token
-		token, err := vm.Execute(context.Background(), "encode_jwt", payload, lua.LString(privateKeyPEM), lua.LString("RS256"))
+		token, err := vm.Execute(newTestContext(), "encode_jwt", payload, lua.LString(privateKeyPEM), lua.LString("RS256"))
 		require.NoError(t, err)
 		tokenStr := token.(lua.LString).String()
 
 		// Verify the token
-		claims, err := vm.Execute(context.Background(), "verify_jwt", lua.LString(tokenStr), lua.LString(publicKeyPEM), lua.LString("RS256"))
+		claims, err := vm.Execute(newTestContext(), "verify_jwt", lua.LString(tokenStr), lua.LString(publicKeyPEM), lua.LString("RS256"))
 		require.NoError(t, err)
 
 		// Verify the claims
@@ -798,7 +797,7 @@ func TestJWTModuleRS256(t *testing.T) {
 		err = vm.Import(testScript, "test_script", "test")
 		require.NoError(t, err)
 
-		results, err := vm.Execute(context.Background(), "test")
+		results, err := vm.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 
 		resultsTable, ok := results.(*lua.LTable)

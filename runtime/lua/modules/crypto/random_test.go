@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"context"
 	"regexp"
 	"testing"
 
@@ -22,7 +21,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local crypto = require("crypto")
 			assert(type(crypto) == "table")
 			assert(type(crypto.random) == "table")
@@ -47,7 +46,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 				local bytes, err = crypto.random.bytes(-1)
 				return err
 			`
-			err = vm.DoString(context.Background(), script, "test")
+			err = vm.DoString(newTestContext(), script, "test")
 			require.NoError(t, err)
 			// The error is returned on the Lua stack and not accessible here,
 			// but the test passes if DoString succeeds
@@ -60,7 +59,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 				local bytes, err = crypto.random.bytes(0)
 				return err
 			`
-			err = vm.DoString(context.Background(), script, "test")
+			err = vm.DoString(newTestContext(), script, "test")
 			require.NoError(t, err)
 		})
 
@@ -73,7 +72,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 				end)
 				return success
 			`
-			err = vm.DoString(context.Background(), script, "test")
+			err = vm.DoString(newTestContext(), script, "test")
 			require.NoError(t, err)
 		})
 	})
@@ -125,7 +124,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 				err = vm.Import(script, "test", "test")
 				require.NoError(t, err)
 
-				result, err := vm.Execute(context.Background(), "test", lua.LNumber(tc.length))
+				result, err := vm.Execute(newTestContext(), "test", lua.LNumber(tc.length))
 				require.NoError(t, err)
 
 				resultTable, ok := result.(*lua.LTable)
@@ -159,7 +158,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 				local str, err = crypto.random.string(-1)
 				return err
 			`
-			err = vm.DoString(context.Background(), script, "test")
+			err = vm.DoString(newTestContext(), script, "test")
 			require.NoError(t, err)
 		})
 
@@ -170,7 +169,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 				local str, err = crypto.random.string(0)
 				return err
 			`
-			err = vm.DoString(context.Background(), script, "test")
+			err = vm.DoString(newTestContext(), script, "test")
 			require.NoError(t, err)
 		})
 
@@ -183,7 +182,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 				end)
 				return success
 			`
-			err = vm.DoString(context.Background(), script, "test")
+			err = vm.DoString(newTestContext(), script, "test")
 			require.NoError(t, err)
 		})
 
@@ -194,7 +193,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 				local str, err = crypto.random.string(10, "")
 				return err
 			`
-			err = vm.DoString(context.Background(), script, "test")
+			err = vm.DoString(newTestContext(), script, "test")
 			require.NoError(t, err)
 		})
 	})
@@ -274,9 +273,9 @@ func TestRandomModuleWithVM(t *testing.T) {
 
 				var result lua.LValue
 				if tc.charset == "" {
-					result, err = vm.Execute(context.Background(), "test", lua.LNumber(tc.length))
+					result, err = vm.Execute(newTestContext(), "test", lua.LNumber(tc.length))
 				} else {
-					result, err = vm.Execute(context.Background(), "test", lua.LNumber(tc.length), lua.LString(tc.charset))
+					result, err = vm.Execute(newTestContext(), "test", lua.LNumber(tc.length), lua.LString(tc.charset))
 				}
 				require.NoError(t, err)
 
@@ -332,7 +331,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 		// Get multiple UUIDs to ensure they're unique
 		var uuids []string
 		for i := 0; i < 5; i++ {
-			result, err := vm.Execute(context.Background(), "test")
+			result, err := vm.Execute(newTestContext(), "test")
 			require.NoError(t, err)
 
 			resultTable, ok := result.(*lua.LTable)
@@ -408,7 +407,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.Equal(t, lua.LTTable, result.Type())

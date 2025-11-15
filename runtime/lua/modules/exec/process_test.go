@@ -23,6 +23,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 // --- Mock Resource Setup ---
 
 // mockResource implements resource.Resource
@@ -149,7 +155,7 @@ func setupLuaWithExec(t *testing.T, logger *zap.Logger) (*engine.CoroutineVM, en
 	)
 
 	// Create UoW and add context
-	baseCtx := ctxapi.NewRootContext()
+	baseCtx := newTestContext()
 	baseCtx = logs.WithLogger(baseCtx, logger)
 	uw, ctx := runner.InitUnitOfWork(baseCtx)
 
@@ -260,7 +266,7 @@ func TestProcessBasic(t *testing.T) {
         `, "test", "test_process_simple")
 	require.NoError(t, err)
 
-	_, err = runner.Execute(vm.State().Context(), "test_process_simple")
+	_, err = runner.Execute(newTestContext(), "test_process_simple")
 
 	// get error stack
 	if err != nil {
@@ -345,7 +351,7 @@ func TestWorkingDirAndEnv(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute by passing tmpDir as a Lua string argument
-	_, err = runner.Execute(vm.State().Context(), "test_process_env_workdir", lua.LString(tmpDir))
+	_, err = runner.Execute(newTestContext(), "test_process_env_workdir", lua.LString(tmpDir))
 	require.NoError(t, err)
 }
 

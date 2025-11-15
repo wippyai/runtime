@@ -2,21 +2,18 @@ package cmd
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
-	identityv1connect "github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
-	modulev1connect "github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
 	bootpkg "github.com/wippyai/runtime/boot"
-	cli "github.com/wippyai/runtime/boot/cli"
 	"github.com/wippyai/runtime/boot/deps/client"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
+	"github.com/wippyai/runtime/cmd/internal/cli"
 	"go.uber.org/zap"
 )
 
@@ -70,25 +67,14 @@ func runApp(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	ctx, err := bootpkg.NewInfrastructure(logger, cfg)
+	ctx, err := bootpkg.NewBootstrapContext(logger, cfg)
 	if err != nil {
-		logger.Error("failed to initialize infrastructure", zap.Error(err))
-		return fmt.Errorf("initialize infrastructure: %w", err)
+		logger.Error("failed to initialize bootstrap context", zap.Error(err))
+		return fmt.Errorf("initialize bootstrap context: %w", err)
 	}
 
 	// Initialize registry client for module installation
-	baseURL := os.Getenv("WIPPY_MODULES_URL")
-	if baseURL == "" {
-		baseURL = cli.DefaultRegistryURL
-	}
-
-	httpClient := &http.Client{}
-	registryClient := client.NewRegistryClient(
-		identityv1connect.NewOrganizationServiceClient(httpClient, baseURL),
-		modulev1connect.NewModuleServiceClient(httpClient, baseURL),
-		modulev1connect.NewLabelServiceClient(httpClient, baseURL),
-		modulev1connect.NewDownloadServiceClient(httpClient, baseURL),
-	)
+	registryClient := client.NewRegistryClientFromConfig(boot.GetConfig(ctx))
 	ctx = cli.WithRegistryClient(ctx, registryClient)
 
 	logger = logapi.GetLogger(ctx).Named("run")
@@ -110,18 +96,10 @@ func runApp(cmd *cobra.Command, args []string) error {
 	}
 	logger.Info("components loaded successfully")
 
-	// Bridge file loader from AppContext to CLI context for entries.go compatibility
-	fileLdr := boot.GetLoader(ctx)
-	if fileLdr == nil {
-		logger.Error("file loader not found in AppContext after component loading")
-		return fmt.Errorf("file loader not found in AppContext")
-	}
-	ctx = cli.WithLoader(ctx, fileLdr)
-
-	err = bootpkg.StartInfrastructure(ctx)
+	err = bootpkg.StartRuntimeServices(ctx)
 	if err != nil {
-		logger.Error("failed to start infrastructure", zap.Error(err))
-		return fmt.Errorf("start infrastructure: %w", err)
+		logger.Error("failed to start runtime services", zap.Error(err))
+		return fmt.Errorf("start runtime services: %w", err)
 	}
 
 	err = loader.Start(ctx)
@@ -153,10 +131,10 @@ func runApp(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("shutdown failed: %w", err)
 	}
 
-	err = bootpkg.StopInfrastructure(ctx)
+	err = bootpkg.StopRuntimeServices(ctx)
 	if err != nil {
-		logger.Error("failed to stop infrastructure", zap.Error(err))
-		return fmt.Errorf("stop infrastructure: %w", err)
+		logger.Error("failed to stop runtime services", zap.Error(err))
+		return fmt.Errorf("stop runtime services: %w", err)
 	}
 
 	if !silentLogs {

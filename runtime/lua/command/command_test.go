@@ -268,6 +268,7 @@ func TestCommand_Result(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("returns nil when not completed", func(t *testing.T) {
@@ -321,6 +322,7 @@ func TestCommand_StateMethods(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("isCompleted returns correct state", func(t *testing.T) {
@@ -369,6 +371,7 @@ func TestCommand_IDAndType(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("ID and Type return correct values", func(t *testing.T) {
@@ -400,6 +403,7 @@ func TestCommand_Params(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("Params returns correct parameters", func(t *testing.T) {

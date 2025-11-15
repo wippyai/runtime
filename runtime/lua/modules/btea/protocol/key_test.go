@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -12,6 +13,12 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestKeyBinding(t *testing.T) {
 	logger := zap.NewNop()
@@ -26,7 +33,7 @@ func TestKeyBinding(t *testing.T) {
 		RegisterKeyBinding(vm.State(), mod)
 		vm.State().SetGlobal("btea", mod)
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
             -- Spawn a key binding
             local binding = btea.bind({
                 keys = {"ctrl+c", "esc"},
@@ -58,7 +65,7 @@ func TestKeyBinding(t *testing.T) {
 		RegisterKeyBinding(vm.State(), mod)
 		vm.State().SetGlobal("btea", mod)
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
             -- Spawn a binding for space key
             local binding = btea.bind({
                 keys = {"space"},
@@ -105,7 +112,7 @@ func TestKeyBinding(t *testing.T) {
 		RegisterKeyBinding(vm.State(), mod)
 		vm.State().SetGlobal("btea", mod)
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
             -- Test empty keys
             local binding = btea.bind({
                 keys = {} -- empty but valid keys table

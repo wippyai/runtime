@@ -3,6 +3,7 @@ package lock
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -374,8 +375,8 @@ func TestLock_GetLoadPaths(t *testing.T) {
 		}
 
 		expectedSrc := filepath.Join(tmpDir, ".")
-		expectedHttp := filepath.Join(tmpDir, ".wippy/vendor/acme/http")
-		expectedSql := filepath.Join(tmpDir, ".wippy/vendor/demo/sql")
+		expectedHttp := filepath.Join(tmpDir, ".wippy/vendor/acme/http-v1.0.0")
+		expectedSql := filepath.Join(tmpDir, ".wippy/vendor/demo/sql-v2.0.0")
 
 		if paths[0] != expectedSrc {
 			t.Errorf("expected src path %q, got %q", expectedSrc, paths[0])
@@ -430,7 +431,7 @@ func TestLock_GetLoadPaths(t *testing.T) {
 
 		expectedSrc := filepath.Join(tmpDir, ".")
 		expectedRepl := filepath.Join(tmpDir, "../local-http")
-		expectedSql := filepath.Join(tmpDir, ".wippy/vendor/demo/sql")
+		expectedSql := filepath.Join(tmpDir, ".wippy/vendor/demo/sql-v2.0.0")
 
 		if paths[0] != expectedSrc {
 			t.Errorf("expected src %q, got %q", expectedSrc, paths[0])
@@ -459,7 +460,7 @@ func TestLock_GetLoadPaths(t *testing.T) {
 
 		paths := lock.GetLoadPaths()
 
-		expectedHttp := filepath.Join(tmpDir, ".custom/vendor/acme/http")
+		expectedHttp := filepath.Join(tmpDir, ".custom/vendor/acme/http-v1.0.0")
 		if paths[1] != expectedHttp {
 			t.Errorf("expected custom path %q, got %q", expectedHttp, paths[1])
 		}
@@ -479,13 +480,13 @@ func TestLock_GetLoadPaths(t *testing.T) {
 			t.Fatalf("expected 1 path (no src), got %d", len(paths))
 		}
 
-		expectedHttp := filepath.Join(tmpDir, ".wippy/vendor/acme/http")
+		expectedHttp := filepath.Join(tmpDir, ".wippy/vendor/acme/http-v1.0.0")
 		if paths[0] != expectedHttp {
 			t.Errorf("expected %q, got %q", expectedHttp, paths[0])
 		}
 	})
 
-	t.Run("paths do not include hash suffix", func(t *testing.T) {
+	t.Run("paths include version but not hash suffix", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		lockPath := filepath.Join(tmpDir, "test.lock")
 
@@ -494,18 +495,14 @@ func TestLock_GetLoadPaths(t *testing.T) {
 
 		paths := lock.GetLoadPaths()
 
-		for _, path := range paths {
-			if filepath.Base(path) == "http" && filepath.Base(filepath.Dir(path)) != "acme" {
-				t.Errorf("expected path without hash suffix, got %q", path)
-			}
-		}
-
-		expectedHttp := filepath.Join(tmpDir, ".wippy/vendor/acme/http")
+		expectedHttp := filepath.Join(tmpDir, ".wippy/vendor/acme/http-v1.0.0")
 		found := false
 		for _, path := range paths {
 			if path == expectedHttp {
 				found = true
-				break
+			}
+			if strings.Contains(path, "abc123def456") {
+				t.Errorf("path should not contain hash, got %q", path)
 			}
 		}
 		if !found {

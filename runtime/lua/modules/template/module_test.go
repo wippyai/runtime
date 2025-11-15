@@ -95,6 +95,7 @@ func setupLuaWithTemplates(t *testing.T, mockRes *mockResource) (*engine.Corouti
 	json.Register(dtt)
 	lua2.Register(dtt)
 	ctx := payload.WithTranscoder(ctxapi.NewRootContext(), dtt)
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))

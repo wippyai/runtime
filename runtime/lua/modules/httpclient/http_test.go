@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"io"
 	"net/http"
 	"sync"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
@@ -52,7 +52,7 @@ func TestHTTPModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 			local response = http.get("https://api.example.com/test", {
 				headers = {
@@ -94,7 +94,7 @@ func TestHTTPModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 			local response = http.post(
 				"https://api.example.com/data",
@@ -134,7 +134,7 @@ func TestHTTPModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 			local response = http.get("https://api.example.com/secure", {
 				auth = {
@@ -176,7 +176,7 @@ func TestHTTPModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 			local response = http.get("https://api.example.com/withcookies", {
 				cookies = {
@@ -202,7 +202,7 @@ func TestHTTPModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 			local response, err = http.get("https://api.example.com/error")
 			assert(response == nil)
@@ -236,7 +236,7 @@ func TestHTTPModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 			local responses = http.request_batch({
 				{"GET", "https://api.example.com/one"},
@@ -256,7 +256,7 @@ func TestHTTPModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 			
 			-- Test encoding
@@ -288,7 +288,7 @@ func TestHTTPModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 			local response = http.get("https://api.example.com/query", {
 				query = "param1=value1&param2=value2"
@@ -407,7 +407,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				err = vm.DoString(context.Background(), tc.code, "test")
+				err = vm.DoString(newTestContext(), tc.code, "test")
 				assert.Error(t, err)
 			})
 		}
@@ -451,7 +451,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			err := vm.DoString(context.Background(), `
+			err := vm.DoString(newTestContext(), `
 				local http = require("http_client")
 				local response, err = http.get("https://api.example.com/test", {
 					timeout = "100ms"  -- Very short timeout
@@ -498,7 +498,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 			local response, err = http.get("https://api.example.com/test", {
 				timeout = 2  -- 2 second timeout
@@ -603,7 +603,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		// Launch request in goroutine
 		done := make(chan error, 1)
 		go func() {
-			err := vm.DoString(context.Background(), `
+			err := vm.DoString(newTestContext(), `
                 local http = require("http_client")
                 local responses, errors = http.request_batch({
                     {"GET", "https://api.example.com/fast"},
@@ -668,7 +668,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 			local response = http.get("https://api.example.com/test")
 			assert(response ~= nil)

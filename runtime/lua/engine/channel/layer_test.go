@@ -1,12 +1,12 @@
 package channel
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
@@ -21,8 +21,9 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 			-- Spawn an unbuffered channel
@@ -81,8 +82,9 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 			-- Spawn an unbuffered channel
@@ -136,8 +138,9 @@ func TestClosedChannelOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 			-- Spawn a channel and close it
@@ -202,8 +205,9 @@ func TestClosedChannelOperations_CPCALL(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 			-- Spawn a channel and close it
@@ -268,8 +272,9 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 			-- Spawn a channel
@@ -328,8 +333,9 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 			-- Spawn a buffered channel with capacity 2
@@ -392,8 +398,9 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		-- Spawn a buffered channel with capacity 1
@@ -460,8 +467,9 @@ func TestReadBufferedValues(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		-- Spawn a buffered channel with capacity 1
@@ -516,8 +524,9 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		-- Test error cases first
@@ -612,8 +621,9 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		-- Spawn a buffered channel with capacity 2
@@ -683,8 +693,9 @@ func TestBufferedChannelClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		local ch = channel.new(2)
@@ -744,8 +755,9 @@ func TestBufferedChannelSendError(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		local ch = channel.new(1)
@@ -775,8 +787,9 @@ func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		-- Spawn a buffered channel with capacity 1
@@ -825,8 +838,9 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		local ch = channel.new(0)
@@ -879,8 +893,9 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		local ch = channel.new(0)
@@ -945,8 +960,9 @@ func TestMapReducePattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		-- Spawn channels for work distribution and result collection
@@ -1067,8 +1083,9 @@ func TestFanOutPattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		-- Input channel and multiple output channels
@@ -1200,8 +1217,9 @@ func TestFanInPattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
-	defer func() { _ = uw.Close() }()
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	err = vm.StartString(ctx, `
 		-- Multiple input channels and single output channel

@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,7 +19,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local crypto = require("crypto")
 			assert(type(crypto) == "table")
 			assert(type(crypto.random) == "table")
@@ -61,7 +60,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 		keyLength := 32
 		hashFunc := "sha256"
 
-		result, err := vm.Execute(context.Background(), "test_pbkdf2",
+		result, err := vm.Execute(newTestContext(), "test_pbkdf2",
 			lua.LString(password),
 			lua.LString(salt),
 			lua.LNumber(iterations),
@@ -73,7 +72,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 		assert.Equal(t, keyLength, len([]byte(result.String())))
 
 		// Test with SHA512
-		result, err = vm.Execute(context.Background(), "test_pbkdf2",
+		result, err = vm.Execute(newTestContext(), "test_pbkdf2",
 			lua.LString(password),
 			lua.LString(salt),
 			lua.LNumber(iterations),
@@ -92,7 +91,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 		defer vm.Close()
 
 		// Test with invalid iterations
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local crypto = require("crypto")
 			local password = "password"
 			local salt = "salt"
@@ -108,7 +107,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Test with invalid key length
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local crypto = require("crypto")
 			local password = "password"
 			local salt = "salt"
@@ -124,7 +123,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Test with empty password
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local crypto = require("crypto")
 			local password = ""
 			local salt = "salt"
@@ -140,7 +139,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Test with empty salt
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local crypto = require("crypto")
 			local password = "password"
 			local salt = ""
@@ -156,7 +155,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Test with invalid hash function
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local crypto = require("crypto")
 			local password = "password"
 			local salt = "salt"
@@ -189,28 +188,28 @@ func TestCryptoModuleWithVM(t *testing.T) {
 		require.NoError(t, err)
 
 		// Test with equal strings
-		result, err := vm.Execute(context.Background(), "test_compare",
+		result, err := vm.Execute(newTestContext(), "test_compare",
 			lua.LString("test"),
 			lua.LString("test"))
 		require.NoError(t, err)
 		assert.Equal(t, lua.LTrue, result)
 
 		// Test with different strings of same length
-		result, err = vm.Execute(context.Background(), "test_compare",
+		result, err = vm.Execute(newTestContext(), "test_compare",
 			lua.LString("test"),
 			lua.LString("tess"))
 		require.NoError(t, err)
 		assert.Equal(t, lua.LFalse, result)
 
 		// Test with different length strings
-		result, err = vm.Execute(context.Background(), "test_compare",
+		result, err = vm.Execute(newTestContext(), "test_compare",
 			lua.LString("test"),
 			lua.LString("testing"))
 		require.NoError(t, err)
 		assert.Equal(t, lua.LFalse, result)
 
 		// Test with empty strings
-		result, err = vm.Execute(context.Background(), "test_compare",
+		result, err = vm.Execute(newTestContext(), "test_compare",
 			lua.LString(""),
 			lua.LString(""))
 		require.NoError(t, err)

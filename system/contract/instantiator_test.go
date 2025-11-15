@@ -293,7 +293,10 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 		System: function.System,
 		Kind:   function.Register,
 		Path:   funcID.String(),
-		Data:   testFunc,
+		Data: &function.FuncEntry{
+			Handler: testFunc,
+			Options: nil,
+		},
 	})
 	wg.Wait()
 
@@ -408,7 +411,10 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 		System: function.System,
 		Kind:   function.Register,
 		Path:   funcID.String(),
-		Data:   testFunc,
+		Data: &function.FuncEntry{
+			Handler: testFunc,
+			Options: nil,
+		},
 	})
 
 	// Register contract and binding
@@ -539,7 +545,10 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		System: function.System,
 		Kind:   function.Register,
 		Path:   funcID.String(),
-		Data:   testFunc,
+		Data: &function.FuncEntry{
+			Handler: testFunc,
+			Options: nil,
+		},
 	})
 
 	// Register contract and binding
@@ -691,7 +700,10 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		System: function.System,
 		Kind:   function.Register,
 		Path:   funcID.String(),
-		Data:   testFunc,
+		Data: &function.FuncEntry{
+			Handler: testFunc,
+			Options: nil,
+		},
 	})
 
 	// Register contract that requires origin_id

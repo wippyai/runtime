@@ -12,7 +12,7 @@ import (
 
 func TestGetLayerContext(t *testing.T) {
 	// Test with UnitOfWork without layer context
-	parentCtx := context.Background()
+	parentCtx := newTestContext()
 	state := lua.NewState()
 	defer state.Close()
 	uw, _ := engine.NewUnitOfWork(parentCtx, state)
@@ -36,7 +36,7 @@ func TestEnsureLayerContext(t *testing.T) {
 	}
 
 	// Test creating new layer context
-	parentCtx := context.Background()
+	parentCtx := newTestContext()
 	state := lua.NewState()
 	defer state.Close()
 	uw, _ := engine.NewUnitOfWork(parentCtx, state)
@@ -55,7 +55,7 @@ func TestEnsureLayerContext(t *testing.T) {
 }
 
 func TestPublish(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := newTestContext()
 	state := lua.NewState()
 	defer state.Close()
 	uw, ctx := engine.NewUnitOfWork(parentCtx, state)
@@ -91,14 +91,14 @@ func TestPublish(t *testing.T) {
 	}
 
 	// Test publishing without UnitOfWork
-	err = Publish(context.Background(), topic, values...)
+	err = Publish(newTestContext(), topic, values...)
 	if err == nil {
 		t.Error("expected error from Publish without UnitOfWork")
 	}
 }
 
 func TestRelease(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := newTestContext()
 	state := lua.NewState()
 	defer state.Close()
 	uw, ctx := engine.NewUnitOfWork(parentCtx, state)
@@ -125,14 +125,14 @@ func TestRelease(t *testing.T) {
 	}
 
 	// Test releasing without UnitOfWork
-	err = Release(context.Background(), topic)
+	err = Release(newTestContext(), topic)
 	if err == nil {
 		t.Error("expected error from Release without UnitOfWork")
 	}
 }
 
 func TestSlots(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := newTestContext()
 	state := lua.NewState()
 	defer state.Close()
 	uw, ctx := engine.NewUnitOfWork(parentCtx, state)
@@ -149,7 +149,7 @@ func TestSlots(t *testing.T) {
 	}
 
 	// Test slots without UnitOfWork
-	slots, err = Slots(context.Background(), topic)
+	slots, err = Slots(newTestContext(), topic)
 	if err == nil {
 		t.Error("expected error from Slots without UnitOfWork")
 	}
@@ -159,7 +159,7 @@ func TestSlots(t *testing.T) {
 }
 
 func TestExists(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := newTestContext()
 	state := lua.NewState()
 	defer state.Close()
 	uw, ctx := engine.NewUnitOfWork(parentCtx, state)
@@ -185,12 +185,12 @@ func TestExists(t *testing.T) {
 	require.Error(t, err)
 
 	// Test exists without UnitOfWork
-	_, err = Exists(context.Background(), topic)
+	_, err = Exists(newTestContext(), topic)
 	require.Error(t, err)
 }
 
 func TestQueueLength(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := newTestContext()
 	state := lua.NewState()
 	defer state.Close()
 	uw, ctx := engine.NewUnitOfWork(parentCtx, state)
@@ -229,7 +229,7 @@ func TestQueueLength(t *testing.T) {
 	}
 
 	// Test queue length without UnitOfWork
-	length, err = QueueLength(context.Background())
+	length, err = QueueLength(newTestContext())
 	if err == nil {
 		t.Error("expected error from QueueLength without UnitOfWork")
 	}
@@ -239,7 +239,7 @@ func TestQueueLength(t *testing.T) {
 }
 
 func TestLayerContextOperations(t *testing.T) {
-	parentCtx := context.Background()
+	parentCtx := newTestContext()
 	state := lua.NewState()
 	defer state.Close()
 	uw, ctx := engine.NewUnitOfWork(parentCtx, state)

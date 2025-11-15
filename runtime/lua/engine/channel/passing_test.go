@@ -1,7 +1,6 @@
 package channel
 
 import (
-	"context"
 	"testing"
 
 	lua "github.com/yuin/gopher-lua"
@@ -31,7 +30,7 @@ func TestChannelPassingSimple(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `

@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -49,15 +50,13 @@ func TestNoopRuntime_Execute(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "basic execution",
-			task: runtime.Task{
-			},
+			name:    "basic execution",
+			task:    runtime.Task{},
 			wantErr: false,
 		},
 		{
-			name: "empty target",
-			task: runtime.Task{
-			},
+			name:    "empty target",
+			task:    runtime.Task{},
 			wantErr: false,
 		},
 	}
@@ -146,6 +145,7 @@ func TestNoopRuntime_Update(t *testing.T) {
 		{
 			name: "update function entry",
 			entry: registry.Entry{
+				ID: registry.ID{
 					NS:   "test-ns",
 					Name: "test-function",
 				},
@@ -156,8 +156,10 @@ func TestNoopRuntime_Update(t *testing.T) {
 		{
 			name: "update empty entry",
 			entry: registry.Entry{
-				NS:   "",
-				Name: "",
+				ID: registry.ID{
+					NS:   "",
+					Name: "",
+				},
 				Kind: "",
 			},
 			wantErr: false,
@@ -191,6 +193,7 @@ func TestNoopRuntime_Delete(t *testing.T) {
 		{
 			name: "delete function entry",
 			entry: registry.Entry{
+				ID: registry.ID{
 					NS:   "test-ns",
 					Name: "test-function",
 				},
@@ -201,6 +204,7 @@ func TestNoopRuntime_Delete(t *testing.T) {
 		{
 			name: "delete empty entry",
 			entry: registry.Entry{
+				ID: registry.ID{
 					NS:   "",
 					Name: "",
 				},

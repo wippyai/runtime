@@ -14,6 +14,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 func TestRunner_AsLayer(t *testing.T) {
 	// Setup VM
 	log := zap.NewNop()
@@ -50,7 +56,7 @@ func TestRunner_AsLayer(t *testing.T) {
 	}
 
 	// execute through layer
-	result, err := wrapped.Execute(context.Background(), "test_coroutine")
+	result, err := wrapped.Execute(newTestContext(), "test_coroutine")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +116,7 @@ func TestAsyncCoroutines(t *testing.T) {
 	require.NoError(t, err)
 
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), time.Second*1000)
+	ctx, cancel := context.WithTimeout(newTestContext(), time.Second*1000)
 	defer cancel()
 
 	result, err := wrapped.Execute(ctx, "test_sleep")
@@ -206,7 +212,7 @@ func TestRunner_ChannelLayer(t *testing.T) {
 		err := vm.Import(testScript, "test", "test_layers")
 		assert.NoError(t, err)
 
-		result, err := wrapped.Execute(context.Background(), "test_layers")
+		result, err := wrapped.Execute(newTestContext(), "test_layers")
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 
@@ -227,7 +233,7 @@ func TestRunner_ChannelLayer(t *testing.T) {
 		err := vm.Import(testScript, "test", "test_layers")
 		assert.NoError(t, err)
 
-		result, err := wrapped.Execute(context.Background(), "test_layers")
+		result, err := wrapped.Execute(newTestContext(), "test_layers")
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 
@@ -286,7 +292,7 @@ func TestDistributedWorkers(t *testing.T) {
 
 		// execute and time the operation
 		start := time.Now()
-		result, err := wrapped.Execute(context.Background(), "test_distributed_workers")
+		result, err := wrapped.Execute(newTestContext(), "test_distributed_workers")
 		duration := time.Since(start)
 		assert.NoError(t, err)
 
@@ -409,7 +415,7 @@ func TestWorkerPool(t *testing.T) {
 
 		// execute and time the operation
 		start := time.Now()
-		result, err := wrapped.Execute(context.Background(), "test_worker_pool")
+		result, err := wrapped.Execute(newTestContext(), "test_worker_pool")
 		duration := time.Since(start)
 		assert.NoError(t, err)
 

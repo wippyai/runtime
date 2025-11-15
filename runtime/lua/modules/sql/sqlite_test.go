@@ -13,6 +13,7 @@ import (
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	sqlres "github.com/wippyai/runtime/service/sql"
 
+	"context"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,9 +54,8 @@ func TestVectorWithSQLite(t *testing.T) {
 		},
 	}
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	// Import test script
 	script := `
@@ -186,9 +186,8 @@ func TestHybridSearch(t *testing.T) {
 		},
 	}
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	// Import test script for hybrid search that combines vector similarity and text relevance
 	script := `

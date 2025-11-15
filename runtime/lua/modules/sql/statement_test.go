@@ -59,12 +59,8 @@ func TestPrepareStatement(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Imports the test script
 	err := vm.Import(`
@@ -104,12 +100,8 @@ func TestStatementQuery(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Imports the test script
 	err := vm.Import(`
@@ -158,12 +150,8 @@ func TestStatementExecute(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Imports the test script
 	err := vm.Import(`
@@ -221,12 +209,8 @@ func TestStatementMultipleExecution(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Imports the test script
 	err := vm.Import(`
@@ -330,12 +314,8 @@ func TestStatementErrorHandling(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Imports the test script
 	err := vm.Import(`
@@ -382,12 +362,8 @@ func TestStatementWithInvalidParams(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Imports the test script
 	err := vm.Import(`
@@ -446,12 +422,8 @@ func TestStatementWithNilParams(t *testing.T) {
 	db, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Setup a statement that doesn't need parameters
 	_, err := db.ExecContext(t.Context(), "CREATE TABLE counts (count INTEGER)")
@@ -506,12 +478,8 @@ func TestStatementDataTypes(t *testing.T) {
 	db, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Create a table with various data types
 	_, err := db.ExecContext(t.Context(), `CREATE TABLE datatypes (
@@ -607,12 +575,8 @@ func TestStatementClose(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Imports the test script
 	err := vm.Import(`
@@ -666,12 +630,8 @@ func TestStatementQueryNoResults(t *testing.T) {
 	_, mockRes, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Imports the test script
 	err := vm.Import(`
@@ -734,12 +694,8 @@ func TestStatementQueryNullColumns(t *testing.T) {
 		(4, NULL, NULL)`)
 	require.NoError(t, err, "Failed to insert test data")
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Imports the test script
 	err = vm.Import(`
@@ -821,12 +777,8 @@ func TestStatementWithSQLNull(t *testing.T) {
 	)`)
 	require.NoError(t, err, "Failed to create test table")
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Imports the test script
 	err = vm.Import(`

@@ -527,7 +527,7 @@ func TestTokenStoreWithoutSigningKey(t *testing.T) {
 	assert.NotContains(t, string(token), ".")
 
 	// Validation should work
-	validatedActor, _, err := ts.Validate(ctx, token)
+	_, _, err = ts.Validate(ctx, token)
 	require.NoError(t, err)
 
 	// Revocation should work
@@ -718,7 +718,7 @@ func TestStoreResourceCleanup(t *testing.T) {
 	// the canceled context differently
 
 	// We should still be able to validate with a valid context
-	validatedActor, _, err := ts.Validate(ctx, token)
+	_, _, err = ts.Validate(ctx, token)
 	require.NoError(t, err)
 
 	// Now stop the store to simulate resource unavailability

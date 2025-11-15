@@ -2,12 +2,19 @@ package btea
 
 import (
 	"context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestBteaModule(t *testing.T) {
 	logger := zap.NewNop()
@@ -18,7 +25,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			assert(type(btea) == "table", "btea module should be a table")	
 		`, "test_load")
@@ -36,7 +43,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test command functionality
@@ -64,7 +71,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test style functionality
@@ -90,7 +97,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test text input
@@ -126,7 +133,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test list functionality
@@ -141,7 +148,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test events functionality
@@ -156,7 +163,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test basic command execution
@@ -179,7 +186,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test basic model creation
@@ -216,7 +223,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test style creation
@@ -247,7 +254,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test list creation
@@ -263,7 +270,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test key binding creation
@@ -283,7 +290,7 @@ func TestBteaModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Create a simple TUI application structure
@@ -315,7 +322,7 @@ func TestBteaModuleErrorHandling(t *testing.T) {
 		defer vm.Close()
 
 		// Test that invalid operations don't crash the module
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test with nil values (should not crash)
@@ -343,7 +350,7 @@ func TestBteaModulePerformance(t *testing.T) {
 			vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 			require.NoError(t, err)
 
-			err = vm.DoString(context.Background(), `
+			err = vm.DoString(newTestContext(), `
 				local btea = require("btea")
 				assert(btea ~= nil)
 			`, "perf_test")

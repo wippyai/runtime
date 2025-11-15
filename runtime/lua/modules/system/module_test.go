@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestSystemModuleWithVM(t *testing.T) {
 	logger := zap.NewNop()
@@ -20,7 +27,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local system = require("system")
 			assert(type(system) == "table")
 			assert(type(system.mem_stats) == "function")
@@ -71,7 +78,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		require.IsType(t, &lua.LTable{}, result)
 
@@ -121,7 +128,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		require.IsType(t, &lua.LTable{}, result)
 
@@ -176,7 +183,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		require.IsType(t, &lua.LTable{}, result)
 
@@ -244,7 +251,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		require.IsType(t, &lua.LTable{}, result)
 
@@ -307,7 +314,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		require.IsType(t, &lua.LTable{}, result)
 

@@ -146,9 +146,12 @@ func TestFunctions_EventResponses(t *testing.T) {
 				System: function.System,
 				Kind:   function.Register,
 				Path:   "default:test.handler",
-				Data: function.Func(func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-					return make(chan *runtime.Result), nil
-				}),
+				Data: &function.FuncEntry{
+					Handler: func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+						return make(chan *runtime.Result), nil
+					},
+					Options: nil,
+				},
 			},
 			expectedKind: function.Accept,
 			expectedPath: "default:test.handler",
@@ -277,7 +280,10 @@ func TestFunctions_Execute(t *testing.T) {
 					System: function.System,
 					Kind:   function.Register,
 					Path:   target.String(),
-					Data:   function.Func(handler),
+					Data: &function.FuncEntry{
+						Handler: handler,
+						Options: nil,
+					},
 				})
 			},
 			task: runtime.Task{
@@ -307,7 +313,10 @@ func TestFunctions_Execute(t *testing.T) {
 					System: function.System,
 					Kind:   function.Register,
 					Path:   target.String(),
-					Data:   function.Func(handler),
+					Data: &function.FuncEntry{
+						Handler: handler,
+						Options: nil,
+					},
 				})
 			},
 			task: runtime.Task{
@@ -397,7 +406,10 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 				System: function.System,
 				Kind:   function.Register,
 				Path:   target.String(),
-				Data:   function.Func(handler),
+				Data: &function.FuncEntry{
+					Handler: handler,
+					Options: nil,
+				},
 			})
 		}(i)
 	}
@@ -541,9 +553,12 @@ func TestFunctions_EdgeCases(t *testing.T) {
 			System: function.System,
 			Kind:   function.Register,
 			Path:   "",
-			Data: function.Func(func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-				return make(chan *runtime.Result), nil
-			}),
+			Data: &function.FuncEntry{
+				Handler: func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+					return make(chan *runtime.Result), nil
+				},
+				Options: nil,
+			},
 		})
 
 		// Wait for registration to complete

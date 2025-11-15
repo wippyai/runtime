@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 	serviceenv "github.com/wippyai/runtime/api/service/env"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"

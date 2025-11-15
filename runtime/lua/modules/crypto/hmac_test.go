@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -40,7 +39,7 @@ func TestHMACModuleWithVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local crypto = require("crypto")
 			assert(type(crypto) == "table")
 			assert(type(crypto.hmac) == "table")
@@ -59,7 +58,7 @@ func TestHMACModuleWithVM(t *testing.T) {
 
 		// Test empty key
 		t.Run("empty key", func(t *testing.T) {
-			err := vm.DoString(context.Background(), `
+			err := vm.DoString(newTestContext(), `
 				local crypto = require("crypto")
 				local digest, err = crypto.hmac.sha256("", "data")
 				assert(digest == nil, "Expected nil digest")
@@ -71,7 +70,7 @@ func TestHMACModuleWithVM(t *testing.T) {
 
 		// Test nil key
 		t.Run("nil key", func(t *testing.T) {
-			err := vm.DoString(context.Background(), `
+			err := vm.DoString(newTestContext(), `
 				local crypto = require("crypto")
 				local ok, err = pcall(function()
 					return crypto.hmac.sha256(nil, "data")
@@ -83,7 +82,7 @@ func TestHMACModuleWithVM(t *testing.T) {
 
 		// Test nil data
 		t.Run("nil data", func(t *testing.T) {
-			err := vm.DoString(context.Background(), `
+			err := vm.DoString(newTestContext(), `
 				local crypto = require("crypto")
 				local ok, err = pcall(function()
 					return crypto.hmac.sha256("key", nil)
@@ -178,7 +177,7 @@ func TestHMACModuleWithVM(t *testing.T) {
 				err = vm.Import(script, "test", "test")
 				require.NoError(t, err)
 
-				result, err := vm.Execute(context.Background(), "test", lua.LString(tc.key), lua.LString(tc.data))
+				result, err := vm.Execute(newTestContext(), "test", lua.LString(tc.key), lua.LString(tc.data))
 				require.NoError(t, err)
 
 				resultTable, ok := result.(*lua.LTable)
@@ -229,7 +228,7 @@ func TestHMACModuleWithVM(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 
 		resultTable, ok := result.(*lua.LTable)

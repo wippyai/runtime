@@ -35,9 +35,8 @@ func TestSelectBuilderWithDB(t *testing.T) {
 	}
 
 	// Setup Lua environment
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	// Test script
 	script := `
@@ -90,9 +89,8 @@ func TestInsertBuilderWithDB(t *testing.T) {
 	}
 
 	// Setup Lua environment
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	// Test script
 	script := `
@@ -158,9 +156,8 @@ func TestUpdateBuilderWithDB(t *testing.T) {
 	}
 
 	// Setup Lua environment
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	// Test script
 	script := `
@@ -231,9 +228,8 @@ func TestDeleteBuilderWithDB(t *testing.T) {
 	}
 
 	// Setup Lua environment
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	// Test script
 	script := `

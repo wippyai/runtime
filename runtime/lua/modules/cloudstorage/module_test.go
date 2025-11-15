@@ -208,7 +208,7 @@ func (m *mockResourceRegistry) Exists(id registry.ID) bool {
 // setupTestEnvironment creates a test environment with CloudStorage module and mock storage
 //
 //nolint:unparam // ok for now
-func setupTestEnvironment(t *testing.T, mockStorage cloudstorage.Storage) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner) {
+func setupTestEnvironment(t *testing.T, mockStorage cloudstorage.Storage) (*engine.CoroutineVM, *engine.Runner, context.Context) {
 	logger := zaptest.NewLogger(t)
 
 	// Create the CloudStorage module
@@ -237,14 +237,15 @@ func setupTestEnvironment(t *testing.T, mockStorage cloudstorage.Storage) (*engi
 	// Add the resource registry to the context
 	ctx := resource.WithRegistry(ctxapi.NewRootContext(), mockRegistry)
 	ctx = logs.WithLogger(ctx, logger)
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(ctx)
+	_, ctx = runner.InitUnitOfWork(ctx)
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)
 
-	return vm, L, uw, runner
+	return vm, runner, ctx
 }
 
 // registerTestHelpers registers any helper functions needed for testing
@@ -262,14 +263,10 @@ func registerTestHelpers(l *lua.LState) {
 func TestCloudStorageModule(t *testing.T) {
 	t.Run("Module_Get", func(t *testing.T) {
 		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
+		vm, _, _ := setupTestEnvironment(t, mockStorage)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 
-		err := L.DoString(`
+		err := vm.State().DoString(`
 			local cs = require("cloudstorage")
 			local storage, err = cs.get("test_storage")
 			if err then 
@@ -284,14 +281,10 @@ func TestCloudStorageModule(t *testing.T) {
 
 	t.Run("ListObjects_Basic", func(t *testing.T) {
 		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
+		vm, _, _ := setupTestEnvironment(t, mockStorage)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 
-		err := L.DoString(`
+		err := vm.State().DoString(`
 			local cs = require("cloudstorage")
 			local storage, err = cs.get("test_storage")
 			if err then 
@@ -335,14 +328,10 @@ func TestCloudStorageModule(t *testing.T) {
 
 	t.Run("ListObjects_WithOptions", func(t *testing.T) {
 		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
+		vm, _, _ := setupTestEnvironment(t, mockStorage)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 
-		err := L.DoString(`
+		err := vm.State().DoString(`
 			local cs = require("cloudstorage")
 			local storage, err = cs.get("test_storage")
 			if err then 
@@ -366,16 +355,12 @@ func TestCloudStorageModule(t *testing.T) {
 
 	t.Run("DownloadObject", func(t *testing.T) {
 		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
+		vm, _, _ := setupTestEnvironment(t, mockStorage)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 
-		registerTestHelpers(L)
+		registerTestHelpers(vm.State())
 
-		err := L.DoString(`
+		err := vm.State().DoString(`
 			local cs = require("cloudstorage")
 			local storage, err = cs.get("test_storage")
 			if err then 
@@ -413,14 +398,10 @@ func TestCloudStorageModule(t *testing.T) {
 
 	t.Run("UploadObject", func(t *testing.T) {
 		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
+		vm, _, _ := setupTestEnvironment(t, mockStorage)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 
-		err := L.DoString(`
+		err := vm.State().DoString(`
 			local cs = require("cloudstorage")
 			local storage, err = cs.get("test_storage")
 			if err then 
@@ -451,14 +432,10 @@ func TestCloudStorageModule(t *testing.T) {
 
 	t.Run("DeleteObjects", func(t *testing.T) {
 		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
+		vm, _, _ := setupTestEnvironment(t, mockStorage)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 
-		err := L.DoString(`
+		err := vm.State().DoString(`
 			local cs = require("cloudstorage")
 			local storage, err = cs.get("test_storage")
 			if err then 
@@ -493,14 +470,10 @@ func TestCloudStorageModule(t *testing.T) {
 
 	t.Run("PresignedURLs", func(t *testing.T) {
 		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
+		vm, _, _ := setupTestEnvironment(t, mockStorage)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 
-		err := L.DoString(`
+		err := vm.State().DoString(`
 			local cs = require("cloudstorage")
 			local storage, err = cs.get("test_storage")
 			if err then 
@@ -535,15 +508,11 @@ func TestCloudStorageModule(t *testing.T) {
 
 	t.Run("ErrorHandling", func(t *testing.T) {
 		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
+		vm, _, _ := setupTestEnvironment(t, mockStorage)
 		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
 
 		// Test error when trying to get an object that doesn't exist
-		err := L.DoString(`
+		err := vm.State().DoString(`
 			local cs = require("cloudstorage")
 			local storage, err = cs.get("nonexistent_storage")
 			assert(storage == nil, "Storage should be nil for nonexistent resource")
@@ -556,25 +525,22 @@ func TestCloudStorageModule(t *testing.T) {
 
 func TestCloudStorageRelease(t *testing.T) {
 	mockStorage := newMockCloudStorage()
-	vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
+	vm, runner, ctx := setupTestEnvironment(t, mockStorage)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
+	_ = runner
 
 	// Run a test that explicitly closes the CloudStorage resource
-	err := L.DoString(`
+	err := vm.State().DoString(`
 		local cs = require("cloudstorage")
 		local storage, err = cs.get("test_storage")
-		if err then 
+		if err then
 			error("Error getting cloudstorage: " .. err)
 		end
-		
+
 		-- Verify we can use the storage
 		local result = storage:list_objects()
 		assert(result ~= nil, "Should be able to list objects before closing")
-		
+
 		-- Release the storage connection
 		local success = storage:release()
 		assert(success == true, "Release should return true")
@@ -582,8 +548,7 @@ func TestCloudStorageRelease(t *testing.T) {
 	assert.NoError(t, err, "CloudStorage release test failed")
 
 	// Verify the test resource was released
-	mockRes, ok := uw.Context().Value("test_storage_resource").(*mockResource)
-	if ok {
+	if mockRes, ok := ctx.Value("test_storage_resource").(*mockResource); ok {
 		assert.True(t, mockRes.released, "Resource should be released by release method")
 	}
 }

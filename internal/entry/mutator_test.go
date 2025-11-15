@@ -618,3 +618,156 @@ func TestMutator_RealWorldScenarios(t *testing.T) {
 		assert.Equal(t, "session_db", entry.Meta["target_db"])
 	})
 }
+
+func TestMutator_Set_Meta_Advanced(t *testing.T) {
+	mutator := NewMutator(&mockTranscoder{})
+
+	t.Run("set nested meta field", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "entry"},
+			Meta: registry.Metadata{},
+		}
+
+		err := mutator.Set(entry, "meta.config.database.host", "localhost")
+		require.NoError(t, err)
+
+		config := entry.Meta["config"].(map[string]any)
+		database := config["database"].(map[string]any)
+		assert.Equal(t, "localhost", database["host"])
+	})
+
+	t.Run("set nested meta with existing data", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID: registry.ID{NS: "test", Name: "entry"},
+			Meta: registry.Metadata{
+				"config": map[string]any{
+					"existing": "value",
+				},
+			},
+		}
+
+		err := mutator.Set(entry, "meta.config.new.field", "test")
+		require.NoError(t, err)
+
+		config := entry.Meta["config"].(map[string]any)
+		assert.Equal(t, "value", config["existing"])
+		newMap := config["new"].(map[string]any)
+		assert.Equal(t, "test", newMap["field"])
+	})
+}
+
+func TestMutator_Delete_Advanced(t *testing.T) {
+	mutator := NewMutator(&mockTranscoder{})
+
+	t.Run("delete nested meta field", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID: registry.ID{NS: "test", Name: "entry"},
+			Meta: registry.Metadata{
+				"config": map[string]any{
+					"field1": "value1",
+					"field2": "value2",
+				},
+			},
+		}
+
+		err := mutator.Delete(entry, "meta.config.field1")
+		require.NoError(t, err)
+
+		config := entry.Meta["config"].(map[string]any)
+		assert.NotContains(t, config, "field1")
+		assert.Contains(t, config, "field2")
+	})
+
+	t.Run("delete deeply nested meta field", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID: registry.ID{NS: "test", Name: "entry"},
+			Meta: registry.Metadata{
+				"level1": map[string]any{
+					"level2": map[string]any{
+						"field": "value",
+					},
+				},
+			},
+		}
+
+		err := mutator.Delete(entry, "meta.level1.level2.field")
+		require.NoError(t, err)
+
+		level1 := entry.Meta["level1"].(map[string]any)
+		level2 := level1["level2"].(map[string]any)
+		assert.NotContains(t, level2, "field")
+	})
+}
+
+func TestMutator_Append_Meta_Advanced(t *testing.T) {
+	mutator := NewMutator(&mockTranscoder{})
+
+	t.Run("append to nested meta array", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID: registry.ID{NS: "test", Name: "entry"},
+			Meta: registry.Metadata{
+				"config": map[string]any{
+					"tags": []any{"tag1"},
+				},
+			},
+		}
+
+		err := mutator.Append(entry, "meta.config.tags", "tag2", "tag3")
+		require.NoError(t, err)
+
+		config := entry.Meta["config"].(map[string]any)
+		tags := config["tags"].([]any)
+		assert.Equal(t, []any{"tag1", "tag2", "tag3"}, tags)
+	})
+
+	t.Run("error on append to non-array meta field", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID: registry.ID{NS: "test", Name: "entry"},
+			Meta: registry.Metadata{
+				"field": "not-an-array",
+			},
+		}
+
+		err := mutator.Append(entry, "meta.field", "value")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot append to non-array")
+	})
+}
+
+func TestMutator_Append_Data_Advanced(t *testing.T) {
+	mutator := NewMutator(&mockTranscoder{})
+
+	t.Run("append to nested data array", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID: registry.ID{NS: "test", Name: "entry"},
+			Data: payload.New(map[string]any{
+				"config": map[string]any{
+					"servers": []any{"server1"},
+				},
+			}),
+		}
+
+		err := mutator.Append(entry, "data.config.servers", "server2", "server3")
+		require.NoError(t, err)
+
+		data := entry.Data.Data().(map[string]any)
+		config := data["config"].(map[string]any)
+		servers := config["servers"].([]any)
+		assert.Equal(t, []any{"server1", "server2", "server3"}, servers)
+	})
+
+	t.Run("append creates nested structure if missing", func(t *testing.T) {
+		entry := &registry.Entry{
+			ID:   registry.ID{NS: "test", Name: "entry"},
+			Data: payload.New(map[string]any{}),
+		}
+
+		err := mutator.Append(entry, "data.config.items", "item1", "item2")
+		require.NoError(t, err)
+
+		data := entry.Data.Data().(map[string]any)
+		config := data["config"].(map[string]any)
+		items := config["items"].([]any)
+		assert.Equal(t, []any{"item1", "item2"}, items)
+	})
+}

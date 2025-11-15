@@ -1,7 +1,6 @@
 package http
 
 import (
-	"context"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"net/http/httptest"
 	"strings"
@@ -22,7 +21,10 @@ func TestRequest_StreamBody_Simple(t *testing.T) {
 		recorder := httptest.NewRecorder()
 
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		fc := ctxapi.FrameFromContext(ctx)
+		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -65,7 +67,10 @@ func TestRequest_StreamBody(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		fc := ctxapi.FrameFromContext(ctx)
+		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -105,7 +110,10 @@ func TestRequest_StreamBody(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		fc := ctxapi.FrameFromContext(ctx)
+		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -149,7 +157,10 @@ func TestRequest_StreamBody(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		fc := ctxapi.FrameFromContext(ctx)
+		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -188,7 +199,10 @@ func TestRequest_StreamBody(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", errorReader)
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(ctxapi.NewRootContext(), http.RequestCtx, reqCtx)
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		fc := ctxapi.FrameFromContext(ctx)
+		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))

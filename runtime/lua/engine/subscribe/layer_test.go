@@ -1,6 +1,7 @@
 package subscribe
 
 import (
+	"context"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"sync"
 	"testing"
@@ -13,6 +14,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func setupTestVM(t *testing.T) (*engine.CoroutineVM, *engine.Runner) {
 	logger := zap.NewNop()
@@ -49,7 +56,7 @@ func TestRelay(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		uww, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+		uww, ctx := runner.InitUnitOfWork(newTestContext())
 		defer func() { _ = uww.Close() }()
 
 		var wg sync.WaitGroup
@@ -80,6 +87,9 @@ func TestRelay(t *testing.T) {
 		}()
 
 		wg.Wait()
+		if err, ok := result.(error); ok {
+			t.Fatalf("expected result but got error: %v", err)
+		}
 		assert.Equal(t, "hello", result.(lua.LValue).String())
 	})
 
@@ -97,7 +107,9 @@ func TestRelay(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		uw, ctx := runner.InitUnitOfWork(ctx)
 		defer func() { _ = uw.Close() }()
 
 		exitCh, err := runner.Start(ctx, "test")
@@ -123,7 +135,9 @@ func TestRelay(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		uw, ctx := runner.InitUnitOfWork(ctx)
 		defer func() { _ = uw.Close() }()
 
 		exitCh, err := runner.Start(ctx, "test")
@@ -147,7 +161,9 @@ func TestRelay(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		uw, ctx := runner.InitUnitOfWork(ctx)
 		defer func() { _ = uw.Close() }()
 
 		exitCh, err := runner.Start(ctx, "test")
@@ -175,7 +191,9 @@ func TestRelay(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		uw, ctx := runner.InitUnitOfWork(ctx)
 		defer func() { _ = uw.Close() }()
 
 		var wg sync.WaitGroup
@@ -219,6 +237,9 @@ func TestRelay(t *testing.T) {
 		}()
 
 		wg.Wait()
+		if err, ok := result.(error); ok {
+			t.Fatalf("expected result but got error: %v", err)
+		}
 		assert.Equal(t, "one,two,three", result.(lua.LValue).String())
 	})
 }
@@ -244,7 +265,7 @@ func TestLateSubscription(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+	uw, ctx := runner.InitUnitOfWork(newTestContext())
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -312,7 +333,7 @@ func TestCrossTopicOrdering(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+	uw, ctx := runner.InitUnitOfWork(newTestContext())
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -381,7 +402,7 @@ func TestUnsubscribeWithPendingMessages(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+	uw, ctx := runner.InitUnitOfWork(newTestContext())
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -457,7 +478,7 @@ func TestMultipleTopicsUnsubscribe(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+	uw, ctx := runner.InitUnitOfWork(newTestContext())
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -544,7 +565,7 @@ func TestUnsubscribeResubscribe(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+	uw, ctx := runner.InitUnitOfWork(newTestContext())
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup

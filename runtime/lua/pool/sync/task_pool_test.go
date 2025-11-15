@@ -3,7 +3,6 @@ package sync
 import (
 	"context"
 	"fmt"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	runtime2 "runtime"
 	"sync"
 	"sync/atomic"
@@ -99,7 +98,7 @@ func TestTaskPool_Execute_Basic(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 	defer cancel()
 	ctx = setupTestContext(ctx)
 
@@ -125,7 +124,7 @@ func TestTaskPool_Execute_AfterClose(t *testing.T) {
 
 	p.Close()
 
-	ctx := setupTestContext(ctxapi.NewRootContext())
+	ctx := setupTestContext(newTestContext())
 	task := createTestTask("test", lua.LNil)
 
 	_, err = p.Execute(ctx, task)
@@ -143,7 +142,7 @@ func TestTaskPool_ParallelExecution(t *testing.T) {
 
 	var wg sync.WaitGroup
 	results := make(chan string, 10)
-	baseCtx := setupTestContext(ctxapi.NewRootContext())
+	baseCtx := setupTestContext(newTestContext())
 
 	// Launch 10 jobs with 3 workers
 	for i := 0; i < 10; i++ {
@@ -206,7 +205,7 @@ func TestTaskPool_VMReuse(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx := setupTestContext(ctxapi.NewRootContext())
+	ctx := setupTestContext(newTestContext())
 
 	// Run multiple times - should get incrementing IDs from same VM
 	var lastID float64
@@ -246,7 +245,7 @@ func TestTaskPool_StressTest(t *testing.T) {
 
 			var wg sync.WaitGroup
 			successCount := atomic.Int32{}
-			baseCtx := setupTestContext(ctxapi.NewRootContext())
+			baseCtx := setupTestContext(newTestContext())
 
 			// Launch many parallel jobs
 			for j := 0; j < 1000; j++ {
@@ -297,7 +296,7 @@ func BenchmarkTaskPool_Execute(b *testing.B) {
 	require.NoError(b, err)
 	defer p.Close()
 
-	baseCtx := setupTestContext(ctxapi.NewRootContext())
+	baseCtx := setupTestContext(newTestContext())
 	task := createTestTask("bench", lua.LString("benchmark"))
 
 	b.ResetTimer()

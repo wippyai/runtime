@@ -172,8 +172,8 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 				"kind": "service"
 			}`,
 			format:  payload.JSON,
-			want:    nil,
-			wantErr: true,
+			want:    []registry.Entry{},
+			wantErr: false,
 		},
 		{
 			name: "entry with missing required fields",

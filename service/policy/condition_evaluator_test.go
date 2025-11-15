@@ -1,9 +1,11 @@
 package policy
 
 import (
+	"testing"
+
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/service/policy"
-	"testing"
 )
 
 func newMockActor(id string, meta registry.Metadata) security.Actor {

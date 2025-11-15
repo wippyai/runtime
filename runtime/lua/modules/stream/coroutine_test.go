@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestAsyncStreamRead(t *testing.T) {
 	t.Run("async stream reading", func(t *testing.T) {
@@ -35,13 +42,10 @@ func TestAsyncStreamRead(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
 		// Spawn test data and stream
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		// Register stream in Lua
@@ -86,7 +90,7 @@ func TestAsyncStreamRead(t *testing.T) {
 		require.NoError(t, err)
 
 		// execute test and verify results
-		result, err := wrapped.Execute(context.Background(), "test_stream_read")
+		result, err := wrapped.Execute(newTestContext(), "test_stream_read")
 		require.NoError(t, err)
 
 		// Verify results
@@ -121,13 +125,10 @@ func TestAsyncStreamIter(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
-		defer func() { _ = uw.Close() }()
-
 		// Spawn test data and stream
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
-		stream, err := NewStream(ctx, reader)
+		stream, err := NewStream(newTestContext(), reader)
 		require.NoError(t, err)
 
 		// Register stream in Lua
@@ -161,7 +162,7 @@ func TestAsyncStreamIter(t *testing.T) {
 		require.NoError(t, err)
 
 		// execute test and verify results
-		result, err := wrapped.Execute(context.Background(), "test_stream_iter")
+		result, err := wrapped.Execute(newTestContext(), "test_stream_iter")
 		require.NoError(t, err)
 
 		// Verify results

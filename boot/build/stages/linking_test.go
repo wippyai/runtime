@@ -145,10 +145,8 @@ func TestLink_ConflictError(t *testing.T) {
 
 	stage := Link()
 	err := stage.Execute(ctx, &entries)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "parameter conflict")
-	assert.Contains(t, err.Error(), "key1")
-	assert.Contains(t, err.Error(), "key2")
+	// Linking stage now logs warnings instead of returning errors
+	require.NoError(t, err)
 }
 
 func TestLink_NoValueError(t *testing.T) {
@@ -176,9 +174,8 @@ func TestLink_NoValueError(t *testing.T) {
 
 	stage := Link()
 	err := stage.Execute(ctx, &entries)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no value available")
-	assert.Contains(t, err.Error(), "missing_param")
+	// Linking stage now logs warnings instead of returning errors
+	require.NoError(t, err)
 }
 
 func TestLink_AppendOperator(t *testing.T) {
@@ -280,8 +277,8 @@ func TestLink_EmptyEntryError(t *testing.T) {
 
 	stage := Link()
 	err := stage.Execute(ctx, &entries)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no matching entries found")
+	// Linking stage now logs warnings instead of returning errors
+	require.NoError(t, err)
 }
 
 func TestLink_CrossNamespace(t *testing.T) {

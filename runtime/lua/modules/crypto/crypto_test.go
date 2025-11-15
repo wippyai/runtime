@@ -3,6 +3,7 @@ package crypto
 import (
 	"context"
 	"crypto/rand"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +13,12 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/chacha20poly1305"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestEncryptDecryptModuleWithVM(t *testing.T) {
 	logger := zap.NewNop()
@@ -23,7 +30,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local crypto = require("crypto")
 			-- Test encrypt submodule
 			assert(type(crypto) == "table")
@@ -114,7 +121,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 				err = vm.Import(script, "test", "test")
 				require.NoError(t, err)
 
-				result, err := vm.Execute(context.Background(), "test", lua.LString(string(key)), lua.LString("test data"))
+				result, err := vm.Execute(newTestContext(), "test", lua.LString(string(key)), lua.LString("test data"))
 				require.NoError(t, err)
 
 				resultTable, ok := result.(*lua.LTable)
@@ -192,7 +199,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 				err = vm.Import(script, "test", "test")
 				require.NoError(t, err)
 
-				result, err := vm.Execute(context.Background(), "test", lua.LString(string(key)), lua.LString("test data"))
+				result, err := vm.Execute(newTestContext(), "test", lua.LString(string(key)), lua.LString("test data"))
 				require.NoError(t, err)
 
 				resultTable, ok := result.(*lua.LTable)
@@ -304,9 +311,9 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 
 				var result lua.LValue
 				if tc.aad == "" {
-					result, err = vm.Execute(context.Background(), "test", lua.LString(string(key)), lua.LString(tc.data))
+					result, err = vm.Execute(newTestContext(), "test", lua.LString(string(key)), lua.LString(tc.data))
 				} else {
-					result, err = vm.Execute(context.Background(), "test", lua.LString(string(key)), lua.LString(tc.data), lua.LString(tc.aad))
+					result, err = vm.Execute(newTestContext(), "test", lua.LString(string(key)), lua.LString(tc.data), lua.LString(tc.aad))
 				}
 				require.NoError(t, err)
 
@@ -410,9 +417,9 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 
 				var result lua.LValue
 				if tc.aad == "" {
-					result, err = vm.Execute(context.Background(), "test", lua.LString(string(key)), lua.LString(tc.data))
+					result, err = vm.Execute(newTestContext(), "test", lua.LString(string(key)), lua.LString(tc.data))
 				} else {
-					result, err = vm.Execute(context.Background(), "test", lua.LString(string(key)), lua.LString(tc.data), lua.LString(tc.aad))
+					result, err = vm.Execute(newTestContext(), "test", lua.LString(string(key)), lua.LString(tc.data), lua.LString(tc.aad))
 				}
 				require.NoError(t, err)
 
@@ -498,7 +505,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 				err = vm.Import(script, "test", "test")
 				require.NoError(t, err)
 
-				result, err := vm.Execute(context.Background(), "test", lua.LString(string(key)), lua.LString(tc.data))
+				result, err := vm.Execute(newTestContext(), "test", lua.LString(string(key)), lua.LString(tc.data))
 				require.NoError(t, err)
 
 				resultTable, ok := result.(*lua.LTable)
@@ -563,7 +570,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 
 		// Test AES with mismatched AAD
 		t.Run("AES with mismatched AAD", func(t *testing.T) {
-			result, err := vm.Execute(context.Background(), "test",
+			result, err := vm.Execute(newTestContext(), "test",
 				lua.LString("aes"),
 				lua.LString(string(aesKey)),
 				lua.LString(data),
@@ -583,7 +590,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 
 		// Test ChaCha20 with mismatched AAD
 		t.Run("ChaCha20 with mismatched AAD", func(t *testing.T) {
-			result, err := vm.Execute(context.Background(), "test",
+			result, err := vm.Execute(newTestContext(), "test",
 				lua.LString("chacha20"),
 				lua.LString(string(chachaKey)),
 				lua.LString(data),
@@ -603,7 +610,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 
 		// Test AES with matching AAD
 		t.Run("AES with matching AAD", func(t *testing.T) {
-			result, err := vm.Execute(context.Background(), "test",
+			result, err := vm.Execute(newTestContext(), "test",
 				lua.LString("aes"),
 				lua.LString(string(aesKey)),
 				lua.LString(data),
@@ -623,7 +630,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 
 		// Test ChaCha20 with matching AAD
 		t.Run("ChaCha20 with matching AAD", func(t *testing.T) {
-			result, err := vm.Execute(context.Background(), "test",
+			result, err := vm.Execute(newTestContext(), "test",
 				lua.LString("chacha20"),
 				lua.LString(string(chachaKey)),
 				lua.LString(data),
@@ -706,7 +713,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.Equal(t, lua.LTTable, result.Type())

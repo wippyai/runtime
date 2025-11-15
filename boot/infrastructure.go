@@ -23,37 +23,65 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// NewInfrastructure initializes core infrastructure (AppContext, EventBus, wrapped Logger)
+// NewBootstrapContext initializes core infrastructure (AppContext, EventBus, wrapped Logger)
 // BEFORE component loading. This ensures all components receive the same wrapped logger.
 //
 // The logger is wrapped with event streaming capabilities, allowing runtime control
 // of log propagation and streaming to the event bus.
-func NewInfrastructure(logger *zap.Logger, cfg boot.Config) (context.Context, error) {
-	// Create AppContext
+func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, error) {
+	// Create AppContext and attach config
 	appCtx := contextapi.NewAppContext()
 	ctx := contextapi.WithAppContext(context.Background(), appCtx)
-
-	// Attach config if provided
 	if cfg != nil {
 		ctx = boot.WithConfig(ctx, cfg)
 	}
 
-	// Create EventBus (infrastructure, not a component)
+	// Create EventBus and Transcoder
 	bus := eventbus.NewBus()
 	ctx = event.WithBus(ctx, bus)
 
-	// Initialize transcoder (infrastructure, not a component)
 	dtt := transcoder.GlobalTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
 	lua.Register(dtt)
 	ctx = payload.WithTranscoder(ctx, dtt)
 
-	// Wrap logger with event streaming capabilities
+	// Setup event infrastructure (logger with event streaming)
+	ctx, logManager := createEventInfrastructure(ctx, logger, bus, cfg)
+
+	// Setup relay infrastructure (node, router, managers)
+	ctx, nodeManager := createRelayInfrastructure(ctx, bus, cfg)
+
+	// Setup topology infrastructure
+	ctx = createTopologyInfrastructure(ctx, cfg)
+
+	// Setup hosts for message handling
+	if err := createHosts(ctx, cfg); err != nil {
+		return ctx, err
+	}
+
+	// Create HandlerRegistry for component event handlers
+	handlerRegistry := NewHandlerRegistry()
+	ctx = WithHandlerRegistry(ctx, handlerRegistry)
+
+	// Store managers in AppContext for later Start/Stop
+	ctx = logapi.WithLogManager(ctx, logManager)
+	ctx = relayapi.WithNodeManager(ctx, nodeManager)
+
+	return ctx, nil
+}
+
+// createEventInfrastructure sets up logger with event streaming
+func createEventInfrastructure(ctx context.Context, logger *zap.Logger, bus event.Bus, cfg boot.Config) (context.Context, *logs.Manager) {
 	wrappedLogger, logManager := wrapLogger(logger, bus, cfg)
 	ctx = logapi.WithLogger(ctx, wrappedLogger)
+	return ctx, logManager
+}
 
-	// Create relay infrastructure (single-node by default)
+// createRelayInfrastructure sets up relay node, router, and node manager
+func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Config) (context.Context, *relay.NodeManager) {
+	logger := logapi.GetLogger(ctx)
+
 	nodeName := "local"
 	if cfg != nil {
 		if name := cfg.Sub("relay").GetString("node_name", ""); name != "" {
@@ -62,14 +90,37 @@ func NewInfrastructure(logger *zap.Logger, cfg boot.Config) (context.Context, er
 	}
 
 	node := relay.NewNode(nodeName)
-	nodeManager := relay.NewNodeManager(node, bus, wrappedLogger.Named("relay"))
+	nodeManager := relay.NewNodeManager(node, bus, logger.Named("relay"))
 	router := relay.NewRouter(node, nil)
+
+	ctx = relayapi.WithNode(ctx, node)
+	ctx = relayapi.WithRouter(ctx, router)
+
+	return ctx, nodeManager
+}
+
+// createTopologyInfrastructure sets up topology and PID registry
+func createTopologyInfrastructure(ctx context.Context, cfg boot.Config) context.Context {
+	logger := logapi.GetLogger(ctx)
+	node := relayapi.GetNode(ctx)
+
 	topo := topology.NewTopology(node)
 	pidReg := topology.NewPIDRegistry(topology.PIDRegistryConfig{
-		Logger: wrappedLogger.Named("pid"),
+		Logger: logger.Named("pid"),
 	})
 
-	// Register control host for supervisor (monitoring and management)
+	ctx = topapi.WithTopology(ctx, topo)
+	ctx = topapi.WithRegistry(ctx, pidReg)
+
+	return ctx
+}
+
+// createHosts sets up control and function hosts
+func createHosts(ctx context.Context, cfg boot.Config) error {
+	logger := logapi.GetLogger(ctx)
+	node := relayapi.GetNode(ctx)
+
+	// Control host for supervisor (monitoring and management)
 	supervisorBufferSize := 1024
 	supervisorWorkerCount := 16
 	if cfg != nil {
@@ -80,13 +131,13 @@ func NewInfrastructure(logger *zap.Logger, cfg boot.Config) (context.Context, er
 	controlHost := relay.NewHost(ctx, relay.HostConfig{
 		BufferSize:  supervisorBufferSize,
 		WorkerCount: supervisorWorkerCount,
-		Logger:      wrappedLogger.Named("control"),
+		Logger:      logger.Named("control"),
 	})
 	if err := node.RegisterHost(topapi.ControlHost, controlHost); err != nil {
-		return ctx, err
+		return err
 	}
 
-	// Register function host for function execution
+	// Function host for function execution
 	functionsBufferSize := 1024
 	functionsWorkerCount := 16
 	if cfg != nil {
@@ -97,30 +148,17 @@ func NewInfrastructure(logger *zap.Logger, cfg boot.Config) (context.Context, er
 	funcHost := relay.NewHost(ctx, relay.HostConfig{
 		BufferSize:  functionsBufferSize,
 		WorkerCount: functionsWorkerCount,
-		Logger:      wrappedLogger.Named("functions"),
+		Logger:      logger.Named("functions"),
 	})
 	if err := node.RegisterHost(funcapi.HostID, funcHost); err != nil {
-		return ctx, err
+		return err
 	}
 
-	ctx = relayapi.WithNode(ctx, node)
-	ctx = relayapi.WithRouter(ctx, router)
-	ctx = relayapi.WithHost(ctx, funcHost)
-	ctx = topapi.WithTopology(ctx, topo)
-	ctx = topapi.WithRegistry(ctx, pidReg)
+	// Store function host in context (control host is not stored)
+	_ = relayapi.WithHost(ctx, funcHost)
 
-	// Store managers in context for later Start/Stop
-	ctx = context.WithValue(ctx, logManagerKey, logManager)
-	ctx = context.WithValue(ctx, nodeManagerKey, nodeManager)
-
-	return ctx, nil
+	return nil
 }
-
-// logManagerKey is used to store the log manager in context
-var logManagerKey = &struct{ name string }{"logManager"}
-
-// nodeManagerKey is used to store the node manager in context
-var nodeManagerKey = &struct{ name string }{"nodeManager"}
 
 // wrapLogger wraps the base logger with event streaming capabilities
 func wrapLogger(logger *zap.Logger, bus event.Bus, cfg boot.Config) (*zap.Logger, *logs.Manager) {
@@ -166,41 +204,33 @@ func wrapLogger(logger *zap.Logger, bus event.Bus, cfg boot.Config) (*zap.Logger
 	return wrappedLogger, logManager
 }
 
-// StartInfrastructure starts infrastructure services (log manager, node manager)
-func StartInfrastructure(ctx context.Context) error {
-	if lm := ctx.Value(logManagerKey); lm != nil {
-		if logManager, ok := lm.(*logs.Manager); ok {
-			if err := logManager.Start(ctx); err != nil {
-				return err
-			}
+// StartRuntimeServices starts infrastructure services (log manager, node manager)
+func StartRuntimeServices(ctx context.Context) error {
+	if logManager := logapi.GetLogManager(ctx); logManager != nil {
+		if err := logManager.Start(ctx); err != nil {
+			return err
 		}
 	}
 
-	if nm := ctx.Value(nodeManagerKey); nm != nil {
-		if nodeManager, ok := nm.(*relay.NodeManager); ok {
-			if err := nodeManager.Start(ctx); err != nil {
-				return err
-			}
+	if nodeManager := relayapi.GetNodeManager(ctx); nodeManager != nil {
+		if err := nodeManager.Start(ctx); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-// StopInfrastructure stops infrastructure services (node manager, log manager)
-func StopInfrastructure(ctx context.Context) error {
-	if nm := ctx.Value(nodeManagerKey); nm != nil {
-		if nodeManager, ok := nm.(*relay.NodeManager); ok {
-			if err := nodeManager.Stop(); err != nil {
-				return err
-			}
+// StopRuntimeServices stops infrastructure services (node manager, log manager)
+func StopRuntimeServices(ctx context.Context) error {
+	if nodeManager := relayapi.GetNodeManager(ctx); nodeManager != nil {
+		if err := nodeManager.Stop(); err != nil {
+			return err
 		}
 	}
 
-	if lm := ctx.Value(logManagerKey); lm != nil {
-		if logManager, ok := lm.(*logs.Manager); ok {
-			return logManager.Stop()
-		}
+	if logManager := logapi.GetLogManager(ctx); logManager != nil {
+		return logManager.Stop()
 	}
 
 	return nil

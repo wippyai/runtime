@@ -51,9 +51,8 @@ func TestDBType(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	err := vm.Import(`
 		function test_db_type()
@@ -77,9 +76,8 @@ func TestDBQuery(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	err := vm.Import(`
 		function test_db_query()
@@ -124,9 +122,8 @@ func TestDBExecute(t *testing.T) {
 		},
 	}
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	err = vm.Import(`
 		function test_db_execute()
@@ -152,9 +149,8 @@ func TestDBRelease(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	err := vm.Import(`
 		function test_db_release()
@@ -178,9 +174,8 @@ func TestDBGetNotFound(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	err := vm.Import(`
 		function test_db_get_not_found()
@@ -203,9 +198,8 @@ func TestDBQueryNoResults(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	err := vm.Import(`
 		function test_db_query_no_results()
@@ -232,9 +226,8 @@ func TestDBErrorHandling(t *testing.T) {
 	_, mockRes, cleanup := setupTestDBWithTestTable(t)
 	defer cleanup()
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	err := vm.Import(`
 		function test_db_error()
