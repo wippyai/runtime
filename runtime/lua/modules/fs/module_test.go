@@ -451,9 +451,8 @@ func (m *mockFSRegistry) GetFS(name string) (fsapi.FS, bool) {
 // setupLuaWithFS sets up a Lua state with the FS module and a mock filesystem
 func setupLuaWithFS(t *testing.T, mockRes *mockResource) (
 	*engine.CoroutineVM,
-	*lua.LState,
-	engine.UnitOfWork,
 	*engine.Runner,
+	context.Context,
 ) {
 	logger := zaptest.NewLogger(t)
 
@@ -480,17 +479,15 @@ func setupLuaWithFS(t *testing.T, mockRes *mockResource) (
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+	// Create context with frame
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	// Add the resource registry to the context
 	ctx = resource.WithRegistry(ctx, mockRegistry)
 	ctx = logs.WithLogger(ctx, logger)
 
-	// Set the context in the Lua state
-	L.SetContext(ctx)
-
-	return vm, L, uw, runner
+	return vm, runner, ctx
 }
 
 // TestModuleLoading tests basic loading of the FS module
@@ -534,12 +531,8 @@ func TestFSGet(t *testing.T) {
 	}
 
 	// Setup Lua with the test filesystem
-	vm, L, uw, runner := setupLuaWithFS(t, mockRes)
+	vm, runner, ctx := setupLuaWithFS(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Create a mock registry with the filesystem
 	fsRegistry := &mockFSRegistry{
@@ -549,9 +542,7 @@ func TestFSGet(t *testing.T) {
 	}
 
 	// Inject our filesystem registry into the context
-	ctx := L.Context()
 	ctx = fsapi.WithRegistry(ctx, fsRegistry)
-	L.SetContext(ctx)
 
 	// Imports our test function into the VM
 	err := vm.Import(`
@@ -584,7 +575,7 @@ func TestFSGet(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_fs_get")
+	result, err := runner.Execute(ctx, "test_fs_get")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify the results

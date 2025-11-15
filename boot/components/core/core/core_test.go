@@ -12,9 +12,9 @@ import (
 
 func TestCorePlugins(t *testing.T) {
 	logger := zap.NewExample()
-	ctx, err := bootpkg.NewInfrastructure(logger, nil)
+	ctx, err := bootpkg.NewBootstrapContext(logger, nil)
 	if err != nil {
-		t.Fatalf("NewInfrastructure() error = %v", err)
+		t.Fatalf("NewBootstrapContext() error = %v", err)
 	}
 
 	loader, err := bootpkg.NewLoader(All()...)

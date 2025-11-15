@@ -69,10 +69,6 @@ func (l *Loader) Load(ctx context.Context) (context.Context, error) {
 		return ctx, fmt.Errorf("logger not initialized - call NewInfrastructure first")
 	}
 
-	// Initialize HandlerRegistry before components
-	handlerRegistry := NewHandlerRegistry()
-	ctx = WithHandlerRegistry(ctx, handlerRegistry)
-
 	levels, err := l.graph.DependencyLevels()
 	if err != nil {
 		return ctx, fmt.Errorf("dependency resolution: %w", err)
@@ -115,17 +111,27 @@ func (l *Loader) Start(ctx context.Context) error {
 
 // Shutdown stops all components in reverse order.
 func (l *Loader) Shutdown(ctx context.Context) error {
+	var errors []error
+
 	for i := len(l.loaded) - 1; i >= 0; i-- {
 		c := l.loaded[i]
 
 		if stopper, ok := c.(boot.Stopper); ok {
 			if err := stopper.Stop(ctx); err != nil {
-				return fmt.Errorf("component %q stop: %w", c.Name(), err)
+				errors = append(errors, fmt.Errorf("component %q stop: %w", c.Name(), err))
 			}
 		}
 	}
 
-	return nil
+	if len(errors) == 0 {
+		return nil
+	}
+
+	if len(errors) == 1 {
+		return errors[0]
+	}
+
+	return fmt.Errorf("shutdown errors (%d components): %w", len(errors), errors[0])
 }
 
 // Handlers returns all handlers registered via HandlerRegistry during component loading.

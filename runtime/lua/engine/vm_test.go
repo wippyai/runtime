@@ -14,6 +14,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 func TestVM_Basic(t *testing.T) {
 	logger := zap.NewNop()
 
@@ -40,7 +46,7 @@ func TestVM_Basic(t *testing.T) {
 		}
 
 		arg := lua.LString("hello world")
-		result, err := vm.Execute(context.Background(), "test", arg)
+		result, err := vm.Execute(newTestContext(), "test", arg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -67,7 +73,7 @@ func TestVM_Basic(t *testing.T) {
 		}
 
 		arg := lua.LString("hello world")
-		result, err := vm.Execute(context.Background(), "test", arg)
+		result, err := vm.Execute(newTestContext(), "test", arg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -107,7 +113,7 @@ func TestVM_Basic(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if _, err := vm.Execute(context.Background(), "different_name"); err != nil {
+		if _, err := vm.Execute(newTestContext(), "different_name"); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -130,7 +136,7 @@ func TestVM_Basic(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -158,7 +164,7 @@ func TestVM_Basic(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -184,7 +190,7 @@ func TestVM_Basic(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -214,7 +220,7 @@ func TestVM_Basic(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		result, err := vm.Execute(context.Background(), "local_test")
+		result, err := vm.Execute(newTestContext(), "local_test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -222,7 +228,7 @@ func TestVM_Basic(t *testing.T) {
 			t.Errorf("got %v, want %v", result, lua.LString("local"))
 		}
 
-		result, err = vm.Execute(context.Background(), "global_test")
+		result, err = vm.Execute(newTestContext(), "global_test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -251,7 +257,7 @@ func TestVM_Basic(t *testing.T) {
 		table := lua.LTable{}
 		table.RawSetString("value", lua.LString("table_value"))
 
-		result, err := vm.Execute(context.Background(), "test", &table)
+		result, err := vm.Execute(newTestContext(), "test", &table)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -333,7 +339,7 @@ func TestVM_Errors(t *testing.T) {
 		}
 		defer vm.Close()
 
-		_, err = vm.Execute(context.Background(), "nonexistent")
+		_, err = vm.Execute(newTestContext(), "nonexistent")
 		if err == nil {
 			t.Error("expected error, got nil")
 		}
@@ -369,7 +375,7 @@ func TestVM_Errors(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err = vm.Execute(context.Background(), "test")
+		_, err = vm.Execute(newTestContext(), "test")
 		if err == nil {
 			t.Error("expected error, got nil")
 		}
@@ -442,7 +448,7 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 	}
 
 	// First call
-	result, err := vm.Execute(context.Background(), "test")
+	result, err := vm.Execute(newTestContext(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +457,7 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 	}
 
 	// Second call
-	result, err = vm.Execute(context.Background(), "test")
+	result, err = vm.Execute(newTestContext(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +486,7 @@ func TestVM_ErrorTraceback(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err = vm.Execute(context.Background(), "test")
+		_, err = vm.Execute(newTestContext(), "test")
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "test error") {
@@ -506,7 +512,7 @@ func TestVM_ErrorTraceback(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err = vm.Execute(context.Background(), "test")
+		_, err = vm.Execute(newTestContext(), "test")
 		if err == nil {
 			t.Error("expected error, got nil")
 		}
@@ -657,7 +663,7 @@ func TestVM_Mount(t *testing.T) {
 		}
 
 		// Test both VMs
-		result1, err := vm1.Execute(context.Background(), "test")
+		result1, err := vm1.Execute(newTestContext(), "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -665,7 +671,7 @@ func TestVM_Mount(t *testing.T) {
 			t.Errorf("vm1: expected 'hello', got %v", result1)
 		}
 
-		result2, err := vm2.Execute(context.Background(), "test")
+		result2, err := vm2.Execute(newTestContext(), "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -714,7 +720,7 @@ func TestVM_Mount(t *testing.T) {
 		}
 
 		// Test state isolation
-		result1, err := vm1.Execute(context.Background(), "test")
+		result1, err := vm1.Execute(newTestContext(), "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -722,7 +728,7 @@ func TestVM_Mount(t *testing.T) {
 			t.Errorf("vm1: expected 1, got %v", result1)
 		}
 
-		result2, err := vm2.Execute(context.Background(), "test")
+		result2, err := vm2.Execute(newTestContext(), "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -762,7 +768,7 @@ func TestVM_Mount(t *testing.T) {
 		}
 
 		// Test
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -794,7 +800,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			result, err := vm.Execute(context.Background(), "test")
+			result, err := vm.Execute(newTestContext(), "test")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -820,7 +826,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			result, err := vm.Execute(context.Background(), "test")
+			result, err := vm.Execute(newTestContext(), "test")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -847,7 +853,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			result, err := vm.Execute(context.Background(), "test")
+			result, err := vm.Execute(newTestContext(), "test")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -877,7 +883,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			result, err := vm.Execute(context.Background(), "test")
+			result, err := vm.Execute(newTestContext(), "test")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -908,7 +914,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			result, err := vm.Execute(context.Background(), "test")
+			result, err := vm.Execute(newTestContext(), "test")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -937,7 +943,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			result, err := vm.Execute(context.Background(), "test")
+			result, err := vm.Execute(newTestContext(), "test")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -967,7 +973,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			result, err := vm.Execute(context.Background(), "test")
+			result, err := vm.Execute(newTestContext(), "test")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1076,7 +1082,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(newTestContext(), "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1129,7 +1135,7 @@ func TestVM_SharedLibraryProto(t *testing.T) {
 		}
 
 		// Test specific function calls
-		result1, err := vm1.Execute(context.Background(), "test")
+		result1, err := vm1.Execute(newTestContext(), "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1137,7 +1143,7 @@ func TestVM_SharedLibraryProto(t *testing.T) {
 			t.Errorf("vm1: expected 1, got %v", result1)
 		}
 
-		result2, err := vm2.Execute(context.Background(), "test")
+		result2, err := vm2.Execute(newTestContext(), "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1188,17 +1194,17 @@ func TestVM_SharedLibraryProto(t *testing.T) {
 		}
 
 		// Test state isolation
-		_, err = vm1.Execute(context.Background(), "test", lua.LString("key"), lua.LString("value1"))
+		_, err = vm1.Execute(newTestContext(), "test", lua.LString("key"), lua.LString("value1"))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		_, err = vm2.Execute(context.Background(), "test", lua.LString("key"), lua.LString("value2"))
+		_, err = vm2.Execute(newTestContext(), "test", lua.LString("key"), lua.LString("value2"))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		result1, err := vm1.Execute(context.Background(), "test", lua.LString("key"))
+		result1, err := vm1.Execute(newTestContext(), "test", lua.LString("key"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1206,7 +1212,7 @@ func TestVM_SharedLibraryProto(t *testing.T) {
 			t.Errorf("vm1: expected 'value1', got %v", result1)
 		}
 
-		result2, err := vm2.Execute(context.Background(), "test", lua.LString("key"))
+		result2, err := vm2.Execute(newTestContext(), "test", lua.LString("key"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1281,7 +1287,7 @@ func TestVM_Execute_ArgumentErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err = vm.Execute(context.Background(), "test")
+		_, err = vm.Execute(newTestContext(), "test")
 		if err == nil {
 			t.Error("expected error for too few arguments")
 		}
@@ -1303,7 +1309,7 @@ func TestVM_Execute_ArgumentErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err = vm.Execute(context.Background(), "test", lua.LString("not a number"))
+		_, err = vm.Execute(newTestContext(), "test", lua.LString("not a number"))
 		if err == nil {
 			t.Error("expected error for incorrect argument type")
 		}
@@ -1361,7 +1367,7 @@ func TestVM_ErrorHandling(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err = vm.Execute(context.Background(), "test")
+		_, err = vm.Execute(newTestContext(), "test")
 		if err == nil {
 			t.Error("expected error from lua error")
 		} else if !strings.Contains(err.Error(), "lua error") {
@@ -1385,7 +1391,7 @@ func TestVM_ErrorHandling(t *testing.T) {
 		err = vm.exportFunctions("test")
 		require.NoError(t, err)
 
-		_, err = vm.Execute(context.Background(), "test")
+		_, err = vm.Execute(newTestContext(), "test")
 		if err == nil {
 			t.Error("expected error from go error")
 		} else if !strings.Contains(err.Error(), "go error") {

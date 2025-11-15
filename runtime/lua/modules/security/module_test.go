@@ -16,6 +16,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 // mockTokenStore implements secapi.TokenStore for testing
 type mockTokenStore struct {
 	tokens map[string]interface{}
@@ -165,7 +171,7 @@ func TestSecurityModule(t *testing.T) {
 		assert.Equal(t, "security", module.Name())
 
 		// Load the module and check that functions are registered
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local security = require("security")
 			
 			-- Check that core functions exist
@@ -356,7 +362,7 @@ func TestSecurityModuleErrorHandling(t *testing.T) {
 		defer vm.Close()
 
 		// Test without proper context setup
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local security = require("security")
 			local actor = security.actor()
 		`, "test_no_context")
@@ -372,7 +378,7 @@ func TestSecurityModuleErrorHandling(t *testing.T) {
 		defer vm.Close()
 
 		// Test without proper context setup
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local security = require("security")
 			local scope = security.scope()
 		`, "test_no_context_scope")
@@ -388,7 +394,7 @@ func TestSecurityModuleErrorHandling(t *testing.T) {
 		defer vm.Close()
 
 		// Test without proper context setup
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local security = require("security")
 			local allowed = security.can("read", "test")
 		`, "test_no_context_can")
@@ -404,7 +410,7 @@ func TestSecurityModuleErrorHandling(t *testing.T) {
 		defer vm.Close()
 
 		// Test without proper context setup
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local security = require("security")
 			local store, err = security.token_store("test:store")
 		`, "test_no_resource_registry")

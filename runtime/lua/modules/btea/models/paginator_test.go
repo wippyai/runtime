@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -11,6 +12,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestPaginator(t *testing.T) {
 	logger := zap.NewNop()
@@ -27,7 +34,7 @@ func TestPaginator(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Test default constructor
@@ -61,7 +68,7 @@ func TestPaginator(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			-- Spawn paginator with 3 pages
@@ -110,7 +117,7 @@ func TestPaginator(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local btea = require("btea")
 			
 			local p = btea.paginator({
@@ -156,7 +163,7 @@ func TestPaginatorUpdate(t *testing.T) {
 	RegisterPaginator(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	err = cvm.StartString(context.Background(), `
+	err = cvm.StartString(newTestContext(), `
 		local paginator = btea.paginator({
 			total_pages = 3
 		})

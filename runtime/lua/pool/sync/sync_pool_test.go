@@ -24,6 +24,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 // testFunction represents a Lua function definition for testing
 type testFunction struct {
 	source string
@@ -161,7 +167,7 @@ func TestPool_Execute_Basic(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 	defer cancel()
 
 	arg := lua.LString("hello")
@@ -179,7 +185,7 @@ func TestPool_Execute_AfterClose(t *testing.T) {
 
 	p.Close()
 
-	_, err = p.Execute(context.Background(), "test", lua.LNil)
+	_, err = p.Execute(newTestContext(), "test", lua.LNil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "pool is closed")
 }
@@ -221,7 +227,7 @@ func TestPool_Execute_Failure(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 	defer cancel()
 
 	// Run failing function
@@ -243,7 +249,7 @@ func TestPool_Close(t *testing.T) {
 
 	p.Close()
 
-	_, err = p.Execute(context.Background(), "test", lua.LNil)
+	_, err = p.Execute(newTestContext(), "test", lua.LNil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "pool is closed")
 }
@@ -264,7 +270,7 @@ func TestPool_ParallelExecution(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			result, err := p.Execute(context.Background(), "test",
+			result, err := p.Execute(newTestContext(), "test",
 				lua.LString(fmt.Sprintf("job-%d", id)))
 			if err != nil {
 				results <- fmt.Sprintf("error-%d", id)
@@ -307,7 +313,7 @@ func TestPool_ParallelExecution(t *testing.T) {
 // //
 // //		// Launch the job
 // //		go func() {
-// //			result, err := p.Serve(context.Background(), "sleep_test", lua.LNil)
+// //			result, err := p.Serve(newTestContext(), "sleep_test", lua.LNil)
 // //			if err != nil {
 // //				errorChan <- err
 // //				return
@@ -355,7 +361,7 @@ func TestPool_StressTest(t *testing.T) {
 				wg.Add(1)
 				go func(id int) {
 					defer wg.Done()
-					result, err := p.Execute(context.Background(), "test",
+					result, err := p.Execute(newTestContext(), "test",
 						lua.LString(fmt.Sprintf("job-%d", id)))
 					if err == nil && result != nil {
 						successCount.Add(1)
@@ -376,7 +382,7 @@ func TestPool_StressTest(t *testing.T) {
 				wg.Add(1)
 				go func(id int) {
 					defer wg.Done()
-					result, err := p.Execute(context.Background(), "test",
+					result, err := p.Execute(newTestContext(), "test",
 						lua.LString(fmt.Sprintf("job-%d", id)))
 					if err == nil && result != nil {
 						successCount.Add(1)
@@ -423,7 +429,7 @@ func TestPool_VMReuse(t *testing.T) {
 	// Run multiple times - should get incrementing IDs from same VM
 	var lastID float64
 	for i := 0; i < 5; i++ {
-		result, err := p.Execute(context.Background(), "get_id", lua.LNil)
+		result, err := p.Execute(newTestContext(), "get_id", lua.LNil)
 		require.NoError(t, err)
 
 		id := float64(result.(lua.LNumber))

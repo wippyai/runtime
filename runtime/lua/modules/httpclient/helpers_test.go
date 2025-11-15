@@ -1,7 +1,6 @@
 package httpclient
 
 import (
-	"context"
 	"net/http"
 	"testing"
 
@@ -203,7 +202,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			-- Store the module in a local variable
 			local http = require("http_client")
 
@@ -243,7 +242,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 
 			-- Test basic decoding
@@ -288,7 +287,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 
 			-- Test valid methods
@@ -336,7 +335,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local http = require("http_client")
 
 			-- Test valid URL

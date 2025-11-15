@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +10,12 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestHttpContextConstants(t *testing.T) {
 	logger := zap.NewNop()
@@ -35,7 +42,7 @@ func TestHttpContextConstants(t *testing.T) {
 			assert(http.METHOD.GET == "GET", "incorrect GET method")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -61,7 +68,7 @@ func TestHttpContextConstants(t *testing.T) {
 			assert(http.STATUS.OK == 200, "incorrect OK status")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -85,7 +92,7 @@ func TestHttpContextConstants(t *testing.T) {
 			assert(http.CONTENT.JSON == "application/json", "incorrect JSON content type")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -106,7 +113,7 @@ func TestHttpContextConstants(t *testing.T) {
 			assert(http.TRANSFER.CHUNKED == "chunked", "incorrect CHUNKED transfer type")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -129,7 +136,7 @@ func TestHttpContextConstants(t *testing.T) {
 			assert(http.ERROR.PARSE_FAILED == "PARSE_FAILED", "incorrect PARSE_FAILED error")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }

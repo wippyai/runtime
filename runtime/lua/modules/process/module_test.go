@@ -17,6 +17,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 // mockProcessManager implements process.Manager for testing
 type mockProcessManager struct {
 	processes map[relay.PID]bool
@@ -187,7 +193,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	runner := engine.NewRunner(vm)
 
 	// Create a UOW
-	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+	uw, ctx := runner.InitUnitOfWork(newTestContext())
 
 	// Add mock node
 	mockNode := newMockNode()

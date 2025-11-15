@@ -62,8 +62,8 @@ func TestAsyncLayer(t *testing.T) {
 		channels := NewChannelLayer()
 		runner := engine.NewRunner(vm, engine.WithLayer(channels))
 
-		uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
-		defer func() { _ = uw.Close() }()
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 		start := time.Now()
 		result, err := runner.Execute(ctx, "test")

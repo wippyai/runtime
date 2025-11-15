@@ -34,9 +34,8 @@ func TestTransactionCommit(t *testing.T) {
 	}
 
 	// Setup the Lua VM with the SQL module (helper defined in module_test.go).
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	// Imports a Lua script that begins a transaction, updates a row, commits, and queries the change.
 	script := `
@@ -87,9 +86,8 @@ func TestTransactionRollback(t *testing.T) {
 		},
 	}
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	// Lua script: update inside a transaction then rollback.
 	script := `
@@ -137,9 +135,8 @@ func TestTransactionSavepoint(t *testing.T) {
 		},
 	}
 
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	// Lua script: update row, create a savepoint, perform a further update, rollback to the savepoint, then commit.
 	script := `
@@ -200,9 +197,8 @@ func TestTransactionErrorHandling(t *testing.T) {
 	}
 
 	// Set up the Lua VM with the SQL module.
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() { _ = uw.Close() }()
 
 	// Lua script that begins a transaction, performs a valid update,
 	// then executes an invalid query to trigger an error and rollback.

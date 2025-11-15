@@ -588,6 +588,7 @@ func TestManager_AttachLifecycle(t *testing.T) {
 	hostLookup := newManagerHostLookup()
 	factory := &managerProcessMock{}
 	ctx, topo := contextWithManagerTopology()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	// Create the manager
 	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
@@ -781,6 +782,7 @@ func TestManager_AttachLifecycle_MissingTopology(t *testing.T) {
 
 	// Test AttachLifecycle with missing topology
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	lifecycle := process.Lifecycle{
 		Monitor: true,
@@ -814,6 +816,7 @@ func TestManager_AttachLifecycle_MissingPIDRegistry(t *testing.T) {
 
 	// Test AttachLifecycle with missing PID registry
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	ctx = topology.WithTopology(ctx, newManagerTopology())
 	lifecycle := process.Lifecycle{
@@ -847,6 +850,7 @@ func TestManager_AttachLifecycle_RegistrationError(t *testing.T) {
 	topo.registerErr = errors.New("registration failed")
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	ctx = topology.WithTopology(ctx, topo)
 	ctx = topology.WithRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
@@ -880,6 +884,7 @@ func TestManager_AttachLifecycle_MonitoringError(t *testing.T) {
 	topo.waitErr = errors.New("monitoring failed")
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	ctx = topology.WithTopology(ctx, topo)
 	ctx = topology.WithRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
@@ -913,6 +918,7 @@ func TestManager_AttachLifecycle_LinkingError(t *testing.T) {
 	topo.linkErr = errors.New("linking failed")
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	ctx = topology.WithTopology(ctx, topo)
 	ctx = topology.WithRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))

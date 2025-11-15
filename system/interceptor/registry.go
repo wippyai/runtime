@@ -74,7 +74,7 @@ func (r *Registry) handleEvent(e event.Event) {
 		r.updateInterceptor(e)
 	case apiinterceptor.Delete:
 		r.deleteInterceptor(e)
-	case apiinterceptor.Accept, apiinterceptor.Reject, function.OptionsAccept, function.OptionsReject:
+	case apiinterceptor.Accept, apiinterceptor.Reject:
 		// ignore
 	default:
 		r.logger.Warn("unknown event kind",

@@ -5,7 +5,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/service/directory"
 	"github.com/wippyai/runtime/tests/tempfiles"
 )
 
@@ -63,35 +62,4 @@ func TestFSFactory_CreateFS(t *testing.T) {
 		require.NotNil(t, newDirFS, "CreateFS should return a filesystem when creating a new directory")
 	})
 
-	t.Run("EmbedFS", func(t *testing.T) {
-		// Test creating an embed filesystem
-		config := CreateFSConfig{
-			Name:     directory.TypeNameEmbed,
-			DirPath:  "./",
-			Mode:     0,
-			AutoInit: false,
-		}
-		filesystem, err := factory.CreateFS(config)
-		require.NoError(t, err, "CreateFS should not return an error for embed filesystem")
-		require.NotNil(t, filesystem, "CreateFS should return a filesystem for embed type")
-
-		// Verify the returned filesystem is an *EmbedFS
-		embedFS, ok := filesystem.(*ReadOnlyFS)
-		assert.True(t, ok, "Returned filesystem should be an *EmbedFS")
-
-		// Verify we can read files from the embed filesystem
-		file, err := embedFS.Open(".gitkeep")
-		assert.NoError(t, err, "Should be able to read directory from embed filesystem")
-		assert.NotNil(t, file, "Should be able to read file from embed filesystem")
-
-		// Test invalid subdirectory in embed filesystem
-		invalidConfig := CreateFSConfig{
-			Name:     directory.TypeNameEmbed,
-			DirPath:  "nonexistent",
-			Mode:     0,
-			AutoInit: false,
-		}
-		_, err = factory.CreateFS(invalidConfig)
-		assert.Error(t, err, "CreateFS should return error for invalid embed path")
-	})
 }

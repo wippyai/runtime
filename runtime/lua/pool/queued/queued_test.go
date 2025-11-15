@@ -23,6 +23,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 // testFunction represents a Lua function definition for testing
 type testFunction struct {
 	source string
@@ -159,7 +165,7 @@ func TestQueuedPool_Execute_Basic(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 	defer cancel()
 
 	arg := lua.LString("hello")
@@ -177,7 +183,7 @@ func TestQueuedPool_Execute_AfterClose(t *testing.T) {
 
 	p.Close()
 
-	_, err = p.Execute(context.Background(), "test", lua.LNil)
+	_, err = p.Execute(newTestContext(), "test", lua.LNil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "pool is closed")
 }
@@ -219,7 +225,7 @@ func TestQueuedPool_Execute_Failure(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 	defer cancel()
 
 	// Run failing function
@@ -248,7 +254,7 @@ func TestQueuedPool_ParallelExecution(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			result, err := p.Execute(context.Background(), "test",
+			result, err := p.Execute(newTestContext(), "test",
 				lua.LString(fmt.Sprintf("job-%d", id)))
 			if err != nil {
 				results <- fmt.Sprintf("error-%d", id)
@@ -296,7 +302,7 @@ func TestQueuedPool_WorkerDistribution(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := p.Execute(context.Background(), "get_id", lua.LNil)
+			result, err := p.Execute(newTestContext(), "get_id", lua.LNil)
 			if err != nil {
 				return
 			}
@@ -341,7 +347,7 @@ func TestQueuedPool_StressTest(t *testing.T) {
 				wg.Add(1)
 				go func(id int) {
 					defer wg.Done()
-					result, err := p.Execute(context.Background(), "test",
+					result, err := p.Execute(newTestContext(), "test",
 						lua.LString(fmt.Sprintf("guaranteed-job-%d", id)))
 					if err == nil && result != nil {
 						successCount.Add(1)
@@ -360,7 +366,7 @@ func TestQueuedPool_StressTest(t *testing.T) {
 				mainWg.Add(1)
 				go func(id int) {
 					defer mainWg.Done()
-					result, err := p.Execute(context.Background(), "test",
+					result, err := p.Execute(newTestContext(), "test",
 						lua.LString(fmt.Sprintf("job-%d", id)))
 					if err == nil && result != nil {
 						successCount.Add(1)
@@ -405,7 +411,7 @@ func TestQueuedPool_QueueBehavior(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 			defer cancel()
 
 			result, err := p.Execute(ctx, "sleep", lua.LNil)

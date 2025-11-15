@@ -8,12 +8,10 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
-	cli "github.com/wippyai/runtime/boot/cli"
 	"github.com/wippyai/runtime/boot/pack"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
@@ -60,10 +58,10 @@ func runFromPack(cmd *cobra.Command, args []string) error {
 		cfg = createDefaultConfig()
 	}
 
-	ctx, err := bootpkg.NewInfrastructure(logger, cfg)
+	ctx, err := bootpkg.NewBootstrapContext(logger, cfg)
 	if err != nil {
-		logger.Error("failed to initialize infrastructure", zap.Error(err))
-		return fmt.Errorf("initialize infrastructure: %w", err)
+		logger.Error("failed to initialize bootstrap context", zap.Error(err))
+		return fmt.Errorf("initialize bootstrap context: %w", err)
 	}
 
 	logger = logapi.GetLogger(ctx).Named("run-pack")
@@ -85,19 +83,13 @@ func runFromPack(cmd *cobra.Command, args []string) error {
 	}
 	logger.Info("components loaded successfully")
 
-	// Bridge file loader from AppContext to CLI context for compatibility
-	fileLdr := boot.GetLoader(ctx)
-	if fileLdr != nil {
-		ctx = cli.WithLoader(ctx, fileLdr)
-	}
-
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
 		return fmt.Errorf("transcoder not found")
 	}
 
 	packer := pack.New(transcoder)
-	allEntries := []regapi.Entry{}
+	var allEntries []regapi.Entry
 
 	for _, packFile := range args {
 		logger.Info("unpacking", zap.String("file", packFile))
@@ -108,7 +100,9 @@ func runFromPack(cmd *cobra.Command, args []string) error {
 		}
 
 		entries, metadata, err := packer.Unpack(file)
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			logger.Warn("error closing pack file", zap.String("file", packFile), zap.Error(closeErr))
+		}
 		if err != nil {
 			return fmt.Errorf("unpack %s: %w", packFile, err)
 		}
@@ -148,10 +142,10 @@ func runFromPack(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}()
 
-	err = bootpkg.StartInfrastructure(appCtx)
+	err = bootpkg.StartRuntimeServices(appCtx)
 	if err != nil {
-		logger.Error("failed to start infrastructure", zap.Error(err))
-		return fmt.Errorf("start infrastructure: %w", err)
+		logger.Error("failed to start runtime services", zap.Error(err))
+		return fmt.Errorf("start runtime services: %w", err)
 	}
 
 	err = loader.Start(appCtx)
@@ -202,10 +196,10 @@ func runFromPack(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("shutdown failed: %w", err)
 	}
 
-	err = bootpkg.StopInfrastructure(ctx)
+	err = bootpkg.StopRuntimeServices(ctx)
 	if err != nil {
-		logger.Error("failed to stop infrastructure", zap.Error(err))
-		return fmt.Errorf("stop infrastructure: %w", err)
+		logger.Error("failed to stop runtime services", zap.Error(err))
+		return fmt.Errorf("stop runtime services: %w", err)
 	}
 
 	if !silentLogs {

@@ -45,7 +45,10 @@ func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 		System: function.System,
 		Kind:   function.Register,
 		Path:   entry.ID.String(),
-		Data:   function.Func(n.Execute),
+		Data: &function.FuncEntry{
+			Handler: n.Execute,
+			Options: nil,
+		},
 	})
 
 	return nil

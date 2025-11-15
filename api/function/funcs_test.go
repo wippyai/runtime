@@ -31,10 +31,6 @@ func TestEventConstants(t *testing.T) {
 		{"delete", Delete, "function.delete"},
 		{"accept", Accept, "function.accept"},
 		{"reject", Reject, "function.reject"},
-		{"options register", OptionsRegister, "function.optionsregister"},
-		{"options delete", OptionsDelete, "function.optionsdelete"},
-		{"options accept", OptionsAccept, "function.optionsaccept"},
-		{"options reject", OptionsReject, "function.optionsreject"},
 	}
 
 	for _, tt := range tests {

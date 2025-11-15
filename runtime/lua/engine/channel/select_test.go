@@ -1,7 +1,6 @@
 package channel
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -20,7 +19,7 @@ func TestSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -80,7 +79,7 @@ func TestSelectBlockedReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -137,7 +136,7 @@ func TestSelectBlockedClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -199,7 +198,7 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -270,7 +269,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -358,7 +357,7 @@ func TestSelectCleanupOnReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -434,7 +433,7 @@ func TestSelectCleanupAll(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -540,7 +539,7 @@ func TestMixedSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -630,7 +629,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -718,7 +717,7 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -802,7 +801,7 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `

@@ -23,6 +23,12 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 // mockResource implements the resource.Resource interface
 type mockResource struct {
 	resValue any
@@ -72,7 +78,7 @@ func (m *mockResourceRegistry) Exists(id registry.ID) bool {
 }
 
 // setupLuaWithDB sets up a Lua state with our SQL module and a connected database
-func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, engine.UnitOfWork, *engine.Runner, context.Context) {
+func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *engine.Runner, context.Context) {
 	logger := zaptest.NewLogger(t)
 
 	// Create the SQL module
@@ -98,17 +104,11 @@ func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, e
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+	// Create context with resource registry
+	ctx := resource.WithRegistry(newTestContext(), mockRegistry)
 
-	// Add the resource registry to the context
-	ctx = resource.WithRegistry(ctx, mockRegistry)
-
-	// IMPORTANT: Don't call L.SetContext(ctx) here!
-	// runner.Execute() will create a fresh UOW and automatically call L.SetContext()
-	// through NewUnitOfWork(). This ensures Lua code always uses the correct context.
-	// Setting context here would cause deadlock as coroutines would use the wrong UOW.
-	return vm, uw, runner, ctx
+	// runner.Execute() will create a UOW and automatically call L.SetContext()
+	return vm, runner, ctx
 }
 
 // TestModuleBasicDBGet tests the sql.get function with a basic SQLite database
@@ -135,12 +135,8 @@ func TestModuleBasicDBGet(t *testing.T) {
 	}
 
 	// Setup Lua with the test database using the helper function
-	vm, uw, runner, ctx := setupLuaWithDB(t, mockRes)
+	vm, runner, ctx := setupLuaWithDB(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Imports our test function into the VM
 	err = vm.Import(`

@@ -3,17 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"os"
 
-	identityv1connect "github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
-	modulev1connect "github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
+	"github.com/wippyai/runtime/api/boot"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/boot/cli"
 	"github.com/wippyai/runtime/boot/deps/client"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
+	"github.com/wippyai/runtime/cmd/internal/cli"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	json2 "github.com/wippyai/runtime/system/payload/json"
 	"github.com/wippyai/runtime/system/payload/lua"
@@ -54,22 +51,11 @@ func InitApp(ctx context.Context) (*AppContext, error) {
 	ldr := loader.NewLoader(dtt, logger.Named("loader"), interpolator)
 
 	// Initialize registry client
-	baseURL := os.Getenv("WIPPY_MODULES_URL")
-	if baseURL == "" {
-		baseURL = cli.DefaultRegistryURL
-	}
-
-	httpClient := &http.Client{}
-	registryClient := client.NewRegistryClient(
-		identityv1connect.NewOrganizationServiceClient(httpClient, baseURL),
-		modulev1connect.NewModuleServiceClient(httpClient, baseURL),
-		modulev1connect.NewLabelServiceClient(httpClient, baseURL),
-		modulev1connect.NewDownloadServiceClient(httpClient, baseURL),
-	)
+	registryClient := client.NewRegistryClientFromConfig(nil)
 
 	// Store in context for entries.go compatibility
 	ctx = cli.WithRegistryClient(ctx, registryClient)
-	ctx = cli.WithLoader(ctx, ldr)
+	ctx = boot.WithLoader(ctx, ldr)
 
 	return &AppContext{
 		Ctx:            ctx,

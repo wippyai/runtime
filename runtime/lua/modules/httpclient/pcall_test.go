@@ -2,7 +2,6 @@ package httpclient
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -89,7 +88,7 @@ func TestRequestInsidePcall(t *testing.T) {
 		require.NoError(t, err)
 
 		// execute test and verify results
-		result, err := wrapped.Execute(context.Background(), "test_http_requests")
+		result, err := wrapped.Execute(newTestContext(), "test_http_requests")
 		require.NoError(t, err)
 		require.NotNil(t, result)
 	})

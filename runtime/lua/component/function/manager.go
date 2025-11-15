@@ -123,13 +123,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to create function: %w", err)
 	}
 
-	// Register function caller
-	m.registerCaller(ctx, entry.ID, cfg.Method)
-
-	// Register options if configured
-	if cfg.Meta.Options != nil {
-		m.registerCallerOptions(ctx, entry.ID, cfg.Meta.Options)
-	}
+	// Register function caller with options
+	m.registerCaller(ctx, entry.ID, cfg.Method, cfg.Meta.Options)
 
 	return nil
 }
@@ -163,6 +158,9 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if err := m.pushHandler(entry.ID, cfg); err != nil {
 		return fmt.Errorf("failed to refresh function: %w", err)
 	}
+
+	// Re-register function caller with updated options
+	m.registerCaller(ctx, entry.ID, cfg.Method, cfg.Meta.Options)
 
 	return nil
 }
@@ -322,21 +320,15 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) (pool, err
 }
 
 // registerCaller registers function in the function system
-func (m *Manager) registerCaller(ctx context.Context, id registry.ID, _ string) {
+func (m *Manager) registerCaller(ctx context.Context, id registry.ID, _ string, options interceptor.Options) {
 	m.bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Register,
 		Path:   id.String(),
-		Data:   function.Func(m.Execute),
-	})
-}
-
-func (m *Manager) registerCallerOptions(ctx context.Context, id registry.ID, options interceptor.Options) {
-	m.bus.Send(ctx, event.Event{
-		System: function.System,
-		Kind:   function.OptionsRegister,
-		Path:   id.String(),
-		Data:   options,
+		Data: &function.FuncEntry{
+			Handler: m.Execute,
+			Options: options,
+		},
 	})
 }
 

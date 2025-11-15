@@ -2,7 +2,6 @@ package httpclient
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -58,7 +57,7 @@ func TestHTTPResponse(t *testing.T) {
 			assert(response.headers["Non-Existent"] == nil, "Non-existent header should be nil")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -103,7 +102,7 @@ func TestHTTPResponse(t *testing.T) {
 			assert(response.cookies["non-existent"] == nil, "Non-existent cookie should be nil")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -165,7 +164,7 @@ func TestHTTPResponse(t *testing.T) {
 					assert(response.body_size == %d, string.format("Body size mismatch: expected %%d, got %%d", %d, response.body_size))
 				`, tc.expected, tc.expected)
 
-				err = vm.DoString(context.Background(), script, "test")
+				err = vm.DoString(newTestContext(), script, "test")
 				assert.NoError(t, err)
 			})
 		}
@@ -232,7 +231,7 @@ func TestHTTPResponse(t *testing.T) {
 					assert(response.url == "%s", string.format("URL mismatch: expected %%s, got %%s", "%s", response.url))
 				`, tc.requestURL, tc.expectedFinal, tc.expectedFinal)
 
-				err = vm.DoString(context.Background(), script, "test")
+				err = vm.DoString(newTestContext(), script, "test")
 				assert.NoError(t, err)
 			})
 		}
@@ -312,7 +311,7 @@ func TestHTTPResponse(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(context.Background(), tc.luaScript, "test")
+				err = vm.DoString(newTestContext(), tc.luaScript, "test")
 				if tc.shouldError {
 					assert.Error(t, err)
 				} else {
@@ -421,7 +420,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		assert(final == nil, "expected nil after all chunks read")
 	`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -464,7 +463,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		assert(string.find(err, "mock error"), "Error should indicate the injected error")
 	`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -503,7 +502,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		assert(string.find(err, "closed"), "Error should indicate stream is closed")
 	`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }

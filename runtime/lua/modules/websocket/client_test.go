@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,12 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 // startWSServer spins up a test server using the provided HTTP handler.
 // The returned URL will be a ws:// URL pointing to the given path.
@@ -102,7 +109,7 @@ func TestWebSocketClient(t *testing.T) {
 		require.NoError(t, err)
 
 		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
-		result, err := runner.Execute(context.Background(), "test")
+		result, err := runner.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})
@@ -144,7 +151,7 @@ func TestWebSocketClient(t *testing.T) {
 		require.NoError(t, err)
 
 		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
-		result, err := runner.Execute(context.Background(), "test")
+		result, err := runner.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})
@@ -204,7 +211,7 @@ func TestWebSocketClient(t *testing.T) {
 		require.NoError(t, err)
 
 		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
-		result, err := runner.Execute(context.Background(), "test")
+		result, err := runner.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})
@@ -272,7 +279,7 @@ func TestWebSocketClient(t *testing.T) {
 		require.NoError(t, err)
 
 		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
-		result, err := runner.Execute(context.Background(), "test")
+		result, err := runner.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})
@@ -313,7 +320,7 @@ func TestWebSocketModule(t *testing.T) {
 		require.NoError(t, err)
 
 		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
-		result, err := runner.Execute(context.Background(), "test")
+		result, err := runner.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})
@@ -359,7 +366,7 @@ func TestWebSocketModule(t *testing.T) {
 		require.NoError(t, err)
 
 		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
-		result, err := runner.Execute(context.Background(), "test")
+		result, err := runner.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})

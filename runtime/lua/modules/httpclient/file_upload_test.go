@@ -2,7 +2,6 @@ package httpclient
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -116,7 +115,7 @@ func TestFileUpload(t *testing.T) {
 			assert(response.status_code == 200, "Status code should be 200")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		require.NoError(t, err)
 
 		// Verify the request was sent as multipart
@@ -179,7 +178,7 @@ func TestFileUpload(t *testing.T) {
 			assert(response.status_code == 200, "Status code should be 200")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		require.NoError(t, err)
 
 		// Verify the request was sent as multipart
@@ -250,7 +249,7 @@ func TestFileUpload(t *testing.T) {
 			assert(response.status_code == 200, "Status code should be 200")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		require.NoError(t, err)
 
 		// Verify the request was sent as multipart
@@ -308,7 +307,7 @@ func TestFileUpload(t *testing.T) {
 			assert(response.status_code == 200, "Status code should be 200")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		require.NoError(t, err)
 
 		// Verify the request was sent as multipart
@@ -351,7 +350,7 @@ func TestFileUpload(t *testing.T) {
 				}
 			})
 		`
-		err = vm.DoString(context.Background(), script1, "test_invalid_name")
+		err = vm.DoString(newTestContext(), script1, "test_invalid_name")
 		assert.NoError(t, err, "Should not error for invalid name, just skip the file")
 
 		// Invalid filename (non-string)
@@ -367,7 +366,7 @@ func TestFileUpload(t *testing.T) {
 				}
 			})
 		`
-		err = vm.DoString(context.Background(), script2, "test_invalid_filename")
+		err = vm.DoString(newTestContext(), script2, "test_invalid_filename")
 		assert.NoError(t, err, "Should not error for invalid filename, just skip the file")
 
 		// Missing content and reader
@@ -383,7 +382,7 @@ func TestFileUpload(t *testing.T) {
 				}
 			})
 		`
-		err = vm.DoString(context.Background(), script3, "test_missing_content")
+		err = vm.DoString(newTestContext(), script3, "test_missing_content")
 		assert.NoError(t, err, "Should not error for missing content, just skip the file")
 
 		// Invalid reader test
@@ -409,7 +408,7 @@ func TestFileUpload(t *testing.T) {
 			assert(response ~= nil, "Response should not be nil")
 			assert(response.status_code == 200, "Status code should be 200")
 		`
-		err = vm.DoString(context.Background(), script4, "test_invalid_reader")
+		err = vm.DoString(newTestContext(), script4, "test_invalid_reader")
 		assert.NoError(t, err, "Should not error for invalid reader because the implementation just skips the file")
 	})
 
@@ -467,7 +466,7 @@ func TestFileUpload(t *testing.T) {
 			assert(response.status_code == 200, "Status code should be 200")
 		`
 
-		err = vm.DoString(context.Background(), script, "test_coroutine_upload")
+		err = vm.DoString(newTestContext(), script, "test_coroutine_upload")
 		require.NoError(t, err)
 
 		// Verify the request was sent as multipart

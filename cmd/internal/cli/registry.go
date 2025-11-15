@@ -6,7 +6,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/client"
 )
 
-// RegistryClient context helpers
+// RegistryClient context helpers for CLI commands
 type registryClientKey struct{}
 
 func WithRegistryClient(ctx context.Context, client *client.RegistryClient) context.Context {
@@ -16,20 +16,6 @@ func WithRegistryClient(ctx context.Context, client *client.RegistryClient) cont
 func GetRegistryClient(ctx context.Context) *client.RegistryClient {
 	if v := ctx.Value(registryClientKey{}); v != nil {
 		return v.(*client.RegistryClient)
-	}
-	return nil
-}
-
-// Loader context helpers
-type loaderKey struct{}
-
-func WithLoader(ctx context.Context, ldr interface{}) context.Context {
-	return context.WithValue(ctx, loaderKey{}, ldr)
-}
-
-func GetLoader(ctx context.Context) interface{} {
-	if v := ctx.Value(loaderKey{}); v != nil {
-		return v
 	}
 	return nil
 }

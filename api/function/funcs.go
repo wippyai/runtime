@@ -25,11 +25,6 @@ const (
 	Accept event.Kind = "function.accept"
 	// Reject is sent FROM function nodes when a handler registration is rejected
 	Reject event.Kind = "function.reject"
-
-	OptionsRegister event.Kind = "function.optionsregister"
-	OptionsDelete   event.Kind = "function.optionsdelete"
-	OptionsAccept   event.Kind = "function.optionsaccept"
-	OptionsReject   event.Kind = "function.optionsreject"
 )
 
 type (
@@ -45,6 +40,13 @@ type (
 	//   - chan *runtime.Result: Channel for streaming execution results, closed on completion
 	//   - error: Any immediate initialization or validation errors
 	Func func(context.Context, runtime.Task) (chan *runtime.Result, error)
+
+	// FuncEntry holds both the function handler and its options for registration.
+	// Options should be of type interceptor.Options but using any to avoid import cycle.
+	FuncEntry struct {
+		Handler Func
+		Options any
+	}
 
 	// Registry defines the interface for managing and executing functions.
 	// It abstracts the function lookup and execution process, providing a

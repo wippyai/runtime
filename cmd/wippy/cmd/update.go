@@ -345,7 +345,9 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 			// Prompt user for confirmation
 			fmt.Printf("\nProceed with update? [Y/n] ")
 			var response string
-			fmt.Scanln(&response)
+			if _, err := fmt.Scanln(&response); err != nil && response == "" {
+				response = "Y"
+			}
 			if response != "" && response != "Y" && response != "y" {
 				logger.Info("update cancelled by user")
 				return nil

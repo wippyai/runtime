@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/registry"
 	runtime "github.com/wippyai/runtime/api/runtime/lua"
-	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -376,17 +376,20 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 			t.Fatalf("failed to build runtime: %v", err)
 		}
 		// Verify main node.
-			t.Errorf("unexpected main node or alias, got: %+v", rt.Main)
+		if rt.Main == nil || rt.Main.Source == "" {
+			t.Errorf("unexpected main node or source, got: %+v", rt.Main)
 		}
 		// Check dependency prototypes (should include nodeB and nodeC).
 		if len(rt.Dependencies) != 2 {
 			t.Errorf("expected 2 dependency prototypes, got %d", len(rt.Dependencies))
 		}
-		// Verify alias propagation for nodeB.
+		// Verify alias propagation for nodeB and module for nodeC.
 		for _, dep := range rt.Dependencies {
+			if dep.Name == "depB" && dep.Node.ID.Name != "nodeB" {
 				t.Errorf("expected alias 'depB' for nodeB, got '%s'", dep.Name)
 			}
 			// Verify module is included as a dependency
+			if dep.Node.ID.Name == "nodeC" {
 				if dep.Node.Module == nil || dep.Node.Module.Name() != "dummyMod" {
 					t.Errorf("expected module 'dummyMod' in nodeC dependency")
 				}
@@ -551,6 +554,7 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 	}
 
 	// Verify main node is correct
+	if rt.Main.ID != mainNode.ID {
 		t.Errorf("expected main node Process %v, got %v", mainNode.ID, rt.Main.ID)
 	}
 
@@ -657,6 +661,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	}
 
 	// Verify main node
+	if rt.Main.ID != mainNode.ID {
 		t.Errorf("expected main node Process %v, got %v", mainNode.ID, rt.Main.ID)
 	}
 
@@ -679,6 +684,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	// Verify each dependency is in correct order with correct alias
 	for i, expected := range expectedDeps {
 		actual := rt.Dependencies[i]
+		if actual.Node.ID != expected.id {
 			t.Errorf("dependency at position %d: expected node %v, got %v", i, expected.id, actual.Node.ID)
 		}
 		if actual.Name != expected.alias {
@@ -689,6 +695,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	// Verify commonDep entries appear before any nodes that depend on them
 	lastCommonDepPos := -1
 	for i, dep := range rt.Dependencies {
+		if dep.Node.ID.Name == "CommonDep" {
 			lastCommonDepPos = i
 		} else if lastCommonDepPos == -1 {
 			t.Errorf("found dependent node %v before its dependency CommonDep", dep.Node.ID)
@@ -697,6 +704,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 
 	// Verify all commonDep entries are grouped together at the start
 	for i := 1; i <= lastCommonDepPos; i++ {
+		if rt.Dependencies[i].Node.ID.Name != "CommonDep" {
 			t.Errorf("CommonDep entries not grouped together at start, found %v at position %d", rt.Dependencies[i].Node.ID, i)
 		}
 	}

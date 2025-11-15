@@ -1,11 +1,11 @@
 package channel
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -37,7 +37,9 @@ func TestNamedChannelSend(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	uw, ctx := engine.NewUnitOfWork(ctx, vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -109,7 +111,9 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	uw, ctx := engine.NewUnitOfWork(ctx, vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -226,7 +230,9 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	uw, ctx := engine.NewUnitOfWork(ctx, vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -302,7 +308,9 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	uw, ctx := engine.NewUnitOfWork(ctx, vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -471,7 +479,9 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	uw, ctx := engine.NewUnitOfWork(ctx, vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `

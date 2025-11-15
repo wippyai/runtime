@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +10,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 // Simple validation layer that enforces a max value rule on yields
 type execLayer struct {
@@ -85,7 +92,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Run and verify
-		result, err := wrapped.Execute(context.Background(), "test")
+		result, err := wrapped.Execute(newTestContext(), "test")
 		assert.NoError(t, err)
 		if result != nil {
 			assert.Equal(t, "done", result.String())
@@ -139,7 +146,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		`, "test", "test")
 		assert.NoError(t, err)
 
-		result, err := wrapped.Execute(context.Background(), "test")
+		result, err := wrapped.Execute(newTestContext(), "test")
 		assert.NoError(t, err)
 		assert.Equal(t, "done", result.String())
 	})
@@ -174,7 +181,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		`, "test", "test")
 		assert.NoError(t, err)
 
-		_, err = wrapped.Execute(context.Background(), "test")
+		_, err = wrapped.Execute(newTestContext(), "test")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "deliberate panic")
 	})

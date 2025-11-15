@@ -2,6 +2,7 @@ package payload
 
 import (
 	"context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 // Note: Tests for transcode() method are not included as they require
 // a transcoder to be set in the Lua context, which needs integration
@@ -35,7 +42,7 @@ func TestPayloadModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local payload = require("payload")
 			assert(type(payload) == "table")
 			assert(type(payload.new) == "function")
@@ -104,7 +111,7 @@ func TestPayloadModule(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(context.Background(), tc.script, "test")
+				err = vm.DoString(newTestContext(), tc.script, "test")
 				assert.NoError(t, err)
 			})
 		}
@@ -127,7 +134,7 @@ func TestPayloadModule(t *testing.T) {
 			assert(format == payload.format.LUA, "new payload should have LUA format")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -187,7 +194,7 @@ func TestPayloadModule(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(context.Background(), tc.script, "test")
+				err = vm.DoString(newTestContext(), tc.script, "test")
 				assert.NoError(t, err)
 			})
 		}
@@ -232,7 +239,7 @@ func TestPayloadModule(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(context.Background(), tc.script, "test")
+				err = vm.DoString(newTestContext(), tc.script, "test")
 				assert.NoError(t, err)
 			})
 		}
@@ -255,7 +262,7 @@ func TestPayloadModule(t *testing.T) {
 			assert(data == nil, "nil data should remain nil")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -296,7 +303,7 @@ func TestPayloadModule(t *testing.T) {
 			assert(formats.YAML ~= formats.STRING, "formats should be different")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -335,7 +342,7 @@ func TestPayloadModule(t *testing.T) {
 			assert(table_payload:get_format() == payload.format.LUA, "table payload format")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -388,7 +395,7 @@ func TestPayloadModule(t *testing.T) {
 			assert(#unmarshaled.metadata.settings.features == 3, "unmarshaled nested data should match")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }
@@ -420,7 +427,7 @@ func TestPayloadHelperFunctions(t *testing.T) {
 			assert(unmarshaled == "test", "unmarshaled should be correct")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -446,7 +453,7 @@ func TestPayloadHelperFunctions(t *testing.T) {
 			assert(p2:data() == "second", "second payload data should be correct")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }
@@ -470,7 +477,7 @@ func TestPayloadEdgeCases(t *testing.T) {
 			assert(p:unmarshal() == "", "empty string should unmarshal correctly")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -490,7 +497,7 @@ func TestPayloadEdgeCases(t *testing.T) {
 			assert(p:unmarshal() == 0, "zero should unmarshal correctly")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -514,7 +521,7 @@ func TestPayloadEdgeCases(t *testing.T) {
 			assert(type(unmarshaled) == "table", "empty table should unmarshal as table")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -535,7 +542,7 @@ func TestPayloadEdgeCases(t *testing.T) {
 			assert(p:unmarshal() == large_num, "large number should unmarshal correctly")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -556,7 +563,7 @@ func TestPayloadEdgeCases(t *testing.T) {
 			assert(p:unmarshal() == neg_num, "negative number should unmarshal correctly")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }
@@ -606,7 +613,7 @@ func TestPayloadTypeConsistency(t *testing.T) {
 			end
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(newTestContext(), script, "test")
 		assert.NoError(t, err)
 	})
 }

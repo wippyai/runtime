@@ -3,6 +3,7 @@ package httpclient
 import (
 	"bytes"
 	"context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"io"
 	"net/http"
 	"testing"
@@ -16,6 +17,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestAsyncHTTP(t *testing.T) {
 	t.Run("async http requests", func(t *testing.T) {
@@ -102,7 +109,7 @@ func TestAsyncHTTP(t *testing.T) {
 
 		// execute test and verify results
 		start := time.Now()
-		result, err := wrapped.Execute(context.Background(), "test_http_requests")
+		result, err := wrapped.Execute(newTestContext(), "test_http_requests")
 		duration := time.Since(start)
 		require.NoError(t, err)
 
@@ -187,7 +194,7 @@ func TestAsyncHTTP(t *testing.T) {
 		require.NoError(t, err)
 
 		// execute test
-		results, err := wrapped.Execute(context.Background(), "test_timeout")
+		results, err := wrapped.Execute(newTestContext(), "test_timeout")
 		require.NoError(t, err)
 
 		// Unpack results

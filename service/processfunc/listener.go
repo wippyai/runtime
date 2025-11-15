@@ -101,7 +101,10 @@ func (l *Listener) registerFunction(ctx context.Context, id registry.ID, hostID 
 		System: function.System,
 		Kind:   function.Register,
 		Path:   id.String(),
-		Data:   handler,
+		Data: &function.FuncEntry{
+			Handler: handler,
+			Options: nil,
+		},
 	})
 
 	// Track registered function

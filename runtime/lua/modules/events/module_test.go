@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
@@ -14,6 +15,12 @@ import (
 	luaapi "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestEventsModule_BasicSubscribe(t *testing.T) {
 	logger := zap.NewNop()
@@ -94,7 +101,7 @@ func TestEventsModule_BasicSubscribe(t *testing.T) {
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 
-	ctx := event.WithBus(ctxapi.NewRootContext(), bus)
+	ctx := event.WithBus(newTestContext(), bus)
 
 	go func() {
 		<-ready
@@ -210,7 +217,7 @@ func TestEventsModule_SendAndReceive(t *testing.T) {
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 
-	ctx := event.WithBus(ctxapi.NewRootContext(), bus)
+	ctx := event.WithBus(newTestContext(), bus)
 
 	// Wait for ready signal before starting
 	go func() {
@@ -265,7 +272,7 @@ func TestEventsModule_SendWithoutData(t *testing.T) {
 	// Create simple runner
 	wrapped := engine.NewRunner(vm)
 
-	ctx := event.WithBus(ctxapi.NewRootContext(), bus)
+	ctx := event.WithBus(newTestContext(), bus)
 
 	// Execute the test
 	result, err := wrapped.Execute(ctx, "test_send_no_data")

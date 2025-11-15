@@ -72,7 +72,7 @@ func runPack(cmd *cobra.Command, args []string) error {
 	paths := lockObj.GetLoadPaths()
 	logger.Debug("load paths from lock file", zap.Strings("paths", paths))
 
-	entries := []regapi.Entry{}
+	var entries []regapi.Entry
 	for _, path := range paths {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			logger.Warn("path not found, skipping", zap.String("path", path))
@@ -139,9 +139,9 @@ func runPack(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("create pack file: %w", err)
 	}
-	defer file.Close()
 
 	if err := packer.Pack(entries, file, metadata); err != nil {
+		file.Close()
 		return fmt.Errorf("pack entries: %w", err)
 	}
 

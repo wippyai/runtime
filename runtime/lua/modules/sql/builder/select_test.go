@@ -50,7 +50,7 @@ func setupLuaWithSelectModule(t *testing.T) (*engine.CoroutineVM, *engine.Runner
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Create a context for execution
-	ctx := ctxapi.NewRootContext()
+	ctx := newTestContext()
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	// Initialize a unit of work with the context
