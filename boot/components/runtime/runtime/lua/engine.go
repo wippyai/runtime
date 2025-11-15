@@ -74,11 +74,13 @@ func Engine() boot.Component {
 			// Get cache sizes from config with defaults
 			protoCacheSize := 60000
 			mainCacheSize := 10000
+			exprCapacity := 5000
 			if cfg != nil {
 				luaCfg := cfg.Sub("lua")
 				if luaCfg != nil {
 					protoCacheSize = luaCfg.GetInt("proto_cache_size", protoCacheSize)
 					mainCacheSize = luaCfg.GetInt("main_cache_size", mainCacheSize)
+					exprCapacity = luaCfg.GetInt("expr_capacity", exprCapacity)
 				}
 			}
 
@@ -128,11 +130,11 @@ func Engine() boot.Component {
 						system.NewSystemModule(),
 						contractmod.NewContractModule(logger.Named("contract")),
 						otelmod.NewOTelModule(),
-						expr.NewExprModule(expr.WithCapacity(5000)),
+						expr.NewExprModule(expr.WithCapacity(exprCapacity)),
 						html.NewHTMLModule(),
 					},
-					ProtoCacheSize: 60000,
-					MainCacheSize:  10000,
+					ProtoCacheSize: protoCacheSize,
+					MainCacheSize:  mainCacheSize,
 				},
 			)
 			if err != nil {

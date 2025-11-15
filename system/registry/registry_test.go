@@ -691,7 +691,7 @@ data:
 	}
 
 	// 5. Apply the loaded entries as the initial ChangeSet
-	initialChangeSet, _ := topology.CreateChangeSetFromEntries(entries)
+	initialChangeSet, _ := topology.CreateChangeSetFromEntries(entries, topology.NewResolver())
 
 	newVersion, err := reg.Apply(ctxapi.NewRootContext(), initialChangeSet)
 	if err != nil {

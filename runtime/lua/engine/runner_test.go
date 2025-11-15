@@ -1,9 +1,9 @@
 package engine
 
 import (
-	"context"
 	"testing"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -80,7 +80,9 @@ func TestWrappedVM_Basic(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		result, err := wvm.Execute(context.Background(), "test")
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		result, err := wvm.Execute(ctx, "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -120,7 +122,9 @@ func TestExecLayer_HandledValues(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		result, err := wvm.Execute(context.Background(), "test")
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		result, err := wvm.Execute(ctx, "test")
 		if err != nil {
 			t.Fatal(err)
 		}

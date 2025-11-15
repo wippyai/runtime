@@ -3,7 +3,7 @@ package version
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 func TestVersion(t *testing.T) {

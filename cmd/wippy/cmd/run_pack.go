@@ -102,7 +102,13 @@ func runFromPack(cmd *cobra.Command, args []string) error {
 	for _, packFile := range args {
 		logger.Info("unpacking", zap.String("file", packFile))
 
-		entries, metadata, err := packer.Unpack(packFile)
+		file, err := os.Open(packFile)
+		if err != nil {
+			return fmt.Errorf("open pack file %s: %w", packFile, err)
+		}
+
+		entries, metadata, err := packer.Unpack(file)
+		file.Close()
 		if err != nil {
 			return fmt.Errorf("unpack %s: %w", packFile, err)
 		}

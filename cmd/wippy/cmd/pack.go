@@ -134,8 +134,19 @@ func runPack(cmd *cobra.Command, args []string) error {
 
 	// Create packer and pack entries
 	packer := pack.New(app.Transcoder)
-	if err := packer.Pack(entries, outputFile, metadata); err != nil {
+
+	file, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("create pack file: %w", err)
+	}
+	defer file.Close()
+
+	if err := packer.Pack(entries, file, metadata); err != nil {
 		return fmt.Errorf("pack entries: %w", err)
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close pack file: %w", err)
 	}
 
 	fileInfo, _ := os.Stat(outputFile)

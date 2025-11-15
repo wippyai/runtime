@@ -47,7 +47,10 @@ func TestPackUnpack(t *testing.T) {
 		packPath := filepath.Join(tmpDir, "test.pack")
 
 		// Pack
-		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
+		file, err := os.Create(packPath)
+		require.NoError(t, err)
+		err = packer.Pack(entries, file, testMetadata(len(entries)))
+		file.Close()
 		require.NoError(t, err)
 
 		// Verify file exists
@@ -56,7 +59,10 @@ func TestPackUnpack(t *testing.T) {
 		assert.Greater(t, info.Size(), int64(0))
 
 		// Unpack
-		unpacked, _, err := packer.Unpack(packPath)
+		file, err = os.Open(packPath)
+		require.NoError(t, err)
+		unpacked, _, err := packer.Unpack(file)
+		file.Close()
 		require.NoError(t, err)
 
 		// Verify entries match
@@ -72,10 +78,16 @@ func TestPackUnpack(t *testing.T) {
 		tmpDir := t.TempDir()
 		packPath := filepath.Join(tmpDir, "empty.pack")
 
-		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
+		file, err := os.Create(packPath)
+		require.NoError(t, err)
+		err = packer.Pack(entries, file, testMetadata(len(entries)))
+		file.Close()
 		require.NoError(t, err)
 
-		unpacked, _, err := packer.Unpack(packPath)
+		file, err = os.Open(packPath)
+		require.NoError(t, err)
+		unpacked, _, err := packer.Unpack(file)
+		file.Close()
 		require.NoError(t, err)
 		assert.Empty(t, unpacked)
 	})
@@ -97,10 +109,16 @@ func TestPackUnpack(t *testing.T) {
 		tmpDir := t.TempDir()
 		packPath := filepath.Join(tmpDir, "large.pack")
 
-		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
+		file, err := os.Create(packPath)
+		require.NoError(t, err)
+		err = packer.Pack(entries, file, testMetadata(len(entries)))
+		file.Close()
 		require.NoError(t, err)
 
-		unpacked, _, err := packer.Unpack(packPath)
+		file, err = os.Open(packPath)
+		require.NoError(t, err)
+		unpacked, _, err := packer.Unpack(file)
+		file.Close()
 		require.NoError(t, err)
 		assert.Len(t, unpacked, 100)
 	})
@@ -118,10 +136,16 @@ func TestPackUnpack(t *testing.T) {
 		tmpDir := t.TempDir()
 		packPath := filepath.Join(tmpDir, "nil.pack")
 
-		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
+		file, err := os.Create(packPath)
+		require.NoError(t, err)
+		err = packer.Pack(entries, file, testMetadata(len(entries)))
+		file.Close()
 		require.NoError(t, err)
 
-		unpacked, _, err := packer.Unpack(packPath)
+		file, err = os.Open(packPath)
+		require.NoError(t, err)
+		unpacked, _, err := packer.Unpack(file)
+		file.Close()
 		require.NoError(t, err)
 		require.Len(t, unpacked, 1)
 		assert.Equal(t, entries[0].ID, unpacked[0].ID)
@@ -157,10 +181,16 @@ func TestPackUnpack(t *testing.T) {
 		tmpDir := t.TempDir()
 		packPath := filepath.Join(tmpDir, "complex.pack")
 
-		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
+		file, err := os.Create(packPath)
+		require.NoError(t, err)
+		err = packer.Pack(entries, file, testMetadata(len(entries)))
+		file.Close()
 		require.NoError(t, err)
 
-		unpacked, _, err := packer.Unpack(packPath)
+		file, err = os.Open(packPath)
+		require.NoError(t, err)
+		unpacked, _, err := packer.Unpack(file)
+		file.Close()
 		require.NoError(t, err)
 		require.Len(t, unpacked, 1)
 		assert.Equal(t, entries[0].ID, unpacked[0].ID)
@@ -173,7 +203,10 @@ func TestUnpackErrors(t *testing.T) {
 	packer := New(transcoder)
 
 	t.Run("file does not exist", func(t *testing.T) {
-		_, err := packer.Unpack("/nonexistent/file.pack")
+		file, err := os.Open("/nonexistent/file.pack")
+		if err == nil {
+			defer file.Close()
+		}
 		assert.Error(t, err)
 	})
 
@@ -190,7 +223,10 @@ func TestUnpackErrors(t *testing.T) {
 		err := os.WriteFile(badPath, buf.Bytes(), 0644)
 		require.NoError(t, err)
 
-		_, err = packer.Unpack(badPath)
+		file, err := os.Open(badPath)
+		require.NoError(t, err)
+		_, _, err = packer.Unpack(file)
+		file.Close()
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid magic header")
 	})
@@ -208,7 +244,10 @@ func TestUnpackErrors(t *testing.T) {
 		err := os.WriteFile(badPath, buf.Bytes(), 0644)
 		require.NoError(t, err)
 
-		_, err = packer.Unpack(badPath)
+		file, err := os.Open(badPath)
+		require.NoError(t, err)
+		_, _, err = packer.Unpack(file)
+		file.Close()
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported version")
 	})
@@ -220,9 +259,12 @@ func TestUnpackErrors(t *testing.T) {
 		err := os.WriteFile(tinyPath, []byte("tiny"), 0644)
 		require.NoError(t, err)
 
-		_, err = packer.Unpack(tinyPath)
+		file, err := os.Open(tinyPath)
+		require.NoError(t, err)
+		_, _, err = packer.Unpack(file)
+		file.Close()
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "file too small")
+		assert.Contains(t, err.Error(), "data too small")
 	})
 
 	t.Run("hash mismatch - corrupted data", func(t *testing.T) {
@@ -239,7 +281,10 @@ func TestUnpackErrors(t *testing.T) {
 		packPath := filepath.Join(tmpDir, "corrupt.pack")
 
 		// Pack valid file
-		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
+		file, err := os.Create(packPath)
+		require.NoError(t, err)
+		err = packer.Pack(entries, file, testMetadata(len(entries)))
+		file.Close()
 		require.NoError(t, err)
 
 		// Corrupt the file by modifying compressed data
@@ -253,7 +298,10 @@ func TestUnpackErrors(t *testing.T) {
 		require.NoError(t, err)
 
 		// Try to unpack - should fail hash verification
-		_, err = packer.Unpack(packPath)
+		file, err = os.Open(packPath)
+		require.NoError(t, err)
+		_, _, err = packer.Unpack(file)
+		file.Close()
 		assert.Error(t, err)
 	})
 
@@ -270,26 +318,20 @@ func TestUnpackErrors(t *testing.T) {
 		err := os.WriteFile(badPath, buf.Bytes(), 0644)
 		require.NoError(t, err)
 
-		_, err = packer.Unpack(badPath)
+		file, err := os.Open(badPath)
+		require.NoError(t, err)
+		_, _, err = packer.Unpack(file)
+		file.Close()
 		assert.Error(t, err)
 	})
 }
 
 func TestPackErrors(t *testing.T) {
-	transcoder := systempayload.NewTranscoder()
-	packer := New(transcoder)
-
 	t.Run("invalid path", func(t *testing.T) {
-		entries := []registry.Entry{
-			{
-				ID:   registry.ParseID("test:entry"),
-				Kind: "test.kind",
-				Meta: registry.Metadata{},
-				Data: payload.New(map[string]any{"data": "value"}),
-			},
+		file, err := os.Create("/nonexistent/dir/file.pack")
+		if err == nil {
+			defer file.Close()
 		}
-
-		err := packer.Pack(entries, "/nonexistent/dir/file.pack")
 		assert.Error(t, err)
 	})
 }
@@ -317,7 +359,10 @@ func TestCompression(t *testing.T) {
 		tmpDir := t.TempDir()
 		packPath := filepath.Join(tmpDir, "compressed.pack")
 
-		err := packer.Pack(entries, packPath, testMetadata(len(entries)))
+		file, err := os.Create(packPath)
+		require.NoError(t, err)
+		err = packer.Pack(entries, file, testMetadata(len(entries)))
+		file.Close()
 		require.NoError(t, err)
 
 		info, err := os.Stat(packPath)

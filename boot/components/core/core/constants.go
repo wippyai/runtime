@@ -19,4 +19,7 @@ const (
 	// Finder configuration keys
 	FinderQueryCacheSize boot.ConfigKey = "query_cache_size"
 	FinderRegexCacheSize boot.ConfigKey = "regex_cache_size"
+
+	// Registry configuration keys
+	RegistryEnableHistory boot.ConfigKey = "enable_history"
 )

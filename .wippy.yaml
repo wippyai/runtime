@@ -24,3 +24,51 @@ profiler:
   read_timeout: 15s           # HTTP read timeout
   write_timeout: 15s          # HTTP write timeout
   idle_timeout: 60s           # HTTP idle timeout
+
+# Registry configuration
+# Controls registry history and rollback capabilities
+registry:
+  enable_history: true        # Enable version history (memory-based), false uses nil history (forward-only)
+
+# Relay configuration
+# Controls local node messaging infrastructure
+relay:
+  node_name: local            # Name of this relay node
+
+# Supervisor configuration
+# Controls process supervisor relay host settings
+supervisor:
+  host:
+    buffer_size: 1024         # Control host message buffer size
+    worker_count: 16          # Control host worker goroutine count
+
+# Functions configuration
+# Controls function execution relay host settings
+functions:
+  host:
+    buffer_size: 1024         # Function host message buffer size
+    worker_count: 16          # Function host worker goroutine count
+
+# Lua runtime configuration
+# Controls Lua VM cache sizes
+lua:
+  proto_cache_size: 60000     # Lua proto cache size
+  main_cache_size: 10000      # Lua main cache size
+  expr_capacity: 5000         # Expression module capacity
+
+# Cluster configuration
+# Multi-node clustering with gossip-based membership and TCP internode communication
+cluster:
+  enabled: false                # Enable multi-node clustering
+  name: ""                      # Node name (defaults to hostname if empty)
+  internode:
+    bind_addr: "0.0.0.0"        # Bind address for TCP internode communication
+    bind_port: 0                # Bind port (0 = auto-select available port)
+    auto_port: true             # Automatically select port if bind_port unavailable
+  membership:
+    bind_addr: "0.0.0.0"        # Bind address for gossip protocol
+    bind_port: 7946             # Bind port for gossip protocol
+    advertise_addr: ""          # Advertise address (use if behind NAT)
+    join_addrs: ""              # Comma-separated seed nodes to join (e.g. "10.0.0.1:7946,10.0.0.2:7946")
+    secret_key: ""              # Cluster secret key (base64 encoded)
+    secret_file: ""             # Path to file containing cluster secret key

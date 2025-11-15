@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"context"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
@@ -9,16 +10,15 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
 	"github.com/wippyai/runtime/system/payload/lua"
-	luavm "github.com/yuin/gopher-lua"
 	"go.uber.org/zap/zaptest"
 )
 
 // setupTestEnvironment creates a test environment with expr module
-func setupTestEnvironment(t *testing.T, opts ...Option) (*engine.CoroutineVM, *luavm.LState, engine.UnitOfWork, *engine.Runner) {
+func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *engine.Runner, context.Context) {
 	logger := zaptest.NewLogger(t)
 
-	// Create the expr module with options
-	module := NewExprModule(opts...)
+	// Create the expr module
+	module := NewExprModule()
 
 	// Create a VM with coroutine support
 	vm, err := engine.NewCVM(logger)
@@ -33,22 +33,16 @@ func setupTestEnvironment(t *testing.T, opts ...Option) (*engine.CoroutineVM, *l
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+	// Create context with frame
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
-	// Set the context in the Lua state
-	L.SetContext(ctx)
-
-	return vm, L, uw, runner
+	return vm, runner, ctx
 }
 
 func TestExprModule_CompileAndRun(t *testing.T) {
-	vm, L, uw, runner := setupTestEnvironment(t)
+	vm, runner, ctx := setupTestEnvironment(t)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import test function for compile and run
 	err := vm.Import(`
@@ -95,7 +89,7 @@ func TestExprModule_CompileAndRun(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_compile_and_run")
+	result, err := runner.Execute(ctx, "test_compile_and_run")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultMap := lua.ToGoAny(result).(map[string]interface{})
@@ -107,12 +101,8 @@ func TestExprModule_CompileAndRun(t *testing.T) {
 }
 
 func TestExprModule_ProgramBuiltinFunctions(t *testing.T) {
-	vm, L, uw, runner := setupTestEnvironment(t)
+	vm, runner, ctx := setupTestEnvironment(t)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import test function for built-in functions with programs
 	err := vm.Import(`
@@ -170,7 +160,7 @@ func TestExprModule_ProgramBuiltinFunctions(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_program_builtins")
+	result, err := runner.Execute(ctx, "test_program_builtins")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultMap := lua.ToGoAny(result).(map[string]interface{})
@@ -184,12 +174,8 @@ func TestExprModule_ProgramBuiltinFunctions(t *testing.T) {
 }
 
 func TestExprModule_ErrorHandling(t *testing.T) {
-	vm, L, uw, runner := setupTestEnvironment(t)
+	vm, runner, ctx := setupTestEnvironment(t)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import test function for error handling
 	err := vm.Import(`
@@ -234,7 +220,7 @@ func TestExprModule_ErrorHandling(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_error_handling")
+	result, err := runner.Execute(ctx, "test_error_handling")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultMap := lua.ToGoAny(result).(map[string]interface{})
@@ -242,15 +228,21 @@ func TestExprModule_ErrorHandling(t *testing.T) {
 }
 
 func TestExprModule_CachingBehavior(t *testing.T) {
-	vm, L, uw, runner := setupTestEnvironment(t, WithCapacity(100))
+	logger := zaptest.NewLogger(t)
+	module := NewExprModule(WithCapacity(100))
+	vm, err := engine.NewCVM(logger)
+	require.NoError(t, err)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
+
+	L := vm.State()
+	L.PreloadModule(module.Name(), module.Loader)
+	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	// Import test function that compares eval vs compile caching
-	err := vm.Import(`
+	err = vm.Import(`
 		function test_caching_behavior()
 			local expr = require("expr")
 			
@@ -313,7 +305,7 @@ func TestExprModule_CachingBehavior(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_caching_behavior")
+	result, err := runner.Execute(ctx, "test_caching_behavior")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultMap := lua.ToGoAny(result).(map[string]interface{})
@@ -325,12 +317,8 @@ func TestExprModule_CachingBehavior(t *testing.T) {
 }
 
 func TestExprModule_ComplexProgramUsage(t *testing.T) {
-	vm, L, uw, runner := setupTestEnvironment(t)
+	vm, runner, ctx := setupTestEnvironment(t)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import test function for complex usage patterns
 	err := vm.Import(`
@@ -396,7 +384,7 @@ func TestExprModule_ComplexProgramUsage(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_complex_usage")
+	result, err := runner.Execute(ctx, "test_complex_usage")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultMap := lua.ToGoAny(result).(map[string]interface{})
@@ -423,12 +411,8 @@ func TestExprModule_ComplexProgramUsage(t *testing.T) {
 }
 
 func TestExprModule_EvalStillWorks(t *testing.T) {
-	vm, L, uw, runner := setupTestEnvironment(t)
+	vm, runner, ctx := setupTestEnvironment(t)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import test function to ensure eval still works as before
 	err := vm.Import(`
@@ -462,7 +446,7 @@ func TestExprModule_EvalStillWorks(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_eval_compatibility")
+	result, err := runner.Execute(ctx, "test_eval_compatibility")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultMap := lua.ToGoAny(result).(map[string]interface{})

@@ -13,10 +13,6 @@ func TestKindConstant(t *testing.T) {
 	assert.Equal(t, "fs.directory", string(Kind))
 }
 
-func TestTypeNameEmbed(t *testing.T) {
-	assert.Equal(t, "embed", TypeNameEmbed)
-}
-
 func TestConfig_MarshalUnmarshal(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -45,14 +41,6 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			config: Config{
 				Directory: "/usr/share",
 				Mode:      "0444",
-			},
-			wantErr: false,
-		},
-		{
-			name: "embed type",
-			config: Config{
-				Directory: "/embedded",
-				Type:      TypeNameEmbed,
 			},
 			wantErr: false,
 		},

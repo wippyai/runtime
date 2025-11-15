@@ -77,7 +77,7 @@ type mockTranscoder struct {
 }
 
 func (m *mockTranscoder) Transcode(p payload.Payload, f payload.Format) (payload.Payload, error) {
-	return nil, errors.New("not implemented")
+	return payload.New(p.Data()), nil
 }
 
 func (m *mockTranscoder) Marshal(v interface{}) (payload.Payload, error) {

@@ -132,6 +132,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 
 func TestInstanceImpl_ScopeValidation(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	instantiator, bus, contractRegistry, _ := setupInstantiatorTest()
 
 	require.NoError(t, contractRegistry.Start(ctx))
@@ -349,6 +350,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 
 func TestInstanceImpl_ContextMerging(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	uniqGen := uniqid.NewGenerator()
@@ -381,18 +383,18 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 		resultChan := make(chan *runtime.Result, 1)
 
 		result := map[string]interface{}{"has_context": false}
-		if values, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any]); ok {
-			existing, existingOk := values.Value("existing")
-			scope, scopeOk := values.Value("context")
-			override, overrideOk := values.Value("override")
+		if values := ctxapi.GetValues(ctx); values != nil {
+			existing := values.Get("existing")
+			scope := values.Get("context")
+			override := values.Get("override")
 
 			result = map[string]interface{}{
 				"has_context":    true,
-				"existing_ok":    existingOk,
+				"existing_ok":    existing != nil,
 				"existing_value": existing,
-				"scope_ok":       scopeOk,
+				"scope_ok":       scope != nil,
 				"scope_value":    scope,
-				"override_ok":    overrideOk,
+				"override_ok":    override != nil,
 				"override_value": override,
 			}
 		}
@@ -462,10 +464,12 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	instance, err := instantiator.Instantiate(ctx, bindingID, scope)
 	require.NoError(t, err)
 
-	existing := ctxapi.NewContexter[any]()
-	existing.SetValue("existing", "from_existing")
-	existing.SetValue("override", "from_existing")
-	callCtx := context.WithValue(ctx, ctxapi.ValuesCtx, existing)
+	callCtx, _ := ctxapi.OpenFrameContext(ctx)
+	existing := ctxapi.NewValues()
+	existing.Set("existing", "from_existing")
+	existing.Set("override", "from_existing")
+	err = ctxapi.SetValues(callCtx, existing)
+	require.NoError(t, err)
 
 	resultChan, err = instance.Call(callCtx, "contextMethod", payload.Payloads{})
 	require.NoError(t, err)
@@ -484,6 +488,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 
 func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	uniqGen := uniqid.NewGenerator()
@@ -516,10 +521,12 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		resultChan := make(chan *runtime.Result, 1)
 
 		captured := map[string]interface{}{}
-		if values, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any]); ok {
+		if values := ctxapi.GetValues(ctx); values != nil {
 			// Capture all values from the context
-			values.Iterate(func(key string, value any) {
-				captured[key] = value
+			values.Iterate(func(key any, value any) {
+				if keyStr, ok := key.(string); ok {
+					captured[keyStr] = value
+				}
 			})
 		}
 
@@ -620,10 +627,12 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create context with existing values
-		existing := ctxapi.NewContexter[any]()
-		existing.SetValue("from_existing", "existing_value")
-		existing.SetValue("override", "existing_value")
-		callCtx := context.WithValue(ctx, ctxapi.ValuesCtx, existing)
+		callCtx, _ := ctxapi.OpenFrameContext(ctx)
+		existing := ctxapi.NewValues()
+		existing.Set("from_existing", "existing_value")
+		existing.Set("override", "existing_value")
+		err = ctxapi.SetValues(callCtx, existing)
+		require.NoError(t, err)
 
 		resultChan, err := instance.Call(callCtx, "captureMethod", payload.Payloads{})
 		require.NoError(t, err)
@@ -642,6 +651,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 // The fix allows required context keys to be found in EITHER scope OR Go context
 func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
 
 	uniqGen := uniqid.NewGenerator()

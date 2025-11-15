@@ -65,7 +65,7 @@ type frameContext struct {
 // Use OpenFrameContext instead - it handles automatic inheritance of keys marked with Inherit: true.
 func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc := &frameContext{
-		values: make(map[any]any),
+		values: make(map[any]any, 4),
 		sealed: false,
 	}
 

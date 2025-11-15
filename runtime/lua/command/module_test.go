@@ -48,6 +48,7 @@ func TestNewCommandFunc(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	// Register the command module
@@ -125,6 +126,7 @@ func TestResponseFunc(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -175,6 +177,7 @@ func TestIsCompleteFunc(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -250,6 +253,7 @@ func TestResultFunc(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -369,6 +373,7 @@ func TestIsCanceledFunc(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -422,6 +427,7 @@ func TestCancelFunc(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -538,6 +544,7 @@ func TestIntegration(t *testing.T) {
 	defer vm.Close()
 
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	// Register the command module directly

@@ -209,6 +209,13 @@ func createDefaultConfig() boot.Config {
 		}))
 	}
 
+	if profiler {
+		opts = append(opts, boot.WithSection("profiler", map[string]interface{}{
+			"enabled": true,
+			"address": "localhost:6060",
+		}))
+	}
+
 	return boot.NewConfig(opts...)
 }
 

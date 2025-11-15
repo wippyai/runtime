@@ -357,6 +357,7 @@ func TestTemplateError(t *testing.T) {
 
 	// Set up the context
 	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	dtt := payloadSystem.GlobalTranscoder()
 	json.Register(dtt)
 	ctx = payload.WithTranscoder(ctx, dtt)

@@ -93,6 +93,7 @@ func TestNoopRuntime_Add(t *testing.T) {
 		{
 			name: "add function entry",
 			entry: registry.Entry{
+				ID: registry.ID{
 					NS:   "test-ns",
 					Name: "test-function",
 				},
@@ -103,6 +104,7 @@ func TestNoopRuntime_Add(t *testing.T) {
 		{
 			name: "add empty entry",
 			entry: registry.Entry{
+				ID: registry.ID{
 					NS:   "",
 					Name: "",
 				},
@@ -154,9 +156,8 @@ func TestNoopRuntime_Update(t *testing.T) {
 		{
 			name: "update empty entry",
 			entry: registry.Entry{
-					NS:   "",
-					Name: "",
-				},
+				NS:   "",
+				Name: "",
 				Kind: "",
 			},
 			wantErr: false,

@@ -96,8 +96,8 @@ func TestNilHistory_Get(t *testing.T) {
 	if err == nil {
 		t.Error("Get should return error for NilHistory, got nil")
 	}
-	if err.Error() != "version history not available" {
-		t.Errorf("Expected 'version history not available' error, got: %v", err)
+	if err.Error() != "version history not available: registry configured with history disabled (enable_history=false)" {
+		t.Errorf("Expected 'version history not available: registry configured with history disabled (enable_history=false)' error, got: %v", err)
 	}
 }
 
@@ -116,8 +116,8 @@ func TestNilHistory_Versions(t *testing.T) {
 	if err == nil {
 		t.Error("Versions should return error for NilHistory, got nil")
 	}
-	if err.Error() != "version history not available" {
-		t.Errorf("Expected 'version history not available' error, got: %v", err)
+	if err.Error() != "version history not available: registry configured with history disabled (enable_history=false)" {
+		t.Errorf("Expected 'version history not available: registry configured with history disabled (enable_history=false)' error, got: %v", err)
 	}
 }
 
@@ -135,8 +135,8 @@ func TestNilHistory_SetHead(t *testing.T) {
 	if err == nil {
 		t.Error("SetHead should return error for NilHistory, got nil")
 	}
-	if err.Error() != "rewinding not supported with nil history" {
-		t.Errorf("Expected 'rewinding not supported' error, got: %v", err)
+	if err.Error() != "version rollback not supported: registry configured with history disabled (enable_history=false)" {
+		t.Errorf("Expected 'version rollback not supported: registry configured with history disabled (enable_history=false)' error, got: %v", err)
 	}
 
 	// Head should still be v1
