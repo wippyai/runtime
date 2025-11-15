@@ -68,8 +68,8 @@ func (m *Module) get(l *lua.LState) int {
 		return 0
 	}
 
-	vv := values.Get(k)
-	if vv == nil {
+	vv, ok := values.Get(k)
+	if !ok {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no value found for key: " + k))
 		return 2
@@ -136,23 +136,17 @@ func (m *Module) all(l *lua.LState) int {
 	t := l.CreateTable(0, values.Len())
 
 	// Iterate over all key-value pairs
-	values.Iterate(func(key any, value any) {
-		// Only support string keys for Lua
-		keyStr, ok := key.(string)
-		if !ok {
-			return
-		}
-
+	values.Iterate(func(key string, value any) {
 		// Convert the Go value to a Lua value
 		luaValue, err := transcoder.GoToLua(value)
 		if err != nil {
 			// Skip values that cannot be converted
-			m.log.Warn("error converting value to Lua", zap.String("key", keyStr), zap.Error(err))
+			m.log.Warn("error converting value to Lua", zap.String("key", key), zap.Error(err))
 			return
 		}
 
 		// Set the key-value pair in the table
-		t.RawSetString(keyStr, luaValue)
+		t.RawSetString(key, luaValue)
 	})
 
 	l.Push(t)

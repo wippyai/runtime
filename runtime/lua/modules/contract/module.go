@@ -46,11 +46,11 @@ const (
 // This combines security context (actor, scope) with application context (custom values)
 // following the same pattern as the funcs module
 type frameContext struct {
-	values   *contextapi.Values // Application context values
-	actor    secapi.Actor       // Security actor
-	hasActor bool               // Whether actor is set
-	scope    secapi.Scope       // Security scope
-	hasScope bool               // Whether scope is set
+	values   contextapi.Values // Application context values
+	actor    secapi.Actor      // Security actor
+	hasActor bool              // Whether actor is set
+	scope    secapi.Scope      // Security scope
+	hasScope bool              // Whether scope is set
 }
 
 // Module represents the contract module for Lua runtime
@@ -193,7 +193,7 @@ func parseBindingArgs(bindingID string) (string, map[string]any, error) {
 func (m *Module) newFrameContext(l *lua.LState) frameContext {
 	values := contextapi.GetValues(l.Context())
 	if values != nil {
-		values = values.Clone().(*contextapi.Values)
+		values = values.Clone().(contextapi.Values)
 	} else {
 		values = contextapi.NewValues()
 	}
@@ -203,7 +203,7 @@ func (m *Module) newFrameContext(l *lua.LState) frameContext {
 // clone creates a deep copy of call context for immutable chaining pattern
 func (sc frameContext) clone() frameContext {
 	return frameContext{
-		values:   sc.values.Clone().(*contextapi.Values),
+		values:   sc.values.Clone().(contextapi.Values),
 		actor:    sc.actor,
 		hasActor: sc.hasActor,
 		scope:    sc.scope,
@@ -235,10 +235,10 @@ func (sc frameContext) applyToContext(baseCtx context.Context) (context.Context,
 		if existingValues != nil {
 			// Merge: copy existing values first, then overlay with new values
 			mergedValues := contextapi.NewValues()
-			existingValues.Iterate(func(key any, value any) {
+			existingValues.Iterate(func(key string, value any) {
 				mergedValues.Set(key, value)
 			})
-			sc.values.Iterate(func(key any, value any) {
+			sc.values.Iterate(func(key string, value any) {
 				mergedValues.Set(key, value)
 			})
 			_ = contextapi.SetValues(ctx, mergedValues)

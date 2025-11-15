@@ -24,24 +24,19 @@ func (dp *DummyProcess) Start(_ context.Context, _ relay.PID, _ payload.Payloads
 	return nil
 }
 
-func (dp *DummyProcess) Step() error {
+func (dp *DummyProcess) Step() (process.StepResult, error) {
 	dp.stepCount++
 	// AddCleanup maxSteps, return an error to simulate process failure.
 	if dp.stepCount >= dp.maxSteps {
-		return errors.New("dummy step error")
+		return process.StepDone, errors.New("dummy step error")
 	}
 	time.Sleep(10 * time.Millisecond)
-	return nil
+	return process.StepIdle, nil
 }
 
 func (dp *DummyProcess) Send(_ *relay.Package) error {
 	// Accept all messages.
 	return nil
-}
-
-func (dp *DummyProcess) Ready() int {
-	// Accept all messages.
-	return 0
 }
 
 func (dp *DummyProcess) Terminate() {}

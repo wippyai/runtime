@@ -179,7 +179,7 @@ func TestDecodeEntryConfig_WithMeta(t *testing.T) {
 	require.NotNil(t, cfg)
 	assert.Equal(t, "test-name", cfg.Name)
 	assert.NotNil(t, cfg.Meta)
-	assert.Equal(t, "test-server", cfg.Meta.StringValue("server"))
+	assert.Equal(t, "test-server", cfg.Meta.GetString("server", ""))
 	assert.Equal(t, 8080, cfg.Meta["port"])
 }
 
@@ -276,8 +276,8 @@ func TestDecodeEntryConfig_AllFeatures(t *testing.T) {
 	assert.Equal(t, "complete-config", cfg.Name)
 	assert.Equal(t, 60, cfg.Timeout)
 	assert.NotNil(t, cfg.Meta)
-	assert.Equal(t, "production", cfg.Meta.StringValue("environment"))
-	assert.Equal(t, "us-east-1", cfg.Meta.StringValue("region"))
+	assert.Equal(t, "production", cfg.Meta.GetString("environment", ""))
+	assert.Equal(t, "us-east-1", cfg.Meta.GetString("region", ""))
 }
 
 func TestDecodeEntryConfig_SetMetaDoesNotOverwriteExisting(t *testing.T) {
@@ -408,7 +408,7 @@ func TestDecodeEntryConfig_ReflectionIDAndMeta(t *testing.T) {
 	assert.Equal(t, "test-name", cfg.Name)
 	assert.Equal(t, registry.ID{NS: "test", Name: "config"}, cfg.ID)
 	assert.NotNil(t, cfg.Meta)
-	assert.Equal(t, "test-server", cfg.Meta.StringValue("server"))
+	assert.Equal(t, "test-server", cfg.Meta.GetString("server", ""))
 	assert.Equal(t, 8080, cfg.Meta["port"])
 }
 
@@ -437,7 +437,7 @@ func TestDecodeEntryConfig_ReflectionMetaNoMethod(t *testing.T) {
 	require.NotNil(t, cfg)
 	assert.Equal(t, "test-name", cfg.Name)
 	assert.NotNil(t, cfg.Meta)
-	assert.Equal(t, "value", cfg.Meta.StringValue("key"))
+	assert.Equal(t, "value", cfg.Meta.GetString("key", ""))
 }
 
 func TestDecodeEntryConfig_ReflectionDoesNotOverwriteExisting(t *testing.T) {

@@ -40,7 +40,7 @@ type mockExecutor struct {
 	err    error
 }
 
-func (m *mockExecutor) Call(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+func (m *mockExecutor) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -51,13 +51,25 @@ func (m *mockExecutor) Call(ctx context.Context, _ runtime.Task) (chan *runtime.
 		case <-ctx.Done():
 			resultChan <- &runtime.Result{Error: ctx.Err()}
 		default:
+			// Apply task context pairs to create execution context
+			execCtx := ctx
+			if len(task.Context) > 0 {
+				var err error
+				execCtx, err = applyTaskContext(ctx, task.Context)
+				if err != nil {
+					resultChan <- &runtime.Result{Error: err}
+					close(resultChan)
+					return
+				}
+			}
+
 			// Check if we have an actor in the context
-			if actor, ok := secapi.GetActor(ctx); ok {
+			if actor, ok := secapi.GetActor(execCtx); ok {
 				// Return actor ID as result to verify it was passed correctly
 				resultChan <- &runtime.Result{
 					Value: payload.New(fmt.Sprintf("actor:%s", actor.ID)),
 				}
-			} else if scope, ok := secapi.GetScope(ctx); ok {
+			} else if scope, ok := secapi.GetScope(execCtx); ok {
 				// Return scope info as result to verify it was passed correctly
 				policies := scope.Policies()
 				resultChan <- &runtime.Result{
@@ -71,6 +83,18 @@ func (m *mockExecutor) Call(ctx context.Context, _ runtime.Task) (chan *runtime.
 	}()
 
 	return resultChan, nil
+}
+
+func applyTaskContext(ctx context.Context, pairs []ctxapi.Pair) (context.Context, error) {
+	// Open or create a frame context
+	newCtx, fc := ctxapi.OpenFrameContext(ctx)
+
+	// Apply all context pairs from the task
+	if err := fc.SetMultiple(pairs...); err != nil {
+		return ctx, fmt.Errorf("failed to set task context: %w", err)
+	}
+
+	return newCtx, nil
 }
 
 func createTestTranscoder() payload.Transcoder {

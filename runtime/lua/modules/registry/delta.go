@@ -61,7 +61,8 @@ func (m *Module) buildDelta(l *lua.LState) int {
 		return 2
 	}
 
-	stateBuilder := topology.NewStateBuilder(m.log, nil, topology.WithCompareFunc(func(a, b regapi.Entry) bool {
+	resolver := regapi.GetResolver(l.Context())
+	stateBuilder := topology.NewStateBuilder(m.log, resolver, topology.WithCompareFunc(func(a, b regapi.Entry) bool {
 		// Fast check for ID and Kind equality first
 		if a.ID.NS != b.ID.NS || a.ID.Name != b.ID.Name || a.Kind != b.Kind {
 			return false

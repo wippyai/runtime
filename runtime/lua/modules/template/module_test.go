@@ -22,6 +22,12 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 // mockResource implements the resource.Resource interface for testing
 type mockResource struct {
 	resValue any
@@ -94,8 +100,8 @@ func setupLuaWithTemplates(t *testing.T, mockRes *mockResource) (*engine.Corouti
 	dtt := payloadSystem.GlobalTranscoder()
 	json.Register(dtt)
 	lua2.Register(dtt)
-	ctx := payload.WithTranscoder(ctxapi.NewRootContext(), dtt)
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
+	ctx = payload.WithTranscoder(ctx, dtt)
 
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
@@ -288,12 +294,37 @@ func TestTemplateAutomaticRelease(t *testing.T) {
 		resValue: templateSet,
 	}
 
-	// Setup Lua with the test templates
-	vm, _, runner, ctx := setupLuaWithTemplates(t, mockRes)
+	// Create a mock resource registry with our test template set
+	mockRegistry := &mockResourceRegistry{
+		resources: map[registry.ID]resource.Resource[any]{
+			registry.ParseID("app:test_templates"): mockRes,
+		},
+	}
+
+	logger := zaptest.NewLogger(t)
+	module := NewTemplateModule(logger)
+
+	// Create a VM with coroutine support
+	vm, err := engine.NewCVM(logger)
+	require.NoError(t, err)
 	defer vm.Close()
 
+	// Get the Lua state
+	L := vm.State()
+
+	// Register the template module
+	L.PreloadModule(module.Name(), module.Loader)
+
+	// Set up a transcoder to convert between Lua and Go values
+	dtt := payloadSystem.GlobalTranscoder()
+	json.Register(dtt)
+	lua2.Register(dtt)
+
+	// Create a runner with the coroutine layer
+	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+
 	// Import our test function
-	err := vm.Import(`
+	err = vm.Import(`
 		function test_template_auto_release()
 			local templates = require("templates")
 			local tmpl = templates.get("app:test_templates")
@@ -310,9 +341,19 @@ func TestTemplateAutomaticRelease(t *testing.T) {
 	`, "test", "test_template_auto_release")
 	require.NoError(t, err, "Failed to import test function")
 
-	// Execute the function with a manually created UOW
+	// Create a fresh context with UnitOfWork
+	ctx := newTestContext()
+	ctx = payload.WithTranscoder(ctx, dtt)
+	ctx = resource.WithRegistry(ctx, mockRegistry)
 	uw, uwCtx := runner.InitUnitOfWork(ctx)
-	result, err := runner.Execute(uwCtx, "test_template_auto_release")
+	L.SetContext(uwCtx)
+
+	// Start the function
+	exitCh, err := runner.Start(uwCtx, "test_template_auto_release")
+	require.NoError(t, err, "Failed to start Lua function")
+
+	// Run it to completion
+	result, err := runner.Run(uwCtx, exitCh)
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify the rendered template
@@ -347,8 +388,7 @@ func TestTemplateError(t *testing.T) {
 	L.PreloadModule(module.Name(), module.Loader)
 
 	// Set up the context
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	dtt := payloadSystem.GlobalTranscoder()
 	json.Register(dtt)
 	ctx = payload.WithTranscoder(ctx, dtt)
@@ -382,8 +422,12 @@ func TestTemplateError(t *testing.T) {
 	`, "test", "test_template_get_error")
 	require.NoError(t, err, "Failed to import test function")
 
-	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_template_get_error")
+	// Start the function
+	exitCh, err := runner.Start(ctx, "test_template_get_error")
+	require.NoError(t, err, "Failed to start Lua function")
+
+	// Run it to completion
+	result, err := runner.Run(ctx, exitCh)
 	require.NoError(t, err, "Lua execution failed")
 
 	resultTable := result.(*lua.LTable)

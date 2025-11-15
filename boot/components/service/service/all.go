@@ -21,7 +21,7 @@ func All() []boot.Component {
 		TokenStore(),
 		ProcessSupervisor(),
 		HTTP(),
-		InterceptorManager(),
+		InterceptorDebug(),
 		InterceptorOtel(),
 		InterceptorRetry(),
 	}

@@ -23,7 +23,7 @@ require (
 	github.com/hashicorp/go-msgpack/v2 v2.1.1
 	github.com/hashicorp/golang-lru v0.5.0
 	github.com/hashicorp/memberlist v0.5.3
-	github.com/klauspost/compress v1.17.6
+	github.com/klauspost/compress v1.18.1
 	github.com/lib/pq v1.10.9
 	github.com/lrstanley/bubblezone v0.0.0-20250110055121-b45205ce63e2
 	github.com/mattn/go-sqlite3 v1.14.24
@@ -71,6 +71,7 @@ require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250425153114-8976f5be98c1.1 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/CloudyKit/fastprinter v0.0.0-20200109182630-33d98a066a53 // indirect
+	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.10 // indirect

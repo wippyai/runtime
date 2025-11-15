@@ -1,7 +1,6 @@
 package command
 
 import (
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,7 +18,7 @@ func TestModule(t *testing.T) {
 
 	t.Run("module name", func(t *testing.T) {
 		mod := NewCommandModule()
-		assert.Equal(t, "command.Command", mod.Name())
+		assert.Equal(t, "command", mod.Name())
 	})
 
 	t.Run("module loader", func(t *testing.T) {
@@ -28,13 +27,8 @@ func TestModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := ctxapi.NewRootContext()
-		ctx, _ = ctxapi.OpenFrameContext(ctx)
-		_, ctx = engine.NewUnitOfWork(ctx, vm.State())
-
-		// Test that the module can be loaded
-		err = vm.DoString(ctx, `
-			local command = require("command.Command")
+		err = vm.DoString(newTestContext(), `
+			local command = require("command")
 			assert(command ~= nil)
 			assert(type(command.new) == "function")
 		`, "test_module_loader")
@@ -48,8 +42,7 @@ func TestNewCommandFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	// Register the command module
@@ -126,8 +119,7 @@ func TestResponseFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -177,8 +169,7 @@ func TestIsCompleteFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -253,8 +244,7 @@ func TestResultFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -373,8 +363,7 @@ func TestIsCanceledFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -427,8 +416,7 @@ func TestCancelFunc(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	RegisterCommand(vm.State())
@@ -544,8 +532,7 @@ func TestIntegration(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	// Register the command module directly
@@ -578,31 +565,31 @@ func TestIntegration(t *testing.T) {
 		vm.State().SetGlobal("test_cmd", cmdUD)
 
 		// Test Lua methods work correctly
-		err = vm.DoString(ctx, `
+		err = vm.DoString(newTestContext(), `
 			-- Test that we can access the command methods
 			local function test_command_methods(cmd)
 				if cmd == nil then
 					error("Command is nil")
 				end
-				
+
 				-- Test is_complete
 				local is_complete = cmd:is_complete()
 				if type(is_complete) ~= "boolean" then
 					error("is_complete should return boolean")
 				end
-				
+
 				-- Test is_canceled
 				local is_canceled = cmd:is_canceled()
 				if type(is_canceled) ~= "boolean" then
 					error("is_canceled should return boolean")
 				end
-				
+
 				-- Test response
 				local channel = cmd:response()
 				if channel == nil then
 					error("Response channel should not be nil")
 				end
-				
+
 				-- Test result
 				local payload, err = cmd:result()
 				if payload ~= nil then
@@ -612,7 +599,7 @@ func TestIntegration(t *testing.T) {
 					error("Expected 'command canceled' error, got: " .. tostring(err))
 				end
 			end
-			
+
 			-- Get the command from the global variable set by Go
 			local cmd = _G.test_cmd
 			test_command_methods(cmd)

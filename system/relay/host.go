@@ -76,15 +76,15 @@ func fnv1a32(s string) uint32 {
 func (h *Host) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	_, loaded := h.receivers.LoadOrStore(pid, ch)
 	if loaded {
-		h.logger.Warn("attempt to attach an already existing Package receiver", zap.String("pid", pid.String()))
+		h.logger.Warn("attempt to attach an already existing package receiver", zap.String("pid", pid.String()))
 		return nil, api.ErrAlreadyAttached
 	}
 
-	h.logger.Debug("Package receiver attached", zap.String("pid", pid.String()))
+	h.logger.Debug("package receiver attached", zap.String("pid", pid.String()))
 
 	cancel := func() {
 		h.receivers.Delete(pid)
-		h.logger.Debug("Package receiver detached", zap.String("pid", pid.String()))
+		h.logger.Debug("package receiver detached", zap.String("pid", pid.String()))
 	}
 	return cancel, nil
 }

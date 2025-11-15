@@ -13,7 +13,6 @@ import (
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	sqlres "github.com/wippyai/runtime/service/sql"
 
-	"context"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

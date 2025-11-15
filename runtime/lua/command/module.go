@@ -18,7 +18,7 @@ func NewCommandModule() *Module {
 
 // Name returns the module name
 func (m *Module) Name() string {
-	return "command.Command"
+	return "command"
 }
 
 // Loader registers the module functions

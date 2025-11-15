@@ -7,6 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	otelapi "github.com/wippyai/runtime/api/service/otel"
+	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
 	otelinterceptor "github.com/wippyai/runtime/service/interceptor/otel"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -16,7 +17,7 @@ func InterceptorOtel() boot.Component {
 	return boot.New(boot.P{
 		Name:      InterceptorOtelName,
 		Phase:     boot.PostInit,
-		DependsOn: []boot.ComponentName{InterceptorManagerName},
+		DependsOn: []boot.ComponentName{bootsystem.InterceptorName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			bus := event.GetBus(ctx)
 

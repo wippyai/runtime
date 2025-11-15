@@ -195,25 +195,29 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (chan *runtim
 	hasRuntime := task.Options != nil
 
 	if hasPreset || hasRuntime {
+		var bag interceptor.Bag
+
 		if hasPreset {
-			if presetOpts, ok := storedOptions.(interceptor.Options); ok {
-				mergedOptions = presetOpts
+			if presetOpts, ok := storedOptions.(interceptor.Bag); ok {
+				bag = presetOpts
 			}
 		}
 
 		if hasRuntime {
-			if runtimeOpts, ok := task.Options.(interceptor.Options); ok {
-				if mergedOptions != nil {
-					mergedOptions = mergedOptions.Merge(runtimeOpts)
+			if runtimeOpts, ok := task.Options.(interceptor.Bag); ok {
+				if bag != nil {
+					bag = bag.Merge(runtimeOpts)
 				} else {
-					mergedOptions = runtimeOpts
+					bag = runtimeOpts
 				}
 			}
 		}
 
-		if mergedOptions == nil {
-			mergedOptions = interceptor.NewBag()
+		if bag == nil {
+			bag = interceptor.NewBag()
 		}
+
+		mergedOptions = bag
 
 		// Store options in FrameContext
 		if err := interceptor.SetOptions(ctx, mergedOptions); err != nil {

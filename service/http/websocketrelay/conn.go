@@ -238,12 +238,6 @@ func (c *Connection) forwardMessageToRelay(msgType websocket.MessageType, data [
 		payloadData = payload.NewPayload(data, payload.Bytes)
 	}
 
-	c.logger.Info("Forwarding message from WebSocket to relay",
-		zap.String("from", c.wsPID.String()),
-		zap.String("to", c.currentTargetPID.String()),
-		zap.String("topic", string(c.currentMessageTopic)),
-		zap.Int("data_len", len(data)))
-
 	// Send to target PID
 	msg := relay.NewPackage(c.wsPID, c.currentTargetPID, c.currentMessageTopic, payloadData)
 	err := c.node.Send(msg)

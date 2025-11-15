@@ -30,4 +30,5 @@ const (
 	LuaSystemName       = "lua.system"
 	LuaJSONName         = "lua.json"
 	LuaBase64Name       = "lua.base64"
+	LuaCompressName     = "lua.compress"
 )

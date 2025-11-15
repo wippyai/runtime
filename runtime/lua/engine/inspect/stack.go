@@ -73,7 +73,7 @@ func GetStackTrace(l *lua.LState) *StackTrace {
 	}
 
 	for level := 0; ; level++ {
-		frame, ok := getStackFrame(l, level)
+		frame, ok := GetStackFrame(l, level)
 		if !ok {
 			break
 		}
@@ -83,8 +83,23 @@ func GetStackTrace(l *lua.LState) *StackTrace {
 	return trace
 }
 
-// getStackFrame captures information about a single stack frame
-func getStackFrame(l *lua.LState, level int) (StackFrame, bool) {
+// GetCallerLine returns just the line number of the caller at the given stack level
+func GetCallerLine(l *lua.LState, level int) (int, bool) {
+	ar, ok := l.GetStack(level)
+	if !ok {
+		return -1, false // Return -1 to distinguish from actual line 0
+	}
+
+	// Need to call GetInfo to populate CurrentLine
+	if _, err := l.GetInfo("l", ar, nil); err != nil {
+		return -2, false
+	}
+
+	return ar.CurrentLine, true
+}
+
+// GetStackFrame captures information about a single stack frame
+func GetStackFrame(l *lua.LState, level int) (StackFrame, bool) {
 	ar, ok := l.GetStack(level)
 	if !ok {
 		return StackFrame{}, false

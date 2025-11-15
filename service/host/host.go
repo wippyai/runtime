@@ -136,15 +136,19 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (relay.PID, e
 	// Attach to message routing with shared channel
 	_, err := h.msgHost.Attach(launch.PID, h.getQueueForPID(launch.PID))
 	if err != nil {
+		launch.Process.Terminate()
 		return relay.PID{}, err
 	}
 
-	if err := h.pool.Add(launch.PID, launch.Process); err != nil {
+	if err := h.pool.Add(launch.PID, launch.Source, launch.Process); err != nil {
+		launch.Process.Terminate()
 		h.msgHost.Detach(launch.PID)
 		return relay.PID{}, err
 	}
 
-	h.log.Debug("process launched", zap.String("pid", launch.PID.String()))
+	h.log.Debug("process launched",
+		zap.String("pid", launch.PID.String()),
+		zap.String("id", launch.Source.String()))
 	return launch.PID, nil
 }
 
@@ -196,7 +200,7 @@ func (h *Host) prepareContext(ctx context.Context, launch *process.Launch) conte
 // Send forwards a message via the underlying msgHost, rejecting if shutdown is in progress.
 func (h *Host) Send(pkg *relay.Package) error {
 	if !h.running.Load() {
-		return errors.New("host is not running, cannot launch new process")
+		return errors.New("host is not running, cannot send message")
 	}
 
 	if h.shutdown.Load() {
@@ -315,7 +319,7 @@ func (h *Host) Stop(ctx context.Context) error {
 // Terminate stops a running process and detaches its routing.
 func (h *Host) Terminate(_ context.Context, pid relay.PID) error {
 	if !h.running.Load() {
-		return errors.New("host is not running, cannot launch new process")
+		return errors.New("host is not running, cannot terminate process")
 	}
 
 	if !h.pool.Has(pid) {
@@ -324,6 +328,7 @@ func (h *Host) Terminate(_ context.Context, pid relay.PID) error {
 
 	// terminate is aggressive, so we don't wait for the process to finish, use cancel signals instead
 	h.pool.Terminate(pid)
+	h.msgHost.Detach(pid)
 	h.pool.Remove(pid)
 
 	h.log.Debug("process terminate requested", zap.String("pid", pid.String()))

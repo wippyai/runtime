@@ -64,7 +64,7 @@ func SortEntriesByDependency(entries []registry.Entry, resolver registry.Depende
 		entryMap[entry.ID] = entry
 
 		// Build group mapping from explicit groups
-		explicitGroups := entry.Meta.TagValue(registry.TagGroups)
+		explicitGroups := entry.Meta.GetSlice(registry.TagGroups)
 		for _, group := range explicitGroups {
 			groupMap[group] = append(groupMap[group], entry.ID)
 		}
@@ -77,7 +77,7 @@ func SortEntriesByDependency(entries []registry.Entry, resolver registry.Depende
 
 	// Second pass: process all dependencies
 	for _, entry := range entries {
-		dependencies := entry.Meta.TagValue(registry.TagDependsOn)
+		dependencies := entry.Meta.GetSlice(registry.TagDependsOn)
 
 		if resolver != nil {
 			dependencies = append(dependencies, resolver.Extract(entry)...)

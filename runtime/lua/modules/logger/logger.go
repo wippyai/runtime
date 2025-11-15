@@ -2,7 +2,10 @@ package logger
 
 import (
 	"errors"
+	"fmt"
 
+	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/runtime/lua/engine/inspect"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
 	transcoder "github.com/wippyai/runtime/system/payload/lua"
@@ -81,6 +84,27 @@ func tableToFields(table *lua.LTable) []zap.Field {
 	return fields
 }
 
+// getContextFields extracts PID and location from the Lua context
+func getContextFields(l *lua.LState) []zap.Field {
+	fields := make([]zap.Field, 0, 2)
+
+	// Get PID
+	if pid, ok := runtimeapi.GetFramePID(l.Context()); ok {
+		fields = append(fields, zap.String("pid", pid.String()))
+	}
+
+	// Get location = id:line
+	if id, ok := runtimeapi.GetFrameID(l.Context()); ok {
+		// Stack level 2 is the actual Lua caller (0=getContextFields, 1=loggerXXX, 2=Lua caller)
+		if line, ok := inspect.GetCallerLine(l, 2); ok {
+			location := fmt.Sprintf("%s:%d", id.String(), line)
+			fields = append(fields, zap.String("location", location))
+		}
+	}
+
+	return fields
+}
+
 // Logger methods implementations
 func loggerDebug(l *lua.LState) int {
 	ud := l.CheckUserData(1)
@@ -99,7 +123,9 @@ func loggerDebug(l *lua.LState) int {
 		}
 	}
 
-	logger.logger.Debug(msg, fields...)
+	contextFields := getContextFields(l)
+	allFields := append(contextFields, fields...)
+	logger.logger.Debug(msg, allFields...)
 	return 0
 }
 
@@ -120,7 +146,9 @@ func loggerInfo(l *lua.LState) int {
 		}
 	}
 
-	logger.logger.Info(msg, fields...)
+	contextFields := getContextFields(l)
+	allFields := append(contextFields, fields...)
+	logger.logger.Info(msg, allFields...)
 	return 0
 }
 
@@ -141,7 +169,9 @@ func loggerWarn(l *lua.LState) int {
 		}
 	}
 
-	logger.logger.Warn(msg, fields...)
+	contextFields := getContextFields(l)
+	allFields := append(contextFields, fields...)
+	logger.logger.Warn(msg, allFields...)
 	return 0
 }
 
@@ -168,7 +198,9 @@ func loggerError(l *lua.LState) int {
 		}
 	}
 
-	logger.logger.Error(msg, fields...)
+	contextFields := getContextFields(l)
+	allFields := append(contextFields, fields...)
+	logger.logger.Error(msg, allFields...)
 	return 0
 }
 

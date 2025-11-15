@@ -3,6 +3,7 @@ package interceptor
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -12,12 +13,12 @@ import (
 
 type mockInterceptor struct {
 	name        string
-	called      bool
+	called      atomic.Bool
 	shouldError bool
 }
 
 func (m *mockInterceptor) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
-	m.called = true
+	m.called.Store(true)
 	if m.shouldError {
 		return &runtime.Result{Error: errors.New("interceptor error")}, ctx
 	}
@@ -86,13 +87,13 @@ func TestChainExecuteWithInterceptors(t *testing.T) {
 		t.Fatal("channel returned nil result")
 	}
 
-	if !int1.called {
+	if !int1.called.Load() {
 		t.Error("interceptor 1 was not called")
 	}
-	if !int2.called {
+	if !int2.called.Load() {
 		t.Error("interceptor 2 was not called")
 	}
-	if !int3.called {
+	if !int3.called.Load() {
 		t.Error("interceptor 3 was not called")
 	}
 	if !executed {
@@ -123,13 +124,13 @@ func TestChainExecuteInterceptorError(t *testing.T) {
 		t.Fatal("Execute should return error when interceptor errors")
 	}
 
-	if !int1.called {
+	if !int1.called.Load() {
 		t.Error("interceptor 1 should be called before error")
 	}
-	if !int2.called {
+	if !int2.called.Load() {
 		t.Error("interceptor 2 should be called (it's the one that errors)")
 	}
-	if int3.called {
+	if int3.called.Load() {
 		t.Error("interceptor 3 should not be called after error")
 	}
 	if executed {
@@ -154,7 +155,7 @@ func TestChainExecuteFunctionError(t *testing.T) {
 		t.Fatal("Execute should return error when function errors")
 	}
 
-	if !int1.called {
+	if !int1.called.Load() {
 		t.Error("interceptor should be called before function error")
 	}
 }
@@ -167,7 +168,7 @@ func TestChainExecuteContextPropagation(t *testing.T) {
 		called bool
 	}{}
 
-	interceptor := apiinterceptor.InterceptorFunc(func(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
+	interceptor := apiinterceptor.HandlerFunc(func(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
 		modifyingInterceptor.called = true
 		newCtx := context.WithValue(ctx, testKey, "modified")
 		return next(newCtx)

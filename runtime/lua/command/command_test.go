@@ -1,6 +1,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
@@ -14,14 +15,19 @@ import (
 	"go.uber.org/zap"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 func TestNewCommand(t *testing.T) {
 	logger := zap.NewNop()
 	vm, err := engine.NewVM(logger)
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	uw, ctx := engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("creates command with valid parameters", func(t *testing.T) {
@@ -111,8 +117,7 @@ func TestCommand_Complete(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("completes command successfully", func(t *testing.T) {
@@ -191,8 +196,7 @@ func TestCommand_Cancel(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("cancels command successfully", func(t *testing.T) {
@@ -267,8 +271,7 @@ func TestCommand_Result(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("returns nil when not completed", func(t *testing.T) {
@@ -321,8 +324,7 @@ func TestCommand_StateMethods(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("isCompleted returns correct state", func(t *testing.T) {
@@ -370,8 +372,7 @@ func TestCommand_IDAndType(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("ID and Type return correct values", func(t *testing.T) {
@@ -402,8 +403,7 @@ func TestCommand_Params(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx := newTestContext()
 	_, ctx = engine.NewUnitOfWork(ctx, vm.State())
 
 	t.Run("Params returns correct parameters", func(t *testing.T) {

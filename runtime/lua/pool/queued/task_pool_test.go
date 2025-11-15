@@ -172,9 +172,13 @@ func TestTaskPool_Execute_Failure(t *testing.T) {
 	require.NoError(t, err)
 	defer p2.Close()
 
+	ctx2, cancel2 := context.WithTimeout(newTestContext(), 5*time.Second)
+	defer cancel2()
+	ctx2 = setupTestContext(ctx2)
+
 	// Verify pool still works
 	task = createTestTask("test", lua.LString("test"))
-	resultChan, err = p2.Execute(ctx, task)
+	resultChan, err = p2.Execute(ctx2, task)
 	require.NoError(t, err)
 
 	result, err = waitForResult(t, resultChan, 5*time.Second)
@@ -196,7 +200,6 @@ func TestTaskPool_ParallelExecution(t *testing.T) {
 
 	var wg sync.WaitGroup
 	results := make(chan string, 10)
-	baseCtx := setupTestContext(newTestContext())
 
 	// Launch 10 jobs with 3 workers
 	for i := 0; i < 10; i++ {
@@ -204,8 +207,9 @@ func TestTaskPool_ParallelExecution(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 
-			ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
+			ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 			defer cancel()
+			ctx = setupTestContext(ctx)
 
 			task := createTestTask("test", lua.LString(fmt.Sprintf("job-%d", id)))
 			resultChan, err := p.Execute(ctx, task)
@@ -262,7 +266,6 @@ func TestTaskPool_WorkerDistribution(t *testing.T) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	idCounts := make(map[string]int)
-	baseCtx := setupTestContext(newTestContext())
 
 	// Run multiple tasks and track distribution
 	for i := 0; i < 30; i++ {
@@ -270,8 +273,9 @@ func TestTaskPool_WorkerDistribution(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
+			ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 			defer cancel()
+			ctx = setupTestContext(ctx)
 
 			task := createTestTask("get_id", lua.LNil)
 			resultChan, err := p.Execute(ctx, task)
@@ -320,7 +324,6 @@ func TestTaskPool_StressTest(t *testing.T) {
 
 			var wg sync.WaitGroup
 			successCount := atomic.Int32{}
-			baseCtx := setupTestContext(newTestContext())
 
 			// Launch many parallel jobs
 			for j := 0; j < 1000; j++ {
@@ -328,8 +331,9 @@ func TestTaskPool_StressTest(t *testing.T) {
 				go func(id int) {
 					defer wg.Done()
 
-					ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
+					ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 					defer cancel()
+					ctx = setupTestContext(ctx)
 
 					task := createTestTask("test", lua.LString(fmt.Sprintf("job-%d", id)))
 					resultChan, err := p.Execute(ctx, task)
@@ -375,7 +379,6 @@ func TestTaskPool_QueueBehavior(t *testing.T) {
 
 	var wg sync.WaitGroup
 	results := make(chan string, 10)
-	baseCtx := setupTestContext(newTestContext())
 
 	// Queue several jobs that will take time to complete
 	for i := 0; i < 10; i++ {
@@ -383,8 +386,9 @@ func TestTaskPool_QueueBehavior(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 
-			ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
+			ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 			defer cancel()
+			ctx = setupTestContext(ctx)
 
 			task := createTestTask("sleep", lua.LNil)
 			resultChan, err := p.Execute(ctx, task)
@@ -436,13 +440,14 @@ func BenchmarkTaskPool_Execute(b *testing.B) {
 	require.NoError(b, err)
 	defer p.Close()
 
-	baseCtx := setupTestContext(newTestContext())
 	task := createTestTask("bench", lua.LString("benchmark"))
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			ctx := logs.WithLogger(baseCtx, zap.NewNop())
+			ctx := newTestContext()
+			ctx = setupTestContext(ctx)
+			ctx = logs.WithLogger(ctx, zap.NewNop())
 			resultChan, err := p.Execute(ctx, task)
 			if err != nil {
 				b.Fatal(err)

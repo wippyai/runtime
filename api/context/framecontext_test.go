@@ -455,17 +455,17 @@ func TestOpenFrameContext_InheritWithValuesCloner(t *testing.T) {
 		t.Fatal("child should inherit Values")
 	}
 
-	clonedValues, ok := val.(*Values)
+	clonedValues, ok := val.(Values)
 	if !ok {
-		t.Fatal("inherited value should be *Values")
+		t.Fatal("inherited value should be Values")
 	}
 
-	if clonedValues.Get("key1") != "value1" {
-		t.Errorf("cloned Values.Get(key1) = %v, want value1", clonedValues.Get("key1"))
+	if got, _ := clonedValues.Get("key1"); got != "value1" {
+		t.Errorf("cloned Values.Get(key1) = %v, want value1", got)
 	}
 
 	clonedValues.Set("key2", "value2")
-	if values.Get("key2") != nil {
-		t.Error("parent Values should not have child's new values")
+	if got, ok := values.Get("key2"); ok {
+		t.Errorf("parent Values should not have child's new values, got %v", got)
 	}
 }

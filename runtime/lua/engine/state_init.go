@@ -5,9 +5,12 @@ import (
 	"strings"
 
 	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/runtime/lua/engine/errors"
+	"github.com/wippyai/runtime/runtime/lua/engine/inspect"
 	"github.com/wippyai/runtime/runtime/lua/engine/loadlib"
 	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
 var (
@@ -36,7 +39,21 @@ func init() {
 			return 0
 		}
 
-		log.Info(msg)
+		// Add context fields (PID and location)
+		fields := make([]zap.Field, 0, 2)
+
+		if pid, ok := runtime.GetFramePID(L.Context()); ok {
+			fields = append(fields, zap.String("pid", pid.String()))
+		}
+
+		if id, ok := runtime.GetFrameID(L.Context()); ok {
+			if line, ok := inspect.GetCallerLine(L, 1); ok { // level 1 = caller of print
+				location := fmt.Sprintf("%s:%d", id.String(), line)
+				fields = append(fields, zap.String("location", location))
+			}
+		}
+
+		log.Info(msg, fields...)
 		return 0
 	})
 }

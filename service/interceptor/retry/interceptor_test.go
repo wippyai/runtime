@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
 	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
@@ -32,7 +33,7 @@ func (e *testError) Retryable() apierror.Ternary {
 	return e.retryable
 }
 
-func (e *testError) Details() map[string]any {
+func (e *testError) Details() attrs.Attributes {
 	return nil
 }
 

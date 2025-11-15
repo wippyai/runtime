@@ -189,7 +189,8 @@ func changesApply(l *lua.LState) int {
 	}
 
 	// Sort operations by dependencies before applying
-	stateBuilder := topology.NewStateBuilder(changes.log, nil)
+	resolver := regapi.GetResolver(l.Context())
+	stateBuilder := topology.NewStateBuilder(changes.log, resolver)
 	sortedOps, err := stateBuilder.SortChangeSet(changes.snapshot.entries, changes.ops)
 	if err != nil {
 		l.Push(lua.LNil)

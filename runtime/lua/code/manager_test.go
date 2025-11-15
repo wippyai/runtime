@@ -100,6 +100,7 @@ func TestManager_Transaction(t *testing.T) {
 
 	// Add a node during transaction
 	node := Node{
+		ID:     registry.ID{Name: "testTx"},
 		Kind:   api.KindFunction,
 		Source: "function test() return 'hello' end",
 		Method: "test",
@@ -134,6 +135,7 @@ func TestManager_AddNode(t *testing.T) {
 		{
 			name: "Add node without dependencies",
 			node: Node{
+				ID:     registry.ID{Name: "test1"},
 				Kind:   api.KindFunction,
 				Source: "function test1() return 'hello' end",
 				Method: "test1",
@@ -144,12 +146,14 @@ func TestManager_AddNode(t *testing.T) {
 		{
 			name: "Add node with dependencies",
 			node: Node{
+				ID:     registry.ID{Name: "test2"},
 				Kind:   api.KindFunction,
 				Source: "function test2() return 'hello' end",
 				Method: "test2",
 			},
 			deps: []Import{
 				{
+					ID:    registry.ID{Name: "test1"},
 					Alias: "dep1",
 				},
 			},
@@ -158,6 +162,7 @@ func TestManager_AddNode(t *testing.T) {
 		{
 			name: "Add duplicate node",
 			node: Node{
+				ID:     registry.ID{Name: "test1"},
 				Kind:   api.KindFunction,
 				Source: "function test1() return 'hello' end",
 				Method: "test1",
@@ -168,12 +173,14 @@ func TestManager_AddNode(t *testing.T) {
 		{
 			name: "Add node with non-existent dependency",
 			node: Node{
+				ID:     registry.ID{Name: "test3"},
 				Kind:   api.KindFunction,
 				Source: "function test3() return 'hello' end",
 				Method: "test3",
 			},
 			deps: []Import{
 				{
+					ID:    registry.ID{Name: "nonExistent"},
 					Alias: "dep",
 				},
 			},
@@ -210,6 +217,7 @@ func TestManager_UpdateNode(t *testing.T) {
 
 	// Add initial node
 	node := Node{
+		ID:     registry.ID{Name: "testUpdate"},
 		Kind:   api.KindFunction,
 		Source: "function test() return 'hello' end",
 		Method: "test",
@@ -226,6 +234,7 @@ func TestManager_UpdateNode(t *testing.T) {
 		{
 			name: "Update node content",
 			node: Node{
+				ID:     registry.ID{Name: "testUpdate"},
 				Kind:   api.KindFunction,
 				Source: "function test() return 'world' end",
 				Method: "test",
@@ -236,12 +245,14 @@ func TestManager_UpdateNode(t *testing.T) {
 		{
 			name: "Update node dependencies",
 			node: Node{
+				ID:     registry.ID{Name: "testUpdate"},
 				Kind:   api.KindFunction,
 				Source: "function test() return 'world' end",
 				Method: "test",
 			},
 			deps: []Import{
 				{
+					ID:    registry.ID{Name: "nonExistentDep"},
 					Alias: "dep",
 				},
 			},
@@ -250,6 +261,7 @@ func TestManager_UpdateNode(t *testing.T) {
 		{
 			name: "Update non-existent node",
 			node: Node{
+				ID:     registry.ID{Name: "nonExistentUpdate"},
 				Kind:   api.KindFunction,
 				Source: "function test() return 'world' end",
 				Method: "test",
@@ -284,6 +296,7 @@ func TestManager_DeleteNode(t *testing.T) {
 
 	// Add a node
 	node := Node{
+		ID:     registry.ID{Name: "testDelete"},
 		Kind:   api.KindFunction,
 		Source: "function test() return 'hello' end",
 		Method: "test",
@@ -331,6 +344,7 @@ func TestManager_Compile(t *testing.T) {
 
 	// Add a node
 	node := Node{
+		ID:     registry.ID{Name: "testCompile"},
 		Kind:   api.KindFunction,
 		Source: "function test() return 'hello' end",
 		Method: "test",

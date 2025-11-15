@@ -179,11 +179,11 @@ func TestWithChainNoAppContext(t *testing.T) {
 	}
 }
 
-func TestInterceptorFunc_Handle(t *testing.T) {
+func TestHandlerFunc_Handle(t *testing.T) {
 	called := false
 	nextCalled := false
 
-	interceptor := InterceptorFunc(func(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
+	interceptor := HandlerFunc(func(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
 		called = true
 		return next(ctx)
 	})
@@ -197,7 +197,7 @@ func TestInterceptorFunc_Handle(t *testing.T) {
 	result, _ := interceptor.Handle(ctx, next)
 
 	if !called {
-		t.Error("InterceptorFunc should have been called")
+		t.Error("HandlerFunc should have been called")
 	}
 	if !nextCalled {
 		t.Error("next function should have been called")

@@ -1,6 +1,8 @@
 // Package error provides error categorization and retry metadata.
 package error
 
+import "github.com/wippyai/runtime/api/attrs"
+
 // Error extends the standard error interface with categorization and retry metadata.
 // Domains implement this interface to provide rich error information that can be
 // passed across layers (Go ↔ Lua, API ↔ Services, HTTP, Cluster).
@@ -16,7 +18,7 @@ type Error interface {
 
 	// Details returns structured metadata about the error.
 	// Keys and values are domain-specific.
-	Details() map[string]any
+	Details() attrs.Attributes
 }
 
 // Kind categorizes errors semantically across all domains.
