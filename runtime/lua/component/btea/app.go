@@ -252,28 +252,31 @@ func (a *App) processUpstream() {
 }
 
 // Step advances the process state by one iteration
-func (a *App) Step() error {
+func (a *App) Step() (process.StepResult, error) {
 	select {
 	case <-a.done:
-		return supervisor.ErrExit
+		return process.StepDone, supervisor.ErrExit
 	case <-a.state.Ctx.Done():
-		return a.state.Ctx.Err()
+		return process.StepDone, a.state.Ctx.Err()
 	case <-a.appCtx.Done():
-		return context.Canceled
+		return process.StepDone, context.Canceled
 	default:
 		for a.state.GetTaskCount() > 0 {
 			if err := a.state.Step(false); err != nil {
-				return err
+				return process.StepDone, err
 			}
 		}
 
-		return a.state.Step(true)
-	}
-}
+		if err := a.state.Step(true); err != nil {
+			return process.StepDone, err
+		}
 
-// Ready returns the number of tasks ready to be processed
-func (a *App) Ready() int {
-	return a.state.GetTaskCount()
+		if a.state.GetTaskCount() > 0 {
+			return process.StepContinue, nil
+		}
+
+		return process.StepIdle, nil
+	}
 }
 
 // Send handles incoming messages to the process

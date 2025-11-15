@@ -110,11 +110,11 @@ func runFromPack(cmd *cobra.Command, args []string) error {
 		if metadata != nil {
 			logger.Info("pack metadata",
 				zap.String("file", packFile),
-				zap.String("wippy_version", metadata.StringValue("wippy_version")),
-				zap.String("commit", metadata.StringValue("wippy_commit")),
-				zap.String("packed_at", metadata.StringValue("packed_at")),
-				zap.Int("entry_count", metadata.IntValue("entry_count")),
-				zap.String("description", metadata.StringValue("description")))
+				zap.String("wippy_version", metadata.GetString("wippy_version", "")),
+				zap.String("commit", metadata.GetString("wippy_commit", "")),
+				zap.String("packed_at", metadata.GetString("packed_at", "")),
+				zap.Int("entry_count", metadata.GetInt("entry_count", 0)),
+				zap.String("description", metadata.GetString("description", "")))
 		}
 
 		logger.Info("unpacked entries",

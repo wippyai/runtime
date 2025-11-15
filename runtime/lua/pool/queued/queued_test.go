@@ -225,15 +225,18 @@ func TestQueuedPool_Execute_Failure(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
-	defer cancel()
+	ctx1, cancel1 := context.WithTimeout(newTestContext(), 5*time.Second)
+	defer cancel1()
 
 	// Run failing function
-	_, err = p.Execute(ctx, "fail", lua.LNil)
+	_, err = p.Execute(ctx1, "fail", lua.LNil)
 	assert.Error(t, err)
 
+	ctx2, cancel2 := context.WithTimeout(newTestContext(), 5*time.Second)
+	defer cancel2()
+
 	// Verify pool still works
-	result, err := p.Execute(ctx, "test", lua.LString("test"))
+	result, err := p.Execute(ctx2, "test", lua.LString("test"))
 	assert.NoError(t, err)
 	assert.Equal(t, lua.LString("test"), result)
 }

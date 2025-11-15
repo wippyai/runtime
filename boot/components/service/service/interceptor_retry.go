@@ -6,6 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
+	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
 	"github.com/wippyai/runtime/service/interceptor/retry"
 )
 
@@ -13,7 +14,7 @@ func InterceptorRetry() boot.Component {
 	return boot.New(boot.P{
 		Name:      InterceptorRetryName,
 		Phase:     boot.PostInit,
-		DependsOn: []boot.ComponentName{InterceptorManagerName},
+		DependsOn: []boot.ComponentName{bootsystem.InterceptorName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			bus := event.GetBus(ctx)
 

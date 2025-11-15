@@ -143,7 +143,7 @@ func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) e
 	}
 
 	// Determine template name (using meta name or ID name as fallback)
-	templateName := cfg.Meta.StringValue("name")
+	templateName := cfg.Meta.GetString("name", "")
 	if templateName == "" {
 		templateName = entry.ID.Name
 	}
@@ -214,7 +214,7 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 		}
 
 		// Determine template name for the target set (using meta name or ID name as fallback)
-		newTemplateName := cfg.Meta.StringValue("name")
+		newTemplateName := cfg.Meta.GetString("name", "")
 		if newTemplateName == "" {
 			newTemplateName = entry.ID.Name
 		}
@@ -254,7 +254,7 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 		set := m.sets[cfg.Set]
 
 		// Determine if the template name has changed
-		newTemplateName := cfg.Meta.StringValue("name")
+		newTemplateName := cfg.Meta.GetString("name", "")
 		if newTemplateName == "" {
 			newTemplateName = entry.ID.Name
 		}

@@ -2,7 +2,6 @@ package builder
 
 import (
 	"context"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,17 +48,10 @@ func setupLuaWithDeleteModule(t *testing.T) (*engine.CoroutineVM, *engine.Runner
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-	// Create a context for execution
+	// Create test context with FrameContext
 	ctx := newTestContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
-	// Initialize a unit of work with the context
-	_, luaCtx := runner.InitUnitOfWork(ctx)
-
-	// Set the context in the Lua state
-	L.SetContext(luaCtx)
-
-	return vm, runner, luaCtx
+	return vm, runner, ctx
 }
 
 // TestDeleteBasic tests basic DeleteBuilder functionality

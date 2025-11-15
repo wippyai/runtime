@@ -19,7 +19,7 @@ import (
 // WithContext represents a process spawner with context values
 type WithContext struct {
 	module *Module
-	values *context.Values
+	values context.Values
 
 	// Dedicated fields for security context to prevent overwriting/conflicting with user values
 	actor    secapi.Actor
@@ -77,7 +77,7 @@ func (m *Module) withContext(l *lua.LState) int {
 		// Create new Values and copy existing values
 		newValues := context.NewValues()
 		if spawner.values != nil {
-			spawner.values.Iterate(func(key any, value any) {
+			spawner.values.Iterate(func(key string, value any) {
 				newValues.Set(key, value)
 			})
 		}
@@ -120,7 +120,7 @@ func (m *Module) withContext(l *lua.LState) int {
 	// First call - create new Values
 	values := context.GetValues(l.Context())
 	if values != nil {
-		values = values.Clone().(*context.Values)
+		values = values.Clone().(context.Values)
 	} else {
 		values = context.NewValues()
 	}
@@ -208,7 +208,7 @@ func (m *Module) withActor(l *lua.LState) int {
 	// Create new spawner with copied values and new actor
 	newSpawner := &WithContext{
 		module:   spawner.module,
-		values:   spawner.values.Clone().(*context.Values), // Clone the values
+		values:   spawner.values.Clone().(context.Values), // Clone the values
 		actor:    actor,
 		hasActor: true,
 		scope:    spawner.scope,
@@ -257,7 +257,7 @@ func (m *Module) withScope(l *lua.LState) int {
 	// Create new spawner with copied values and new scope
 	newSpawner := &WithContext{
 		module:   spawner.module,
-		values:   spawner.values.Clone().(*context.Values), // Clone the values
+		values:   spawner.values.Clone().(context.Values), // Clone the values
 		actor:    spawner.actor,
 		hasActor: spawner.hasActor,
 		scope:    scope,

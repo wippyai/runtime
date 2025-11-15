@@ -23,6 +23,12 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 // Create test Excel workbook
 func createTestWorkbook() ([]byte, error) {
 	f := excelize.NewFile()
@@ -76,7 +82,7 @@ func TestExcelFileSystemIntegration(t *testing.T) {
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(ctxapi.NewRootContext())
+	uw, ctx := runner.InitUnitOfWork(newTestContext())
 	defer func() {
 		err := uw.Close()
 		assert.NoError(t, err, "Unit of work cleanup failed")

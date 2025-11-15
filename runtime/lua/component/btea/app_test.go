@@ -62,17 +62,3 @@ func TestApp_Start_NoTerminalContext(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "terminal context not found")
 }
-
-func TestApp_Ready(t *testing.T) {
-	log := zap.NewNop()
-	runner := &engine.Runner{} // Use concrete type
-	transcoder := &mockTranscoder{}
-	funcName := "test_func"
-
-	app, _ := NewApp(log, transcoder, runner, funcName)
-
-	ready := app.Ready()
-
-	// Should return 0 for uninitialized state
-	assert.Equal(t, 0, ready)
-}

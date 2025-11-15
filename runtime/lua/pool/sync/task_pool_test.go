@@ -142,7 +142,6 @@ func TestTaskPool_ParallelExecution(t *testing.T) {
 
 	var wg sync.WaitGroup
 	results := make(chan string, 10)
-	baseCtx := setupTestContext(newTestContext())
 
 	// Launch 10 jobs with 3 workers
 	for i := 0; i < 10; i++ {
@@ -150,8 +149,9 @@ func TestTaskPool_ParallelExecution(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 
-			ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
+			ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 			defer cancel()
+			ctx = setupTestContext(ctx)
 
 			task := createTestTask("test", lua.LString(fmt.Sprintf("job-%d", id)))
 			resultChan, err := p.Execute(ctx, task)
@@ -205,11 +205,10 @@ func TestTaskPool_VMReuse(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 
-	ctx := setupTestContext(newTestContext())
-
 	// Run multiple times - should get incrementing IDs from same VM
 	var lastID float64
 	for i := 0; i < 5; i++ {
+		ctx := setupTestContext(newTestContext())
 		task := createTestTask("get_id", lua.LNil)
 		resultChan, err := p.Execute(ctx, task)
 		require.NoError(t, err)
@@ -245,7 +244,6 @@ func TestTaskPool_StressTest(t *testing.T) {
 
 			var wg sync.WaitGroup
 			successCount := atomic.Int32{}
-			baseCtx := setupTestContext(newTestContext())
 
 			// Launch many parallel jobs
 			for j := 0; j < 1000; j++ {
@@ -253,8 +251,9 @@ func TestTaskPool_StressTest(t *testing.T) {
 				go func(id int) {
 					defer wg.Done()
 
-					ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
+					ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
 					defer cancel()
+					ctx = setupTestContext(ctx)
 
 					task := createTestTask("test", lua.LString(fmt.Sprintf("job-%d", id)))
 					resultChan, err := p.Execute(ctx, task)
@@ -296,13 +295,14 @@ func BenchmarkTaskPool_Execute(b *testing.B) {
 	require.NoError(b, err)
 	defer p.Close()
 
-	baseCtx := setupTestContext(newTestContext())
 	task := createTestTask("bench", lua.LString("benchmark"))
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			ctx := logs.WithLogger(baseCtx, zap.NewNop())
+			ctx := newTestContext()
+			ctx = setupTestContext(ctx)
+			ctx = logs.WithLogger(ctx, zap.NewNop())
 			resultChan, err := p.Execute(ctx, task)
 			if err != nil {
 				b.Fatal(err)

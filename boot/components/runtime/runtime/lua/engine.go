@@ -22,6 +22,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/base64"
 	"github.com/wippyai/runtime/runtime/lua/modules/btea"
 	"github.com/wippyai/runtime/runtime/lua/modules/cloudstorage"
+	"github.com/wippyai/runtime/runtime/lua/modules/compress"
 	contractmod "github.com/wippyai/runtime/runtime/lua/modules/contract"
 	"github.com/wippyai/runtime/runtime/lua/modules/crypto"
 	ctxmod "github.com/wippyai/runtime/runtime/lua/modules/ctx"
@@ -100,6 +101,7 @@ func Engine() boot.Component {
 						uuid.NewUUIDModule(),
 						upstream.NewUpstreamModule(),
 						subscribe.NewSubscribeModule(),
+						compress.NewCompressModule(),
 						crypto.NewCryptoModule(),
 						fncallmod.NewFunctionModule(),
 						payloadmod.NewPayloadModule(),

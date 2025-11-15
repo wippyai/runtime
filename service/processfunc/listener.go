@@ -52,7 +52,7 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 	}
 
 	processIDStr := entry.ID.String()
-	defaultHost := entry.Meta.StringValue(DefaultHostMeta)
+	defaultHost := entry.Meta.GetString(DefaultHostMeta, "")
 
 	switch kind {
 	case registry.Create:

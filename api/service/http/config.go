@@ -207,7 +207,7 @@ func (c *RouterConfig) Validate() error {
 		return fmt.Errorf("metadata cannot be nil")
 	}
 
-	serverID := c.Meta.StringValue(ServerID)
+	serverID := c.Meta.GetString(ServerID, "")
 	if serverID == "" {
 		return fmt.Errorf("server in metadata cannot be empty")
 	}
@@ -247,7 +247,7 @@ func (c *EndpointConfig) Validate() error {
 	}
 
 	// Verify required metadata
-	routerID := c.Meta.StringValue(RouterID)
+	routerID := c.Meta.GetString(RouterID, "")
 	if routerID == "" {
 		return fmt.Errorf("router in metadata cannot be empty")
 	}
@@ -270,7 +270,7 @@ func (c *StaticConfig) Validate() error {
 	}
 
 	// Verify required metadata
-	serverID := c.Meta.StringValue(ServerID)
+	serverID := c.Meta.GetString(ServerID, "")
 	if serverID == "" {
 		return fmt.Errorf("server in metadata cannot be empty")
 	}

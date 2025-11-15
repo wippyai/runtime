@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/process"
-
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
@@ -16,6 +16,7 @@ import (
 // processEntry holds process state and execution lock
 type processEntry struct {
 	process process.Process
+	source  registry.ID
 	running atomic.Bool
 	awaken  atomic.Bool
 }
@@ -54,14 +55,17 @@ func NewProcessPool(
 }
 
 // Add registers a new process with the pool
-func (p *ProcessPool) Add(pid relay.PID, proc process.Process) error {
+func (p *ProcessPool) Add(pid relay.PID, source registry.ID, proc process.Process) error {
 	if p.maxProcesses != 0 && int(p.numProcesses.Load()) >= p.maxProcesses {
-		p.log.Warn("max processes reached, cannot add new process", zap.String("pid", pid.String()))
+		p.log.Warn("max processes reached, cannot add new process",
+			zap.String("pid", pid.String()),
+			zap.String("id", source.String()))
 		return process.ErrMaxProcesses
 	}
 
 	entry := &processEntry{
 		process: proc,
+		source:  source,
 	}
 
 	if _, loaded := p.processes.LoadOrStore(pid.String(), entry); loaded {
@@ -88,6 +92,7 @@ func (p *ProcessPool) Cancel(pid relay.PID, deadline time.Time) error {
 	if err := entry.process.Send(topology.Cancel(pid, pid, deadline)); err != nil {
 		p.log.Warn("failed to send cancel message to process",
 			zap.String("pid", pid.String()),
+			zap.String("id", entry.source.String()),
 			zap.Error(err))
 	}
 
@@ -97,11 +102,13 @@ func (p *ProcessPool) Cancel(pid relay.PID, deadline time.Time) error {
 
 // CancelAll sends cancellation signals to all processes and waits for completion
 func (p *ProcessPool) CancelAll(ctx context.Context, deadline time.Time) error {
-	p.processes.Range(func(key, _ interface{}) bool {
+	p.processes.Range(func(key, value interface{}) bool {
 		pid, _ := relay.ParsePID(key.(string))
+		entry := value.(*processEntry)
 		if err := p.Cancel(pid, deadline); err != nil {
 			p.log.Warn("failed to cancel process",
 				zap.String("pid", pid.String()),
+				zap.String("id", entry.source.String()),
 				zap.Error(err))
 		}
 		return true
@@ -213,13 +220,14 @@ func (p *ProcessPool) worker() {
 				continue // handled by another goroutine
 			}
 
-			err := entry.process.Step()
-			if err != nil {
+			result, err := entry.process.Step()
+			if err != nil || result == process.StepDone {
 				p.log.Debug("process step completed with error",
 					zap.String("pid", pid.String()),
+					zap.String("id", entry.source.String()),
 					zap.Error(err))
 
-				// Process is done (with error)
+				// Process is done, remove from pool (idempotent with OnComplete cleanup)
 				p.Remove(pid)
 				continue
 			}
@@ -227,14 +235,15 @@ func (p *ProcessPool) worker() {
 			// Release execution lock
 			entry.running.Store(false)
 
-			// still have tasks in the queue
-			if entry.process.Ready() > 0 && entry.awaken.CompareAndSwap(false, true) {
+			// Reschedule immediately if more work available
+			if result == process.StepContinue && entry.awaken.CompareAndSwap(false, true) {
 				select {
 				case <-p.ctx.Done():
 					return
 				case p.workCh <- pid:
 				}
 			}
+			// StepIdle: wait for new message
 		}
 	}
 }

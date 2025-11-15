@@ -152,17 +152,15 @@ func TestNilHistory_SetHead(t *testing.T) {
 func TestNilHistory_ConcurrentSave(t *testing.T) {
 	hist := NewNil()
 
-	v0 := version.New(registry.RootVersion)
-
 	var wg sync.WaitGroup
 	numGoroutines := 10
 
-	// Concurrently save the same version
+	// Concurrently save different versions
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
-			v := version.FromParent(v0, uint(routineID))
+			v := version.New(uint(routineID))
 			_ = hist.Save(v, registry.ChangeSet{}, true)
 		}(i)
 	}

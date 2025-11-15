@@ -3,6 +3,7 @@ package interceptor
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -13,27 +14,33 @@ import (
 	"go.uber.org/zap"
 )
 
+type entry struct {
+	interceptor apiinterceptor.Interceptor
+	order       int
+	name        string
+}
+
 // Registry manages available interceptors
 type Registry struct {
-	ctx          context.Context
-	logger       *zap.Logger
-	bus          event.Bus
-	interceptors []apiinterceptor.Interceptor
-	names        map[string]apiinterceptor.Interceptor
-	mu           sync.RWMutex
-	subscriber   *eventbus.Subscriber
+	ctx        context.Context
+	logger     *zap.Logger
+	bus        event.Bus
+	entries    []entry
+	chain      *Chain
+	mu         sync.RWMutex
+	subscriber *eventbus.Subscriber
 }
 
 // NewInterceptorRegistry creates a new interceptor registry
 func NewInterceptorRegistry(bus event.Bus, logger *zap.Logger) *Registry {
 	return &Registry{
-		ctx:          nil,
-		logger:       logger,
-		bus:          bus,
-		interceptors: make([]apiinterceptor.Interceptor, 0),
-		names:        make(map[string]apiinterceptor.Interceptor),
-		mu:           sync.RWMutex{},
-		subscriber:   nil,
+		ctx:        nil,
+		logger:     logger,
+		bus:        bus,
+		entries:    make([]entry, 0),
+		chain:      nil,
+		mu:         sync.RWMutex{},
+		subscriber: nil,
 	}
 }
 
@@ -70,8 +77,6 @@ func (r *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
 	case apiinterceptor.Register:
 		r.registerInterceptor(e)
-	case apiinterceptor.Update:
-		r.updateInterceptor(e)
 	case apiinterceptor.Delete:
 		r.deleteInterceptor(e)
 	case apiinterceptor.Accept, apiinterceptor.Reject:
@@ -83,10 +88,33 @@ func (r *Registry) handleEvent(e event.Event) {
 	}
 }
 
+// rebuild recalculates the interceptor chain (must be called with lock held)
+func (r *Registry) rebuild() {
+	sort.Slice(r.entries, func(i, j int) bool {
+		return r.entries[i].order < r.entries[j].order
+	})
+
+	interceptors := make([]apiinterceptor.Interceptor, len(r.entries))
+	for i, e := range r.entries {
+		interceptors[i] = e.interceptor
+	}
+
+	chain := newChain(interceptors)
+	r.chain = &chain
+}
+
 // registerInterceptor processes a register event
 func (r *Registry) registerInterceptor(e event.Event) {
-	interceptor, ok := e.Data.(apiinterceptor.Interceptor)
-	if !ok {
+	var interceptor apiinterceptor.Interceptor
+	var order int
+
+	if payload, ok := e.Data.(apiinterceptor.Entry); ok {
+		interceptor = payload.Interceptor
+		order = payload.Order
+	} else if ic, ok := e.Data.(apiinterceptor.Interceptor); ok {
+		interceptor = ic
+		order = 100
+	} else {
 		r.logger.Error("invalid interceptor payload",
 			zap.String("interceptor", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
@@ -98,9 +126,8 @@ func (r *Registry) registerInterceptor(e event.Event) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Check if interceptor already exists
-	for _, i := range r.interceptors {
-		if i == interceptor {
+	for _, entry := range r.entries {
+		if entry.name == e.Path {
 			r.logger.Warn("interceptor already registered",
 				zap.String("interceptor", e.Path))
 			r.sendReject(e.Path, "interceptor already registered")
@@ -108,43 +135,25 @@ func (r *Registry) registerInterceptor(e event.Event) {
 		}
 	}
 
-	r.interceptors = append(r.interceptors, interceptor)
-	r.logger.Debug("interceptor registered", zap.String("interceptor", e.Path))
+	r.entries = append(r.entries, entry{
+		interceptor: interceptor,
+		order:       order,
+		name:        e.Path,
+	})
+
+	r.rebuild()
+
+	r.logger.Debug("interceptor registered",
+		zap.String("interceptor", e.Path),
+		zap.Int("order", order))
 	r.sendAccept(e.Path)
 }
 
 // updateInterceptor processes an update event
 func (r *Registry) updateInterceptor(e event.Event) {
-	interceptor, ok := e.Data.(apiinterceptor.Interceptor)
-	if !ok {
-		r.logger.Error("invalid interceptor payload",
-			zap.String("interceptor", e.Path),
-			zap.String("type", fmt.Sprintf("%T", e.Data)))
-
-		r.sendReject(e.Path, "invalid interceptor data type")
-		return
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	found := false
-	for i, existing := range r.interceptors {
-		if existing == interceptor {
-			r.interceptors[i] = interceptor
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		r.logger.Warn("interceptor not found", zap.String("interceptor", e.Path))
-		r.sendReject(e.Path, "interceptor not found")
-		return
-	}
-
-	r.logger.Debug("interceptor updated", zap.String("interceptor", e.Path))
-	r.sendAccept(e.Path)
+	r.logger.Warn("update not supported for interceptors, use delete + register",
+		zap.String("interceptor", e.Path))
+	r.sendReject(e.Path, "update not supported")
 }
 
 // deleteInterceptor processes a delete event
@@ -153,9 +162,9 @@ func (r *Registry) deleteInterceptor(e event.Event) {
 	defer r.mu.Unlock()
 
 	found := false
-	for i, interceptor := range r.interceptors {
-		if interceptor == e.Data {
-			r.interceptors = append(r.interceptors[:i], r.interceptors[i+1:]...)
+	for i, entry := range r.entries {
+		if entry.name == e.Path {
+			r.entries = append(r.entries[:i], r.entries[i+1:]...)
 			found = true
 			break
 		}
@@ -166,6 +175,8 @@ func (r *Registry) deleteInterceptor(e event.Event) {
 		r.sendReject(e.Path, "interceptor not found")
 		return
 	}
+
+	r.rebuild()
 
 	r.logger.Debug("interceptor removed", zap.String("interceptor", e.Path))
 	r.sendAccept(e.Path)
@@ -190,87 +201,15 @@ func (r *Registry) sendReject(path event.Path, reason string) {
 	})
 }
 
-// Register registers an interceptor with the given name
-func (r *Registry) Register(name string, interceptor apiinterceptor.Interceptor) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if _, exists := r.names[name]; exists {
-		return fmt.Errorf("interceptor %s already registered", name)
-	}
-
-	for _, i := range r.interceptors {
-		if i == interceptor {
-			return fmt.Errorf("interceptor %s already registered", name)
-		}
-	}
-
-	r.interceptors = append(r.interceptors, interceptor)
-	r.names[name] = interceptor
-	return nil
-}
-
-// Unregister removes an interceptor by name
-func (r *Registry) Unregister(name string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	interceptor, exists := r.names[name]
-	if !exists {
-		return fmt.Errorf("interceptor %s not found", name)
-	}
-
-	for i, existing := range r.interceptors {
-		if existing == interceptor {
-			r.interceptors = append(r.interceptors[:i], r.interceptors[i+1:]...)
-			break
-		}
-	}
-
-	delete(r.names, name)
-
-	r.bus.Send(r.ctx, event.Event{
-		System: apiinterceptor.System,
-		Kind:   apiinterceptor.Delete,
-		Path:   "interceptor/" + name,
-		Data:   interceptor,
-	})
-
-	return nil
-}
-
-// Get returns an interceptor by name
-func (r *Registry) Get(name string) (apiinterceptor.Interceptor, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	interceptor, exists := r.names[name]
-	if !exists {
-		return nil, fmt.Errorf("interceptor %s not found", name)
-	}
-
-	return interceptor, nil
-}
-
-// List returns all registered interceptor names
-func (r *Registry) List() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	names := make([]string, 0, len(r.names))
-	for name := range r.names {
-		names = append(names, name)
-	}
-	return names
-}
-
-// Execute implements the Chain interface by creating a chain and executing it
+// Execute implements the Chain interface using the pre-built chain
 func (r *Registry) Execute(ctx context.Context, f function.Func, task runtime.Task) (chan *runtime.Result, error) {
 	r.mu.RLock()
-	interceptors := make([]apiinterceptor.Interceptor, len(r.interceptors))
-	copy(interceptors, r.interceptors)
+	chain := r.chain
 	r.mu.RUnlock()
 
-	chain := newChain(interceptors)
+	if chain == nil {
+		return f(ctx, task)
+	}
+
 	return chain.Execute(ctx, f, task)
 }

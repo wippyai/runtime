@@ -49,13 +49,17 @@ func (p *LuaProcess) Start(ctx context.Context, pid relay.PID, input payload.Pay
 }
 
 // Step advances the process state by one iteration
-func (p *LuaProcess) Step() error {
-	return p.state.Step(false)
-}
+func (p *LuaProcess) Step() (process.StepResult, error) {
+	err := p.state.Step(false)
+	if err != nil {
+		return process.StepDone, err
+	}
 
-// Ready returns the size of the runner's queue that is ready to be processed.
-func (p *LuaProcess) Ready() int {
-	return p.state.GetTaskCount()
+	if p.state.GetTaskCount() > 0 {
+		return process.StepContinue, nil
+	}
+
+	return process.StepIdle, nil
 }
 
 // Send handles incoming messages to the process

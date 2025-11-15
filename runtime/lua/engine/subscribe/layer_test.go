@@ -27,7 +27,7 @@ func setupTestVM(t *testing.T) (*engine.CoroutineVM, *engine.Runner) {
 	// Create VM with required modules
 	vm, err := engine.NewCVM(
 		logger,
-		engine.WithPreloaded("pubsub", NewSubscribeModule().Loader),
+		engine.WithPreloaded("relay", NewSubscribeModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 	)
 	require.NoError(t, err)

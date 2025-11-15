@@ -117,7 +117,8 @@ func historySnapshotAt(l *lua.LState) int {
 	}
 
 	// Create state builder
-	stateBuilder := topology.NewStateBuilder(history.log, nil)
+	resolver := regapi.GetResolver(l.Context())
+	stateBuilder := topology.NewStateBuilder(history.log, resolver)
 
 	// Build state at the specified version
 	state, err := stateBuilder.BuildState(history.hist, version)

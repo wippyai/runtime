@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/wippyai/runtime/api/event"
 	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
@@ -106,7 +107,36 @@ func BenchmarkRegistryGetChain(b *testing.B) {
 	int1 := &mockInterceptor{name: "int1"}
 	int2 := &mockInterceptor{name: "int2"}
 	int3 := &mockInterceptor{name: "int3"}
-	reg.interceptors = []apiinterceptor.Interceptor{int1, int2, int3}
+
+	reg.handleEvent(event.Event{
+		System: apiinterceptor.System,
+		Kind:   apiinterceptor.Register,
+		Path:   "interceptor/int1",
+		Data: apiinterceptor.Entry{
+			Interceptor: int1,
+			Order:       100,
+		},
+	})
+
+	reg.handleEvent(event.Event{
+		System: apiinterceptor.System,
+		Kind:   apiinterceptor.Register,
+		Path:   "interceptor/int2",
+		Data: apiinterceptor.Entry{
+			Interceptor: int2,
+			Order:       200,
+		},
+	})
+
+	reg.handleEvent(event.Event{
+		System: apiinterceptor.System,
+		Kind:   apiinterceptor.Register,
+		Path:   "interceptor/int3",
+		Data: apiinterceptor.Entry{
+			Interceptor: int3,
+			Order:       300,
+		},
+	})
 
 	mockFunc := func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 		ch := make(chan *runtime.Result, 1)
@@ -124,29 +154,12 @@ func BenchmarkRegistryGetChain(b *testing.B) {
 	}
 }
 
-// BenchmarkRegistryRegister benchmarks interceptor registration
-func BenchmarkRegistryRegister(b *testing.B) {
-	reg, _ := setupRegistryTest()
-	reg.Start(context.Background())
-	defer reg.Stop()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		b.StopTimer()
-		reg.interceptors = nil // Reset
-		interceptor := &mockInterceptor{name: "test"}
-		b.StartTimer()
-
-		reg.Register("test", interceptor)
-	}
-}
-
 // BenchmarkContextValuePropagation benchmarks context value propagation through chain
 func BenchmarkContextValuePropagation(b *testing.B) {
 	type ctxKey string
 	const testKey ctxKey = "test"
 
-	modifyingInterceptor := apiinterceptor.InterceptorFunc(func(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
+	modifyingInterceptor := apiinterceptor.HandlerFunc(func(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
 		newCtx := context.WithValue(ctx, testKey, "modified")
 		return next(newCtx)
 	})

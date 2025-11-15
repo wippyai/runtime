@@ -387,17 +387,17 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 
 		result := map[string]interface{}{"has_context": false}
 		if values := ctxapi.GetValues(ctx); values != nil {
-			existing := values.Get("existing")
-			scope := values.Get("context")
-			override := values.Get("override")
+			existing, existingOk := values.Get("existing")
+			scope, scopeOk := values.Get("context")
+			override, overrideOk := values.Get("override")
 
 			result = map[string]interface{}{
 				"has_context":    true,
-				"existing_ok":    existing != nil,
+				"existing_ok":    existingOk,
 				"existing_value": existing,
-				"scope_ok":       scope != nil,
+				"scope_ok":       scopeOk,
 				"scope_value":    scope,
-				"override_ok":    override != nil,
+				"override_ok":    overrideOk,
 				"override_value": override,
 			}
 		}
@@ -529,10 +529,8 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		captured := map[string]interface{}{}
 		if values := ctxapi.GetValues(ctx); values != nil {
 			// Capture all values from the context
-			values.Iterate(func(key any, value any) {
-				if keyStr, ok := key.(string); ok {
-					captured[keyStr] = value
-				}
+			values.Iterate(func(key string, value any) {
+				captured[key] = value
 			})
 		}
 

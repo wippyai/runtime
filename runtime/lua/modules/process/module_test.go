@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	processapi "github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	topologyapi "github.com/wippyai/runtime/api/topology"
@@ -19,7 +20,15 @@ import (
 
 func newTestContext() context.Context {
 	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+
+	// Set up test PID and ID in frame context before sealing
+	testPID := relay.PID{Host: "test-host", UniqID: "test-process-123"}
+	testID := registry.ID{NS: "test", Name: "process"}
+
+	_ = fc.Set(runtime.FramePIDKey, testPID)
+	_ = fc.Set(runtime.FrameIDKey, testID)
+
 	return ctx
 }
 

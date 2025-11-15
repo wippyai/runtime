@@ -15,6 +15,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 func setupListTest(t *testing.T) *engine.VM {
 	logger := zap.NewNop()
 
@@ -39,7 +45,7 @@ func TestList(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(context.Background(), `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             -- Spawn basic list
@@ -99,7 +105,7 @@ func TestList(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(context.Background(), `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             -- Spawn list with multiple pages
@@ -141,7 +147,7 @@ func TestList(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(context.Background(), `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -177,7 +183,7 @@ func TestList(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(context.Background(), `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -230,7 +236,7 @@ func TestListUpdate(t *testing.T) {
 	RegisterList(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	uw, ctx := engine.NewUnitOfWork(context.Background(), cvm.State())
+	uw, ctx := engine.NewUnitOfWork(newTestContext(), cvm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `
@@ -280,15 +286,12 @@ func TestListUpdate(t *testing.T) {
 }
 
 func TestItemManagement(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
 	// Test empty list behavior
 	t.Run("empty list operations", func(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             -- Spawn empty list
@@ -319,7 +322,7 @@ func TestItemManagement(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -351,7 +354,7 @@ func TestItemManagement(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -406,7 +409,7 @@ func TestItemManagement(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -443,7 +446,7 @@ func TestItemManagement(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -485,7 +488,7 @@ func TestItemManagement(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -525,14 +528,11 @@ func TestItemManagement(t *testing.T) {
 
 // Test status message handling and lifecycle
 func TestListStatusMessages(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
 	t.Run("status message operations", func(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             -- Spawn list with default status message lifetime
@@ -579,7 +579,7 @@ func TestListStatusMessages(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -616,14 +616,11 @@ func TestListStatusMessages(t *testing.T) {
 }
 
 func TestListSpinner(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
 	t.Run("basic spinner operations", func(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -660,7 +657,7 @@ func TestListSpinner(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             -- Test spinner with custom configuration
@@ -708,7 +705,7 @@ func TestListSpinner(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -751,7 +748,7 @@ func TestListSpinner(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -781,14 +778,11 @@ func TestListSpinner(t *testing.T) {
 }
 
 func TestListDelegate(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
 	t.Run("basic delegate operations", func(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -823,7 +817,7 @@ func TestListDelegate(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -864,7 +858,7 @@ func TestListDelegate(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             -- Keep click count in closure
@@ -915,7 +909,7 @@ func TestListDelegate(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(newTestContext(), `
             local btea = require("btea")
             
             -- Test missing required methods

@@ -342,7 +342,7 @@ func (m *Manager) handleRouterCreate(_ context.Context, entry registry.Entry) er
 		return err
 	}
 
-	serverID := registry.ParseID(cfg.Meta.StringValue(config.ServerID)).WithDefaultNS(entry.ID.NS)
+	serverID := registry.ParseID(cfg.Meta.GetString(config.ServerID, "")).WithDefaultNS(entry.ID.NS)
 	server, exists := m.servers[serverID]
 	if !exists {
 		return fmt.Errorf("server %s not found", serverID)
@@ -378,7 +378,7 @@ func (m *Manager) handleRouterUpdate(_ context.Context, entry registry.Entry) er
 	}
 
 	// Get target server from updated config
-	newServerID := registry.ParseID(cfg.Meta.StringValue(config.ServerID)).WithDefaultNS(entry.ID.NS)
+	newServerID := registry.ParseID(cfg.Meta.GetString(config.ServerID, "")).WithDefaultNS(entry.ID.NS)
 	newServer, exists := m.servers[newServerID]
 	if !exists {
 		return fmt.Errorf("target server %s not found", newServerID)
@@ -470,7 +470,7 @@ func (m *Manager) handleEndpointUpsert(ctx context.Context, entry registry.Entry
 		return err
 	}
 
-	routerID := registry.ParseID(cfg.Meta.StringValue(config.RouterID)).WithDefaultNS(entry.ID.NS)
+	routerID := registry.ParseID(cfg.Meta.GetString(config.RouterID, "")).WithDefaultNS(entry.ID.NS)
 	serverID, exists := m.routerServers[routerID]
 	if !exists {
 		return fmt.Errorf("router %s not found", routerID)
@@ -550,7 +550,7 @@ func (m *Manager) handleStaticUpsert(ctx context.Context, entry registry.Entry) 
 		return err
 	}
 
-	serverID := registry.ParseID(cfg.Meta.StringValue(config.ServerID)).WithDefaultNS(entry.ID.NS)
+	serverID := registry.ParseID(cfg.Meta.GetString(config.ServerID, "")).WithDefaultNS(entry.ID.NS)
 	server, exists := m.servers[serverID]
 	if !exists {
 		return fmt.Errorf("server %s not found", serverID)

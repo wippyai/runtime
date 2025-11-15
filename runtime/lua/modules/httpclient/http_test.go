@@ -534,7 +534,9 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		defer vm.Close()
 
 		// Spawn a cancellable context
-		ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
+		baseCtx := ctxapi.NewRootContext()
+		baseCtx, _ = ctxapi.OpenFrameContext(baseCtx)
+		ctx, cancel := context.WithCancel(baseCtx)
 		defer cancel()
 
 		// Run the test in a goroutine

@@ -14,6 +14,7 @@ import (
 // createTestNode creates a test node with the given Process.
 func createTestNode(id string) *Node {
 	return &Node{
+		ID:     registry.ID{Name: registry.Name(id)},
 		Kind:   "function.lua",
 		Source: fmt.Sprintf("function %s() return 'hello' end", id),
 		Method: "test",
@@ -385,11 +386,11 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 		}
 		// Verify alias propagation for nodeB and module for nodeC.
 		for _, dep := range rt.Dependencies {
-			if dep.Name == "depB" && dep.Node.ID.Name != "nodeB" {
+			if dep.Name == "depB" && dep.Node.ID.Name != "DepNodeB" {
 				t.Errorf("expected alias 'depB' for nodeB, got '%s'", dep.Name)
 			}
 			// Verify module is included as a dependency
-			if dep.Node.ID.Name == "nodeC" {
+			if dep.Node.ID.Name == "DepNodeC" {
 				if dep.Node.Module == nil || dep.Node.Module.Name() != "dummyMod" {
 					t.Errorf("expected module 'dummyMod' in nodeC dependency")
 				}
@@ -723,11 +724,13 @@ func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 		"lib1": createTestNode("Lib1"),
 		"lib2": createTestNode("Lib2"),
 		"mod1": {
+			ID:     registry.ID{Name: "mod1"},
 			Kind:   "module.lua",
 			Source: "module1 source",
 			Module: mod1,
 		},
 		"mod2": {
+			ID:     registry.ID{Name: "mod2"},
 			Kind:   "module.lua",
 			Source: "module2 source",
 			Module: mod2,
@@ -785,11 +788,13 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 		"lib1": createTestNode("Lib1"),
 		"lib2": createTestNode("Lib2"),
 		"mod1": {
+			ID:     registry.ID{Name: "mod1"},
 			Kind:   "module.lua",
 			Source: "module1 source",
 			Module: mod1,
 		},
 		"shared": {
+			ID:     registry.ID{Name: "shared"},
 			Kind:   "module.lua",
 			Source: "shared module source",
 			Module: sharedMod,
@@ -856,7 +861,7 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 	}
 
 	// Verify shared module appears exactly once
-	sharedCount := countDeps("Shared")
+	sharedCount := countDeps("shared")
 	if sharedCount != 1 {
 		t.Errorf("expected shared module to appear once, got %d occurrences", sharedCount)
 	}
@@ -865,7 +870,7 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 	var sharedPos, lib1Pos, lib2Pos int
 	for i, dep := range rt.Dependencies {
 		switch dep.Node.ID.Name {
-		case "Shared":
+		case "shared":
 			sharedPos = i
 		case "Lib1":
 			lib1Pos = i

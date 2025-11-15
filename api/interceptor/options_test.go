@@ -11,9 +11,6 @@ func TestNewBag(t *testing.T) {
 	if bag == nil {
 		t.Fatal("NewBag returned nil")
 	}
-	if bag.data == nil {
-		t.Fatal("bag.data is nil")
-	}
 }
 
 func TestNewBagFrom(t *testing.T) {
@@ -162,7 +159,7 @@ func TestBagClone(t *testing.T) {
 	bag.Set("key1", "value1")
 	bag.Set("key2", 42)
 
-	clone := bag.Clone()
+	clone := bag.Clone().(Bag)
 
 	if val := clone.GetString("key1", ""); val != "value1" {
 		t.Errorf("clone missing key1, got %s", val)
@@ -172,10 +169,8 @@ func TestBagClone(t *testing.T) {
 	}
 
 	// Modify clone and verify original unchanged
-	if cloneBag, ok := clone.(*Bag); ok {
-		cloneBag.Set("key1", "modified")
-		if val := bag.GetString("key1", ""); val == "modified" {
-			t.Error("modifying clone should not affect original")
-		}
+	clone.Set("key1", "modified")
+	if val := bag.GetString("key1", ""); val == "modified" {
+		t.Error("modifying clone should not affect original")
 	}
 }

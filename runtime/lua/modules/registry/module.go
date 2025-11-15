@@ -218,7 +218,8 @@ func (m *Module) snapshotAt(l *lua.LState) int {
 	}
 
 	// Create state builder
-	stateBuilder := topology.NewStateBuilder(m.log, nil)
+	resolver := regapi.GetResolver(l.Context())
+	stateBuilder := topology.NewStateBuilder(m.log, resolver)
 
 	// Build state at the specified version
 	state, err := stateBuilder.BuildState(history, foundVersion)

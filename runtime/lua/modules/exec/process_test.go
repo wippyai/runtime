@@ -2,14 +2,13 @@ package exec
 
 import (
 	"context"
-	"fmt" // Import fmt
-	ctxapi "github.com/wippyai/runtime/api/context"
+	"fmt"
 	"runtime"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -18,7 +17,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
 	luatime "github.com/wippyai/runtime/runtime/lua/modules/time"
-	native "github.com/wippyai/runtime/service/exec/native" // Import the native implementation
+	native "github.com/wippyai/runtime/service/exec/native"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -121,7 +120,7 @@ func typeName(v any) string {
 // --- Test Setup Helper ---
 
 //nolint:unparam // ok for now
-func setupLuaWithExec(t *testing.T, logger *zap.Logger) (*engine.CoroutineVM, engine.UnitOfWork, *engine.Runner) {
+func setupLuaWithExec(t *testing.T, logger *zap.Logger) (*engine.CoroutineVM, *engine.Runner, context.Context) {
 	// 1. Create the actual native executor factory
 	nativeFactory := native.NewNativeExecutor(logger, &apiexec.NativeExecutorConfig{})
 
@@ -154,32 +153,24 @@ func setupLuaWithExec(t *testing.T, logger *zap.Logger) (*engine.CoroutineVM, en
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 
-	// Create UoW and add context
-	baseCtx := newTestContext()
-	baseCtx = logs.WithLogger(baseCtx, logger)
-	uw, ctx := runner.InitUnitOfWork(baseCtx)
-
-	// Add the mock resource registry to the context
+	// Create context with resource registry
+	ctx := newTestContext()
+	ctx = logs.WithLogger(ctx, logger)
 	ctx = resource.WithRegistry(ctx, mockRegistry)
-
-	// Set the final context in the Lua state
-	vm.State().SetContext(ctx)
 
 	// Cleanup function for the VM
 	t.Cleanup(func() {
-		err := uw.Close() // Close UoW first
-		assert.NoError(t, err, "UoW Close error")
 		vm.Close()
 	})
 
-	return vm, uw, runner
+	return vm, runner, ctx
 }
 
 // --- Tests ---
 
 func TestProcessBasic(t *testing.T) {
 	logger := zap.NewNop() // Use zaptest.NewLogger(t) for verbose logs
-	vm, _, runner := setupLuaWithExec(t, logger)
+	vm, runner, ctx := setupLuaWithExec(t, logger)
 
 	// Use raw string literal for Lua code
 	err := vm.Import(
@@ -266,7 +257,7 @@ func TestProcessBasic(t *testing.T) {
         `, "test", "test_process_simple")
 	require.NoError(t, err)
 
-	_, err = runner.Execute(newTestContext(), "test_process_simple")
+	_, err = runner.Execute(ctx, "test_process_simple")
 
 	// get error stack
 	if err != nil {
@@ -283,7 +274,7 @@ func TestWorkingDirAndEnv(t *testing.T) {
 	}
 
 	logger := zap.NewNop()
-	vm, _, runner := setupLuaWithExec(t, logger)
+	vm, runner, ctx := setupLuaWithExec(t, logger)
 	tmpDir := t.TempDir() // Create a temporary directory
 
 	// Use raw string literal
@@ -351,7 +342,7 @@ func TestWorkingDirAndEnv(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute by passing tmpDir as a Lua string argument
-	_, err = runner.Execute(newTestContext(), "test_process_env_workdir", lua.LString(tmpDir))
+	_, err = runner.Execute(ctx, "test_process_env_workdir", lua.LString(tmpDir))
 	require.NoError(t, err)
 }
 
@@ -423,7 +414,7 @@ func TestWorkingDirAndEnv(t *testing.T) {
 
 func TestProcessWaitAndClose(t *testing.T) {
 	logger := zap.NewNop()
-	vm, _, runner := setupLuaWithExec(t, logger)
+	vm, runner, ctx := setupLuaWithExec(t, logger)
 
 	// Use raw string literal
 	err := vm.Import(
@@ -479,10 +470,10 @@ func TestProcessWaitAndClose(t *testing.T) {
 	require.NoError(t, err)
 
 	// Allow slightly longer for this test due to sleeps and waits
-	ctx, cancel := context.WithTimeout(newTestContext(), 10*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	_, err = runner.Execute(ctx, "test_process_wait_close")
+	_, err = runner.Execute(timeoutCtx, "test_process_wait_close")
 	require.NoError(t, err)
 }
 

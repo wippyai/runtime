@@ -1,7 +1,6 @@
 package list
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -58,7 +57,7 @@ func TestLuaItem(t *testing.T) {
 
 	// Test item string methods
 	t.Run("item string methods", func(t *testing.T) {
-		err := vm.DoString(context.Background(), `
+		err := vm.DoString(newTestContext(), `
             local item = {
                 filter_value = "test-filter",
                 title = "Test Title",
@@ -76,7 +75,7 @@ func TestLuaItem(t *testing.T) {
 
 	// Test function-based values
 	t.Run("item function values", func(t *testing.T) {
-		err := vm.DoString(context.Background(), `
+		err := vm.DoString(newTestContext(), `
             local item = {
                 filter_value = function(self) return "dynamic-filter" end,
                 title = function(self) return "Dynamic Title" end,
@@ -94,7 +93,7 @@ func TestLuaItem(t *testing.T) {
 
 	// Test nil values
 	t.Run("item nil values", func(t *testing.T) {
-		err := vm.DoString(context.Background(), `
+		err := vm.DoString(newTestContext(), `
             local item = {}            
             local luaItem = TestCreateLuaItem(item)
             
@@ -107,7 +106,7 @@ func TestLuaItem(t *testing.T) {
 
 	// Test value updates
 	t.Run("item value updates", func(t *testing.T) {
-		err := vm.DoString(context.Background(), `
+		err := vm.DoString(newTestContext(), `
             local item = {
                 filter_value = "initial-filter",
                 title = "Initial Title",
@@ -129,7 +128,7 @@ func TestLuaItem(t *testing.T) {
 
 	// Test accessing original value
 	t.Run("item original value access", func(t *testing.T) {
-		err := vm.DoString(context.Background(), `
+		err := vm.DoString(newTestContext(), `
             local item = {
                 filter_value = "test-filter",
                 title = "Test Title",

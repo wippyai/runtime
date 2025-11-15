@@ -73,7 +73,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	m.log.Info("added S3 storage",
 		zap.String("id", entry.ID.String()),
-		zap.String("bucket", meta.StringValue("meta")),
+		zap.String("bucket", meta.GetString("bucket", "")),
 	)
 
 	return nil
@@ -112,7 +112,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	m.log.Info("updated S3 storage",
 		zap.String("id", entry.ID.String()),
-		zap.String("bucket", meta.StringValue("bucket")),
+		zap.String("bucket", meta.GetString("bucket", "")),
 	)
 
 	return nil

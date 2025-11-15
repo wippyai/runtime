@@ -34,13 +34,17 @@ type Module struct {
 type Functions struct {
 	funcs  function.Registry
 	dtt    payload.Transcoder
-	values *contextapi.Values
+	values contextapi.Values
 
 	// Dedicated fields for security context to prevent overwriting/conflicting with user values
 	actor    secapi.Actor
 	hasActor bool
 	scope    secapi.Scope
 	hasScope bool
+
+	// Options for function execution (retry, ratelimit, timeout, etc.)
+	options    interface{}
+	hasOptions bool
 }
 
 // NewFunctionModule creates a new function module
@@ -70,6 +74,7 @@ func (m *Module) initModuleTable(l *lua.LState) {
 		"with_context": m.withContext,
 		"with_actor":   m.withActor,
 		"with_scope":   m.withScope,
+		"with_options": m.withOptions,
 		"call":         m.call,
 		"async":        m.async,
 	})
@@ -117,17 +122,18 @@ func (m *Module) new(l *lua.LState) int {
 
 	values := contextapi.GetValues(l.Context())
 	if values != nil {
-		values = values.Clone().(*contextapi.Values)
+		values = values.Clone().(contextapi.Values)
 	} else {
 		values = contextapi.NewValues()
 	}
 
 	functions := &Functions{
-		funcs:    funcs,
-		dtt:      dtt,
-		values:   values,
-		hasActor: false,
-		hasScope: false,
+		funcs:      funcs,
+		dtt:        dtt,
+		values:     values,
+		hasActor:   false,
+		hasScope:   false,
+		hasOptions: false,
 	}
 
 	ud := l.NewUserData()
@@ -157,7 +163,7 @@ func (m *Module) withContext(l *lua.LState) int {
 	// Create new Values and copy existing values
 	newValues := contextapi.NewValues()
 	if functions.values != nil {
-		functions.values.Iterate(func(key any, value any) {
+		functions.values.Iterate(func(key string, value any) {
 			newValues.Set(key, value)
 		})
 	}
@@ -174,13 +180,15 @@ func (m *Module) withContext(l *lua.LState) int {
 
 	// Create new Functions instance with copied security context
 	newFunctions := &Functions{
-		funcs:    functions.funcs,
-		dtt:      functions.dtt,
-		values:   newValues,
-		actor:    functions.actor,
-		hasActor: functions.hasActor,
-		scope:    functions.scope,
-		hasScope: functions.hasScope,
+		funcs:      functions.funcs,
+		dtt:        functions.dtt,
+		values:     newValues,
+		actor:      functions.actor,
+		hasActor:   functions.hasActor,
+		scope:      functions.scope,
+		hasScope:   functions.hasScope,
+		options:    functions.options,
+		hasOptions: functions.hasOptions,
 	}
 
 	// Create new userdata with the new Functions instance
@@ -223,13 +231,15 @@ func (m *Module) withActor(l *lua.LState) int {
 
 	// Create new Functions instance with copied values and new actor
 	newFunctions := &Functions{
-		funcs:    functions.funcs,
-		dtt:      functions.dtt,
-		values:   functions.values.Clone().(*contextapi.Values), // Clone the values
-		actor:    actor,
-		hasActor: true,
-		scope:    functions.scope,
-		hasScope: functions.hasScope,
+		funcs:      functions.funcs,
+		dtt:        functions.dtt,
+		values:     functions.values.Clone().(contextapi.Values),
+		actor:      actor,
+		hasActor:   true,
+		scope:      functions.scope,
+		hasScope:   functions.hasScope,
+		options:    functions.options,
+		hasOptions: functions.hasOptions,
 	}
 
 	// Create new userdata with the new Functions instance
@@ -272,13 +282,52 @@ func (m *Module) withScope(l *lua.LState) int {
 
 	// Create new Functions instance with copied values and new scope
 	newFunctions := &Functions{
-		funcs:    functions.funcs,
-		dtt:      functions.dtt,
-		values:   functions.values.Clone().(*contextapi.Values), // Clone the values
-		actor:    functions.actor,
-		hasActor: functions.hasActor,
-		scope:    scope,
-		hasScope: true,
+		funcs:      functions.funcs,
+		dtt:        functions.dtt,
+		values:     functions.values.Clone().(contextapi.Values),
+		actor:      functions.actor,
+		hasActor:   functions.hasActor,
+		scope:      scope,
+		hasScope:   true,
+		options:    functions.options,
+		hasOptions: functions.hasOptions,
+	}
+
+	// Create new userdata with the new Functions instance
+	newUd := l.NewUserData()
+	newUd.Value = newFunctions
+	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
+	l.Push(newUd)
+
+	return 1
+}
+
+// withOptions creates a new executor with runtime options
+func (m *Module) withOptions(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	functions, ok := ud.Value.(*Functions)
+	if !ok {
+		l.ArgError(1, "functions executor expected")
+		return 0
+	}
+
+	// Get options table
+	optionsTable := l.CheckTable(2)
+
+	// Convert Lua table to Go value for storage
+	options := luaconv.ToGoAny(optionsTable)
+
+	// Create new Functions instance with copied values and new options
+	newFunctions := &Functions{
+		funcs:      functions.funcs,
+		dtt:        functions.dtt,
+		values:     functions.values.Clone().(contextapi.Values),
+		actor:      functions.actor,
+		hasActor:   functions.hasActor,
+		scope:      functions.scope,
+		hasScope:   functions.hasScope,
+		options:    options,
+		hasOptions: true,
 	}
 
 	// Create new userdata with the new Functions instance
@@ -529,6 +578,11 @@ func (f *Functions) createTask(l *lua.LState, log *zap.Logger) (runtime.Task, er
 		ID:       regID,
 		Payloads: payloads,
 		Context:  ctxPairs,
+	}
+
+	// Add options if set
+	if f.hasOptions {
+		task.Options = f.options
 	}
 
 	return task, nil

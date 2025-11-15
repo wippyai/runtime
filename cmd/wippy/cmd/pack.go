@@ -154,7 +154,7 @@ func runPack(cmd *cobra.Command, args []string) error {
 		zap.String("output", outputFile),
 		zap.Int("entries", len(entries)),
 		zap.Int64("size_bytes", fileInfo.Size()),
-		zap.String("version", metadata.StringValue("wippy_version")))
+		zap.String("version", metadata.GetString("wippy_version", "")))
 
 	return nil
 }

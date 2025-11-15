@@ -70,6 +70,7 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid relay.PID
 	m.logger.Debug("launching process",
 		zap.String("host", ps.HostID),
 		zap.String("pid", pid.String()),
+		zap.String("id", ps.Source.String()),
 	)
 
 	switch h := host.(type) {
@@ -162,8 +163,15 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 			return
 		}
 
-		m.logger.Debug("process started",
-			zap.String("pid", pid.String()))
+		id, ok := runtime.GetFrameID(ctx)
+		if ok {
+			m.logger.Debug("process started",
+				zap.String("pid", pid.String()),
+				zap.String("id", id.String()))
+		} else {
+			m.logger.Debug("process started",
+				zap.String("pid", pid.String()))
+		}
 
 		// Register the Target with topology
 		err := topo.Register(pid)
@@ -217,21 +225,42 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 			return
 		}
 
+		id, ok := runtime.GetFrameID(ctx)
+
 		if result.Error != nil {
 			if errors.Is(result.Error, supervisor.ErrExit) {
-				m.logger.Debug("process exited",
-					zap.String("pid", pid.String()))
-
+				if ok {
+					m.logger.Debug("process exited",
+						zap.String("pid", pid.String()),
+						zap.String("id", id.String()))
+				} else {
+					m.logger.Debug("process exited",
+						zap.String("pid", pid.String()))
+				}
 				result.Error = nil // normal exit
 			} else {
-				m.logger.Debug("process failed",
-					zap.String("pid", pid.String()),
-					zap.Error(result.Error))
+				if ok {
+					m.logger.Debug("process failed",
+						zap.String("pid", pid.String()),
+						zap.String("id", id.String()),
+						zap.Error(result.Error))
+				} else {
+					m.logger.Debug("process failed",
+						zap.String("pid", pid.String()),
+						zap.Error(result.Error))
+				}
 			}
 		} else {
-			m.logger.Debug("process completed",
-				zap.String("pid", pid.String()),
-				zap.Any("result", result.Value))
+			if ok {
+				m.logger.Debug("process completed",
+					zap.String("pid", pid.String()),
+					zap.String("id", id.String()),
+					zap.Any("result", result.Value))
+			} else {
+				m.logger.Debug("process completed",
+					zap.String("pid", pid.String()),
+					zap.Any("result", result.Value))
+			}
 		}
 
 		topo.Notify(pid, result)

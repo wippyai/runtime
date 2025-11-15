@@ -123,7 +123,7 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 		require.NoError(t, err)
 		assert.Error(t, proc.Send(nil))
 
-		err = proc.Step()
+		_, err = proc.Step()
 		assert.Error(t, err)
 	})
 }

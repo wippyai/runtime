@@ -11,6 +11,7 @@ func All() []boot.Component {
 		LuaBTEA(),
 		LuaChannel(),
 		LuaCloudStorage(),
+		LuaCompress(),
 		LuaContract(),
 		LuaCrypto(),
 		LuaEvents(),

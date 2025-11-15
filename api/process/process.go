@@ -47,6 +47,15 @@ const (
 	HostReject event.Kind = "hosts.reject"
 )
 
+const (
+	// StepContinue indicates the process has more work and should be rescheduled immediately
+	StepContinue StepResult = iota
+	// StepIdle indicates the process has no work and should wait for new messages
+	StepIdle
+	// StepDone indicates the process has finished execution
+	StepDone
+)
+
 var (
 	// ErrNoProcess indicates that no process is currently running.
 	ErrNoProcess = errors.New("no process running")
@@ -65,6 +74,9 @@ var (
 )
 
 type (
+	// StepResult indicates the state of a process after a Step() execution
+	StepResult int
+
 	// Prototype is a function that creates a new process instance.
 	// It returns a Process and an error if the process creation fails.
 	// Prototypes are registered in the system and used to instantiate processes on demand.
@@ -88,12 +100,8 @@ type (
 		Start(stdcontext.Context, relay.PID, payload.Payloads) error
 
 		// Step advances process state by one iteration.
-		Step() error
-
-		// Ready returns the size of the runner's queue that is ready to be processed.
-		// Higher values typically indicate that process is lagging behind and needs more
-		// resources.
-		Ready() int
+		// Returns StepResult indicating next action and error if process failed.
+		Step() (StepResult, error)
 
 		// Terminate notifies the process about termination, triggers lifecycle handling.
 		Terminate()
