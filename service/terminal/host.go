@@ -88,7 +88,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	defer close(status)
 	defer t.cleanup(nil)
 
-	t.ctx = logsapi.WithLogger(ctx, t.log)
+	t.ctx = ctx
 
 	for {
 		select {
@@ -162,43 +162,28 @@ func (t *Terminal) prepareContext(
 	ctx context.Context,
 	launch *process.Launch,
 ) context.Context {
-	// Start from incoming context to preserve security context
-	pCtx := ctx
-
 	// Get or create FrameContext for this process
 	// If parent frame is sealed, OpenFrameContext creates a new frame and automatically
 	// copies all keys marked with Inherit: true (including actor and scope)
 	// If parent frame is unsealed, this reuses it
-	pCtx, fc := ctxapi.OpenFrameContext(pCtx)
-
-	// todo: this is weird
-	cfg := &RunnerConfig{ // todO; we can remve it
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-	}
-	termCtx := terminal.NewTerminalContext(cfg.Stdin, cfg.Stdout, cfg.Stderr)
+	pCtx, fc := ctxapi.OpenFrameContext(ctx)
 
 	// Store frame ID, PID, host, and terminal context in FrameContext
 	// Pre-allocate pairs slice with exact size
-	pairsLen := 3 + len(launch.Context)
+	pairsLen := 4 + len(launch.Context)
 	pairs := make([]ctxapi.Pair, pairsLen)
 	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: launch.Source}
 	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: launch.PID}
 	pairs[2] = ctxapi.Pair{Key: runtime.FrameHostKey, Value: t.id}
+	pairs[3] = ctxapi.Pair{Key: terminal.TerminalCtxKey, Value: terminal.NewTerminalContext(os.Stdin, os.Stdout, os.Stderr)}
 
 	// Add launch context overrides
 	if len(launch.Context) > 0 {
-		copy(pairs[3:], launch.Context)
+		copy(pairs[4:], launch.Context)
 	}
 
 	if err := fc.SetMultiple(pairs...); err != nil {
 		t.log.Error("failed to set frame context", zap.Error(err))
-	}
-
-	// Set terminal context separately (uses unexported key in terminal package)
-	if err := terminal.SetTerminalContext(pCtx, termCtx); err != nil {
-		t.log.Error("failed to set terminal context", zap.Error(err))
 	}
 
 	// global lifecycle

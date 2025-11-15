@@ -11,9 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 	treesittergo "github.com/tree-sitter/tree-sitter-go/bindings/go"
 	treesitterjs "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestGetLanguageInfo(t *testing.T) {
 	tests := []struct {
@@ -118,7 +125,7 @@ func TestGrammarSupport(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local langs = treesitter.supported_languages()
 			assert(type(langs) == "table", "supported_languages should return a table")
@@ -198,7 +205,7 @@ func TestGrammarSupport(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			
 			local function test_invalid_parse(alias)

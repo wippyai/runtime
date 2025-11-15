@@ -9,9 +9,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
 
 func TestSQLQueries(t *testing.T) {
 	logger := zap.NewNop()
@@ -24,7 +31,7 @@ func TestSQLQueries(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(context.Background(), `
+	err = vm.DoString(newTestContext(), `
 	local treesitter = require("treesitter")
 
 	-- Test SQL query parsing
@@ -82,7 +89,7 @@ func TestMarkdownQueries(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(context.Background(), `
+	err = vm.DoString(newTestContext(), `
 		local treesitter = require("treesitter")
 		
 		-- Test Markdown parsing
@@ -148,7 +155,7 @@ func TestBasicQuery(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(context.Background(), `
+	err = vm.DoString(newTestContext(), `
 		local treesitter = require("treesitter")
 
 		-- Simple test code with a function
@@ -208,7 +215,7 @@ func TestQueryMultipleCaptures(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(context.Background(), `
+	err = vm.DoString(newTestContext(), `
 		local treesitter = require("treesitter")
 
 		-- Test code with multiple functions and parameters
@@ -276,7 +283,7 @@ func TestQueryFunctionDetails(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(context.Background(), `
+	err = vm.DoString(newTestContext(), `
         local treesitter = require("treesitter")
 
         local code = [[
@@ -386,7 +393,7 @@ func TestQueryParamDebug(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(context.Background(), `
+	err = vm.DoString(newTestContext(), `
         local treesitter = require("treesitter")
 
 local code = [[
@@ -506,7 +513,7 @@ func TestQueryAdvancedFeatures(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(context.Background(), `
+	err = vm.DoString(newTestContext(), `
         local treesitter = require("treesitter")
 
         local code = [[
@@ -617,7 +624,7 @@ func TestQueryOperations(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(context.Background(), `
+	err = vm.DoString(newTestContext(), `
 		local treesitter = require("treesitter")
 
 -- Test code with rich syntax for comprehensive query testing
@@ -757,7 +764,7 @@ func TestQueryErrorCases(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(context.Background(), `
+	err = vm.DoString(newTestContext(), `
 		local treesitter = require("treesitter")
 
 -- Test different query error types
@@ -830,7 +837,7 @@ func TestQueryTextPredicates(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(context.Background(), `
+	err = vm.DoString(newTestContext(), `
 		local treesitter = require("treesitter")
 
 -- Test code with various matches for predicates

@@ -37,7 +37,7 @@ func TestGetTerminalContext(t *testing.T) {
 		stderr := &bytes.Buffer{}
 		termCtx := NewTerminalContext(stdin, stdout, stderr)
 
-		err := fc.Set(terminalCtx, termCtx)
+		err := fc.Set(TerminalCtxKey, termCtx)
 		require.NoError(t, err)
 
 		retrieved := GetTerminalContext(ctx)
@@ -55,7 +55,7 @@ func TestGetTerminalContext(t *testing.T) {
 		ctx := contextapi.NewRootContext()
 		ctx, fc := contextapi.OpenFrameContext(ctx)
 
-		err := fc.Set(terminalCtx, "wrong type")
+		err := fc.Set(TerminalCtxKey, "wrong type")
 		require.NoError(t, err)
 
 		tc := GetTerminalContext(ctx)

@@ -14,6 +14,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 func TestParser(t *testing.T) {
 	logger := zap.NewNop()
 
@@ -26,7 +32,7 @@ func TestParser(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			
 			-- Test parser creation
@@ -56,7 +62,7 @@ func TestParser(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local parser = treesitter.parser()
 			parser:set_language("go")
@@ -78,7 +84,7 @@ func TestParser(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local parser = treesitter.parser()
 			parser:set_language("go")
@@ -126,7 +132,7 @@ func TestParser(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local parser = treesitter.parser()
 
@@ -167,7 +173,7 @@ func TestParser(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local parser = treesitter.parser()
 			parser:set_language("go")
@@ -214,7 +220,7 @@ func TestParser(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
         local treesitter = require("treesitter")
         local parser = treesitter.parser()
         
@@ -279,7 +285,7 @@ func TestParserLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
             local treesitter = require("treesitter")
             
             -- Spawn parser and parse some code
@@ -326,7 +332,7 @@ func TestParserLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
             local treesitter = require("treesitter")
             
             -- Test parser memory handling during edits
@@ -379,7 +385,7 @@ func TestParserResetAndClose(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			
 			-- GetField a parser and parse some code
@@ -424,7 +430,7 @@ func TestParserResetAndClose(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local parser = treesitter.parser()
 			assert(parser:set_language("go"), "should set language")
@@ -463,7 +469,7 @@ func TestParserResetAndClose(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(newTestContext(), `
 			local treesitter = require("treesitter")
 			local parser = treesitter.parser()
 			

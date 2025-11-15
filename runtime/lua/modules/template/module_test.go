@@ -67,7 +67,7 @@ func (m *mockResourceRegistry) Exists(id registry.ID) bool {
 }
 
 // setupLuaWithTemplates sets up a Lua state with our template module and a test template set
-func setupLuaWithTemplates(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner) {
+func setupLuaWithTemplates(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *lua.LState, *engine.Runner, context.Context) {
 	logger := zaptest.NewLogger(t)
 
 	// Create the template module
@@ -100,16 +100,13 @@ func setupLuaWithTemplates(t *testing.T, mockRes *mockResource) (*engine.Corouti
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(ctx)
-
 	// Add the resource registry to the context
 	ctx = resource.WithRegistry(ctx, mockRegistry)
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)
 
-	return vm, L, uw, runner
+	return vm, L, runner, ctx
 }
 
 // createTestTemplateSet creates a template set for testing
@@ -163,12 +160,8 @@ func TestTemplateBasicGet(t *testing.T) {
 	}
 
 	// Setup Lua with the test templates
-	vm, L, uw, runner := setupLuaWithTemplates(t, mockRes)
+	vm, _, runner, ctx := setupLuaWithTemplates(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import our test function
 	err := vm.Import(`
@@ -188,7 +181,7 @@ func TestTemplateBasicGet(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_template_get")
+	result, err := runner.Execute(ctx, "test_template_get")
 	require.NoError(t, err, "Lua execution failed")
 
 	assert.Equal(t, lua.LTrue, result, "Templates.get should return true on successful release")
@@ -206,12 +199,8 @@ func TestTemplateRender(t *testing.T) {
 	}
 
 	// Setup Lua with the test templates
-	vm, L, uw, runner := setupLuaWithTemplates(t, mockRes)
+	vm, _, runner, ctx := setupLuaWithTemplates(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import our test function
 	err := vm.Import(`
@@ -264,7 +253,7 @@ func TestTemplateRender(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_template_render")
+	result, err := runner.Execute(ctx, "test_template_render")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultTable := result.(*lua.LTable)
@@ -300,7 +289,7 @@ func TestTemplateAutomaticRelease(t *testing.T) {
 	}
 
 	// Setup Lua with the test templates
-	vm, L, uw, runner := setupLuaWithTemplates(t, mockRes)
+	vm, _, runner, ctx := setupLuaWithTemplates(t, mockRes)
 	defer vm.Close()
 
 	// Import our test function
@@ -308,21 +297,22 @@ func TestTemplateAutomaticRelease(t *testing.T) {
 		function test_template_auto_release()
 			local templates = require("templates")
 			local tmpl = templates.get("app:test_templates")
-			
+
 			-- Render a template
 			local result, err = tmpl:render("welcome", {
 				name = "Automatic Release Test"
 			})
 			if err then error(err) end
-			
+
 			-- We don't explicitly release the template
 			return result
 		end
 	`, "test", "test_template_auto_release")
 	require.NoError(t, err, "Failed to import test function")
 
-	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_template_auto_release")
+	// Execute the function with a manually created UOW
+	uw, uwCtx := runner.InitUnitOfWork(ctx)
+	result, err := runner.Execute(uwCtx, "test_template_auto_release")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify the rendered template
@@ -415,12 +405,8 @@ func TestTemplateModuleIntegration(t *testing.T) {
 	}
 
 	// Setup Lua with the test templates
-	vm, L, uw, runner := setupLuaWithTemplates(t, mockRes)
+	vm, _, runner, ctx := setupLuaWithTemplates(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import our test function
 	err := vm.Import(`
@@ -463,7 +449,7 @@ func TestTemplateModuleIntegration(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_template_integration")
+	result, err := runner.Execute(ctx, "test_template_integration")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultTable := result.(*lua.LTable)
@@ -576,12 +562,8 @@ func TestTemplateRenderInheritance(t *testing.T) {
 	}
 
 	// Setup Lua with the test templates
-	vm, L, uw, runner := setupLuaWithTemplates(t, mockRes)
+	vm, _, runner, ctx := setupLuaWithTemplates(t, mockRes)
 	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
 
 	// Import our test function
 	err = vm.Import(`
@@ -655,7 +637,7 @@ func TestTemplateRenderInheritance(t *testing.T) {
 	require.NoError(t, err, "Failed to import test function")
 
 	// Execute the function
-	result, err := runner.Execute(L.Context(), "test_template_render_inheritance")
+	result, err := runner.Execute(ctx, "test_template_render_inheritance")
 	require.NoError(t, err, "Lua execution failed")
 
 	resultTable := result.(*lua.LTable)

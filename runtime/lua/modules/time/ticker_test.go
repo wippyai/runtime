@@ -51,7 +51,7 @@ func TestTicker(t *testing.T) {
 		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 		start := time.Now()
-		result, err := runner.Execute(context.Background(), "test")
+		result, err := runner.Execute(newTestContext(), "test")
 		duration := time.Since(start)
 
 		require.NoError(t, err)
@@ -159,7 +159,7 @@ func TestTicker(t *testing.T) {
 
 				runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
-				result, err := runner.Execute(context.Background(), "test")
+				result, err := runner.Execute(newTestContext(), "test")
 
 				if tc.expectError {
 					assert.Error(t, err)
@@ -198,7 +198,9 @@ func TestTicker(t *testing.T) {
 
 		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
-		ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
+		baseCtx := ctxapi.NewRootContext()
+		baseCtx, _ = ctxapi.OpenFrameContext(baseCtx)
+		ctx, cancel := context.WithCancel(baseCtx)
 
 		done := make(chan struct{})
 		var execErr error
@@ -269,7 +271,7 @@ func TestTicker(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		result, err := runner.Execute(context.Background(), "test")
+		result, err := runner.Execute(newTestContext(), "test")
 		require.NoError(t, err)
 
 		resultTable := result.(*lua.LTable)
