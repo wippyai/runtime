@@ -35,26 +35,6 @@ func newHTTPNetworkError(l *lua.LState, err error, url, method string) lua.LValu
 	return newHTTPError(l, apierr.KindUnavailable, &retryable, err.Error(), details)
 }
 
-// newHTTPPermissionError creates an error for security violations.
-func newHTTPPermissionError(l *lua.LState, resource, action string) lua.LValue {
-	details := attrs.NewBag()
-	details.Set("resource", resource)
-	details.Set("action", action)
-	retryable := false
-	msg := fmt.Sprintf("not allowed to %s: %s", action, resource)
-	return newHTTPError(l, apierr.KindPermissionDenied, &retryable, msg, details)
-}
-
-// newHTTPValidationError creates an error for invalid input.
-func newHTTPValidationError(l *lua.LState, field, constraint string) lua.LValue {
-	details := attrs.NewBag()
-	details.Set("field", field)
-	details.Set("constraint", constraint)
-	retryable := false
-	msg := fmt.Sprintf("%s %s", field, constraint)
-	return newHTTPError(l, apierr.KindInvalid, &retryable, msg, details)
-}
-
 // newHTTPIOError creates an error for I/O failures (reading/writing body).
 func newHTTPIOError(l *lua.LState, err error, operation string) lua.LValue {
 	details := attrs.NewBag()

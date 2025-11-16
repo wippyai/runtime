@@ -10,6 +10,7 @@ import (
 	funcapi "github.com/wippyai/runtime/api/function"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pidgen"
 	regapi "github.com/wippyai/runtime/api/registry"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -65,6 +66,8 @@ func HTTP() boot.Component {
 				return ctx, fmt.Errorf("registry not available in context")
 			}
 
+			pidGen := pidgen.GetGenerator(ctx)
+
 			// Register HTTP dependency patterns
 			httpPatterns := []regapi.DependencyPattern{
 				{Path: "meta.server", Description: "Reference to HTTP server in metadata"},
@@ -89,7 +92,7 @@ func HTTP() boot.Component {
 				return ctx, fmt.Errorf("failed to create static factory: %w", err)
 			}
 
-			relayManager := websocketrelay.NewWebSocketRelay(ctx, logger.Named("ws"))
+			relayManager := websocketrelay.NewWebSocketRelay(ctx, logger.Named("ws"), pidGen)
 
 			midRegistry := http.NewMiddlewareRegistry(logger.Named("http.md"))
 

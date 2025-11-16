@@ -37,7 +37,7 @@ func init() {
 	runCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 }
 
-func runApp(cmd *cobra.Command, args []string) error {
+func runApp(cmd *cobra.Command, _ []string) error {
 	printBanner()
 
 	logger, err := CreateLogger()

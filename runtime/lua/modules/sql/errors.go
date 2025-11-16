@@ -38,16 +38,6 @@ func newSQLQueryError(l *lua.LState, err error, query string) lua.LValue {
 	return newSQLError(l, kind, retryable, err.Error(), details)
 }
 
-// newSQLConnectionError creates an error for connection failures.
-func newSQLConnectionError(l *lua.LState, err error, database string) lua.LValue {
-	details := attrs.NewBag()
-	if database != "" {
-		details.Set("database", database)
-	}
-	retryable := true
-	return newSQLError(l, apierr.KindUnavailable, &retryable, err.Error(), details)
-}
-
 // newSQLTransactionError creates an error for transaction failures.
 func newSQLTransactionError(l *lua.LState, err error, operation string) lua.LValue {
 	details := attrs.NewBag()

@@ -15,7 +15,7 @@ import (
 // createTestNode creates a test node with the given Process.
 func createTestNode(id string) *Node {
 	return &Node{
-		ID:     registry.ID{Name: registry.Name(id)},
+		ID:     registry.ID{Name: id},
 		Kind:   "function.lua",
 		Source: fmt.Sprintf("function %s() return 'hello' end", id),
 		Method: "test",

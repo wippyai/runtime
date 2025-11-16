@@ -24,7 +24,6 @@ import (
 var (
 	internodeServiceKey  = &ctxapi.Key{Name: "cluster.internode"}
 	membershipServiceKey = &ctxapi.Key{Name: "cluster.membership"}
-	connManagerKey       = &ctxapi.Key{Name: "cluster.connmanager"}
 )
 
 // WithInternodeService attaches InternodeService to context
@@ -244,7 +243,7 @@ func Cluster() boot.Component {
 
 			return nil
 		},
-		Stop: func(ctx context.Context) error {
+		Stop: func(_ context.Context) error {
 			if internodeSvc != nil {
 				logger.Info("stopping cluster internode service")
 				if err := internodeSvc.Stop(); err != nil {

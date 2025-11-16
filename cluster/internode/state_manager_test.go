@@ -2,6 +2,7 @@ package internode
 
 import (
 	"net"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -94,7 +95,7 @@ func TestNodeStateManager_RemoveNodeState_WithConnection(t *testing.T) {
 	assert.Nil(t, nsm.GetNodeState(nodeID))
 }
 
-func TestNodeStateManager_RemoveNodeState_NonExistent(t *testing.T) {
+func TestNodeStateManager_RemoveNodeState_NonExistent(_ *testing.T) {
 	nsm := setupStateManager()
 	nodeID := cluster.NodeID("non-existent")
 
@@ -241,7 +242,7 @@ func TestNodeStateManager_RequeueMessages(t *testing.T) {
 	assert.Equal(t, []byte{1}, messages[2]) // Original message last
 }
 
-func TestNodeStateManager_RequeueMessages_Empty(t *testing.T) {
+func TestNodeStateManager_RequeueMessages_Empty(_ *testing.T) {
 	nsm := setupStateManager()
 	nodeID := cluster.NodeID("test-node-1")
 
@@ -251,7 +252,7 @@ func TestNodeStateManager_RequeueMessages_Empty(t *testing.T) {
 	nsm.RequeueMessages(nodeID, [][]byte{})
 }
 
-func TestNodeStateManager_RequeueMessages_UnmanagedNode(t *testing.T) {
+func TestNodeStateManager_RequeueMessages_UnmanagedNode(_ *testing.T) {
 	nsm := setupStateManager()
 	nodeID := cluster.NodeID("unmanaged")
 
@@ -284,7 +285,7 @@ func TestNodeStateManager_GetNodeConnection_NonExistent(t *testing.T) {
 	assert.Equal(t, StateNone, state)
 }
 
-func TestNodeStateManager_SetNodeConnection_UnmanagedNode(t *testing.T) {
+func TestNodeStateManager_SetNodeConnection_UnmanagedNode(_ *testing.T) {
 	nsm := setupStateManager()
 	nodeID := cluster.NodeID("unmanaged")
 
@@ -307,7 +308,7 @@ func TestNodeStateManager_SetGetNodeState(t *testing.T) {
 	assert.Equal(t, StateRetrying, state)
 }
 
-func TestNodeStateManager_SetNodeState_UnmanagedNode(t *testing.T) {
+func TestNodeStateManager_SetNodeState_UnmanagedNode(_ *testing.T) {
 	nsm := setupStateManager()
 	nodeID := cluster.NodeID("unmanaged")
 
@@ -354,7 +355,7 @@ func TestNodeStateManager_GetNodeAddress_NotSet(t *testing.T) {
 	assert.Equal(t, 0, port)
 }
 
-func TestNodeStateManager_UpdateNodeAddress_UnmanagedNode(t *testing.T) {
+func TestNodeStateManager_UpdateNodeAddress_UnmanagedNode(_ *testing.T) {
 	nsm := setupStateManager()
 	nodeID := cluster.NodeID("unmanaged")
 
@@ -503,7 +504,7 @@ func TestNodeStateManager_Concurrent_StateUpdates(t *testing.T) {
 	wg.Wait()
 }
 
-func TestNodeStateManager_Concurrent_CreateRemove(t *testing.T) {
+func TestNodeStateManager_Concurrent_CreateRemove(_ *testing.T) {
 	nsm := setupStateManager()
 
 	const numGoroutines = 20
@@ -514,7 +515,8 @@ func TestNodeStateManager_Concurrent_CreateRemove(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			defer wg.Done()
-			nodeID := cluster.NodeID("test-node-" + string(rune('0'+id)))
+			//nolint:unconvert // NodeID type alias for type safety
+			nodeID := cluster.NodeID("test-node-" + strconv.Itoa(id))
 			nsm.CreateNodeState(nodeID)
 			_ = nsm.QueueMessage(nodeID, []byte{byte(id)})
 		}(i)
@@ -524,7 +526,8 @@ func TestNodeStateManager_Concurrent_CreateRemove(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			defer wg.Done()
-			nodeID := cluster.NodeID("test-node-" + string(rune('0'+id)))
+			//nolint:unconvert // NodeID type alias for type safety
+			nodeID := cluster.NodeID("test-node-" + strconv.Itoa(id))
 			// May or may not exist yet, should not panic
 			nsm.RemoveNodeState(nodeID)
 		}(i)

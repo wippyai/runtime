@@ -27,15 +27,15 @@ const (
 type RelayManager struct {
 	appCtx context.Context
 	logger *zap.Logger
-	idGen  *uniqid.Generator
+	pidGen *uniqid.PIDGenerator
 }
 
 // NewWebSocketRelay creates a new WebSocket relay manager
-func NewWebSocketRelay(ctx context.Context, logger *zap.Logger) *RelayManager {
+func NewWebSocketRelay(ctx context.Context, logger *zap.Logger, pidGen *uniqid.PIDGenerator) *RelayManager {
 	return &RelayManager{
 		appCtx: ctx,
 		logger: logger,
-		idGen:  uniqid.NewGenerator(),
+		pidGen: pidGen,
 	}
 }
 
@@ -198,7 +198,7 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 			return
 		}
 
-		// Create and start a new connection with the idGen from the RelayManager
+		// Create and start a new connection with the pidGen from the RelayManager
 		wsConn, err := NewConnection(
 			wsCtx,
 			conn,
@@ -210,7 +210,7 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 			node,
 			topo,
 			transcoder,
-			m.idGen,
+			m.pidGen,
 			logger,
 		)
 

@@ -12,6 +12,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
+type testContextKey string
+
 // Mock plugin for testing
 type mockPlugin struct {
 	name        string
@@ -41,7 +43,7 @@ func (p *mockPlugin) Load(ctx context.Context) (context.Context, error) {
 	if p.loadErr != nil {
 		return ctx, p.loadErr
 	}
-	return context.WithValue(ctx, p.name, "loaded"), nil //nolint:revive // test mock
+	return context.WithValue(ctx, testContextKey(p.name), "loaded"), nil
 }
 
 func (p *mockPlugin) Start(ctx context.Context) error {
@@ -132,7 +134,7 @@ func TestPluginLoad(t *testing.T) {
 			t.Error("Load() was not called")
 		}
 
-		if val := ctx.Value("test"); val != "loaded" {
+		if val := ctx.Value(testContextKey("test")); val != "loaded" {
 			t.Errorf("context value = %v, want %q", val, "loaded")
 		}
 	})
@@ -223,7 +225,7 @@ func TestPluginWithNoDependencies(t *testing.T) {
 	}
 
 	deps := p.DependsOn()
-	if deps != nil && len(deps) != 0 {
+	if len(deps) != 0 {
 		t.Errorf("DependsOn() = %v, want nil or empty", deps)
 	}
 }
@@ -318,11 +320,11 @@ func TestNew(t *testing.T) {
 			loadCalled = true
 			return ctx, nil
 		},
-		Start: func(ctx context.Context) error {
+		Start: func(_ context.Context) error {
 			startCalled = true
 			return nil
 		},
-		Stop: func(ctx context.Context) error {
+		Stop: func(_ context.Context) error {
 			stopCalled = true
 			return nil
 		},
@@ -402,22 +404,22 @@ func (m *mockConfig) GetString(_ string, def string) string                 { re
 func (m *mockConfig) GetInt(_ string, def int) int                          { return def }
 func (m *mockConfig) GetBool(_ string, def bool) bool                       { return def }
 func (m *mockConfig) GetDuration(_ string, def time.Duration) time.Duration { return def }
-func (m *mockConfig) GetStringMap(key string) map[string]any                { return nil }
-func (m *mockConfig) GetStringSlice(key string) []string                    { return nil }
-func (m *mockConfig) Bind(key string, v any) error                          { return nil }
+func (m *mockConfig) GetStringMap(_ string) map[string]any                  { return nil }
+func (m *mockConfig) GetStringSlice(_ string) []string                      { return nil }
+func (m *mockConfig) Bind(_ string, _ any) error                            { return nil }
 func (m *mockConfig) Section(_ string) Config                               { return m }
 func (m *mockConfig) Sub(_ string) Config                                   { return m }
 func (m *mockConfig) Keys() []string                                        { return []string{"key"} }
-func (m *mockConfig) Has(key string) bool                                   { return false }
+func (m *mockConfig) Has(_ string) bool                                     { return false }
 
 type mockLoader struct{}
 
-func (m *mockLoader) LoadFS(ctx context.Context, filesystem fs.FS) ([]registry.Entry, error) {
+func (m *mockLoader) LoadFS(_ context.Context, _ fs.FS) ([]registry.Entry, error) {
 	return nil, nil
 }
-func (m *mockLoader) LoadDir(ctx context.Context, filesystem fs.FS, dirPath string) ([]registry.Entry, error) {
+func (m *mockLoader) LoadDir(_ context.Context, _ fs.FS, _ string) ([]registry.Entry, error) {
 	return nil, nil
 }
-func (m *mockLoader) LoadFile(ctx context.Context, filesystem fs.FS, filePath string) ([]registry.Entry, error) {
+func (m *mockLoader) LoadFile(_ context.Context, _ fs.FS, _ string) ([]registry.Entry, error) {
 	return nil, nil
 }

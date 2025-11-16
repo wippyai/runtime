@@ -151,27 +151,8 @@ func checkCycles(g *graph.Graph[ModuleKey, DependencyEdge]) error {
 	return nil
 }
 
-// findConflictPaths finds all paths from root to a conflicting module.
-func findConflictPaths(
-	g *graph.Graph[ModuleKey, DependencyEdge],
-	target ModuleKey,
-	roots []ModuleKey,
-) [][]ModuleKey {
-	var paths [][]ModuleKey
-
-	// For each root, try to find path to target
-	for _, root := range roots {
-		if path := findPath(g, root, target); path != nil {
-			paths = append(paths, path)
-		}
-	}
-
-	return paths
-}
-
 // findPath finds a path from source to target in the graph.
 func findPath(g *graph.Graph[ModuleKey, DependencyEdge], source, target ModuleKey) []ModuleKey {
-	// Use ShortestPath from graph package
 	result, err := g.ShortestPath(source, target)
 	if err != nil {
 		return nil

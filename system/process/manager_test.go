@@ -228,6 +228,8 @@ func (m *managerTopology) Release(caller, _ relay.PID) error {
 }
 
 // Helper to create a context with mock topology
+//
+//nolint:unparam // managerTopology return value used in some tests
 func contextWithManagerTopology() (context.Context, *managerTopology) {
 	topo := newManagerTopology()
 	ctx := ctxapi.NewRootContext()

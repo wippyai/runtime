@@ -35,10 +35,10 @@ func ProcessTopology() boot.Component {
 
 			return ctx, nil
 		},
-		Start: func(ctx context.Context) error {
+		Start: func(_ context.Context) error {
 			return nil
 		},
-		Stop: func(ctx context.Context) error {
+		Stop: func(_ context.Context) error {
 			return nil
 		},
 	})

@@ -591,7 +591,7 @@ func TestContextListener(t *testing.T) {
 
 	endpointID := registry.ID{NS: "test", Name: "endpoint6"}
 
-	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// ContextListener is no longer set - HTTP metadata now in FrameContext
 		// Just return success
 		w.WriteHeader(http.StatusOK)

@@ -16,8 +16,6 @@ import (
 	"github.com/wippyai/runtime/internal/uniqid"
 )
 
-var supID = uniqid.NewGenerator()
-
 // Service represents a running process service instance
 type Service struct {
 	id            registry.ID
@@ -25,6 +23,7 @@ type Service struct {
 	supervisorPID relay.PID
 	config        supervisorapi.ServiceConfig
 	status        chan any
+	pidGen        *uniqid.PIDGenerator
 }
 
 // Start implements supervisor.Service
@@ -42,12 +41,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Setup monitor pid
-	svc.supervisorPID = relay.PID{
-		Node: node.ID(),
-		Host: topology.ControlHost,
-
-		UniqID: supID.Generate(),
-	}.Precomputed()
+	svc.supervisorPID = svc.pidGen.Generate(topology.ControlHost, svc.id)
 
 	// Create monitoring channel
 	monitorCh := make(chan *relay.Package, 1)

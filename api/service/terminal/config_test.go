@@ -10,7 +10,7 @@ import (
 )
 
 func TestKindConstant(t *testing.T) {
-	assert.Equal(t, "terminal.host", string(KindHost))
+	assert.Equal(t, "terminal.host", KindHost)
 }
 
 func TestHostConfig_MarshalUnmarshal(t *testing.T) {
@@ -91,5 +91,5 @@ func TestHostConfig_WithLifecycle(t *testing.T) {
 }
 
 func TestKindHost(t *testing.T) {
-	assert.Equal(t, "terminal.host", string(KindHost))
+	assert.Equal(t, "terminal.host", KindHost)
 }

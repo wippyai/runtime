@@ -69,7 +69,7 @@ func TestHost_Attach(t *testing.T) {
 	ch2 := make(chan *api.Package, 10)
 	_, err2 := host.Attach(pid, ch2)
 	assert.Error(t, err2)
-	assert.Equal(t, api.ErrAlreadyAttached, err2)
+	assert.ErrorIs(t, err2, api.ErrAlreadyAttached)
 
 	// Test cancellation
 	cancel1()

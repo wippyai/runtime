@@ -12,6 +12,8 @@ import (
 	"go.uber.org/zap"
 )
 
+type contextKey string
+
 // Helper to create test context with AppContext and logger
 func testContext() context.Context {
 	appCtx := contextapi.NewAppContext()
@@ -49,7 +51,7 @@ func (p *mockComponent) Load(ctx context.Context) (context.Context, error) {
 	if p.loadErr != nil {
 		return ctx, p.loadErr
 	}
-	return context.WithValue(ctx, p.name, "loaded"), nil
+	return context.WithValue(ctx, contextKey(p.name), "loaded"), nil
 }
 
 func (p *mockComponent) Start(ctx context.Context) error {
@@ -136,7 +138,7 @@ func TestLoaderLoad(t *testing.T) {
 			t.Error("plugin Load() was not called")
 		}
 
-		if ctx.Value("test") != "loaded" {
+		if ctx.Value(contextKey("test")) != "loaded" {
 			t.Error("context not updated by plugin")
 		}
 	})
@@ -157,7 +159,7 @@ func TestLoaderLoad(t *testing.T) {
 			phase: boot.PreInit,
 			LoadFn: func(ctx context.Context) (context.Context, error) {
 				trackOrder("a")
-				return context.WithValue(ctx, "a", "loaded"), nil
+				return context.WithValue(ctx, contextKey("a"), "loaded"), nil
 			},
 		}
 
@@ -167,7 +169,7 @@ func TestLoaderLoad(t *testing.T) {
 			deps:  []string{"a"},
 			LoadFn: func(ctx context.Context) (context.Context, error) {
 				trackOrder("b")
-				return context.WithValue(ctx, "b", "loaded"), nil
+				return context.WithValue(ctx, contextKey("b"), "loaded"), nil
 			},
 		}
 
@@ -177,7 +179,7 @@ func TestLoaderLoad(t *testing.T) {
 			deps:  []string{"a", "b"},
 			LoadFn: func(ctx context.Context) (context.Context, error) {
 				trackOrder("c")
-				return context.WithValue(ctx, "c", "loaded"), nil
+				return context.WithValue(ctx, contextKey("c"), "loaded"), nil
 			},
 		}
 
@@ -339,7 +341,7 @@ func TestLoaderShutdown(t *testing.T) {
 		p1 := &mockComponent{
 			name:  "a",
 			phase: boot.PreInit,
-			StopFn: func(ctx context.Context) error {
+			StopFn: func(_ context.Context) error {
 				order = append(order, "a")
 				return nil
 			},
@@ -349,7 +351,7 @@ func TestLoaderShutdown(t *testing.T) {
 			name:  "b",
 			phase: boot.Init,
 			deps:  []string{"a"},
-			StopFn: func(ctx context.Context) error {
+			StopFn: func(_ context.Context) error {
 				order = append(order, "b")
 				return nil
 			},
@@ -359,7 +361,7 @@ func TestLoaderShutdown(t *testing.T) {
 			name:  "c",
 			phase: boot.Init,
 			deps:  []string{"b"},
-			StopFn: func(ctx context.Context) error {
+			StopFn: func(_ context.Context) error {
 				order = append(order, "c")
 				return nil
 			},
@@ -425,13 +427,13 @@ func TestLoaderFullLifecycle(t *testing.T) {
 		phase: boot.PreInit,
 		LoadFn: func(ctx context.Context) (context.Context, error) {
 			track("logger:load")
-			return context.WithValue(ctx, "logger", "loaded"), nil
+			return context.WithValue(ctx, contextKey("logger"), "loaded"), nil
 		},
-		StartFn: func(ctx context.Context) error {
+		StartFn: func(_ context.Context) error {
 			track("logger:start")
 			return nil
 		},
-		StopFn: func(ctx context.Context) error {
+		StopFn: func(_ context.Context) error {
 			track("logger:stop")
 			return nil
 		},
@@ -442,17 +444,17 @@ func TestLoaderFullLifecycle(t *testing.T) {
 		phase: boot.Init,
 		deps:  []string{"logger"},
 		LoadFn: func(ctx context.Context) (context.Context, error) {
-			if ctx.Value("logger") == nil {
+			if ctx.Value(contextKey("logger")) == nil {
 				return ctx, fmt.Errorf("logger not available")
 			}
 			track("http:load")
-			return context.WithValue(ctx, "http", "loaded"), nil
+			return context.WithValue(ctx, contextKey("http"), "loaded"), nil
 		},
-		StartFn: func(ctx context.Context) error {
+		StartFn: func(_ context.Context) error {
 			track("http:start")
 			return nil
 		},
-		StopFn: func(ctx context.Context) error {
+		StopFn: func(_ context.Context) error {
 			track("http:stop")
 			return nil
 		},

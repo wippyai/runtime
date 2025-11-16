@@ -21,18 +21,18 @@ type mockEntryListener struct {
 	entries     []registry.Entry
 }
 
-func (m *mockEntryListener) Add(ctx context.Context, e registry.Entry) error {
+func (m *mockEntryListener) Add(_ context.Context, e registry.Entry) error {
 	atomic.AddInt32(&m.addCount, 1)
 	m.entries = append(m.entries, e)
 	return nil
 }
 
-func (m *mockEntryListener) Update(ctx context.Context, e registry.Entry) error {
+func (m *mockEntryListener) Update(_ context.Context, _ registry.Entry) error {
 	atomic.AddInt32(&m.updateCount, 1)
 	return nil
 }
 
-func (m *mockEntryListener) Delete(ctx context.Context, e registry.Entry) error {
+func (m *mockEntryListener) Delete(_ context.Context, _ registry.Entry) error {
 	atomic.AddInt32(&m.deleteCount, 1)
 	return nil
 }
@@ -52,7 +52,7 @@ func TestHandlerRegistry(t *testing.T) {
 		var called int32
 		handler := eventbus.NewBaseHandler(
 			eventbus.Pattern{System: "test", Kind: "event"},
-			func(ctx context.Context, e event.Event) error {
+			func(_ context.Context, _ event.Event) error {
 				atomic.AddInt32(&called, 1)
 				return nil
 			},
@@ -78,11 +78,11 @@ func TestHandlerRegistry(t *testing.T) {
 
 		handler1 := eventbus.NewBaseHandler(
 			eventbus.Pattern{System: "sys1", Kind: "event.one"},
-			func(ctx context.Context, e event.Event) error { return nil },
+			func(_ context.Context, _ event.Event) error { return nil },
 		)
 		handler2 := eventbus.NewBaseHandler(
 			eventbus.Pattern{System: "sys2", Kind: "event.two"},
-			func(ctx context.Context, e event.Event) error { return nil },
+			func(_ context.Context, _ event.Event) error { return nil },
 		)
 
 		registry.Register(handler1)

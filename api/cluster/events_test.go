@@ -30,10 +30,10 @@ func TestEventConstants(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.system != "" {
-				assert.Equal(t, tt.expected, string(tt.system))
+				assert.Equal(t, tt.expected, tt.system)
 			}
 			if tt.kind != "" {
-				assert.Equal(t, tt.expected, string(tt.kind))
+				assert.Equal(t, tt.expected, tt.kind)
 			}
 		})
 	}

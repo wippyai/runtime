@@ -76,6 +76,7 @@ func (s *loadDumpStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 	return nil
 }
 
+//nolint:unparam // error return reserved for future validation
 func convertFromSerializableEntry(se SerializableEntry, _ payload.Transcoder) (registry.Entry, error) {
 	meta := make(registry.Metadata)
 	for k, v := range se.Meta {

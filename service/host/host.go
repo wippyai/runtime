@@ -100,7 +100,7 @@ func (h *Host) Detach(pid relay.PID) {
 }
 
 // finalizeProcess handles cleanup when a process completes execution
-func (h *Host) finalizeProcess(ctx context.Context, pid relay.PID, result *runtime.Result) {
+func (h *Host) finalizeProcess(_ context.Context, pid relay.PID, result *runtime.Result) {
 	if result.Error != nil {
 		h.log.Error("process execution failed",
 			zap.String("pid", pid.String()),

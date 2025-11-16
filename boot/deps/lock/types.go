@@ -1,7 +1,7 @@
 package lock
 
-// LockFile represents the structure of a wippy.lock file.
-type LockFile struct {
+// File represents the structure of a wippy.lock file.
+type File struct {
 	Directories  Directories   `yaml:"directories"`
 	Modules      []Module      `yaml:"modules,omitempty"`
 	Replacements []Replacement `yaml:"replacements,omitempty"`

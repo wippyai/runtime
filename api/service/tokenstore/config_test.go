@@ -18,7 +18,7 @@ func TestConstants(t *testing.T) {
 	})
 
 	t.Run("KindTokenStore", func(t *testing.T) {
-		assert.Equal(t, "security.token_store", string(KindTokenStore))
+		assert.Equal(t, "security.token_store", KindTokenStore)
 	})
 }
 

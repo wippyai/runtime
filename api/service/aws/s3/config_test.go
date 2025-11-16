@@ -10,7 +10,7 @@ import (
 )
 
 func TestKindConstant(t *testing.T) {
-	assert.Equal(t, "cloudstorage.s3", string(Kind))
+	assert.Equal(t, "cloudstorage.s3", Kind)
 }
 
 func TestConfig_MarshalUnmarshal(t *testing.T) {

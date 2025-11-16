@@ -193,7 +193,7 @@ func (t *Terminal) prepareContext(
 
 	// Add terminal's cleanup to OnComplete hooks
 	onCompleteHooks := launch.OnComplete
-	onCompleteHooks = append(onCompleteHooks, func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+	onCompleteHooks = append(onCompleteHooks, func(_ context.Context, pid relay.PID, result *runtime.Result) {
 		if result.Error != nil {
 			t.log.Error("terminal process execution failed",
 				zap.String("pid", pid.String()),

@@ -37,7 +37,7 @@ func init() {
 	rootCmd.AddCommand(runPackCmd)
 }
 
-func runFromPack(cmd *cobra.Command, args []string) error {
+func runFromPack(_ *cobra.Command, args []string) error {
 	printBanner()
 
 	logger, err := CreateLogger()

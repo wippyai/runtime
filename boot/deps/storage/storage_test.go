@@ -568,7 +568,7 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 
 		// Create a file where we want a directory
 		filePath := filepath.Join(tmpDir, "org")
-		if err := os.WriteFile(filePath, []byte("blocker"), 0644); err != nil {
+		if err := os.WriteFile(filePath, []byte("blocker"), 0600); err != nil {
 			t.Fatalf("setup failed: %v", err)
 		}
 
@@ -593,7 +593,7 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 
 		// Create a file named "subdir" to block directory creation
 		blocker := filepath.Join(baseDir, "subdir")
-		if err := os.WriteFile(blocker, []byte("blocker"), 0644); err != nil {
+		if err := os.WriteFile(blocker, []byte("blocker"), 0600); err != nil {
 			t.Fatalf("setup failed: %v", err)
 		}
 
@@ -685,7 +685,7 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 		}
 
 		// Add a file so directory isn't empty
-		if err := os.WriteFile(filepath.Join(moduleDir, "file.txt"), []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(moduleDir, "file.txt"), []byte("test"), 0600); err != nil {
 			t.Fatalf("setup failed: %v", err)
 		}
 
@@ -711,7 +711,7 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 			t.Fatalf("setup failed: %v", err)
 		}
 
-		if err := os.WriteFile(filepath.Join(moduleDir, "file.txt"), []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(moduleDir, "file.txt"), []byte("test"), 0600); err != nil {
 			t.Fatalf("setup failed: %v", err)
 		}
 

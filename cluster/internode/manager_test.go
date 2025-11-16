@@ -90,7 +90,7 @@ func TestManager_GetListenPort(t *testing.T) {
 	assert.Equal(t, 9500, port)
 }
 
-func TestManager_AddManagedNode(t *testing.T) {
+func TestManager_AddManagedNode(_ *testing.T) {
 	config := DefaultManagerConfig()
 	config.LocalNodeID = "local-node"
 	config.Logger = zap.NewNop()
@@ -101,7 +101,7 @@ func TestManager_AddManagedNode(t *testing.T) {
 	manager.AddManagedNode(nodeID)
 }
 
-func TestManager_RemoveManagedNode(t *testing.T) {
+func TestManager_RemoveManagedNode(_ *testing.T) {
 	config := DefaultManagerConfig()
 	config.LocalNodeID = "local-node"
 	config.Logger = zap.NewNop()

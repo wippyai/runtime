@@ -37,7 +37,7 @@ func TopologyLifecycleMutator(logger *zap.Logger) api.StartMutator {
 		link := start.Options.GetBool(api.LifecycleLinkKey, false)
 
 		// Build OnStart hook for topology registration
-		topologyOnStart := func(ctx context.Context, pid relay.PID, _ api.Process) {
+		topologyOnStart := func(_ context.Context, pid relay.PID, _ api.Process) {
 			// Register the PID with topology
 			err := topo.Register(pid)
 			if err != nil {
@@ -69,7 +69,7 @@ func TopologyLifecycleMutator(logger *zap.Logger) api.StartMutator {
 		}
 
 		// Build OnComplete hook for topology cleanup
-		topologyOnComplete := func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		topologyOnComplete := func(_ context.Context, pid relay.PID, result *runtime.Result) {
 			if result.Error != nil {
 				if errors.Is(result.Error, supervisor.ErrExit) {
 					result.Error = nil // normal exit

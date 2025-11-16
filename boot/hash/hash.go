@@ -96,6 +96,8 @@ func (h *Hasher) normalizeMeta(meta registry.Metadata) map[string]any {
 }
 
 // normalizePayload converts a payload to stable representation.
+//
+//nolint:unparam // error return reserved for future validation
 func (h *Hasher) normalizePayload(p payload.Payload) (any, error) {
 	if p == nil {
 		return nil, nil

@@ -106,7 +106,7 @@ func TestFrameContext_IterateEmpty(t *testing.T) {
 	_, cc := newFrameContext(context.Background())
 
 	count := 0
-	cc.Iterate(func(_ any, value any) {
+	cc.Iterate(func(_ any, _ any) {
 		count++
 	})
 

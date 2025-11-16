@@ -57,7 +57,7 @@ func getFieldInfo(t reflect.Type) *fieldInfo {
 }
 
 // DecodeEntryConfig decodes a registry entry into a configuration struct
-func DecodeEntryConfig[T any](ctx context.Context, dtt payload.Transcoder, entry registry.Entry) (*T, error) {
+func DecodeEntryConfig[T any](_ context.Context, dtt payload.Transcoder, entry registry.Entry) (*T, error) {
 	if entry.Data == nil {
 		return nil, fmt.Errorf("configuration data is required")
 	}

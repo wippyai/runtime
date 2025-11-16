@@ -222,10 +222,16 @@ func (p *ProcessPool) worker() {
 
 			result, err := entry.process.Step()
 			if err != nil || result == process.StepDone {
-				p.log.Debug("process step completed with error",
-					zap.String("pid", pid.String()),
-					zap.String("id", entry.source.String()),
-					zap.Error(err))
+				if err != nil {
+					p.log.Debug("process step completed with error",
+						zap.String("pid", pid.String()),
+						zap.String("id", entry.source.String()),
+						zap.Error(err))
+				} else {
+					p.log.Debug("process step completed",
+						zap.String("pid", pid.String()),
+						zap.String("id", entry.source.String()))
+				}
 
 				// Process is done, remove from pool (idempotent with OnComplete cleanup)
 				p.Remove(pid)

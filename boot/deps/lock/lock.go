@@ -13,7 +13,7 @@ import (
 // Lock represents a lock file with operations for reading, writing, and querying.
 type Lock struct {
 	path string
-	data LockFile
+	data File
 }
 
 // New creates a new Lock instance from the given path.
@@ -26,7 +26,7 @@ func New(path string) (*Lock, error) {
 
 	lock := &Lock{
 		path: absPath,
-		data: LockFile{
+		data: File{
 			Directories: Directories{
 				Modules: ".wippy",
 				Src:     ".",

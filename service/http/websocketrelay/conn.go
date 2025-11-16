@@ -66,7 +66,7 @@ func NewConnection(
 	node relay.Node,
 	topo topology.Topology,
 	transcoder payload.Transcoder,
-	idGen *uniqid.Generator, // Add idGen parameter
+	pidGen *uniqid.PIDGenerator,
 	logger *zap.Logger,
 ) (*Connection, error) {
 	// Create context with cancellation
@@ -89,11 +89,7 @@ func NewConnection(
 	}
 
 	// Create a unique PID for this WebSocket connection
-	wsPID := relay.PID{
-		Node:   node.ID(),
-		Host:   serverID.String(),
-		UniqID: idGen.Generate(), // Use the passed idGen
-	}.Precomputed()
+	wsPID := pidGen.Generate(serverID.String(), serverID)
 
 	// Parse heartbeat interval
 	heartbeatInterval := DefaultHeartbeatInterval

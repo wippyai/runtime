@@ -25,7 +25,7 @@ func TestPipeline_Execute_EmptyPipeline(t *testing.T) {
 
 func TestPipeline_Execute_SingleStage(t *testing.T) {
 	called := false
-	stageFn := func(ctx context.Context, entries *[]registry.Entry) error {
+	stageFn := func(_ context.Context, entries *[]registry.Entry) error {
 		called = true
 		*entries = append(*entries, registry.Entry{
 			ID: registry.ID{NS: "test", Name: "entry1"},
@@ -67,21 +67,21 @@ func newTestStage(name string, fn func(context.Context, *[]registry.Entry) error
 }
 
 func TestPipeline_Execute_MultipleStages(t *testing.T) {
-	stage1 := func(ctx context.Context, entries *[]registry.Entry) error {
+	stage1 := func(_ context.Context, entries *[]registry.Entry) error {
 		*entries = append(*entries, registry.Entry{
 			ID: registry.ID{NS: "test", Name: "entry1"},
 		})
 		return nil
 	}
 
-	stage2 := func(ctx context.Context, entries *[]registry.Entry) error {
+	stage2 := func(_ context.Context, entries *[]registry.Entry) error {
 		*entries = append(*entries, registry.Entry{
 			ID: registry.ID{NS: "test", Name: "entry2"},
 		})
 		return nil
 	}
 
-	stage3 := func(ctx context.Context, entries *[]registry.Entry) error {
+	stage3 := func(_ context.Context, entries *[]registry.Entry) error {
 		*entries = append(*entries, registry.Entry{
 			ID: registry.ID{NS: "test", Name: "entry3"},
 		})
@@ -111,14 +111,14 @@ func TestPipeline_Execute_MultipleStages(t *testing.T) {
 }
 
 func TestPipeline_Execute_StageModifiesEntries(t *testing.T) {
-	addStage := func(ctx context.Context, entries *[]registry.Entry) error {
+	addStage := func(_ context.Context, entries *[]registry.Entry) error {
 		*entries = append(*entries, registry.Entry{
 			ID: registry.ID{NS: "test", Name: "entry1"},
 		})
 		return nil
 	}
 
-	modifyStage := func(ctx context.Context, entries *[]registry.Entry) error {
+	modifyStage := func(_ context.Context, entries *[]registry.Entry) error {
 		for i := range *entries {
 			(*entries)[i].Meta = map[string]interface{}{"modified": true}
 		}
@@ -152,7 +152,7 @@ func TestPipeline_Execute_StageModifiesEntries(t *testing.T) {
 
 func TestPipeline_Execute_ErrorPropagation(t *testing.T) {
 	expectedErr := errors.New("stage error")
-	errorStage := func(ctx context.Context, entries *[]registry.Entry) error {
+	errorStage := func(_ context.Context, _ *[]registry.Entry) error {
 		return expectedErr
 	}
 
@@ -180,17 +180,17 @@ func TestPipeline_Execute_StopsOnFirstError(t *testing.T) {
 	stage2Called := false
 	stage3Called := false
 
-	stage1 := func(ctx context.Context, entries *[]registry.Entry) error {
+	stage1 := func(_ context.Context, _ *[]registry.Entry) error {
 		stage1Called = true
 		return nil
 	}
 
-	stage2 := func(ctx context.Context, entries *[]registry.Entry) error {
+	stage2 := func(_ context.Context, _ *[]registry.Entry) error {
 		stage2Called = true
 		return errors.New("stage2 error")
 	}
 
-	stage3 := func(ctx context.Context, entries *[]registry.Entry) error {
+	stage3 := func(_ context.Context, _ *[]registry.Entry) error {
 		stage3Called = true
 		return nil
 	}
@@ -249,7 +249,7 @@ func TestPipeline_Execute_ContextCancellation(t *testing.T) {
 }
 
 func TestPipeline_Execute_PreservesPointerReference(t *testing.T) {
-	stage := func(ctx context.Context, entries *[]registry.Entry) error {
+	stage := func(_ context.Context, entries *[]registry.Entry) error {
 		*entries = append(*entries, registry.Entry{
 			ID: registry.ID{NS: "test", Name: "entry1"},
 		})
@@ -277,17 +277,17 @@ func TestPipeline_Execute_PreservesPointerReference(t *testing.T) {
 func TestPipeline_Execute_StageOrder(t *testing.T) {
 	order := make([]string, 0)
 
-	stage1 := func(ctx context.Context, entries *[]registry.Entry) error {
+	stage1 := func(_ context.Context, _ *[]registry.Entry) error {
 		order = append(order, "first")
 		return nil
 	}
 
-	stage2 := func(ctx context.Context, entries *[]registry.Entry) error {
+	stage2 := func(_ context.Context, _ *[]registry.Entry) error {
 		order = append(order, "second")
 		return nil
 	}
 
-	stage3 := func(ctx context.Context, entries *[]registry.Entry) error {
+	stage3 := func(_ context.Context, _ *[]registry.Entry) error {
 		order = append(order, "third")
 		return nil
 	}
@@ -315,7 +315,7 @@ func TestPipeline_Execute_StageOrder(t *testing.T) {
 }
 
 func TestNewTestStage_CreatesNamedStage(t *testing.T) {
-	stageFn := func(ctx context.Context, entries *[]registry.Entry) error {
+	stageFn := func(_ context.Context, _ *[]registry.Entry) error {
 		return nil
 	}
 

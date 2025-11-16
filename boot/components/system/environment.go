@@ -58,7 +58,7 @@ func Environment() boot.Component {
 			}
 			return nil
 		},
-		Stop: func(ctx context.Context) error {
+		Stop: func(_ context.Context) error {
 			if envRegistry != nil {
 				return envRegistry.Stop()
 			}
