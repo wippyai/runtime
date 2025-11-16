@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	processapi "github.com/wippyai/runtime/api/service/supervisor"
+	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/eventbus"
 	"github.com/wippyai/runtime/system/process"
 	"go.uber.org/zap"
@@ -52,8 +53,11 @@ func TestManager_Add_WithDebugLogging(t *testing.T) {
 	// Create process manager
 	procManager := &process.Manager{}
 
+	// Create PID generator
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
+
 	// Create supervisor manager
-	manager := NewSupervisorServiceManager(bus, procManager, logger)
+	manager := NewSupervisorServiceManager(bus, procManager, logger, pidGen)
 
 	// Create a test context with transcoder
 	ctx := ctxapi.NewRootContext()
@@ -91,8 +95,11 @@ func TestManager_Update_WithDebugLogging(t *testing.T) {
 	// Create process manager
 	procManager := &process.Manager{}
 
+	// Create PID generator
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
+
 	// Create supervisor manager
-	manager := NewSupervisorServiceManager(bus, procManager, logger)
+	manager := NewSupervisorServiceManager(bus, procManager, logger, pidGen)
 
 	// Create a test context with transcoder
 	ctx := ctxapi.NewRootContext()
@@ -147,8 +154,11 @@ func TestManager_Add_WithoutTranscoder(t *testing.T) {
 	// Create process manager
 	procManager := &process.Manager{}
 
+	// Create PID generator
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
+
 	// Create supervisor manager
-	manager := NewSupervisorServiceManager(bus, procManager, logger)
+	manager := NewSupervisorServiceManager(bus, procManager, logger, pidGen)
 
 	// Create a test context WITHOUT transcoder
 	ctx := ctxapi.NewRootContext()
@@ -178,8 +188,11 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	// Create process manager
 	procManager := &process.Manager{}
 
+	// Create PID generator
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
+
 	// Create supervisor manager
-	manager := NewSupervisorServiceManager(bus, procManager, logger)
+	manager := NewSupervisorServiceManager(bus, procManager, logger, pidGen)
 
 	// Create a test context with transcoder
 	ctx := ctxapi.NewRootContext()

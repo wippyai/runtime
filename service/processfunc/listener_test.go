@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -59,13 +60,14 @@ func TestListener_NewListener(t *testing.T) {
 	defer bus.Stop()
 
 	procs := &mockProcessManager{}
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
 
-	listener := NewListener(logger, bus, procs)
+	listener := NewListener(logger, bus, procs, pidGen)
 	assert.NotNil(t, listener)
 	assert.NotNil(t, listener.log)
 	assert.NotNil(t, listener.bus)
 	assert.NotNil(t, listener.procs)
-	assert.NotNil(t, listener.uniqID)
+	assert.NotNil(t, listener.pidGen)
 	assert.NotNil(t, listener.registered)
 	assert.Empty(t, listener.registered)
 }
@@ -76,7 +78,8 @@ func TestListener_ProcessEntry_Create(t *testing.T) {
 	defer bus.Stop()
 
 	procs := &mockProcessManager{}
-	listener := NewListener(logger, bus, procs)
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
+	listener := NewListener(logger, bus, procs, pidGen)
 
 	ctx := context.Background()
 
@@ -124,7 +127,8 @@ func TestListener_ProcessEntry_CreateWithoutDefaultHost(t *testing.T) {
 	defer bus.Stop()
 
 	procs := &mockProcessManager{}
-	listener := NewListener(logger, bus, procs)
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
+	listener := NewListener(logger, bus, procs, pidGen)
 
 	ctx := context.Background()
 
@@ -161,7 +165,8 @@ func TestListener_ProcessEntry_CreateNonProcessKind(t *testing.T) {
 	defer bus.Stop()
 
 	procs := &mockProcessManager{}
-	listener := NewListener(logger, bus, procs)
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
+	listener := NewListener(logger, bus, procs, pidGen)
 
 	ctx := context.Background()
 
@@ -199,7 +204,8 @@ func TestListener_ProcessEntry_Update(t *testing.T) {
 	defer bus.Stop()
 
 	procs := &mockProcessManager{}
-	listener := NewListener(logger, bus, procs)
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
+	listener := NewListener(logger, bus, procs, pidGen)
 
 	ctx := context.Background()
 
@@ -253,7 +259,8 @@ func TestListener_ProcessEntry_UpdateRemoveHost(t *testing.T) {
 	defer bus.Stop()
 
 	procs := &mockProcessManager{}
-	listener := NewListener(logger, bus, procs)
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
+	listener := NewListener(logger, bus, procs, pidGen)
 
 	ctx := context.Background()
 
@@ -294,7 +301,8 @@ func TestListener_ProcessEntry_Delete(t *testing.T) {
 	defer bus.Stop()
 
 	procs := &mockProcessManager{}
-	listener := NewListener(logger, bus, procs)
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
+	listener := NewListener(logger, bus, procs, pidGen)
 
 	ctx := context.Background()
 
@@ -334,7 +342,8 @@ func TestListener_ProcessEntry_DeleteNotRegistered(t *testing.T) {
 	defer bus.Stop()
 
 	procs := &mockProcessManager{}
-	listener := NewListener(logger, bus, procs)
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
+	listener := NewListener(logger, bus, procs, pidGen)
 
 	ctx := context.Background()
 
@@ -367,8 +376,9 @@ func TestWithProcessFunctionBridge(t *testing.T) {
 	defer bus.Stop()
 
 	procs := &mockProcessManager{}
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "local")
 
-	handler := WithProcessFunctionBridge(logger, bus, procs)
+	handler := WithProcessFunctionBridge(logger, bus, procs, pidGen)
 	assert.NotNil(t, handler)
 
 	// Test handler responds to registry events
