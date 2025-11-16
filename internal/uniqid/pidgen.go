@@ -21,7 +21,7 @@ func NewPIDGenerator(gen *Generator, nodeID relay.NodeID) *PIDGenerator {
 
 // Generate creates a PID with host and id, auto-generating UniqID.
 // Uses the configured node ID if set.
-func (p *PIDGenerator) Generate(host relay.HostID, id registry.ID) relay.PID {
+func (p *PIDGenerator) Generate(host relay.HostID, _ registry.ID) relay.PID {
 	return relay.PID{
 		Node:   p.nodeID,
 		Host:   host,

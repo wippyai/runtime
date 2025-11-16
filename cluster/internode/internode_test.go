@@ -44,7 +44,7 @@ func newMockConnectionManager() *mockConnectionManager {
 	}
 }
 
-func (m *mockConnectionManager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error {
+func (m *mockConnectionManager) Start(_ context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.startError != nil {
@@ -62,7 +62,7 @@ func (m *mockConnectionManager) Stop() error {
 	return nil
 }
 
-func (m *mockConnectionManager) SendToNode(_ cluster.NodeID, data []byte) error {
+func (m *mockConnectionManager) SendToNode(_ cluster.NodeID, _ []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.sendError != nil {
@@ -151,7 +151,7 @@ func (m *mockMembership) LocalNode() cluster.NodeInfo {
 
 // Tests
 
-func setupService(t *testing.T) (*Service, *mockConnectionManager, *mockCodec, *eventbus.Bus, context.Context, context.CancelFunc) {
+func setupService(_ *testing.T) (*Service, *mockConnectionManager, *mockCodec, *eventbus.Bus, context.Context, context.CancelFunc) {
 	logger := zap.NewNop()
 	connMan := newMockConnectionManager()
 	codec := &mockCodec{}
@@ -168,7 +168,7 @@ func setupService(t *testing.T) (*Service, *mockConnectionManager, *mockCodec, *
 		nodes:     []cluster.NodeInfo{localNode},
 	}
 
-	deliveryCallback := func(pkg *relay.Package) error {
+	deliveryCallback := func(_ *relay.Package) error {
 		return nil
 	}
 
@@ -184,7 +184,7 @@ func TestService_NewService(t *testing.T) {
 	codec := &mockCodec{}
 	bus := eventbus.NewBus()
 	membership := &mockMembership{}
-	callback := func(pkg *relay.Package) error { return nil }
+	callback := func(_ *relay.Package) error { return nil }
 
 	service := NewService(logger, connMan, codec, callback, bus, membership)
 
@@ -231,7 +231,7 @@ func TestService_Start_WithPreExistingNodes(t *testing.T) {
 		nodes:     []cluster.NodeInfo{localNode, remoteNode},
 	}
 
-	service := NewService(logger, connMan, codec, func(pkg *relay.Package) error { return nil }, bus, membership)
+	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -518,7 +518,7 @@ func TestService_OnMessage_DecodeError(t *testing.T) {
 	bus := eventbus.NewBus()
 	membership := &mockMembership{localNode: cluster.NodeInfo{ID: "local"}}
 
-	service := NewService(logger, connMan, codec, func(pkg *relay.Package) error { return nil }, bus, membership)
+	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -536,7 +536,7 @@ func TestService_OnMessage_DeliveryError(t *testing.T) {
 	bus := eventbus.NewBus()
 	membership := &mockMembership{localNode: cluster.NodeInfo{ID: "local"}}
 
-	deliveryCallback := func(pkg *relay.Package) error {
+	deliveryCallback := func(_ *relay.Package) error {
 		return errors.New("delivery failed")
 	}
 

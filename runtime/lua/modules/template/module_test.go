@@ -74,6 +74,8 @@ func (m *mockResourceRegistry) Exists(id registry.ID) bool {
 }
 
 // setupLuaWithTemplates sets up a Lua state with our template module and a test template set
+//
+//nolint:unparam // LState return value used in some tests
 func setupLuaWithTemplates(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *lua.LState, *engine.Runner, context.Context) {
 	logger := zaptest.NewLogger(t)
 

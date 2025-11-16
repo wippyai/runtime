@@ -10,7 +10,7 @@ import (
 )
 
 func TestKindConstants(t *testing.T) {
-	assert.Equal(t, "exec.native", string(KindNativeExecutor))
+	assert.Equal(t, "exec.native", KindNativeExecutor)
 }
 
 func TestProcessOptions_MarshalUnmarshal(t *testing.T) {

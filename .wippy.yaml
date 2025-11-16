@@ -56,6 +56,32 @@ lua:
   main_cache_size: 10000      # Lua main cache size
   expr_capacity: 5000         # Expression module capacity
 
+# OpenTelemetry configuration
+# Distributed tracing and observability
+otel:
+  enabled: false                # Enable OpenTelemetry tracing
+  endpoint: http://localhost:4318  # OTLP exporter endpoint
+  protocol: http/protobuf       # OTLP protocol: grpc | http/protobuf
+  service_name: wippy           # Service name in traces
+  service_version: ""           # Service version in traces
+  insecure: true                # Allow non-TLS connections
+  sample_rate: 1.0              # Trace sampling rate (0.0 to 1.0)
+  propagators:                  # Trace context propagators
+    - tracecontext
+    - baggage
+  traces_enabled: true          # Enable trace collection
+  metrics_enabled: false        # Enable metrics collection
+  http:
+    enabled: true               # Enable HTTP middleware
+    extract_headers: true       # Extract trace context from incoming requests
+    inject_headers: true        # Inject trace context into responses
+  process:
+    enabled: true               # Enable process lifecycle tracing
+    trace_lifecycle: true       # Trace process start and termination events
+  interceptor:
+    enabled: true               # Enable function call interceptor
+    order: 0                    # Interceptor execution order
+
 # Cluster configuration
 # Multi-node clustering with gossip-based membership and TCP internode communication
 cluster:

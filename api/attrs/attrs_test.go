@@ -273,7 +273,7 @@ func TestBag_NilSafety(t *testing.T) {
 		t.Error("nil bag Len() should return 0")
 	}
 
-	b.Iterate(func(_ string, value any) {
+	b.Iterate(func(_ string, _ any) {
 		t.Error("nil bag Iterate() should not call function")
 	})
 }

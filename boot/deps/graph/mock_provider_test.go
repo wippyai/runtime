@@ -57,7 +57,7 @@ func (p *mockProvider) setError(name Name, err error) {
 }
 
 // FetchManifests implements ManifestProvider.
-func (p *mockProvider) FetchManifests(ctx context.Context, requests []ManifestRequest) ([]ManifestResponse, error) {
+func (p *mockProvider) FetchManifests(_ context.Context, requests []ManifestRequest) ([]ManifestResponse, error) {
 	responses := make([]ManifestResponse, len(requests))
 
 	for i, req := range requests {

@@ -54,7 +54,7 @@ func Filesystem() boot.Component {
 			}
 			return nil
 		},
-		Stop: func(ctx context.Context) error {
+		Stop: func(_ context.Context) error {
 			if fsRegistry != nil {
 				return fsRegistry.Stop()
 			}

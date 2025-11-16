@@ -26,10 +26,8 @@ func NewBag() Bag {
 // The data is copied, not referenced.
 func NewBagFrom(data map[string]any) Bag {
 	b := make(Bag)
-	if data != nil {
-		for k, v := range data {
-			b[k] = v
-		}
+	for k, v := range data {
+		b[k] = v
 	}
 	return b
 }
@@ -156,10 +154,8 @@ func (b Bag) Merge(other Attributes) Bag {
 	merged := NewBag()
 
 	// Copy from this bag
-	if b != nil {
-		for k, v := range b {
-			merged[k] = v
-		}
+	for k, v := range b {
+		merged[k] = v
 	}
 
 	// Copy from other bag (overwriting if keys conflict)

@@ -41,7 +41,7 @@ func LogManager() boot.Component {
 				logConfig = logapi.Config{
 					PropagateDownstream: cfgSub.GetBool(string(ConfigPropagateDownstream), true),
 					StreamToEvents:      cfgSub.GetBool(string(ConfigStreamToEvents), false),
-					MinLevel:            zapcore.Level(cfgSub.GetInt(string(ConfigMinLevel), int(zapcore.InfoLevel))), //nolint:gosec
+					MinLevel:            zapcore.Level(cfgSub.GetInt(string(ConfigMinLevel), int(zapcore.InfoLevel))), //nolint:gosec // int to zapcore.Level conversion
 				}
 			} else {
 				logConfig = logapi.Config{
@@ -62,7 +62,7 @@ func LogManager() boot.Component {
 			}
 			return nil
 		},
-		Stop: func(ctx context.Context) error {
+		Stop: func(_ context.Context) error {
 			if logManager != nil {
 				return logManager.Stop()
 			}

@@ -17,7 +17,6 @@ func (b *Builder) buildGraph(ctx context.Context, input BuildInput) (*BuildResul
 
 	// Initialize with root dependencies
 	currentLevel := make([]pendingModule, 0, len(input.RootDependencies))
-	rootKeys := make([]ModuleKey, 0)
 
 	for _, req := range input.RootDependencies {
 		currentLevel = append(currentLevel, pendingModule{
@@ -115,9 +114,6 @@ func (b *Builder) buildGraph(ctx context.Context, input BuildInput) (*BuildResul
 					DeclaredBy: *pm.Parent,
 					IsDirect:   false,
 				})
-			} else {
-				// Root dependency
-				rootKeys = append(rootKeys, moduleKey)
 			}
 
 			// Process manifest dependencies

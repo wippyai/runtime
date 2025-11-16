@@ -33,7 +33,7 @@ func TestMiddlewareFactory(t *testing.T) {
 		}
 
 		factory := NewMiddlewareRegistry(zap.NewNop())
-		_ = factory.Register("test", func(options map[string]string) func(http.Handler) http.Handler {
+		_ = factory.Register("test", func(_ map[string]string) func(http.Handler) http.Handler {
 			return testMiddleware
 		})
 

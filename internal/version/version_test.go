@@ -61,7 +61,7 @@ func TestVersion(t *testing.T) {
 	}
 }
 
-func TestChain(t *testing.T) {
+func TestChain(_ *testing.T) {
 	v1 := New(1)
 	v2 := FromParent(v1, 2)
 	v3 := FromParent(v2, 3)

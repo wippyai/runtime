@@ -33,14 +33,6 @@ func newJSONInvalidError(l *lua.LState, msg string, operation string) lua.LValue
 	return newJSONError(l, apierr.KindInvalid, &retryable, msg, details)
 }
 
-// newJSONEncodeError creates an error for JSON encoding failures.
-func newJSONEncodeError(l *lua.LState, err error) lua.LValue {
-	details := attrs.NewBag()
-	details.Set("operation", "encode")
-	retryable := false
-	return newJSONError(l, apierr.KindInternal, &retryable, err.Error(), details)
-}
-
 // newJSONDecodeError creates an error for JSON decoding failures.
 func newJSONDecodeError(l *lua.LState, err error) lua.LValue {
 	details := attrs.NewBag()

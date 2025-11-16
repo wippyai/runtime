@@ -91,6 +91,8 @@ func checkConstraintCompatibility(c1, c2 *semver.Constraints) bool {
 
 // mergeConstraints attempts to merge multiple constraints into one.
 // Returns nil if constraints are incompatible.
+//
+//nolint:unparam // first return value used when successful
 func mergeConstraints(constraints []string) (*semver.Constraints, error) {
 	if len(constraints) == 0 {
 		return nil, fmt.Errorf("no constraints to merge")

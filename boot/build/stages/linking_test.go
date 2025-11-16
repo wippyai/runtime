@@ -548,6 +548,7 @@ func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 	return nil
 }
 
+//nolint:unparam // transcoder return value used in some tests
 func setupTestContext() (context.Context, payload.Transcoder) {
 	transcoder := &mockTranscoder{}
 	appCtx := ctxapi.NewAppContext()

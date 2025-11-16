@@ -67,7 +67,7 @@ func setupTestContext(ctx context.Context) context.Context {
 }
 
 // createTestTask creates a runtime.Task for testing
-func createTestTask(id string, args ...interface{}) runtime.Task {
+func createTestTask(_ string, args ...interface{}) runtime.Task {
 	// Convert args to payloads
 	payloads := make(payload.Payloads, len(args))
 	for i, arg := range args {
@@ -86,6 +86,8 @@ func createTestTask(id string, args ...interface{}) runtime.Task {
 }
 
 // executeWithTimeout executes a task with timeout
+//
+//nolint:unparam // timeout parameter may vary in different test cases
 func executeWithTimeout(ctx context.Context, p *TaskPool, task runtime.Task, timeout time.Duration) (*runtime.Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

@@ -175,49 +175,36 @@ func (c *MessageCodec) normalizePayload(p payload.Payload) (payload.Payload, err
 	}
 }
 
-func registerPIDExtension(mh *codec.MsgpackHandle) error {
-	err := mh.AddExt(
-		reflect.TypeOf(relay.PID{}),
-		1, // extension tag
-		// Encode function: reflect.Value -> []byte
-		// Note: v2 passes structs as pointers to the encode function
-		func(v reflect.Value) ([]byte, error) {
-			// For struct types, v2 passes a pointer to the value
-			var pid *relay.PID
-			if v.Kind() == reflect.Ptr {
-				pid = v.Interface().(*relay.PID)
-			} else {
-				// Fallback for non-pointer case
-				p := v.Interface().(relay.PID)
-				pid = &p
-			}
+type pidExtension struct{}
 
-			// Convert PID string representation to bytes
-			return []byte(pid.String()), nil
-		},
-		// Decode function: (reflect.Value, []byte) -> error
-		func(v reflect.Value, data []byte) error {
-			// Parse PID from byte data
-			pid, err := relay.ParsePID(string(data))
-			if err != nil {
-				return fmt.Errorf("failed to parse PID: %w", err)
-			}
-
-			// v2 passes a pointer for struct types
-			if v.Kind() == reflect.Ptr {
-				if !v.Elem().CanSet() {
-					return fmt.Errorf("cannot set PID value: value is not settable")
-				}
-				v.Elem().Set(reflect.ValueOf(pid))
-			} else {
-				if !v.CanSet() {
-					return fmt.Errorf("cannot set PID value: value is not settable")
-				}
-				v.Set(reflect.ValueOf(pid))
-			}
+func (pidExtension) WriteExt(v interface{}) []byte {
+	pid, ok := v.(*relay.PID)
+	if !ok {
+		p, ok := v.(relay.PID)
+		if ok {
+			pid = &p
+		} else {
 			return nil
-		},
-	)
+		}
+	}
+	return []byte(pid.String())
+}
 
-	return err
+func (pidExtension) ReadExt(dst interface{}, src []byte) {
+	pid, err := relay.ParsePID(string(src))
+	if err != nil {
+		return
+	}
+
+	if pidPtr, ok := dst.(*relay.PID); ok {
+		*pidPtr = pid
+	}
+}
+
+func registerPIDExtension(mh *codec.MsgpackHandle) error {
+	return mh.SetBytesExt(
+		reflect.TypeOf(relay.PID{}),
+		1,
+		pidExtension{},
+	)
 }

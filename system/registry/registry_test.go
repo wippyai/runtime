@@ -1059,7 +1059,7 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 	}
 
 	callCount := 0
-	runner.RunFunc = func(state registry.State, cs registry.ChangeSet) (registry.State, error) {
+	runner.RunFunc = func(state registry.State, _ registry.ChangeSet) (registry.State, error) {
 		callCount++
 		// First call: apply changes successfully
 		if callCount == 1 {

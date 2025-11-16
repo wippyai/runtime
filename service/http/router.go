@@ -275,7 +275,7 @@ func (rm *RouteManager) Build() error {
 
 				// Only register if not already registered
 				if !registeredOptions[optionsPattern] {
-					optionsHandler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					optionsHandler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 						w.WriteHeader(http.StatusNoContent)
 					}))
 

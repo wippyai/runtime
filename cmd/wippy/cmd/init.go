@@ -29,7 +29,7 @@ func init() {
 	initCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
 }
 
-func runInit(cmd *cobra.Command, args []string) error {
+func runInit(cmd *cobra.Command, _ []string) error {
 	logger, err := CreateLogger()
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)

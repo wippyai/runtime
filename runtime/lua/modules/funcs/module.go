@@ -495,7 +495,7 @@ func (m *Module) async(l *lua.LState) int {
 		runtimeTask.Payloads...,
 	)
 
-	uw.Run(func(work engine.UnitOfWork) {
+	uw.Run(func(_ engine.UnitOfWork) {
 		// Run the function
 		result, err := functions.funcs.Call(ctx, runtimeTask)
 		if err != nil {
@@ -518,7 +518,7 @@ func (m *Module) async(l *lua.LState) int {
 }
 
 // createTask creates a runtime.Task from Lua parameters
-func (f *Functions) createTask(l *lua.LState, log *zap.Logger) (runtime.Task, error) {
+func (f *Functions) createTask(l *lua.LState, _ *zap.Logger) (runtime.Task, error) {
 	targetIndex := 1
 	if l.Get(1).Type() == lua.LTUserData {
 		targetIndex = 2 // Skip self parameter

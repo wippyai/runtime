@@ -16,7 +16,7 @@ func TestHTTPErrorMetadata(t *testing.T) {
 
 	t.Run("network error has metadata", func(t *testing.T) {
 		mockClient := &mockHTTPClient{
-			doFunc: func(req *http.Request) (*http.Response, error) {
+			doFunc: func(_ *http.Request) (*http.Response, error) {
 				return nil, errors.New("connection refused")
 			},
 		}
@@ -84,7 +84,7 @@ func TestHTTPErrorMetadata(t *testing.T) {
 
 	t.Run("error metadata backward compatible", func(t *testing.T) {
 		mockClient := &mockHTTPClient{
-			doFunc: func(req *http.Request) (*http.Response, error) {
+			doFunc: func(_ *http.Request) (*http.Response, error) {
 				return nil, errors.New("connection timeout")
 			},
 		}
@@ -114,7 +114,7 @@ type errorReader struct {
 	err error
 }
 
-func (e *errorReader) Read(p []byte) (int, error) {
+func (e *errorReader) Read(_ []byte) (int, error) {
 	return 0, e.err
 }
 

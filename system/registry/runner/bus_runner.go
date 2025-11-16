@@ -118,7 +118,7 @@ func (br *BusRunner) applyOperation(
 	if slices.Contains(allowProcess, op.Entry.Kind) {
 		br.log.Debug("processing entry",
 			zap.String("id", op.Entry.ID.String()),
-			zap.String("kind", string(op.Entry.Kind)))
+			zap.String("kind", op.Entry.Kind))
 
 		// with entry events we dont propagate any events and handle them internally
 		// use registry.entry for dynamic configs
@@ -132,7 +132,7 @@ func (br *BusRunner) applyOperation(
 
 	br.log.Debug("starting operation",
 		zap.String("operation", op.Kind),
-		zap.String("entry_kind", string(op.Entry.Kind)),
+		zap.String("entry_kind", op.Entry.Kind),
 		zap.String("id", op.Entry.ID.String()))
 
 	// send the operation event

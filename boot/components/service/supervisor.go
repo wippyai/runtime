@@ -7,6 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/pidgen"
 	procapi "github.com/wippyai/runtime/api/process"
 	bootpkg "github.com/wippyai/runtime/boot"
 	bootsystem "github.com/wippyai/runtime/boot/components/system"
@@ -23,6 +24,7 @@ func ProcessSupervisor() boot.Component {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)
 			processes := procapi.GetManager(ctx)
+			pidGen := pidgen.GetGenerator(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 
 			processManager, ok := processes.(*process.Manager)
@@ -34,6 +36,7 @@ func ProcessSupervisor() boot.Component {
 				bus,
 				processManager,
 				logger.Named("super"),
+				pidGen,
 			)
 
 			handlers.RegisterListener("process.service", manager)

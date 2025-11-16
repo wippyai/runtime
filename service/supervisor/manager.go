@@ -7,6 +7,7 @@ import (
 
 	processapi "github.com/wippyai/runtime/api/service/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/process"
 
 	"github.com/wippyai/runtime/api/event"
@@ -29,6 +30,7 @@ type Manager struct {
 	proc     *process.Manager
 	services sync.Map // map[registry.ID]supervisor.Service
 	factory  ServiceFactory
+	pidGen   *uniqid.PIDGenerator
 }
 
 // NewSupervisorServiceManager creates a new process service manager
@@ -36,12 +38,14 @@ func NewSupervisorServiceManager(
 	bus event.Bus,
 	proc *process.Manager,
 	log *zap.Logger,
+	pidGen *uniqid.PIDGenerator,
 ) *Manager {
 	return &Manager{
 		log:     log,
 		bus:     bus,
 		proc:    proc,
-		factory: NewDefaultServiceFactory(),
+		factory: NewDefaultServiceFactory(pidGen),
+		pidGen:  pidGen,
 	}
 }
 
@@ -128,6 +132,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 			id:     entry.ID,
 			config: *cfg,
 			status: make(chan any, 1),
+			pidGen: m.pidGen,
 		}
 	}
 

@@ -62,7 +62,7 @@ func loadEntriesFromLockFile(ctx context.Context, logger *zap.Logger) error {
 
 // ensureModulesInstalled checks if modules from the lock file are installed,
 // and auto-installs them if missing.
-func ensureModulesInstalled(ctx context.Context, lockPath, lockFilePath string, logger *zap.Logger) error {
+func ensureModulesInstalled(ctx context.Context, lockPath, _ string, logger *zap.Logger) error {
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
 		return fmt.Errorf("load lock file: %w", err)

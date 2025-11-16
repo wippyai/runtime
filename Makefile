@@ -14,8 +14,7 @@ test:
 	go test ./service/... -v -race
 	go test ./cluster/... -v -race
 	go test --tags "fts5 sqlite_vec" ./runtime/... -v -race
-	go test ./deps/... -v -race
-	go test ./deps/requirementresolver/... -v -race
+	go test ./boot/... -v -race
 
 test-system:
 	go test ./internal/... -v -race

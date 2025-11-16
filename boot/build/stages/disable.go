@@ -99,6 +99,8 @@ func readStringSlice(cfg boot.Config, key string) []string {
 }
 
 // compileWildcards compiles namespace patterns (dot-separated)
+//
+//nolint:unparam // error return reserved for future validation
 func compileWildcards(patterns []string) ([]*wildcard.Wildcard, error) {
 	matchers := make([]*wildcard.Wildcard, 0, len(patterns))
 	for _, pattern := range patterns {

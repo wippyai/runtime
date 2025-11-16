@@ -122,7 +122,7 @@ func TestRegistry_Execute(t *testing.T) {
 	interceptor := &mockInterceptor{name: "test"}
 	require.NoError(t, reg.Register("test", interceptor, 100))
 
-	mockFunc := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{}, nil
 	}
 

@@ -185,7 +185,7 @@ func (s *FileSystemStorage) Delete(basePath string) error {
 }
 
 // ComputeHash loads entries from a module directory and computes their hash.
-func (s *FileSystemStorage) ComputeHash(basePath string, ctx context.Context, dtt payload.Transcoder, ldr Loader) (string, error) {
+func (s *FileSystemStorage) ComputeHash(ctx context.Context, basePath string, dtt payload.Transcoder, ldr Loader) (string, error) {
 	if basePath == "" {
 		return "", fmt.Errorf("basePath cannot be empty")
 	}

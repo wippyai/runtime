@@ -30,7 +30,7 @@ func Security() boot.Component {
 			}
 			return nil
 		},
-		Stop: func(ctx context.Context) error {
+		Stop: func(_ context.Context) error {
 			if policyRegistry != nil {
 				return policyRegistry.Stop()
 			}

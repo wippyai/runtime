@@ -53,7 +53,7 @@ func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, 
 	ctx, nodeManager := createRelayInfrastructure(ctx, bus, cfg)
 
 	// Setup topology infrastructure
-	ctx = createTopologyInfrastructure(ctx, cfg)
+	ctx = createTopologyInfrastructure(ctx)
 
 	// Setup hosts for message handling
 	if err := createHosts(ctx, cfg); err != nil {
@@ -100,7 +100,7 @@ func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Conf
 }
 
 // createTopologyInfrastructure sets up topology and PID registry
-func createTopologyInfrastructure(ctx context.Context, cfg boot.Config) context.Context {
+func createTopologyInfrastructure(ctx context.Context) context.Context {
 	logger := logapi.GetLogger(ctx)
 	node := relayapi.GetNode(ctx)
 
@@ -188,7 +188,7 @@ func wrapLogger(logger *zap.Logger, bus event.Bus, cfg boot.Config) (*zap.Logger
 		logConfig = logapi.Config{
 			PropagateDownstream: cfgSub.GetBool("propagate_downstream", true),
 			StreamToEvents:      cfgSub.GetBool("stream_to_events", false),
-			MinLevel:            zapcore.Level(cfgSub.GetInt("min_level", int(baseMinLevel))), //nolint:gosec
+			MinLevel:            zapcore.Level(cfgSub.GetInt("min_level", int(baseMinLevel))), //nolint:gosec // int to zapcore.Level conversion
 		}
 	} else {
 		logConfig = logapi.Config{

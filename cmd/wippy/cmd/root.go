@@ -25,7 +25,7 @@ var rootCmd = &cobra.Command{
 	Long:          `Run applications with dynamic configuration and lifecycle management.`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(cmd *cobra.Command, _ []string) {
 		printBanner()
 		_ = cmd.Help() // Ignore help output errors
 	},

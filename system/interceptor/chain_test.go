@@ -30,7 +30,7 @@ func TestChainExecuteNoInterceptors(t *testing.T) {
 	chain := newChain(nil, zap.NewNop())
 
 	executed := false
-	mockFunc := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		executed = true
 		return &runtime.Result{}, nil
 	}
@@ -58,7 +58,7 @@ func TestChainExecuteWithInterceptors(t *testing.T) {
 	chain := newChain([]apiinterceptor.Interceptor{int1, int2, int3}, zap.NewNop())
 
 	executed := false
-	mockFunc := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		executed = true
 		return &runtime.Result{}, nil
 	}
@@ -96,7 +96,7 @@ func TestChainExecuteInterceptorError(t *testing.T) {
 	chain := newChain([]apiinterceptor.Interceptor{int1, int2, int3}, zap.NewNop())
 
 	executed := false
-	mockFunc := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		executed = true
 		return &runtime.Result{}, nil
 	}
@@ -128,7 +128,7 @@ func TestChainExecuteFunctionError(t *testing.T) {
 
 	chain := newChain([]apiinterceptor.Interceptor{int1}, zap.NewNop())
 
-	mockFunc := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return nil, errors.New("function error")
 	}
 
@@ -162,7 +162,7 @@ func TestChainExecuteContextPropagation(t *testing.T) {
 	chain := newChain([]apiinterceptor.Interceptor{interceptor}, zap.NewNop())
 
 	var receivedCtx context.Context
-	mockFunc := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	mockFunc := func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 		receivedCtx = ctx
 		return &runtime.Result{}, nil
 	}

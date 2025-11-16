@@ -828,7 +828,7 @@ func executeAsync(l *lua.LState, wrapper *InstanceWrapper, methodName string, ar
 	cmd := command.NewCommand(l, methodName, func(_ runtime.Command) { cancel() }, args...)
 
 	// Execute method in background with call context applied
-	uw.Run(func(work engine.UnitOfWork) {
+	uw.Run(func(_ engine.UnitOfWork) {
 		result, err := wrapper.instance.Call(ctx, methodName, args)
 		if err != nil {
 			_ = cmd.Complete(&runtime.Result{Error: err})

@@ -2,7 +2,7 @@ package lock
 
 // Diff calculates the differences between two lock files.
 // Returns a Changes struct with installed, updated, and removed modules.
-func Diff(old, new *Lock) *Changes {
+func Diff(old, newLock *Lock) *Changes {
 	changes := &Changes{
 		Installed: []Module{},
 		Updated:   []ModuleChange{},
@@ -15,7 +15,7 @@ func Diff(old, new *Lock) *Changes {
 	}
 
 	newModules := make(map[string]Module)
-	for _, mod := range new.data.Modules {
+	for _, mod := range newLock.data.Modules {
 		newModules[mod.Name] = mod
 	}
 

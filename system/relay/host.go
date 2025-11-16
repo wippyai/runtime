@@ -76,8 +76,11 @@ func fnv1a32(s string) uint32 {
 func (h *Host) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	_, loaded := h.receivers.LoadOrStore(pid, ch)
 	if loaded {
-		h.logger.Warn("attempt to attach an already existing package receiver", zap.String("pid", pid.String()))
-		return nil, api.ErrAlreadyAttached
+		h.logger.Warn("attempt to attach an already existing package receiver",
+			zap.String("pid", pid.String()),
+			zap.String("host", pid.Host),
+			zap.String("uniq_id", pid.UniqID))
+		return nil, fmt.Errorf("%w: pid=%s", api.ErrAlreadyAttached, pid.String())
 	}
 
 	h.logger.Debug("package receiver attached", zap.String("pid", pid.String()))
@@ -130,7 +133,7 @@ func (h *Host) worker(queueIndex int) {
 			if !ok {
 				var topic string
 				if len(job.Messages) > 0 {
-					topic = string(job.Messages[0].Topic)
+					topic = job.Messages[0].Topic
 				}
 				h.logger.Warn("No receiver found for target PID",
 					zap.String("target", job.Target.String()),

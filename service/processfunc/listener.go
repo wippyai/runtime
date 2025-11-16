@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/process"
@@ -28,17 +29,17 @@ type Listener struct {
 	log        *zap.Logger
 	bus        event.Bus
 	procs      process.Manager
-	uniqID     *uniqid.Generator
+	pidGen     *uniqid.PIDGenerator
 	registered map[string]relay.HostID // Map of registered process IDs to their host IDs
 }
 
 // NewListener creates a new process function bridge listener
-func NewListener(log *zap.Logger, bus event.Bus, procs process.Manager) *Listener {
+func NewListener(log *zap.Logger, bus event.Bus, procs process.Manager, pidGen *uniqid.PIDGenerator) *Listener {
 	return &Listener{
 		log:        log,
 		bus:        bus,
 		procs:      procs,
-		uniqID:     uniqid.NewGenerator(),
+		pidGen:     pidGen,
 		registered: make(map[string]relay.HostID),
 	}
 }
@@ -159,12 +160,8 @@ func (l *Listener) createProcessHandler(processID registry.ID, hostID relay.Host
 			return nil, fmt.Errorf("no relay node found in context")
 		}
 
-		// Create caller PID
-		callerPID := relay.PID{
-			Node:   node.ID(),
-			Host:   topology.ControlHost,
-			UniqID: l.uniqID.Generate(),
-		}.Precomputed()
+		// Create caller PID using centralized generator
+		callerPID := l.pidGen.Generate(topology.ControlHost, processID)
 
 		// Create monitor channel for process events
 		monitorCh := make(chan *relay.Package, 1)
@@ -175,6 +172,11 @@ func (l *Listener) createProcessHandler(processID registry.ID, hostID relay.Host
 			return nil, fmt.Errorf("failed to attach to relay: %w", err)
 		}
 		defer detach()
+
+		// Seal the frame before crossing system boundary to process
+		if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+			fc.Seal()
+		}
 
 		// Start process
 		options := attrs.NewBag()
@@ -258,8 +260,8 @@ func (l *Listener) createProcessHandler(processID registry.ID, hostID relay.Host
 }
 
 // WithProcessFunctionBridge creates an event handler that bridges processes to functions
-func WithProcessFunctionBridge(log *zap.Logger, bus event.Bus, procs process.Manager) eventbus.EventHandler {
-	listener := NewListener(log, bus, procs)
+func WithProcessFunctionBridge(log *zap.Logger, bus event.Bus, procs process.Manager, pidGen *uniqid.PIDGenerator) eventbus.EventHandler {
+	listener := NewListener(log, bus, procs, pidGen)
 
 	// Create base handler that subscribes to registry events
 	return eventbus.NewBaseHandler(

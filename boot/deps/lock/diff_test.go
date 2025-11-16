@@ -9,9 +9,9 @@ func TestDiff(t *testing.T) {
 	t.Run("empty lock files produce no changes", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		old, _ := New(filepath.Join(tmpDir, "old.lock"))
-		new, _ := New(filepath.Join(tmpDir, "new.lock"))
+		newLock, _ := New(filepath.Join(tmpDir, "new.lock"))
 
-		changes := Diff(old, new)
+		changes := Diff(old, newLock)
 
 		if len(changes.Installed) != 0 {
 			t.Errorf("expected 0 installed, got %d", len(changes.Installed))
@@ -27,10 +27,10 @@ func TestDiff(t *testing.T) {
 	t.Run("detects newly installed modules", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		old, _ := New(filepath.Join(tmpDir, "old.lock"))
-		new, _ := New(filepath.Join(tmpDir, "new.lock"))
-		new.SetModule(Module{Name: "wippy/test", Version: "v1.0.0"})
+		newLock, _ := New(filepath.Join(tmpDir, "new.lock"))
+		newLock.SetModule(Module{Name: "wippy/test", Version: "v1.0.0"})
 
-		changes := Diff(old, new)
+		changes := Diff(old, newLock)
 
 		if len(changes.Installed) != 1 {
 			t.Fatalf("expected 1 installed, got %d", len(changes.Installed))
@@ -50,9 +50,9 @@ func TestDiff(t *testing.T) {
 		tmpDir := t.TempDir()
 		old, _ := New(filepath.Join(tmpDir, "old.lock"))
 		old.SetModule(Module{Name: "wippy/test", Version: "v1.0.0"})
-		new, _ := New(filepath.Join(tmpDir, "new.lock"))
+		newLock, _ := New(filepath.Join(tmpDir, "new.lock"))
 
-		changes := Diff(old, new)
+		changes := Diff(old, newLock)
 
 		if len(changes.Removed) != 1 {
 			t.Fatalf("expected 1 removed, got %d", len(changes.Removed))
@@ -72,10 +72,10 @@ func TestDiff(t *testing.T) {
 		tmpDir := t.TempDir()
 		old, _ := New(filepath.Join(tmpDir, "old.lock"))
 		old.SetModule(Module{Name: "wippy/test", Version: "v1.0.0"})
-		new, _ := New(filepath.Join(tmpDir, "new.lock"))
-		new.SetModule(Module{Name: "wippy/test", Version: "v2.0.0"})
+		newLock, _ := New(filepath.Join(tmpDir, "new.lock"))
+		newLock.SetModule(Module{Name: "wippy/test", Version: "v2.0.0"})
 
-		changes := Diff(old, new)
+		changes := Diff(old, newLock)
 
 		if len(changes.Updated) != 1 {
 			t.Fatalf("expected 1 updated, got %d", len(changes.Updated))
@@ -101,10 +101,10 @@ func TestDiff(t *testing.T) {
 		tmpDir := t.TempDir()
 		old, _ := New(filepath.Join(tmpDir, "old.lock"))
 		old.SetModule(Module{Name: "wippy/test", Version: "v1.0.0", Hash: "abc123"})
-		new, _ := New(filepath.Join(tmpDir, "new.lock"))
-		new.SetModule(Module{Name: "wippy/test", Version: "v1.0.0", Hash: "def456"})
+		newLock, _ := New(filepath.Join(tmpDir, "new.lock"))
+		newLock.SetModule(Module{Name: "wippy/test", Version: "v1.0.0", Hash: "def456"})
 
-		changes := Diff(old, new)
+		changes := Diff(old, newLock)
 
 		if len(changes.Updated) != 1 {
 			t.Fatalf("expected 1 updated, got %d", len(changes.Updated))
@@ -121,10 +121,10 @@ func TestDiff(t *testing.T) {
 		tmpDir := t.TempDir()
 		old, _ := New(filepath.Join(tmpDir, "old.lock"))
 		old.SetModule(Module{Name: "wippy/test", Version: "v1.0.0", Hash: "abc123"})
-		new, _ := New(filepath.Join(tmpDir, "new.lock"))
-		new.SetModule(Module{Name: "wippy/test", Version: "v1.0.0", Hash: "abc123"})
+		newLock, _ := New(filepath.Join(tmpDir, "new.lock"))
+		newLock.SetModule(Module{Name: "wippy/test", Version: "v1.0.0", Hash: "abc123"})
 
-		changes := Diff(old, new)
+		changes := Diff(old, newLock)
 
 		if len(changes.Installed) != 0 {
 			t.Errorf("expected 0 installed, got %d", len(changes.Installed))
@@ -144,12 +144,12 @@ func TestDiff(t *testing.T) {
 		old.SetModule(Module{Name: "wippy/llm", Version: "v0.0.11"})
 		old.SetModule(Module{Name: "wippy/old", Version: "v1.0.0"})
 
-		new, _ := New(filepath.Join(tmpDir, "new.lock"))
-		new.SetModule(Module{Name: "wippy/actor", Version: "v2.0.0"})
-		new.SetModule(Module{Name: "wippy/llm", Version: "v0.0.11"})
-		new.SetModule(Module{Name: "wippy/new", Version: "v1.0.0"})
+		newLock, _ := New(filepath.Join(tmpDir, "new.lock"))
+		newLock.SetModule(Module{Name: "wippy/actor", Version: "v2.0.0"})
+		newLock.SetModule(Module{Name: "wippy/llm", Version: "v0.0.11"})
+		newLock.SetModule(Module{Name: "wippy/new", Version: "v1.0.0"})
 
-		changes := Diff(old, new)
+		changes := Diff(old, newLock)
 
 		if len(changes.Installed) != 1 {
 			t.Errorf("expected 1 installed, got %d", len(changes.Installed))

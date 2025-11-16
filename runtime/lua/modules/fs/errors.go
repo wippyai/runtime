@@ -54,21 +54,3 @@ func newFSIOError(l *lua.LState, err error, path, operation string) lua.LValue {
 	retryable := false
 	return newFSError(l, apierr.KindInternal, &retryable, err.Error(), details)
 }
-
-// newFSInvalidError creates an error for invalid paths/arguments.
-func newFSInvalidError(l *lua.LState, msg string, path string) lua.LValue {
-	details := attrs.NewBag()
-	if path != "" {
-		details.Set("path", path)
-	}
-	retryable := false
-	return newFSError(l, apierr.KindInvalid, &retryable, msg, details)
-}
-
-// newFSExistsError creates an error for already exists.
-func newFSExistsError(l *lua.LState, path string) lua.LValue {
-	details := attrs.NewBag()
-	details.Set("path", path)
-	retryable := false
-	return newFSError(l, apierr.KindAlreadyExists, &retryable, fmt.Sprintf("file or directory already exists: %s", path), details)
-}

@@ -10,7 +10,7 @@ import (
 )
 
 func TestKindConstant(t *testing.T) {
-	assert.Equal(t, "config.aws", string(Kind))
+	assert.Equal(t, "config.aws", Kind)
 }
 
 func TestConfig_MarshalUnmarshal(t *testing.T) {

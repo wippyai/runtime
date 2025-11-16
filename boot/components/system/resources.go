@@ -30,7 +30,7 @@ func Resources() boot.Component {
 			}
 			return nil
 		},
-		Stop: func(ctx context.Context) error {
+		Stop: func(_ context.Context) error {
 			if resources != nil {
 				return resources.Stop()
 			}

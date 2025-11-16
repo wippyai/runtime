@@ -67,7 +67,7 @@ func Contracts() boot.Component {
 			}
 			return nil
 		},
-		Stop: func(ctx context.Context) error {
+		Stop: func(_ context.Context) error {
 			if contractRegistry != nil {
 				return contractRegistry.Stop()
 			}

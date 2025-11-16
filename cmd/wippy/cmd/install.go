@@ -133,7 +133,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 				logger.Debug("verifying module hash",
 					zap.String("module", module.Name))
 
-				computedHash, err := storageImpl.ComputeHash(modulePath, app.Ctx, app.Transcoder, app.Loader)
+				computedHash, err := storageImpl.ComputeHash(app.Ctx, modulePath, app.Transcoder, app.Loader)
 				if err != nil {
 					logger.Warn("failed to compute hash, will re-download",
 						zap.String("module", module.Name),
@@ -180,7 +180,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		}
 
 		// Compute local hash from loaded entries
-		computedHash, err := storageImpl.ComputeHash(modulePath, app.Ctx, app.Transcoder, app.Loader)
+		computedHash, err := storageImpl.ComputeHash(app.Ctx, modulePath, app.Transcoder, app.Loader)
 		if err != nil {
 			logger.Warn("failed to compute module hash",
 				zap.String("module", module.Name),

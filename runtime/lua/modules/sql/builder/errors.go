@@ -33,15 +33,9 @@ func newBuilderInvalidError(l *lua.LState, err error, operation string) lua.LVal
 	return newBuilderError(l, apierr.KindInvalid, &retryable, err.Error(), details)
 }
 
-// newBuilderConversionError creates an error for conversion failures.
-func newBuilderConversionError(l *lua.LState, msg string) lua.LValue {
-	details := attrs.NewBag()
-	details.Set("operation", "conversion")
-	retryable := false
-	return newBuilderError(l, apierr.KindInternal, &retryable, msg, details)
-}
-
 // newBuilderOperationError creates an error for general operation failures.
+//
+//nolint:unparam // operation parameter may vary in future use
 func newBuilderOperationError(l *lua.LState, err error, operation string) lua.LValue {
 	details := attrs.NewBag()
 	if operation != "" {

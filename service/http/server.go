@@ -247,7 +247,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		ReadTimeout:  s.config.Timeouts.ReadTimeout,
 		WriteTimeout: s.config.Timeouts.WriteTimeout,
 		IdleTimeout:  s.config.Timeouts.IdleTimeout,
-		BaseContext: func(l net.Listener) context.Context {
+		BaseContext: func(_ net.Listener) context.Context {
 			// Return app-level context only
 			return s.ctx
 		},
