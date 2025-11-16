@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
@@ -41,8 +40,7 @@ func (m *mockDelegatedHost) Terminate(_ context.Context, _ relay.PID) error {
 	return nil
 }
 
-// Updated to match the Delegated interface with Lifecycle parameter
-func (m *mockDelegatedHost) Launch(_ context.Context, _ relay.PID, _ process.Lifecycle, _ payload.Payloads) (relay.PID, error) {
+func (m *mockDelegatedHost) Dispatch(_ context.Context, _ process.Lifecycle, _ *process.Dispatch) (relay.PID, error) {
 	return relay.PID{}, nil
 }
 

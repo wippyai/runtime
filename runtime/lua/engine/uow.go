@@ -101,15 +101,6 @@ func GetUnitOfWork(ctx context.Context) UnitOfWork {
 	return nil
 }
 
-// DetachUnitOfWork removes any parent UnitOfWork relationship
-// without stopping the existing UnitOfWork
-// Creates a new unsealed frame without the UnitOfWork
-func DetachUnitOfWork(ctx context.Context) context.Context {
-	// Create a new frame without UnitOfWork or WakeUp
-	newCtx, _ := ctxapi.OpenFrameContext(ctx)
-	return newCtx
-}
-
 // Context returns the managed context
 func (u *unitOfWork) Context() context.Context {
 	return u.ctx

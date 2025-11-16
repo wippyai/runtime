@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
@@ -414,15 +415,14 @@ func (m *Module) spawn(l *lua.LState) int {
 
 	payloads := m.createPayloadsFromArgs(l, 3)
 
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, self)
+
 	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: false,
-			Link:    false,
-		},
+		HostID:  hostID,
+		Source:  registry.ParseID(id),
+		Input:   payloads,
+		Options: options,
 	}
 
 	pid, err := manager.Start(l.Context(), start)
@@ -486,15 +486,15 @@ func (m *Module) spawnMonitored(l *lua.LState) int {
 
 	payloads := m.createPayloadsFromArgs(l, 3)
 
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.LifecycleMonitorKey, true)
+
 	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: true,
-			Link:    false,
-		},
+		HostID:  hostID,
+		Source:  registry.ParseID(id),
+		Input:   payloads,
+		Options: options,
 	}
 
 	pid, err := manager.Start(l.Context(), start)
@@ -551,15 +551,15 @@ func (m *Module) spawnLinked(l *lua.LState) int {
 
 	payloads := m.createPayloadsFromArgs(l, 3)
 
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.LifecycleLinkKey, true)
+
 	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: false,
-			Link:    true,
-		},
+		HostID:  hostID,
+		Source:  registry.ParseID(id),
+		Input:   payloads,
+		Options: options,
 	}
 
 	pid, err := manager.Start(l.Context(), start)
@@ -622,15 +622,16 @@ func (m *Module) spawnLinkedMonitored(l *lua.LState) int {
 
 	payloads := m.createPayloadsFromArgs(l, 3)
 
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.LifecycleMonitorKey, true)
+	options.Set(process.LifecycleLinkKey, true)
+
 	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: true,
-			Link:    true,
-		},
+		HostID:  hostID,
+		Source:  registry.ParseID(id),
+		Input:   payloads,
+		Options: options,
 	}
 
 	pid, err := manager.Start(l.Context(), start)
@@ -990,11 +991,6 @@ func (m *Module) registryLookup(l *lua.LState) int {
 		return 2
 	}
 
-	self, ok := m.checkPID(l)
-	if !ok {
-		return 2
-	}
-
 	name := l.CheckString(1)
 
 	pid, found := reg.Lookup(name)
@@ -1003,12 +999,6 @@ func (m *Module) registryLookup(l *lua.LState) int {
 		l.Push(lua.LString("name not registered"))
 		return 2
 	}
-
-	m.log.Debug("looked up process name",
-		zap.String("from", self.String()),
-		zap.String("name", name),
-		zap.String("pid", pid.String()),
-	)
 
 	l.Push(lua.LString(pid.String()))
 	return 1

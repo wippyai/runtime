@@ -267,24 +267,3 @@ func TestGetUnitOfWork(t *testing.T) {
 		t.Errorf("expected retrieved UnitOfWork to match original")
 	}
 }
-
-func TestDetachUnitOfWork(t *testing.T) {
-	parentCtx := ctxapi.NewRootContext()
-	parentCtx, _ = ctxapi.OpenFrameContext(parentCtx)
-	state := lua.NewState()
-	defer state.Close()
-
-	uw, ctx := NewUnitOfWork(parentCtx, state)
-	defer uw.Close()
-
-	// Test detaching
-	detached := DetachUnitOfWork(ctx)
-	if GetUnitOfWork(detached) != nil {
-		t.Errorf("expected UnitOfWork to be detached")
-	}
-
-	// Original context should still have UnitOfWork (because it's sealed)
-	if GetUnitOfWork(ctx) != uw {
-		t.Errorf("expected original context to still have UnitOfWork")
-	}
-}

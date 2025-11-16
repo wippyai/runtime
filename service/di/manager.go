@@ -222,7 +222,7 @@ func (m *Manager) handleDefinitionAdd(ctx context.Context, entry registry.Entry)
 		Data:   definition,
 	})
 
-	m.log.Info("contract definition registered",
+	m.log.Debug("contract definition registered",
 		zap.String("id", entry.ID.String()),
 		zap.Int("methods", len(definition.Methods)))
 	return nil

@@ -133,6 +133,7 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.Launch, respons
 		}
 	}
 
+	// Use Terminal's context, not the calling context - processes live with the Terminal, not the caller
 	rCtx := t.prepareContext(ctx, pl)
 
 	cfg := &RunnerConfig{
@@ -159,14 +160,11 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.Launch, respons
 }
 
 func (t *Terminal) prepareContext(
-	ctx context.Context,
+	callCtx context.Context,
 	launch *process.Launch,
 ) context.Context {
-	// Get or create FrameContext for this process
-	// If parent frame is sealed, OpenFrameContext creates a new frame and automatically
-	// copies all keys marked with Inherit: true (including actor and scope)
-	// If parent frame is unsealed, this reuses it
-	pCtx, fc := ctxapi.OpenFrameContext(ctx)
+	// Create FrameContext on Terminal's context, inheriting actor/scope from calling context
+	pCtx, fc := ctxapi.OpenFrameContextOn(t.ctx, callCtx)
 
 	// Store frame ID, PID, host, and terminal context in FrameContext
 	// Pre-allocate pairs slice with exact size
@@ -186,23 +184,29 @@ func (t *Terminal) prepareContext(
 		t.log.Error("failed to set frame context", zap.Error(err))
 	}
 
-	// global lifecycle
-	pCtx = process.GetManager(ctx).AttachLifecycle(pCtx, launch.Lifecycle)
+	// Store lifecycle hook arrays from Launch
+	if len(launch.OnStart) > 0 {
+		if err := process.SetOnStartHooks(pCtx, launch.OnStart); err != nil {
+			t.log.Error("failed to set onStart hooks", zap.Error(err))
+		}
+	}
 
-	// service lifecycle
-	if err := process.SetOnComplete(pCtx, func(pid relay.PID, result *runtime.Result) {
+	// Add terminal's cleanup to OnComplete hooks
+	onCompleteHooks := launch.OnComplete
+	onCompleteHooks = append(onCompleteHooks, func(ctx context.Context, pid relay.PID, result *runtime.Result) {
 		if result.Error != nil {
 			t.log.Error("terminal process execution failed",
 				zap.String("pid", pid.String()),
-				zap.Error(result.Error))
+				zap.String("error", result.Error.Error()))
 		} else {
 			t.log.Info("terminal process execution completed",
 				zap.String("pid", pid.String()),
 				zap.Any("result", result.Value.Data()))
 		}
 		t.cleanup(result)
-	}); err != nil {
-		t.log.Error("failed to set onComplete callback", zap.Error(err))
+	})
+	if err := process.SetOnCompleteHooks(pCtx, onCompleteHooks); err != nil {
+		t.log.Error("failed to set onComplete hooks", zap.Error(err))
 	}
 
 	return pCtx

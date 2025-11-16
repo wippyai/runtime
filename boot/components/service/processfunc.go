@@ -1,0 +1,36 @@
+package service
+
+import (
+	"context"
+
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
+	procapi "github.com/wippyai/runtime/api/process"
+	bootpkg "github.com/wippyai/runtime/boot"
+	bootsystem "github.com/wippyai/runtime/boot/components/system"
+	"github.com/wippyai/runtime/service/processfunc"
+)
+
+func ProcessFunc() boot.Component {
+	return boot.New(boot.P{
+		Name:      ProcessFuncName,
+		Phase:     boot.PostInit,
+		DependsOn: []boot.ComponentName{bootsystem.ProcessName},
+		Load: func(ctx context.Context) (context.Context, error) {
+			logger := logapi.GetLogger(ctx)
+			bus := event.GetBus(ctx)
+			processes := procapi.GetManager(ctx)
+			handlers := bootpkg.GetHandlerRegistry(ctx)
+
+			handler := processfunc.WithProcessFunctionBridge(
+				logger.Named("pfunc"),
+				bus,
+				processes,
+			)
+
+			handlers.Register(handler)
+			return ctx, nil
+		},
+	})
+}

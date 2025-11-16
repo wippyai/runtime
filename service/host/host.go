@@ -27,6 +27,7 @@ type Host struct {
 	msgHost     relay.Host
 	msgQueues   []chan *relay.Package // Multiple queues for message routing, one per worker
 	pool        ProcessPoolAPI
+	ctx         context.Context
 	done        chan struct{}
 	msgWG       sync.WaitGroup
 	running     atomic.Bool // true if host is running
@@ -99,11 +100,11 @@ func (h *Host) Detach(pid relay.PID) {
 }
 
 // finalizeProcess handles cleanup when a process completes execution
-func (h *Host) finalizeProcess(pid relay.PID, result *runtime.Result) {
+func (h *Host) finalizeProcess(ctx context.Context, pid relay.PID, result *runtime.Result) {
 	if result.Error != nil {
 		h.log.Error("process execution failed",
 			zap.String("pid", pid.String()),
-			zap.Error(result.Error))
+			zap.String("error", result.Error.Error()))
 	} else {
 		h.log.Debug("process execution completed",
 			zap.String("pid", pid.String()))
@@ -127,6 +128,11 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (relay.PID, e
 		return relay.PID{}, process.ErrHostBusy
 	}
 
+	if h.ctx == nil {
+		return relay.PID{}, process.ErrHostDead
+	}
+
+	// Use Host's context, not the calling context - processes live with the Host, not the caller
 	ctx = h.prepareContext(ctx, launch)
 
 	if err := launch.Process.Start(ctx, launch.PID, launch.Input); err != nil {
@@ -161,9 +167,9 @@ func (h *Host) getQueueForPID(pid relay.PID) chan *relay.Package {
 }
 
 // prepareContext sets up the context for a process
-func (h *Host) prepareContext(ctx context.Context, launch *process.Launch) context.Context {
-	// Create FrameContext with automatic inheritance of actor/scope
-	pCtx, fc := ctxapi.OpenFrameContext(ctx)
+func (h *Host) prepareContext(callCtx context.Context, launch *process.Launch) context.Context {
+	// Create FrameContext on Host's context, inheriting actor/scope from calling context
+	pCtx, fc := ctxapi.OpenFrameContextOn(h.ctx, callCtx)
 
 	// Store frame metadata and apply launch context overrides
 	pairsLen := 3 + len(launch.Context)
@@ -181,13 +187,20 @@ func (h *Host) prepareContext(ctx context.Context, launch *process.Launch) conte
 		h.log.Error("failed to set frame context", zap.Error(err))
 	}
 
-	// Attach global lifecycle
-	pCtx = process.GetManager(ctx).AttachLifecycle(pCtx, launch.Lifecycle)
-
-	// Setup local lifecycle
-	if err := process.SetOnComplete(pCtx, h.finalizeProcess); err != nil {
-		h.log.Error("failed to set onComplete callback", zap.Error(err))
+	// Store lifecycle hook arrays from Launch
+	if len(launch.OnStart) > 0 {
+		if err := process.SetOnStartHooks(pCtx, launch.OnStart); err != nil {
+			h.log.Error("failed to set onStart hooks", zap.Error(err))
+		}
 	}
+
+	// Add host's finalizeProcess to OnComplete hooks
+	onCompleteHooks := launch.OnComplete
+	onCompleteHooks = append(onCompleteHooks, h.finalizeProcess)
+	if err := process.SetOnCompleteHooks(pCtx, onCompleteHooks); err != nil {
+		h.log.Error("failed to set onComplete hooks", zap.Error(err))
+	}
+
 	if err := ctxapi.SetWakeUp(pCtx, func() {
 		_ = h.pool.Schedule(launch.PID)
 	}); err != nil {
@@ -224,16 +237,19 @@ func (h *Host) sendStatus(message string) {
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	h.statusCh = make(chan any, 1)
 
+	// Set up the Host's context - processes fork from this, not the calling context
+	h.ctx = relay.WithHost(ctx, h)
+
 	// Create message host using the factory
 	var err error
-	h.msgHost, err = h.msgFactory.CreateMessageHost(ctx, h.cfg, h.log)
+	h.msgHost, err = h.msgFactory.CreateMessageHost(h.ctx, h.cfg, h.log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create message host: %w", err)
 	}
 
 	// Create process pool using the factory
 	h.pool, err = h.poolFactory.CreateProcessPool(
-		ctx,
+		h.ctx,
 		h.cfg.HostConfig.Workers,
 		h.cfg.HostConfig.MaxProcesses,
 		h.log,

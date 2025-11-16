@@ -3,6 +3,7 @@ package process
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	luaerrors "github.com/wippyai/runtime/runtime/lua/engine/errors"
 	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
@@ -124,7 +126,7 @@ func (s *State) ToLuaPayloads(payloads payload.Payloads) ([]lua.LValue, error) {
 }
 
 // Start initializes the Lua process and starts execution
-func (s *State) Start(input payload.Payloads, onStart func()) error {
+func (s *State) Start(input payload.Payloads, onStartFunc func()) error {
 	// Convert input payloads to Lua values
 	args, err := s.ToLuaPayloads(input)
 	if err != nil {
@@ -137,7 +139,17 @@ func (s *State) Start(input payload.Payloads, onStart func()) error {
 		return err
 	}
 
-	onStart()
+	// Call legacy onStart if provided
+	if onStartFunc != nil {
+		onStartFunc()
+	}
+
+	// Execute OnStart hook arrays
+	if hooks := process.GetOnStartHooks(s.Ctx); hooks != nil {
+		for _, hook := range hooks {
+			hook(s.Ctx, s.PID, nil)
+		}
+	}
 
 	// Handle the initial result if any using select
 	select {
@@ -150,6 +162,27 @@ func (s *State) Start(input payload.Payloads, onStart func()) error {
 			s.Complete(result.Error, nil)
 			return result.Error
 		}
+
+		// Check for error in second return value (following Go's value, error pattern)
+		if len(result.Result) == 2 {
+			sRet := result.Result[1]
+
+			if sRet.Type() == lua.LTString {
+				err := fmt.Errorf("error: %s", sRet.String())
+				s.Complete(err, nil)
+				return err
+			}
+
+			if sRet.Type() == lua.LTUserData {
+				if wrappedErr := luaerrors.Unwrap(sRet); wrappedErr != nil {
+					s.Complete(wrappedErr, nil)
+					return wrappedErr
+				}
+			}
+
+			// If second value is neither string nor UserData error, treat as nil (no error)
+		}
+
 		if len(result.Result) > 0 {
 			// Process completed immediately
 			s.Complete(nil, result.Result[0])
@@ -194,6 +227,29 @@ func (s *State) Step(block bool) error {
 			s.Complete(result.Error, nil)
 			return result.Error
 		}
+
+		// Check for error in second return value (following Go's value, error pattern)
+		if len(result.Result) == 2 {
+			sRet := result.Result[1]
+
+			if sRet.Type() == lua.LTString {
+				err := fmt.Errorf("error: %s", sRet.String())
+				s.wg.Done()
+				s.Complete(err, nil)
+				return err
+			}
+
+			if sRet.Type() == lua.LTUserData {
+				if wrappedErr := luaerrors.Unwrap(sRet); wrappedErr != nil {
+					s.wg.Done()
+					s.Complete(wrappedErr, nil)
+					return wrappedErr
+				}
+			}
+
+			// If second value is neither string nor UserData error, treat as nil (no error)
+		}
+
 		if len(result.Result) > 0 {
 			s.wg.Done()
 			s.Complete(nil, result.Result[0])
@@ -271,14 +327,20 @@ func (s *State) Complete(err error, result lua.LValue) {
 		}
 	}
 
-	// Notify onComplete handlers
-	if onComplete := process.GetOnComplete(s.Ctx); onComplete != nil {
-		if err != nil {
-			onComplete(s.PID, &runtime.Result{Error: err})
-		} else {
-			onComplete(s.PID, &runtime.Result{
-				Value: luaconv.ExportPayload(result),
-			})
+	// Build result
+	var rtResult *runtime.Result
+	if err != nil {
+		rtResult = &runtime.Result{Error: err}
+	} else {
+		rtResult = &runtime.Result{
+			Value: luaconv.ExportPayload(result),
+		}
+	}
+
+	// Execute OnComplete hook arrays
+	if hooks := process.GetOnCompleteHooks(s.Ctx); hooks != nil {
+		for _, hook := range hooks {
+			hook(s.Ctx, s.PID, rtResult)
 		}
 	}
 

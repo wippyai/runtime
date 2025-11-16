@@ -159,8 +159,10 @@ func (a *App) Start(ctx context.Context, pid relay.PID, input payload.Payloads) 
 		a.taskRunner = NewTaskRunner(a)
 
 		// Notify that the process has started
-		if onStart := process.GetOnStart(a.state.Ctx); onStart != nil {
-			onStart(pid, a)
+		if hooks := process.GetOnStartHooks(a.state.Ctx); hooks != nil {
+			for _, hook := range hooks {
+				hook(a.state.Ctx, pid, a)
+			}
 		}
 
 		// Run the bubbletea program concurrently

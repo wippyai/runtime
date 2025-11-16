@@ -128,9 +128,14 @@ func (h *Host) worker(queueIndex int) {
 		case job := <-queue:
 			rec, ok := h.receivers.Load(job.Target)
 			if !ok {
+				var topic string
+				if len(job.Messages) > 0 {
+					topic = string(job.Messages[0].Topic)
+				}
 				h.logger.Warn("No receiver found for target PID",
 					zap.String("target", job.Target.String()),
-					zap.String("source", job.Source.String()))
+					zap.String("source", job.Source.String()),
+					zap.String("topic", topic))
 				continue
 			}
 

@@ -19,6 +19,7 @@ import (
 	apiregistry "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	config "github.com/wippyai/runtime/api/service/http"
+	"go.uber.org/zap"
 )
 
 // SimpleFunctionRegistry for testing
@@ -36,12 +37,23 @@ func (r *SimpleFunctionRegistry) Register(id apiregistry.ID, fn function.Func) {
 	r.functions[id] = fn
 }
 
-func (r *SimpleFunctionRegistry) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+func (r *SimpleFunctionRegistry) Call(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	fn, exists := r.functions[task.ID]
 	if !exists {
 		return nil, fmt.Errorf("function not found: %s", task.ID)
 	}
-	return fn(ctx, task)
+
+	// Open a new frame context and apply task context pairs
+	// This mimics what the real function registry does
+	execCtx, frame := ctxapi.OpenFrameContext(ctx)
+	if frame != nil {
+		for _, pair := range task.Context {
+			_ = frame.Set(pair.Key, pair.Value)
+		}
+		frame.Seal()
+	}
+
+	return fn(execCtx, task)
 }
 
 // MockFS implements apifsLib.FS for testing
@@ -169,9 +181,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
 
 		// Register test function
-		registry.Register(cfg.Func, func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-			resultCh := make(chan *runtime.Result, 1)
-
+		registry.Register(cfg.Func, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 			// Get request context from FrameContext
 			fc := ctxapi.FrameFromContext(ctx)
 			if fc == nil {
@@ -190,12 +200,10 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 			_, _ = w.Write([]byte("success"))
 
 			// Return success
-			resultCh <- &runtime.Result{
+			return &runtime.Result{
 				Value: payload.New("success"),
 				Error: nil,
-			}
-			close(resultCh)
-			return resultCh, nil
+			}, nil
 		})
 
 		// Create handler
@@ -230,7 +238,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
 
 		// Register test function that returns an error
-		registry.Register(cfg.Func, func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+		registry.Register(cfg.Func, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 			return nil, fmt.Errorf("function error")
 		})
 
@@ -468,7 +476,7 @@ func TestWrapWithCacheControl(t *testing.T) {
 
 func TestServerFactory(t *testing.T) {
 	// Create middleware factory for server factory
-	middlewareFactory := NewMiddlewareRegistry(zap.NewNop()))
+	middlewareFactory := NewMiddlewareRegistry(zap.NewNop())
 
 	factory := NewServerFactory(middlewareFactory)
 

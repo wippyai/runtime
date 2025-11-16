@@ -16,6 +16,7 @@ import (
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/http"
+	"go.uber.org/zap"
 )
 
 // findFreePort finds an available port on the local machine
@@ -78,7 +79,7 @@ func TestServerService_Basic(t *testing.T) {
 		}
 
 		id := registry.ID{NS: "test", Name: "server1"}
-		middleware := NewMiddlewareRegistry(zap.NewNop()))
+		middleware := NewMiddlewareRegistry(zap.NewNop())
 		server, err := NewServerService(id, cfg, middleware)
 		require.NoError(t, err)
 
@@ -99,7 +100,7 @@ func TestServerService_Basic(t *testing.T) {
 		}
 
 		id := registry.ID{NS: "test", Name: "server1"}
-		middleware := NewMiddlewareRegistry(zap.NewNop()))
+		middleware := NewMiddlewareRegistry(zap.NewNop())
 		server, err := NewServerService(id, cfg, middleware)
 		require.NoError(t, err)
 
@@ -166,7 +167,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 	}
 
 	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewMiddlewareRegistry(zap.NewNop()))
+	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
@@ -292,7 +293,7 @@ func TestServerService_StartStop(t *testing.T) {
 	}
 
 	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewMiddlewareRegistry(zap.NewNop()))
+	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
@@ -393,29 +394,29 @@ func TestServerService_Middleware(t *testing.T) {
 
 	// Create middleware factory for the test
 	middlewareFactory := NewMiddlewareRegistry(zap.NewNop())
-		RegisterCreator("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					// Pass through any existing request ID
-					reqID := r.Header.Get("X-Request-Id")
-					if reqID == "" {
-						reqID = "generated-id"
-					}
-					// Set it in the request
-					r.Header.Set("X-Request-Id", reqID)
-					next.ServeHTTP(w, r)
-				})
-			}
-		}),
-		RegisterCreator("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					// Simple pass-through middleware for testing
-					next.ServeHTTP(w, r)
-				})
-			}
-		}),
-	)
+	middlewareFactory.Register("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Pass through any existing request ID
+				reqID := r.Header.Get("X-Request-Id")
+				if reqID == "" {
+					reqID = "generated-id"
+				}
+				// Set it in the request
+				r.Header.Set("X-Request-Id", reqID)
+				next.ServeHTTP(w, r)
+			})
+		}
+	})
+
+	middlewareFactory.Register("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Simple pass-through middleware for testing
+				next.ServeHTTP(w, r)
+			})
+		}
+	})
 
 	server, err := NewServerService(id, cfg, middlewareFactory)
 	require.NoError(t, err)
@@ -519,7 +520,7 @@ func TestEnsureRunning(t *testing.T) {
 	}
 
 	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewMiddlewareRegistry(zap.NewNop()))
+	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
@@ -575,7 +576,7 @@ func TestContextListener(t *testing.T) {
 	}
 
 	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewMiddlewareRegistry(zap.NewNop()))
+	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 

@@ -19,7 +19,7 @@ func TestKind_String(t *testing.T) {
 		{KindConflict, "Conflict"},
 		{KindTimeout, "Timeout"},
 		{KindRateLimited, "RateLimited"},
-		{Kind(999), "Unknown"},
+		{Kind("made_up_kind"), "Unknown"},
 	}
 
 	for _, tt := range tests {
@@ -72,8 +72,8 @@ func TestTernary_Bool(t *testing.T) {
 }
 
 func TestKind_Values(t *testing.T) {
-	if KindUnknown != 0 {
-		t.Errorf("KindUnknown should be 0 (iota default), got %d", KindUnknown)
+	if KindUnknown != "Unknown" {
+		t.Errorf("KindUnknown should be 'Unknown', got %s", KindUnknown)
 	}
 
 	kinds := []Kind{
@@ -93,7 +93,7 @@ func TestKind_Values(t *testing.T) {
 	seen := make(map[Kind]bool)
 	for _, k := range kinds {
 		if seen[k] {
-			t.Errorf("Duplicate Kind value: %d", k)
+			t.Errorf("Duplicate Kind value: %s", k)
 		}
 		seen[k] = true
 	}

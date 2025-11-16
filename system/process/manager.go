@@ -2,15 +2,12 @@ package process
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/pidgen"
 	api "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
@@ -27,6 +24,7 @@ type Manager struct {
 	prototypes api.Factory
 	nodeID     relay.NodeID
 	logger     *zap.Logger
+	mutators   []api.StartMutator
 }
 
 // NewProcessManager creates a new Manager.
@@ -41,7 +39,13 @@ func NewProcessManager(
 		prototypes: prototypes,
 		nodeID:     nodeID,
 		logger:     logger,
+		mutators:   make([]api.StartMutator, 0),
 	}
+}
+
+// RegisterMutator adds a StartMutator to be executed during Start()
+func (m *Manager) RegisterMutator(mutator api.StartMutator) {
+	m.mutators = append(m.mutators, mutator)
 }
 
 // preparePID creates and validates a pid for the process
@@ -80,14 +84,15 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid relay.PID
 			return relay.PID{}, fmt.Errorf("failed to init launch: %w", err)
 		}
 
-		// Pass the lifecycle information to the managed host
 		newPid, err := h.Launch(ctx, &api.Launch{
-			PID:       pid,
-			Source:    ps.Source,
-			Process:   proc,
-			Input:     ps.Input,
-			Lifecycle: ps.Lifecycle,
-			Context:   ps.Context,
+			PID:        pid,
+			Source:     ps.Source,
+			Process:    proc,
+			Input:      ps.Input,
+			Context:    ps.Context,
+			Options:    ps.Options,
+			OnStart:    ps.OnStart,
+			OnComplete: ps.OnComplete,
 		})
 		if err != nil {
 			return relay.PID{}, fmt.Errorf("failed to launch process on managed host: %w", err)
@@ -95,11 +100,25 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid relay.PID
 		return newPid, nil
 
 	case api.Delegated:
-		// For delegated hosts, we don't pass the Process instance
-		// But we should consider adding a way to pass lifecycle info to delegated hosts as well
-		newPid, err := h.Launch(ctx, pid, ps.Lifecycle, ps.Input)
+		// Construct Lifecycle from Options for Delegated hosts
+		var lifecycle api.Lifecycle
+		if parent, ok := ps.Options.Get(api.LifecycleParentKey); ok {
+			if pid, ok := parent.(relay.PID); ok {
+				lifecycle.Parent = pid
+			}
+		}
+		lifecycle.Monitor = ps.Options.GetBool(api.LifecycleMonitorKey, false)
+		lifecycle.Link = ps.Options.GetBool(api.LifecycleLinkKey, false)
+
+		newPid, err := h.Dispatch(ctx, lifecycle, &api.Dispatch{
+			PID:     pid,
+			Source:  ps.Source,
+			Input:   ps.Input,
+			Context: ps.Context,
+			Options: ps.Options,
+		})
 		if err != nil {
-			return relay.PID{}, fmt.Errorf("failed to launch process on delegated host: %w", err)
+			return relay.PID{}, fmt.Errorf("failed to dispatch process to delegated host: %w", err)
 		}
 		return newPid, nil
 
@@ -110,6 +129,15 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid relay.PID
 
 // Start launches a process, passing the lifecycle information to the host
 func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error) {
+	// Run mutators to modify start request and thread context
+	var err error
+	for _, mutator := range m.mutators {
+		ctx, err = mutator(ctx, start)
+		if err != nil {
+			return relay.PID{}, fmt.Errorf("mutator failed: %w", err)
+		}
+	}
+
 	host, exists := m.hosts.GetHost(start.HostID)
 	if !exists {
 		return relay.PID{}, fmt.Errorf("host not found: `%s`", start.HostID)
@@ -117,10 +145,6 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error
 
 	_, managed := host.(api.Managed)
 	pid := m.preparePID(ctx, start, managed)
-
-	// The topology registration and monitoring/linking will be handled by the host
-	// during the actual process launch, so we don't need to do it here anymore.
-	// This prevents having orphaned PIDs in the topology if the launch fails.
 
 	return m.launchOnHost(ctx, host, pid, start)
 }
@@ -149,127 +173,4 @@ func (m *Manager) Terminate(ctx context.Context, pid relay.PID) error {
 	}
 
 	return host.Terminate(ctx, pid)
-}
-
-// AttachLifecycle returns a context with topology callbacks attached for the specified lifecycle
-func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) context.Context {
-	// OnStart callback adds topology integration when a process starts
-	if err := api.SetOnStart(ctx, func(pid relay.PID, _ api.Process) {
-		// Get topology from context
-		topo := topology.GetTopology(ctx)
-		if topo == nil {
-			m.logger.Error("topology not found in context",
-				zap.String("pid", pid.String()))
-			return
-		}
-
-		id, ok := runtime.GetFrameID(ctx)
-		if ok {
-			m.logger.Debug("process started",
-				zap.String("pid", pid.String()),
-				zap.String("id", id.String()))
-		} else {
-			m.logger.Debug("process started",
-				zap.String("pid", pid.String()))
-		}
-
-		// Register the Target with topology
-		err := topo.Register(pid)
-
-		if err != nil {
-			m.logger.Warn("failed to register pid for monitoring",
-				zap.String("pid", pid.String()),
-				zap.Error(err))
-			return
-		}
-
-		// Set up monitoring if requested and Parent Target is provided
-		if lifecycle.Monitor && lifecycle.Parent.String() != "" {
-			if err = topo.Wait(lifecycle.Parent, pid); err != nil {
-				m.logger.Warn("failed to monitor process",
-					zap.String("pid", pid.String()),
-					zap.String("caller", lifecycle.Parent.String()),
-					zap.Error(err))
-			}
-		}
-
-		// Set up linking if requested and Parent Target is provided
-		if lifecycle.Link && lifecycle.Parent.String() != "" {
-			if err = topo.Link(lifecycle.Parent, pid); err != nil {
-				m.logger.Warn("failed to link process",
-					zap.String("pid", pid.String()),
-					zap.String("caller", lifecycle.Parent.String()),
-					zap.Error(err))
-			}
-		}
-	}); err != nil {
-		m.logger.Error("failed to set onStart callback", zap.Error(err))
-		return ctx
-	}
-
-	// OnComplete callback handles process termination topology events
-	if err := api.SetOnComplete(ctx, func(pid relay.PID, result *runtime.Result) {
-		// Get topology from context
-		topo := topology.GetTopology(ctx)
-		if topo == nil {
-			m.logger.Error("topology not found in context",
-				zap.String("pid", pid.String()))
-			return
-		}
-
-		// Get pid registry from context
-		pidReg := topology.GetRegistry(ctx)
-		if pidReg == nil {
-			m.logger.Error("pid registry not found in context",
-				zap.String("pid", pid.String()))
-			return
-		}
-
-		id, ok := runtime.GetFrameID(ctx)
-
-		if result.Error != nil {
-			if errors.Is(result.Error, supervisor.ErrExit) {
-				if ok {
-					m.logger.Debug("process exited",
-						zap.String("pid", pid.String()),
-						zap.String("id", id.String()))
-				} else {
-					m.logger.Debug("process exited",
-						zap.String("pid", pid.String()))
-				}
-				result.Error = nil // normal exit
-			} else {
-				if ok {
-					m.logger.Debug("process failed",
-						zap.String("pid", pid.String()),
-						zap.String("id", id.String()),
-						zap.Error(result.Error))
-				} else {
-					m.logger.Debug("process failed",
-						zap.String("pid", pid.String()),
-						zap.Error(result.Error))
-				}
-			}
-		} else {
-			if ok {
-				m.logger.Debug("process completed",
-					zap.String("pid", pid.String()),
-					zap.String("id", id.String()),
-					zap.Any("result", result.Value))
-			} else {
-				m.logger.Debug("process completed",
-					zap.String("pid", pid.String()),
-					zap.Any("result", result.Value))
-			}
-		}
-
-		topo.Notify(pid, result)
-		pidReg.Remove(pid)
-		topo.Remove(pid)
-	}); err != nil {
-		m.logger.Error("failed to set onComplete callback", zap.Error(err))
-		return ctx
-	}
-
-	return ctx
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
@@ -70,14 +71,15 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Launch monitored process
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, svc.supervisorPID)
+	options.Set(process.LifecycleMonitorKey, true)
+
 	pid, err := proc.Start(ctx, &process.Start{
-		HostID: svc.config.HostID,
-		Source: processID,
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  svc.supervisorPID,
-			Monitor: true,
-		},
+		HostID:  svc.config.HostID,
+		Source:  processID,
+		Input:   payloads,
+		Options: options,
 	})
 	if err != nil {
 		detach()

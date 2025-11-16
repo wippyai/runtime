@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
@@ -56,6 +57,16 @@ const (
 	StepDone
 )
 
+// Lifecycle option keys for process supervision
+const (
+	// LifecycleParentKey is the option key for the parent process PID
+	LifecycleParentKey = "lifecycle.parent"
+	// LifecycleMonitorKey is the option key for monitor mode (bool)
+	LifecycleMonitorKey = "lifecycle.monitor"
+	// LifecycleLinkKey is the option key for link mode (bool)
+	LifecycleLinkKey = "lifecycle.link"
+)
+
 var (
 	// ErrNoProcess indicates that no process is currently running.
 	ErrNoProcess = errors.New("no process running")
@@ -76,6 +87,20 @@ var (
 type (
 	// StepResult indicates the state of a process after a Step() execution
 	StepResult int
+
+	// StartMutator is a function that modifies a Start request before process launch.
+	// Mutators can add context pairs, options, or lifecycle hooks based on the start configuration.
+	// They can also modify and return the context, allowing external context setting.
+	// They are executed in registration order by the Manager before creating the Launch request.
+	StartMutator func(ctx stdcontext.Context, start *Start) (stdcontext.Context, error)
+
+	// OnStart is a lifecycle hook called after a process starts.
+	// It receives the context, process PID, and process instance.
+	OnStart func(ctx stdcontext.Context, pid relay.PID, proc Process)
+
+	// OnComplete is a lifecycle hook called when a process completes.
+	// It receives the context, process PID, and the result (value or error).
+	OnComplete func(ctx stdcontext.Context, pid relay.PID, result *runtime.Result)
 
 	// Prototype is a function that creates a new process instance.
 	// It returns a Process and an error if the process creation fails.
@@ -146,19 +171,29 @@ type (
 		// Input contains the initialization data for the process
 		Input payload.Payloads
 
-		// Lifecycle defines the supervision relationships for this process
-		// including monitoring and linking with the parent process.
-		Lifecycle Lifecycle
-
 		// Context contains context overrides to apply when starting this process.
 		// These pairs are set in the new FrameContext after inheritance but before sealing.
 		// Can include actor, scope, custom values, or any other context keys.
 		Context []context.Pair
+
+		// Options contains runtime configuration options for the process.
+		// Can include lifecycle parameters (lifecycle.parent, lifecycle.monitor, lifecycle.link),
+		// timeouts, retry settings, or any other runtime options.
+		Options attrs.Attributes
+
+		// OnStart contains user-defined lifecycle hooks to execute after the process starts.
+		// Mutators can append additional hooks during Start processing.
+		OnStart []OnStart
+
+		// OnComplete contains user-defined lifecycle hooks to execute when the process completes.
+		// Mutators can append additional hooks during Start processing.
+		OnComplete []OnComplete
 	}
 
-	// Launch contains the information needed to launch a process.
+	// Launch contains the information needed to launch a process on a managed host.
 	// It is used by managed hosts to start a specific process instance and
 	// includes both the process and its lifecycle configuration.
+	// This structure is created by the Manager from a Start request after applying mutators.
 	Launch struct {
 		// PID is the process identifier to assign to the new process
 		PID relay.PID
@@ -172,14 +207,49 @@ type (
 		// Input contains the initialization data for the process
 		Input payload.Payloads
 
-		// Lifecycle defines the supervision relationships for this process
-		// including monitoring and linking with the parent process.
-		Lifecycle Lifecycle
+		// Context contains context overrides to apply when launching this process.
+		// These pairs are set in the new FrameContext after inheritance but before sealing.
+		// Includes user-provided pairs and mutator additions.
+		Context []context.Pair
+
+		// Options contains runtime configuration options for the process.
+		// Includes user-provided options and mutator additions.
+		// Lifecycle parameters are stored here (lifecycle.parent, lifecycle.monitor, lifecycle.link).
+		Options attrs.Attributes
+
+		// OnStart contains lifecycle hooks to execute after the process starts.
+		// Includes user hooks, mutator hooks, and topology hooks.
+		OnStart []OnStart
+
+		// OnComplete contains lifecycle hooks to execute when the process completes.
+		// Includes user hooks, mutator hooks, and topology hooks.
+		OnComplete []OnComplete
+	}
+
+	// Dispatch contains the information needed to dispatch a process to a delegated host.
+	// It is used by delegated hosts (e.g., Temporal workers) to create and start a process remotely.
+	// Unlike Launch, Dispatch does not include the Process instance since delegated hosts
+	// create their own processes from the Source registry ID.
+	// This structure is created by the Manager from a Start request after applying mutators.
+	Dispatch struct {
+		// PID is the process identifier to assign to the new process
+		PID relay.PID
+
+		// Source is the registry ID of the process type to instantiate
+		Source registry.ID
+
+		// Input contains the initialization data for the process
+		Input payload.Payloads
 
 		// Context contains context overrides to apply when launching this process.
 		// These pairs are set in the new FrameContext after inheritance but before sealing.
-		// Can include actor, scope, custom values, or any other context keys.
+		// Includes user-provided pairs and mutator additions.
 		Context []context.Pair
+
+		// Options contains runtime configuration options for the process.
+		// Includes user-provided options and mutator additions.
+		// Lifecycle parameters are stored here (lifecycle.parent, lifecycle.monitor, lifecycle.link).
+		Options attrs.Attributes
 	}
 
 	// Terminator defines the interface for forcefully stopping a running process.
@@ -199,8 +269,7 @@ type (
 	}
 
 	// Manager defines the interface for process lifecycle management.
-	// It combines process starting, termination, and cancellation capabilities,
-	// and provides context management for process lifecycle events.
+	// It combines process starting, termination, and cancellation capabilities.
 	Manager interface {
 		Terminator
 		Canceller
@@ -209,12 +278,6 @@ type (
 		// Returns the Target of the started process or an error if the process
 		// cannot be started.
 		Start(ctx stdcontext.Context, start *Start) (relay.PID, error)
-
-		// AttachLifecycle enhances a context with process lifecycle management.
-		// It adds callbacks for process startup and completion events that manage
-		// process registration, monitoring, linking, and cleanup in the topology.
-		// The provided Lifecycle configuration determines the supervision behavior.
-		AttachLifecycle(stdcontext.Context, Lifecycle) stdcontext.Context // todo: find another path?
 	}
 
 	// Host defines the interface for process execution environments.
@@ -239,14 +302,15 @@ type (
 	}
 
 	// Delegated defines the interface for delegated process hosts.
-	// Delegated hosts receive process identifiers from the manager and
-	// are responsible for creating and executing the processes themselves.
+	// Delegated hosts receive dispatch information from the manager and
+	// are responsible for creating and executing the processes themselves remotely.
+	// Examples include Temporal workers or other external executors.
 	Delegated interface {
 		Host
 
-		// Launch starts a process with the given Target and input.
-		// Returns the Target of the started process or an error if the process
-		// cannot be started.
-		Launch(ctx stdcontext.Context, pid relay.PID, lf Lifecycle, input payload.Payloads) (relay.PID, error)
+		// Dispatch starts a process remotely with the given lifecycle and dispatch configuration.
+		// The delegated host creates the process instance from dispatch.Source.
+		// Returns the PID of the started process or an error if the process cannot be started.
+		Dispatch(ctx stdcontext.Context, lf Lifecycle, dispatch *Dispatch) (relay.PID, error)
 	}
 )
