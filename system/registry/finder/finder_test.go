@@ -521,7 +521,7 @@ func TestFinder_VersionAwareCaching(t *testing.T) {
 		version: 1,
 	}
 
-	vm.mockRegistry.currentFunc = func() (registry.Version, error) {
+	vm.currentFunc = func() (registry.Version, error) {
 		return &mockVersion{id: vm.version}, nil
 	}
 
@@ -541,7 +541,7 @@ func TestFinder_VersionAwareCaching(t *testing.T) {
 	vm.version = 2
 
 	// Update entries
-	vm.mockRegistry.entries = []registry.Entry{
+	vm.entries = []registry.Entry{
 		{ID: registry.ID{Name: "entry-1"}, Kind: "test", Meta: registry.Metadata{"enabled": true}},
 		{ID: registry.ID{Name: "entry-2"}, Kind: "test", Meta: registry.Metadata{"enabled": true}},
 	}
@@ -568,7 +568,7 @@ func TestFinder_RegexCachePersistence(t *testing.T) {
 		version: 1,
 	}
 
-	vm.mockRegistry.currentFunc = func() (registry.Version, error) {
+	vm.currentFunc = func() (registry.Version, error) {
 		return &mockVersion{id: vm.version}, nil
 	}
 

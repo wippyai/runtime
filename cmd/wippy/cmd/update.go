@@ -349,7 +349,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 				response = "Y"
 			}
 			if response != "" && response != "Y" && response != "y" {
-				logger.Info("update cancelled by user")
+				logger.Info("update canceled by user")
 				return nil
 			}
 		}

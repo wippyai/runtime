@@ -2,10 +2,11 @@ package http
 
 import (
 	"encoding/json"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	basehttp "net/http"
 	"net/http/httptest"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

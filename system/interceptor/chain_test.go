@@ -9,6 +9,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
 	"github.com/wippyai/runtime/api/runtime"
+	"go.uber.org/zap"
 )
 
 type mockInterceptor struct {
@@ -17,39 +18,32 @@ type mockInterceptor struct {
 	shouldError bool
 }
 
-func (m *mockInterceptor) Handle(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
+func (m *mockInterceptor) Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
 	m.called.Store(true)
 	if m.shouldError {
-		return &runtime.Result{Error: errors.New("interceptor error")}, ctx
+		return nil, errors.New("interceptor error")
 	}
-	return next(ctx)
+	return next(ctx, task)
 }
 
 func TestChainExecuteNoInterceptors(t *testing.T) {
-	chain := newChain(nil)
+	chain := newChain(nil, zap.NewNop())
 
 	executed := false
-	mockFunc := func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+	mockFunc := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		executed = true
-		ch := make(chan *runtime.Result, 1)
-		ch <- &runtime.Result{}
-		return ch, nil
+		return &runtime.Result{}, nil
 	}
 
 	rootCtx := ctxapi.NewRootContext()
 	task := runtime.Task{}
 
-	ch, err := chain.Execute(rootCtx, mockFunc, task)
+	result, err := chain.Execute(rootCtx, mockFunc, task)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if ch == nil {
-		t.Fatal("Execute returned nil channel")
-	}
-
-	result := <-ch
 	if result == nil {
-		t.Fatal("channel returned nil result")
+		t.Fatal("Execute returned nil result")
 	}
 	if !executed {
 		t.Error("function was not executed")
@@ -61,30 +55,23 @@ func TestChainExecuteWithInterceptors(t *testing.T) {
 	int2 := &mockInterceptor{name: "int2"}
 	int3 := &mockInterceptor{name: "int3"}
 
-	chain := newChain([]apiinterceptor.Interceptor{int1, int2, int3})
+	chain := newChain([]apiinterceptor.Interceptor{int1, int2, int3}, zap.NewNop())
 
 	executed := false
-	mockFunc := func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+	mockFunc := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		executed = true
-		ch := make(chan *runtime.Result, 1)
-		ch <- &runtime.Result{}
-		return ch, nil
+		return &runtime.Result{}, nil
 	}
 
 	rootCtx := ctxapi.NewRootContext()
 	task := runtime.Task{}
 
-	ch, err := chain.Execute(rootCtx, mockFunc, task)
+	result, err := chain.Execute(rootCtx, mockFunc, task)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if ch == nil {
-		t.Fatal("Execute returned nil channel")
-	}
-
-	result := <-ch
 	if result == nil {
-		t.Fatal("channel returned nil result")
+		t.Fatal("Execute returned nil result")
 	}
 
 	if !int1.called.Load() {
@@ -106,14 +93,12 @@ func TestChainExecuteInterceptorError(t *testing.T) {
 	int2 := &mockInterceptor{name: "int2", shouldError: true}
 	int3 := &mockInterceptor{name: "int3"}
 
-	chain := newChain([]apiinterceptor.Interceptor{int1, int2, int3})
+	chain := newChain([]apiinterceptor.Interceptor{int1, int2, int3}, zap.NewNop())
 
 	executed := false
-	mockFunc := func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+	mockFunc := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		executed = true
-		ch := make(chan *runtime.Result, 1)
-		ch <- &runtime.Result{}
-		return ch, nil
+		return &runtime.Result{}, nil
 	}
 
 	rootCtx := ctxapi.NewRootContext()
@@ -141,9 +126,9 @@ func TestChainExecuteInterceptorError(t *testing.T) {
 func TestChainExecuteFunctionError(t *testing.T) {
 	int1 := &mockInterceptor{name: "int1"}
 
-	chain := newChain([]apiinterceptor.Interceptor{int1})
+	chain := newChain([]apiinterceptor.Interceptor{int1}, zap.NewNop())
 
-	mockFunc := func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+	mockFunc := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		return nil, errors.New("function error")
 	}
 
@@ -168,20 +153,18 @@ func TestChainExecuteContextPropagation(t *testing.T) {
 		called bool
 	}{}
 
-	interceptor := apiinterceptor.HandlerFunc(func(ctx context.Context, next func(context.Context) (*runtime.Result, context.Context)) (*runtime.Result, context.Context) {
+	interceptor := apiinterceptor.HandlerFunc(func(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
 		modifyingInterceptor.called = true
 		newCtx := context.WithValue(ctx, testKey, "modified")
-		return next(newCtx)
+		return next(newCtx, task)
 	})
 
-	chain := newChain([]apiinterceptor.Interceptor{interceptor})
+	chain := newChain([]apiinterceptor.Interceptor{interceptor}, zap.NewNop())
 
 	var receivedCtx context.Context
-	mockFunc := func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+	mockFunc := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		receivedCtx = ctx
-		ch := make(chan *runtime.Result, 1)
-		ch <- &runtime.Result{}
-		return ch, nil
+		return &runtime.Result{}, nil
 	}
 
 	rootCtx := ctxapi.NewRootContext()

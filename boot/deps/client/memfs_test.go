@@ -326,7 +326,7 @@ func TestMemFile_Read(t *testing.T) {
 		defer file.Close()
 
 		buf := make([]byte, 10)
-		n, err := file.Read(buf)
+		n, _ := file.Read(buf)
 		if n != 2 {
 			t.Errorf("expected 2 bytes, got %d", n)
 		}

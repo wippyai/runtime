@@ -188,7 +188,7 @@ func wrapLogger(logger *zap.Logger, bus event.Bus, cfg boot.Config) (*zap.Logger
 		logConfig = logapi.Config{
 			PropagateDownstream: cfgSub.GetBool("propagate_downstream", true),
 			StreamToEvents:      cfgSub.GetBool("stream_to_events", false),
-			MinLevel:            zapcore.Level(cfgSub.GetInt("min_level", int(baseMinLevel))),
+			MinLevel:            zapcore.Level(cfgSub.GetInt("min_level", int(baseMinLevel))), //nolint:gosec
 		}
 	} else {
 		logConfig = logapi.Config{

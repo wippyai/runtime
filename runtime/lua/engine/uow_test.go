@@ -50,7 +50,7 @@ func TestNewUnitOfWorkWithWakeUp(t *testing.T) {
 	wakeupCalled := false
 	wakeupFunc := func() { wakeupCalled = true }
 	fc := ctxapi.FrameFromContext(parentCtx)
-	fc.Set(ctxapi.WakeUpKey, wakeupFunc)
+	_ = fc.Set(ctxapi.WakeUpKey, wakeupFunc)
 
 	uw, _ := NewUnitOfWork(parentCtx, state)
 	defer uw.Close()

@@ -1,8 +1,9 @@
 package models
 
 import (
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/runtime/lua/engine"

@@ -43,10 +43,8 @@ func TestGetLogger(t *testing.T) {
 			expectNopLogger: false,
 		},
 		{
-			name: "context without logger",
-			setupContext: func() context.Context {
-				return ctxapi.NewRootContext()
-			},
+			name:            "context without logger",
+			setupContext:    ctxapi.NewRootContext,
 			expectNopLogger: true,
 		},
 	}

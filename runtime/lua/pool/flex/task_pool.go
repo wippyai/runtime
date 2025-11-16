@@ -76,7 +76,7 @@ func NewTaskPool(factory api.Factory, method string, opts ...TaskOption) (*TaskP
 }
 
 // Execute executes a task synchronously with a VM created on demand.
-// Blocks until execution completes or context is cancelled.
+// Blocks until execution completes or context is canceled.
 func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	// Check if the pool is closed
 	select {

@@ -179,6 +179,15 @@ func (i *Interceptor) isRetryable(err error, retryKinds, skipKinds []string) boo
 		apierror.KindPermissionDenied,
 		apierror.KindInternal:
 		return false
+	case apierror.KindUnknown,
+		apierror.KindNotFound,
+		apierror.KindAlreadyExists,
+		apierror.KindUnavailable,
+		apierror.KindCanceled,
+		apierror.KindConflict,
+		apierror.KindTimeout,
+		apierror.KindRateLimited:
+		return true
 	default:
 		return true
 	}

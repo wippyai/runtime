@@ -44,7 +44,9 @@ func runFromPack(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("create logger: %w", err)
 	}
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync() // Ignore sync errors (typically closed stdout/stderr)
+	}()
 
 	logger.Info("loading pack files", zap.Int("count", len(args)))
 

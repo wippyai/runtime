@@ -33,7 +33,7 @@ func TestMiddlewareFactory(t *testing.T) {
 		}
 
 		factory := NewMiddlewareRegistry(zap.NewNop())
-		factory.Register("test", func(options map[string]string) func(http.Handler) http.Handler {
+		_ = factory.Register("test", func(options map[string]string) func(http.Handler) http.Handler {
 			return testMiddleware
 		})
 
@@ -82,7 +82,7 @@ func TestMiddlewareFactory(t *testing.T) {
 		}
 
 		factory := NewMiddlewareRegistry(zap.NewNop())
-		factory.Register("configurable", testCreator)
+		_ = factory.Register("configurable", testCreator)
 
 		// Test with default options
 		handler, err := factory.CreateMiddleware("configurable", nil)
@@ -116,7 +116,7 @@ func TestMiddlewareFactory(t *testing.T) {
 
 	t.Run("middleware creator returning nil", func(t *testing.T) {
 		factory := NewMiddlewareRegistry(logger)
-		factory.Register("nil-creator", func(_ map[string]string) func(http.Handler) http.Handler {
+		_ = factory.Register("nil-creator", func(_ map[string]string) func(http.Handler) http.Handler {
 			return nil
 		})
 

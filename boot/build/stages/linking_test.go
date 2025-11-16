@@ -490,7 +490,7 @@ func TestLink_MultipleRequirements(t *testing.T) {
 
 type mockTranscoder struct{}
 
-func (m *mockTranscoder) Transcode(p payload.Payload, f payload.Format) (payload.Payload, error) {
+func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	data := p.Data()
 	return payload.NewPayload(data, payload.Golang), nil
 }

@@ -59,7 +59,7 @@ func TestFrameContext_Has(t *testing.T) {
 		t.Error("Has(key1) = true, want false before Set")
 	}
 
-	cc.Set(key1, "value1")
+	_ = cc.Set(key1, "value1")
 
 	if !cc.Has(key1) {
 		t.Error("Has(key1) = false, want true after Set")
@@ -83,7 +83,7 @@ func TestFrameContext_Iterate(t *testing.T) {
 	}
 
 	for k, v := range expected {
-		cc.Set(k, v)
+		_ = cc.Set(k, v)
 	}
 
 	collected := make(map[*Key]any)
@@ -106,7 +106,7 @@ func TestFrameContext_IterateEmpty(t *testing.T) {
 	_, cc := newFrameContext(context.Background())
 
 	count := 0
-	cc.Iterate(func(key any, value any) {
+	cc.Iterate(func(_ any, value any) {
 		count++
 	})
 
@@ -122,8 +122,8 @@ func TestFrameContext_ScopeInheritance(t *testing.T) {
 	nonInheritKey := &Key{Name: "test.noninherit", Inherit: false}
 	inheritKey := &Key{Name: "test.inherit", Inherit: true}
 
-	parent.Set(nonInheritKey, "noninherit_value")
-	parent.Set(inheritKey, "inherit_value")
+	_ = parent.Set(nonInheritKey, "noninherit_value")
+	_ = parent.Set(inheritKey, "inherit_value")
 
 	// Seal parent to trigger inheritance
 	parent.Seal()
@@ -156,11 +156,11 @@ func TestFrameContext_ScopeInheritance(t *testing.T) {
 func TestFrameContext_Parent(t *testing.T) {
 	parentCtx, parent := newFrameContext(context.Background())
 	parentKey := &Key{Name: "parent.key"}
-	parent.Set(parentKey, "parent_value")
+	_ = parent.Set(parentKey, "parent_value")
 
 	_, child := newFrameContext(parentCtx)
 	childKey := &Key{Name: "child.key"}
-	child.Set(childKey, "child_value")
+	_ = child.Set(childKey, "child_value")
 
 	// Verify parent reference
 	if child.Parent() == nil {
@@ -194,7 +194,7 @@ func TestFrameContext_ConcurrentAccess(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			key := &Key{Name: "test.key" + string(rune(n))}
-			cc.Set(key, n*2)
+			_ = cc.Set(key, n*2)
 		}(i)
 	}
 
@@ -219,7 +219,7 @@ func TestFrameContext_ConcurrentAccess(t *testing.T) {
 func TestWithFrameContext(t *testing.T) {
 	_, cc := newFrameContext(context.Background())
 	key := &Key{Name: "test.key"}
-	cc.Set(key, "value1")
+	_ = cc.Set(key, "value1")
 
 	ctx := context.Background()
 	ctx = WithFrameContext(ctx, cc)
@@ -263,11 +263,11 @@ func TestFrameContext_MultipleTypes(t *testing.T) {
 	mapKey := &Key{Name: "test.map"}
 
 	// Store different types
-	cc.Set(stringKey, "value")
-	cc.Set(intKey, 42)
-	cc.Set(boolKey, true)
-	cc.Set(sliceKey, []int{1, 2, 3})
-	cc.Set(mapKey, map[string]int{"a": 1})
+	_ = cc.Set(stringKey, "value")
+	_ = cc.Set(intKey, 42)
+	_ = cc.Set(boolKey, true)
+	_ = cc.Set(sliceKey, []int{1, 2, 3})
+	_ = cc.Set(mapKey, map[string]int{"a": 1})
 
 	// Retrieve and verify
 	if got, _ := cc.Get(stringKey); got.(string) != "value" {
@@ -290,7 +290,7 @@ func TestFrameContext_MultipleTypes(t *testing.T) {
 func TestFrameContext_InheritanceDoesNotAffectParent(t *testing.T) {
 	parentCtx, parent := newFrameContext(context.Background())
 	testKey := &Key{Name: "test.key"}
-	parent.Set(testKey, "original")
+	_ = parent.Set(testKey, "original")
 
 	_, child := newFrameContext(parentCtx)
 
@@ -323,7 +323,7 @@ func TestFrameContext_Seal(t *testing.T) {
 		t.Error("new frame should not be sealed")
 	}
 
-	fc.Set(key, "value1")
+	_ = fc.Set(key, "value1")
 	fc.Seal()
 
 	if !fc.IsSealed() {
@@ -381,7 +381,7 @@ func TestFrameContext_SetMultipleSealed(t *testing.T) {
 func TestOpenFrameContext_Unsealed(t *testing.T) {
 	ctx, fc := newFrameContext(context.Background())
 	key := &Key{Name: "test.key"}
-	fc.Set(key, "value1")
+	_ = fc.Set(key, "value1")
 
 	newCtx, newFC := OpenFrameContext(ctx)
 	if newFC != fc {
@@ -418,7 +418,7 @@ func TestOpenFrameContext_InheritWithCloner(t *testing.T) {
 	cloner := &testCloner{value: "original"}
 
 	inheritKey := &Key{Name: "test.cloner", Inherit: true}
-	parent.Set(inheritKey, cloner)
+	_ = parent.Set(inheritKey, cloner)
 	parent.Seal()
 
 	_, child := OpenFrameContext(parentCtx)
@@ -445,7 +445,7 @@ func TestOpenFrameContext_InheritWithValuesCloner(t *testing.T) {
 	values.Set("key1", "value1")
 
 	inheritKey := &Key{Name: "test.values", Inherit: true}
-	parent.Set(inheritKey, values)
+	_ = parent.Set(inheritKey, values)
 	parent.Seal()
 
 	_, child := OpenFrameContext(parentCtx)

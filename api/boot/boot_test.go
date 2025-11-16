@@ -41,7 +41,7 @@ func (p *mockPlugin) Load(ctx context.Context) (context.Context, error) {
 	if p.loadErr != nil {
 		return ctx, p.loadErr
 	}
-	return context.WithValue(ctx, p.name, "loaded"), nil
+	return context.WithValue(ctx, p.name, "loaded"), nil //nolint:revive // test mock
 }
 
 func (p *mockPlugin) Start(ctx context.Context) error {
@@ -147,7 +147,7 @@ func TestPluginLoad(t *testing.T) {
 
 		ctx := context.Background()
 		_, err := p.Load(ctx)
-		if err != expectedErr {
+		if !errors.Is(err, expectedErr) {
 			t.Errorf("Load() error = %v, want %v", err, expectedErr)
 		}
 	})
@@ -178,7 +178,7 @@ func TestStarterInterface(t *testing.T) {
 
 		var s Starter = p
 		err := s.Start(context.Background())
-		if err != expectedErr {
+		if !errors.Is(err, expectedErr) {
 			t.Errorf("Start() error = %v, want %v", err, expectedErr)
 		}
 	})
@@ -209,7 +209,7 @@ func TestStopperInterface(t *testing.T) {
 
 		var s Stopper = p
 		err := s.Stop(context.Background())
-		if err != expectedErr {
+		if !errors.Is(err, expectedErr) {
 			t.Errorf("Stop() error = %v, want %v", err, expectedErr)
 		}
 	})
@@ -398,17 +398,17 @@ func (m *mockConfig) Get(key string) (any, bool) {
 	v, ok := m.data[key]
 	return v, ok
 }
-func (m *mockConfig) GetString(key string, def string) string                 { return def }
-func (m *mockConfig) GetInt(key string, def int) int                          { return def }
-func (m *mockConfig) GetBool(key string, def bool) bool                       { return def }
-func (m *mockConfig) GetDuration(key string, def time.Duration) time.Duration { return def }
-func (m *mockConfig) GetStringMap(key string) map[string]any                  { return nil }
-func (m *mockConfig) GetStringSlice(key string) []string                      { return nil }
-func (m *mockConfig) Bind(key string, v any) error                            { return nil }
-func (m *mockConfig) Section(prefix string) Config                            { return m }
-func (m *mockConfig) Sub(prefix string) Config                                { return m }
-func (m *mockConfig) Keys() []string                                          { return []string{"key"} }
-func (m *mockConfig) Has(key string) bool                                     { return false }
+func (m *mockConfig) GetString(_ string, def string) string                 { return def }
+func (m *mockConfig) GetInt(_ string, def int) int                          { return def }
+func (m *mockConfig) GetBool(_ string, def bool) bool                       { return def }
+func (m *mockConfig) GetDuration(_ string, def time.Duration) time.Duration { return def }
+func (m *mockConfig) GetStringMap(key string) map[string]any                { return nil }
+func (m *mockConfig) GetStringSlice(key string) []string                    { return nil }
+func (m *mockConfig) Bind(key string, v any) error                          { return nil }
+func (m *mockConfig) Section(_ string) Config                               { return m }
+func (m *mockConfig) Sub(_ string) Config                                   { return m }
+func (m *mockConfig) Keys() []string                                        { return []string{"key"} }
+func (m *mockConfig) Has(key string) bool                                   { return false }
 
 type mockLoader struct{}
 

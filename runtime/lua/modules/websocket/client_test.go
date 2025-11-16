@@ -2,12 +2,13 @@ package websocket
 
 import (
 	"context"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 

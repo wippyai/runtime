@@ -3,8 +3,9 @@ package sql
 import (
 	"context"
 	"database/sql"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"

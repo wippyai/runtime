@@ -219,7 +219,7 @@ func storeGetValue(l *lua.LState) int {
 	luaPayload, err := transcoder.Transcode(val, payload.Lua)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(newStoreOperationError(l, fmt.Errorf("failed to transcode: %v", err), "get"))
+		l.Push(newStoreOperationError(l, fmt.Errorf("failed to transcode: %w", err), "get"))
 		return 2
 	}
 
@@ -289,7 +289,7 @@ func storeSetValue(l *lua.LState) int {
 	goPayload, err := transcoder.Transcode(luaPayload, payload.Golang)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(newStoreOperationError(l, fmt.Errorf("failed to transcode: %v", err), "set"))
+		l.Push(newStoreOperationError(l, fmt.Errorf("failed to transcode: %w", err), "set"))
 		return 2
 	}
 

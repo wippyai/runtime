@@ -3,12 +3,13 @@ package flex
 import (
 	"context"
 	"fmt"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	runtime2 "runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"

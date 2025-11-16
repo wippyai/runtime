@@ -114,7 +114,7 @@ func TestPackage_Pool(t *testing.T) {
 		assert.Empty(t, p.Messages)
 	})
 
-	t.Run("release nil package", func(t *testing.T) {
+	t.Run("release nil package", func(_ *testing.T) {
 		ReleasePackage(nil)
 	})
 }

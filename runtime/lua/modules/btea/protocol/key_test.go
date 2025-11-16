@@ -2,8 +2,9 @@ package protocol
 
 import (
 	"context"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/stretchr/testify/assert"

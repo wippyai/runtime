@@ -63,15 +63,12 @@ func TestNoopRuntime_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resultCh, err := n.Execute(context.Background(), tt.task)
+			result, err := n.Execute(context.Background(), tt.task)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
-			require.NotNil(t, resultCh)
-
-			result := <-resultCh
 			require.NotNil(t, result)
 			require.NotNil(t, result.Value)
 			require.Contains(t, result.Value.Data(), tt.task.ID.String())

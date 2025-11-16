@@ -467,7 +467,7 @@ func hashMetadata(meta registry.Metadata) uint64 {
 			}
 		default:
 			// Fallback to string representation
-			_, _ = h.Write([]byte(fmt.Sprintf("%v", v)))
+			_, _ = fmt.Fprintf(h, "%v", v)
 		}
 	}
 

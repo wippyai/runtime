@@ -42,13 +42,12 @@ func TestPIDGenerator_Generate(t *testing.T) {
 
 func TestPIDGenerator_GenerateWithConfiguredNode(t *testing.T) {
 	gen := uniqid.NewGenerator()
-	pidGen := uniqid.NewPIDGenerator(gen, "")
 
 	node := relay.NodeID("node1")
 	host := relay.HostID("functions")
 	id := registry.ID{NS: "process", Name: "worker"}
 
-	pidGen = uniqid.NewPIDGenerator(gen, node)
+	pidGen := uniqid.NewPIDGenerator(gen, node)
 	pid := pidGen.Generate(host, id)
 
 	if pid.Node != node {

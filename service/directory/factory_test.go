@@ -61,5 +61,4 @@ func TestFSFactory_CreateFS(t *testing.T) {
 		require.NoError(t, err, "CreateFS should not return an error when creating a new directory")
 		require.NotNil(t, newDirFS, "CreateFS should return a filesystem when creating a new directory")
 	})
-
 }

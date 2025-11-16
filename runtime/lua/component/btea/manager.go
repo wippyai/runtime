@@ -142,9 +142,9 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 	for _, id := range ids {
-		m.log.Debug("invalidating btea app", zap.String("id", id.String()))
-
 		if _, exists := m.configs.Load(id); exists {
+			m.log.Debug("invalidating btea app", zap.String("id", id.String()))
+
 			if err := m.upsertPrototype(ctx, id); err != nil {
 				m.log.Error("failed to recreate prototype", zap.Error(err))
 			}

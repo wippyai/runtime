@@ -1,10 +1,11 @@
 package http
 
 import (
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/runtime/lua/engine"

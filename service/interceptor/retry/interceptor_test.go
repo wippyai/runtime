@@ -265,7 +265,7 @@ func TestInterceptor_FixedBackoff(t *testing.T) {
 	}
 
 	start := time.Now()
-	interceptor.Handle(ctx, task, next)
+	_, _ = interceptor.Handle(ctx, task, next)
 	duration := time.Since(start)
 
 	assert.Equal(t, 3, attempts)
@@ -298,7 +298,7 @@ func TestInterceptor_DefaultBackoff(t *testing.T) {
 	}
 
 	start := time.Now()
-	interceptor.Handle(ctx, task, next)
+	_, _ = interceptor.Handle(ctx, task, next)
 	duration := time.Since(start)
 
 	assert.Equal(t, 2, attempts)
@@ -352,7 +352,7 @@ func TestInterceptor_ContextCancelledBeforeStart(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Error(t, result.Error)
 	assert.Equal(t, context.Canceled, result.Error)
-	assert.Equal(t, 0, attempts, "Should not call next if context already cancelled")
+	assert.Equal(t, 0, attempts, "Should not call next if context already canceled")
 }
 
 func TestInterceptor_WithRetryKinds(t *testing.T) {

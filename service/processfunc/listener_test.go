@@ -107,7 +107,8 @@ func TestListener_ProcessEntry_Create(t *testing.T) {
 		funcEntry, ok := evt.Data.(*function.FuncEntry)
 		require.True(t, ok)
 		assert.NotNil(t, funcEntry.Handler)
-		assert.Nil(t, funcEntry.Options)
+		assert.NotNil(t, funcEntry.Options)
+		assert.Equal(t, "host1", funcEntry.Options.GetString("default_host", ""))
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("timeout waiting for function register event")
 	}

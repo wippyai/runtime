@@ -43,6 +43,7 @@ func TestTokenType(t *testing.T) {
 
 func TestToken(t *testing.T) {
 	t.Run("type alias", func(t *testing.T) {
+		//nolint:gosec // test data
 		var token Token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
 		assert.Equal(t, "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", string(token))
 		assert.IsType(t, Token(""), token)

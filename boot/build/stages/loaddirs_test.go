@@ -44,7 +44,7 @@ name: service1
 kind: service
 component: http/server
 `
-	if err := os.WriteFile(filepath.Join(appDir, "service.yaml"), []byte(yamlContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir, "service.yaml"), []byte(yamlContent), 0600); err != nil {
 		t.Fatalf("write yaml file: %v", err)
 	}
 
@@ -92,10 +92,10 @@ kind: service
 component: sql/client
 `
 
-	if err := os.WriteFile(filepath.Join(appDir, "app.yaml"), []byte(appYaml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir, "app.yaml"), []byte(appYaml), 0600); err != nil {
 		t.Fatalf("write app yaml: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(moduleDir, "module.yaml"), []byte(moduleYaml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(moduleDir, "module.yaml"), []byte(moduleYaml), 0600); err != nil {
 		t.Fatalf("write module yaml: %v", err)
 	}
 
@@ -145,7 +145,7 @@ name: service1
 kind: service
 component: http/server
 `
-	if err := os.WriteFile(filepath.Join(existingDir, "service.yaml"), []byte(yamlContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(existingDir, "service.yaml"), []byte(yamlContent), 0600); err != nil {
 		t.Fatalf("write yaml file: %v", err)
 	}
 
@@ -194,10 +194,10 @@ name: nested-service
 kind: service
 `
 
-	if err := os.WriteFile(filepath.Join(tmpDir, "app", "root.yaml"), []byte(rootYaml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "app", "root.yaml"), []byte(rootYaml), 0600); err != nil {
 		t.Fatalf("write root yaml: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(nestedDir, "nested.yaml"), []byte(nestedYaml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(nestedDir, "nested.yaml"), []byte(nestedYaml), 0600); err != nil {
 		t.Fatalf("write nested yaml: %v", err)
 	}
 

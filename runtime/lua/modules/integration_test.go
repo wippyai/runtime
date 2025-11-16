@@ -2,10 +2,11 @@ package modules_test
 
 import (
 	"context"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"io/fs"
 	"os"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

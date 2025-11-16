@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"io"
 	"strconv"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -526,7 +526,7 @@ func writeTestFile(t *testing.T, baseDir, relPath, content string) {
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		t.Fatalf("create directory: %v", err)
 	}
-	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(fullPath, []byte(content), 0600); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 }
@@ -543,7 +543,7 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 
 		// Create a file inside
 		testFile := filepath.Join(moduleDir, "test.txt")
-		if err := os.WriteFile(testFile, []byte("content"), 0644); err != nil {
+		if err := os.WriteFile(testFile, []byte("content"), 0600); err != nil {
 			t.Fatalf("setup failed: %v", err)
 		}
 
@@ -551,7 +551,7 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 		if err := os.Chmod(moduleDir, 0444); err != nil {
 			t.Skipf("cannot change permissions: %v", err)
 		}
-		defer os.Chmod(moduleDir, 0755) // Cleanup
+		defer func() { _ = os.Chmod(moduleDir, 0755) }() // Cleanup
 
 		storage := NewFileSystemStorage(tmpDir)
 		files := []*modulev1.File{{Path: "new.lua", Content: []byte("new")}}
@@ -615,7 +615,7 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 		if err := os.Chmod(baseDir, 0555); err != nil {
 			t.Fatalf("setup failed: %v", err)
 		}
-		defer os.Chmod(baseDir, 0755) // Cleanup
+		defer func() { _ = os.Chmod(baseDir, 0755) }() // Cleanup
 
 		storage := NewFileSystemStorage(tmpDir)
 		files := []*modulev1.File{{Path: "file.lua", Content: []byte("content")}}
@@ -640,13 +640,13 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 		if err := os.Mkdir(moduleDir, 0000); err != nil {
 			t.Fatalf("setup failed: %v", err)
 		}
-		defer os.Chmod(moduleDir, 0755) // Cleanup
+		defer func() { _ = os.Chmod(moduleDir, 0755) }() // Cleanup
 
 		// Remove read permission from parent
 		if err := os.Chmod(filepath.Join(tmpDir, "org"), 0000); err != nil {
 			t.Fatalf("setup failed: %v", err)
 		}
-		defer os.Chmod(filepath.Join(tmpDir, "org"), 0755) // Cleanup
+		defer func() { _ = os.Chmod(filepath.Join(tmpDir, "org"), 0755) }() // Cleanup
 
 		_, err := storage.ReadFS("org/module")
 		if err == nil {
@@ -666,7 +666,7 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 		if err := os.Chmod(filepath.Join(tmpDir, "org"), 0000); err != nil {
 			t.Fatalf("setup failed: %v", err)
 		}
-		defer os.Chmod(filepath.Join(tmpDir, "org"), 0755) // Cleanup
+		defer func() { _ = os.Chmod(filepath.Join(tmpDir, "org"), 0755) }() // Cleanup
 
 		_, err := storage.Exists("org/module")
 		if err == nil {
@@ -693,7 +693,7 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 		if err := os.Chmod(moduleDir, 0000); err != nil {
 			t.Fatalf("setup failed: %v", err)
 		}
-		defer os.Chmod(moduleDir, 0755) // Cleanup
+		defer func() { _ = os.Chmod(moduleDir, 0755) }() // Cleanup
 
 		_, err := storage.Exists("org/module")
 		if err == nil {
@@ -718,7 +718,7 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 		if err := os.Chmod(moduleDir, 0444); err != nil {
 			t.Fatalf("setup failed: %v", err)
 		}
-		defer os.Chmod(moduleDir, 0755) // Cleanup
+		defer func() { _ = os.Chmod(moduleDir, 0755) }() // Cleanup
 
 		err := storage.Delete("org/module")
 		if err == nil {
