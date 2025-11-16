@@ -52,19 +52,29 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 
 	processIDStr := entry.ID.String()
 
-	// Try to get default_host from options first, then fall back to direct meta key
-	var defaultHost string
+	// Extract options bag (new notation) or create one for normalization (old notation)
 	var opts registry.Metadata
 
 	if optsBag, hasOptions := entry.Meta.GetBag("options"); hasOptions {
-		defaultHost = optsBag.GetString("default_host", "")
 		opts = optsBag
+	} else {
+		// Old notation: create options bag for normalization
+		opts = attrs.NewBag()
 	}
 
-	// Fallback to old notation: direct meta key "default_host"
+	// Get default_host from options (new notation) or fallback to Meta (old notation)
+	defaultHost := opts.GetString("default_host", "")
 	if defaultHost == "" {
 		defaultHost = entry.Meta.GetString("default_host", "")
-		opts = entry.Meta
+		if defaultHost != "" {
+			// Normalize: put default_host into options for processfunc system
+			opts.Set("default_host", defaultHost)
+		}
+	}
+
+	// If opts is still empty, set to nil
+	if len(opts) == 0 {
+		opts = nil
 	}
 
 	// If no default_host found anywhere, unregister if previously registered

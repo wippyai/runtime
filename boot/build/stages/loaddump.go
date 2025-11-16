@@ -76,7 +76,7 @@ func (s *loadDumpStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 	return nil
 }
 
-func convertFromSerializableEntry(se SerializableEntry, dtt payload.Transcoder) (registry.Entry, error) {
+func convertFromSerializableEntry(se SerializableEntry, _ payload.Transcoder) (registry.Entry, error) {
 	meta := make(registry.Metadata)
 	for k, v := range se.Meta {
 		meta[k] = v

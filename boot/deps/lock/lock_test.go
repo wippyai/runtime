@@ -375,17 +375,17 @@ func TestLock_GetLoadPaths(t *testing.T) {
 		}
 
 		expectedSrc := filepath.Join(tmpDir, ".")
-		expectedHttp := filepath.Join(tmpDir, ".wippy/vendor/acme/http-v1.0.0")
-		expectedSql := filepath.Join(tmpDir, ".wippy/vendor/demo/sql-v2.0.0")
+		expectedHTTP := filepath.Join(tmpDir, ".wippy/vendor/acme/http-v1.0.0")
+		expectedSQL := filepath.Join(tmpDir, ".wippy/vendor/demo/sql-v2.0.0")
 
 		if paths[0] != expectedSrc {
 			t.Errorf("expected src path %q, got %q", expectedSrc, paths[0])
 		}
-		if paths[1] != expectedHttp {
-			t.Errorf("expected http path %q, got %q", expectedHttp, paths[1])
+		if paths[1] != expectedHTTP {
+			t.Errorf("expected http path %q, got %q", expectedHTTP, paths[1])
 		}
-		if paths[2] != expectedSql {
-			t.Errorf("expected sql path %q, got %q", expectedSql, paths[2])
+		if paths[2] != expectedSQL {
+			t.Errorf("expected sql path %q, got %q", expectedSQL, paths[2])
 		}
 	})
 
@@ -431,7 +431,7 @@ func TestLock_GetLoadPaths(t *testing.T) {
 
 		expectedSrc := filepath.Join(tmpDir, ".")
 		expectedRepl := filepath.Join(tmpDir, "../local-http")
-		expectedSql := filepath.Join(tmpDir, ".wippy/vendor/demo/sql-v2.0.0")
+		expectedSQL := filepath.Join(tmpDir, ".wippy/vendor/demo/sql-v2.0.0")
 
 		if paths[0] != expectedSrc {
 			t.Errorf("expected src %q, got %q", expectedSrc, paths[0])
@@ -439,8 +439,8 @@ func TestLock_GetLoadPaths(t *testing.T) {
 		if paths[1] != expectedRepl {
 			t.Errorf("expected replacement %q, got %q", expectedRepl, paths[1])
 		}
-		if paths[2] != expectedSql {
-			t.Errorf("expected sql %q, got %q", expectedSql, paths[2])
+		if paths[2] != expectedSQL {
+			t.Errorf("expected sql %q, got %q", expectedSQL, paths[2])
 		}
 
 		for _, path := range paths {
@@ -460,9 +460,9 @@ func TestLock_GetLoadPaths(t *testing.T) {
 
 		paths := lock.GetLoadPaths()
 
-		expectedHttp := filepath.Join(tmpDir, ".custom/vendor/acme/http-v1.0.0")
-		if paths[1] != expectedHttp {
-			t.Errorf("expected custom path %q, got %q", expectedHttp, paths[1])
+		expectedHTTP := filepath.Join(tmpDir, ".custom/vendor/acme/http-v1.0.0")
+		if paths[1] != expectedHTTP {
+			t.Errorf("expected custom path %q, got %q", expectedHTTP, paths[1])
 		}
 	})
 
@@ -480,9 +480,9 @@ func TestLock_GetLoadPaths(t *testing.T) {
 			t.Fatalf("expected 1 path (no src), got %d", len(paths))
 		}
 
-		expectedHttp := filepath.Join(tmpDir, ".wippy/vendor/acme/http-v1.0.0")
-		if paths[0] != expectedHttp {
-			t.Errorf("expected %q, got %q", expectedHttp, paths[0])
+		expectedHTTP := filepath.Join(tmpDir, ".wippy/vendor/acme/http-v1.0.0")
+		if paths[0] != expectedHTTP {
+			t.Errorf("expected %q, got %q", expectedHTTP, paths[0])
 		}
 	})
 
@@ -495,10 +495,10 @@ func TestLock_GetLoadPaths(t *testing.T) {
 
 		paths := lock.GetLoadPaths()
 
-		expectedHttp := filepath.Join(tmpDir, ".wippy/vendor/acme/http-v1.0.0")
+		expectedHTTP := filepath.Join(tmpDir, ".wippy/vendor/acme/http-v1.0.0")
 		found := false
 		for _, path := range paths {
-			if path == expectedHttp {
+			if path == expectedHTTP {
 				found = true
 			}
 			if strings.Contains(path, "abc123def456") {
@@ -506,7 +506,7 @@ func TestLock_GetLoadPaths(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("expected path %q not found in %v", expectedHttp, paths)
+			t.Errorf("expected path %q not found in %v", expectedHTTP, paths)
 		}
 	})
 }

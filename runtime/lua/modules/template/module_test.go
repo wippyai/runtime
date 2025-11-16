@@ -2,8 +2,9 @@ package template
 
 import (
 	"context"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	templatesvc "github.com/wippyai/runtime/service/template"
 	lua2 "github.com/wippyai/runtime/system/payload/lua"

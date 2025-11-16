@@ -66,7 +66,7 @@ func (sdk *ResolverTestSDK) EntryFromJSON(jsonStr string) registry.Entry {
 
 // RegisterPattern adds a pattern to the resolver
 func (sdk *ResolverTestSDK) RegisterPattern(path, description string, allowWildcard bool) *ResolverTestSDK {
-	sdk.resolver.RegisterPattern(registry.DependencyPattern{
+	_ = sdk.resolver.RegisterPattern(registry.DependencyPattern{
 		Path:          path,
 		Description:   description,
 		AllowWildcard: allowWildcard,
@@ -122,8 +122,8 @@ func TestResolver_BasicExtraction(t *testing.T) {
 func TestResolver_PatternRegistration(t *testing.T) {
 	resolver := NewResolver()
 
-	resolver.RegisterPattern(registry.DependencyPattern{Path: "meta.custom", Description: "Custom pattern", AllowWildcard: false})
-	resolver.RegisterPattern(registry.DependencyPattern{Path: "data.custom", Description: "Another custom", AllowWildcard: true})
+	_ = resolver.RegisterPattern(registry.DependencyPattern{Path: "meta.custom", Description: "Custom pattern", AllowWildcard: false})
+	_ = resolver.RegisterPattern(registry.DependencyPattern{Path: "data.custom", Description: "Another custom", AllowWildcard: true})
 
 	patterns := resolver.Patterns()
 	require.Len(t, patterns, 2, "Should have 2 registered patterns")
@@ -388,8 +388,8 @@ func TestResolver_ThreadSafety(t *testing.T) {
 	resolver := NewResolver()
 
 	// Register initial patterns
-	resolver.RegisterPattern(registry.DependencyPattern{Path: "meta.router", Description: "Router"})
-	resolver.RegisterPattern(registry.DependencyPattern{Path: "data.server", Description: "Server"})
+	_ = resolver.RegisterPattern(registry.DependencyPattern{Path: "meta.router", Description: "Router"})
+	_ = resolver.RegisterPattern(registry.DependencyPattern{Path: "data.server", Description: "Server"})
 
 	var wg sync.WaitGroup
 	iterations := 100
@@ -399,7 +399,7 @@ func TestResolver_ThreadSafety(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			resolver.RegisterPattern(registry.DependencyPattern{
+			_ = resolver.RegisterPattern(registry.DependencyPattern{
 				Path:        "meta.custom" + string(rune(idx)),
 				Description: "Custom",
 			})
@@ -434,8 +434,8 @@ func TestResolver_ThreadSafety(t *testing.T) {
 func TestResolver_PatternOverride(t *testing.T) {
 	resolver := NewResolver()
 
-	resolver.RegisterPattern(registry.DependencyPattern{Path: "meta.custom", Description: "First description", AllowWildcard: false})
-	resolver.RegisterPattern(registry.DependencyPattern{Path: "meta.custom", Description: "Second description", AllowWildcard: true})
+	_ = resolver.RegisterPattern(registry.DependencyPattern{Path: "meta.custom", Description: "First description", AllowWildcard: false})
+	_ = resolver.RegisterPattern(registry.DependencyPattern{Path: "meta.custom", Description: "Second description", AllowWildcard: true})
 
 	patterns := resolver.Patterns()
 
@@ -592,7 +592,7 @@ func BenchmarkResolver_RegisterPattern(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		resolver.RegisterPattern(registry.DependencyPattern{
+		_ = resolver.RegisterPattern(registry.DependencyPattern{
 			Path:        "meta.test",
 			Description: "Test pattern",
 		})

@@ -3,9 +3,10 @@ package funcs
 import (
 	"context"
 	"fmt"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"strings"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	lua2 "github.com/yuin/gopher-lua"
 

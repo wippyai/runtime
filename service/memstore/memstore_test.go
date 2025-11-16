@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"sync"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/wippyai/runtime/service/memstore"
 

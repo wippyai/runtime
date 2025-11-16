@@ -222,7 +222,7 @@ func TestUnpackErrors(t *testing.T) {
 		buf.Write(make([]byte, 64))
 		buf.WriteString("data")
 
-		err := os.WriteFile(badPath, buf.Bytes(), 0644)
+		err := os.WriteFile(badPath, buf.Bytes(), 0600)
 		require.NoError(t, err)
 
 		file, err := os.Open(badPath)
@@ -243,7 +243,7 @@ func TestUnpackErrors(t *testing.T) {
 		buf.Write(make([]byte, 64))
 		buf.WriteString("data")
 
-		err := os.WriteFile(badPath, buf.Bytes(), 0644)
+		err := os.WriteFile(badPath, buf.Bytes(), 0600)
 		require.NoError(t, err)
 
 		file, err := os.Open(badPath)
@@ -258,7 +258,7 @@ func TestUnpackErrors(t *testing.T) {
 		tmpDir := t.TempDir()
 		tinyPath := filepath.Join(tmpDir, "tiny.pack")
 
-		err := os.WriteFile(tinyPath, []byte("tiny"), 0644)
+		err := os.WriteFile(tinyPath, []byte("tiny"), 0600)
 		require.NoError(t, err)
 
 		file, err := os.Open(tinyPath)
@@ -296,7 +296,7 @@ func TestUnpackErrors(t *testing.T) {
 		// Flip a bit in the compressed data section
 		data[len(magic)+1+hashLen+10] ^= 0xFF
 
-		err = os.WriteFile(packPath, data, 0644)
+		err = os.WriteFile(packPath, data, 0600)
 		require.NoError(t, err)
 
 		// Try to unpack - should fail hash verification
@@ -317,7 +317,7 @@ func TestUnpackErrors(t *testing.T) {
 		buf.Write(make([]byte, 64))
 		buf.WriteString("not valid zstd data")
 
-		err := os.WriteFile(badPath, buf.Bytes(), 0644)
+		err := os.WriteFile(badPath, buf.Bytes(), 0600)
 		require.NoError(t, err)
 
 		file, err := os.Open(badPath)

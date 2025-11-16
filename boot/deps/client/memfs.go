@@ -80,7 +80,7 @@ func (m *memFS) Open(name string) (fs.File, error) {
 func (m *memFS) readDir(dirPath string) []fs.DirEntry {
 	prefix := dirPath
 	if prefix != "." && prefix != "" {
-		prefix = prefix + "/"
+		prefix += "/"
 	} else {
 		prefix = ""
 	}

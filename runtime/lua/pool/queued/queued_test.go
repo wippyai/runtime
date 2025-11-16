@@ -3,13 +3,14 @@ package queued
 import (
 	"context"
 	"fmt"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

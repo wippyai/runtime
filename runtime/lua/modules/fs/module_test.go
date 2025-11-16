@@ -3,7 +3,6 @@ package fs
 import (
 	"context"
 	"errors"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"io"
 	"io/fs"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/logs"

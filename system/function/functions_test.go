@@ -147,8 +147,8 @@ func TestFunctions_EventResponses(t *testing.T) {
 				Kind:   function.Register,
 				Path:   "default:test.handler",
 				Data: &function.FuncEntry{
-					Handler: func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-						return make(chan *runtime.Result), nil
+					Handler: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+						return &runtime.Result{}, nil
 					},
 					Options: nil,
 				},
@@ -266,13 +266,10 @@ func TestFunctions_Execute(t *testing.T) {
 			name: "successful execution",
 			setupHandler: func(bus event.Bus, wg *sync.WaitGroup) {
 				target := registry.ID{NS: "test", Name: "handler"}
-				handler := func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-					resultChan := make(chan *runtime.Result, 1)
-					resultChan <- &runtime.Result{
+				handler := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+					return &runtime.Result{
 						Value: payload.New("success"),
-					}
-					close(resultChan)
-					return resultChan, nil
+					}, nil
 				}
 
 				wg.Add(1) // Wait for registration acceptance
@@ -304,7 +301,7 @@ func TestFunctions_Execute(t *testing.T) {
 			name: "handler returns error",
 			setupHandler: func(bus event.Bus, wg *sync.WaitGroup) {
 				target := registry.ID{NS: "error", Name: "handler"}
-				handler := func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+				handler := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 					return nil, fmt.Errorf("handler error")
 				}
 
@@ -334,7 +331,7 @@ func TestFunctions_Execute(t *testing.T) {
 				wg.Wait() // Wait for handler registration to complete
 			}
 
-			resultChan, err := executor.Call(ctx, tt.task)
+			result, err := executor.Call(ctx, tt.task)
 
 			if tt.expectedErr != "" {
 				require.Error(t, err)
@@ -343,9 +340,6 @@ func TestFunctions_Execute(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			require.NotNil(t, resultChan)
-
-			result := <-resultChan
 			require.NotNil(t, result)
 			assert.Equal(t, tt.expectedValue, result.Value.Data().(string))
 		})
@@ -393,13 +387,10 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 				Name: fmt.Sprintf("handler.%d", idx),
 			}
 
-			handler := func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-				resultChan := make(chan *runtime.Result, 1)
-				resultChan <- &runtime.Result{
+			handler := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+				return &runtime.Result{
 					Value: payload.New(fmt.Sprintf("result %d", idx)),
-				}
-				close(resultChan)
-				return resultChan, nil
+				}, nil
 			}
 
 			bus.Send(ctx, event.Event{
@@ -441,12 +432,11 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 			NS:   "test",
 			Name: fmt.Sprintf("handler.%d", i),
 		}
-		resultChan, err := executor.Call(ctx, runtime.Task{
+		result, err := executor.Call(ctx, runtime.Task{
 			ID:       target,
 			Payloads: []payload.Payload{payload.New("test")},
 		})
 		require.NoError(t, err)
-		result := <-resultChan
 		assert.Equal(t, fmt.Sprintf("result %d", i), result.Value.Data().(string))
 	}
 }
@@ -512,25 +502,25 @@ func TestFunctions_FrameContextHandling(t *testing.T) {
 
 	// Register a handler that checks context
 	handlerID := registry.ParseID("test:context-handler")
-	executor.handlers.Store(handlerID, function.Func(func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+	executor.handlers.Store(handlerID, function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 		// Verify context has required values
 		pid, exists := runtime.GetFramePID(ctx)
 		require.True(t, exists)
 		require.NotEmpty(t, pid.UniqID)
 		assert.Equal(t, function.HostID, pid.Host)
-		return make(chan *runtime.Result), nil
+		return &runtime.Result{}, nil
 	}))
 
 	t.Run("nil context", func(t *testing.T) {
-		ch, err := executor.Call(ctx, runtime.Task{ID: handlerID})
+		result, err := executor.Call(ctx, runtime.Task{ID: handlerID})
 		assert.NoError(t, err)
-		assert.NotNil(t, ch)
+		assert.NotNil(t, result)
 	})
 
 	t.Run("context with values", func(t *testing.T) {
-		ch, err := executor.Call(ctx, runtime.Task{ID: handlerID})
+		result, err := executor.Call(ctx, runtime.Task{ID: handlerID})
 		assert.NoError(t, err)
-		assert.NotNil(t, ch)
+		assert.NotNil(t, result)
 	})
 }
 
@@ -554,8 +544,8 @@ func TestFunctions_EdgeCases(t *testing.T) {
 			Kind:   function.Register,
 			Path:   "",
 			Data: &function.FuncEntry{
-				Handler: func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-					return make(chan *runtime.Result), nil
+				Handler: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+					return &runtime.Result{}, nil
 				},
 				Options: nil,
 			},
@@ -621,29 +611,20 @@ func TestFunctions_ConcurrentExecution(t *testing.T) {
 
 	// Register a handler that returns a result
 	handlerID := registry.ParseID("test:concurrent-handler")
-	executor.handlers.Store(handlerID, function.Func(func(_ context.Context, task runtime.Task) (chan *runtime.Result, error) {
-		ch := make(chan *runtime.Result, 1)
-		ch <- &runtime.Result{
+	executor.handlers.Store(handlerID, function.Func(func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
+		return &runtime.Result{
 			Value: payload.New(task.ID.String()),
-		}
-		close(ch)
-		return ch, nil
+		}, nil
 	}))
 
 	// Test concurrent execution
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
 			defer wg.Done()
-			ch, err := executor.Call(ctx, runtime.Task{ID: handlerID})
+			result, err := executor.Call(ctx, runtime.Task{ID: handlerID})
 			require.NoError(t, err)
-			require.NotNil(t, ch)
-
-			select {
-			case result := <-ch:
-				assert.Equal(t, handlerID.String(), result.Value.Data())
-			case <-time.After(time.Second):
-				t.Error("timeout waiting for result")
-			}
+			require.NotNil(t, result)
+			assert.Equal(t, handlerID.String(), result.Value.Data())
 		}()
 	}
 

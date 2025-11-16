@@ -150,7 +150,7 @@ func (f *Registry) sendReject(path event.Path, reason string) {
 
 // Call runs the given task using its registered handler synchronously.
 // Returns an error if no handler is registered for the task's target or if the handler type is invalid.
-// Blocks until execution completes or context is cancelled.
+// Blocks until execution completes or context is canceled.
 func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.Result, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("nil context")

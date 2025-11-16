@@ -3,10 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"reflect"
 	"strings"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/wippyai/runtime/runtime/lua/engine/errors"
 

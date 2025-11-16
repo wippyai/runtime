@@ -3,9 +3,10 @@ package engine
 import (
 	"context"
 	"errors"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"sync"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"

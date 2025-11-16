@@ -281,11 +281,8 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 
 	// Register function
 	funcID := registry.ID{NS: "test", Name: "test_func"}
-	testFunc := function.Func(func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-		resultChan := make(chan *runtime.Result, 1)
-		resultChan <- &runtime.Result{Value: payload.New("function_result")}
-		close(resultChan)
-		return resultChan, nil
+	testFunc := function.Func(func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		return &runtime.Result{Value: payload.New("function_result")}, nil
 	})
 
 	wg.Add(1)
@@ -339,10 +336,9 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	instance, err := instantiator.Instantiate(ctx, bindingID, registry.Metadata{})
 	require.NoError(t, err)
 
-	resultChan, err := instance.Call(ctx, "testMethod", payload.Payloads{payload.New("test_input")})
+	result, err := instance.Call(ctx, "testMethod", payload.Payloads{payload.New("test_input")})
 	require.NoError(t, err)
 
-	result := <-resultChan
 	assert.Equal(t, "function_result", result.Value.Data().(string))
 
 	// Test method not bound
@@ -382,9 +378,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 
 	// Function that checks context values
 	funcID := registry.ID{NS: "test", Name: "context_func"}
-	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-		resultChan := make(chan *runtime.Result, 1)
-
+	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 		result := map[string]interface{}{"has_context": false}
 		if values := ctxapi.GetValues(ctx); values != nil {
 			existing, existingOk := values.Get("existing")
@@ -402,9 +396,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 			}
 		}
 
-		resultChan <- &runtime.Result{Value: payload.New(result)}
-		close(resultChan)
-		return resultChan, nil
+		return &runtime.Result{Value: payload.New(result)}, nil
 	})
 
 	bus.Send(ctx, event.Event{
@@ -455,10 +447,9 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	instanceNil, err := instantiator.Instantiate(ctx, bindingID, nil)
 	require.NoError(t, err)
 
-	resultChan, err := instanceNil.Call(ctx, "contextMethod", payload.Payloads{})
+	result, err := instanceNil.Call(ctx, "contextMethod", payload.Payloads{})
 	require.NoError(t, err)
 
-	result := <-resultChan
 	values := result.Value.Data().(map[string]interface{})
 	assert.False(t, values["has_context"].(bool))
 
@@ -477,10 +468,9 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	err = ctxapi.SetValues(callCtx, existing)
 	require.NoError(t, err)
 
-	resultChan, err = instance.Call(callCtx, "contextMethod", payload.Payloads{})
+	result, err = instance.Call(callCtx, "contextMethod", payload.Payloads{})
 	require.NoError(t, err)
 
-	result = <-resultChan
 	values = result.Value.Data().(map[string]interface{})
 
 	assert.True(t, values["has_context"].(bool))
@@ -523,9 +513,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 
 	// Function that captures and returns all context values it receives
 	funcID := registry.ID{NS: "test", Name: "capture_context_func"}
-	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-		resultChan := make(chan *runtime.Result, 1)
-
+	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 		captured := map[string]interface{}{}
 		if values := ctxapi.GetValues(ctx); values != nil {
 			// Capture all values from the context
@@ -534,9 +522,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 			})
 		}
 
-		resultChan <- &runtime.Result{Value: payload.New(captured)}
-		close(resultChan)
-		return resultChan, nil
+		return &runtime.Result{Value: payload.New(captured)}, nil
 	})
 
 	bus.Send(ctx, event.Event{
@@ -587,10 +573,9 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		instance, err := instantiator.Instantiate(ctx, bindingID, registry.Metadata{})
 		require.NoError(t, err)
 
-		resultChan, err := instance.Call(ctx, "captureMethod", payload.Payloads{})
+		result, err := instance.Call(ctx, "captureMethod", payload.Payloads{})
 		require.NoError(t, err)
 
-		result := <-resultChan
 		captured := result.Value.Data().(map[string]interface{})
 
 		// Should be empty since no context was provided and no existing context
@@ -611,10 +596,9 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		instance, err := instantiator.Instantiate(ctx, bindingID, scope)
 		require.NoError(t, err)
 
-		resultChan, err := instance.Call(ctx, "captureMethod", payload.Payloads{})
+		result, err := instance.Call(ctx, "captureMethod", payload.Payloads{})
 		require.NoError(t, err)
 
-		result := <-resultChan
 		captured := result.Value.Data().(map[string]interface{})
 
 		// All context values should be present in the context
@@ -641,10 +625,9 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		err = ctxapi.SetValues(callCtx, existing)
 		require.NoError(t, err)
 
-		resultChan, err := instance.Call(callCtx, "captureMethod", payload.Payloads{})
+		result, err := instance.Call(callCtx, "captureMethod", payload.Payloads{})
 		require.NoError(t, err)
 
-		result := <-resultChan
 		captured := result.Value.Data().(map[string]interface{})
 
 		// Should have both existing and context values, with context winning conflicts
@@ -687,11 +670,8 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 
 	// Register function that returns a test result
 	funcID := registry.ID{NS: "test", Name: "context_test_func"}
-	testFunc := function.Func(func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-		resultChan := make(chan *runtime.Result, 1)
-		resultChan <- &runtime.Result{Value: payload.New("validation_and_execution_success")}
-		close(resultChan)
-		return resultChan, nil
+	testFunc := function.Func(func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		return &runtime.Result{Value: payload.New("validation_and_execution_success")}, nil
 	})
 
 	bus.Send(ctx, event.Event{
@@ -752,11 +732,10 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		require.NoError(t, err, "Instantiation should succeed")
 
 		// Try to call method - this should NOW SUCCEED validation with the fix
-		resultChan, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
+		result, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
 		require.NoError(t, err, "Call should succeed - validation finds origin_id in Go context")
 
 		// Function should execute and return result
-		result := <-resultChan
 		assert.Equal(t, "validation_and_execution_success", result.Value.Data().(string))
 	})
 
@@ -770,11 +749,10 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		require.NoError(t, err, "Instantiation should succeed")
 
 		// Try to call method - should succeed
-		resultChan, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
+		result, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
 		require.NoError(t, err, "Call should succeed - validation finds origin_id in scope")
 
 		// Function should execute and return result
-		result := <-resultChan
 		assert.Equal(t, "validation_and_execution_success", result.Value.Data().(string))
 	})
 
@@ -790,11 +768,10 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		require.NoError(t, err, "Instantiation should succeed")
 
 		// Try to call method - should succeed
-		resultChan, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
+		result, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
 		require.NoError(t, err, "Call should succeed - validation finds origin_id in both places")
 
 		// Function should execute and return result
-		result := <-resultChan
 		assert.Equal(t, "validation_and_execution_success", result.Value.Data().(string))
 	})
 

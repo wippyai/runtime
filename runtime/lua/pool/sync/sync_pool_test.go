@@ -3,13 +3,14 @@ package sync
 import (
 	"context"
 	"fmt"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	api "github.com/wippyai/runtime/api/runtime/lua"
 

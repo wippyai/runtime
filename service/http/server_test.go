@@ -394,7 +394,7 @@ func TestServerService_Middleware(t *testing.T) {
 
 	// Create middleware factory for the test
 	middlewareFactory := NewMiddlewareRegistry(zap.NewNop())
-	middlewareFactory.Register("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
+	_ = middlewareFactory.Register("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Pass through any existing request ID
@@ -409,7 +409,7 @@ func TestServerService_Middleware(t *testing.T) {
 		}
 	})
 
-	middlewareFactory.Register("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
+	_ = middlewareFactory.Register("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Simple pass-through middleware for testing

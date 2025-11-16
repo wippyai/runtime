@@ -3,9 +3,10 @@ package terminal
 import (
 	"context"
 	"errors"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"

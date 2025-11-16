@@ -225,7 +225,7 @@ func TestPipeline_Execute_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	stage := func(ctx context.Context, entries *[]registry.Entry) error {
+	stage := func(ctx context.Context, _ *[]registry.Entry) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -331,6 +331,6 @@ func TestNewTestStage_CreatesNamedStage(t *testing.T) {
 	}
 }
 
-func TestPipeline_InterfaceCompliance(t *testing.T) {
+func TestPipeline_InterfaceCompliance(_ *testing.T) {
 	var _ boot.Pipeline = &pipeline{}
 }

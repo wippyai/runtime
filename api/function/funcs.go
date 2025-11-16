@@ -33,7 +33,7 @@ const (
 type (
 	// Func represents a core function type that processes tasks synchronously.
 	// It takes a context and task as input and returns the result directly.
-	// The function blocks until execution completes or the context is cancelled.
+	// The function blocks until execution completes or the context is canceled.
 	//
 	// Parameters:
 	//   - ctx: Context for cancellation and value propagation
@@ -55,7 +55,7 @@ type (
 	// unified interface for function calls.
 	Registry interface {
 		// Call executes a function identified by the task synchronously and returns
-		// the result directly. Blocks until execution completes or context is cancelled.
+		// the result directly. Blocks until execution completes or context is canceled.
 		Call(context.Context, runtime.Task) (*runtime.Result, error)
 	}
 )

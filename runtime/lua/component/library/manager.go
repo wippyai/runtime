@@ -80,7 +80,6 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
-	for _, id := range ids {
-		m.log.Debug("invalidating library", zap.String("id", id.String()))
-	}
+	// Libraries are stored in the code manager's node graph and are automatically
+	// recompiled when needed. No additional invalidation handling required.
 }

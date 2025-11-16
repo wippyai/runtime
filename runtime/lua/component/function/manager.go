@@ -195,14 +195,14 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 // Invalidate handles invalidation of functions
 func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
 	for _, id := range ids {
-		m.log.Debug("invalidating function", zap.String("id", id.String()))
-
 		// Get current config
 		cfgAny, exists := m.configs.Load(id)
 		if !exists {
 			continue
 		}
 		cfg := cfgAny.(*api.FunctionConfig)
+
+		m.log.Debug("invalidating function", zap.String("id", id.String()))
 
 		// Refresh pool with existing config
 		if err := m.pushHandler(id, cfg); err != nil {

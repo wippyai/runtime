@@ -62,7 +62,7 @@ func (m *mockConnectionManager) Stop() error {
 	return nil
 }
 
-func (m *mockConnectionManager) SendToNode(nodeID cluster.NodeID, data []byte) error {
+func (m *mockConnectionManager) SendToNode(_ cluster.NodeID, data []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.sendError != nil {
@@ -117,7 +117,7 @@ type mockCodec struct {
 	encoded     []byte
 }
 
-func (m *mockCodec) Encode(pkg *relay.Package) ([]byte, error) {
+func (m *mockCodec) Encode(_ *relay.Package) ([]byte, error) {
 	if m.encodeError != nil {
 		return nil, m.encodeError
 	}
@@ -127,7 +127,7 @@ func (m *mockCodec) Encode(pkg *relay.Package) ([]byte, error) {
 	return []byte("encoded"), nil
 }
 
-func (m *mockCodec) Decode(data []byte) (*relay.Package, error) {
+func (m *mockCodec) Decode(_ []byte) (*relay.Package, error) {
 	if m.decodeError != nil {
 		return nil, m.decodeError
 	}
@@ -205,7 +205,7 @@ func TestService_Start_Success(t *testing.T) {
 	assert.True(t, connMan.started)
 	assert.NotNil(t, service.subscriber)
 
-	service.Stop()
+	_ = service.Stop()
 }
 
 func TestService_Start_WithPreExistingNodes(t *testing.T) {
@@ -246,7 +246,7 @@ func TestService_Start_WithPreExistingNodes(t *testing.T) {
 	assert.Equal(t, 9001, connMan.ensuredConns[0].port)
 	connMan.mu.Unlock()
 
-	service.Stop()
+	_ = service.Stop()
 }
 
 func TestService_Start_ConnectionManagerError(t *testing.T) {
@@ -278,7 +278,7 @@ func TestService_Send_Success(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	pkg := relay.AcquirePackage()
 	pkg.Target = relay.PID{Node: "remote-node", Host: "remote-host", UniqID: "123"}
@@ -298,7 +298,7 @@ func TestService_Send_EncodeError(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	codec.encodeError = errors.New("encoding failed")
 
@@ -316,7 +316,7 @@ func TestService_Send_SendError(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	connMan.sendError = errors.New("send failed")
 
@@ -333,7 +333,7 @@ func TestService_HandleMembershipEvent_NodeJoined(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	newNode := cluster.NodeInfo{
 		ID:   "new-node",
@@ -368,7 +368,7 @@ func TestService_HandleMembershipEvent_NodeLeft(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	connMan.AddManagedNode("departing-node")
 
@@ -400,7 +400,7 @@ func TestService_HandleMembershipEvent_LocalNode(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	localNode := service.membership.LocalNode()
 	nodeEvent := cluster.NodeEvent{Node: localNode}
@@ -427,7 +427,7 @@ func TestService_HandleMembershipEvent_InvalidData(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	bus.Send(ctx, event.Event{
 		System: cluster.System,
@@ -445,7 +445,7 @@ func TestService_ConnectToNode_MissingPort(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	nodeInfo := cluster.NodeInfo{
 		ID:   "no-port-node",
@@ -466,7 +466,7 @@ func TestService_ConnectToNode_InvalidPort(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	nodeInfo := cluster.NodeInfo{
 		ID:   "bad-port-node",
@@ -503,7 +503,7 @@ func TestService_OnMessage_Success(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	connMan.onMessage("remote-node", []byte("incoming-data"))
 
@@ -524,7 +524,7 @@ func TestService_OnMessage_DecodeError(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	connMan.onMessage("remote-node", []byte("bad-data"))
 }
@@ -546,7 +546,7 @@ func TestService_OnMessage_DeliveryError(t *testing.T) {
 
 	err := service.Start(ctx)
 	require.NoError(t, err)
-	defer service.Stop()
+	defer func() { _ = service.Stop() }()
 
 	connMan.onMessage("remote-node", []byte("data"))
 }

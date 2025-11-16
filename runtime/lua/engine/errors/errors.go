@@ -362,6 +362,8 @@ func errorRetryableMethod(l *lua.LState) int {
 	if wrappedErr, ok := ud.Value.(*WrappedError); ok {
 		ternary := wrappedErr.Retryable()
 		switch ternary {
+		case apierr.Unknown:
+			l.Push(lua.LNil)
 		case apierr.True:
 			l.Push(lua.LBool(true))
 		case apierr.False:

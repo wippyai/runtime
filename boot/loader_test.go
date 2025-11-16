@@ -93,7 +93,7 @@ func TestLoaderRegister(t *testing.T) {
 		p1 := &mockComponent{name: "test", phase: boot.PreInit}
 		p2 := &mockComponent{name: "test", phase: boot.Init}
 
-		loader.Register(p1)
+		_ = loader.Register(p1)
 		err = loader.Register(p2)
 
 		if err == nil {
@@ -125,7 +125,7 @@ func TestLoaderLoad(t *testing.T) {
 			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 		p := &mockComponent{name: "test", phase: boot.PreInit}
-		loader.Register(p)
+		_ = loader.Register(p)
 
 		ctx, err := loader.Load(testContext())
 		if err != nil {
@@ -181,9 +181,9 @@ func TestLoaderLoad(t *testing.T) {
 			},
 		}
 
-		loader.Register(p1)
-		loader.Register(p2)
-		loader.Register(p3)
+		_ = loader.Register(p1)
+		_ = loader.Register(p2)
+		_ = loader.Register(p3)
 
 		_, err = loader.Load(testContext())
 		if err != nil {
@@ -216,8 +216,8 @@ func TestLoaderLoad(t *testing.T) {
 		p1 := &mockComponent{name: "a", phase: boot.Init, deps: []string{"b"}}
 		p2 := &mockComponent{name: "b", phase: boot.Init, deps: []string{"a"}}
 
-		loader.Register(p1)
-		loader.Register(p2)
+		_ = loader.Register(p1)
+		_ = loader.Register(p2)
 
 		_, err = loader.Load(testContext())
 		if err == nil {
@@ -232,7 +232,7 @@ func TestLoaderLoad(t *testing.T) {
 		}
 
 		p := &mockComponent{name: "main", phase: boot.Init, deps: []string{"missing"}}
-		loader.Register(p)
+		_ = loader.Register(p)
 
 		_, err = loader.Load(testContext())
 		if err == nil {
@@ -248,7 +248,7 @@ func TestLoaderLoad(t *testing.T) {
 
 		expectedErr := errors.New("load failed")
 		p := &mockComponent{name: "test", phase: boot.PreInit, loadErr: expectedErr}
-		loader.Register(p)
+		_ = loader.Register(p)
 
 		_, err = loader.Load(testContext())
 		if err == nil {
@@ -270,8 +270,8 @@ func TestLoaderStart(t *testing.T) {
 		p1 := &mockComponent{name: "a", phase: boot.PreInit}
 		p2 := &mockComponent{name: "b", phase: boot.Init}
 
-		loader.Register(p1)
-		loader.Register(p2)
+		_ = loader.Register(p1)
+		_ = loader.Register(p2)
 
 		ctx, _ := loader.Load(testContext())
 
@@ -295,7 +295,7 @@ func TestLoaderStart(t *testing.T) {
 
 		expectedErr := errors.New("start failed")
 		p := &mockComponent{name: "test", phase: boot.PreInit, startErr: expectedErr}
-		loader.Register(p)
+		_ = loader.Register(p)
 
 		ctx, _ := loader.Load(testContext())
 		err = loader.Start(ctx)
@@ -314,7 +314,7 @@ func TestLoaderStart(t *testing.T) {
 			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 		p := &mockComponent{name: "test", phase: boot.PreInit}
-		loader.Register(p)
+		_ = loader.Register(p)
 
 		err = loader.Start(context.Background())
 		if err != nil {
@@ -365,12 +365,12 @@ func TestLoaderShutdown(t *testing.T) {
 			},
 		}
 
-		loader.Register(p1)
-		loader.Register(p2)
-		loader.Register(p3)
+		_ = loader.Register(p1)
+		_ = loader.Register(p2)
+		_ = loader.Register(p3)
 
 		ctx, _ := loader.Load(testContext())
-		loader.Shutdown(ctx)
+		_ = loader.Shutdown(ctx)
 
 		if len(order) != 3 {
 			t.Fatalf("expected 3 plugins stopped, got %d", len(order))
@@ -395,7 +395,7 @@ func TestLoaderShutdown(t *testing.T) {
 
 		expectedErr := errors.New("stop failed")
 		p := &mockComponent{name: "test", phase: boot.PreInit, stopErr: expectedErr}
-		loader.Register(p)
+		_ = loader.Register(p)
 
 		ctx, _ := loader.Load(testContext())
 		err = loader.Shutdown(ctx)
@@ -458,8 +458,8 @@ func TestLoaderFullLifecycle(t *testing.T) {
 		},
 	}
 
-	loader.Register(p1)
-	loader.Register(p2)
+	_ = loader.Register(p1)
+	_ = loader.Register(p2)
 
 	ctx, err := loader.Load(testContext())
 	if err != nil {

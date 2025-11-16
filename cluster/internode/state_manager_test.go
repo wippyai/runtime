@@ -179,7 +179,7 @@ func TestNodeStateManager_DrainMessages_MaxCount(t *testing.T) {
 
 	// Queue 10 messages
 	for i := 0; i < 10; i++ {
-		nsm.QueueMessage(nodeID, []byte{byte(i)})
+		_ = nsm.QueueMessage(nodeID, []byte{byte(i)})
 	}
 
 	// Drain only 3
@@ -214,7 +214,7 @@ func TestNodeStateManager_DrainMessages_ZeroMaxCount(t *testing.T) {
 	nodeID := cluster.NodeID("test-node-1")
 
 	nsm.CreateNodeState(nodeID)
-	nsm.QueueMessage(nodeID, []byte("test"))
+	_ = nsm.QueueMessage(nodeID, []byte("test"))
 
 	messages := nsm.DrainMessages(nodeID, 0)
 	assert.Nil(t, messages)
@@ -227,7 +227,7 @@ func TestNodeStateManager_RequeueMessages(t *testing.T) {
 	nsm.CreateNodeState(nodeID)
 
 	// Queue initial message
-	nsm.QueueMessage(nodeID, []byte{1})
+	_ = nsm.QueueMessage(nodeID, []byte{1})
 
 	// Requeue messages (should be inserted at front)
 	toRequeue := [][]byte{{2}, {3}}
@@ -372,7 +372,7 @@ func TestNodeStateManager_GetMessageNotifier(t *testing.T) {
 	assert.NotNil(t, notifier)
 
 	// Queue message should trigger notifier
-	nsm.QueueMessage(nodeID, []byte("test"))
+	_ = nsm.QueueMessage(nodeID, []byte("test"))
 
 	select {
 	case <-notifier:
@@ -439,7 +439,7 @@ func TestNodeStateManager_Concurrent_QueueDrain(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < messagesPerGoroutine; j++ {
 				data := []byte{byte(id), byte(j)}
-				nsm.QueueMessage(nodeID, data)
+				_ = nsm.QueueMessage(nodeID, data)
 			}
 		}(i)
 	}
@@ -516,7 +516,7 @@ func TestNodeStateManager_Concurrent_CreateRemove(t *testing.T) {
 			defer wg.Done()
 			nodeID := cluster.NodeID("test-node-" + string(rune('0'+id)))
 			nsm.CreateNodeState(nodeID)
-			nsm.QueueMessage(nodeID, []byte{byte(id)})
+			_ = nsm.QueueMessage(nodeID, []byte{byte(id)})
 		}(i)
 	}
 

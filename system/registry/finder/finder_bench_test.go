@@ -90,7 +90,7 @@ func BenchmarkFinder_CacheHit(b *testing.B) {
 
 			// Warm up cache
 			criteria := registry.Metadata{"meta.enabled": true}
-			finder.Find(criteria)
+			_, _ = finder.Find(criteria)
 
 			b.ResetTimer()
 			b.ReportAllocs()
@@ -236,7 +236,7 @@ func BenchmarkFinder_RegexCaching(b *testing.B) {
 
 	b.Run("cached", func(b *testing.B) {
 		// Warm up regex cache
-		finder.Find(registry.Metadata{"~meta.description": ".*service.*"})
+		_, _ = finder.Find(registry.Metadata{"~meta.description": ".*service.*"})
 
 		b.ResetTimer()
 		b.ReportAllocs()
@@ -312,14 +312,13 @@ func BenchmarkFinder_VersionInvalidation(b *testing.B) {
 	criteria := registry.Metadata{"meta.enabled": true}
 
 	// Warm up cache
-	finder.Find(criteria)
+	_, _ = finder.Find(criteria)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		// Change version to trigger cache invalidation
-		mockReg.version = uint(i + 2)
+		mockReg.version = uint(i) + 2 //nolint:gosec // test iteration
 		_, err := finder.Find(criteria)
 		if err != nil {
 			b.Fatal(err)
@@ -334,7 +333,7 @@ func BenchmarkFinder_Fork(b *testing.B) {
 	mainFinder := NewFinder(mainReg, nil)
 
 	// Warm up regex cache in main finder
-	mainFinder.Find(registry.Metadata{"~meta.description": ".*service.*"})
+	_, _ = mainFinder.Find(registry.Metadata{"~meta.description": ".*service.*"})
 
 	snapshotEntries := generateEntries(500)
 	snapshotReg := &benchMockRegistry{entries: snapshotEntries, version: 1}

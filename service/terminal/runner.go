@@ -54,7 +54,8 @@ func NewTerminalRunner(
 
 	// Add runner's context cancellation to OnComplete hooks
 	existingHooks := process.GetOnCompleteHooks(runnerCtx)
-	runnerHooks := append(existingHooks, func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+	runnerHooks := existingHooks
+	runnerHooks = append(runnerHooks, func(_ context.Context, _ relay.PID, _ *runtime.Result) {
 		cancel()
 	})
 	if err := process.SetOnCompleteHooks(runnerCtx, runnerHooks); err != nil {

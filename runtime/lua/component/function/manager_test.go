@@ -2,8 +2,9 @@ package function
 
 import (
 	"context"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/event"

@@ -41,7 +41,7 @@ func LogManager() boot.Component {
 				logConfig = logapi.Config{
 					PropagateDownstream: cfgSub.GetBool(string(ConfigPropagateDownstream), true),
 					StreamToEvents:      cfgSub.GetBool(string(ConfigStreamToEvents), false),
-					MinLevel:            zapcore.Level(cfgSub.GetInt(string(ConfigMinLevel), int(zapcore.InfoLevel))),
+					MinLevel:            zapcore.Level(cfgSub.GetInt(string(ConfigMinLevel), int(zapcore.InfoLevel))), //nolint:gosec
 				}
 			} else {
 				logConfig = logapi.Config{

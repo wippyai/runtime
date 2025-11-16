@@ -16,18 +16,14 @@ func TestWithRegistry(t *testing.T) {
 		want     bool
 	}{
 		{
-			name: "add registry to context with app context",
-			setupCtx: func() context.Context {
-				return ctxapi.NewRootContext()
-			},
+			name:     "add registry to context with app context",
+			setupCtx: ctxapi.NewRootContext,
 			registry: &mockRegistry{},
 			want:     true,
 		},
 		{
-			name: "add registry to context without app context",
-			setupCtx: func() context.Context {
-				return context.Background()
-			},
+			name:     "add registry to context without app context",
+			setupCtx: context.Background,
 			registry: &mockRegistry{},
 			want:     false,
 		},
@@ -72,18 +68,14 @@ func TestGetRegistry(t *testing.T) {
 			wantNil: false,
 		},
 		{
-			name: "get registry from context without registry",
-			setupCtx: func() context.Context {
-				return ctxapi.NewRootContext()
-			},
-			wantNil: true,
+			name:     "get registry from context without registry",
+			setupCtx: ctxapi.NewRootContext,
+			wantNil:  true,
 		},
 		{
-			name: "get registry from context without app context",
-			setupCtx: func() context.Context {
-				return context.Background()
-			},
-			wantNil: true,
+			name:     "get registry from context without app context",
+			setupCtx: context.Background,
+			wantNil:  true,
 		},
 	}
 
@@ -111,6 +103,6 @@ func (m *mockRegistry) Apply(context.Context, ChangeSet) (Version, error) {
 func (m *mockRegistry) ApplyVersion(context.Context, Version) error { return nil }
 func (m *mockRegistry) Current() (Version, error)                   { return nil, nil }
 func (m *mockRegistry) History() History                            { return nil }
-func (m *mockRegistry) RegisterDependencyPattern(pattern DependencyPattern) error {
+func (m *mockRegistry) RegisterDependencyPattern(_ DependencyPattern) error {
 	return nil
 }

@@ -996,7 +996,7 @@ func TestRegistry_NilHistoryForwardOnly(t *testing.T) {
 			t.Fatalf("Apply %d failed: %v", i, err)
 		}
 
-		if int(newVersion.ID()) != i {
+		if uint(i) != newVersion.ID() {
 			t.Errorf("Expected version %d, got %d", i, newVersion.ID())
 		}
 	}
@@ -1051,7 +1051,8 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 		},
 	}
 
-	newState := append(initialState, changes[0].Entry)
+	newState := initialState
+	newState = append(newState, changes[0].Entry)
 	partialRollbackState := registry.State{
 		{ID: registry.ID{Name: "/initial"}, Kind: "test", Data: payload.New("initial_data")},
 		{ID: registry.ID{Name: "/partial"}, Kind: "test", Data: payload.New("partial_data")},

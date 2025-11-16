@@ -5,13 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"io"
 	"mime/multipart"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

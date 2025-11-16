@@ -3,11 +3,12 @@ package httpclient
 import (
 	"bytes"
 	"context"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"io"
 	"net/http"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

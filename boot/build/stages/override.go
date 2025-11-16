@@ -115,13 +115,7 @@ func parseOverrideKey(key string) (namespace, entryName, path string, err error)
 		return "", "", "", fmt.Errorf("missing entry name and path")
 	}
 
-	secondColonIdx := strings.Index(remainder, ":")
-	if secondColonIdx == -1 {
-		return "", "", "", fmt.Errorf("missing second ':' separator (expected namespace:entry:path)")
-	}
-
-	entryName = remainder[:secondColonIdx]
-	path = remainder[secondColonIdx+1:]
+	entryName, path, _ = strings.Cut(remainder, ":")
 
 	if entryName == "" {
 		return "", "", "", fmt.Errorf("empty entry name")

@@ -22,6 +22,9 @@ const (
 	DirectoryName         boot.ComponentName = "directory"
 	ContractName          boot.ComponentName = "contract"
 	InterceptorDebugName  boot.ComponentName = "interceptor-debug"
-	InterceptorOtelName   boot.ComponentName = "interceptor-otel"
 	InterceptorRetryName  boot.ComponentName = "interceptor-retry"
+	OTelName              boot.ComponentName = "otel"
+	OTelHTTPName          boot.ComponentName = "otel-http"
+	OTelProcessName       boot.ComponentName = "otel-process"
+	OTelInterceptorName   boot.ComponentName = "otel-interceptor"
 )

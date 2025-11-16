@@ -107,7 +107,7 @@ func (s *FileSystemStorage) StoreProtoFiles(basePath string, files []*modulev1.F
 			return fmt.Errorf("create directory for %q: %w", filePath, err)
 		}
 
-		if err := os.WriteFile(fullPath, file.GetContent(), 0644); err != nil {
+		if err := os.WriteFile(fullPath, file.GetContent(), 0600); err != nil {
 			return fmt.Errorf("write file %q: %w", filePath, err)
 		}
 	}

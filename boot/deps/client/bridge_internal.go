@@ -15,7 +15,7 @@ import (
 //
 // TODO: Remove this when manifest API is implemented.
 func extractDependenciesFromEntries(entries []registry.Entry, dtt payload.Transcoder) ([]graph.ManifestDependency, error) {
-	var deps []graph.ManifestDependency
+	deps := make([]graph.ManifestDependency, 0)
 
 	for _, entry := range entries {
 		if entry.Kind != "ns.dependency" {

@@ -2,10 +2,11 @@ package engine
 
 import (
 	"context"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"strings"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/yuin/gopher-lua/parse"
 

@@ -160,7 +160,7 @@ func TestNilHistory_ConcurrentSave(t *testing.T) {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
-			v := version.New(uint(routineID))
+			v := version.New(uint(routineID)) //nolint:gosec // test iteration
 			_ = hist.Save(v, registry.ChangeSet{}, true)
 		}(i)
 	}

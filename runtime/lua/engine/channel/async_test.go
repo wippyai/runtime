@@ -1,9 +1,10 @@
 package channel
 
 import (
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"testing"
 	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"

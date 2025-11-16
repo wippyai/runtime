@@ -73,6 +73,8 @@ const (
 // String returns the string representation of the Kind.
 func (k Kind) String() string {
 	switch k {
+	case KindUnknown:
+		return "Unknown"
 	case KindNotFound:
 		return "NotFound"
 	case KindAlreadyExists:
@@ -121,6 +123,8 @@ func (t Ternary) Bool() bool {
 // String returns the string representation of the Ternary.
 func (t Ternary) String() string {
 	switch t {
+	case Unknown:
+		return "Unknown"
 	case True:
 		return "True"
 	case False:

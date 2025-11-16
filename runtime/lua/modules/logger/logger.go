@@ -142,7 +142,8 @@ func loggerDebug(l *lua.LState) int {
 	}
 
 	contextFields := getContextFields(l)
-	allFields := append(contextFields, fields...)
+	allFields := contextFields
+	allFields = append(allFields, fields...)
 	logger.logger.Debug(msg, allFields...)
 	return 0
 }
@@ -165,7 +166,8 @@ func loggerInfo(l *lua.LState) int {
 	}
 
 	contextFields := getContextFields(l)
-	allFields := append(contextFields, fields...)
+	allFields := contextFields
+	allFields = append(allFields, fields...)
 	logger.logger.Info(msg, allFields...)
 	return 0
 }
@@ -188,7 +190,8 @@ func loggerWarn(l *lua.LState) int {
 	}
 
 	contextFields := getContextFields(l)
-	allFields := append(contextFields, fields...)
+	allFields := contextFields
+	allFields = append(allFields, fields...)
 	logger.logger.Warn(msg, allFields...)
 	return 0
 }
@@ -218,7 +221,8 @@ func loggerError(l *lua.LState) int {
 	}
 
 	contextFields := getContextFields(l)
-	allFields := append(contextFields, fields...)
+	allFields := contextFields
+	allFields = append(allFields, fields...)
 	logger.logger.Error(msg, allFields...)
 	return 0
 }

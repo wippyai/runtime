@@ -119,7 +119,6 @@ func typeName(v any) string {
 
 // --- Test Setup Helper ---
 
-//nolint:unparam // ok for now
 func setupLuaWithExec(t *testing.T, logger *zap.Logger) (*engine.CoroutineVM, *engine.Runner, context.Context) {
 	// 1. Create the actual native executor factory
 	nativeFactory := native.NewNativeExecutor(logger, &apiexec.NativeExecutorConfig{})

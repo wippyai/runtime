@@ -27,7 +27,7 @@ var rootCmd = &cobra.Command{
 	SilenceUsage:  true,
 	Run: func(cmd *cobra.Command, args []string) {
 		printBanner()
-		cmd.Help()
+		_ = cmd.Help() // Ignore help output errors
 	},
 }
 

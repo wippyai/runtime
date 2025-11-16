@@ -207,9 +207,9 @@ func TestConfig_Sub(t *testing.T) {
 
 	t.Run("nested sub", func(t *testing.T) {
 		dbConnCfg := cfg.Sub("database").Sub("connection")
-		max := dbConnCfg.GetInt("max", 0)
-		if max != 10 {
-			t.Errorf("expected 10, got %d", max)
+		maxConn := dbConnCfg.GetInt("max", 0)
+		if maxConn != 10 {
+			t.Errorf("expected 10, got %d", maxConn)
 		}
 	})
 
