@@ -412,7 +412,7 @@ func TestParseOverrideKey_Invalid(t *testing.T) {
 		{
 			name:    "missing second colon",
 			key:     "app:gateway",
-			wantErr: "missing second ':'",
+			wantErr: "empty path",
 		},
 		{
 			name:    "empty namespace",
