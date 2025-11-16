@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -25,7 +26,11 @@ func TestTask_MarshalUnmarshal(t *testing.T) {
 			task: Task{
 				ID:       registry.ID{NS: "functions", Name: "process"},
 				Payloads: payload.Payloads{payload.New("test data")},
-				Options:  map[string]any{"timeout": "30s"},
+				Options: func() attrs.Attributes {
+					bag := attrs.NewBag()
+					bag.Set("timeout", "30s")
+					return bag
+				}(),
 				Context: []ctxapi.Pair{
 					{Key: &ctxapi.Key{Name: "user"}, Value: "john"},
 					{Key: &ctxapi.Key{Name: "scope"}, Value: "admin"},

@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pidgen"
@@ -17,7 +18,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"go.uber.org/zap"
@@ -89,7 +89,7 @@ type managerDelegatedHost struct {
 	terminated    bool
 	lastPID       relay.PID
 	lastLifecycle api.Lifecycle
-	lastInput     payload.Payloads
+	lastDispatch  *api.Dispatch
 	lastCancel    *relay.Package
 }
 
@@ -103,22 +103,22 @@ func (m *managerDelegatedHost) Terminate(_ context.Context, _ relay.PID) error {
 	return m.terminateErr
 }
 
-// Updated to match the Delegated interface with Lifecycle parameter
-func (m *managerDelegatedHost) Launch(_ context.Context, pid relay.PID, lf api.Lifecycle, input payload.Payloads) (relay.PID, error) {
+// Dispatch implements the Delegated interface
+func (m *managerDelegatedHost) Dispatch(_ context.Context, lf api.Lifecycle, dispatch *api.Dispatch) (relay.PID, error) {
 	if m.launchErr != nil {
 		return relay.PID{}, m.launchErr
 	}
 
 	m.launched = true
-	m.lastPID = pid
+	m.lastPID = dispatch.PID
 	m.lastLifecycle = lf
-	m.lastInput = input
+	m.lastDispatch = dispatch
 
-	// Return a Target with the provided values but a modified UniqID
+	// Return a PID with the provided values but a modified UniqID
 	return relay.PID{
 		Node:   "delegated-node",
-		Host:   pid.Host,
-		UniqID: "delegated-host-assigned-" + pid.UniqID,
+		Host:   dispatch.PID.Host,
+		UniqID: "delegated-host-assigned-" + dispatch.PID.UniqID,
 	}, nil
 }
 
@@ -271,16 +271,17 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 	}
 
 	// Execute the test
+	opts := attrs.NewBag()
+	opts.Set(api.LifecycleParentKey, parentPID)
+	opts.Set(api.LifecycleMonitorKey, true)
+	opts.Set(api.LifecycleLinkKey, true)
+
 	startReq := &api.Start{
-		HostID: hostID,
-		Source: sourceID,
-		UniqID: uniqID,
-		Input:  inputs,
-		Lifecycle: api.Lifecycle{
-			Parent:  parentPID,
-			Monitor: true,
-			Link:    true,
-		},
+		HostID:  hostID,
+		Source:  sourceID,
+		UniqID:  uniqID,
+		Input:   inputs,
+		Options: opts,
 	}
 
 	resultPID, err := manager.Start(ctx, startReq)
@@ -298,9 +299,11 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 	assert.Equal(t, nodeID, managedHost.lastLaunch.PID.Node)
 	assert.Equal(t, hostID, managedHost.lastLaunch.PID.Host)
 	assert.Equal(t, inputs, managedHost.lastLaunch.Input)
-	assert.Equal(t, parentPID, managedHost.lastLaunch.Lifecycle.Parent)
-	assert.True(t, managedHost.lastLaunch.Lifecycle.Monitor)
-	assert.True(t, managedHost.lastLaunch.Lifecycle.Link)
+	// Lifecycle is stored in Options
+	parentVal, _ := managedHost.lastLaunch.Options.Get(api.LifecycleParentKey)
+	assert.Equal(t, parentPID, parentVal)
+	assert.True(t, managedHost.lastLaunch.Options.GetBool(api.LifecycleMonitorKey, false))
+	assert.True(t, managedHost.lastLaunch.Options.GetBool(api.LifecycleLinkKey, false))
 }
 
 func TestManager_Start_DelegatedHost(t *testing.T) {
@@ -329,13 +332,17 @@ func TestManager_Start_DelegatedHost(t *testing.T) {
 		Link:    true,
 	}
 
+	opts := attrs.NewBag()
+	opts.Set(api.LifecycleMonitorKey, true)
+	opts.Set(api.LifecycleLinkKey, true)
+
 	// Execute the test
 	startReq := &api.Start{
-		HostID:    hostID,
-		Source:    sourceID,
-		UniqID:    uniqID,
-		Input:     inputs,
-		Lifecycle: lifecycle,
+		HostID:  hostID,
+		Source:  sourceID,
+		UniqID:  uniqID,
+		Input:   inputs,
+		Options: opts,
 	}
 
 	resultPID, err := manager.Start(ctx, startReq)
@@ -347,10 +354,12 @@ func TestManager_Start_DelegatedHost(t *testing.T) {
 	assert.Equal(t, hostID, resultPID.Host)
 	assert.Equal(t, "delegated-node", resultPID.Node)
 
-	// Verify Launch parameters
+	// Verify Dispatch parameters
 	assert.Equal(t, uniqID, delegatedHost.lastPID.UniqID)
 	assert.Equal(t, hostID, delegatedHost.lastPID.Host)
-	assert.Equal(t, inputs, delegatedHost.lastInput)
+	require.NotNil(t, delegatedHost.lastDispatch)
+	assert.Equal(t, inputs, delegatedHost.lastDispatch.Input)
+	assert.Equal(t, sourceID, delegatedHost.lastDispatch.Source)
 	assert.Equal(t, lifecycle, delegatedHost.lastLifecycle)
 }
 
@@ -579,92 +588,6 @@ func TestManager_Terminate_HostNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "host not found")
 }
 
-func TestManager_AttachLifecycle(t *testing.T) {
-	// Setup test dependencies
-	nodeID := relay.NodeID("test-node")
-	logger := zap.NewNop()
-
-	hostLookup := newManagerHostLookup()
-	factory := &managerProcessMock{}
-	ctx, topo := contextWithManagerTopology()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
-	// Create the manager
-	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
-
-	// Test data
-	parentPID := relay.PID{
-		Node:   "parent-node",
-		Host:   "parent-host",
-		UniqID: "parent-uniq",
-	}
-
-	lifecycle := api.Lifecycle{
-		Parent:  parentPID,
-		Monitor: true,
-		Link:    true,
-	}
-
-	// Set up a process and Target for the callbacks
-	proc := &mockProcess{}
-	pid := relay.PID{
-		Node:   "node",
-		Host:   "host",
-		UniqID: "uniq",
-	}
-
-	// Attach lifecycle
-	ctxWithLifecycle := manager.AttachLifecycle(ctx, lifecycle)
-
-	// Get the callbacks
-	onStart := api.GetOnStart(ctxWithLifecycle)
-	onComplete := api.GetOnComplete(ctxWithLifecycle)
-
-	// Assert callbacks are present
-	require.NotNil(t, onStart)
-	require.NotNil(t, onComplete)
-
-	// Test OnStart callback
-	onStart(pid, proc)
-
-	// Verify registration, monitoring, and linking
-	require.Len(t, topo.registered, 1)
-	assert.Equal(t, pid, topo.registered[0])
-	assert.Equal(t, pid, topo.waited[parentPID])
-	assert.Equal(t, pid, topo.linked[parentPID])
-
-	// Test OnComplete callback with success
-	successResult := &runtime.Result{
-		Value: payload.New("success"),
-	}
-	onComplete(pid, successResult)
-
-	// Verify notification and removal
-	assert.Equal(t, successResult, topo.notified[pid])
-	require.Len(t, topo.removed, 1)
-	assert.Equal(t, pid, topo.removed[0])
-
-	// Test OnComplete callback with error
-	errorResult := &runtime.Result{
-		Error: errors.New("process failed"),
-	}
-	onComplete(pid, errorResult)
-
-	// Verify error is preserved
-	assert.Equal(t, errorResult, topo.notified[pid])
-	assert.NotNil(t, topo.notified[pid].Error)
-
-	// Test OnComplete callback with ErrExit - should be converted to normal exit
-	exitResult := &runtime.Result{
-		Error: supervisor.ErrExit,
-	}
-	onComplete(pid, exitResult)
-
-	// Verify error is cleared
-	assert.Equal(t, exitResult, topo.notified[pid])
-	assert.Nil(t, topo.notified[pid].Error, "Exit error should be cleared to nil")
-}
-
 func TestManager_GeneratesUniqID(t *testing.T) {
 	// Setup test dependencies
 	nodeID := relay.NodeID("test-node")
@@ -728,10 +651,10 @@ func TestManager_Start_InvalidHostType(t *testing.T) {
 
 	// Test Start with invalid host type
 	start := &api.Start{
-		HostID:    hostID,
-		Source:    registry.ParseID("test-process"),
-		Input:     payload.Payloads{},
-		Lifecycle: api.Lifecycle{},
+		HostID:  hostID,
+		Source:  registry.ParseID("test-process"),
+		Input:   payload.Payloads{},
+		Options: attrs.NewBag(),
 	}
 
 	_, err := manager.Start(ctx, start)
@@ -759,180 +682,13 @@ func TestManager_Start_ProcessCreationError(t *testing.T) {
 
 	// Test Start with process creation error
 	start := &api.Start{
-		HostID:    hostID,
-		Source:    registry.ParseID("test-process"),
-		Input:     payload.Payloads{},
-		Lifecycle: api.Lifecycle{},
+		HostID:  hostID,
+		Source:  registry.ParseID("test-process"),
+		Input:   payload.Payloads{},
+		Options: attrs.NewBag(),
 	}
 
 	_, err := manager.Start(ctx, start)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to init launch")
-}
-
-func TestManager_AttachLifecycle_MissingTopology(t *testing.T) {
-	// Setup test dependencies
-	nodeID := relay.NodeID("test-node")
-	logger := zap.NewNop()
-	hostLookup := newManagerHostLookup()
-	factory := &managerProcessMock{}
-
-	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
-
-	// Test AttachLifecycle with missing topology
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
-	lifecycle := api.Lifecycle{
-		Monitor: true,
-		Link:    true,
-		Parent:  relay.PID{Node: "test-node", Host: "test-host"},
-	}
-
-	ctx = manager.AttachLifecycle(ctx, lifecycle)
-
-	// Verify that the callbacks are attached but handle missing topology gracefully
-	onStart := api.GetOnStart(ctx)
-	onComplete := api.GetOnComplete(ctx)
-
-	assert.NotNil(t, onStart)
-	assert.NotNil(t, onComplete)
-
-	// Test the callbacks with missing topology
-	pid := relay.PID{Node: "test-node", Host: "test-host"}
-	onStart(pid, &mockProcess{})
-	onComplete(pid, &runtime.Result{})
-}
-
-func TestManager_AttachLifecycle_MissingPIDRegistry(t *testing.T) {
-	// Setup test dependencies
-	nodeID := relay.NodeID("test-node")
-	logger := zap.NewNop()
-	hostLookup := newManagerHostLookup()
-	factory := &managerProcessMock{}
-
-	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
-
-	// Test AttachLifecycle with missing PID registry
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
-	ctx = topology.WithTopology(ctx, newManagerTopology())
-	lifecycle := api.Lifecycle{
-		Monitor: true,
-		Link:    true,
-		Parent:  relay.PID{Node: "test-node", Host: "test-host"},
-	}
-
-	ctx = manager.AttachLifecycle(ctx, lifecycle)
-
-	// Verify that the callbacks are attached but handle missing PID registry gracefully
-	onComplete := api.GetOnComplete(ctx)
-	assert.NotNil(t, onComplete)
-
-	// Test the callback with missing PID registry
-	pid := relay.PID{Node: "test-node", Host: "test-host"}
-	onComplete(pid, &runtime.Result{})
-}
-
-func TestManager_AttachLifecycle_RegistrationError(t *testing.T) {
-	// Setup test dependencies
-	nodeID := relay.NodeID("test-node")
-	logger := zap.NewNop()
-	hostLookup := newManagerHostLookup()
-	factory := &managerProcessMock{}
-
-	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
-
-	// Create topology with registration error
-	topo := newManagerTopology()
-	topo.registerErr = errors.New("registration failed")
-
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
-	ctx = topology.WithTopology(ctx, topo)
-	ctx = topology.WithRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
-	lifecycle := api.Lifecycle{
-		Monitor: true,
-		Link:    true,
-		Parent:  relay.PID{Node: "test-node", Host: "test-host"},
-	}
-
-	ctx = manager.AttachLifecycle(ctx, lifecycle)
-
-	// Test the callback with registration error
-	onStart := api.GetOnStart(ctx)
-	assert.NotNil(t, onStart)
-
-	pid := relay.PID{Node: "test-node", Host: "test-host"}
-	onStart(pid, &mockProcess{})
-}
-
-func TestManager_AttachLifecycle_MonitoringError(t *testing.T) {
-	// Setup test dependencies
-	nodeID := relay.NodeID("test-node")
-	logger := zap.NewNop()
-	hostLookup := newManagerHostLookup()
-	factory := &managerProcessMock{}
-
-	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
-
-	// Create topology with monitoring error
-	topo := newManagerTopology()
-	topo.waitErr = errors.New("monitoring failed")
-
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
-	ctx = topology.WithTopology(ctx, topo)
-	ctx = topology.WithRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
-	lifecycle := api.Lifecycle{
-		Monitor: true,
-		Link:    true,
-		Parent:  relay.PID{Node: "test-node", Host: "test-host"},
-	}
-
-	ctx = manager.AttachLifecycle(ctx, lifecycle)
-
-	// Test the callback with monitoring error
-	onStart := api.GetOnStart(ctx)
-	assert.NotNil(t, onStart)
-
-	pid := relay.PID{Node: "test-node", Host: "test-host"}
-	onStart(pid, &mockProcess{})
-}
-
-func TestManager_AttachLifecycle_LinkingError(t *testing.T) {
-	// Setup test dependencies
-	nodeID := relay.NodeID("test-node")
-	logger := zap.NewNop()
-	hostLookup := newManagerHostLookup()
-	factory := &managerProcessMock{}
-
-	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
-
-	// Create topology with linking error
-	topo := newManagerTopology()
-	topo.linkErr = errors.New("linking failed")
-
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
-	ctx = topology.WithTopology(ctx, topo)
-	ctx = topology.WithRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
-	lifecycle := api.Lifecycle{
-		Monitor: true,
-		Link:    true,
-		Parent:  relay.PID{Node: "test-node", Host: "test-host"},
-	}
-
-	ctx = manager.AttachLifecycle(ctx, lifecycle)
-
-	// Test the callback with linking error
-	onStart := api.GetOnStart(ctx)
-	assert.NotNil(t, onStart)
-
-	pid := relay.PID{Node: "test-node", Host: "test-host"}
-	onStart(pid, &mockProcess{})
 }

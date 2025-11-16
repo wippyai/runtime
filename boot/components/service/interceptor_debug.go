@@ -8,7 +8,7 @@ import (
 	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
 	logapi "github.com/wippyai/runtime/api/logs"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
-	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
+	bootsystem "github.com/wippyai/runtime/boot/components/system"
 	"go.uber.org/zap"
 )
 

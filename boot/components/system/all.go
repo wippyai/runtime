@@ -12,5 +12,6 @@ func All() []boot.Component {
 		Contracts(),
 		Functions(),
 		Process(),
+		ProcessTopology(),
 	}
 }

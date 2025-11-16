@@ -471,6 +471,22 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		}
 	}
 
+	// Validate no duplicate names in final dependency list
+	nameToNode := make(map[string]registry.ID)
+	for _, dep := range depNodes {
+		if existingNodeID, exists := nameToNode[dep.Name]; exists {
+			if existingNodeID != dep.Node.ID {
+				return nil, fmt.Errorf(
+					"alias collision: '%s' is used for both %v and %v in the dependency tree",
+					dep.Name,
+					existingNodeID,
+					dep.Node.ID,
+				)
+			}
+		}
+		nameToNode[dep.Name] = dep.Node.ID
+	}
+
 	rt.Dependencies = depNodes
 	return &rt, nil
 }

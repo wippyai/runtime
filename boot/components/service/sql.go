@@ -10,7 +10,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	bootpkg "github.com/wippyai/runtime/boot"
-	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
+	bootsystem "github.com/wippyai/runtime/boot/components/system"
 	"github.com/wippyai/runtime/service/sql"
 )
 

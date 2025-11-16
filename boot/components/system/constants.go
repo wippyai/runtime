@@ -4,14 +4,15 @@ import "github.com/wippyai/runtime/api/boot"
 
 const (
 	// System component names
-	FilesystemName  boot.ComponentName = "filesystem"
-	EnvironmentName boot.ComponentName = "env"
-	ResourcesName   boot.ComponentName = "resources"
-	InterceptorName boot.ComponentName = "interceptor"
-	FunctionsName   boot.ComponentName = "functions"
-	ProcessName     boot.ComponentName = "process"
-	ContractsName   boot.ComponentName = "contracts"
-	ClusterName     boot.ComponentName = "cluster"
+	FilesystemName      boot.ComponentName = "filesystem"
+	EnvironmentName     boot.ComponentName = "env"
+	ResourcesName       boot.ComponentName = "resources"
+	InterceptorName     boot.ComponentName = "interceptor"
+	FunctionsName       boot.ComponentName = "functions"
+	ProcessName         boot.ComponentName = "process"
+	ProcessTopologyName boot.ComponentName = "process-topology"
+	ContractsName       boot.ComponentName = "contracts"
+	ClusterName         boot.ComponentName = "cluster"
 
 	// Cluster configuration keys
 	ClusterEnabled              boot.ConfigKey = "enabled"

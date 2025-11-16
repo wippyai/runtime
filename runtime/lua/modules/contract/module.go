@@ -818,9 +818,8 @@ func collectPayloadArgs(l *lua.LState, startIndex int) []payload.Payload {
 // executeAsync handles async method execution with inherited call context
 // Returns a command object for async operation management
 func executeAsync(l *lua.LState, wrapper *InstanceWrapper, methodName string, args []payload.Payload, uw engine.UnitOfWork) int {
-	// Detach from unit of work and apply inherited call context
-	baseCtx := engine.DetachUnitOfWork(uw.Context())
-	execCtx, err := wrapper.applyToContext(baseCtx)
+	// Apply inherited call context
+	execCtx, err := wrapper.applyToContext(uw.Context())
 	if err != nil {
 		l.RaiseError("failed to apply context: %s", err.Error())
 		return 0
@@ -847,9 +846,8 @@ func executeAsync(l *lua.LState, wrapper *InstanceWrapper, methodName string, ar
 // Uses coroutine wrapping for non-blocking execution
 func executeSync(l *lua.LState, wrapper *InstanceWrapper, methodName string, args []payload.Payload, uw engine.UnitOfWork) int {
 	coroutine.Wrap(l, func() *engine.Update {
-		// Detach from unit of work and apply inherited call context
-		baseCtx := engine.DetachUnitOfWork(uw.Context())
-		execCtx, err := wrapper.applyToContext(baseCtx)
+		// Apply inherited call context
+		execCtx, err := wrapper.applyToContext(uw.Context())
 		if err != nil {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, newContractOperationError(l, fmt.Errorf("failed to apply context: %w", err), "apply_context")}, nil)
 		}

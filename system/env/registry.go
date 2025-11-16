@@ -151,7 +151,7 @@ func (r *Registry) registerVariable(e event.Event) {
 	r.variablesByID.Store(variable.ID, variable)
 	r.variablesByName.Store(envName, variable.ID)
 	r.sendAccept(e.Path)
-	r.log.Info("variable registered", zap.String("id", variable.ID.String()), zap.String("name", variable.Name), zap.String("base_name", envName))
+	r.log.Debug("variable registered", zap.String("id", variable.ID.String()), zap.String("name", variable.Name), zap.String("base_name", envName))
 }
 
 func (r *Registry) updateVariable(e event.Event) {

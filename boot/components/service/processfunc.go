@@ -2,21 +2,19 @@ package service
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	procapi "github.com/wippyai/runtime/api/process"
 	bootpkg "github.com/wippyai/runtime/boot"
-	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
-	service "github.com/wippyai/runtime/service/supervisor"
-	"github.com/wippyai/runtime/system/process"
+	bootsystem "github.com/wippyai/runtime/boot/components/system"
+	"github.com/wippyai/runtime/service/processfunc"
 )
 
-func ProcessSupervisor() boot.Component {
+func ProcessFunc() boot.Component {
 	return boot.New(boot.P{
-		Name:      ProcessSupervisorName,
+		Name:      ProcessFuncName,
 		Phase:     boot.PostInit,
 		DependsOn: []boot.ComponentName{bootsystem.ProcessName},
 		Load: func(ctx context.Context) (context.Context, error) {
@@ -25,18 +23,13 @@ func ProcessSupervisor() boot.Component {
 			processes := procapi.GetManager(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 
-			processManager, ok := processes.(*process.Manager)
-			if !ok {
-				return ctx, fmt.Errorf("process manager is not of expected type")
-			}
-
-			manager := service.NewSupervisorServiceManager(
+			handler := processfunc.WithProcessFunctionBridge(
+				logger.Named("pfunc"),
 				bus,
-				processManager,
-				logger.Named("super"),
+				processes,
 			)
 
-			handlers.RegisterListener("process.service", manager)
+			handlers.Register(handler)
 			return ctx, nil
 		},
 	})

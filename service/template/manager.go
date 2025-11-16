@@ -166,7 +166,7 @@ func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) e
 		Name:   templateName,
 	}
 
-	m.log.Info("template added",
+	m.log.Debug("template added",
 		zap.String("id", entry.ID.String()),
 		zap.String("set", cfg.Set.String()),
 		zap.String("name", templateName))

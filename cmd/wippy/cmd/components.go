@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/boot/components/core/core"
-	lua "github.com/wippyai/runtime/boot/components/runtime/runtime/lua"
-	"github.com/wippyai/runtime/boot/components/service/service"
-	"github.com/wippyai/runtime/boot/components/system/system"
+	"github.com/wippyai/runtime/boot/components/core"
+	lua "github.com/wippyai/runtime/boot/components/runtime/lua"
+	"github.com/wippyai/runtime/boot/components/service"
+	"github.com/wippyai/runtime/boot/components/system"
 )
 
 // StandardComponents returns the default component set for wippy runtime.

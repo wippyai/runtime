@@ -52,10 +52,13 @@ func NewTerminalRunner(
 	// Derive a runner context from the provided terminal context.
 	runnerCtx, cancel := context.WithCancel(ctx)
 
-	if err := process.SetOnComplete(runnerCtx, func(_ relay.PID, _ *runtime.Result) {
+	// Add runner's context cancellation to OnComplete hooks
+	existingHooks := process.GetOnCompleteHooks(runnerCtx)
+	runnerHooks := append(existingHooks, func(_ context.Context, _ relay.PID, _ *runtime.Result) {
 		cancel()
-	}); err != nil {
-		return nil, fmt.Errorf("failed to set onComplete callback: %w", err)
+	})
+	if err := process.SetOnCompleteHooks(runnerCtx, runnerHooks); err != nil {
+		return nil, fmt.Errorf("failed to set onComplete hooks: %w", err)
 	}
 
 	runner := &Runner{

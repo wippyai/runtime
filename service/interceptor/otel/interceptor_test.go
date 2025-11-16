@@ -40,16 +40,17 @@ func TestInterceptor_CreatesSpan(t *testing.T) {
 	interceptor := New()
 
 	called := false
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	task := runtime.Task{}
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		called = true
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, err := interceptor.Handle(ctx, task, next)
 
 	assert.True(t, called)
 	assert.NotNil(t, result)
-	assert.Nil(t, result.Error)
+	assert.NoError(t, err)
 
 	spans := spanRecorder.Ended()
 	require.Len(t, spans, 1)
@@ -66,11 +67,12 @@ func TestInterceptor_UsesRegistryID(t *testing.T) {
 
 	interceptor := New()
 
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
-		return &runtime.Result{}, ctx
+	task := runtime.Task{ID: regID}
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+		return &runtime.Result{}, nil
 	}
 
-	interceptor.Handle(ctx, next)
+	interceptor.Handle(ctx, task, next)
 
 	spans := spanRecorder.Ended()
 	require.Len(t, spans, 1)
@@ -87,11 +89,12 @@ func TestInterceptor_AddsPIDAttribute(t *testing.T) {
 
 	interceptor := New()
 
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
-		return &runtime.Result{}, ctx
+	task := runtime.Task{}
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+		return &runtime.Result{}, nil
 	}
 
-	interceptor.Handle(ctx, next)
+	interceptor.Handle(ctx, task, next)
 
 	spans := spanRecorder.Ended()
 	require.Len(t, spans, 1)
@@ -114,13 +117,15 @@ func TestInterceptor_RecordsError(t *testing.T) {
 	interceptor := New()
 
 	testErr := errors.New("test error")
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
-		return &runtime.Result{Error: testErr}, ctx
+	task := runtime.Task{}
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+		return &runtime.Result{Error: testErr}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, err := interceptor.Handle(ctx, task, next)
 
 	assert.NotNil(t, result)
+	assert.NoError(t, err)
 	assert.Equal(t, testErr, result.Error)
 
 	spans := spanRecorder.Ended()
@@ -136,15 +141,16 @@ func TestInterceptor_StoresSpanInFrameContext(t *testing.T) {
 	interceptor := New()
 
 	var capturedSpan interface{}
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	task := runtime.Task{}
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		span, ok := otelapi.GetSpan(ctx)
 		if ok {
 			capturedSpan = span
 		}
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
-	interceptor.Handle(ctx, next)
+	interceptor.Handle(ctx, task, next)
 
 	assert.NotNil(t, capturedSpan)
 }
@@ -156,20 +162,22 @@ func TestInterceptor_ParentSpanChaining(t *testing.T) {
 
 	interceptor := New()
 
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	task := runtime.Task{}
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		parentFrame.Seal()
 
 		childCtx, _ := ctxapi.OpenFrameContext(ctx)
 
 		childInterceptor := New()
-		childNext := func(ctx context.Context) (*runtime.Result, context.Context) {
-			return &runtime.Result{}, ctx
+		childTask := runtime.Task{}
+		childNext := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+			return &runtime.Result{}, nil
 		}
 
-		return childInterceptor.Handle(childCtx, childNext)
+		return childInterceptor.Handle(childCtx, childTask, childNext)
 	}
 
-	interceptor.Handle(ctx, next)
+	interceptor.Handle(ctx, task, next)
 
 	spans := spanRecorder.Ended()
 	require.Len(t, spans, 2)
@@ -194,15 +202,17 @@ func TestInterceptor_NoTracerFallback(t *testing.T) {
 	interceptor := New()
 
 	called := false
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	task := runtime.Task{}
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		called = true
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, err := interceptor.Handle(ctx, task, next)
 
 	assert.True(t, called)
 	assert.NotNil(t, result)
+	assert.NoError(t, err)
 
 	spans := spanRecorder.Ended()
 	require.Len(t, spans, 1)
@@ -214,15 +224,17 @@ func TestInterceptor_NoFrameContext(t *testing.T) {
 	interceptor := New()
 
 	called := false
-	next := func(ctx context.Context) (*runtime.Result, context.Context) {
+	task := runtime.Task{}
+	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		called = true
-		return &runtime.Result{}, ctx
+		return &runtime.Result{}, nil
 	}
 
-	result, _ := interceptor.Handle(ctx, next)
+	result, err := interceptor.Handle(ctx, task, next)
 
 	assert.True(t, called)
 	assert.NotNil(t, result)
+	assert.NoError(t, err)
 
 	spans := spanRecorder.Ended()
 	require.Len(t, spans, 1)

@@ -6,20 +6,19 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
-	funcapi "github.com/wippyai/runtime/api/function"
+	fsapi "github.com/wippyai/runtime/api/fs"
 	logapi "github.com/wippyai/runtime/api/logs"
 	regapi "github.com/wippyai/runtime/api/registry"
-	relayapi "github.com/wippyai/runtime/api/relay"
-	bootcore "github.com/wippyai/runtime/boot/components/core/core"
-	"github.com/wippyai/runtime/system/function"
+	bootcore "github.com/wippyai/runtime/boot/components/core"
+	"github.com/wippyai/runtime/system/fs"
 	"go.uber.org/zap"
 )
 
-func Functions() boot.Component {
-	var funcs *function.Registry
+func Filesystem() boot.Component {
+	var fsRegistry *fs.Registry
 
 	return boot.New(boot.P{
-		Name:      FunctionsName,
+		Name:      FilesystemName,
 		Phase:     boot.Init,
 		DependsOn: []boot.ComponentName{bootcore.RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
@@ -38,31 +37,26 @@ func Functions() boot.Component {
 				return ctx, fmt.Errorf("registry not available in context")
 			}
 
-			// Register function dependency pattern
+			// Register filesystem dependency pattern
 			if err := reg.RegisterDependencyPattern(regapi.DependencyPattern{
-				Path:        "data.func",
-				Description: "Reference to handler function",
+				Path:        "data.fs",
+				Description: "Reference to filesystem",
 			}); err != nil {
-				logger.Warn("failed to register function dependency pattern", zap.Error(err))
+				logger.Warn("failed to register filesystem dependency pattern", zap.Error(err))
 			}
 
-			// Function host is already registered in infrastructure
-			funcHost := relayapi.GetHost(ctx)
-			if funcHost != nil {
-				funcs = function.NewFunctionRegistry(bus, funcHost, logger.Named("funcs"))
-			}
-
-			return funcapi.WithRegistry(ctx, funcs), nil
+			fsRegistry = fs.NewFSRegistry(bus, logger.Named("fs"))
+			return fsapi.WithRegistry(ctx, fsRegistry), nil
 		},
 		Start: func(ctx context.Context) error {
-			if funcs != nil {
-				return funcs.Start(ctx)
+			if fsRegistry != nil {
+				return fsRegistry.Start(ctx)
 			}
 			return nil
 		},
 		Stop: func(ctx context.Context) error {
-			if funcs != nil {
-				return funcs.Stop()
+			if fsRegistry != nil {
+				return fsRegistry.Stop()
 			}
 			return nil
 		},

@@ -36,16 +36,8 @@ func (p *LuaProcess) Start(ctx context.Context, pid relay.PID, input payload.Pay
 		return err
 	}
 
-	// Get the onStart callback for notification
-	onStart := process.GetOnStart(p.state.Ctx)
-	onStartFunc := func() {
-		if onStart != nil {
-			onStart(pid, p)
-		}
-	}
-
 	// Serve the process using the state
-	return p.state.Start(input, onStartFunc)
+	return p.state.Start(input, nil)
 }
 
 // Step advances the process state by one iteration

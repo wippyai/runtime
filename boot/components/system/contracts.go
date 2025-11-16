@@ -10,7 +10,7 @@ import (
 	funcapi "github.com/wippyai/runtime/api/function"
 	logapi "github.com/wippyai/runtime/api/logs"
 	regapi "github.com/wippyai/runtime/api/registry"
-	bootcore "github.com/wippyai/runtime/boot/components/core/core"
+	bootcore "github.com/wippyai/runtime/boot/components/core"
 	contractsys "github.com/wippyai/runtime/system/contract"
 	"go.uber.org/zap"
 )

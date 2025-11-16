@@ -10,7 +10,7 @@ import (
 	procapi "github.com/wippyai/runtime/api/process"
 	regapi "github.com/wippyai/runtime/api/registry"
 	relayapi "github.com/wippyai/runtime/api/relay"
-	bootcore "github.com/wippyai/runtime/boot/components/core/core"
+	bootcore "github.com/wippyai/runtime/boot/components/core"
 	"github.com/wippyai/runtime/system/process"
 	"go.uber.org/zap"
 )

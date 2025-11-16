@@ -89,10 +89,8 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 		// Get context logger and add request info
 		logger := m.logger.With(
 			zap.String("path", r.URL.Path),
-			zap.String("remoteAddr", r.RemoteAddr),
+			zap.String("remote_addr", r.RemoteAddr),
 		)
-
-		logger.Debug("Handling WebSocket relay request", zap.String("config", relayConfigStr))
 
 		// Parse the relay configuration
 		var config RelayCommand

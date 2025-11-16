@@ -9,7 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	regapi "github.com/wippyai/runtime/api/registry"
-	bootcore "github.com/wippyai/runtime/boot/components/core/core"
+	bootcore "github.com/wippyai/runtime/boot/components/core"
 	"github.com/wippyai/runtime/system/env"
 	"go.uber.org/zap"
 )

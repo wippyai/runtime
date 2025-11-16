@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/process"
@@ -51,37 +52,34 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 
 	processIDStr := entry.ID.String()
 
-	// Extract options from Meta
-	opts, hasOptions := entry.Meta.GetBag("options")
-	if !hasOptions {
-		// No options means no registration
+	// Try to get default_host from options first, then fall back to direct meta key
+	var defaultHost string
+	var opts registry.Metadata
+
+	if optsBag, hasOptions := entry.Meta.GetBag("options"); hasOptions {
+		defaultHost = optsBag.GetString("default_host", "")
+		opts = optsBag
+	}
+
+	// Fallback to old notation: direct meta key "default_host"
+	if defaultHost == "" {
+		defaultHost = entry.Meta.GetString("default_host", "")
+		opts = entry.Meta
+	}
+
+	// If no default_host found anywhere, unregister if previously registered
+	if defaultHost == "" {
 		if _, exists := l.registered[processIDStr]; exists {
 			l.unregisterFunction(ctx, entry.ID)
 		}
 		return
 	}
 
-	// Extract default_host from options
-	defaultHost := opts.GetString("default_host", "")
-
 	switch kind {
 	case registry.Create:
-		// Skip if no default host
-		if defaultHost == "" {
-			return
-		}
-		// Register function handler
 		l.registerFunction(ctx, entry.ID, defaultHost, opts)
 
 	case registry.Update:
-		// If entry previously had a host but no longer does, unregister it
-		if defaultHost == "" {
-			if _, exists := l.registered[processIDStr]; exists {
-				l.unregisterFunction(ctx, entry.ID)
-			}
-			return
-		}
-
 		// Check if host changed - if so, update registration
 		if existingHost, exists := l.registered[processIDStr]; exists && existingHost != defaultHost {
 			l.unregisterFunction(ctx, entry.ID)
@@ -169,14 +167,15 @@ func (l *Listener) createProcessHandler(processID registry.ID, hostID relay.Host
 		defer detach()
 
 		// Start process
+		options := attrs.NewBag()
+		options.Set(process.LifecycleParentKey, callerPID)
+		options.Set(process.LifecycleMonitorKey, true)
+
 		pid, err := l.procs.Start(ctx, &process.Start{
-			HostID: hostID,
-			Source: processID,
-			Input:  task.Payloads,
-			Lifecycle: process.Lifecycle{
-				Parent:  callerPID,
-				Monitor: true,
-			},
+			HostID:  hostID,
+			Source:  processID,
+			Input:   task.Payloads,
+			Options: options,
 		})
 
 		if err != nil {

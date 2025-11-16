@@ -12,8 +12,8 @@ import (
 	resourceapi "github.com/wippyai/runtime/api/resource"
 	secapi "github.com/wippyai/runtime/api/security"
 	bootpkg "github.com/wippyai/runtime/boot"
-	bootcore "github.com/wippyai/runtime/boot/components/core/core"
-	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
+	bootcore "github.com/wippyai/runtime/boot/components/core"
+	bootsystem "github.com/wippyai/runtime/boot/components/system"
 	"github.com/wippyai/runtime/service/tokenstore"
 	"go.uber.org/zap"
 )

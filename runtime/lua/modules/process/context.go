@@ -3,6 +3,7 @@ package process
 import (
 	"strings"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
@@ -345,17 +346,17 @@ func (m *Module) contextSpawn(l *lua.LState) int {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
 	}
 
+	// Create Options with lifecycle parameters
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, self)
+
 	// Create start configuration with context overrides
 	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: false,
-			Link:    false,
-		},
+		HostID:  hostID,
+		Source:  registry.ParseID(id),
+		Input:   payloads,
 		Context: buildContextPairs(spawner),
+		Options: options,
 	}
 
 	// Start the process with our context
@@ -432,17 +433,18 @@ func (m *Module) contextSpawnMonitored(l *lua.LState) int {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
 	}
 
+	// Create Options with lifecycle parameters
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.LifecycleMonitorKey, true)
+
 	// Create start configuration with monitoring and context overrides
 	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: true,
-			Link:    false,
-		},
+		HostID:  hostID,
+		Source:  registry.ParseID(id),
+		Input:   payloads,
 		Context: buildContextPairs(spawner),
+		Options: options,
 	}
 
 	// Start the process with monitoring
@@ -519,17 +521,18 @@ func (m *Module) contextSpawnLinked(l *lua.LState) int {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
 	}
 
+	// Create Options with lifecycle parameters
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.LifecycleLinkKey, true)
+
 	// Create start configuration with linking and context overrides
 	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: false,
-			Link:    true,
-		},
+		HostID:  hostID,
+		Source:  registry.ParseID(id),
+		Input:   payloads,
 		Context: buildContextPairs(spawner),
+		Options: options,
 	}
 
 	// Start the process with linking
@@ -612,17 +615,19 @@ func (m *Module) contextSpawnLinkedMonitored(l *lua.LState) int {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
 	}
 
+	// Create Options with lifecycle parameters
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.LifecycleMonitorKey, true)
+	options.Set(process.LifecycleLinkKey, true)
+
 	// Create start configuration with linking, monitoring, and context overrides
 	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: true,
-			Link:    true,
-		},
+		HostID:  hostID,
+		Source:  registry.ParseID(id),
+		Input:   payloads,
 		Context: buildContextPairs(spawner),
+		Options: options,
 	}
 
 	// Start the process with linking and monitoring

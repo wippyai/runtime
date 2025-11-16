@@ -6,7 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
 	"github.com/wippyai/runtime/api/logs"
-	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
+	bootsystem "github.com/wippyai/runtime/boot/components/system"
 	"github.com/wippyai/runtime/service/interceptor/retry"
 )
 

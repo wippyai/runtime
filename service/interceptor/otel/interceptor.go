@@ -31,7 +31,7 @@ func (i *Interceptor) Handle(ctx context.Context, task runtime.Task, next func(c
 
 	// Use task ID for span name
 	spanName := task.ID.String()
-	if spanName == "" {
+	if spanName == "" || spanName == ":" {
 		spanName = "function_execution"
 	}
 

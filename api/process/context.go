@@ -6,8 +6,6 @@ import (
 	"errors"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/api/runtime"
 )
 
 // PrototypeFactory manages process prototypes.
@@ -33,11 +31,11 @@ var (
 	// hostsCtx is the context key for storing a HostRegistry.
 	hostsCtx = &ctxapi.Key{Name: "process.hosts"}
 
-	// onCompleteCtx is the context key for storing process completion callbacks (ScopeFrame: call-specific).
-	onCompleteCtx = &ctxapi.Key{Name: "process.onComplete"}
+	// onCompleteHooksCtx is the context key for storing process completion hook arrays (ScopeFrame: call-specific).
+	onCompleteHooksCtx = &ctxapi.Key{Name: "process.onCompleteHooks"}
 
-	// onStartCtx is the context key for storing process start callbacks (ScopeFrame: call-specific).
-	onStartCtx = &ctxapi.Key{Name: "process.onStart"}
+	// onStartHooksCtx is the context key for storing process start hook arrays (ScopeFrame: call-specific).
+	onStartHooksCtx = &ctxapi.Key{Name: "process.onStartHooks"}
 )
 
 // WithManager attaches a process Manager to the context.
@@ -124,95 +122,57 @@ func GetHosts(ctx context.Context) HostRegistry {
 	return nil
 }
 
-// OnComplete is the type for a process completion callback.
-// It is called when a process finishes execution, either successfully or with an error.
-// The callback receives the process ID and the execution result.
-type OnComplete func(pid relay.PID, result *runtime.Result)
-
-// OnStart is the type for a process start callback.
-// It is called when a process begins execution.
-// The callback receives the process ID and the process instance.
-type OnStart func(pid relay.PID, proc Process)
-
-// SetOnComplete sets an OnComplete callback in the FrameContext.
-// If there's already one present, it combines them so that both are called.
-// This enables composable process lifecycle management where multiple
-// components can register callbacks for the same lifecycle events.
-// The most recently added callback will be called first.
+// SetOnStartHooks sets OnStart hook arrays in the FrameContext.
+// Replaces any existing hooks.
 // Returns error if no frame context or frame is sealed.
-func SetOnComplete(ctx context.Context, cb OnComplete) error {
+func SetOnStartHooks(ctx context.Context, hooks []OnStart) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
 		return errors.New("no frame context available")
 	}
-
-	if val, ok := fc.Get(onCompleteCtx); ok {
-		if existing, ok := val.(OnComplete); ok {
-			combined := func(pid relay.PID, result *runtime.Result) {
-				cb(pid, result)
-				existing(pid, result)
-			}
-			return fc.Set(onCompleteCtx, OnComplete(combined))
-		}
-	}
-
-	return fc.Set(onCompleteCtx, cb)
+	return fc.Set(onStartHooksCtx, hooks)
 }
 
-// SetOnStart sets an OnStart callback in the FrameContext.
-// If there's already one present, it combines them so that both are called.
-// This enables composable process lifecycle management where multiple
-// components can register callbacks for the same lifecycle events.
-// The most recently added callback will be called first.
-// Returns error if no frame context or frame is sealed.
-func SetOnStart(ctx context.Context, cb OnStart) error {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return errors.New("no frame context available")
-	}
-
-	if val, ok := fc.Get(onStartCtx); ok {
-		if existing, ok := val.(OnStart); ok {
-			combined := func(pid relay.PID, proc Process) {
-				cb(pid, proc)
-				existing(pid, proc)
-			}
-			return fc.Set(onStartCtx, OnStart(combined))
-		}
-	}
-
-	return fc.Set(onStartCtx, cb)
-}
-
-// GetOnComplete retrieves the OnComplete callback from the FrameContext.
-// Returns nil if no callback is found.
-// This is typically used by process supervisors to get the callback
-// that should be invoked when a process completes.
-func GetOnComplete(ctx context.Context) OnComplete {
+// GetOnStartHooks retrieves the OnStart hook array from the FrameContext.
+// Returns nil if no hooks are found.
+// This is typically used by process hosts to get the hooks
+// that should be invoked when a process starts.
+func GetOnStartHooks(ctx context.Context) []OnStart {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
 		return nil
 	}
-	if val, ok := fc.Get(onCompleteCtx); ok {
-		if cb, ok := val.(OnComplete); ok {
-			return cb
+	if val, ok := fc.Get(onStartHooksCtx); ok {
+		if hooks, ok := val.([]OnStart); ok {
+			return hooks
 		}
 	}
 	return nil
 }
 
-// GetOnStart retrieves the OnStart callback from the FrameContext.
-// Returns nil if no callback is found.
-// This is typically used by process hosts to get the callback
-// that should be invoked when a process starts.
-func GetOnStart(ctx context.Context) OnStart {
+// SetOnCompleteHooks sets OnComplete hook arrays in the FrameContext.
+// Replaces any existing hooks.
+// Returns error if no frame context or frame is sealed.
+func SetOnCompleteHooks(ctx context.Context, hooks []OnComplete) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return errors.New("no frame context available")
+	}
+	return fc.Set(onCompleteHooksCtx, hooks)
+}
+
+// GetOnCompleteHooks retrieves the OnComplete hook array from the FrameContext.
+// Returns nil if no hooks are found.
+// This is typically used by process supervisors to get the hooks
+// that should be invoked when a process completes.
+func GetOnCompleteHooks(ctx context.Context) []OnComplete {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
 		return nil
 	}
-	if val, ok := fc.Get(onStartCtx); ok {
-		if cb, ok := val.(OnStart); ok {
-			return cb
+	if val, ok := fc.Get(onCompleteHooksCtx); ok {
+		if hooks, ok := val.([]OnComplete); ok {
+			return hooks
 		}
 	}
 	return nil

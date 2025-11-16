@@ -207,7 +207,7 @@ func (c *Connection) handleWebSocketRead() {
 			if err != nil {
 				if closeStatus := websocket.CloseStatus(err); closeStatus != -1 {
 					c.logger.Debug("websocket closed by client",
-						zap.Int("closeCode", int(closeStatus)),
+						zap.Int("close_code", int(closeStatus)),
 						zap.String("error", err.Error()))
 				} else {
 					// this is DEBUG level simply because modern browsers and proxies love to close connection without close status
@@ -291,12 +291,12 @@ func (c *Connection) handleExitEvent(payloads []payload.Payload) bool {
 			// Check if the exit event is for our current target PID
 			if exitEvent.From.String() == c.currentTargetPID.String() {
 				c.logger.Debug("target PID exited, closing connection",
-					zap.String("targetPID", c.currentTargetPID.String()),
+					zap.String("target_pid", c.currentTargetPID.String()),
 					zap.Any("result", exitEvent.Result))
 
 				if exitEvent.Result != nil && exitEvent.Result.Error != nil {
 					c.logger.Warn("target PID exited with error, closing connection",
-						zap.String("targetPID", c.currentTargetPID.String()),
+						zap.String("target_pid", c.currentTargetPID.String()),
 						zap.Error(exitEvent.Result.Error))
 				}
 
@@ -324,7 +324,6 @@ func (c *Connection) handleControlMessage(p payload.Payload) {
 	// Update message topic if provided
 	if command.MessageTopic != "" {
 		c.currentMessageTopic = command.MessageTopic
-		c.logger.Debug("updated message topic", zap.String("newTopic", command.MessageTopic))
 	}
 
 	// Update heartbeat interval if provided
@@ -332,14 +331,12 @@ func (c *Connection) handleControlMessage(p payload.Payload) {
 		if interval, err := time.ParseDuration(command.HeartbeatInterval); err == nil {
 			c.heartbeatInterval = interval
 			c.heartbeatTicker.Reset(interval)
-			c.logger.Debug("updated heartbeat interval", zap.Duration("newInterval", interval))
 		}
 	}
 
 	// Update metadata if provided
 	if len(command.Metadata) > 0 {
 		c.config.Metadata = command.Metadata
-		c.logger.Debug("updated metadata", zap.Any("metadata", command.Metadata))
 	}
 }
 
@@ -378,12 +375,10 @@ func (c *Connection) handleTargetPIDChange(command RelayCommand) {
 		// Store any updated metadata
 		if len(command.Metadata) > 0 {
 			c.config.Metadata = command.Metadata
-			c.logger.Debug("updated metadata on target change", zap.Any("metadata", command.Metadata))
 		}
 	}
 
 	c.currentTargetPID = newTarget
-	c.logger.Debug("updated target PID", zap.String("newTarget", newTarget.String()))
 }
 
 // handleCloseMessage processes a close message from relay

@@ -6,7 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
 	otelapi "github.com/wippyai/runtime/api/service/otel"
-	bootsystem "github.com/wippyai/runtime/boot/components/system/system"
+	bootsystem "github.com/wippyai/runtime/boot/components/system"
 	otelinterceptor "github.com/wippyai/runtime/service/interceptor/otel"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace/noop"

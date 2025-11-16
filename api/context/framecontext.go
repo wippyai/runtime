@@ -107,6 +107,35 @@ func OpenFrameContext(ctx context.Context) (context.Context, FrameContext) {
 	return ctx, fc
 }
 
+// OpenFrameContextOn creates a new frame on targetCtx, inheriting from parentCtx.
+// This is used when you need to fork a context chain - creating a new frame on a different
+// context (like Host's context) while inheriting actor/scope from the calling context.
+// The parent frame from parentCtx is linked and inheritable keys are copied.
+func OpenFrameContextOn(targetCtx context.Context, parentCtx context.Context) (context.Context, FrameContext) {
+	parentFC := FrameFromContext(parentCtx)
+
+	// Create new frame on target context with parent link
+	newCtx, newFC := newFrameContext(targetCtx)
+
+	// If there's a parent frame, copy all inheritable keys
+	if parentFC != nil {
+		parentFC.Iterate(func(key any, value any) {
+			// Check if key is a *Key with Inherit=true
+			if ctxKey, ok := key.(*Key); ok && ctxKey.Inherit {
+				// Clone value if it implements Cloner to prevent shared mutable state
+				if cloner, ok := value.(Cloner); ok {
+					cloned := cloner.Clone()
+					_ = newFC.Set(key, cloned)
+				} else {
+					_ = newFC.Set(key, value)
+				}
+			}
+		})
+	}
+
+	return newCtx, newFC
+}
+
 func (f *frameContext) Get(key any) (any, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()

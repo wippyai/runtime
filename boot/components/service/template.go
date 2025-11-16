@@ -10,14 +10,14 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
-	bootcore "github.com/wippyai/runtime/boot/components/core/core"
-	"github.com/wippyai/runtime/service/aws/s3"
+	bootcore "github.com/wippyai/runtime/boot/components/core"
+	"github.com/wippyai/runtime/service/template"
 	"go.uber.org/zap"
 )
 
-func S3() boot.Component {
+func Template() boot.Component {
 	return boot.New(boot.P{
-		Name:      S3Name,
+		Name:      TemplateName,
 		Phase:     boot.PostInit,
 		DependsOn: []boot.ComponentName{bootcore.RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
@@ -46,25 +46,21 @@ func S3() boot.Component {
 				return ctx, fmt.Errorf("registry not available in context")
 			}
 
-			// Register storage dependency patterns
-			storagePatterns := []regapi.DependencyPattern{
-				{Path: "data.store", Description: "Reference to a store (e.g., 'session')"},
-				{Path: "data.storage", Description: "Reference to a storage"},
-				{Path: "data.bucket", Description: "Reference to a storage bucket"},
-			}
-			for _, pattern := range storagePatterns {
-				if err := reg.RegisterDependencyPattern(pattern); err != nil {
-					logger.Warn("failed to register storage dependency pattern", zap.String("path", pattern.Path), zap.Error(err))
-				}
+			// Register template dependency pattern
+			if err := reg.RegisterDependencyPattern(regapi.DependencyPattern{
+				Path:        "data.set",
+				Description: "Reference to a template set",
+			}); err != nil {
+				logger.Warn("failed to register template dependency pattern", zap.Error(err))
 			}
 
-			manager := s3.NewManager(
+			manager := template.NewManager(
 				bus,
 				dtt,
-				logger.Named("cloudstorage.s3"),
+				logger.Named("tmpl"),
 			)
 
-			handlers.RegisterListener("cloudstorage.s3", manager)
+			handlers.RegisterListener("template.(jet|set)", manager)
 			return ctx, nil
 		},
 	})

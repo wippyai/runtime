@@ -3,6 +3,7 @@ package code
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1106,6 +1107,84 @@ func TestMemoryGraph_GetAllDependents_NoDuplicates(t *testing.T) {
 		if !expectedNodes[dep.ID.Name] {
 			t.Errorf("unexpected dependent: %v", dep.ID.Name)
 		}
+	}
+}
+
+func TestMemoryGraph_Build_TransitiveAliasCollision(t *testing.T) {
+	mg := NewMemoryGraph()
+
+	// Create modules
+	var modConstX runtime.Module = &dummyModule{name: "const-x"}
+	var modConstY runtime.Module = &dummyModule{name: "const-y"}
+	var modLibA runtime.Module = &dummyModule{name: "library-a"}
+
+	// Create nodes
+	nodes := map[string]*Node{
+		"main": createTestNode("MainFunc"),
+		"const-x": {
+			ID:     registry.ID{NS: "lib", Name: "const-x"},
+			Kind:   "module.lua",
+			Source: "const-x source",
+			Module: modConstX,
+		},
+		"const-y": {
+			ID:     registry.ID{NS: "lib", Name: "const-y"},
+			Kind:   "module.lua",
+			Source: "const-y source",
+			Module: modConstY,
+		},
+		"library-a": {
+			ID:     registry.ID{NS: "lib", Name: "library-a"},
+			Kind:   "module.lua",
+			Source: "library-a source",
+			Module: modLibA,
+		},
+	}
+
+	// Add all nodes
+	for _, node := range nodes {
+		if err := mg.AddNode(node); err != nil {
+			t.Fatalf("failed to add node %v: %v", node.ID, err)
+		}
+	}
+
+	// Create dependency tree with transitive collision:
+	// main imports const-x as "const"
+	// main imports library-a as "libA"
+	// library-a imports const-y as "const" <- COLLISION!
+	dependencies := []struct {
+		from  string
+		to    string
+		alias string
+	}{
+		{"main", "const-x", "const"},      // User imports const-x as "const"
+		{"main", "library-a", "libA"},     // User imports library-a
+		{"library-a", "const-y", "const"}, // Library-a also imports something as "const"
+	}
+
+	// Add all dependencies
+	for _, dep := range dependencies {
+		from := nodes[dep.from]
+		to := nodes[dep.to]
+		if err := mg.AddDependency(from.ID, to.ID, dep.alias); err != nil {
+			t.Fatalf("failed to add dependency %s->%s: %v", dep.from, dep.to, err)
+		}
+	}
+
+	// Build should detect the transitive collision
+	_, err := mg.Build(nodes["main"].ID)
+	if err == nil {
+		t.Error("expected error when building with transitive alias collision, got nil")
+		return
+	}
+
+	// Verify error message contains collision details
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "alias collision") {
+		t.Errorf("expected 'alias collision' in error message, got: %v", errMsg)
+	}
+	if !strings.Contains(errMsg, "const") {
+		t.Errorf("expected 'const' in error message, got: %v", errMsg)
 	}
 }
 
