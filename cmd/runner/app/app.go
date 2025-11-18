@@ -717,7 +717,7 @@ func (a *App) loadApplicationState(ctx context.Context, appFS iofs.FS) (regapi.C
 			return nil, nil, fmt.Errorf("parent dependency conflicts detected: %w", err)
 		}
 
-		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS, a.logger, parentDependencyMap)
+		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS, a.config.folderPath, a.logger, parentDependencyMap)
 		if err != nil {
 			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}
@@ -885,12 +885,8 @@ func (a *App) ForceShutdown() {
 	}
 }
 
-func createProjectRootFS(_ string) (iofs.FS, error) {
-	currentDir, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("get current directory: %w", err)
-	}
-	projectRoot := currentDir
+func createProjectRootFS(folderPath string) (iofs.FS, error) {
+	projectRoot := folderPath
 
 	osRoot, err := os.OpenRoot(projectRoot)
 	if err != nil {
@@ -900,23 +896,18 @@ func createProjectRootFS(_ string) (iofs.FS, error) {
 	return osRoot.FS(), nil
 }
 
-func resolveModulePath(modulePath string, mainLogger *zap.Logger) (string, error) {
+func resolveModulePath(modulePath string, projectRoot string, mainLogger *zap.Logger) (string, error) {
 	// Check if the path is absolute (works cross-platform for both Unix and Windows)
 	if filepath.IsAbs(modulePath) {
-		currentDir, err := os.Getwd()
+		// Convert absolute path to relative path from project root
+		relPath, err := filepath.Rel(projectRoot, modulePath)
 		if err != nil {
-			return "", fmt.Errorf("failed to get current working directory: %w", err)
+			return "", fmt.Errorf("failed to resolve relative path from %s to %s: %w", projectRoot, modulePath, err)
 		}
 
-		// Convert absolute path to relative path from current working directory
-		relPath, err := filepath.Rel(currentDir, modulePath)
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve relative path from %s to %s: %w", currentDir, modulePath, err)
-		}
-
-		// Check if the path escapes from the current directory (security check)
+		// Check if the path escapes from the project root (security check)
 		if strings.HasPrefix(relPath, "..") {
-			return "", fmt.Errorf("replacement path %s is outside the current working directory %s", modulePath, currentDir)
+			return "", fmt.Errorf("replacement path %s is outside the project root %s", modulePath, projectRoot)
 		}
 
 		// Convert to forward slashes for fs.FS compatibility
@@ -924,7 +915,7 @@ func resolveModulePath(modulePath string, mainLogger *zap.Logger) (string, error
 
 		mainLogger.Debug("resolved absolute replacement path",
 			zap.String("originalPath", modulePath),
-			zap.String("currentDir", currentDir),
+			zap.String("projectRoot", projectRoot),
 			zap.String("relativePath", relPath),
 			zap.String("finalModulePath", resolvedPath))
 
@@ -933,13 +924,29 @@ func resolveModulePath(modulePath string, mainLogger *zap.Logger) (string, error
 
 	// Handle relative paths
 	if strings.HasPrefix(modulePath, "./") || strings.HasPrefix(modulePath, "../") {
-		cleanPath := strings.TrimPrefix(modulePath, "./")
-		cleanPath = strings.TrimPrefix(cleanPath, "../")
-		resolvedPath := filepath.ToSlash(cleanPath)
+		// Convert relative path to absolute path to check if it escapes
+		absPath := filepath.Join(projectRoot, modulePath)
+		absPath = filepath.Clean(absPath)
+
+		// Convert absolute path to relative path from project root
+		relPath, err := filepath.Rel(projectRoot, absPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve relative path from %s to %s: %w", projectRoot, absPath, err)
+		}
+
+		// Check if the path escapes from the project root (security check)
+		if strings.HasPrefix(relPath, "..") {
+			return "", fmt.Errorf("replacement path %s is outside the project root %s", modulePath, projectRoot)
+		}
+
+		// Convert to forward slashes for fs.FS compatibility
+		resolvedPath := filepath.ToSlash(relPath)
 
 		mainLogger.Debug("resolved relative replacement path",
 			zap.String("originalPath", modulePath),
-			zap.String("cleanPath", cleanPath),
+			zap.String("projectRoot", projectRoot),
+			zap.String("absolutePath", absPath),
+			zap.String("relativePath", relPath),
 			zap.String("finalModulePath", resolvedPath))
 
 		return resolvedPath, nil
@@ -954,6 +961,7 @@ func loadEntriesFromLoadedModules(
 	folderLoader *loader.Loader,
 	loadResult *deps.LoadResult,
 	rootFS iofs.FS,
+	projectRoot string,
 	mainLogger *zap.Logger,
 	parentDependencyMap map[string][]deps.ParentDependencyInfo, // Maps module name (vendor/name) to parent dependency entries with parameters
 ) ([]regapi.Entry, error) {
@@ -964,7 +972,7 @@ func loadEntriesFromLoadedModules(
 	var allEntries []regapi.Entry
 
 	for _, module := range loadResult.Modules {
-		modulePath, err := resolveModulePath(module.Path, mainLogger)
+		modulePath, err := resolveModulePath(module.Path, projectRoot, mainLogger)
 		if err != nil {
 			return nil, err
 		}
