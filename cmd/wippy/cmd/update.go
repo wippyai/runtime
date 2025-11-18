@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/client"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"go.uber.org/zap"
 )
@@ -41,7 +42,7 @@ func init() {
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
-	app, err := InitApp(cmd.Context())
+	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
 	if err != nil {
 		return fmt.Errorf("init app: %w", err)
 	}
@@ -64,6 +65,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	var oldLockObj *lock.Lock
 	if stat, err := os.Stat(lockFilePath); err == nil && !stat.IsDir() {
 		oldLockObj, _ = lock.New(lockFilePath)
+		if oldLockObj != nil {
+			if err := lock.Validate(oldLockObj); err != nil {
+				return fmt.Errorf("invalid existing lock file: %w", err)
+			}
+		}
 	}
 
 	// Scan source directory for dependencies
@@ -210,7 +216,7 @@ func convertBuildResultToLock(result *graph.BuildResult, modulesDir, srcDir stri
 	return lockObj
 }
 
-func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir string, targetModules []string, app *AppContext) error {
+func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir string, targetModules []string, app *appinit.Context) error {
 	logger := app.Logger.Named("update")
 	logger.Info("updating specific modules", zap.Strings("modules", targetModules))
 
@@ -218,6 +224,10 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	lockObj, err := lock.New(lockFilePath)
 	if err != nil {
 		return fmt.Errorf("load lock file: %w", err)
+	}
+
+	if err := lock.Validate(lockObj); err != nil {
+		return fmt.Errorf("invalid lock file: %w", err)
 	}
 
 	oldLockObj, _ := lock.New(lockFilePath)

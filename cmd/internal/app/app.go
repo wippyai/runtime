@@ -1,8 +1,10 @@
-package cmd
+// Package app provides application initialization for wippy CLI commands.
+package app
 
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/wippyai/runtime/api/boot"
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -10,7 +12,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/client"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
-	"github.com/wippyai/runtime/cmd/internal/cli"
+	"github.com/wippyai/runtime/cmd/internal/logger"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	json2 "github.com/wippyai/runtime/system/payload/json"
 	"github.com/wippyai/runtime/system/payload/lua"
@@ -18,8 +20,11 @@ import (
 	"go.uber.org/zap"
 )
 
-// AppContext holds initialized application infrastructure
-type AppContext struct {
+// registryClientKey is used as a context key for storing the registry client
+type registryClientKey struct{}
+
+// Context holds initialized application infrastructure
+type Context struct {
 	Ctx            context.Context
 	Logger         *zap.Logger
 	Transcoder     payload.Transcoder
@@ -27,9 +32,15 @@ type AppContext struct {
 	RegistryClient *client.RegistryClient
 }
 
-// InitApp initializes the CLI application infrastructure
-func InitApp(ctx context.Context) (*AppContext, error) {
-	logger, err := CreateLogger()
+// Init initializes the CLI application infrastructure
+func Init(ctx context.Context, verbose, veryVerbose, console, silent bool, appStartTime time.Time) (*Context, error) {
+	log, err := logger.CreateLogger(logger.Config{
+		Verbose:      verbose,
+		VeryVerbose:  veryVerbose,
+		Console:      console,
+		Silent:       silent,
+		AppStartTime: appStartTime,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("create logger: %w", err)
 	}
@@ -48,20 +59,33 @@ func InitApp(ctx context.Context) (*AppContext, error) {
 	interpolator := interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadFile),
 	)
-	ldr := loader.NewLoader(dtt, logger.Named("loader"), interpolator)
+	ldr := loader.NewLoader(dtt, log.Named("loader"), interpolator)
 
 	// Initialize registry client
 	registryClient := client.NewRegistryClientFromConfig(nil)
 
 	// Store in context for entries.go compatibility
-	ctx = cli.WithRegistryClient(ctx, registryClient)
+	ctx = WithRegistryClient(ctx, registryClient)
 	ctx = boot.WithLoader(ctx, ldr)
 
-	return &AppContext{
+	return &Context{
 		Ctx:            ctx,
-		Logger:         logger,
+		Logger:         log,
 		Transcoder:     dtt,
 		Loader:         ldr,
 		RegistryClient: registryClient,
 	}, nil
+}
+
+// WithRegistryClient stores the registry client in the context
+func WithRegistryClient(ctx context.Context, client *client.RegistryClient) context.Context {
+	return context.WithValue(ctx, registryClientKey{}, client)
+}
+
+// GetRegistryClient retrieves the registry client from the context
+func GetRegistryClient(ctx context.Context) *client.RegistryClient {
+	if v := ctx.Value(registryClientKey{}); v != nil {
+		return v.(*client.RegistryClient)
+	}
+	return nil
 }

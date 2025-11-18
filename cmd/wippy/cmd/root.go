@@ -4,8 +4,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/wippyai/runtime/cmd/internal/logger"
-	"go.uber.org/zap"
+	"github.com/wippyai/runtime/cmd/internal/banner"
 )
 
 var (
@@ -26,7 +25,7 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	Run: func(cmd *cobra.Command, _ []string) {
-		printBanner()
+		banner.Print(silentLogs)
 		_ = cmd.Help() // Ignore help output errors
 	},
 }
@@ -48,14 +47,4 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&silentLogs, "silent", "s", false, "disable console logging entirely")
 	rootCmd.PersistentFlags().BoolVarP(&eventStreams, "event-streams", "e", false, "stream logs to event bus instead of console")
 	rootCmd.PersistentFlags().BoolVarP(&profiler, "profiler", "p", false, "enable pprof profiler on localhost:6060")
-}
-
-func CreateLogger() (*zap.Logger, error) {
-	return logger.CreateLogger(logger.Config{
-		Verbose:      verbose,
-		VeryVerbose:  veryVerbose,
-		Console:      console,
-		Silent:       silentLogs,
-		AppStartTime: appStartTime,
-	})
 }

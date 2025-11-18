@@ -1,5 +1,3 @@
-//go:build plugin_lua_events
-
 package lua
 
 import (
@@ -7,20 +5,21 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
-	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/runtime/lua/modules/events"
 )
 
-func LuaEvents() boot.Component {
+func Events() boot.Component {
 	return boot.New(boot.P{
-		Name:      "lua_events",
-		Phase:     boot.PostInit,
+		Name:      LuaEventsName,
 		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
-			codeManager := GetCodeManager(ctx)
+			cm := GetCodeManager(ctx)
+			if cm == nil {
+				return ctx, nil
+			}
 
-			if err := AddModules(ctx, codeManager,
+			if err := AddModules(ctx, cm,
 				events.NewEventsModule(logger.Named("events")),
 			); err != nil {
 				return ctx, err

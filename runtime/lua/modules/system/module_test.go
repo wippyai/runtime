@@ -2,9 +2,13 @@ package system
 
 import (
 	"context"
+	"os"
+	"syscall"
 	"testing"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	systemapi "github.com/wippyai/runtime/api/system"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -327,5 +331,69 @@ func TestSystemModuleWithVM(t *testing.T) {
 
 		assert.Equal(t, original, oldReturned, "go_max_procs should return old value")
 		assert.Equal(t, targetValue, newValue, "go_max_procs should have changed to target value")
+	})
+
+	t.Run("exit function", func(t *testing.T) {
+		mod := NewSystemModule()
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		ctx := newTestContext()
+
+		sigChan := make(chan os.Signal, 1)
+		systemapi.SetSignalChannel(ctx, sigChan)
+
+		go func() {
+			err = vm.DoString(ctx, `
+				local system = require("system")
+				local result, err = system.exit(42)
+				assert(result == true)
+				assert(err == nil)
+			`, "test")
+			require.NoError(t, err)
+		}()
+
+		select {
+		case sig := <-sigChan:
+			assert.Equal(t, syscall.SIGTERM, sig)
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("Expected signal not received")
+		}
+
+		exitCode := systemapi.GetExitCode(ctx)
+		assert.Equal(t, 42, exitCode)
+	})
+
+	t.Run("exit function default code", func(t *testing.T) {
+		mod := NewSystemModule()
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		ctx := newTestContext()
+
+		sigChan := make(chan os.Signal, 1)
+		systemapi.SetSignalChannel(ctx, sigChan)
+
+		go func() {
+			err = vm.DoString(ctx, `
+				local system = require("system")
+				local result, err = system.exit()
+				assert(result == true)
+				assert(err == nil)
+			`, "test")
+			require.NoError(t, err)
+		}()
+
+		select {
+		case sig := <-sigChan:
+			assert.Equal(t, syscall.SIGTERM, sig)
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("Expected signal not received")
+		}
+
+		exitCode := systemapi.GetExitCode(ctx)
+		assert.Equal(t, 0, exitCode)
 	})
 }

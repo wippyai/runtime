@@ -173,6 +173,8 @@ func (sp *Sequencer) processStopOperations(_ context.Context, operations []Opera
 		return fmt.Errorf("failed to determine stop dependency levels: %w", err)
 	}
 
+	allErrors := make([]error, 0)
+
 	// Process each level in sequence
 	allLevels := levels.AllLevels()
 	for i, levelNodes := range allLevels {
@@ -202,10 +204,18 @@ func (sp *Sequencer) processStopOperations(_ context.Context, operations []Opera
 
 		for err := range errChan {
 			if err != nil {
-				return err
+				allErrors = append(allErrors, err)
 			}
 		}
 	}
 
-	return nil
+	if len(allErrors) == 0 {
+		return nil
+	}
+
+	if len(allErrors) == 1 {
+		return allErrors[0]
+	}
+
+	return fmt.Errorf("stop failed for %d services: %w", len(allErrors), allErrors[0])
 }

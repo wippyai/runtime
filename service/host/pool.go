@@ -6,7 +6,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/process/stats"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
@@ -19,6 +21,12 @@ type processEntry struct {
 	source  registry.ID
 	running atomic.Bool
 	awaken  atomic.Bool
+
+	// Stats tracking
+	startedAt      time.Time
+	stepCount      atomic.Int64
+	lastActivityAt atomic.Int64 // unix nano
+	cachedInfo     atomic.Value // attrs.Bag
 }
 
 // ProcessPool manages concurrent process execution
@@ -33,6 +41,10 @@ type ProcessPool struct {
 	processWG    sync.WaitGroup // Active processes WaitGroup
 	ctx          context.Context
 	cancel       context.CancelFunc
+
+	// Stats collection
+	statsEnabled      atomic.Bool
+	statsSampleEveryN atomic.Int64
 }
 
 // NewProcessPool creates a new process pool
@@ -64,9 +76,12 @@ func (p *ProcessPool) Add(pid relay.PID, source registry.ID, proc process.Proces
 	}
 
 	entry := &processEntry{
-		process: proc,
-		source:  source,
+		process:   proc,
+		source:    source,
+		startedAt: time.Now(),
 	}
+	entry.stepCount.Store(0)
+	entry.lastActivityAt.Store(time.Now().UnixNano())
 
 	if _, loaded := p.processes.LoadOrStore(pid.String(), entry); loaded {
 		return process.ErrHostBusy
@@ -221,6 +236,23 @@ func (p *ProcessPool) worker() {
 			}
 
 			result, err := entry.process.Step()
+
+			// Update infrastructure stats
+			currentStep := entry.stepCount.Add(1)
+			entry.lastActivityAt.Store(time.Now().UnixNano())
+
+			// Sample custom info periodically if enabled
+			if p.statsEnabled.Load() {
+				sampleRate := p.statsSampleEveryN.Load()
+				if sampleRate > 0 && currentStep%sampleRate == 0 {
+					if ip, ok := entry.process.(process.InfoProvider); ok {
+						if info, _ := ip.Info(); info != nil {
+							entry.cachedInfo.Store(info)
+						}
+					}
+				}
+			}
+
 			if err != nil || result == process.StepDone {
 				if err != nil {
 					p.log.Debug("process step completed with error",
@@ -252,4 +284,52 @@ func (p *ProcessPool) worker() {
 			// StepIdle: wait for new message
 		}
 	}
+}
+
+// EnableStats enables statistics collection with the specified sample rate.
+func (p *ProcessPool) EnableStats(sampleEveryN int64) {
+	if sampleEveryN <= 0 {
+		sampleEveryN = 100
+	}
+	p.statsSampleEveryN.Store(sampleEveryN)
+	p.statsEnabled.Store(true)
+}
+
+// DisableStats disables statistics collection.
+func (p *ProcessPool) DisableStats() {
+	p.statsEnabled.Store(false)
+}
+
+// Collect gathers current statistics from all processes in the pool.
+func (p *ProcessPool) Collect(_ context.Context) (bool, int64, []stats.Entry, error) {
+	enabled := p.statsEnabled.Load()
+	sampleRate := p.statsSampleEveryN.Load()
+
+	if !enabled {
+		return false, 0, nil, nil
+	}
+
+	var entries []stats.Entry
+	p.processes.Range(func(key, value any) bool {
+		pidStr := key.(string)
+		entry := value.(*processEntry)
+		pid, _ := relay.ParsePID(pidStr)
+
+		var info attrs.Bag
+		if i := entry.cachedInfo.Load(); i != nil {
+			info = i.(attrs.Bag)
+		}
+
+		entries = append(entries, stats.Entry{
+			PID:            pid,
+			SourceID:       entry.source,
+			StartedAt:      entry.startedAt,
+			StepCount:      entry.stepCount.Load(),
+			LastActivityAt: time.Unix(0, entry.lastActivityAt.Load()),
+			Info:           info,
+		})
+		return true
+	})
+
+	return enabled, sampleRate, entries, nil
 }

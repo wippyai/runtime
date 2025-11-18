@@ -1,5 +1,3 @@
-//go:build plugin_lua_json
-
 package lua
 
 import (
@@ -9,11 +7,10 @@ import (
 	jsonmod "github.com/wippyai/runtime/runtime/lua/modules/json"
 )
 
-func LuaJSON() boot.Component {
+func JSON() boot.Component {
 	return boot.New(boot.P{
-		Name:      "lua.json",
-		Phase:     boot.PostInit,
-		DependsOn: []boot.ComponentName{"lua.engine"},
+		Name:      LuaJSONName,
+		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

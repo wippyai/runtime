@@ -2,7 +2,6 @@ package lua
 
 import (
 	"context"
-	httpbase "net/http"
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
@@ -16,47 +15,8 @@ import (
 	funclua "github.com/wippyai/runtime/runtime/lua/component/function"
 	"github.com/wippyai/runtime/runtime/lua/component/library"
 	proclua "github.com/wippyai/runtime/runtime/lua/component/process"
-	"github.com/wippyai/runtime/runtime/lua/engine/channel"
-	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
-	"github.com/wippyai/runtime/runtime/lua/engine/upstream"
-	"github.com/wippyai/runtime/runtime/lua/modules/base64"
-	"github.com/wippyai/runtime/runtime/lua/modules/btea"
-	"github.com/wippyai/runtime/runtime/lua/modules/cloudstorage"
-	"github.com/wippyai/runtime/runtime/lua/modules/compress"
-	contractmod "github.com/wippyai/runtime/runtime/lua/modules/contract"
-	"github.com/wippyai/runtime/runtime/lua/modules/crypto"
-	ctxmod "github.com/wippyai/runtime/runtime/lua/modules/ctx"
 	envlua "github.com/wippyai/runtime/runtime/lua/modules/env"
-	"github.com/wippyai/runtime/runtime/lua/modules/events"
-	"github.com/wippyai/runtime/runtime/lua/modules/excel"
-	"github.com/wippyai/runtime/runtime/lua/modules/exec"
-	"github.com/wippyai/runtime/runtime/lua/modules/expr"
-	fsmod "github.com/wippyai/runtime/runtime/lua/modules/fs"
-	"github.com/wippyai/runtime/runtime/lua/modules/funcmod"
-	fncallmod "github.com/wippyai/runtime/runtime/lua/modules/funcs"
-	"github.com/wippyai/runtime/runtime/lua/modules/hash"
-	"github.com/wippyai/runtime/runtime/lua/modules/html"
-	httpapimod "github.com/wippyai/runtime/runtime/lua/modules/http"
-	"github.com/wippyai/runtime/runtime/lua/modules/httpclient"
-	jsonmod "github.com/wippyai/runtime/runtime/lua/modules/json"
 	loggermod "github.com/wippyai/runtime/runtime/lua/modules/logger"
-	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
-	otelmod "github.com/wippyai/runtime/runtime/lua/modules/otel"
-	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
-	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
-	processmodapi "github.com/wippyai/runtime/runtime/lua/modules/processmod"
-	registrymod "github.com/wippyai/runtime/runtime/lua/modules/registry"
-	securitymod "github.com/wippyai/runtime/runtime/lua/modules/security"
-	sqlmod "github.com/wippyai/runtime/runtime/lua/modules/sql"
-	"github.com/wippyai/runtime/runtime/lua/modules/store"
-	"github.com/wippyai/runtime/runtime/lua/modules/system"
-	luatemplate "github.com/wippyai/runtime/runtime/lua/modules/template"
-	"github.com/wippyai/runtime/runtime/lua/modules/text"
-	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
-	"github.com/wippyai/runtime/runtime/lua/modules/treesitter"
-	"github.com/wippyai/runtime/runtime/lua/modules/uuid"
-	"github.com/wippyai/runtime/runtime/lua/modules/websocket"
-	yamlmod "github.com/wippyai/runtime/runtime/lua/modules/yaml"
 	"github.com/wippyai/runtime/runtime/lua/task"
 	reghandler "github.com/wippyai/runtime/system/registry/events"
 )
@@ -64,7 +24,6 @@ import (
 func Engine() boot.Component {
 	return boot.New(boot.P{
 		Name:      LuaEngineName,
-		Phase:     boot.PostInit,
 		DependsOn: []boot.ComponentName{},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
@@ -75,13 +34,11 @@ func Engine() boot.Component {
 			// Get cache sizes from config with defaults
 			protoCacheSize := 60000
 			mainCacheSize := 10000
-			exprCapacity := 5000
 			if cfg != nil {
 				luaCfg := cfg.Sub("lua")
 				if luaCfg != nil {
 					protoCacheSize = luaCfg.GetInt("proto_cache_size", protoCacheSize)
 					mainCacheSize = luaCfg.GetInt("main_cache_size", mainCacheSize)
-					exprCapacity = luaCfg.GetInt("expr_capacity", exprCapacity)
 				}
 			}
 
@@ -90,50 +47,12 @@ func Engine() boot.Component {
 				bus,
 				code.Config{
 					Modules: []luaapi.Module{
+						// Core infrastructure modules only
+						// Other modules are added via individual components
 						envlua.NewEnvModule(),
-						ostime.NewOSTimeModule(),
-						channel.NewChannelModule(),
-						timemod.NewTimeModule(),
 						loggermod.NewLoggerModule(logger),
-						base64.NewBase64Module(),
-						jsonmod.NewJSONModule(),
-						fsmod.NewFSModule(),
-						uuid.NewUUIDModule(),
-						upstream.NewUpstreamModule(),
-						subscribe.NewSubscribeModule(),
-						compress.NewCompressModule(),
-						crypto.NewCryptoModule(),
-						fncallmod.NewFunctionModule(),
-						payloadmod.NewPayloadModule(),
 						task.NewTaskModule(),
-						hash.NewHashModule(),
 						command.NewCommandModule(),
-						yamlmod.NewYAMLModule(),
-						text.NewTextModule(),
-						registrymod.NewLoaderModule(logger.Named("loader")),
-						events.NewEventsModule(logger.Named("events")),
-						exec.NewExecModule(logger.Named("exec")),
-						ctxmod.NewCtxModule(logger.Named("ctx")),
-						store.NewStoreModule(logger.Named("store")),
-						luatemplate.NewTemplateModule(logger.Named("template")),
-						securitymod.NewSecurityModule(logger.Named("security")),
-						registrymod.NewRegistryModule(logger.Named("registry")),
-						processmod.NewProcessAPIModule(logger.Named("proc")),
-						httpapimod.NewHTTPAPIModule(logger.Named("http")),
-						processmodapi.NewProcessAPIModule(logger.Named("inbox")),
-						funcmod.NewFunctionAPIModule(logger.Named("inbox")),
-						httpclient.NewHTTPClientModule(logger.Named("http"), httpbase.DefaultClient),
-						websocket.NewWebSocketModule(logger.Named("websocket")),
-						treesitter.NewTreeSitterModule(logger.Named("tsitter")),
-						btea.NewBteaModule(logger.Named("btea")),
-						sqlmod.NewSQLModule(logger.Named("sql")),
-						excel.NewModule(logger.Named("excel")),
-						cloudstorage.NewModule(),
-						system.NewSystemModule(),
-						contractmod.NewContractModule(logger.Named("contract")),
-						otelmod.NewOTelModule(),
-						expr.NewExprModule(expr.WithCapacity(exprCapacity)),
-						html.NewHTMLModule(),
 					},
 					ProtoCacheSize: protoCacheSize,
 					MainCacheSize:  mainCacheSize,

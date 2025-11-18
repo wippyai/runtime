@@ -1,4 +1,5 @@
-package cmd
+// Package entries handles loading registry entries from lock files and managing module installation.
+package entries
 
 import (
 	"context"
@@ -19,10 +20,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// loadEntriesFromLockFile loads application entries from the lock file and applies them to the registry.
+// LoadFromLockFile loads application entries from the lock file and applies them to the registry.
 // This function executes between the Load and Start phases of the boot process.
 // If modules are missing, it auto-installs them before loading entries.
-func loadEntriesFromLockFile(ctx context.Context, logger *zap.Logger) error {
+func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	lockFilePath := "wippy.lock"
 
 	lockPath, err := lock.Find(".", lockFilePath)
@@ -38,7 +39,11 @@ func loadEntriesFromLockFile(ctx context.Context, logger *zap.Logger) error {
 		return fmt.Errorf("load lock file: %w", err)
 	}
 
-	if err := ensureModulesInstalled(ctx, lockPath, lockFilePath, logger); err != nil {
+	if err := lock.Validate(lockObj); err != nil {
+		return fmt.Errorf("invalid lock file: %w", err)
+	}
+
+	if err := EnsureModulesInstalled(ctx, lockPath, logger); err != nil {
 		return fmt.Errorf("ensure modules installed: %w", err)
 	}
 
@@ -60,12 +65,16 @@ func loadEntriesFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	return nil
 }
 
-// ensureModulesInstalled checks if modules from the lock file are installed,
+// EnsureModulesInstalled checks if modules from the lock file are installed,
 // and auto-installs them if missing.
-func ensureModulesInstalled(ctx context.Context, lockPath, _ string, logger *zap.Logger) error {
+func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Logger) error {
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
 		return fmt.Errorf("load lock file: %w", err)
+	}
+
+	if err := lock.Validate(lockObj); err != nil {
+		return fmt.Errorf("invalid lock file: %w", err)
 	}
 
 	modules := lockObj.GetModules()
@@ -207,11 +216,45 @@ func applyEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger 
 		return fmt.Errorf("dependency resolver not found in context")
 	}
 
+	// Check for duplicate entry IDs
+	entryByID := make(map[string]int)
+	for _, entry := range entries {
+		entryByID[entry.ID.String()]++
+	}
+
+	duplicateCount := 0
+	duplicateIDs := make([]string, 0)
+	for id, count := range entryByID {
+		if count > 1 {
+			duplicateCount += count - 1
+			duplicateIDs = append(duplicateIDs, fmt.Sprintf("%s (x%d)", id, count))
+		}
+	}
+
+	if duplicateCount > 0 {
+		// In debug/verbose mode, fail on duplicates. Otherwise, warn and continue.
+		if logger.Core().Enabled(zap.DebugLevel) {
+			logger.Error("duplicate entries detected",
+				zap.Int("total_entries", len(entries)),
+				zap.Int("unique_entries", len(entryByID)),
+				zap.Int("duplicates", duplicateCount),
+				zap.Strings("affected", duplicateIDs))
+			return fmt.Errorf("found %d duplicate entries - check your source files for duplicate entry definitions", duplicateCount)
+		}
+
+		logger.Warn("duplicate entries detected (will use last definition)",
+			zap.Int("duplicates", duplicateCount),
+			zap.Strings("affected", duplicateIDs))
+	}
+
 	// Use CreateChangeSetFromEntries which properly sorts by dependencies
+	logger.Info("creating changeset from entries", zap.Int("entry_count", len(entries)))
 	changeSet, err := regtop.CreateChangeSetFromEntries(entries, resolver)
 	if err != nil {
 		return fmt.Errorf("build change set: %w", err)
 	}
+
+	logger.Info("changeset created", zap.Int("change_count", len(changeSet)))
 
 	version, err := reg.Apply(ctx, changeSet)
 	if err != nil {

@@ -14,7 +14,6 @@ import (
 func OTelProcess() boot.Component {
 	return boot.New(boot.P{
 		Name:      OTelProcessName,
-		Phase:     boot.PostInit,
 		DependsOn: []boot.ComponentName{OTelName, bootsystem.ProcessName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			svc := otelapi.GetService(ctx)

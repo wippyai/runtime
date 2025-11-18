@@ -14,7 +14,6 @@ import (
 func MemStore() boot.Component {
 	return boot.New(boot.P{
 		Name:      MemStoreName,
-		Phase:     boot.PostInit,
 		DependsOn: nil,
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

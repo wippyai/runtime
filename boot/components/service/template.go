@@ -18,7 +18,6 @@ import (
 func Template() boot.Component {
 	return boot.New(boot.P{
 		Name:      TemplateName,
-		Phase:     boot.PostInit,
 		DependsOn: []boot.ComponentName{bootcore.RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

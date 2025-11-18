@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/process/stats"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/service/host"
@@ -45,6 +46,16 @@ type ProcessPoolAPI interface {
 
 	// Send sends a message to a specific process
 	Send(pid relay.PID, pkg *relay.Package) error
+
+	// EnableStats enables statistics collection with the specified sample rate
+	EnableStats(sampleEveryN int64)
+
+	// DisableStats disables statistics collection
+	DisableStats()
+
+	// Collect gathers current statistics from all processes in the pool
+	// Returns: enabled, sampleRate, stats, error
+	Collect(ctx context.Context) (bool, int64, []stats.Entry, error)
 }
 
 // MessageHostFactory defines an interface for creating message hosts

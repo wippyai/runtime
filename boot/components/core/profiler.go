@@ -25,8 +25,7 @@ func Profiler() boot.Component {
 	var logger *zap.Logger
 
 	return boot.New(boot.P{
-		Name:  ProfilerName,
-		Phase: boot.PreInit,
+		Name: ProfilerName,
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger = logapi.GetLogger(ctx)
 			return ctx, nil

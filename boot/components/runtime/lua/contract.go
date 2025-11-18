@@ -1,5 +1,3 @@
-//go:build plugin_lua_contract
-
 package lua
 
 import (
@@ -7,20 +5,21 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
-	bootpkg "github.com/wippyai/runtime/boot"
 	contractmod "github.com/wippyai/runtime/runtime/lua/modules/contract"
 )
 
-func LuaContract() boot.Component {
+func Contract() boot.Component {
 	return boot.New(boot.P{
-		Name:      bootpkg.LuaContract,
-		Phase:     boot.PostInit,
+		Name:      LuaContractName,
 		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
-			codeManager := GetCodeManager(ctx)
+			cm := GetCodeManager(ctx)
+			if cm == nil {
+				return ctx, nil
+			}
 
-			if err := AddModules(ctx, codeManager,
+			if err := AddModules(ctx, cm,
 				contractmod.NewContractModule(logger.Named("contract")),
 			); err != nil {
 				return ctx, err

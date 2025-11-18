@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"go.uber.org/zap"
 )
 
@@ -30,7 +31,13 @@ func init() {
 }
 
 func runInit(cmd *cobra.Command, _ []string) error {
-	logger, err := CreateLogger()
+	logger, err := clilogger.CreateLogger(clilogger.Config{
+		Verbose:      verbose,
+		VeryVerbose:  veryVerbose,
+		Console:      console,
+		Silent:       silentLogs,
+		AppStartTime: appStartTime,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}

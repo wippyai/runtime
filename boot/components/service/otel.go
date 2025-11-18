@@ -13,8 +13,7 @@ import (
 
 func OTel() boot.Component {
 	return boot.New(boot.P{
-		Name:  OTelName,
-		Phase: boot.PreInit,
+		Name: OTelName,
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			if logger == nil {

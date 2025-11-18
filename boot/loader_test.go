@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/wippyai/runtime/api/boot"
 	contextapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"go.uber.org/zap"
@@ -25,7 +24,6 @@ func testContext() context.Context {
 // Mock component for testing
 type mockComponent struct {
 	name        string
-	phase       boot.Phase
 	deps        []string
 	loadErr     error
 	startErr    error
@@ -40,7 +38,6 @@ type mockComponent struct {
 }
 
 func (p *mockComponent) Name() string        { return p.name }
-func (p *mockComponent) Phase() boot.Phase   { return p.phase }
 func (p *mockComponent) DependsOn() []string { return p.deps }
 
 func (p *mockComponent) Load(ctx context.Context) (context.Context, error) {
@@ -76,7 +73,7 @@ func TestLoaderRegister(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
-		p := &mockComponent{name: "test", phase: boot.PreInit}
+		p := &mockComponent{name: "test"}
 
 		if err := loader.Register(p); err != nil {
 			t.Errorf("Register() error = %v, want nil", err)
@@ -92,8 +89,8 @@ func TestLoaderRegister(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
-		p1 := &mockComponent{name: "test", phase: boot.PreInit}
-		p2 := &mockComponent{name: "test", phase: boot.Init}
+		p1 := &mockComponent{name: "test"}
+		p2 := &mockComponent{name: "test"}
 
 		_ = loader.Register(p1)
 		err = loader.Register(p2)
@@ -108,8 +105,8 @@ func TestLoaderRegister(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
-		p1 := &mockComponent{name: "dep", phase: boot.PreInit}
-		p2 := &mockComponent{name: "main", phase: boot.Init, deps: []string{"dep"}}
+		p1 := &mockComponent{name: "dep"}
+		p2 := &mockComponent{name: "main", deps: []string{"dep"}}
 
 		if err := loader.Register(p1); err != nil {
 			t.Errorf("Register(dep) error = %v", err)
@@ -126,7 +123,7 @@ func TestLoaderLoad(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
-		p := &mockComponent{name: "test", phase: boot.PreInit}
+		p := &mockComponent{name: "test"}
 		_ = loader.Register(p)
 
 		ctx, err := loader.Load(testContext())
@@ -155,8 +152,7 @@ func TestLoaderLoad(t *testing.T) {
 		}
 
 		p1 := &mockComponent{
-			name:  "a",
-			phase: boot.PreInit,
+			name: "a",
 			LoadFn: func(ctx context.Context) (context.Context, error) {
 				trackOrder("a")
 				return context.WithValue(ctx, contextKey("a"), "loaded"), nil
@@ -164,9 +160,8 @@ func TestLoaderLoad(t *testing.T) {
 		}
 
 		p2 := &mockComponent{
-			name:  "b",
-			phase: boot.Init,
-			deps:  []string{"a"},
+			name: "b",
+			deps: []string{"a"},
 			LoadFn: func(ctx context.Context) (context.Context, error) {
 				trackOrder("b")
 				return context.WithValue(ctx, contextKey("b"), "loaded"), nil
@@ -174,9 +169,8 @@ func TestLoaderLoad(t *testing.T) {
 		}
 
 		p3 := &mockComponent{
-			name:  "c",
-			phase: boot.Init,
-			deps:  []string{"a", "b"},
+			name: "c",
+			deps: []string{"a", "b"},
 			LoadFn: func(ctx context.Context) (context.Context, error) {
 				trackOrder("c")
 				return context.WithValue(ctx, contextKey("c"), "loaded"), nil
@@ -215,8 +209,8 @@ func TestLoaderLoad(t *testing.T) {
 			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 
-		p1 := &mockComponent{name: "a", phase: boot.Init, deps: []string{"b"}}
-		p2 := &mockComponent{name: "b", phase: boot.Init, deps: []string{"a"}}
+		p1 := &mockComponent{name: "a", deps: []string{"b"}}
+		p2 := &mockComponent{name: "b", deps: []string{"a"}}
 
 		_ = loader.Register(p1)
 		_ = loader.Register(p2)
@@ -233,7 +227,7 @@ func TestLoaderLoad(t *testing.T) {
 			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 
-		p := &mockComponent{name: "main", phase: boot.Init, deps: []string{"missing"}}
+		p := &mockComponent{name: "main", deps: []string{"missing"}}
 		_ = loader.Register(p)
 
 		_, err = loader.Load(testContext())
@@ -249,7 +243,7 @@ func TestLoaderLoad(t *testing.T) {
 		}
 
 		expectedErr := errors.New("load failed")
-		p := &mockComponent{name: "test", phase: boot.PreInit, loadErr: expectedErr}
+		p := &mockComponent{name: "test", loadErr: expectedErr}
 		_ = loader.Register(p)
 
 		_, err = loader.Load(testContext())
@@ -269,8 +263,8 @@ func TestLoaderStart(t *testing.T) {
 			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
 
-		p1 := &mockComponent{name: "a", phase: boot.PreInit}
-		p2 := &mockComponent{name: "b", phase: boot.Init}
+		p1 := &mockComponent{name: "a"}
+		p2 := &mockComponent{name: "b"}
 
 		_ = loader.Register(p1)
 		_ = loader.Register(p2)
@@ -296,7 +290,7 @@ func TestLoaderStart(t *testing.T) {
 		}
 
 		expectedErr := errors.New("start failed")
-		p := &mockComponent{name: "test", phase: boot.PreInit, startErr: expectedErr}
+		p := &mockComponent{name: "test", startErr: expectedErr}
 		_ = loader.Register(p)
 
 		ctx, _ := loader.Load(testContext())
@@ -315,7 +309,7 @@ func TestLoaderStart(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewLoader(nil) error = %v", err)
 		}
-		p := &mockComponent{name: "test", phase: boot.PreInit}
+		p := &mockComponent{name: "test"}
 		_ = loader.Register(p)
 
 		err = loader.Start(context.Background())
@@ -339,8 +333,7 @@ func TestLoaderShutdown(t *testing.T) {
 		var order []string
 
 		p1 := &mockComponent{
-			name:  "a",
-			phase: boot.PreInit,
+			name: "a",
 			StopFn: func(_ context.Context) error {
 				order = append(order, "a")
 				return nil
@@ -348,9 +341,8 @@ func TestLoaderShutdown(t *testing.T) {
 		}
 
 		p2 := &mockComponent{
-			name:  "b",
-			phase: boot.Init,
-			deps:  []string{"a"},
+			name: "b",
+			deps: []string{"a"},
 			StopFn: func(_ context.Context) error {
 				order = append(order, "b")
 				return nil
@@ -358,9 +350,8 @@ func TestLoaderShutdown(t *testing.T) {
 		}
 
 		p3 := &mockComponent{
-			name:  "c",
-			phase: boot.Init,
-			deps:  []string{"b"},
+			name: "c",
+			deps: []string{"b"},
 			StopFn: func(_ context.Context) error {
 				order = append(order, "c")
 				return nil
@@ -396,7 +387,7 @@ func TestLoaderShutdown(t *testing.T) {
 		}
 
 		expectedErr := errors.New("stop failed")
-		p := &mockComponent{name: "test", phase: boot.PreInit, stopErr: expectedErr}
+		p := &mockComponent{name: "test", stopErr: expectedErr}
 		_ = loader.Register(p)
 
 		ctx, _ := loader.Load(testContext())
@@ -423,8 +414,7 @@ func TestLoaderFullLifecycle(t *testing.T) {
 	}
 
 	p1 := &mockComponent{
-		name:  "logger",
-		phase: boot.PreInit,
+		name: "logger",
 		LoadFn: func(ctx context.Context) (context.Context, error) {
 			track("logger:load")
 			return context.WithValue(ctx, contextKey("logger"), "loaded"), nil
@@ -440,9 +430,8 @@ func TestLoaderFullLifecycle(t *testing.T) {
 	}
 
 	p2 := &mockComponent{
-		name:  "http",
-		phase: boot.Init,
-		deps:  []string{"logger"},
+		name: "http",
+		deps: []string{"logger"},
 		LoadFn: func(ctx context.Context) (context.Context, error) {
 			if ctx.Value(contextKey("logger")) == nil {
 				return ctx, fmt.Errorf("logger not available")

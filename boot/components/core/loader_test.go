@@ -33,10 +33,6 @@ func TestLoader(t *testing.T) {
 		t.Errorf("expected name %q, got %q", LoaderName, component.Name())
 	}
 
-	if component.Phase() != boot.Init {
-		t.Errorf("expected phase Init, got %v", component.Phase())
-	}
-
 	ctx, err := component.Load(ctx)
 	if err != nil {
 		t.Fatalf("failed to load component: %v", err)

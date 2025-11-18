@@ -313,4 +313,13 @@ type (
 		// Returns the PID of the started process or an error if the process cannot be started.
 		Dispatch(ctx stdcontext.Context, lf Lifecycle, dispatch *Dispatch) (relay.PID, error)
 	}
+
+	// InfoProvider is an optional interface processes can implement to expose runtime information.
+	// Info() is called periodically during Step() execution when stats collection is enabled.
+	// Implementations must be fast as they execute while holding the process execution lock.
+	InfoProvider interface {
+		// Info returns current process information as an attribute bag.
+		// Must return quickly - slow implementations delay the process's own execution.
+		Info() (attrs.Bag, error)
+	}
 )

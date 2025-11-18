@@ -1,24 +1,23 @@
-//go:build plugin_lua_payload
-
 package lua
 
 import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	bootpkg "github.com/wippyai/runtime/boot"
 	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 )
 
-func LuaPayload() boot.Component {
+func Payload() boot.Component {
 	return boot.New(boot.P{
-		Name:      "lua_payload",
-		Phase:     boot.PostInit,
+		Name:      LuaPayloadName,
 		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			codeManager := GetCodeManager(ctx)
+			cm := GetCodeManager(ctx)
+			if cm == nil {
+				return ctx, nil
+			}
 
-			if err := AddModules(ctx, codeManager,
+			if err := AddModules(ctx, cm,
 				payloadmod.NewPayloadModule(),
 			); err != nil {
 				return ctx, err

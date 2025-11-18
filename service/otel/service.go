@@ -75,17 +75,19 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 			}
 
 			r = r.WithContext(ctx)
-			next.ServeHTTP(w, r)
 
-			if routeInfo, ok := httpapi.GetRouteInfo(r.Context()); ok {
-				if routeInfo.Func.Name != "" {
+			// Check for RouteInfo before calling next handler (safe read for post-middleware)
+			if routeInfo, ok := httpapi.GetRouteInfo(ctx); ok {
+				if routeInfo != nil && routeInfo.Func.Name != "" {
 					span.SetName(r.Method + " " + routeInfo.Func.String())
 					span.SetAttributes(attribute.String("http.route", routeInfo.Func.String()))
-				} else if routeInfo.Endpoint.Name != "" {
+				} else if routeInfo != nil && routeInfo.Endpoint.Name != "" {
 					span.SetName(r.Method + " " + routeInfo.Endpoint.String())
 					span.SetAttributes(attribute.String("http.route", routeInfo.Endpoint.String()))
 				}
 			}
+
+			next.ServeHTTP(w, r)
 
 			span.SetAttributes(attribute.Int("http.status_code", 200))
 		})

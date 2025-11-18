@@ -52,7 +52,7 @@ func GetInternodeService(ctx context.Context) *internode.Service {
 	return nil
 }
 
-// WithMembership attaches Membership service to context
+// WithMembership attaches Membership service to context todo move to api
 func WithMembership(ctx context.Context, m clusterapi.Membership) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
@@ -85,8 +85,7 @@ func Cluster() boot.Component {
 	var logger *zap.Logger
 
 	return boot.New(boot.P{
-		Name:  ClusterName,
-		Phase: boot.Init,
+		Name: ClusterName,
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger = logapi.GetLogger(ctx)
 			cfg := boot.GetConfig(ctx)

@@ -12,8 +12,7 @@ import (
 
 func EventBus() boot.Component {
 	return boot.New(boot.P{
-		Name:  EventBusName,
-		Phase: boot.PreInit,
+		Name: EventBusName,
 		Load: func(ctx context.Context) (context.Context, error) {
 			bus := eventbus.NewBus()
 			return event.WithBus(ctx, bus), nil
@@ -23,8 +22,7 @@ func EventBus() boot.Component {
 
 func PIDGen() boot.Component {
 	return boot.New(boot.P{
-		Name:  PIDGenName,
-		Phase: boot.PreInit,
+		Name: PIDGenName,
 		Load: func(ctx context.Context) (context.Context, error) {
 			uniqGen := uniqid.NewGenerator()
 			gen := uniqid.NewPIDGenerator(uniqGen, "local")

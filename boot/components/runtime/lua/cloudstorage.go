@@ -1,24 +1,23 @@
-//go:build plugin_lua_cloudstorage
-
 package lua
 
 import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/runtime/lua/modules/cloudstorage"
 )
 
-func LuaCloudStorage() boot.Component {
+func CloudStorage() boot.Component {
 	return boot.New(boot.P{
-		Name:      bootpkg.LuaCloudStorage,
-		Phase:     boot.PostInit,
+		Name:      LuaCloudStorageName,
 		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			codeManager := GetCodeManager(ctx)
+			cm := GetCodeManager(ctx)
+			if cm == nil {
+				return ctx, nil
+			}
 
-			if err := AddModules(ctx, codeManager,
+			if err := AddModules(ctx, cm,
 				cloudstorage.NewModule(),
 			); err != nil {
 				return ctx, err

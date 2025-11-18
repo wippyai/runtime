@@ -1,24 +1,23 @@
-//go:build plugin_lua_expr
-
 package lua
 
 import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/runtime/lua/modules/expr"
 )
 
-func LuaExpr() boot.Component {
+func Expr() boot.Component {
 	return boot.New(boot.P{
-		Name:      bootpkg.LuaExpr,
-		Phase:     boot.PostInit,
+		Name:      LuaExprName,
 		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			codeManager := GetCodeManager(ctx)
+			cm := GetCodeManager(ctx)
+			if cm == nil {
+				return ctx, nil
+			}
 
-			if err := AddModules(ctx, codeManager,
+			if err := AddModules(ctx, cm,
 				expr.NewExprModule(expr.WithCapacity(5000)),
 			); err != nil {
 				return ctx, err
