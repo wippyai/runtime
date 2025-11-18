@@ -10,10 +10,15 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
+	systemapi "github.com/wippyai/runtime/api/system"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/deps/client"
+	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	"github.com/wippyai/runtime/cmd/internal/cli"
+	"github.com/wippyai/runtime/cmd/internal/entries"
+	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
+	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	"go.uber.org/zap"
 )
 
@@ -38,9 +43,15 @@ func init() {
 }
 
 func runApp(cmd *cobra.Command, _ []string) error {
-	printBanner()
+	banner.Print(silentLogs)
 
-	logger, err := CreateLogger()
+	logger, err := clilogger.CreateLogger(clilogger.Config{
+		Verbose:      verbose,
+		VeryVerbose:  veryVerbose,
+		Console:      console,
+		Silent:       silentLogs,
+		AppStartTime: appStartTime,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
@@ -98,19 +109,13 @@ func runApp(cmd *cobra.Command, _ []string) error {
 	}
 	logger.Info("components loaded successfully")
 
-	err = bootpkg.StartRuntimeServices(ctx)
-	if err != nil {
-		logger.Error("failed to start runtime services", zap.Error(err))
-		return fmt.Errorf("start runtime services: %w", err)
-	}
-
 	err = loader.Start(ctx)
 	if err != nil {
 		logger.Error("start failed", zap.Error(err))
 		return fmt.Errorf("failed to start components: %w", err)
 	}
 
-	if err := loadEntriesFromLockFile(ctx, logger); err != nil {
+	if err := entries.LoadFromLockFile(ctx, logger); err != nil {
 		logger.Error("entry loading failed", zap.Error(err))
 		return fmt.Errorf("failed to load entries: %w", err)
 	}
@@ -122,26 +127,18 @@ func runApp(cmd *cobra.Command, _ []string) error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	// Store signal channel for system.exit()
+	systemapi.SetSignalChannel(ctx, sigChan)
+
 	<-sigChan
-	if !silentLogs {
-		logger.Info("shutting down")
+
+	// Perform shutdown and get exit code
+	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
+	if exitCode != 0 {
+		_ = logger.Sync() // Manually sync before exit since defers won't run
+		os.Exit(exitCode) //nolint:gocritic // We explicitly sync logger before exit
 	}
 
-	err = loader.Shutdown(ctx)
-	if err != nil {
-		logger.Error("shutdown error", zap.Error(err))
-		return fmt.Errorf("shutdown failed: %w", err)
-	}
-
-	err = bootpkg.StopRuntimeServices(ctx)
-	if err != nil {
-		logger.Error("failed to stop runtime services", zap.Error(err))
-		return fmt.Errorf("stop runtime services: %w", err)
-	}
-
-	if !silentLogs {
-		logger.Info("stopped")
-	}
 	return nil
 }
 
@@ -164,7 +161,7 @@ func loadBootConfig() (boot.Config, error) {
 }
 
 func createDefaultConfig() boot.Config {
-	opts := []boot.ConfigOption{}
+	var opts []boot.ConfigOption
 
 	if verbose || veryVerbose || console {
 		loggerCfg := map[string]interface{}{}

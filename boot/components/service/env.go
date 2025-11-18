@@ -14,7 +14,6 @@ import (
 func EnvService() boot.Component {
 	return boot.New(boot.P{
 		Name:      EnvName,
-		Phase:     boot.PostInit,
 		DependsOn: nil,
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

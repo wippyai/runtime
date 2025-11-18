@@ -12,7 +12,6 @@ import (
 func OTelInterceptor() boot.Component {
 	return boot.New(boot.P{
 		Name:      OTelInterceptorName,
-		Phase:     boot.PostInit,
 		DependsOn: []boot.ComponentName{OTelName, bootsystem.InterceptorName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			svc := otelapi.GetService(ctx)

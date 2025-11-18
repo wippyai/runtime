@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/wippy/version"
 )
 
@@ -19,7 +20,7 @@ var versionCmd = &cobra.Command{
 			return
 		}
 
-		printBanner()
+		banner.Print(false)
 	},
 }
 

@@ -21,7 +21,6 @@ const (
 	S3Name                boot.ComponentName = "s3"
 	DirectoryName         boot.ComponentName = "directory"
 	ContractName          boot.ComponentName = "contract"
-	InterceptorDebugName  boot.ComponentName = "interceptor-debug"
 	InterceptorRetryName  boot.ComponentName = "interceptor-retry"
 	OTelName              boot.ComponentName = "otel"
 	OTelHTTPName          boot.ComponentName = "otel-http"

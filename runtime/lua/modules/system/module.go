@@ -16,6 +16,7 @@ import (
 	"runtime/debug"
 	"sync"
 
+	systemapi "github.com/wippyai/runtime/api/system"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -41,7 +42,7 @@ func (m *Module) Name() string {
 // It creates a Lua table populated with the module's functions.
 func (m *Module) Loader(l *lua.LState) int {
 	// Create a module table with exact pre-allocated size for its functions.
-	mod := l.CreateTable(0, 13) // 13 exported functions
+	mod := l.CreateTable(0, 14) // 14 exported functions
 
 	// Register functions using RawSetString for potentially better performance.
 	mod.RawSetString("mem_stats", l.NewFunction(m.memStats))
@@ -57,6 +58,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("pid", l.NewFunction(m.pid))
 	mod.RawSetString("set_memory_limit", l.NewFunction(m.setMemoryLimit))
 	mod.RawSetString("get_memory_limit", l.NewFunction(m.getMemoryLimit))
+	mod.RawSetString("exit", l.NewFunction(m.exit))
 
 	l.Push(mod)
 	return 1 // Number of values returned to Lua (the module table)
@@ -373,5 +375,28 @@ func (m *Module) getMemoryLimit(l *lua.LState) int {
 
 	l.Push(lua.LNumber(currentLimit))
 	l.Push(lua.LNil) // No error
+	return 2
+}
+
+// exit is a Lua-callable function that triggers graceful application shutdown
+// with a specified exit code.
+// It takes one optional integer argument: the exit code (defaults to 0).
+// The function sets the exit code and sends a SIGTERM signal to trigger shutdown.
+// Requires "system.exit" permission.
+func (*Module) exit(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.exit", "", nil) {
+		l.RaiseError("permission denied: system.exit required")
+		return 0
+	}
+
+	code := 0
+	if l.GetTop() > 0 {
+		code = l.CheckInt(1)
+	}
+
+	systemapi.TriggerShutdown(l.Context(), code)
+
+	l.Push(lua.LBool(true))
+	l.Push(lua.LNil)
 	return 2
 }

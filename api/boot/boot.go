@@ -3,46 +3,10 @@ package boot
 
 import "context"
 
-// Phase represents a stage in the application boot lifecycle.
-type Phase int
-
-const (
-	// PreInit creates core infrastructure (EventBus, Logger, PIDGen, AppContext).
-	PreInit Phase = iota
-
-	// Init creates registries and system services.
-	Init
-
-	// PostInit creates service managers and handlers.
-	PostInit
-
-	// Start activates services after context is finalized.
-	Start
-)
-
-// String returns the phase name.
-func (p Phase) String() string {
-	switch p {
-	case PreInit:
-		return "PreInit"
-	case Init:
-		return "Init"
-	case PostInit:
-		return "PostInit"
-	case Start:
-		return "Start"
-	default:
-		return "Unknown"
-	}
-}
-
 // Component represents a component loaded during application boot.
 type Component interface {
 	// Name returns unique component identifier.
 	Name() string
-
-	// Phase returns when this component should load.
-	Phase() Phase
 
 	// DependsOn returns names of components that must load before this one.
 	// Return nil or empty slice for no dependencies.

@@ -18,7 +18,6 @@ import (
 func Process() boot.Component {
 	return boot.New(boot.P{
 		Name:      ProcessName,
-		Phase:     boot.Init,
 		DependsOn: []boot.ComponentName{bootcore.RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

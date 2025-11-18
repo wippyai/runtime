@@ -1,5 +1,3 @@
-//go:build plugin_lua_sql
-
 package lua
 
 import (
@@ -7,20 +5,21 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
-	bootpkg "github.com/wippyai/runtime/boot"
 	sqlmod "github.com/wippyai/runtime/runtime/lua/modules/sql"
 )
 
-func LuaSQL() boot.Component {
+func SQL() boot.Component {
 	return boot.New(boot.P{
-		Name:      bootpkg.LuaSQL,
-		Phase:     boot.PostInit,
+		Name:      LuaSQLName,
 		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
-			codeManager := GetCodeManager(ctx)
+			cm := GetCodeManager(ctx)
+			if cm == nil {
+				return ctx, nil
+			}
 
-			if err := AddModules(ctx, codeManager,
+			if err := AddModules(ctx, cm,
 				sqlmod.NewSQLModule(logger.Named("sql")),
 			); err != nil {
 				return ctx, err

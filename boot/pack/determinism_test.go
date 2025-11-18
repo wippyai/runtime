@@ -14,7 +14,7 @@ import (
 
 func TestDeterministicEncoding(t *testing.T) {
 	transcoder := systempayload.NewTranscoder()
-	packer := New(transcoder)
+	packer := NewWriter(transcoder)
 
 	tmpDir := t.TempDir()
 
@@ -53,13 +53,13 @@ func TestDeterministicEncoding(t *testing.T) {
 
 		file1, err := os.Create(path1)
 		require.NoError(t, err)
-		err = packer.Pack(entries1, file1, testMetadata(len(entries1)))
+		err = packer.PackEntries(testMetadata(len(entries1)), entries1, file1)
 		file1.Close()
 		require.NoError(t, err)
 
 		file2, err := os.Create(path2)
 		require.NoError(t, err)
-		err = packer.Pack(entries2, file2, testMetadata(len(entries2)))
+		err = packer.PackEntries(testMetadata(len(entries2)), entries2, file2)
 		file2.Close()
 		require.NoError(t, err)
 
@@ -87,7 +87,7 @@ func TestDeterministicEncoding(t *testing.T) {
 			path := filepath.Join(tmpDir, "repeat"+string(rune('0'+i))+".pack")
 			file, err := os.Create(path)
 			require.NoError(t, err)
-			err = packer.Pack(entries, file, testMetadata(len(entries)))
+			err = packer.PackEntries(testMetadata(len(entries)), entries, file)
 			file.Close()
 			require.NoError(t, err)
 
@@ -147,13 +147,13 @@ func TestDeterministicEncoding(t *testing.T) {
 
 		file1, err := os.Create(path1)
 		require.NoError(t, err)
-		err = packer.Pack(entries1, file1, testMetadata(len(entries1)))
+		err = packer.PackEntries(testMetadata(len(entries1)), entries1, file1)
 		file1.Close()
 		require.NoError(t, err)
 
 		file2, err := os.Create(path2)
 		require.NoError(t, err)
-		err = packer.Pack(entries2, file2, testMetadata(len(entries2)))
+		err = packer.PackEntries(testMetadata(len(entries2)), entries2, file2)
 		file2.Close()
 		require.NoError(t, err)
 

@@ -28,7 +28,6 @@ import (
 func HTTP() boot.Component {
 	return boot.New(boot.P{
 		Name:      HTTPName,
-		Phase:     boot.PostInit,
 		DependsOn: []boot.ComponentName{bootcore.RegistryName, bootsystem.FunctionsName, bootsystem.FilesystemName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

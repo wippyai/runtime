@@ -6,8 +6,10 @@ import (
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/wildcard"
+	"go.uber.org/zap"
 )
 
 const (
@@ -19,19 +21,41 @@ const (
 	keyEntries    = "entries"
 )
 
-type disableStage struct{}
+type disableStage struct {
+	nsPatterns    []string
+	entryPatterns []string
+}
 
-// Disable creates a new stage that removes entries based on patterns from boot config.
-// Reads from the "disable" config section with two pattern lists:
-//   - namespaces: patterns matching entry namespaces
-//   - entries: patterns matching full entry IDs (namespace:name format)
+// Disable creates a new stage that removes entries based on patterns.
+//
+// Supports two modes:
+//
+//  1. Config mode (default): Reads patterns from boot config "disable" section
+//     - disable.namespaces: namespace patterns
+//     - disable.entries: entry ID patterns (namespace:name format)
+//
+//  2. CLI mode: Accepts patterns as parameters (overrides config)
+//     - nsPatterns: namespace patterns
+//     - entryPatterns: entry ID patterns
 //
 // Supports wildcard patterns via internal/wildcard:
 //   - * matches exactly one segment
 //   - ** matches zero or more segments
 //   - (a|b|c) matches any of the alternatives
-func Disable() boot.Stage {
-	return &disableStage{}
+//
+// Examples:
+//
+//	Disable()                          // config mode
+//	Disable([]string{"test.**"}, nil)  // CLI mode - exclude test namespace
+func Disable(patterns ...[]string) boot.Stage {
+	stage := &disableStage{}
+	if len(patterns) > 0 {
+		stage.nsPatterns = patterns[0]
+	}
+	if len(patterns) > 1 {
+		stage.entryPatterns = patterns[1]
+	}
+	return stage
 }
 
 func (s *disableStage) Name() string {
@@ -39,15 +63,24 @@ func (s *disableStage) Name() string {
 }
 
 func (s *disableStage) Execute(ctx context.Context, entries *[]registry.Entry) error {
-	cfg := boot.GetConfig(ctx)
-	if cfg == nil {
-		return nil
+	log := logs.GetLogger(ctx)
+
+	var nsPatterns, entryPatterns []string
+	var mode string
+
+	if len(s.nsPatterns) > 0 || len(s.entryPatterns) > 0 {
+		nsPatterns = s.nsPatterns
+		entryPatterns = s.entryPatterns
+		mode = "CLI"
+	} else {
+		cfg := boot.GetConfig(ctx)
+		if cfg != nil {
+			sub := cfg.Sub(string(sectionDisable))
+			nsPatterns = readStringSlice(sub, keyNamespaces)
+			entryPatterns = readStringSlice(sub, keyEntries)
+			mode = "config"
+		}
 	}
-
-	sub := cfg.Sub(string(sectionDisable))
-
-	nsPatterns := readStringSlice(sub, keyNamespaces)
-	entryPatterns := readStringSlice(sub, keyEntries)
 
 	if len(nsPatterns) == 0 && len(entryPatterns) == 0 {
 		return nil
@@ -63,15 +96,31 @@ func (s *disableStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 		return fmt.Errorf("invalid entry pattern: %w", err)
 	}
 
+	originalCount := len(*entries)
 	filtered := make([]registry.Entry, 0, len(*entries))
+
 	for _, e := range *entries {
 		if shouldDisable(e, nsMatchers, entryMatchers) {
+			log.Debug("disabled entry",
+				zap.String("id", e.ID.String()),
+				zap.String("kind", e.Kind))
 			continue
 		}
 		filtered = append(filtered, e)
 	}
 
 	*entries = filtered
+	disabledCount := originalCount - len(filtered)
+
+	if disabledCount > 0 {
+		log.Info("disabled entries",
+			zap.String("source", mode),
+			zap.Int("disabled", disabledCount),
+			zap.Int("remaining", len(filtered)),
+			zap.Int("ns_patterns", len(nsPatterns)),
+			zap.Int("entry_patterns", len(entryPatterns)))
+	}
+
 	return nil
 }
 

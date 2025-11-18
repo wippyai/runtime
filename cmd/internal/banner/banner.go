@@ -1,4 +1,5 @@
-package cmd
+// Package banner provides the wippy ASCII banner display functionality.
+package banner
 
 import (
 	"fmt"
@@ -7,8 +8,10 @@ import (
 	"github.com/wippyai/runtime/cmd/wippy/version"
 )
 
-func printBanner() {
-	if silentLogs {
+// Print displays the wippy ASCII banner with version information.
+// If silent is true, no output is produced.
+func Print(silent bool) {
+	if silent {
 		return
 	}
 

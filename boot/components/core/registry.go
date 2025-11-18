@@ -18,7 +18,6 @@ import (
 func Registry() boot.Component {
 	return boot.New(boot.P{
 		Name:      RegistryName,
-		Phase:     boot.PreInit,
 		DependsOn: []boot.ComponentName{},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

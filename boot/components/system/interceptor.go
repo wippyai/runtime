@@ -13,7 +13,6 @@ func Interceptor() boot.Component {
 	var registry *interceptor.Registry
 	return boot.New(boot.P{
 		Name:      InterceptorName,
-		Phase:     boot.Init,
 		DependsOn: []boot.ComponentName{},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

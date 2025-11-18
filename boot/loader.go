@@ -96,8 +96,12 @@ func (l *Loader) Load(ctx context.Context) (context.Context, error) {
 	return ctx, nil
 }
 
-// Start activates all components with Start() method in dependency order.
+// Start activates runtime services and all components with Start() method in dependency order.
 func (l *Loader) Start(ctx context.Context) error {
+	if err := StartRuntimeServices(ctx); err != nil {
+		return fmt.Errorf("start runtime services: %w", err)
+	}
+
 	for _, c := range l.loaded {
 		if starter, ok := c.(boot.Starter); ok {
 			if err := starter.Start(ctx); err != nil {

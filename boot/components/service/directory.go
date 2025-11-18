@@ -14,7 +14,6 @@ import (
 func Directory() boot.Component {
 	return boot.New(boot.P{
 		Name:      DirectoryName,
-		Phase:     boot.PostInit,
 		DependsOn: nil,
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

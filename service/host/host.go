@@ -9,12 +9,13 @@ import (
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/service/host"
-
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/process/stats"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/service/host"
 	"go.uber.org/zap"
 )
 
@@ -26,6 +27,7 @@ type Host struct {
 	log         *zap.Logger
 	msgHost     relay.Host
 	msgQueues   []chan *relay.Package // Multiple queues for message routing, one per worker
+	systemQueue chan *relay.Package   // Dedicated queue for @system control messages
 	pool        ProcessPoolAPI
 	ctx         context.Context
 	done        chan struct{}
@@ -56,6 +58,7 @@ func NewMultiProcessHost(
 		cfg:         config,
 		log:         log,
 		msgQueues:   msgQueues,
+		systemQueue: make(chan *relay.Package, 16),
 		done:        make(chan struct{}),
 		msgFactory:  msgFactory,
 		poolFactory: poolFactory,
@@ -259,8 +262,15 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("failed to create process pool: %w", err)
 	}
 
+	// Register @system endpoint for host control messages
+	systemPID := relay.PID{UniqID: stats.SystemEndpoint}
+	if _, err := h.msgHost.Attach(systemPID, h.systemQueue); err != nil {
+		return nil, fmt.Errorf("failed to attach @system endpoint: %w", err)
+	}
+
 	h.pool.Start()
 	h.startMessageWorkers(ctx)
+	h.startSystemWorker(ctx)
 	h.sendStatus("host started and accepting processes")
 
 	h.running.Store(true)
@@ -302,6 +312,81 @@ func (h *Host) startMessageWorkers(ctx context.Context) {
 	}
 }
 
+// startSystemWorker spawns a dedicated worker to handle @system control messages.
+func (h *Host) startSystemWorker(ctx context.Context) {
+	h.msgWG.Add(1)
+
+	go func() {
+		defer h.msgWG.Done()
+
+		for {
+			select {
+			case <-h.done:
+				return
+			case <-ctx.Done():
+				return
+			case pkg, ok := <-h.systemQueue:
+				if !ok {
+					return
+				}
+
+				h.handleSystemMessage(pkg)
+			}
+		}
+	}()
+}
+
+// handleSystemMessage processes control messages sent to the @system endpoint.
+func (h *Host) handleSystemMessage(pkg *relay.Package) {
+	for _, msg := range pkg.Messages {
+		switch msg.Topic {
+		case stats.TopicStatsEnable:
+			var sampleRate int64 = 100
+			if len(msg.Payloads) > 0 {
+				if rate, ok := msg.Payloads[0].Data().(int64); ok && rate > 0 {
+					sampleRate = rate
+				}
+			}
+			h.pool.EnableStats(sampleRate)
+			h.log.Debug("stats collection enabled", zap.Int64("sample_rate", sampleRate))
+
+		case stats.TopicStatsDisable:
+			h.pool.DisableStats()
+			h.log.Debug("stats collection disabled")
+
+		case stats.TopicStatsCollect:
+			enabled, sampleRate, entries, err := h.pool.Collect(h.ctx)
+			if err != nil {
+				h.log.Error("failed to collect stats", zap.Error(err))
+				continue
+			}
+
+			snapshot := stats.Snapshot{
+				HostID:     h.id.String(),
+				Timestamp:  time.Now(),
+				Enabled:    enabled,
+				SampleRate: sampleRate,
+				Processes:  entries,
+			}
+
+			// Send snapshot back to caller
+			if err := h.msgHost.Send(relay.NewPackage(
+				pkg.Target,
+				pkg.Source,
+				msg.Topic,
+				payload.New(snapshot),
+			)); err != nil {
+				h.log.Error("failed to send stats snapshot",
+					zap.String("to", pkg.Source.String()),
+					zap.Error(err))
+			}
+
+		default:
+			h.log.Warn("unknown system topic", zap.String("topic", msg.Topic))
+		}
+	}
+}
+
 // Stop gracefully shuts down the host by rejecting new operations and waiting for processes to complete.
 func (h *Host) Stop(ctx context.Context) error {
 	if !h.running.Load() {
@@ -317,12 +402,18 @@ func (h *Host) Stop(ctx context.Context) error {
 	}
 
 	h.pool.Close()
+
+	// Detach @system endpoint
+	systemPID := relay.PID{UniqID: stats.SystemEndpoint}
+	h.msgHost.Detach(systemPID)
+
 	close(h.done)
 
 	// Close all message queues
 	for _, q := range h.msgQueues {
 		close(q)
 	}
+	close(h.systemQueue)
 
 	h.msgWG.Wait()
 	h.sendStatus("host shutdown complete")

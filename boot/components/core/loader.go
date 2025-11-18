@@ -13,7 +13,6 @@ import (
 func Loader() boot.Component {
 	return boot.New(boot.P{
 		Name:      LoaderName,
-		Phase:     boot.Init,
 		DependsOn: []boot.ComponentName{},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

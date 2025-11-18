@@ -15,6 +15,6 @@ func StandardComponents() []boot.Component {
 	components = append(components, core.All()...)
 	components = append(components, system.All()...)
 	components = append(components, service.All()...)
-	components = append(components, lua.Engine())
+	components = append(components, lua.All()...)
 	return components
 }

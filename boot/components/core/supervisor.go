@@ -17,7 +17,6 @@ func Supervisor() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      SupervisorName,
-		Phase:     boot.Init,
 		DependsOn: []boot.ComponentName{RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"testing"
 
@@ -488,4 +489,146 @@ func TestSequencer_ComplexDependencyChain(t *testing.T) {
 		{"service-a1", "service-a2"}, // Level 4: parallel
 	}
 	verifyOrderedGroups(t, events, stopGroups, false)
+}
+
+// failingController is a mock controller that can simulate failures
+type failingController struct {
+	id         string
+	stopCalled bool
+	stopError  error
+}
+
+func newFailingController(id string, stopError error) *failingController {
+	return &failingController{
+		id:        id,
+		stopError: stopError,
+	}
+}
+
+func (f *failingController) Start() error {
+	return nil
+}
+
+func (f *failingController) Stop() error {
+	f.stopCalled = true
+	return f.stopError
+}
+
+func TestSequencer_StopErrorAbortsRemainingLevels(t *testing.T) {
+	logger := zap.NewNop()
+	sp := NewSequencer(logger)
+
+	serviceA := newFailingController("service-a", errors.New("service-a failed to stop"))
+	database := newFailingController("database", nil)
+
+	ops := []Operation{
+		{
+			Type:         OperationStop,
+			ID:           "service-a",
+			Controller:   serviceA,
+			Dependencies: []string{"database"},
+		},
+		{
+			Type:         OperationStop,
+			ID:           "database",
+			Controller:   database,
+			Dependencies: []string{},
+		},
+	}
+
+	ctx := context.Background()
+	err := sp.Transition(ctx, ops...)
+
+	require.Error(t, err, "Expected error from service-a failure")
+	require.Contains(t, err.Error(), "service-a", "Error should mention service-a")
+
+	require.True(t, serviceA.stopCalled, "ServiceA Stop() should have been called")
+
+	// BUG: Database Stop() is never called because service-a error aborts sequencer
+	require.True(t, database.stopCalled, "Database Stop() should have been called despite service-a failure")
+}
+
+func TestSequencer_StopCollectsMultipleLevelErrors(t *testing.T) {
+	logger := zap.NewNop()
+	sp := NewSequencer(logger)
+
+	serviceA := newFailingController("service-a", errors.New("service-a failed"))
+	serviceB := newFailingController("service-b", nil)
+	database := newFailingController("database", errors.New("database failed"))
+
+	ops := []Operation{
+		{
+			Type:         OperationStop,
+			ID:           "service-a",
+			Controller:   serviceA,
+			Dependencies: []string{"database"},
+		},
+		{
+			Type:         OperationStop,
+			ID:           "service-b",
+			Controller:   serviceB,
+			Dependencies: []string{"database"},
+		},
+		{
+			Type:         OperationStop,
+			ID:           "database",
+			Controller:   database,
+			Dependencies: []string{},
+		},
+	}
+
+	ctx := context.Background()
+	err := sp.Transition(ctx, ops...)
+
+	require.Error(t, err, "Expected errors from service-a and database")
+
+	require.True(t, serviceA.stopCalled, "ServiceA should have been stopped")
+	require.True(t, serviceB.stopCalled, "ServiceB should have been stopped")
+
+	// BUG: Database is never called because service-a error aborts level processing
+	require.True(t, database.stopCalled, "Database should have been stopped despite earlier failures")
+
+	// After fix: error should mention both failures
+	require.Contains(t, err.Error(), "service-a", "Error should mention service-a")
+	// This will fail with current implementation but should pass after fix
+}
+
+func TestSequencer_StopPartialLevelFailure(t *testing.T) {
+	logger := zap.NewNop()
+	sp := NewSequencer(logger)
+
+	serviceA := newFailingController("service-a", nil)
+	serviceB := newFailingController("service-b", errors.New("service-b failed"))
+	serviceC := newFailingController("service-c", nil)
+
+	ops := []Operation{
+		{
+			Type:         OperationStop,
+			ID:           "service-a",
+			Controller:   serviceA,
+			Dependencies: []string{},
+		},
+		{
+			Type:         OperationStop,
+			ID:           "service-b",
+			Controller:   serviceB,
+			Dependencies: []string{},
+		},
+		{
+			Type:         OperationStop,
+			ID:           "service-c",
+			Controller:   serviceC,
+			Dependencies: []string{},
+		},
+	}
+
+	ctx := context.Background()
+	err := sp.Transition(ctx, ops...)
+
+	require.Error(t, err, "Expected error from service-b")
+	require.Contains(t, err.Error(), "service-b", "Error should mention service-b")
+
+	require.True(t, serviceA.stopCalled, "ServiceA should have been stopped")
+	require.True(t, serviceB.stopCalled, "ServiceB should have been stopped")
+	require.True(t, serviceC.stopCalled, "ServiceC should have been stopped")
 }

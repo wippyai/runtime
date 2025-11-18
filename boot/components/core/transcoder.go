@@ -13,8 +13,7 @@ import (
 
 func Transcoder() boot.Component {
 	return boot.New(boot.P{
-		Name:  TranscoderName,
-		Phase: boot.PreInit,
+		Name: TranscoderName,
 		Load: func(ctx context.Context) (context.Context, error) {
 			dtt := transcoder.GlobalTranscoder()
 			json.Register(dtt)

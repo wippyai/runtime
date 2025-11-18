@@ -11,8 +11,14 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	embedapi "github.com/wippyai/runtime/api/service/embed"
+	systemapi "github.com/wippyai/runtime/api/system"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/pack"
+	"github.com/wippyai/runtime/cmd/internal/banner"
+	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
+	"github.com/wippyai/runtime/cmd/internal/shutdown"
+	"github.com/wippyai/runtime/service/embed"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
@@ -38,9 +44,15 @@ func init() {
 }
 
 func runFromPack(_ *cobra.Command, args []string) error {
-	printBanner()
+	banner.Print(silentLogs)
 
-	logger, err := CreateLogger()
+	logger, err := clilogger.CreateLogger(clilogger.Config{
+		Verbose:      verbose,
+		VeryVerbose:  veryVerbose,
+		Console:      console,
+		Silent:       silentLogs,
+		AppStartTime: appStartTime,
+	})
 	if err != nil {
 		return fmt.Errorf("create logger: %w", err)
 	}
@@ -69,6 +81,10 @@ func runFromPack(_ *cobra.Command, args []string) error {
 	logger = logapi.GetLogger(ctx).Named("run-pack")
 	logger.Info("infrastructure initialized")
 
+	embedReg := embed.NewRegistry()
+	ctx = embedapi.WithRegistry(ctx, embedReg)
+	logger.Info("embed registry initialized")
+
 	components := StandardComponents()
 	logger.Info("registered components", zap.Int("count", len(components)))
 
@@ -90,26 +106,29 @@ func runFromPack(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("transcoder not found")
 	}
 
-	packer := pack.New(transcoder)
 	var allEntries []regapi.Entry
 
 	for _, packFile := range args {
-		logger.Info("unpacking", zap.String("file", packFile))
+		logger.Info("loading pack", zap.String("file", packFile))
 
 		file, err := os.Open(packFile)
 		if err != nil {
 			return fmt.Errorf("open pack file %s: %w", packFile, err)
 		}
+		defer file.Close()
 
-		entries, metadata, err := packer.Unpack(file)
-		if closeErr := file.Close(); closeErr != nil {
-			logger.Warn("error closing pack file", zap.String("file", packFile), zap.Error(closeErr))
-		}
+		reader, err := pack.NewReader(file, transcoder)
 		if err != nil {
-			return fmt.Errorf("unpack %s: %w", packFile, err)
+			return fmt.Errorf("create pack reader for %s: %w", packFile, err)
 		}
 
-		if metadata != nil {
+		entries, err := reader.GetEntries()
+		if err != nil {
+			return fmt.Errorf("read entries from %s: %w", packFile, err)
+		}
+
+		metadata, err := reader.GetMetadata()
+		if err == nil {
 			logger.Info("pack metadata",
 				zap.String("file", packFile),
 				zap.String("wippy_version", metadata.GetString("wippy_version", "")),
@@ -119,10 +138,24 @@ func runFromPack(_ *cobra.Command, args []string) error {
 				zap.String("description", metadata.GetString("description", "")))
 		}
 
-		logger.Info("unpacked entries",
+		logger.Info("loaded entries",
 			zap.String("file", packFile),
 			zap.Int("count", len(entries)))
 
+		resources, err := reader.ListResources()
+		if err == nil && len(resources) > 0 {
+			logger.Info("loaded embedded resources",
+				zap.String("file", packFile),
+				zap.Int("count", len(resources)))
+			for _, res := range resources {
+				logger.Debug("embedded resource",
+					zap.String("id", res.ID.String()),
+					zap.String("type", res.Type),
+					zap.Uint64("size", res.Size))
+			}
+		}
+
+		embedReg.Register(packFile, reader)
 		allEntries = append(allEntries, entries...)
 	}
 
@@ -187,25 +220,17 @@ func runFromPack(_ *cobra.Command, args []string) error {
 		logger.Info("runtime ready")
 	}
 
+	// Store signal channel for system.exit()
+	systemapi.SetSignalChannel(ctx, sigChan)
+
 	<-appCtx.Done()
-	if !silentLogs {
-		logger.Info("shutting down")
+
+	// Perform shutdown and get exit code
+	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
+	if exitCode != 0 {
+		_ = logger.Sync() // Manually sync before exit since defers won't run
+		os.Exit(exitCode) //nolint:gocritic // We explicitly sync logger and cancel is called in performShutdown
 	}
 
-	err = loader.Shutdown(ctx)
-	if err != nil {
-		logger.Error("shutdown error", zap.Error(err))
-		return fmt.Errorf("shutdown failed: %w", err)
-	}
-
-	err = bootpkg.StopRuntimeServices(ctx)
-	if err != nil {
-		logger.Error("failed to stop runtime services", zap.Error(err))
-		return fmt.Errorf("stop runtime services: %w", err)
-	}
-
-	if !silentLogs {
-		logger.Info("stopped")
-	}
 	return nil
 }

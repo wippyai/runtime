@@ -1,5 +1,3 @@
-//go:build plugin_lua_base64
-
 package lua
 
 import (
@@ -9,11 +7,10 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/base64"
 )
 
-func LuaBase64() boot.Component {
+func Base64() boot.Component {
 	return boot.New(boot.P{
-		Name:      "lua.base64",
-		Phase:     boot.PostInit,
-		DependsOn: []boot.ComponentName{"lua.engine"},
+		Name:      LuaBase64Name,
+		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/boot/deps/storage"
+	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"go.uber.org/zap"
 )
 
@@ -37,7 +38,7 @@ func init() {
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
-	app, err := InitApp(cmd.Context())
+	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
 	if err != nil {
 		return fmt.Errorf("init app: %w", err)
 	}
@@ -66,6 +67,10 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
 		return fmt.Errorf("load lock file: %w", err)
+	}
+
+	if err := lock.Validate(lockObj); err != nil {
+		return fmt.Errorf("invalid lock file: %w", err)
 	}
 
 	modules := lockObj.GetModules()

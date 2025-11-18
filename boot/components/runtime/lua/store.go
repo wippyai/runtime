@@ -1,5 +1,3 @@
-//go:build plugin_lua_store
-
 package lua
 
 import (
@@ -7,20 +5,21 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
-	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/runtime/lua/modules/store"
 )
 
-func LuaStore() boot.Component {
+func Store() boot.Component {
 	return boot.New(boot.P{
-		Name:      bootpkg.LuaStore,
-		Phase:     boot.PostInit,
+		Name:      LuaStoreName,
 		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
-			codeManager := GetCodeManager(ctx)
+			cm := GetCodeManager(ctx)
+			if cm == nil {
+				return ctx, nil
+			}
 
-			if err := AddModules(ctx, codeManager,
+			if err := AddModules(ctx, cm,
 				store.NewStoreModule(logger.Named("store")),
 			); err != nil {
 				return ctx, err

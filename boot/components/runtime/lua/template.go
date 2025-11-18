@@ -1,5 +1,3 @@
-//go:build plugin_lua_template
-
 package lua
 
 import (
@@ -7,20 +5,21 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
-	bootpkg "github.com/wippyai/runtime/boot"
 	luatemplate "github.com/wippyai/runtime/runtime/lua/modules/template"
 )
 
-func LuaTemplate() boot.Component {
+func Template() boot.Component {
 	return boot.New(boot.P{
 		Name:      LuaTemplateName,
-		Phase:     boot.PostInit,
 		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
-			codeManager := GetCodeManager(ctx)
+			cm := GetCodeManager(ctx)
+			if cm == nil {
+				return ctx, nil
+			}
 
-			if err := AddModules(ctx, codeManager,
+			if err := AddModules(ctx, cm,
 				luatemplate.NewTemplateModule(logger.Named("template")),
 			); err != nil {
 				return ctx, err

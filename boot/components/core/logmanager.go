@@ -23,7 +23,6 @@ func LogManager() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      LogManagerName,
-		Phase:     boot.PreInit,
 		DependsOn: []boot.ComponentName{EventBusName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

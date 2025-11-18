@@ -13,7 +13,6 @@ import (
 func ProcessTopology() boot.Component {
 	return boot.New(boot.P{
 		Name:      ProcessTopologyName,
-		Phase:     boot.Init,
 		DependsOn: []boot.ComponentName{ProcessName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

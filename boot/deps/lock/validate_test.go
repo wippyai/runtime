@@ -13,6 +13,7 @@ func TestValidate(t *testing.T) {
 
 		lock, _ := New(lockPath)
 		lock.SetModule(Module{Name: "wippy/test", Version: "v1.0.0"})
+		lock.SetDirectories(Directories{Modules: ".wippy", Src: "./src"})
 
 		if err := Validate(lock); err != nil {
 			t.Errorf("expected no error, got %v", err)
@@ -64,6 +65,22 @@ func TestValidate(t *testing.T) {
 
 		if err := Validate(lock); err == nil {
 			t.Error("expected error for empty directories.src")
+		}
+	})
+
+	t.Run("root directory as src fails", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, "test.lock")
+
+		lock, _ := New(lockPath)
+		lock.SetDirectories(Directories{Modules: ".wippy", Src: "."})
+
+		err := Validate(lock)
+		if err == nil {
+			t.Error("expected error for src directory set to root '.'")
+		}
+		if err != nil && err.Error() != "directories.src cannot be \".\" (root directory) - this causes duplicate loading of vendor modules. Use a specific subdirectory like \"./src\" instead" {
+			t.Errorf("unexpected error message: %v", err)
 		}
 	})
 

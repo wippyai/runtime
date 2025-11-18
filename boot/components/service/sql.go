@@ -17,7 +17,6 @@ import (
 func SQL() boot.Component {
 	return boot.New(boot.P{
 		Name:      SQLName,
-		Phase:     boot.PostInit,
 		DependsOn: []boot.ComponentName{bootsystem.EnvironmentName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

@@ -32,6 +32,10 @@ func Validate(l *Lock) error {
 		return fmt.Errorf("directories.src cannot be empty")
 	}
 
+	if l.data.Directories.Src == "." {
+		return fmt.Errorf("directories.src cannot be \".\" (root directory) - this causes duplicate loading of vendor modules. Use a specific subdirectory like \"./src\" instead")
+	}
+
 	return nil
 }
 
