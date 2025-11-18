@@ -159,7 +159,7 @@ func TestFilesystemPack(t *testing.T) {
 		tmpDir := t.TempDir()
 
 		// Create nested structure
-		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "a", "b", "c"), 0600))
+		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "a", "b", "c"), 0755))
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "a", "file1.png"), []byte("file1"), 0600))
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "a", "b", "file2.png"), []byte("file2"), 0600))
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "a", "b", "c", "file3.png"), []byte("file3"), 0600))
@@ -429,7 +429,7 @@ func TestPackFSErrors(t *testing.T) {
 
 	t.Run("read directory as file fails", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "dir"), 0600))
+		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "dir"), 0755))
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "dir", "file.png"), []byte("content"), 0600))
 
 		fsys := os.DirFS(tmpDir)
