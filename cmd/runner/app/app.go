@@ -901,28 +901,38 @@ func createProjectRootFS(_ string) (iofs.FS, error) {
 }
 
 func resolveModulePath(modulePath string, mainLogger *zap.Logger) (string, error) {
-	switch {
-	case strings.HasPrefix(modulePath, "/"):
+	// Check if the path is absolute (works cross-platform for both Unix and Windows)
+	if filepath.IsAbs(modulePath) {
 		currentDir, err := os.Getwd()
 		if err != nil {
 			return "", fmt.Errorf("failed to get current working directory: %w", err)
 		}
 
-		if strings.HasPrefix(modulePath, currentDir) {
-			relativePath := strings.TrimPrefix(modulePath, currentDir)
-			resolvedPath := strings.TrimPrefix(relativePath, "/")
-			resolvedPath = filepath.ToSlash(resolvedPath)
-
-			mainLogger.Debug("resolved absolute replacement path",
-				zap.String("originalPath", modulePath),
-				zap.String("currentDir", currentDir),
-				zap.String("relativePath", relativePath),
-				zap.String("finalModulePath", resolvedPath))
-
-			return resolvedPath, nil
+		// Convert absolute path to relative path from current working directory
+		relPath, err := filepath.Rel(currentDir, modulePath)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve relative path from %s to %s: %w", currentDir, modulePath, err)
 		}
-		return "", fmt.Errorf("replacement path %s is outside the current working directory %s", modulePath, currentDir)
-	case strings.HasPrefix(modulePath, "./") || strings.HasPrefix(modulePath, "../"):
+
+		// Check if the path escapes from the current directory (security check)
+		if strings.HasPrefix(relPath, "..") {
+			return "", fmt.Errorf("replacement path %s is outside the current working directory %s", modulePath, currentDir)
+		}
+
+		// Convert to forward slashes for fs.FS compatibility
+		resolvedPath := filepath.ToSlash(relPath)
+
+		mainLogger.Debug("resolved absolute replacement path",
+			zap.String("originalPath", modulePath),
+			zap.String("currentDir", currentDir),
+			zap.String("relativePath", relPath),
+			zap.String("finalModulePath", resolvedPath))
+
+		return resolvedPath, nil
+	}
+
+	// Handle relative paths
+	if strings.HasPrefix(modulePath, "./") || strings.HasPrefix(modulePath, "../") {
 		cleanPath := strings.TrimPrefix(modulePath, "./")
 		cleanPath = strings.TrimPrefix(cleanPath, "../")
 		resolvedPath := filepath.ToSlash(cleanPath)
@@ -933,9 +943,10 @@ func resolveModulePath(modulePath string, mainLogger *zap.Logger) (string, error
 			zap.String("finalModulePath", resolvedPath))
 
 		return resolvedPath, nil
-	default:
-		return filepath.ToSlash(modulePath), nil
 	}
+
+	// Default: assume it's already a relative path, just convert to forward slashes
+	return filepath.ToSlash(modulePath), nil
 }
 
 func loadEntriesFromLoadedModules(
