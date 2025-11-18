@@ -15,7 +15,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/boot/deps/storage"
-	cliboot "github.com/wippyai/runtime/cmd/internal/cli"
+	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
@@ -110,7 +110,7 @@ func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Lo
 
 	logger.Info("auto-installing missing modules")
 
-	registryClient := cliboot.GetRegistryClient(ctx)
+	registryClient := appinit.GetRegistryClient(ctx)
 	if registryClient == nil {
 		return fmt.Errorf("registry client not found in context")
 	}

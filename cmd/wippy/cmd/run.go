@@ -13,9 +13,9 @@ import (
 	systemapi "github.com/wippyai/runtime/api/system"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/deps/client"
+	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
-	"github.com/wippyai/runtime/cmd/internal/cli"
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
@@ -88,7 +88,7 @@ func runApp(cmd *cobra.Command, _ []string) error {
 
 	// Initialize registry client for module installation
 	registryClient := client.NewRegistryClientFromConfig(boot.GetConfig(ctx))
-	ctx = cli.WithRegistryClient(ctx, registryClient)
+	ctx = appinit.WithRegistryClient(ctx, registryClient)
 
 	logger = logapi.GetLogger(ctx).Named("run")
 	logger.Info("infrastructure initialized")
