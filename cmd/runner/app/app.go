@@ -905,11 +905,6 @@ func resolveModulePath(modulePath string, projectRoot string, mainLogger *zap.Lo
 			return "", fmt.Errorf("failed to resolve relative path from %s to %s: %w", projectRoot, modulePath, err)
 		}
 
-		// Check if the path escapes from the project root (security check)
-		if strings.HasPrefix(relPath, "..") {
-			return "", fmt.Errorf("replacement path %s is outside the project root %s", modulePath, projectRoot)
-		}
-
 		// Convert to forward slashes for fs.FS compatibility
 		resolvedPath := filepath.ToSlash(relPath)
 
@@ -924,7 +919,7 @@ func resolveModulePath(modulePath string, projectRoot string, mainLogger *zap.Lo
 
 	// Handle relative paths
 	if strings.HasPrefix(modulePath, "./") || strings.HasPrefix(modulePath, "../") {
-		// Convert relative path to absolute path to check if it escapes
+		// Convert relative path to absolute path
 		absPath := filepath.Join(projectRoot, modulePath)
 		absPath = filepath.Clean(absPath)
 
@@ -932,11 +927,6 @@ func resolveModulePath(modulePath string, projectRoot string, mainLogger *zap.Lo
 		relPath, err := filepath.Rel(projectRoot, absPath)
 		if err != nil {
 			return "", fmt.Errorf("failed to resolve relative path from %s to %s: %w", projectRoot, absPath, err)
-		}
-
-		// Check if the path escapes from the project root (security check)
-		if strings.HasPrefix(relPath, "..") {
-			return "", fmt.Errorf("replacement path %s is outside the project root %s", modulePath, projectRoot)
 		}
 
 		// Convert to forward slashes for fs.FS compatibility

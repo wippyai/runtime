@@ -31,17 +31,17 @@ func Test_resolveModulePath(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
-	t.Run("absolute path escaping current directory", func(t *testing.T) {
+	t.Run("absolute path outside project root", func(t *testing.T) {
 		t.Parallel()
 
-		// Create a path that goes outside current directory
+		// Create a path that goes outside project root
 		parentDir := filepath.Dir(projectRoot)
 		escapePath := filepath.Join(parentDir, "outside", "module")
+		expected := "../outside/module"
 
 		result, err := resolveModulePath(escapePath, projectRoot, logger)
-		assert.Error(t, err)
-		assert.Empty(t, result)
-		assert.Contains(t, err.Error(), "is outside the project root")
+		require.NoError(t, err)
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("relative path with ./ prefix", func(t *testing.T) {
@@ -86,18 +86,22 @@ func Test_resolveModulePath(t *testing.T) {
 		tests := []struct {
 			name       string
 			modulePath string
+			want       string
 		}{
 			{
 				name:       "single level up",
 				modulePath: "../test/module",
+				want:       "../test/module",
 			},
 			{
 				name:       "multiple levels up",
 				modulePath: "../../../test/module",
+				want:       "../../../test/module",
 			},
 			{
 				name:       "mixed with ./",
 				modulePath: ".././test/module",
+				want:       "../test/module",
 			},
 		}
 
@@ -106,9 +110,8 @@ func Test_resolveModulePath(t *testing.T) {
 				t.Parallel()
 
 				result, err := resolveModulePath(tt.modulePath, projectRoot, logger)
-				assert.Error(t, err)
-				assert.Empty(t, result)
-				assert.Contains(t, err.Error(), "is outside the project root")
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, result)
 			})
 		}
 	})
@@ -257,49 +260,52 @@ func Test_resolveModulePath(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
-	t.Run("error cases", func(t *testing.T) {
+	t.Run("paths outside project root", func(t *testing.T) {
 		t.Parallel()
 
-		t.Run("absolute path escaping with single ..", func(t *testing.T) {
+		t.Run("absolute path outside with single ..", func(t *testing.T) {
 			t.Parallel()
 
 			parentDir := filepath.Dir(projectRoot)
 			escapePath := filepath.Join(parentDir, "module")
+			expected := "../module"
 
 			result, err := resolveModulePath(escapePath, projectRoot, logger)
-			assert.Error(t, err)
-			assert.Empty(t, result)
-			assert.Contains(t, err.Error(), "is outside the project root")
+			require.NoError(t, err)
+			assert.Equal(t, expected, result)
 		})
 
-		t.Run("absolute path escaping with multiple ..", func(t *testing.T) {
+		t.Run("absolute path outside with multiple ..", func(t *testing.T) {
 			t.Parallel()
 
 			// Go up multiple levels
 			parentDir := filepath.Dir(projectRoot)
 			grandParentDir := filepath.Dir(parentDir)
 			escapePath := filepath.Join(grandParentDir, "module")
+			expected := "../../module"
 
 			result, err := resolveModulePath(escapePath, projectRoot, logger)
-			assert.Error(t, err)
-			assert.Empty(t, result)
-			assert.Contains(t, err.Error(), "is outside the project root")
+			require.NoError(t, err)
+			assert.Equal(t, expected, result)
 		})
 
-		t.Run("absolute path escaping to root", func(t *testing.T) {
+		t.Run("absolute path to root", func(t *testing.T) {
 			t.Parallel()
 
 			if runtime.GOOS == "windows" {
 				t.Skip("Skipping root path test on Windows")
 			}
 
-			// Test path that escapes to root
+			// Test path that goes to root
 			rootPath := filepath.Join(string(filepath.Separator), "etc", "module")
+			// Calculate expected relative path
+			relPath, err := filepath.Rel(projectRoot, rootPath)
+			require.NoError(t, err)
+			expected := filepath.ToSlash(relPath)
 
 			result, err := resolveModulePath(rootPath, projectRoot, logger)
-			assert.Error(t, err)
-			assert.Empty(t, result)
-			assert.Contains(t, err.Error(), "is outside the project root")
+			require.NoError(t, err)
+			assert.Equal(t, expected, result)
 		})
 
 		t.Run("Windows different drive error", func(t *testing.T) {
@@ -341,9 +347,7 @@ func Test_resolveModulePath(t *testing.T) {
 		t.Run("absolute path with .. in middle", func(t *testing.T) {
 			t.Parallel()
 
-			// Create a path that uses .. in the middle (should be normalized but still escape)
-			// This tests the security check after filepath.Rel
-			// Use a path that would normalize to outside current dir
+			// Create a path that uses .. in the middle (should be normalized)
 			testSubDir := filepath.Join(projectRoot, "test")
 			err := os.MkdirAll(testSubDir, 0755)
 			require.NoError(t, err)
@@ -353,24 +357,27 @@ func Test_resolveModulePath(t *testing.T) {
 
 			// Path that goes up and then back down (but still outside)
 			escapePath := filepath.Join(testSubDir, "..", "..", "outside", "module")
+			absPath := filepath.Clean(escapePath)
+			relPath, err := filepath.Rel(projectRoot, absPath)
+			require.NoError(t, err)
+			expected := filepath.ToSlash(relPath)
 
 			result, err := resolveModulePath(escapePath, projectRoot, logger)
-			assert.Error(t, err)
-			assert.Empty(t, result)
-			assert.Contains(t, err.Error(), "is outside the project root")
+			require.NoError(t, err)
+			assert.Equal(t, expected, result)
 		})
 
 		t.Run("absolute path exactly at parent boundary", func(t *testing.T) {
 			t.Parallel()
 
 			parentDir := filepath.Dir(projectRoot)
-			// Path exactly at parent (should still be considered outside)
+			// Path exactly at parent
 			escapePath := parentDir
+			expected := ".."
 
 			result, err := resolveModulePath(escapePath, projectRoot, logger)
-			assert.Error(t, err)
-			assert.Empty(t, result)
-			assert.Contains(t, err.Error(), "is outside the project root")
+			require.NoError(t, err)
+			assert.Equal(t, expected, result)
 		})
 
 		t.Run("absolute path with .. at start", func(t *testing.T) {
@@ -379,11 +386,14 @@ func Test_resolveModulePath(t *testing.T) {
 			// Create absolute path that starts with .. (normalized by filepath.Join)
 			parentDir := filepath.Dir(projectRoot)
 			escapePath := filepath.Join(parentDir, "..", "outside", "module")
+			absPath := filepath.Clean(escapePath)
+			relPath, err := filepath.Rel(projectRoot, absPath)
+			require.NoError(t, err)
+			expected := filepath.ToSlash(relPath)
 
 			result, err := resolveModulePath(escapePath, projectRoot, logger)
-			assert.Error(t, err)
-			assert.Empty(t, result)
-			assert.Contains(t, err.Error(), "is outside the project root")
+			require.NoError(t, err)
+			assert.Equal(t, expected, result)
 		})
 
 		t.Run("absolute path with multiple .. sequences", func(t *testing.T) {
@@ -399,11 +409,14 @@ func Test_resolveModulePath(t *testing.T) {
 
 			// Path with multiple .. that escapes
 			escapePath := filepath.Join(testSubDir, "..", "..", "..", "outside", "module")
+			absPath := filepath.Clean(escapePath)
+			relPath, err := filepath.Rel(projectRoot, absPath)
+			require.NoError(t, err)
+			expected := filepath.ToSlash(relPath)
 
 			result, err := resolveModulePath(escapePath, projectRoot, logger)
-			assert.Error(t, err)
-			assert.Empty(t, result)
-			assert.Contains(t, err.Error(), "is outside the project root")
+			require.NoError(t, err)
+			assert.Equal(t, expected, result)
 		})
 
 		t.Run("absolute path with .. and . mixed", func(t *testing.T) {
@@ -419,11 +432,14 @@ func Test_resolveModulePath(t *testing.T) {
 
 			// Path with .. and . that escapes
 			escapePath := filepath.Join(testSubDir, ".", "..", "..", "outside", "module")
+			absPath := filepath.Clean(escapePath)
+			relPath, err := filepath.Rel(projectRoot, absPath)
+			require.NoError(t, err)
+			expected := filepath.ToSlash(relPath)
 
 			result, err := resolveModulePath(escapePath, projectRoot, logger)
-			assert.Error(t, err)
-			assert.Empty(t, result)
-			assert.Contains(t, err.Error(), "is outside the project root")
+			require.NoError(t, err)
+			assert.Equal(t, expected, result)
 		})
 	})
 
@@ -697,20 +713,21 @@ func Test_resolveModulePath(t *testing.T) {
 		t.Run("path with leading and trailing elements", func(t *testing.T) {
 			t.Parallel()
 
+			if runtime.GOOS == "windows" {
+				t.Skip("Skipping leading slash test on Windows")
+			}
+
 			tests := []struct {
 				name       string
 				modulePath string
-				want       string
 			}{
 				{
-					name:       "leading slash removed",
+					name:       "leading slash",
 					modulePath: "/test/module",
-					want:       "",
 				},
 				{
 					name:       "just slash",
 					modulePath: "/",
-					want:       "",
 				},
 			}
 
@@ -718,20 +735,14 @@ func Test_resolveModulePath(t *testing.T) {
 				t.Run(tt.name, func(t *testing.T) {
 					t.Parallel()
 
-					if runtime.GOOS == "windows" {
-						// On Windows, leading slash might be handled differently
-						t.Skip("Skipping leading slash test on Windows")
-					}
+					// Calculate expected relative path
+					relPath, err := filepath.Rel(projectRoot, tt.modulePath)
+					require.NoError(t, err)
+					expected := filepath.ToSlash(relPath)
 
 					result, err := resolveModulePath(tt.modulePath, projectRoot, logger)
-					if tt.want == "" {
-						// This should be an error case (absolute path outside)
-						assert.Error(t, err)
-						assert.Empty(t, result)
-					} else {
-						require.NoError(t, err)
-						assert.Equal(t, tt.want, result)
-					}
+					require.NoError(t, err)
+					assert.Equal(t, expected, result)
 				})
 			}
 		})
@@ -739,12 +750,9 @@ func Test_resolveModulePath(t *testing.T) {
 		t.Run("path with normalized elements", func(t *testing.T) {
 			t.Parallel()
 
-			currentDir, err := os.Getwd()
-			require.NoError(t, err)
-
 			// Create test directory structure
-			testDir := filepath.Join(currentDir, "test_edge")
-			err = os.MkdirAll(testDir, 0755)
+			testDir := filepath.Join(projectRoot, "test_edge")
+			err := os.MkdirAll(testDir, 0755)
 			require.NoError(t, err)
 			defer func() {
 				_ = os.RemoveAll(testDir)
@@ -768,7 +776,6 @@ func Test_resolveModulePath(t *testing.T) {
 			}
 
 			for _, tt := range tests {
-
 				t.Run(tt.name, func(t *testing.T) {
 					t.Parallel()
 
