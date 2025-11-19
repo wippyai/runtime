@@ -598,31 +598,43 @@ func TestConcurrentSubscribeWithFilter(t *testing.T) {
 
 	sendWg.Wait()
 
-	// Verify message distribution
-	timeout := time.After(5 * time.Second)
-	messageCount := make([]int, numSubscribers)
+	// Give time for all messages to be delivered to subscribers
+	// The bus processes messages asynchronously, so we need to wait
+	time.Sleep(100 * time.Millisecond)
 
-	done := make(chan bool)
-	go func() {
-		for i, ch := range subscriberChans {
-		loop:
+	// Verify message distribution
+	messageCount := make([]int, numSubscribers)
+	var countWg sync.WaitGroup
+
+	// Read from all channels concurrently with timeout
+	for i, ch := range subscriberChans {
+		countWg.Add(1)
+		go func(idx int, ch chan event.Event) {
+			defer countWg.Done()
+			timeout := time.After(2 * time.Second)
 			for {
 				select {
 				case _, ok := <-ch:
 					if !ok {
-						break loop
+						return
 					}
-					messageCount[i]++
-				default:
-					break loop
+					messageCount[idx]++
+				case <-timeout:
+					return
 				}
 			}
-		}
-		done <- true
+		}(i, ch)
+	}
+
+	// Wait for all readers to finish or timeout
+	done := make(chan struct{})
+	go func() {
+		countWg.Wait()
+		close(done)
 	}()
 
 	select {
-	case <-timeout:
+	case <-time.After(5 * time.Second):
 		t.Fatal("Timeout waiting for message processing")
 	case <-done:
 		// Continue
