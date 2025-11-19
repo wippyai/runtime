@@ -86,7 +86,7 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 		// while preventing request context from leaking to child functions
 		fc := contextapi.FrameFromContext(execCtx)
 		if fc != nil {
-			fc.Seal() // todo: wtf?
+			fc.Seal()
 		}
 
 		// Create task with request context as pairs (not in frame)
