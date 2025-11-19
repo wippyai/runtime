@@ -40,6 +40,7 @@ func TestFuncmodModule(t *testing.T) {
 			assert(type(process.inbox) == "function", "process.inbox should be a function")
 			assert(type(process.events) == "function", "process.events should be a function")
 			assert(type(process.listen) == "function", "process.listen should be a function")
+			assert(type(process.unlisten) == "function", "process.unlisten should be a function")
 			
 			-- Check that registry and events exist
 			assert(process.registry ~= nil, "process.registry should exist")
@@ -127,7 +128,7 @@ func TestFuncmodModule(t *testing.T) {
 		// Test that listen fails with @ topic
 		err = vm.State().DoString(`
 			local process = require("function_api")
-			
+
 			local ch, err = process.listen("@test")
 			if err then
 				error(err)
@@ -135,6 +136,46 @@ func TestFuncmodModule(t *testing.T) {
 		`)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot use @ topics")
+	})
+
+	t.Run("unlisten requires channel parameter", func(t *testing.T) {
+		logger := zap.NewNop()
+		module := NewFunctionAPIModule(logger)
+
+		vm, err := engine.NewCVM(logger)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		vm.State().PreloadModule(module.Name(), module.Loader)
+
+		// Test that unlisten fails without channel
+		err = vm.State().DoString(`
+			local process = require("function_api")
+
+			local result = process.unlisten()
+		`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bad argument")
+	})
+
+	t.Run("unlisten rejects invalid channel", func(t *testing.T) {
+		logger := zap.NewNop()
+		module := NewFunctionAPIModule(logger)
+
+		vm, err := engine.NewCVM(logger)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		vm.State().PreloadModule(module.Name(), module.Loader)
+
+		// Test that unlisten fails with non-channel argument
+		err = vm.State().DoString(`
+			local process = require("function_api")
+
+			local result = process.unlisten("not a channel")
+		`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "userdata expected")
 	})
 }
 

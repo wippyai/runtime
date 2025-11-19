@@ -54,6 +54,7 @@ func (m *Module) Loader(l *lua.LState) int {
 		mod.RawSetString("inbox", l.NewFunction(m.inbox))
 		mod.RawSetString("events", l.NewFunction(m.events))
 		mod.RawSetString("listen", l.NewFunction(m.listen))
+		mod.RawSetString("unlisten", l.NewFunction(m.unlisten))
 		mod.RawSetString("get_options", l.NewFunction(m.getOptions))
 		mod.RawSetString("set_options", l.NewFunction(m.setOptions))
 
@@ -259,4 +260,10 @@ func (m *Module) listen(l *lua.LState) int {
 
 	// Return the subscription result directly
 	return subscribe.Subscribe(l, ch, topic)
+}
+
+// unlisten unsubscribes from a topic via channel
+func (m *Module) unlisten(l *lua.LState) int {
+	ch := channel.CheckChannel(l)
+	return subscribe.Unsubscribe(l, ch)
 }
