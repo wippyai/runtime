@@ -90,7 +90,13 @@ func TestProcessPool_CollectBasicStats(t *testing.T) {
 		},
 	}
 
-	err := pool.Add(pid, sourceID, proc)
+	launch := &process.Launch{
+		PID:     pid,
+		Source:  sourceID,
+		Process: proc,
+	}
+
+	err := pool.Add(ctx, launch)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
@@ -103,7 +109,7 @@ func TestProcessPool_CollectBasicStats(t *testing.T) {
 
 	entry := entries[0]
 	assert.Equal(t, pid.UniqID, entry.PID.UniqID)
-	assert.Equal(t, sourceID, entry.SourceID)
+	assert.Equal(t, sourceID.String(), entry.SourceID)
 	assert.Greater(t, entry.StepCount, int64(0))
 	assert.False(t, entry.StartedAt.IsZero())
 	assert.False(t, entry.LastActivityAt.IsZero())
@@ -127,7 +133,13 @@ func TestProcessPool_InfoSamplingEveryN(t *testing.T) {
 		},
 	}
 
-	err := pool.Add(pid, sourceID, proc)
+	launch := &process.Launch{
+		PID:     pid,
+		Source:  sourceID,
+		Process: proc,
+	}
+
+	err := pool.Add(ctx, launch)
 	require.NoError(t, err)
 
 	for i := 0; i < 5; i++ {
@@ -152,7 +164,13 @@ func TestProcessPool_StatsWithNonInfoProvider(t *testing.T) {
 
 	proc := &mockProcess{stepResult: process.StepIdle}
 
-	err := pool.Add(pid, sourceID, proc)
+	launch := &process.Launch{
+		PID:     pid,
+		Source:  sourceID,
+		Process: proc,
+	}
+
+	err := pool.Add(ctx, launch)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)

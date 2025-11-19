@@ -8,6 +8,7 @@ import (
 
 	"github.com/wippyai/runtime/api/event"
 	api "github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/process/stats"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -146,4 +147,31 @@ func (r *HostRegistry) GetHost(hostID string) (api.Host, bool) {
 		return info.host, true
 	}
 	return nil, false
+}
+
+// CollectAll implements stats.Aggregator interface.
+func (r *HostRegistry) CollectAll(ctx context.Context) ([]stats.Snapshot, error) {
+	var snapshots []stats.Snapshot
+
+	r.hosts.Range(func(key, value any) bool {
+		info := value.(hostInfo)
+
+		if provider, ok := info.host.(stats.Provider); ok {
+			snapshot, err := provider.Collect(ctx)
+			if err != nil {
+				r.log.Warn("failed to collect stats from host",
+					zap.String("host", key.(string)),
+					zap.Error(err))
+				return true
+			}
+
+			if snapshot != nil {
+				snapshots = append(snapshots, *snapshot)
+			}
+		}
+
+		return true
+	})
+
+	return snapshots, nil
 }

@@ -18,7 +18,7 @@ import (
 // ProcessPoolAPI defines the interface that a process pool must implement
 type ProcessPoolAPI interface {
 	// Add registers a new process with the pool
-	Add(pid relay.PID, source registry.ID, proc process.Process) error
+	Add(ctx context.Context, launch *process.Launch) error
 
 	// Schedule adds a process to the work queue
 	Schedule(pid relay.PID) error

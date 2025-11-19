@@ -149,7 +149,7 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (relay.PID, e
 		return relay.PID{}, err
 	}
 
-	if err := h.pool.Add(launch.PID, launch.Source, launch.Process); err != nil {
+	if err := h.pool.Add(ctx, launch); err != nil {
 		launch.Process.Terminate()
 		h.msgHost.Detach(launch.PID)
 		return relay.PID{}, err
@@ -336,6 +336,24 @@ func (h *Host) startSystemWorker(ctx context.Context) {
 	}()
 }
 
+// Collect implements stats.Provider interface.
+func (h *Host) Collect(ctx context.Context) (*stats.Snapshot, error) {
+	enabled, sampleRate, entries, err := h.pool.Collect(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshot := &stats.Snapshot{
+		HostID:     h.id.String(),
+		Timestamp:  time.Now(),
+		Enabled:    enabled,
+		SampleRate: sampleRate,
+		Processes:  entries,
+	}
+
+	return snapshot, nil
+}
+
 // handleSystemMessage processes control messages sent to the @system endpoint.
 func (h *Host) handleSystemMessage(pkg *relay.Package) {
 	for _, msg := range pkg.Messages {
@@ -355,18 +373,10 @@ func (h *Host) handleSystemMessage(pkg *relay.Package) {
 			h.log.Debug("stats collection disabled")
 
 		case stats.TopicStatsCollect:
-			enabled, sampleRate, entries, err := h.pool.Collect(h.ctx)
+			snapshot, err := h.Collect(h.ctx)
 			if err != nil {
 				h.log.Error("failed to collect stats", zap.Error(err))
 				continue
-			}
-
-			snapshot := stats.Snapshot{
-				HostID:     h.id.String(),
-				Timestamp:  time.Now(),
-				Enabled:    enabled,
-				SampleRate: sampleRate,
-				Processes:  entries,
 			}
 
 			// Send snapshot back to caller

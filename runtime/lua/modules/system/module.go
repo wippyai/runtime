@@ -10,12 +10,14 @@
 package system
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"runtime"
 	"runtime/debug"
 	"sync"
 
+	"github.com/wippyai/runtime/api/process"
 	systemapi "github.com/wippyai/runtime/api/system"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
@@ -42,7 +44,7 @@ func (m *Module) Name() string {
 // It creates a Lua table populated with the module's functions.
 func (m *Module) Loader(l *lua.LState) int {
 	// Create a module table with exact pre-allocated size for its functions.
-	mod := l.CreateTable(0, 14) // 14 exported functions
+	mod := l.CreateTable(0, 15) // 15 exported functions
 
 	// Register functions using RawSetString for potentially better performance.
 	mod.RawSetString("mem_stats", l.NewFunction(m.memStats))
@@ -59,6 +61,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("set_memory_limit", l.NewFunction(m.setMemoryLimit))
 	mod.RawSetString("get_memory_limit", l.NewFunction(m.getMemoryLimit))
 	mod.RawSetString("exit", l.NewFunction(m.exit))
+	mod.RawSetString("process_stats", l.NewFunction(m.processStats))
 
 	l.Push(mod)
 	return 1 // Number of values returned to Lua (the module table)
@@ -397,6 +400,101 @@ func (*Module) exit(l *lua.LState) int {
 	systemapi.TriggerShutdown(l.Context(), code)
 
 	l.Push(lua.LBool(true))
+	l.Push(lua.LNil)
+	return 2
+}
+
+// processStats collects statistics from all process hosts.
+// Returns a table containing stats from all hosts or nil and error.
+// Requires "system.read" permission for "process_stats" resource.
+func (*Module) processStats(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "process_stats", nil) {
+		l.RaiseError("permission denied: system.read on process_stats required")
+		return 0
+	}
+
+	hosts := process.GetHosts(l.Context())
+	if hosts == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("process hosts not available"))
+		return 2
+	}
+
+	snapshots, err := hosts.CollectAll(l.Context())
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Build Lua table manually for optimal serialization
+	result := l.CreateTable(len(snapshots), 0)
+
+	for i, snapshot := range snapshots {
+		hostTable := l.CreateTable(0, 5)
+		hostTable.RawSetString("host_id", lua.LString(snapshot.HostID))
+		hostTable.RawSetString("timestamp", lua.LNumber(snapshot.Timestamp.UnixNano()))
+		hostTable.RawSetString("enabled", lua.LBool(snapshot.Enabled))
+		hostTable.RawSetString("sample_rate", lua.LNumber(snapshot.SampleRate))
+
+		// Build processes array
+		processesTable := l.CreateTable(len(snapshot.Processes), 0)
+		for j, entry := range snapshot.Processes {
+			entryTable := l.CreateTable(0, 8)
+			entryTable.RawSetString("pid", lua.LString(entry.PID.String()))
+			entryTable.RawSetString("id", lua.LString(entry.SourceID))
+			entryTable.RawSetString("started_at", lua.LNumber(entry.StartedAt.UnixNano()))
+			entryTable.RawSetString("step_count", lua.LNumber(entry.StepCount))
+			entryTable.RawSetString("last_activity_at", lua.LNumber(entry.LastActivityAt.UnixNano()))
+
+			if entry.Actor != "" {
+				entryTable.RawSetString("actor", lua.LString(entry.Actor))
+			}
+
+			// Convert Options map to Lua table (inline for known types)
+			if len(entry.Options) > 0 {
+				optionsTable := l.CreateTable(0, len(entry.Options))
+				for k, v := range entry.Options {
+					switch val := v.(type) {
+					case string:
+						optionsTable.RawSetString(k, lua.LString(val))
+					case bool:
+						optionsTable.RawSetString(k, lua.LBool(val))
+					default:
+						optionsTable.RawSetString(k, lua.LString(fmt.Sprint(val)))
+					}
+				}
+				entryTable.RawSetString("options", optionsTable)
+			}
+
+			// Convert Info map to Lua table (inline for known types)
+			if len(entry.Info) > 0 {
+				infoTable := l.CreateTable(0, len(entry.Info))
+				for k, v := range entry.Info {
+					switch val := v.(type) {
+					case string:
+						infoTable.RawSetString(k, lua.LString(val))
+					case bool:
+						infoTable.RawSetString(k, lua.LBool(val))
+					case int64:
+						infoTable.RawSetString(k, lua.LNumber(val))
+					case float64:
+						infoTable.RawSetString(k, lua.LNumber(val))
+					default:
+						infoTable.RawSetString(k, lua.LString(fmt.Sprint(val)))
+					}
+				}
+				entryTable.RawSetString("info", infoTable)
+			}
+
+			processesTable.RawSetInt(j+1, entryTable)
+		}
+		hostTable.RawSetString("processes", processesTable)
+
+		result.RawSetInt(i+1, hostTable)
+	}
+
+	l.Push(result)
 	l.Push(lua.LNil)
 	return 2
 }
