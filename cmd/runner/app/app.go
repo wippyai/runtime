@@ -704,11 +704,6 @@ func (a *App) loadApplicationState(ctx context.Context, appFS iofs.FS) (regapi.C
 			zap.Int("count", len(loadResult.Modules)),
 			zap.Any("modules", loadResult.Modules))
 
-		projectRootFS, err := createProjectRootFS(a.config.folderPath)
-		if err != nil {
-			return nil, nil, fmt.Errorf("create project root filesystem: %w", err)
-		}
-
 		// Create mapping from module names to their parent dependency entry IDs
 		parentDependencyMap := deps.CreateParentDependencyMap(entries, loadResult, a.logger)
 
@@ -717,7 +712,26 @@ func (a *App) loadApplicationState(ctx context.Context, appFS iofs.FS) (regapi.C
 			return nil, nil, fmt.Errorf("parent dependency conflicts detected: %w", err)
 		}
 
-		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS, a.config.folderPath, a.logger, parentDependencyMap)
+		// Use lock file directory as base for resolving module paths (relative paths in lock file are relative to lock file location)
+		// If lockFileDir is not set, fall back to folderPath
+		modulePathBase := a.config.lockFileDir
+		if modulePathBase == "" {
+			// If no lock file directory, try to derive it from lock file path
+			if a.config.lockFilePath != "" {
+				modulePathBase = filepath.Dir(a.config.lockFilePath)
+			} else {
+				// Fallback to folderPath if no lock file info available
+				modulePathBase = a.config.folderPath
+			}
+		}
+
+		// Create filesystem from lock file directory (not folderPath/appDir) because modules are relative to lock file location
+		projectRootFS, err := createProjectRootFS(modulePathBase)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create project root filesystem from lock file directory %s: %w", modulePathBase, err)
+		}
+
+		dependencyEntries, err := loadEntriesFromLoadedModules(ctx, folderLoader, loadResult, projectRootFS, modulePathBase, a.logger, parentDependencyMap)
 		if err != nil {
 			return nil, nil, fmt.Errorf("load dependencies: %w", err)
 		}
@@ -886,7 +900,12 @@ func (a *App) ForceShutdown() {
 }
 
 func createProjectRootFS(folderPath string) (iofs.FS, error) {
-	projectRoot := folderPath
+	// Normalize the path to handle Windows backslashes and ensure it's absolute
+	absPath, err := filepath.Abs(folderPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path for %s: %w", folderPath, err)
+	}
+	projectRoot := filepath.Clean(absPath)
 
 	osRoot, err := os.OpenRoot(projectRoot)
 	if err != nil {
@@ -896,13 +915,26 @@ func createProjectRootFS(folderPath string) (iofs.FS, error) {
 	return osRoot.FS(), nil
 }
 
+// resolveModulePath resolves a module path relative to the project root (lock file directory).
+// For absolute paths, it converts them to relative paths from projectRoot.
+// For relative paths, it resolves them relative to projectRoot.
+// projectRoot should be the directory containing the lock file (lockFileDir).
 func resolveModulePath(modulePath string, projectRoot string, mainLogger *zap.Logger) (string, error) {
+	// Handle empty path
+	if modulePath == "" {
+		return "", nil
+	}
+
+	// Convert Windows backslashes to forward slashes for cross-platform compatibility
+	// But preserve multiple slashes and trailing slashes for relative paths
+	normalizedForCheck := filepath.Clean(modulePath)
+
 	// Check if the path is absolute (works cross-platform for both Unix and Windows)
-	if filepath.IsAbs(modulePath) {
+	if filepath.IsAbs(normalizedForCheck) {
 		// Convert absolute path to relative path from project root
-		relPath, err := filepath.Rel(projectRoot, modulePath)
+		relPath, err := filepath.Rel(projectRoot, normalizedForCheck)
 		if err != nil {
-			return "", fmt.Errorf("failed to resolve relative path from %s to %s: %w", projectRoot, modulePath, err)
+			return "", fmt.Errorf("failed to resolve relative path from %s to %s: %w", projectRoot, normalizedForCheck, err)
 		}
 
 		// Convert to forward slashes for fs.FS compatibility
@@ -910,6 +942,7 @@ func resolveModulePath(modulePath string, projectRoot string, mainLogger *zap.Lo
 
 		mainLogger.Debug("resolved absolute replacement path",
 			zap.String("originalPath", modulePath),
+			zap.String("normalizedPath", normalizedForCheck),
 			zap.String("projectRoot", projectRoot),
 			zap.String("relativePath", relPath),
 			zap.String("finalModulePath", resolvedPath))
@@ -917,10 +950,12 @@ func resolveModulePath(modulePath string, projectRoot string, mainLogger *zap.Lo
 		return resolvedPath, nil
 	}
 
-	// Handle relative paths
+	// Handle relative paths with ./ or ../ prefix
 	if strings.HasPrefix(modulePath, "./") || strings.HasPrefix(modulePath, "../") {
+		// For paths with ./ or ../, normalize them
+		normalizedPath := filepath.Clean(modulePath)
 		// Convert relative path to absolute path
-		absPath := filepath.Join(projectRoot, modulePath)
+		absPath := filepath.Join(projectRoot, normalizedPath)
 		absPath = filepath.Clean(absPath)
 
 		// Convert absolute path to relative path from project root
@@ -934,6 +969,7 @@ func resolveModulePath(modulePath string, projectRoot string, mainLogger *zap.Lo
 
 		mainLogger.Debug("resolved relative replacement path",
 			zap.String("originalPath", modulePath),
+			zap.String("normalizedPath", normalizedPath),
 			zap.String("projectRoot", projectRoot),
 			zap.String("absolutePath", absPath),
 			zap.String("relativePath", relPath),
@@ -942,8 +978,18 @@ func resolveModulePath(modulePath string, projectRoot string, mainLogger *zap.Lo
 		return resolvedPath, nil
 	}
 
-	// Default: assume it's already a relative path, just convert to forward slashes
-	return filepath.ToSlash(modulePath), nil
+	// Default: relative path without prefix (e.g., ".wippy/vendor/org/module")
+	// For plain relative paths, preserve the original structure but convert backslashes to forward slashes
+	// This preserves multiple slashes and trailing slashes as expected by tests
+	// Convert Windows backslashes to forward slashes
+	resolvedPath := filepath.ToSlash(modulePath)
+
+	mainLogger.Debug("resolved relative path without prefix",
+		zap.String("originalPath", modulePath),
+		zap.String("projectRoot", projectRoot),
+		zap.String("finalModulePath", resolvedPath))
+
+	return resolvedPath, nil
 }
 
 func loadEntriesFromLoadedModules(
@@ -967,9 +1013,33 @@ func loadEntriesFromLoadedModules(
 			return nil, err
 		}
 
-		moduleFS, err := iofs.Sub(rootFS, modulePath)
-		if err != nil {
-			return nil, fmt.Errorf("create sub-filesystem for module %s: %w", module.Path, err)
+		var moduleFS iofs.FS
+		// Check if the module path is outside the project root (starts with ..)
+		if strings.HasPrefix(modulePath, "..") {
+			// Module is outside project root, create a separate filesystem from absolute path
+			var absModulePath string
+			// Normalize the original module path first
+			normalizedModulePath := filepath.Clean(module.Path)
+			if filepath.IsAbs(normalizedModulePath) {
+				absModulePath = normalizedModulePath
+			} else {
+				// Reconstruct absolute path from relative path
+				absModulePath = filepath.Join(projectRoot, normalizedModulePath)
+				absModulePath = filepath.Clean(absModulePath)
+			}
+
+			osRoot, err := os.OpenRoot(absModulePath)
+			if err != nil {
+				return nil, fmt.Errorf("open module directory %s: %w", absModulePath, err)
+			}
+			moduleFS = osRoot.FS()
+		} else {
+			// Module is inside project root, use sub-filesystem
+			// modulePath is already normalized and uses forward slashes from resolveModulePath
+			moduleFS, err = iofs.Sub(rootFS, modulePath)
+			if err != nil {
+				return nil, fmt.Errorf("create sub-filesystem for module %s (resolved path: %s): %w", module.Path, modulePath, err)
+			}
 		}
 
 		moduleEntries, err := folderLoader.LoadFS(ctx, moduleFS)
