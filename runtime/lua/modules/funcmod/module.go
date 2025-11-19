@@ -58,6 +58,7 @@ func (e *Module) Loader(l *lua.LState) int {
 		mod.RawSetString("inbox", l.NewFunction(e.lazyInbox))
 		mod.RawSetString("events", l.NewFunction(e.lazyEvents))
 		mod.RawSetString("listen", l.NewFunction(e.lazyListen))
+		mod.RawSetString("unlisten", l.NewFunction(e.lazyUnlisten))
 
 		// Make immutable for reuse across all functions
 		mod.Immutable = true
@@ -311,4 +312,10 @@ func (e *Module) lazyListen(l *lua.LState) int {
 
 	// Return the subscription result directly
 	return subscribe.Subscribe(l, ch, topic)
+}
+
+// lazyUnlisten unsubscribes from a topic via channel
+func (e *Module) lazyUnlisten(l *lua.LState) int {
+	ch := channel.CheckChannel(l)
+	return subscribe.Unsubscribe(l, ch)
 }

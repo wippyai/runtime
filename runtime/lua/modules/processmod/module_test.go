@@ -40,6 +40,7 @@ func TestProcessmodModule(t *testing.T) {
 			assert(type(process.inbox) == "function", "process.inbox should be a function")
 			assert(type(process.events) == "function", "process.events should be a function")
 			assert(type(process.listen) == "function", "process.listen should be a function")
+			assert(type(process.unlisten) == "function", "process.unlisten should be a function")
 			assert(type(process.get_options) == "function", "process.get_options should be a function")
 			assert(type(process.set_options) == "function", "process.set_options should be a function")
 			
@@ -129,7 +130,7 @@ func TestProcessmodModule(t *testing.T) {
 		// Test that listen fails with @ topic
 		err = vm.State().DoString(`
 			local process = require("process_api")
-			
+
 			local ch, err = process.listen("@test")
 			if err then
 				error(err)
@@ -137,6 +138,46 @@ func TestProcessmodModule(t *testing.T) {
 		`)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot use @ topics")
+	})
+
+	t.Run("unlisten requires channel parameter", func(t *testing.T) {
+		logger := zap.NewNop()
+		module := NewProcessAPIModule(logger)
+
+		vm, err := engine.NewCVM(logger)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		vm.State().PreloadModule(module.Name(), module.Loader)
+
+		// Test that unlisten fails without channel
+		err = vm.State().DoString(`
+			local process = require("process_api")
+
+			local result = process.unlisten()
+		`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bad argument")
+	})
+
+	t.Run("unlisten rejects invalid channel", func(t *testing.T) {
+		logger := zap.NewNop()
+		module := NewProcessAPIModule(logger)
+
+		vm, err := engine.NewCVM(logger)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		vm.State().PreloadModule(module.Name(), module.Loader)
+
+		// Test that unlisten fails with non-channel argument
+		err = vm.State().DoString(`
+			local process = require("process_api")
+
+			local result = process.unlisten("not a channel")
+		`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "userdata expected")
 	})
 }
 
