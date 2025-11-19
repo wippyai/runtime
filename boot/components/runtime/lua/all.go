@@ -13,6 +13,7 @@ func All() []boot.Component {
 		Contract(),
 		Context(),
 		Crypto(),
+		Eval(),
 		Events(),
 		Excel(),
 		Exec(),

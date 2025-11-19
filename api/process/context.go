@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/process/stats"
 )
 
 // PrototypeFactory manages process prototypes.
@@ -18,6 +19,7 @@ type PrototypeFactory interface {
 type HostRegistry interface {
 	Start(ctx context.Context) error
 	Stop() error
+	stats.Aggregator
 }
 
 // Context keys for storing process-related information in context.Context

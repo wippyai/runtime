@@ -10,6 +10,7 @@ const (
 	LuaCompressName     = "lua.compress"
 	LuaContractName     = "lua.contract"
 	LuaContextName      = "lua.context"
+	LuaEvalName         = "lua.eval"
 	LuaCryptoName       = "lua.crypto"
 	LuaEventsName       = "lua.events"
 	LuaExcelName        = "lua.excel"

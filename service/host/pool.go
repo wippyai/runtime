@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/process/stats"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
@@ -19,6 +20,8 @@ import (
 type processEntry struct {
 	process process.Process
 	source  registry.ID
+	options attrs.Attributes
+	actor   string
 	running atomic.Bool
 	awaken  atomic.Bool
 
@@ -67,23 +70,30 @@ func NewProcessPool(
 }
 
 // Add registers a new process with the pool
-func (p *ProcessPool) Add(pid relay.PID, source registry.ID, proc process.Process) error {
+func (p *ProcessPool) Add(ctx context.Context, launch *process.Launch) error {
 	if p.maxProcesses != 0 && int(p.numProcesses.Load()) >= p.maxProcesses {
 		p.log.Warn("max processes reached, cannot add new process",
-			zap.String("pid", pid.String()),
-			zap.String("id", source.String()))
+			zap.String("pid", launch.PID.String()),
+			zap.String("id", launch.Source.String()))
 		return process.ErrMaxProcesses
 	}
 
+	var actorID string
+	if actor, ok := security.GetActor(ctx); ok {
+		actorID = actor.ID
+	}
+
 	entry := &processEntry{
-		process:   proc,
-		source:    source,
+		process:   launch.Process,
+		source:    launch.Source,
+		options:   launch.Options,
+		actor:     actorID,
 		startedAt: time.Now(),
 	}
 	entry.stepCount.Store(0)
 	entry.lastActivityAt.Store(time.Now().UnixNano())
 
-	if _, loaded := p.processes.LoadOrStore(pid.String(), entry); loaded {
+	if _, loaded := p.processes.LoadOrStore(launch.PID.String(), entry); loaded {
 		return process.ErrHostBusy
 	}
 
@@ -91,7 +101,7 @@ func (p *ProcessPool) Add(pid relay.PID, source registry.ID, proc process.Proces
 	p.numProcesses.Add(1)
 
 	// Schedule initial execution
-	return p.Schedule(pid)
+	return p.Schedule(launch.PID)
 }
 
 // Cancel sends a cancellation signal to a specific process
@@ -305,10 +315,6 @@ func (p *ProcessPool) Collect(_ context.Context) (bool, int64, []stats.Entry, er
 	enabled := p.statsEnabled.Load()
 	sampleRate := p.statsSampleEveryN.Load()
 
-	if !enabled {
-		return false, 0, nil, nil
-	}
-
 	var entries []stats.Entry
 	p.processes.Range(func(key, value any) bool {
 		pidStr := key.(string)
@@ -320,12 +326,21 @@ func (p *ProcessPool) Collect(_ context.Context) (bool, int64, []stats.Entry, er
 			info = i.(attrs.Bag)
 		}
 
+		var optionsBag attrs.Bag
+		if entry.options != nil {
+			if bag, ok := entry.options.(attrs.Bag); ok {
+				optionsBag = bag
+			}
+		}
+
 		entries = append(entries, stats.Entry{
 			PID:            pid,
-			SourceID:       entry.source,
+			SourceID:       entry.source.String(),
 			StartedAt:      entry.startedAt,
 			StepCount:      entry.stepCount.Load(),
 			LastActivityAt: time.Unix(0, entry.lastActivityAt.Load()),
+			Actor:          entry.actor,
+			Options:        optionsBag,
 			Info:           info,
 		})
 		return true

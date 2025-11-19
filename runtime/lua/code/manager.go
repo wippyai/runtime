@@ -238,6 +238,11 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	return nil
 }
 
+// GetNode retrieves a node from the graph by ID
+func (cm *Manager) GetNode(id registry.ID) (*Node, error) {
+	return cm.memGraph.GetNode(id)
+}
+
 // DeleteNode removes a node and its dependencies from the graph
 func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 	// Get node to verify it exists
