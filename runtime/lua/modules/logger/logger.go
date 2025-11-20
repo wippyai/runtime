@@ -9,7 +9,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/inspect"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
-	transcoder "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -95,7 +94,7 @@ func tableToFields(table *lua.LTable) []zap.Field {
 		case lua.LTNil, lua.LTFunction, lua.LTThread, lua.LTTable, lua.LTChannel:
 			fallthrough
 		default:
-			fields = append(fields, zap.Any(string(key), transcoder.ToGoAny(v)))
+			fields = append(fields, zap.Any(string(key), value.ToGoAny(v)))
 		}
 	})
 

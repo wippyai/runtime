@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	jsonlua "github.com/wippyai/runtime/runtime/lua/modules/json"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -40,7 +41,7 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 		return nil, fmt.Errorf("Lua=>Golang expects data to be of type lua.LValue, got %T", p.Data())
 	}
 
-	data := ToGoAny(lv)
+	data := value.ToGoAny(lv)
 
 	return payload.NewPayload(data, payload.Golang), nil
 }

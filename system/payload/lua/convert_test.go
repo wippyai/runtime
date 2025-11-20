@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -55,19 +56,19 @@ func TestToGoAny(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ToGoAny(tt.input)
+			got := value.ToGoAny(tt.input)
 
 			if tt.name == "Other" {
 				// Special handling for the "Other" case
 				gotString, ok := got.(string)
 				if !ok {
-					t.Errorf("ToGoAny() for function: expected a string, got %T", got)
+					t.Errorf("value.ToGoAny() for function: expected a string, got %T", got)
 				}
 				if !strings.Contains(gotString, "function") {
-					t.Errorf("ToGoAny() for function: expected string to contain 'function', got '%s'", gotString)
+					t.Errorf("value.ToGoAny() for function: expected string to contain 'function', got '%s'", gotString)
 				}
 			} else if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ToGoAny() = %v, want %v", got, tt.want)
+				t.Errorf("value.ToGoAny() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -163,8 +164,8 @@ func TestGoToLua(t *testing.T) {
 				// Compare keys and values
 				wantTable.ForEach(func(k lua.LValue, v lua.LValue) {
 					gotValue := gotTable.RawGet(k)
-					if !reflect.DeepEqual(ToGoAny(gotValue), ToGoAny(v)) {
-						t.Errorf("GoToLua() table value for key %v = %v, want %v", k, ToGoAny(gotValue), ToGoAny(v))
+					if !reflect.DeepEqual(value.ToGoAny(gotValue), value.ToGoAny(v)) {
+						t.Errorf("GoToLua() table value for key %v = %v, want %v", k, value.ToGoAny(gotValue), value.ToGoAny(v))
 					}
 				})
 			} else if !reflect.DeepEqual(got, tt.want) {
@@ -328,7 +329,7 @@ func TestGoToLuaExtended(t *testing.T) {
 				return
 			}
 
-			gotMap := ToGoAny(got)
+			gotMap := value.ToGoAny(got)
 			assert.Equal(t, tt.want, gotMap)
 		})
 	}

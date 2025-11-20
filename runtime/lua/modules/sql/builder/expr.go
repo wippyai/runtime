@@ -13,14 +13,14 @@ import (
 // Update the luaTableToMap function in expr.go to handle SQL_NULL special marker
 func luaTableToMap(_ *lua.LState, table *lua.LTable) map[string]interface{} {
 	result := make(map[string]interface{})
-	table.ForEach(func(key, value lua.LValue) {
+	table.ForEach(func(key, val lua.LValue) {
 		// Only use string keys
 		if key.Type() == lua.LTString {
 			keyStr := string(key.(lua.LString))
 
 			// Check for SQL_NULL marker
-			if value.Type() == lua.LTUserData {
-				if ud, ok := value.(*lua.LUserData); ok {
+			if val.Type() == lua.LTUserData {
+				if ud, ok := val.(*lua.LUserData); ok {
 					// Check if it's our NULL marker (from asNull function)
 					if marker, ok := ud.Value.(string); ok && marker == "SQL_NULL" {
 						result[keyStr] = nil
@@ -36,7 +36,7 @@ func luaTableToMap(_ *lua.LState, table *lua.LTable) map[string]interface{} {
 			}
 
 			// Use default conversion for non-NULL values
-			result[keyStr] = luaconv.ToGoAny(value)
+			result[keyStr] = value.ToGoAny(val)
 		}
 	})
 	return result
@@ -179,7 +179,7 @@ func builderExpr(l *lua.LState) int {
 			args[i-2] = nil
 		} else {
 			// Convert using existing mechanism for a single value
-			args[i-2] = luaconv.ToGoAny(v)
+			args[i-2] = value.ToGoAny(v)
 		}
 	} // todo: more tests please!
 

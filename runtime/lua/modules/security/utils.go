@@ -5,7 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	luaconv "github.com/wippyai/runtime/system/payload/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -22,7 +22,7 @@ func luaTableToMetadata(l *lua.LState, table *lua.LTable) (registry.Metadata, er
 	// Convert each key-value pair
 	table.ForEach(func(k, v lua.LValue) {
 		if ks, ok := k.(lua.LString); ok {
-			meta[string(ks)] = luaconv.ToGoAny(v)
+			meta[string(ks)] = value.ToGoAny(v)
 		}
 	})
 

@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -9,7 +10,6 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/boot/loader"

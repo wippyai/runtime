@@ -54,12 +54,17 @@ functions:
 lua:
   proto_cache_size: 60000     # Lua proto cache size
   main_cache_size: 10000      # Lua main cache size
-  expr_capacity: 5000         # Expression module capacity
+  expr:
+    cache_enabled: true       # Enable expression caching
+    capacity: 5000            # Expression cache capacity
+  json:
+    cache_enabled: true       # Enable schema validation caching
+    capacity: 1000            # Schema cache capacity
 
 # OpenTelemetry configuration
 # Distributed tracing and observability
 otel:
-  enabled: false                # Enable OpenTelemetry tracing
+  enabled: true                 # Enable OpenTelemetry tracing
   endpoint: http://localhost:4318  # OTLP exporter endpoint
   protocol: http/protobuf       # OTLP protocol: grpc | http/protobuf
   service_name: wippy           # Service name in traces

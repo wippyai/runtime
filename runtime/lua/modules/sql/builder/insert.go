@@ -155,7 +155,7 @@ func insertValues(l *lua.LState) int {
 	// Convert Lua values to Go values
 	values := make([]interface{}, 0, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
-		values = append(values, luaconv.ToGoAny(l.Get(i)))
+		values = append(values, value.ToGoAny(l.Get(i)))
 	}
 
 	// Create new wrapper
@@ -232,7 +232,7 @@ func insertSuffix(l *lua.LState) int {
 	// Handle optional args
 	args := make([]interface{}, 0, l.GetTop()-2)
 	for i := 3; i <= l.GetTop(); i++ {
-		args = append(args, luaconv.ToGoAny(l.Get(i)))
+		args = append(args, value.ToGoAny(l.Get(i)))
 	}
 
 	// Create new wrapper

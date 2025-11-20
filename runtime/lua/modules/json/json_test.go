@@ -570,3 +570,226 @@ func TestJSONOptimization(t *testing.T) {
 		assert.Equal(t, false, nested["flag"])
 	})
 }
+
+func TestJsonModuleOptions(t *testing.T) {
+	t.Run("default options", func(t *testing.T) {
+		mod := NewJSONModule()
+		assert.False(t, mod.EnableCache)
+		assert.Equal(t, 100, mod.CacheSize)
+	})
+
+	t.Run("with cache enabled", func(t *testing.T) {
+		mod := NewJSONModule(WithCache(true))
+		assert.True(t, mod.EnableCache)
+		assert.Equal(t, 100, mod.CacheSize)
+	})
+
+	t.Run("with custom capacity", func(t *testing.T) {
+		mod := NewJSONModule(WithCapacity(500))
+		assert.False(t, mod.EnableCache)
+		assert.Equal(t, 500, mod.CacheSize)
+	})
+
+	t.Run("with cache enabled and custom capacity", func(t *testing.T) {
+		mod := NewJSONModule(WithCache(true), WithCapacity(1000))
+		assert.True(t, mod.EnableCache)
+		assert.Equal(t, 1000, mod.CacheSize)
+	})
+}
+
+func TestJsonValidation(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("validate with schema string and valid data", func(t *testing.T) {
+		mod := NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local schema = '{"type": "object", "properties": {"name": {"type": "string"}, "age": {"type": "number"}}, "required": ["name"]}'
+			local data = {name = "John", age = 30}
+			local ok, err = json.validate(schema, data)
+			assert(ok == true, "validation should succeed")
+			assert(err == nil, "should have no error")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validate with schema string and invalid data", func(t *testing.T) {
+		mod := NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local schema = '{"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}'
+			local data = {age = 30}
+			local ok, err = json.validate(schema, data)
+			assert(ok == false, "validation should fail")
+			assert(err ~= nil, "should have error")
+			assert(err.type == "validation_error", "error type should be validation_error")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validate with schema table and valid data", func(t *testing.T) {
+		mod := NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local schema = {
+				type = "object",
+				properties = {
+					name = {type = "string"},
+					age = {type = "number"}
+				},
+				required = {"name"}
+			}
+			local data = {name = "Alice", age = 25}
+			local ok, err = json.validate(schema, data)
+			assert(ok == true, "validation should succeed")
+			assert(err == nil, "should have no error")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validate with missing schema", func(t *testing.T) {
+		mod := NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local data = {name = "John"}
+			local ok, err = json.validate(nil, data)
+			assert(ok == false, "validation should fail")
+			assert(err ~= nil, "should have error")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validate with missing data", func(t *testing.T) {
+		mod := NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local schema = '{"type": "string"}'
+			local ok, err = json.validate(schema, nil)
+			assert(ok == false, "validation should fail")
+			assert(err ~= nil, "should have error")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validate_string with valid JSON", func(t *testing.T) {
+		mod := NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local schema = '{"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}'
+			local jsonStr = '{"name": "Bob", "age": 35}'
+			local ok, err = json.validate_string(schema, jsonStr)
+			assert(ok == true, "validation should succeed")
+			assert(err == nil, "should have no error")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validate_string with invalid JSON", func(t *testing.T) {
+		mod := NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local schema = '{"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}'
+			local jsonStr = '{"age": 35}'
+			local ok, err = json.validate_string(schema, jsonStr)
+			assert(ok == false, "validation should fail")
+			assert(err ~= nil, "should have error")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validate_string with non-string data", func(t *testing.T) {
+		mod := NewJSONModule()
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local schema = '{"type": "string"}'
+			local ok, err = json.validate_string(schema, {name = "test"})
+			assert(ok == false, "validation should fail")
+			assert(err ~= nil, "should have error")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validate with caching enabled", func(t *testing.T) {
+		mod := NewJSONModule()
+		mod.EnableCache = true
+		mod.CacheSize = 10
+
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(context.Background(), `
+			local json = require("json")
+			local schema = '{"type": "string"}'
+
+			local ok1, err1 = json.validate(schema, "hello")
+			assert(ok1 == true, "first validation should succeed")
+
+			local ok2, err2 = json.validate(schema, "world")
+			assert(ok2 == true, "second validation should succeed with cached schema")
+
+			local ok3, err3 = json.validate(schema, 123)
+			assert(ok3 == false, "third validation should fail")
+		`, "test")
+		assert.NoError(t, err)
+	})
+}

@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	ctxapi "github.com/wippyai/runtime/api/context" // Spawn sure this import path is correct
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	transcoder "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -109,7 +110,7 @@ func (m *Module) set(l *lua.LState) int {
 		return 0
 	}
 
-	values.Set(k, transcoder.ToGoAny(l.CheckAny(2)))
+	values.Set(k, value.ToGoAny(l.CheckAny(2)))
 
 	l.Push(lua.LTrue)
 	l.Push(lua.LNil)

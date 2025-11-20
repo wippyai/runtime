@@ -257,7 +257,7 @@ func (m *Module) send(l *lua.LState) int {
 	// Optional data parameter
 	var data any
 	if l.GetTop() >= 4 && l.Get(4) != lua.LNil {
-		data = luaconv.ToGoAny(l.Get(4))
+		data = value.ToGoAny(l.Get(4))
 	}
 
 	// Create and send event

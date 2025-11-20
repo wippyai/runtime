@@ -45,6 +45,18 @@ func InitializeProvider(ctx context.Context, cfg otelapi.Config, logger *zap.Log
 
 	otel.SetTracerProvider(tp)
 
+	// Configure OTEL SDK to use our centralized logger for internal errors
+	// This ensures all OTEL internal errors (like connection refused)
+	// go through our Zap logger instead of stderr
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		// Use the same logger instance that was passed to InitializeProvider
+		logger.Error("OTEL SDK internal error",
+			zap.Error(err),
+			zap.String("endpoint", cfg.Endpoint),
+			zap.String("protocol", cfg.Protocol),
+		)
+	}))
+
 	configurePropagators(cfg, logger)
 
 	logger.Info("OTEL provider initialized",

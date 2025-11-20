@@ -7,13 +7,12 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/function"
-	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
 	"github.com/wippyai/runtime/api/runtime"
 	"go.uber.org/zap"
 )
 
 type entry struct {
-	interceptor apiinterceptor.Interceptor
+	interceptor function.Interceptor
 	order       int
 	name        string
 }
@@ -37,7 +36,7 @@ func NewInterceptorRegistry(logger *zap.Logger) *Registry {
 }
 
 // Register adds an interceptor to the registry
-func (r *Registry) Register(name string, interceptor apiinterceptor.Interceptor, order int) error {
+func (r *Registry) Register(name string, interceptor function.Interceptor, order int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -88,7 +87,7 @@ func (r *Registry) rebuild() {
 		return r.entries[i].order < r.entries[j].order
 	})
 
-	interceptors := make([]apiinterceptor.Interceptor, len(r.entries))
+	interceptors := make([]function.Interceptor, len(r.entries))
 	for i, e := range r.entries {
 		interceptors[i] = e.interceptor
 	}

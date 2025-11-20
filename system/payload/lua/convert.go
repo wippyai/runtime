@@ -43,52 +43,6 @@ func getStructFields(rt reflect.Type) []fieldInfo {
 	return fields
 }
 
-// ToGoAny converts a lua.LValue to its Go equivalent.
-func ToGoAny(v lua.LValue) any {
-	if v == nil {
-		return nil
-	}
-
-	switch v.Type() {
-	case lua.LTNil:
-		return nil
-	case lua.LTBool:
-		return lua.LVAsBool(v)
-	case lua.LTNumber:
-		return float64(v.(lua.LNumber))
-	case lua.LTString:
-		return string(v.(lua.LString))
-	case lua.LTTable:
-		tbl := v.(*lua.LTable)
-		maxn := tbl.MaxN()
-		if maxn == 0 { // todo: optimize?
-			return tableToMap(tbl)
-		}
-		return tableToSlice(tbl, maxn)
-	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
-		// FIXME rework on demand
-		fallthrough
-	default:
-		return v.String()
-	}
-}
-
-func tableToMap(tbl *lua.LTable) map[string]any {
-	result := make(map[string]any)
-	tbl.ForEach(func(key, value lua.LValue) {
-		result[key.String()] = ToGoAny(value)
-	})
-	return result
-}
-
-func tableToSlice(tbl *lua.LTable, maxn int) []any {
-	result := make([]any, 0, maxn)
-	for i := 1; i <= maxn; i++ {
-		result = append(result, ToGoAny(tbl.RawGetInt(i)))
-	}
-	return result
-}
-
 // GoToLua converts a Go value to its Lua equivalent.
 func GoToLua(v any) (lua.LValue, error) {
 	if v == nil {

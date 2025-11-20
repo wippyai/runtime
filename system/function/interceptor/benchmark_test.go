@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
+	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	"go.uber.org/zap"
@@ -30,7 +30,7 @@ func BenchmarkChainExecuteNoInterceptors(b *testing.B) {
 // BenchmarkChainExecuteOneInterceptor benchmarks chain with one interceptor
 func BenchmarkChainExecuteOneInterceptor(b *testing.B) {
 	int1 := &benchInterceptor{name: "int1"}
-	chain := newChain([]apiinterceptor.Interceptor{int1}, zap.NewNop())
+	chain := newChain([]function.Interceptor{int1}, zap.NewNop())
 
 	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{}, nil
@@ -50,7 +50,7 @@ func BenchmarkChainExecuteThreeInterceptors(b *testing.B) {
 	int1 := &benchInterceptor{name: "int1"}
 	int2 := &benchInterceptor{name: "int2"}
 	int3 := &benchInterceptor{name: "int3"}
-	chain := newChain([]apiinterceptor.Interceptor{int1, int2, int3}, zap.NewNop())
+	chain := newChain([]function.Interceptor{int1, int2, int3}, zap.NewNop())
 
 	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{}, nil
@@ -67,7 +67,7 @@ func BenchmarkChainExecuteThreeInterceptors(b *testing.B) {
 
 // BenchmarkChainExecuteTenInterceptors benchmarks chain with ten interceptors
 func BenchmarkChainExecuteTenInterceptors(b *testing.B) {
-	interceptors := make([]apiinterceptor.Interceptor, 10)
+	interceptors := make([]function.Interceptor, 10)
 	for i := 0; i < 10; i++ {
 		interceptors[i] = &benchInterceptor{name: "int"}
 	}
@@ -116,12 +116,9 @@ func BenchmarkContextValuePropagation(b *testing.B) {
 	type ctxKey string
 	const testKey ctxKey = "test"
 
-	modifyingInterceptor := apiinterceptor.HandlerFunc(func(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
-		newCtx := context.WithValue(ctx, testKey, "modified")
-		return next(newCtx, task)
-	})
+	modifyingInterceptor := &benchModifyingInterceptor{key: testKey, value: "modified"}
 
-	chain := newChain([]apiinterceptor.Interceptor{modifyingInterceptor}, zap.NewNop())
+	chain := newChain([]function.Interceptor{modifyingInterceptor}, zap.NewNop())
 
 	mockFunc := func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 		_ = ctx.Value(testKey)
@@ -141,7 +138,7 @@ func BenchmarkContextValuePropagation(b *testing.B) {
 func BenchmarkParallelChainExecution(b *testing.B) {
 	int1 := &benchInterceptor{name: "int1"}
 	int2 := &benchInterceptor{name: "int2"}
-	chain := newChain([]apiinterceptor.Interceptor{int1, int2}, zap.NewNop())
+	chain := newChain([]function.Interceptor{int1, int2}, zap.NewNop())
 
 	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{}, nil
@@ -165,4 +162,15 @@ type benchInterceptor struct {
 
 func (m *benchInterceptor) Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
 	return next(ctx, task)
+}
+
+// benchModifyingInterceptor modifies context for benchmarking
+type benchModifyingInterceptor struct {
+	key   interface{}
+	value interface{}
+}
+
+func (m *benchModifyingInterceptor) Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
+	newCtx := context.WithValue(ctx, m.key, m.value)
+	return next(newCtx, task)
 }

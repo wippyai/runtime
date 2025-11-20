@@ -26,6 +26,7 @@ func All() []boot.Component {
 		OTel(),
 		Payload(),
 		Process(),
+		Queue(),
 		Registry(),
 		Security(),
 		SQL(),

@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"gopkg.in/yaml.v3"
@@ -89,7 +90,7 @@ func (m *Module) encode(l *lua.LState) int {
 	}
 
 	// Convert Lua value to Go
-	goVal := luaconv.ToGoAny(luaVal)
+	goVal := value.ToGoAny(luaVal)
 
 	// Create YAML node
 	node := yaml.Node{}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
 
 	lua "github.com/yuin/gopher-lua"
@@ -15,7 +16,7 @@ func CheckParam(l *lua.LState, index int) (interface{}, error) {
 
 	// We expect a table with parameters
 	if param.Type() != lua.LTUserData {
-		return luaconv.ToGoAny(param), nil
+		return value.ToGoAny(param), nil
 	}
 
 	if ud, ok := param.(*lua.LUserData); ok {
@@ -91,7 +92,7 @@ func CheckParams(l *lua.LState, index int) (interface{}, error) {
 				result[i-1] = nil
 			} else {
 				// Convert using existing mechanism for a single value
-				result[i-1] = luaconv.ToGoAny(v)
+				result[i-1] = value.ToGoAny(v)
 			}
 		}
 

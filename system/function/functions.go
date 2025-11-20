@@ -8,7 +8,6 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
-	"github.com/wippyai/runtime/api/interceptor"
 	"github.com/wippyai/runtime/api/pidgen"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -200,7 +199,7 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 	}
 
 	// Execute through interceptor chain if available
-	chain := interceptor.GetChain(ctx)
+	chain := function.GetInterceptorChain(ctx)
 	if chain != nil {
 		return chain.Execute(ctx, executorFunc, task)
 	}

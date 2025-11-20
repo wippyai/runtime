@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
+	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/runtime"
 	"go.uber.org/zap"
 )
@@ -55,7 +55,7 @@ func TestChainExecuteWithInterceptors(t *testing.T) {
 	int2 := &mockInterceptor{name: "int2"}
 	int3 := &mockInterceptor{name: "int3"}
 
-	chain := newChain([]apiinterceptor.Interceptor{int1, int2, int3}, zap.NewNop())
+	chain := newChain([]function.Interceptor{int1, int2, int3}, zap.NewNop())
 
 	executed := false
 	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -93,7 +93,7 @@ func TestChainExecuteInterceptorError(t *testing.T) {
 	int2 := &mockInterceptor{name: "int2", shouldError: true}
 	int3 := &mockInterceptor{name: "int3"}
 
-	chain := newChain([]apiinterceptor.Interceptor{int1, int2, int3}, zap.NewNop())
+	chain := newChain([]function.Interceptor{int1, int2, int3}, zap.NewNop())
 
 	executed := false
 	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -126,7 +126,7 @@ func TestChainExecuteInterceptorError(t *testing.T) {
 func TestChainExecuteFunctionError(t *testing.T) {
 	int1 := &mockInterceptor{name: "int1"}
 
-	chain := newChain([]apiinterceptor.Interceptor{int1}, zap.NewNop())
+	chain := newChain([]function.Interceptor{int1}, zap.NewNop())
 
 	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return nil, errors.New("function error")
@@ -149,17 +149,12 @@ func TestChainExecuteContextPropagation(t *testing.T) {
 	type ctxKey string
 	const testKey ctxKey = "test"
 
-	modifyingInterceptor := &struct {
-		called bool
-	}{}
+	interceptor := &testModifyingInterceptor{
+		key:   testKey,
+		value: "modified",
+	}
 
-	interceptor := apiinterceptor.HandlerFunc(func(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
-		modifyingInterceptor.called = true
-		newCtx := context.WithValue(ctx, testKey, "modified")
-		return next(newCtx, task)
-	})
-
-	chain := newChain([]apiinterceptor.Interceptor{interceptor}, zap.NewNop())
+	chain := newChain([]function.Interceptor{interceptor}, zap.NewNop())
 
 	var receivedCtx context.Context
 	mockFunc := func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -175,7 +170,7 @@ func TestChainExecuteContextPropagation(t *testing.T) {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	if !modifyingInterceptor.called {
+	if !interceptor.called {
 		t.Error("interceptor was not called")
 	}
 
@@ -186,4 +181,17 @@ func TestChainExecuteContextPropagation(t *testing.T) {
 	if val := receivedCtx.Value(testKey); val != "modified" {
 		t.Errorf("context value not propagated, got %v", val)
 	}
+}
+
+// testModifyingInterceptor modifies context for testing
+type testModifyingInterceptor struct {
+	key    interface{}
+	value  interface{}
+	called bool
+}
+
+func (m *testModifyingInterceptor) Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
+	m.called = true
+	newCtx := context.WithValue(ctx, m.key, m.value)
+	return next(newCtx, task)
 }

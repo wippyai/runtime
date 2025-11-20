@@ -4,19 +4,18 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/function"
-	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
 	"github.com/wippyai/runtime/api/runtime"
 	"go.uber.org/zap"
 )
 
 // Chain represents a sequence of interceptors that can be executed in order
 type Chain struct {
-	interceptors []apiinterceptor.Interceptor
+	interceptors []function.Interceptor
 	logger       *zap.Logger
 }
 
 // newChain creates a new Chain with the given interceptors
-func newChain(interceptors []apiinterceptor.Interceptor, logger *zap.Logger) Chain {
+func newChain(interceptors []function.Interceptor, logger *zap.Logger) Chain {
 	return Chain{
 		interceptors: interceptors,
 		logger:       logger,

@@ -24,10 +24,18 @@ func NewRegistry() *Registry {
 
 // Register adds a pack reader to the registry.
 // The pack path is used as a key for later lookup.
-func (r *Registry) Register(packPath string, reader *pack.Reader) {
+func (r *Registry) Register(packPath string, reader *pack.Reader) error {
+	if packPath == "" {
+		return fmt.Errorf("packPath cannot be empty")
+	}
+	if reader == nil {
+		return fmt.Errorf("reader cannot be nil")
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.readers[packPath] = reader
+	return nil
 }
 
 // GetFS implements embedapi.Registry.GetFS.

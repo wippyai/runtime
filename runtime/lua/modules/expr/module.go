@@ -17,7 +17,15 @@ type Option func(*config)
 
 // config holds the configuration for the expr module
 type config struct {
-	capacity int
+	capacity     int
+	cacheEnabled bool
+}
+
+// WithCache enables or disables expression caching
+func WithCache(enabled bool) Option {
+	return func(c *config) {
+		c.cacheEnabled = enabled
+	}
 }
 
 // WithCapacity sets the LRU cache capacity
@@ -42,7 +50,8 @@ type Program struct {
 // NewExprModule creates a new expr module with LRU cache
 func NewExprModule(opts ...Option) *Module {
 	cfg := &config{
-		capacity: 1000, // default capacity
+		capacity:     1000, // default capacity
+		cacheEnabled: true, // default enabled
 	}
 
 	// Apply options
@@ -50,9 +59,12 @@ func NewExprModule(opts ...Option) *Module {
 		opt(cfg)
 	}
 
-	cache := lru.New[string, *vm.Program](
-		lru.WithCapacity(cfg.capacity),
-	)
+	var cache *lru.Cache[string, *vm.Program]
+	if cfg.cacheEnabled {
+		cache = lru.New[string, *vm.Program](
+			lru.WithCapacity(cfg.capacity),
+		)
+	}
 
 	return &Module{
 		cache: cache,
@@ -124,7 +136,7 @@ func (m *Module) luaCompile(l *luavm.LState) int {
 	// Get optional environment
 	var env any
 	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
-		env = lua.ToGoAny(l.Get(2))
+		env = value.ToGoAny(l.Get(2))
 	}
 
 	// Compile expression
@@ -156,7 +168,7 @@ func (m *Module) luaEval(l *luavm.LState) int {
 	// Get optional environment
 	var env any
 	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
-		env = lua.ToGoAny(l.Get(2))
+		env = value.ToGoAny(l.Get(2))
 	}
 
 	// Get or compile program from cache
@@ -199,7 +211,7 @@ func (m *Module) programRun(l *luavm.LState) int {
 	// Get optional environment
 	var env any
 	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
-		env = lua.ToGoAny(l.Get(2))
+		env = value.ToGoAny(l.Get(2))
 	}
 
 	// Run program
@@ -225,6 +237,11 @@ func (m *Module) programRun(l *luavm.LState) int {
 
 // getCachedProgram gets a compiled program from cache or compiles and caches it
 func (m *Module) getCachedProgram(expression string) (*vm.Program, error) {
+	// If cache is disabled, compile directly
+	if m.cache == nil {
+		return m.compileExpression(expression, nil)
+	}
+
 	// Try to get from cache first
 	if program, found := m.cache.Get(expression); found {
 		return program, nil

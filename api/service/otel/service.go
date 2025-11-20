@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	apiinterceptor "github.com/wippyai/runtime/api/interceptor"
+	apiinterceptor "github.com/wippyai/runtime/api/function"
 	apiprocess "github.com/wippyai/runtime/api/process"
 )
 

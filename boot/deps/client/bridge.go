@@ -7,12 +7,12 @@ import (
 	"slices"
 
 	"github.com/Masterminds/semver/v3"
-	lru "github.com/hashicorp/golang-lru"
 	modulev1 "github.com/wippyai/module-registry-proto-go/registry/module/v1"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
+	"github.com/wippyai/runtime/internal/cache"
 	"go.uber.org/zap"
 )
 
@@ -24,7 +24,7 @@ type ManifestBridge struct {
 	client *RegistryClient
 	dtt    payload.Transcoder
 	loader *loader.Loader
-	cache  *lru.Cache
+	cache  *lru.Cache[string, *graph.Manifest]
 	log    *zap.Logger
 }
 
@@ -40,10 +40,7 @@ func NewManifestBridge(
 		cacheSize = 100
 	}
 
-	cache, err := lru.New(cacheSize)
-	if err != nil {
-		return nil, fmt.Errorf("create LRU cache: %w", err)
-	}
+	manifestCache := lru.New[string, *graph.Manifest](lru.WithCapacity(cacheSize))
 
 	if log == nil {
 		log = zap.NewNop()
@@ -56,7 +53,7 @@ func NewManifestBridge(
 		client: client,
 		dtt:    dtt,
 		loader: loaderInstance,
-		cache:  cache,
+		cache:  manifestCache,
 		log:    log,
 	}, nil
 }
@@ -143,8 +140,7 @@ func (b *ManifestBridge) processRequest(
 	}
 
 	cacheKey := req.Name.String() + "@" + matchingLabel.GetCommitId()
-	if cached, ok := b.cache.Get(cacheKey); ok {
-		manifest := cached.(*graph.Manifest)
+	if manifest, ok := b.cache.Get(cacheKey); ok {
 		return graph.ManifestResponse{
 			Request:       req,
 			Organization:  orgs[index].Organization,
@@ -163,7 +159,7 @@ func (b *ManifestBridge) processRequest(
 		}
 	}
 
-	b.cache.Add(cacheKey, manifest)
+	b.cache.Set(cacheKey, manifest)
 
 	return graph.ManifestResponse{
 		Request:       req,

@@ -220,3 +220,50 @@ func GetFunc(l *lua.LState, value lua.LValue, field string) (*lua.LFunction, boo
 	}
 	return nil, false
 }
+
+// ToGoAny converts a lua.LValue to its Go equivalent.
+func ToGoAny(v lua.LValue) any {
+	if v == nil {
+		return nil
+	}
+
+	switch v.Type() {
+	case lua.LTNil:
+		return nil
+	case lua.LTBool:
+		return lua.LVAsBool(v)
+	case lua.LTNumber:
+		return float64(v.(lua.LNumber))
+	case lua.LTString:
+		return string(v.(lua.LString))
+	case lua.LTTable:
+		tbl := v.(*lua.LTable)
+		maxn := tbl.MaxN()
+		if maxn == 0 {
+			return TableToMap(tbl)
+		}
+		return TableToSlice(tbl, maxn)
+	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
+		fallthrough
+	default:
+		return v.String()
+	}
+}
+
+// TableToMap converts a Lua table to a Go map.
+func TableToMap(tbl *lua.LTable) map[string]any {
+	result := make(map[string]any, tbl.Len())
+	tbl.ForEach(func(key, value lua.LValue) {
+		result[key.String()] = ToGoAny(value)
+	})
+	return result
+}
+
+// TableToSlice converts a Lua table to a Go slice.
+func TableToSlice(tbl *lua.LTable, maxn int) []any {
+	result := make([]any, 0, maxn)
+	for i := 1; i <= maxn; i++ {
+		result = append(result, ToGoAny(tbl.RawGetInt(i)))
+	}
+	return result
+}

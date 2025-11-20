@@ -11,8 +11,8 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/system/eventbus"
-	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	luaapi "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -119,7 +119,7 @@ func TestEventsModule_BasicSubscribe(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	res := luaconv.ToGoAny(result)
+	res := value.ToGoAny(result)
 
 	mp, ok := res.(map[string]any)
 	require.True(t, ok)
@@ -230,7 +230,7 @@ func TestEventsModule_SendAndReceive(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	res := luaconv.ToGoAny(result)
+	res := value.ToGoAny(result)
 
 	mp, ok := res.(map[string]any)
 	require.True(t, ok)
@@ -280,7 +280,7 @@ func TestEventsModule_SendWithoutData(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	res := luaconv.ToGoAny(result)
+	res := value.ToGoAny(result)
 
 	mp, ok := res.(map[string]any)
 	require.True(t, ok)

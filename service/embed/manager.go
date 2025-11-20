@@ -40,8 +40,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	_, err := entryutil.DecodeEntryConfig[embedapi.Config](ctx, m.dtt, entry)
-	if err != nil {
+	// Validate config can be decoded (embed doesn't use config content, filesystem comes from embedReg)
+	if _, err := entryutil.DecodeEntryConfig[embedapi.Config](ctx, m.dtt, entry); err != nil {
 		return fmt.Errorf("failed to decode config: %w", err)
 	}
 
@@ -49,11 +49,16 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	// Check for duplicates
-	if _, loaded := m.filesystems.LoadOrStore(entry.ID.String(), nil); loaded {
+	if _, exists := m.filesystems.Load(entry.ID.String()); exists {
 		return fmt.Errorf("embedded filesystem %s already exists", entry.ID)
 	}
 
-	return m.registerFS(ctx, entry.ID)
+	if err := m.registerFS(ctx, entry.ID); err != nil {
+		return err
+	}
+
+	m.log.Info("embedded filesystem registered", zap.String("id", entry.ID.String()))
+	return nil
 }
 
 // Update updates an existing embedded filesystem.
@@ -71,7 +76,12 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	// Remove old, register new
 	m.removeFS(ctx, entry.ID)
-	return m.registerFS(ctx, entry.ID)
+	if err := m.registerFS(ctx, entry.ID); err != nil {
+		return err
+	}
+
+	m.log.Info("embedded filesystem updated", zap.String("id", entry.ID.String()))
+	return nil
 }
 
 // Delete removes an embedded filesystem.
@@ -118,20 +128,11 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID) error {
 		Data:   fs,
 	})
 
-	m.log.Info("embedded filesystem registered",
-		zap.String("id", id.String()))
-
 	return nil
 }
 
 // removeFS removes the filesystem from the fs system.
 func (m *Manager) removeFS(ctx context.Context, id registry.ID) {
-	m.log.Debug("sending filesystem deletion event",
-		zap.String("id", id.String()),
-		zap.String("system", fsapi.System),
-		zap.String("kind", fsapi.Delete),
-		zap.String("path", id.String()))
-
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
 		Kind:   fsapi.Delete,

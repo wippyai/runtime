@@ -390,7 +390,7 @@ func (m *Module) withContext(l *lua.LState) int {
 	// Add new values from Lua table to existing context
 	ctxTable.ForEach(func(k, v lua.LValue) {
 		if key, ok := k.(lua.LString); ok {
-			v := luaconv.ToGoAny(v)
+			v := value.ToGoAny(v)
 			newCallCtx.values.Set(string(key), v)
 		} else {
 			l.ArgError(2, "context keys must be strings")
@@ -554,7 +554,7 @@ func contractOpen(l *lua.LState) int {
 	if l.GetTop() >= contextArgIndex && l.Get(contextArgIndex).Type() == lua.LTTable {
 		l.CheckTable(contextArgIndex).ForEach(func(k, v lua.LValue) {
 			if kStr, ok := k.(lua.LString); ok {
-				mergedCallCtx.values.Set(string(kStr), luaconv.ToGoAny(v))
+				mergedCallCtx.values.Set(string(kStr), value.ToGoAny(v))
 			}
 		})
 	}

@@ -13,6 +13,7 @@ import (
 func TestMemoryStorage_Versions(t *testing.T) {
 	storage := NewMemory()
 
+	v0 := version.New(0)
 	v1 := version.New(1)
 	v2 := version.New(2)
 	v3 := version.New(3)
@@ -30,7 +31,7 @@ func TestMemoryStorage_Versions(t *testing.T) {
 		return versions[i].ID() < versions[j].ID()
 	})
 
-	expectedVersions := []registry.Version{v1, v2, v3}
+	expectedVersions := []registry.Version{v0, v1, v2, v3}
 	if !reflect.DeepEqual(versions, expectedVersions) {
 		t.Errorf("Expected versions: %v, got: %v", expectedVersions, versions)
 	}
@@ -69,6 +70,7 @@ func TestMemoryStorage_Get(t *testing.T) {
 
 func TestMemoryStorage_Save(t *testing.T) {
 	storage := NewMemory()
+	v0 := version.New(0)
 	v1 := version.New(1)
 	v2 := version.New(2)
 
@@ -97,7 +99,7 @@ func TestMemoryStorage_Save(t *testing.T) {
 		return versions[i].ID() < versions[j].ID()
 	})
 
-	expectedVersions := []registry.Version{v1, v2}
+	expectedVersions := []registry.Version{v0, v1, v2}
 	if !reflect.DeepEqual(versions, expectedVersions) {
 		t.Errorf("Expected versions: %v, got: %v", expectedVersions, versions)
 	}
