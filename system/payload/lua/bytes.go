@@ -45,7 +45,7 @@ func (t *BytesToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	}
 
 	// Create a new Lua string from the bytes
-	lv := lua.LString(string(bytes))
+	lv := lua.LString(bytes)
 	return payload.NewPayload(lv, payload.Lua), nil
 }
 
@@ -68,7 +68,7 @@ func (t *ToBytes) Transcode(p payload.Payload) (payload.Payload, error) {
 	switch lv.Type() {
 	case lua.LTString:
 		// Direct conversion to bytes
-		result = []byte(string(lv.(lua.LString)))
+		result = []byte(lv.(lua.LString))
 	case lua.LTNumber:
 		// Number to string to bytes
 		result = []byte(fmt.Sprintf("%v", float64(lv.(lua.LNumber))))
@@ -77,7 +77,6 @@ func (t *ToBytes) Transcode(p payload.Payload) (payload.Payload, error) {
 		result = []byte(fmt.Sprintf("%t", bool(lv.(lua.LBool))))
 	case lua.LTNil:
 		// Nil to empty bytes
-		result = []byte{}
 	case lua.LTTable:
 		// For tables, convert to string representation first
 		result = []byte(fmt.Sprintf("%v", value.ToGoAny(lv)))

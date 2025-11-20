@@ -231,8 +231,9 @@ func TestBuildOptions_ModificationAfterSetup(t *testing.T) {
 	// AddCleanup denied Process and test
 	opts.WithDenied(fooID)
 	err := opts.Validate(nodes)
-	assert.Error(t, err)
-	assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
+	if assert.Error(t, err) {
+		assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
+	}
 }
 
 func TestBuildOptions_Validate(t *testing.T) {

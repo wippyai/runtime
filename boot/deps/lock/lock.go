@@ -193,7 +193,7 @@ func (l *Lock) GetVendorPath() string {
 // Example: [".", "../replacement", ".wippy/vendor/acme/http"]
 func (l *Lock) GetLoadPaths() []string {
 	lockDir := filepath.Dir(l.path)
-	paths := []string{}
+	paths := make([]string, 0, 1+len(l.data.Replacements)+len(l.data.Modules))
 
 	// Add app source directory
 	if l.data.Directories.Src != "" {

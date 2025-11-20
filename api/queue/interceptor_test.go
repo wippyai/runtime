@@ -27,7 +27,7 @@ func TestInterceptorInterfaces(t *testing.T) {
 		}
 
 		// Test the interceptor
-		err := interceptor.Handle(ctx, queueID, msgs, func(_ context.Context, q registry.ID, msgs []*queue.Message) error {
+		err := interceptor.Handle(ctx, queueID, msgs, func(_ context.Context, _ registry.ID, _ []*queue.Message) error {
 			return nil
 		})
 

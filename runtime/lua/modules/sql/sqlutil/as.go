@@ -64,7 +64,7 @@ func asBinary(l *lua.LState) int {
 	var binaryValue []byte
 	switch value.Type() {
 	case lua.LTString:
-		binaryValue = []byte(string(value.(lua.LString)))
+		binaryValue = []byte(value.(lua.LString))
 	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
 		// FIXME rework on demand
 		fallthrough
@@ -114,7 +114,7 @@ func asText(l *lua.LState) int {
 	var textValue string
 	switch value.Type() {
 	case lua.LTString:
-		textValue = string(value.(lua.LString))
+		textValue = value.(lua.LString).String()
 	case lua.LTNumber:
 		textValue = value.String()
 	case lua.LTNil, lua.LTBool, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:

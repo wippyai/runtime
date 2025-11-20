@@ -92,8 +92,6 @@ func newViewport(l *lua.LState) int {
 			v.model.MouseWheelEnabled = lua.LVAsBool(val)
 		case "mouse_wheel_delta":
 			v.model.MouseWheelDelta = int(lua.LVAsNumber(val))
-		case "high_performance":
-			v.model.HighPerformanceRendering = lua.LVAsBool(val)
 		case "content":
 			v.model.SetContent(lua.LVAsString(val))
 		case "style":
@@ -192,13 +190,7 @@ func viewportGotoTop(l *lua.LState) int {
 	if v == nil {
 		return 0
 	}
-	lines := v.model.GotoTop()
-	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(protocol.WrapCommand(l, func() tea.Msg {
-			return viewport.ViewUp(v.model, lines)
-		}))
-		return 1
-	}
+	v.model.GotoTop()
 	return 0
 }
 
@@ -207,13 +199,7 @@ func viewportGotoBottom(l *lua.LState) int {
 	if v == nil {
 		return 0
 	}
-	lines := v.model.GotoBottom()
-	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(protocol.WrapCommand(l, func() tea.Msg {
-			return viewport.ViewDown(v.model, lines)
-		}))
-		return 1
-	}
+	v.model.GotoBottom()
 	return 0
 }
 
@@ -232,13 +218,7 @@ func viewportLineUp(l *lua.LState) int {
 		return 0
 	}
 	n := l.OptInt(2, 1)
-	lines := v.model.LineUp(n)
-	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(protocol.WrapCommand(l, func() tea.Msg {
-			return viewport.ViewUp(v.model, lines)
-		}))
-		return 1
-	}
+	v.model.ScrollUp(n)
 	return 0
 }
 
@@ -248,13 +228,7 @@ func viewportLineDown(l *lua.LState) int {
 		return 0
 	}
 	n := l.OptInt(2, 1)
-	lines := v.model.LineDown(n)
-	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(protocol.WrapCommand(l, func() tea.Msg {
-			return viewport.ViewDown(v.model, lines)
-		}))
-		return 1
-	}
+	v.model.ScrollDown(n)
 	return 0
 }
 
@@ -263,13 +237,7 @@ func viewportViewUp(l *lua.LState) int {
 	if v == nil {
 		return 0
 	}
-	lines := v.model.ViewUp()
-	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(protocol.WrapCommand(l, func() tea.Msg {
-			return viewport.ViewUp(v.model, lines)
-		}))
-		return 1
-	}
+	v.model.PageUp()
 	return 0
 }
 
@@ -278,13 +246,7 @@ func viewportViewDown(l *lua.LState) int {
 	if v == nil {
 		return 0
 	}
-	lines := v.model.ViewDown()
-	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(protocol.WrapCommand(l, func() tea.Msg {
-			return viewport.ViewDown(v.model, lines)
-		}))
-		return 1
-	}
+	v.model.PageDown()
 	return 0
 }
 
@@ -293,13 +255,7 @@ func viewportHalfViewUp(l *lua.LState) int {
 	if v == nil {
 		return 0
 	}
-	lines := v.model.HalfViewUp()
-	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(protocol.WrapCommand(l, func() tea.Msg {
-			return viewport.ViewUp(v.model, lines)
-		}))
-		return 1
-	}
+	v.model.HalfPageUp()
 	return 0
 }
 
@@ -308,13 +264,7 @@ func viewportHalfViewDown(l *lua.LState) int {
 	if v == nil {
 		return 0
 	}
-	lines := v.model.HalfViewDown()
-	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(protocol.WrapCommand(l, func() tea.Msg {
-			return viewport.ViewDown(v.model, lines)
-		}))
-		return 1
-	}
+	v.model.HalfPageDown()
 	return 0
 }
 

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -51,7 +52,7 @@ func runMigrations(db *sql.DB) error {
 
 	if tableExists {
 		err = db.QueryRowContext(ctx, "SELECT value FROM metadata WHERE key = 'schema_version'").Scan(&schemaVersion)
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			schemaVersion = 0
 		} else if err != nil {
 			return fmt.Errorf("failed to read schema version: %w", err)

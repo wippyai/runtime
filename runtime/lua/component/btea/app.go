@@ -28,7 +28,7 @@ const (
 
 	// Timeout constants
 	stopTimeout = 1000 * time.Millisecond
-	taskTimeout = 5000 * time.Millisecond
+	// taskTimeout reserved for future use
 	viewTimeout = 5000 * time.Millisecond
 
 	maxViewRetries = 3

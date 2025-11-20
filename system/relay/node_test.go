@@ -80,8 +80,9 @@ func TestNodeSendHostNotFound(t *testing.T) {
 		},
 	}
 	err := node.Send(pkg)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "host nonexistent not found")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "host nonexistent not found")
+	}
 }
 
 func TestNodeSendInvalidHostType(t *testing.T) {
@@ -100,8 +101,9 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 		},
 	}
 	err := node.Send(pkg)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid type")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "invalid type")
+	}
 }
 
 func TestNodeSendNonLocalNoUpstream(t *testing.T) {
@@ -118,8 +120,9 @@ func TestNodeSendNonLocalNoUpstream(t *testing.T) {
 		},
 	}
 	err := node.Send(pkg)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "cannot route to external node remoteNode")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "cannot route to external node remoteNode")
+	}
 }
 
 func TestNodeAttachLocal(t *testing.T) {
@@ -150,9 +153,10 @@ func TestNodeAttachNonLocal(t *testing.T) {
 	}
 	ch := make(chan *api.Package, 1)
 	cancel, err := node.Attach(pid, ch)
-	assert.Error(t, err)
 	assert.Nil(t, cancel)
-	assert.Contains(t, err.Error(), "cannot attach to external node remoteNode")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "cannot attach to external node remoteNode")
+	}
 }
 
 func TestNodeAttachInvalidHostType(t *testing.T) {
@@ -166,9 +170,10 @@ func TestNodeAttachInvalidHostType(t *testing.T) {
 	}
 	ch := make(chan *api.Package, 1)
 	cancel, err := node.Attach(pid, ch)
-	assert.Error(t, err)
 	assert.Nil(t, cancel)
-	assert.Contains(t, err.Error(), "invalid type")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "invalid type")
+	}
 }
 
 func TestNodeDetach(t *testing.T) {
@@ -212,8 +217,9 @@ func TestNodeRegisterHostDuplicate(t *testing.T) {
 
 	// Second registration should fail
 	err = node.RegisterHost("host1", dhost)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already exists")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "already exists")
+	}
 }
 
 func TestNodeRegisterHostInvalidType(t *testing.T) {
@@ -232,8 +238,9 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 	// Try to attach to the invalid host
 	ch := make(chan *api.Package)
 	_, err := node.Attach(pid, ch)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid type")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "invalid type")
+	}
 
 	// Try to send to the invalid host
 	pkg := &api.Package{
@@ -243,8 +250,9 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 		},
 	}
 	err = node.Send(pkg)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid type")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "invalid type")
+	}
 }
 
 func TestNodeUnregisterHostNonExistent(_ *testing.T) {

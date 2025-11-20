@@ -12,8 +12,8 @@ import (
 // It is optimized for concurrent access.
 type PIDRegistry struct {
 	parent   topology.PIDRegistry
-	nameToID sync.Map // Maps from name (string) to Target
-	idToName sync.Map // Maps from Target to name (string) - for efficient removal by Target
+	nameToID sync.Map // Maps from name (string) to PID
+	idToName sync.Map // Maps from PID to name (string) - for efficient removal by PID
 	logger   *zap.Logger
 }
 
@@ -23,7 +23,7 @@ type PIDRegistryConfig struct {
 	Logger *zap.Logger
 }
 
-// NewPIDRegistry creates a new empty Target registry
+// NewPIDRegistry creates a new empty PID registry
 func NewPIDRegistry(config PIDRegistryConfig) *PIDRegistry {
 	// If no logger provided, use noop logger
 	if config.Logger == nil {
@@ -36,14 +36,14 @@ func NewPIDRegistry(config PIDRegistryConfig) *PIDRegistry {
 	}
 }
 
-// Register associates a name with a Target
+// Register associates a name with a PID
 // Returns error if name is already taken
 func (r *PIDRegistry) Register(name string, pid relay.PID) error {
-	// Store name → Target mapping
+	// Store name → PID mapping
 	r.nameToID.Store(name, pid)
 
-	// Store reverse mapping for efficient removal by Target
-	// Using a sync.Map to store a slice of names for each Target
+	// Store reverse mapping for efficient removal by PID
+	// Using a sync.Map to store a slice of names for each PID
 	var names []string
 	if existingNames, ok := r.idToName.Load(pid); ok {
 		names = existingNames.([]string)
@@ -51,7 +51,7 @@ func (r *PIDRegistry) Register(name string, pid relay.PID) error {
 	names = append(names, name)
 	r.idToName.Store(pid, names)
 
-	r.logger.Debug("registered name to Target mapping",
+	r.logger.Debug("registered name to PID mapping",
 		zap.String("name", name),
 		zap.String("pid", pid.String()))
 
@@ -61,7 +61,7 @@ func (r *PIDRegistry) Register(name string, pid relay.PID) error {
 // Unregister removes a name registration
 // Returns true if the name was registered and has been removed
 func (r *PIDRegistry) Unregister(name string) bool {
-	// Load the Target for this name
+	// Load the PID for this name
 	pidVal, exists := r.nameToID.Load(name)
 	if !exists {
 		if r.parent != nil {
@@ -94,7 +94,7 @@ func (r *PIDRegistry) Unregister(name string) bool {
 		}
 
 		// If there are still names, update the map
-		// Otherwise, remove the Target entry entirely
+		// Otherwise, remove the PID entry entirely
 		if len(updatedNames) > 0 {
 			r.idToName.Store(pid, updatedNames)
 		} else {
@@ -109,8 +109,8 @@ func (r *PIDRegistry) Unregister(name string) bool {
 	return true
 }
 
-// Lookup finds the Target registered with a given name
-// Returns the Target and true if found, empty Target and false if not found
+// Lookup finds the PID registered with a given name
+// Returns the PID and true if found, empty PID and false if not found
 func (r *PIDRegistry) Lookup(name string) (relay.PID, bool) {
 	pidVal, exists := r.nameToID.Load(name)
 	if !exists {
@@ -136,10 +136,10 @@ func (r *PIDRegistry) Lookup(name string) (relay.PID, bool) {
 	return pid, true
 }
 
-// Remove completely removes a Target from the registry,
-// removing all name associations for that Target
+// Remove completely removes a PID from the registry,
+// removing all name associations for that PID
 func (r *PIDRegistry) Remove(pid relay.PID) {
-	// Get all names associated with this Target
+	// Get all names associated with this PID
 	namesVal, exists := r.idToName.Load(pid)
 	if !exists {
 		// If no names found in this registry, try parent
@@ -155,15 +155,15 @@ func (r *PIDRegistry) Remove(pid relay.PID) {
 	for _, name := range names {
 		r.nameToID.Delete(name)
 
-		r.logger.Debug("removed name during Target removal",
+		r.logger.Debug("removed name during PID removal",
 			zap.String("name", name),
 			zap.String("pid", pid.String()))
 	}
 
-	// Remove the Target from the idToName map
+	// Remove the PID from the idToName map
 	r.idToName.Delete(pid)
 
-	r.logger.Debug("removed Target from registry",
+	r.logger.Debug("removed PID from registry",
 		zap.String("pid", pid.String()),
 		zap.Int("names_removed", len(names)))
 

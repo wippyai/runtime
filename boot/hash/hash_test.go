@@ -402,7 +402,7 @@ func TestNormalize(t *testing.T) {
 	})
 
 	t.Run("empty slice", func(t *testing.T) {
-		input := []any{}
+		var input []any
 		result := normalize(input)
 		assert.Nil(t, result)
 	})

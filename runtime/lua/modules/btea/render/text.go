@@ -49,7 +49,7 @@ func RegisterTextUtils(l *lua.LState, mod *lua.LTable) {
 
 		tbl.ForEach(func(_ lua.LValue, value lua.LValue) {
 			if str, ok := value.(lua.LString); ok {
-				width := lipgloss.Width(string(str))
+				width := lipgloss.Width(str.String())
 				if width > maxWidth {
 					maxWidth = width
 				}
@@ -66,7 +66,7 @@ func RegisterTextUtils(l *lua.LState, mod *lua.LTable) {
 
 		tbl.ForEach(func(_ lua.LValue, value lua.LValue) {
 			if str, ok := value.(lua.LString); ok {
-				height := lipgloss.Height(string(str))
+				height := lipgloss.Height(str.String())
 				if height > maxHeight {
 					maxHeight = height
 				}

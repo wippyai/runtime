@@ -3,6 +3,7 @@
 package httpclient
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -39,7 +40,8 @@ func newMockUnixSocketServer(t *testing.T) *mockUnixSocketServer {
 	_ = os.Remove(socketPath)
 
 	// Create listener
-	listener, err := net.Listen("unix", socketPath)
+	lc := &net.ListenConfig{}
+	listener, err := lc.Listen(context.Background(), "unix", socketPath)
 	require.NoError(t, err)
 
 	mock := &mockUnixSocketServer{

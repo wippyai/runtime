@@ -156,7 +156,7 @@ func newTextInput(l *lua.LState) int {
 			model.ShowSuggestions = lua.LVAsBool(v)
 		case "suggestions":
 			if tbl, ok := v.(*lua.LTable); ok {
-				suggestions := []string{}
+				var suggestions []string
 				tbl.ForEach(func(_, v lua.LValue) {
 					suggestions = append(suggestions, lua.LVAsString(v))
 				})

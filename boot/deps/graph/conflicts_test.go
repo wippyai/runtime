@@ -198,7 +198,7 @@ func TestDetectConflicts(t *testing.T) {
 		g.AddEdge(keyB, keyA, 1, DependencyEdge{})
 
 		resolved := make(map[ModuleKey]ResolvedModule)
-		overlaps := []constraintSet{}
+		var overlaps []constraintSet
 
 		conflicts := detectConflicts(overlaps, resolved, g)
 		if len(conflicts) == 0 {

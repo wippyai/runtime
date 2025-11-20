@@ -2,9 +2,9 @@ package lua
 
 const (
 	// Lua component names
-	LuaEngineName       = "lua.engine"
-	LuaBase64Name       = "lua.base64"
-	LuaBteaName         = "lua.btea"
+	LuaEngineName = "lua.engine"
+	LuaBase64Name = "lua.base64"
+	// LuaBteaName reserved for future use
 	LuaChannelName      = "lua.channel"
 	LuaCloudStorageName = "lua.cloudstorage"
 	LuaCompressName     = "lua.compress"
@@ -35,8 +35,8 @@ const (
 	LuaTimeName         = "lua.time"
 	LuaTreeSitterName   = "lua.treesitter"
 	LuaQueueName        = "lua.queue"
-	LuaUpstreamName     = "lua.upstream"
-	LuaUUIDName         = "lua.uuid"
-	LuaWebSocketName    = "lua.websocket"
-	LuaYAMLName         = "lua.yaml"
+	// LuaUpstreamName reserved for future use
+	LuaUUIDName      = "lua.uuid"
+	LuaWebSocketName = "lua.websocket"
+	LuaYAMLName      = "lua.yaml"
 )

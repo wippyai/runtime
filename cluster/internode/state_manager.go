@@ -219,7 +219,7 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages [][
 
 	state.queueMu.Lock()
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i] != nil {
+		if messages[i] != nil { //nolint:gosec // i is bounded by loop condition
 			state.messageQueue.PushFront(messages[i])
 		}
 	}

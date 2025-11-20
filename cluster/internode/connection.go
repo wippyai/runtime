@@ -87,9 +87,9 @@ func (ce *ConnectionError) ShouldRetry() bool {
 }
 
 const (
-	protocolVersion        = 0x01
-	frameHeaderSize        = 5 // 1 byte for version, 4 bytes for length
-	writeBatchSize         = 128
+	protocolVersion = 0x01
+	frameHeaderSize = 5 // 1 byte for version, 4 bytes for length
+	// writeBatchSize reserved for future use
 	writeFlushInterval     = 10 * time.Millisecond
 	defaultWriteBufferSize = 64 * 1024
 	readPoolBufferSize     = 32 * 1024

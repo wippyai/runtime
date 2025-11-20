@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestSQLiteHistory_Basic(t *testing.T) {
+func TestHistory_Basic(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
@@ -25,7 +25,7 @@ func TestSQLiteHistory_Basic(t *testing.T) {
 	assert.Equal(t, uint(0), head.ID())
 }
 
-func TestSQLiteHistory_SaveAndGet(t *testing.T) {
+func TestHistory_SaveAndGet(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
@@ -55,7 +55,7 @@ func TestSQLiteHistory_SaveAndGet(t *testing.T) {
 	assert.Equal(t, "test", retrieved[0].Entry.ID.NS)
 }
 
-func TestSQLiteHistory_Persistence(t *testing.T) {
+func TestHistory_Persistence(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
@@ -87,7 +87,7 @@ func TestSQLiteHistory_Persistence(t *testing.T) {
 	assert.Len(t, versions, 2)
 }
 
-func TestSQLiteHistory_Versions(t *testing.T) {
+func TestHistory_Versions(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
@@ -120,7 +120,7 @@ func TestSQLiteHistory_Versions(t *testing.T) {
 	assert.Equal(t, uint(2), versions[2].ID())
 }
 
-func TestSQLiteHistory_SetHead(t *testing.T) {
+func TestHistory_SetHead(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
@@ -157,7 +157,7 @@ func TestSQLiteHistory_SetHead(t *testing.T) {
 	assert.Equal(t, uint(1), head.ID())
 }
 
-func TestSQLiteHistory_NotFoundError(t *testing.T) {
+func TestHistory_NotFoundError(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
@@ -171,7 +171,7 @@ func TestSQLiteHistory_NotFoundError(t *testing.T) {
 	assert.Contains(t, err.Error(), "changeset not found")
 }
 
-func TestSQLiteHistory_DatabaseFileCreation(t *testing.T) {
+func TestHistory_DatabaseFileCreation(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 

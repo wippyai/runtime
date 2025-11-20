@@ -13,7 +13,7 @@ type Message struct {
 }
 
 // checkMessage gets and verifies Message userdata from Lua state
-func checkMessage(l *lua.LState, n int) (*Message, error) {
+func checkMessage(l *lua.LState, n int) (*Message, error) { //nolint:unparam // n parameter follows Lua C API convention
 	ud := l.CheckUserData(n)
 	if ud == nil {
 		return nil, fmt.Errorf("argument %d must be a Message", n)
