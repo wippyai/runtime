@@ -298,8 +298,9 @@ func TestHost_HostShutdown(t *testing.T) {
 
 	// Try to send a message after shutdown
 	err = host.Send(pkg)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "context canceled")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "context canceled")
+	}
 }
 
 func TestHost_InvalidConfig(t *testing.T) {

@@ -354,7 +354,7 @@ func (pw *Writer) processFilesystem(
 
 		if d.IsDir() {
 			if filePath != "" {
-				tree.Dirs[filePath] = []string{}
+				tree.Dirs[filePath] = []string(nil)
 			}
 			return nil
 		}
@@ -647,11 +647,11 @@ func (pw *Writer) writePack(w io.Writer, toc *TOC, frames []rawFrame) error {
 			frameIdx := i - 3
 			toc.DataFrames[frameIdx] = FrameInfo{
 				Offset:           currentOffset,
-				Size:             uint64(len(frames[i].data)),
-				UncompressedSize: frames[i].uncompressedSize,
-				Hash:             "", // Data frames don't need hash validation
+				Size:             uint64(len(frames[i].data)), //nolint:gosec // i is bounded by loop condition
+				UncompressedSize: frames[i].uncompressedSize,  //nolint:gosec // i is bounded by loop condition
+				Hash:             "",                          // Data frames don't need hash validation
 			}
-			currentOffset += uint64(len(frames[i].data))
+			currentOffset += uint64(len(frames[i].data)) //nolint:gosec // i is bounded by loop condition
 		}
 	}
 

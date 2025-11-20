@@ -26,8 +26,7 @@ const (
 	// Reject is sent FROM function nodes when a handler registration is rejected
 	Reject event.Kind = "function.reject"
 
-	// InterceptorOptionsKey is the metadata key for interceptor options in function/process configs
-	InterceptorOptionsKey = "options"
+	// InterceptorOptionsKey reserved for future use
 )
 
 type (

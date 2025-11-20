@@ -15,13 +15,13 @@ func Print(silent bool) {
 		return
 	}
 
-	cyan := color.New(color.FgCyan, color.Bold).SprintFunc()
+	cyan := color.New(color.FgHiYellow, color.Bold).SprintFunc()
 	gray := color.New(color.FgHiBlack).SprintFunc()
 	green := color.New(color.FgGreen).SprintFunc()
 	white := color.New(color.FgWhite).SprintFunc()
 
 	buildDate := version.Date
-	if len(buildDate) > 10 {
+	if len(buildDate) >= 10 {
 		buildDate = buildDate[:10]
 	}
 

@@ -49,9 +49,9 @@ func parseMultipartRequest(t *testing.T, req *http.Request) map[string]string {
 		for _, fileHeader := range fileHeaders {
 			file, err := fileHeader.Open()
 			require.NoError(t, err, "Failed to open uploaded file")
-			defer file.Close()
 
 			data, err := io.ReadAll(file)
+			_ = file.Close()
 			require.NoError(t, err, "Failed to read uploaded file")
 
 			// Store file content with metadata

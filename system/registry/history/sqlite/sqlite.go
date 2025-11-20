@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type SQLiteHistory struct {
+type History struct {
 	db     *sql.DB
 	mu     sync.RWMutex
 	handle *codec.MsgpackHandle
@@ -46,7 +46,7 @@ func newMsgpackHandle() *codec.MsgpackHandle {
 	return mh
 }
 
-func NewSQLite(dbPath string, log *zap.Logger) (*SQLiteHistory, error) {
+func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -63,7 +63,7 @@ func NewSQLite(dbPath string, log *zap.Logger) (*SQLiteHistory, error) {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	h := &SQLiteHistory{
+	h := &History{
 		db:     db,
 		handle: newMsgpackHandle(),
 		log:    log,
@@ -77,7 +77,7 @@ func NewSQLite(dbPath string, log *zap.Logger) (*SQLiteHistory, error) {
 	return h, nil
 }
 
-func (h *SQLiteHistory) ensureRootVersion() error {
+func (h *History) ensureRootVersion() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -110,7 +110,7 @@ func (h *SQLiteHistory) ensureRootVersion() error {
 	return nil
 }
 
-func (h *SQLiteHistory) Versions() ([]registry.Version, error) {
+func (h *History) Versions() ([]registry.Version, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -134,6 +134,9 @@ func (h *SQLiteHistory) Versions() ([]registry.Version, error) {
 
 		var v registry.Version
 		if parentID.Valid {
+			if parentID.Int64 < 0 {
+				return nil, fmt.Errorf("invalid negative parent version ID: %d", parentID.Int64)
+			}
 			parent, ok := versionMap[uint(parentID.Int64)]
 			if !ok {
 				return nil, fmt.Errorf("parent version %d not found for version %d", parentID.Int64, id)
@@ -154,14 +157,14 @@ func (h *SQLiteHistory) Versions() ([]registry.Version, error) {
 	return versionList, nil
 }
 
-func (h *SQLiteHistory) Get(v registry.Version) (registry.ChangeSet, error) {
+func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	ctx := context.Background()
 	var data []byte
 	err := h.db.QueryRowContext(ctx, "SELECT data FROM changesets WHERE version_id = ?", v.ID()).Scan(&data)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("changeset not found for version %d", v.ID())
 	}
 	if err != nil {
@@ -216,7 +219,7 @@ func (h *SQLiteHistory) Get(v registry.Version) (registry.ChangeSet, error) {
 	return cs, nil
 }
 
-func (h *SQLiteHistory) Save(v registry.Version, cs registry.ChangeSet, head bool) error {
+func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -229,7 +232,12 @@ func (h *SQLiteHistory) Save(v registry.Version, cs registry.ChangeSet, head boo
 
 	var parentID sql.NullInt64
 	if v.Previous() != nil {
-		parentID = sql.NullInt64{Int64: int64(v.Previous().ID()), Valid: true}
+		prevID := v.Previous().ID()
+		const maxInt64 = uint(1<<63 - 1)
+		if prevID > maxInt64 {
+			return fmt.Errorf("parent version ID too large: %d", prevID)
+		}
+		parentID = sql.NullInt64{Int64: int64(prevID), Valid: true}
 	}
 
 	_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO versions (id, parent_id) VALUES (?, ?)", v.ID(), parentID)
@@ -311,7 +319,7 @@ func (h *SQLiteHistory) Save(v registry.Version, cs registry.ChangeSet, head boo
 	return nil
 }
 
-func (h *SQLiteHistory) Head() (registry.Version, error) {
+func (h *History) Head() (registry.Version, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -339,7 +347,7 @@ func (h *SQLiteHistory) Head() (registry.Version, error) {
 	return nil, fmt.Errorf("head version %d not found", headID)
 }
 
-func (h *SQLiteHistory) SetHead(v registry.Version) error {
+func (h *History) SetHead(v registry.Version) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -352,7 +360,7 @@ func (h *SQLiteHistory) SetHead(v registry.Version) error {
 	return nil
 }
 
-func (h *SQLiteHistory) Close() error {
+func (h *History) Close() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 

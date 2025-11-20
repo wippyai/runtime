@@ -3,18 +3,7 @@ package function
 import (
 	"context"
 
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/runtime"
-)
-
-const (
-	InterceptorSystem event.System = "interceptor"
-
-	InterceptorRegister event.Kind = "interceptor.register"
-	InterceptorDelete   event.Kind = "interceptor.delete"
-
-	InterceptorAccept event.Kind = "interceptor.accept"
-	InterceptorReject event.Kind = "interceptor.reject"
 )
 
 type (

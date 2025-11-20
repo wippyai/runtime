@@ -257,7 +257,7 @@ func TestCore_With(t *testing.T) {
 	if len(downstream.withCalls) != 1 {
 		t.Error("expected one With call")
 	}
-	if downstream.withCalls[0][0] != fields[0] {
+	if downstream.withCalls[0][0] != fields[0] { //nolint:gosec // array indices checked by length above
 		t.Error("unexpected fields in With call")
 	}
 

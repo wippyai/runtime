@@ -582,10 +582,15 @@ func (m *manager) tryPortRange() (net.Listener, int, error) {
 }
 
 func (m *manager) listen(addr string) (net.Listener, error) {
+	lc := &net.ListenConfig{}
 	if m.tlsConfig != nil {
-		return tls.Listen("tcp", addr, m.tlsConfig)
+		ln, err := lc.Listen(m.ctx, "tcp", addr)
+		if err != nil {
+			return nil, err
+		}
+		return tls.NewListener(ln, m.tlsConfig), nil
 	}
-	return net.Listen("tcp", addr)
+	return lc.Listen(m.ctx, "tcp", addr)
 }
 
 func (m *manager) acceptLoop() {

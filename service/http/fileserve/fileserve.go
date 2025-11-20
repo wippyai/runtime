@@ -9,7 +9,8 @@ import (
 	fsapi "github.com/wippyai/runtime/api/fs"
 )
 
-const MiddlewareName = "fileserve"
+// MiddlewareName reserved for future use
+// const MiddlewareName = "fileserve"
 
 // FSRegistry interface for filesystem registry
 type FSRegistry interface {

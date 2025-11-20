@@ -107,6 +107,13 @@ func runFromPack(_ *cobra.Command, args []string) error {
 	}
 
 	var allEntries []regapi.Entry
+	openFiles := make([]*os.File, 0, len(args))
+
+	defer func() {
+		for _, f := range openFiles {
+			_ = f.Close()
+		}
+	}()
 
 	for _, packFile := range args {
 		logger.Info("loading pack", zap.String("file", packFile))
@@ -115,7 +122,7 @@ func runFromPack(_ *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("open pack file %s: %w", packFile, err)
 		}
-		defer file.Close()
+		openFiles = append(openFiles, file)
 
 		reader, err := pack.NewReader(file, transcoder)
 		if err != nil {

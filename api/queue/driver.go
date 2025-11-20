@@ -10,20 +10,20 @@ import (
 
 // Queue declaration option keys
 const (
-	OptionQueueName          = "queue_name"           // Override queue name (default: ID.Name)
-	OptionMaxLength          = "max_length"           // Maximum queue length
-	OptionMaxBytes           = "max_bytes"            // Maximum queue size in bytes
-	OptionMessageTTL         = "message_ttl"          // Default message TTL
-	OptionDeadLetterQueue    = "dead_letter_queue"    // DLQ name
-	OptionDeadLetterExchange = "dead_letter_exchange" // DLX for AMQP
-	OptionMaxRetryCount      = "max_retry_count"      // Max retries before DLQ
-	OptionDurable            = "durable"              // Persist queue to disk
-	OptionExclusive          = "exclusive"            // Exclusive to connection
-	OptionAutoDelete         = "auto_delete"          // Delete when unused
-	OptionOrdering           = "ordering"             // FIFO/priority ordering
-	OptionPartitions         = "partitions"           // Number of partitions (Kafka)
-	OptionReplicationFactor  = "replication_factor"   // Replication factor (Kafka)
-	OptionRetentionPeriod    = "retention_period"     // Message retention duration
+	OptionQueueName = "queue_name" // Override queue name (default: ID.Name)
+	OptionMaxLength = "max_length" // Maximum queue length
+	OptionDurable   = "durable"    // Queue durability
+	// OptionMaxBytes reserved for future use
+	// OptionMessageTTL reserved for future use
+	// OptionDeadLetterQueue reserved for future use
+	// OptionDeadLetterExchange reserved for future use
+	// OptionMaxRetryCount reserved for future use
+	// OptionExclusive reserved for future use
+	// OptionAutoDelete reserved for future use
+	// OptionOrdering reserved for future use
+	// OptionPartitions reserved for future use
+	// OptionReplicationFactor reserved for future use
+	// OptionRetentionPeriod reserved for future use
 
 	// Queue stats keys (returned by GetQueueInfo)
 	StatsMessageCount  = "message_count"  // Number of messages in queue

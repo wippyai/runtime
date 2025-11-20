@@ -23,9 +23,9 @@ const (
 	footerSize = 16
 
 	// Frame indices
-	MetadataFrameIndex  = 0
-	EntriesFrameIndex   = 1
-	ResourceFrameIndex  = 2
+	// MetadataFrameIndex reserved for future use
+	// EntriesFrameIndex reserved for future use
+	// ResourceFrameIndex reserved for future use
 	FirstDataFrameIndex = 3
 )
 

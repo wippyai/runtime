@@ -355,7 +355,7 @@ func TestConsumer_ConcurrentMessageProcessing(t *testing.T) {
 	}
 
 	assert.Eventually(t, func() bool {
-		return processedCount.Load() == int32(messageCount)
+		return processedCount.Load() == int32(messageCount) //nolint:gosec // messageCount is small test value
 	}, 3*time.Second, 10*time.Millisecond, "all messages should be processed")
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -804,15 +804,15 @@ func (m *mockDriver) Attach(ctx context.Context, _ registry.ID, deliveries chan<
 	}, nil
 }
 
-func (m *mockDriver) Publish(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
+func (m *mockDriver) Publish(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
 	return nil
 }
 
-func (m *mockDriver) DeclareQueue(ctx context.Context, q registry.ID, opts attrs.Attributes) error {
+func (m *mockDriver) DeclareQueue(_ context.Context, _ registry.ID, _ attrs.Attributes) error {
 	return nil
 }
 
-func (m *mockDriver) GetQueueInfo(ctx context.Context, q registry.ID) (attrs.Attributes, error) {
+func (m *mockDriver) GetQueueInfo(_ context.Context, _ registry.ID) (attrs.Attributes, error) {
 	return attrs.NewBag(), nil
 }
 

@@ -333,7 +333,10 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 		case <-ctx.Done():
 			return fmt.Errorf("startup canceled: %w", ctx.Err())
 		case <-ticker.C:
-			conn, err := net.DialTimeout("tcp", s.config.Addr, time.Second)
+			dialCtx, cancel := context.WithTimeout(ctx, time.Second)
+			dialer := &net.Dialer{}
+			conn, err := dialer.DialContext(dialCtx, "tcp", s.config.Addr)
+			cancel()
 			if err == nil {
 				_ = conn.Close()
 				return nil

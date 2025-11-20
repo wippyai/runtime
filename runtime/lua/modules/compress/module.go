@@ -154,7 +154,7 @@ func (m *Module) gzipDecode(l *lua.LState) int {
 		return 2
 	}
 
-	l.Push(lua.LString(string(decompressed)))
+	l.Push(lua.LString(decompressed))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -236,7 +236,7 @@ func (m *Module) deflateDecode(l *lua.LState) int {
 		return 2
 	}
 
-	l.Push(lua.LString(string(decompressed)))
+	l.Push(lua.LString(decompressed))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -323,7 +323,7 @@ func (m *Module) zlibDecode(l *lua.LState) int {
 		return 2
 	}
 
-	l.Push(lua.LString(string(decompressed)))
+	l.Push(lua.LString(decompressed))
 	l.Push(lua.LNil)
 	return 2
 }

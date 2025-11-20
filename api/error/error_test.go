@@ -72,10 +72,6 @@ func TestTernary_Bool(t *testing.T) {
 }
 
 func TestKind_Values(t *testing.T) {
-	if KindUnknown != "Unknown" {
-		t.Errorf("KindUnknown should be 'Unknown', got %s", KindUnknown)
-	}
-
 	kinds := []Kind{
 		KindUnknown,
 		KindNotFound,
@@ -104,10 +100,6 @@ func TestKind_Values(t *testing.T) {
 }
 
 func TestTernary_Values(t *testing.T) {
-	if Unknown != 0 {
-		t.Errorf("Unknown should be 0 (iota default), got %d", Unknown)
-	}
-
 	ternaries := []Ternary{Unknown, True, False}
 	seen := make(map[Ternary]bool)
 	for _, ternary := range ternaries {

@@ -7,11 +7,11 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// Resource type constants
-const (
-	ResourceTree = "tree" // Filesystem tree
-	ResourceBlob = "blob" // Large binary blob
-)
+// Resource type constants reserved for future use
+// const (
+// 	ResourceTree = "tree" // Filesystem tree
+// 	ResourceBlob = "blob" // Large binary blob
+// )
 
 // Pack provides read-only access to pack file resources.
 type Pack interface {
