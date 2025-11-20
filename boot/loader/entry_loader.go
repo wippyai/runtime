@@ -168,10 +168,7 @@ func (ep *EntryProcessor) processRawEntry(_ context.Context, content *FileConten
 	entryData := payload.New(rawEntry)
 
 	entry := registry.Entry{
-		ID: registry.ID{
-			NS:   content.Namespace,
-			Name: name,
-		},
+		ID:   registry.NewID(content.Namespace, name),
 		Kind: kind,
 		Meta: mergedMeta,
 		Data: entryData,
@@ -199,10 +196,7 @@ func (ep *EntryProcessor) processSingleEntry(_ context.Context, content *FileCon
 	entryMap := ep.buildSingleEntryMap(content)
 
 	entry := registry.Entry{
-		ID: registry.ID{
-			NS:   content.Namespace,
-			Name: content.Name,
-		},
+		ID:   registry.NewID(content.Namespace, content.Name),
 		Kind: content.Kind,
 		Meta: mergedMeta,
 		Data: payload.New(entryMap),

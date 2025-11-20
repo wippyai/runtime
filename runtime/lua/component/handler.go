@@ -79,7 +79,7 @@ func BuildImports(imports map[string]registry.ID, modules []string) []lua.Import
 	}
 
 	for _, module := range modules {
-		out = append(out, lua.Import{ID: registry.ID{Name: module}, Alias: module})
+		out = append(out, lua.Import{ID: registry.NewID("", module), Alias: module})
 	}
 
 	return out

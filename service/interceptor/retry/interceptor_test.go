@@ -257,7 +257,7 @@ func TestInterceptor_FixedBackoff(t *testing.T) {
 	task := makeTask(opts)
 
 	attempts := 0
-	timestamps := []time.Time{}
+	var timestamps []time.Time
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		timestamps = append(timestamps, time.Now())
@@ -290,7 +290,7 @@ func TestInterceptor_DefaultBackoff(t *testing.T) {
 	task := makeTask(opts)
 
 	attempts := 0
-	timestamps := []time.Time{}
+	var timestamps []time.Time
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		timestamps = append(timestamps, time.Now())

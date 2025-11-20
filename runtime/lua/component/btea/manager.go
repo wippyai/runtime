@@ -29,13 +29,13 @@ var (
 func init() {
 	bteaBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).
-		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
-		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.ID{Name: "upstream"}}).
-		WithPreloaded(code.Preload{Name: "task", ModuleID: registry.ID{Name: "task"}}).
-		WithPreloaded(code.Preload{Name: "btea", ModuleID: registry.ID{Name: "btea"}}).
-		WithPreloaded(code.Preload{Name: "process_api", ModuleID: registry.ID{Name: "process_api"}}).
-		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.ID{Name: "os"}}).
-		WithPreloaded(code.Preload{Name: "payload", ModuleID: registry.ID{Name: "payload"}})
+		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.NewID("", "channel")}).
+		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.NewID("", "upstream")}).
+		WithPreloaded(code.Preload{Name: "task", ModuleID: registry.NewID("", "task")}).
+		WithPreloaded(code.Preload{Name: "btea", ModuleID: registry.NewID("", "btea")}).
+		WithPreloaded(code.Preload{Name: "process_api", ModuleID: registry.NewID("", "process_api")}).
+		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.NewID("", "os")}).
+		WithPreloaded(code.Preload{Name: "payload", ModuleID: registry.NewID("", "payload")})
 
 	layers = component.WithRunnerOption(
 		engine.WithLayer(channel.NewChannelLayer()),

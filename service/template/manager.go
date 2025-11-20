@@ -513,7 +513,7 @@ func (m *Manager) Acquire(
 	m.mu.RUnlock()
 
 	// Create a resource for the template
-	return set.Acquire(ctx, registry.ID{Name: entry.Name}, mode)
+	return set.Acquire(ctx, registry.NewID("", entry.Name), mode)
 }
 
 //

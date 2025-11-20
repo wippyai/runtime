@@ -320,7 +320,7 @@ func (r *Registry) GetDefaultBinding(_ context.Context, contractID registry.ID) 
 	r.mu.RUnlock()
 
 	if !exists {
-		return registry.ID{}, fmt.Errorf("no default binding for contract '%s'", contractID)
+		return registry.NewID("", ""), fmt.Errorf("no default binding for contract '%s'", contractID)
 	}
 
 	return bindingID, nil

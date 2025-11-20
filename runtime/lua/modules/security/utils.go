@@ -37,11 +37,3 @@ func optMetadataFromLuaTable(l *lua.LState, pos int) (registry.Metadata, error) 
 	}
 	return registry.Metadata{}, nil
 }
-
-// checkMetadataFromLuaTable gets required metadata from a Lua table
-//
-//nolint:unused // to be used in tests
-func checkMetadataFromLuaTable(l *lua.LState, pos int) (registry.Metadata, error) {
-	metaTable := l.CheckTable(pos)
-	return luaTableToMetadata(l, metaTable)
-}

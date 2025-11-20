@@ -68,12 +68,13 @@ func TestNewUnitOfWorkWithState(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 
-	uw, _ := NewUnitOfWork(parentCtx, state)
-	// Test that state context is set (should not be nil)
-	if state.Context() == nil {
-		t.Errorf("expected state context to be set, got nil")
+	uw, ctx := NewUnitOfWork(parentCtx, state)
+	defer uw.Close()
+
+	// Test that state context is set and matches the returned context
+	if state.Context() != ctx {
+		t.Errorf("expected state context to match UoW context")
 	}
-	uw.Close()
 }
 
 func TestUnitOfWork_Context(t *testing.T) {
@@ -380,7 +381,7 @@ func TestGetTasks_Error(t *testing.T) {
 
 	_, err := GetTasks(provider, update)
 	if err == nil {
-		t.Errorf("expected error from GetTasks")
+		t.Fatal("expected error from GetTasks, got nil")
 	}
 }
 

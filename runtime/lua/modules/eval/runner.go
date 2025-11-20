@@ -26,7 +26,7 @@ func buildIsolatedRunner(ctx context.Context, config *evalConfig) (*engine.Runne
 	options := make([]engine.Option, 0, len(config.Modules)+len(config.Imports))
 
 	for _, modName := range config.Modules {
-		id := registry.ID{NS: "", Name: modName}
+		id := registry.NewID("", modName)
 		node, err := cm.GetNode(id)
 		if err != nil {
 			return nil, fmt.Errorf("module '%s' not found: %w", modName, err)

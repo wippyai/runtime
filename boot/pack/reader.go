@@ -167,7 +167,7 @@ func (pr *Reader) GetEntries() ([]registry.Entry, error) {
 				if idMap, ok := idData.(map[string]any); ok {
 					ns, _ := idMap["ns"].(string)
 					name, _ := idMap["name"].(string)
-					entry.ID = registry.ID{NS: ns, Name: name}
+					entry.ID = registry.NewID(ns, name)
 				}
 			}
 

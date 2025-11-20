@@ -2,7 +2,7 @@
 package http
 
 import (
-	context "context"
+	"context"
 	"net/http"
 
 	"github.com/wippyai/runtime/api/registry"

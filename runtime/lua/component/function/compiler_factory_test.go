@@ -37,7 +37,7 @@ func TestFactory_Compile(t *testing.T) {
 	codeManager := &code.Manager{} // Use concrete type
 	id := registry.ID{Name: "test"}
 	buildOpts := code.NewBuildOptions()
-	imports := []code.Import{}
+	var imports []code.Import
 	options := component.WithRunnerOption()
 
 	factory := NewCompilerFactory(log, codeManager, id, buildOpts, imports, options)

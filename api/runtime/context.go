@@ -37,14 +37,14 @@ func SetFrameID(ctx context.Context, id registry.ID) error {
 func GetFrameID(ctx context.Context) (registry.ID, bool) {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
-		return registry.ID{}, false
+		return registry.NewID("", ""), false
 	}
 	if val, ok := fc.Get(FrameIDKey); ok {
 		if id, ok := val.(registry.ID); ok {
 			return id, true
 		}
 	}
-	return registry.ID{}, false
+	return registry.NewID("", ""), false
 }
 
 // SetFramePID sets the PID in the FrameContext.

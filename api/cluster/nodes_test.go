@@ -65,7 +65,7 @@ func TestNodeInfo_MarshalUnmarshal(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			var decoded NodeInfo
+			var decoded = NodeInfo{}
 			err = json.Unmarshal(data, &decoded)
 			require.NoError(t, err)
 			assert.Equal(t, tt.info, decoded)
@@ -118,7 +118,7 @@ func TestNodeMeta_MarshalUnmarshal(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			var decoded NodeMeta
+			var decoded = NodeMeta{}
 			err = json.Unmarshal(data, &decoded)
 			require.NoError(t, err)
 			assert.Equal(t, tt.meta, decoded)
@@ -128,7 +128,7 @@ func TestNodeMeta_MarshalUnmarshal(t *testing.T) {
 
 func TestNodeID(t *testing.T) {
 	t.Run("type alias", func(t *testing.T) {
-		var id NodeID = "test-node-id"
+		var id = NodeID("test-node-id")
 		assert.Equal(t, "test-node-id", id)
 		assert.IsType(t, "", id)
 	})

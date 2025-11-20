@@ -47,9 +47,9 @@ func TestTaskRunner_formatResult_LuaValue(t *testing.T) {
 
 	// Create a Lua value payload
 	luaValue := lua.LString("test string")
-	payload := payload.NewPayload(luaValue, payload.Lua)
+	pload := payload.NewPayload(luaValue, payload.Lua)
 
-	result := runner.formatResult(payload)
+	result := runner.formatResult(pload)
 	assert.Equal(t, "test string", result)
 }
 

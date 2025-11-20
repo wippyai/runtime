@@ -78,8 +78,8 @@ func TestNewCommandFunc(t *testing.T) {
 		vm.State().SetContext(ctx)
 
 		// Create a payload wrapper
-		payload := payload.NewPayload("test_value", payload.Lua)
-		pw := &payloadmod.Wrapper{Payload: payload}
+		pload := payload.NewPayload("test_value", payload.Lua)
+		pw := &payloadmod.Wrapper{Payload: pload}
 		ud := vm.State().NewUserData()
 		ud.Value = pw
 
@@ -99,7 +99,7 @@ func TestNewCommandFunc(t *testing.T) {
 		assert.True(t, ok)
 		assert.NotNil(t, cmd)
 		assert.Len(t, cmd.Params(), 1)
-		assert.Equal(t, payload, cmd.Params()[0])
+		assert.Equal(t, pload, cmd.Params()[0])
 	})
 
 	t.Run("raises error for empty command type", func(t *testing.T) {
@@ -263,10 +263,10 @@ func TestResultFunc(t *testing.T) {
 		err := vm.State().PCall(1, 2, nil)
 		require.NoError(t, err)
 
-		payload := vm.State().Get(-2)
+		pload := vm.State().Get(-2)
 		errorMsg := vm.State().Get(-1)
 
-		assert.Equal(t, lua.LTNil, payload.Type())
+		assert.Equal(t, lua.LTNil, pload.Type())
 		assert.Equal(t, lua.LTString, errorMsg.Type())
 		assert.Equal(t, "command not completed", errorMsg.String())
 	})
@@ -292,10 +292,10 @@ func TestResultFunc(t *testing.T) {
 		err = vm.State().PCall(1, 2, nil)
 		require.NoError(t, err)
 
-		payload := vm.State().Get(-2)
+		pload := vm.State().Get(-2)
 		errorMsg := vm.State().Get(-1)
 
-		assert.Equal(t, lua.LTUserData, payload.Type())
+		assert.Equal(t, lua.LTUserData, pload.Type())
 		assert.Equal(t, lua.LTNil, errorMsg.Type())
 	})
 
@@ -320,10 +320,10 @@ func TestResultFunc(t *testing.T) {
 		err = vm.State().PCall(1, 2, nil)
 		require.NoError(t, err)
 
-		payload := vm.State().Get(-2)
+		pload := vm.State().Get(-2)
 		errorMsg := vm.State().Get(-1)
 
-		assert.Equal(t, lua.LTNil, payload.Type())
+		assert.Equal(t, lua.LTNil, pload.Type())
 		assert.Equal(t, lua.LTString, errorMsg.Type())
 		assert.Equal(t, assert.AnError.Error(), errorMsg.String())
 	})
@@ -349,10 +349,10 @@ func TestResultFunc(t *testing.T) {
 		err = vm.State().PCall(1, 2, nil)
 		require.NoError(t, err)
 
-		payload := vm.State().Get(-2)
+		pload := vm.State().Get(-2)
 		errorMsg := vm.State().Get(-1)
 
-		assert.Equal(t, lua.LTUserData, payload.Type())
+		assert.Equal(t, lua.LTUserData, pload.Type())
 		assert.Equal(t, lua.LTNil, errorMsg.Type())
 	})
 }

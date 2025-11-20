@@ -12,7 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
-	boot "github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/boot"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
