@@ -1,9 +1,0 @@
-version: "1.0"
-namespace: test.should.not.load
-
-entries:
-  - name: test_entry
-    kind: function
-    meta:
-      comment: Entry that should be excluded during scanning
-
