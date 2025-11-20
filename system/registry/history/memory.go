@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/version"
 )
 
 // MemoryStorage is an in-memory implementation of the registry.History interface.
@@ -17,10 +18,19 @@ type MemoryStorage struct {
 
 // NewMemory creates a new MemoryStorage.
 func NewMemory() *MemoryStorage {
-	return &MemoryStorage{
-		versions: map[uint]registry.Version{},
-		actions:  make(map[uint]registry.ChangeSet),
+	// Create v0 as the root version
+	v0 := version.New(0)
+
+	m := &MemoryStorage{
+		versions: map[uint]registry.Version{
+			0: v0,
+		},
+		actions: map[uint]registry.ChangeSet{
+			0: {}, // Empty changeset for v0
+		},
 	}
+
+	return m
 }
 
 // Versions returns a list of all versions in the history.
@@ -45,10 +55,31 @@ func (m *MemoryStorage) Get(version registry.Version) (registry.ChangeSet, error
 		return nil, fmt.Errorf("version not found: %s", version)
 	}
 
-	// Return a copy to prevent external modification
 	actionsCopy := make(registry.ChangeSet, len(actions))
-	copy(actionsCopy, actions) // todo: not sure this is good
+	for i, op := range actions {
+		actionsCopy[i] = registry.Operation{
+			Kind:  op.Kind,
+			Entry: cloneEntry(op.Entry),
+		}
+		if op.OriginalEntry != nil {
+			clonedOriginal := cloneEntry(*op.OriginalEntry)
+			actionsCopy[i].OriginalEntry = &clonedOriginal
+		}
+	}
 	return actionsCopy, nil
+}
+
+func cloneEntry(e registry.Entry) registry.Entry {
+	cloned := registry.Entry{
+		ID:   e.ID,
+		Kind: e.Kind,
+		Meta: make(registry.Metadata, len(e.Meta)),
+		Data: e.Data,
+	}
+	for k, v := range e.Meta {
+		cloned.Meta[k] = v
+	}
+	return cloned
 }
 
 // Save records a set of actions and creates a new version.

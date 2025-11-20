@@ -12,7 +12,6 @@ import (
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -91,7 +90,7 @@ func (m *Module) withContext(l *lua.LState) int {
 				return
 			}
 
-			newValues.Set(string(key), luaconv.ToGoAny(v))
+			newValues.Set(string(key), value.ToGoAny(v))
 		})
 
 		// Create new spawner with merged context, preserving security context
@@ -139,7 +138,7 @@ func (m *Module) withContext(l *lua.LState) int {
 			return
 		}
 
-		values.Set(string(key), luaconv.ToGoAny(v))
+		values.Set(string(key), value.ToGoAny(v))
 	})
 
 	// Check for existing security context to inherit

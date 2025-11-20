@@ -6,6 +6,7 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -48,7 +49,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 
 		metaTable.ForEach(func(k, v lua.LValue) {
 			if kStr, ok := k.(lua.LString); ok {
-				meta[string(kStr)] = luaconv.ToGoAny(v)
+				meta[string(kStr)] = value.ToGoAny(v)
 			}
 		})
 
@@ -61,7 +62,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 	dataVal := table.RawGetString("data")
 	if dataVal != lua.LNil {
 		// Convert to payload
-		entry.Data = payload.NewPayload(luaconv.ToGoAny(dataVal), payload.Golang)
+		entry.Data = payload.NewPayload(value.ToGoAny(dataVal), payload.Golang)
 	}
 
 	return entry, nil
@@ -124,7 +125,7 @@ func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) regapi.Meta
 			}
 
 			// Convert the Lua value to a Go value
-			meta[key] = luaconv.ToGoAny(v)
+			meta[key] = value.ToGoAny(v)
 		}
 	})
 
@@ -136,7 +137,7 @@ func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) regapi.Meta
 			if kStr, ok := k.(lua.LString); ok {
 				key := string(kStr)
 
-				meta[key] = luaconv.ToGoAny(v)
+				meta[key] = value.ToGoAny(v)
 			}
 		})
 	}

@@ -16,14 +16,13 @@ import (
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/boot/deps/storage"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
-	regtop "github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
 
 // LoadFromLockFile loads application entries from the lock file and applies them to the registry.
 // This function executes between the Load and Start phases of the boot process.
 // If modules are missing, it auto-installs them before loading entries.
-func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
+func LoadFromLockFile(ctx context.Context, logger *zap.Logger, verbose bool) error {
 	lockFilePath := "wippy.lock"
 
 	lockPath, err := lock.Find(".", lockFilePath)
@@ -57,11 +56,11 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 
 	logger.Info("loaded entries", zap.Int("count", len(entries)))
 
-	if err := applyEntriesToRegistry(ctx, entries, logger); err != nil {
-		return fmt.Errorf("apply entries to registry: %w", err)
+	if err := loadEntriesToRegistry(ctx, entries, logger, verbose); err != nil {
+		return fmt.Errorf("load entries to registry: %w", err)
 	}
 
-	logger.Info("entries applied to registry successfully")
+	logger.Info("entries loaded to registry successfully")
 	return nil
 }
 
@@ -204,8 +203,8 @@ func loadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 	return entries, nil
 }
 
-// applyEntriesToRegistry converts entries to a ChangeSet and applies them to the registry.
-func applyEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *zap.Logger) error {
+// loadEntriesToRegistry loads entries into the registry using LoadState to restore from history.
+func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *zap.Logger, verbose bool) error {
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		return fmt.Errorf("registry not found in context")
@@ -232,8 +231,8 @@ func applyEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger 
 	}
 
 	if duplicateCount > 0 {
-		// In debug/verbose mode, fail on duplicates. Otherwise, warn and continue.
-		if logger.Core().Enabled(zap.DebugLevel) {
+		// In verbose mode (-v flag), fail on duplicates. Otherwise, warn and continue.
+		if verbose {
 			logger.Error("duplicate entries detected",
 				zap.Int("total_entries", len(entries)),
 				zap.Int("unique_entries", len(entryByID)),
@@ -247,20 +246,34 @@ func applyEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger 
 			zap.Strings("affected", duplicateIDs))
 	}
 
-	// Use CreateChangeSetFromEntries which properly sorts by dependencies
-	logger.Info("creating changeset from entries", zap.Int("entry_count", len(entries)))
-	changeSet, err := regtop.CreateChangeSetFromEntries(entries, resolver)
-	if err != nil {
-		return fmt.Errorf("build change set: %w", err)
+	logger.Info("creating baseline state from entries", zap.Int("entry_count", len(entries)))
+
+	baselineState := make(regapi.State, 0, len(entries))
+	for _, entry := range entries {
+		baselineState = append(baselineState, entry)
 	}
 
-	logger.Info("changeset created", zap.Int("change_count", len(changeSet)))
+	logger.Info("baseline state created", zap.Int("entry_count", len(baselineState)))
 
-	version, err := reg.Apply(ctx, changeSet)
+	hist := reg.History()
+	head, err := hist.Head()
 	if err != nil {
-		return fmt.Errorf("apply change set: %w", err)
+		logger.Info("no history found, initializing registry with baseline state at v0")
+		currentVer, err := reg.Current()
+		if err != nil {
+			return fmt.Errorf("failed to get current version: %w", err)
+		}
+		head = currentVer
+	} else if head.ID() > 0 {
+		logger.Info("restoring registry state from history", zap.Uint("version", head.ID()))
+	} else {
+		logger.Info("initializing registry with baseline state at v0")
 	}
 
-	logger.Debug("registry updated", zap.Any("version", version))
+	if err := reg.LoadState(ctx, baselineState, head); err != nil {
+		return fmt.Errorf("load state: %w", err)
+	}
+
+	logger.Debug("registry state loaded", zap.Uint("version", head.ID()))
 	return nil
 }

@@ -175,7 +175,7 @@ func (m *Module) withContext(l *lua.LState) int {
 			l.ArgError(2, "context keys must be strings")
 			return
 		}
-		newValues.Set(string(key), luaconv.ToGoAny(v))
+		newValues.Set(string(key), value.ToGoAny(v))
 	})
 
 	// Create new Functions instance with copied security context
@@ -315,7 +315,7 @@ func (m *Module) withOptions(l *lua.LState) int {
 	optionsTable := l.CheckTable(2)
 
 	// Convert Lua table to runtime.Bag (which is attrs.Bag, which is map[string]any)
-	optionsData := luaconv.ToGoAny(optionsTable)
+	optionsData := value.ToGoAny(optionsTable)
 	var options runtime.Bag
 	if dataMap, ok := optionsData.(map[string]any); ok {
 		options = runtime.Bag(dataMap)

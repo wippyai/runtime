@@ -12,13 +12,17 @@ type (
 	// Map represents a version history that maintains relationships between different
 	// versions and provides operations to traverse and manage the version graph.
 	Map interface {
-		// Path returns the ordered sequence of version instances connecting a starting
-		// version ('from') and an ending version ('to'), including both 'from' and 'to'.
+		// Path returns the ordered sequence of version instances representing
+		// the changesets that must be applied to transition from 'from' to 'to'.
+		// The 'from' version is EXCLUDED (you're already at that state).
+		// The 'to' version is INCLUDED (you want to reach that state).
+		//
+		// Example: Path(v0, v2) returns [v1, v2] - apply changesets v1 then v2
 		//
 		// Constraints:
-		//   - Both 'from' and 'to' MUST exist; otherwise, nil is returned.
-		//   - If 'from' and 'to' are identical, the returned slice contains only 'from'.
-		//   - If no valid path exists, nil is returned.
+		//   - Both 'from' and 'to' MUST exist; otherwise, error is returned.
+		//   - If 'from' and 'to' are identical, returns empty slice (no changes).
+		//   - If no valid path exists, error is returned.
 		Path(from, to registry.Version) ([]registry.Version, error)
 
 		// Len returns the number of versions.
@@ -54,7 +58,8 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 	}
 
 	if from.ID() == to.ID() {
-		return []registry.Version{from}, nil
+		// Already at target version, no changes needed
+		return []registry.Version{}, nil
 	}
 
 	// todo: can be optimized as `typically` we always event source from root
@@ -76,9 +81,15 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 		return nil, err
 	}
 
-	// Convert the graph path to a version path
-	versionPath := make([]registry.Version, len(path.Nodes))
-	for i, node := range path.Nodes {
+	// Convert the graph path to a version path, excluding the starting version
+	// Path represents the changesets to apply, not the states visited
+	// Example: Path(v0, v2) returns [v1, v2] (apply changesets for v1 and v2)
+	if len(path.Nodes) <= 1 {
+		return []registry.Version{}, nil
+	}
+
+	versionPath := make([]registry.Version, len(path.Nodes)-1)
+	for i, node := range path.Nodes[1:] { // Skip the first node (from)
 		versionPath[i] = vm.versions[node]
 	}
 

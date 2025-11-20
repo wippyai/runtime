@@ -24,7 +24,8 @@ func TestVersionMap_Path_Simple(t *testing.T) {
 	from := v1
 	to := v3
 	actualPath, _ := vm.Path(from, to)
-	expectedPath := []registry.Version{v1, v2, v3}
+	// Path now excludes the starting version (v1)
+	expectedPath := []registry.Version{v2, v3}
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
 		t.Errorf("Expected path: %v, got: %v", expectedPath, actualPath)
@@ -46,7 +47,8 @@ func TestVersionMap_Path_Backwards(t *testing.T) {
 	from := v3
 	to := v1
 	actualPath, _ := vm.Path(from, to)
-	expectedPath := []registry.Version{v3, v2, v1} // Alias in reverse
+	// Path excludes starting version, so going from v3 to v1 returns [v2, v1]
+	expectedPath := []registry.Version{v2, v1}
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
 		t.Errorf("Expected path: %v, got: %v", expectedPath, actualPath)
@@ -70,7 +72,8 @@ func TestVersionMap_Path_Branches(t *testing.T) {
 	from := v3
 	to := v4
 	actualPath, _ := vm.Path(from, to)
-	expectedPath := []registry.Version{v3, v2, v4}
+	// Path excludes starting version v3, returns [v2, v4]
+	expectedPath := []registry.Version{v2, v4}
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
 		t.Errorf("Expected path: %v, got: %v", expectedPath, actualPath)
@@ -104,7 +107,7 @@ func TestVersionMap(t *testing.T) {
 			},
 			from:     v1,
 			to:       v4,
-			expected: []registry.Version{v1, v2, v3, v4},
+			expected: []registry.Version{v2, v3, v4}, // Path excludes starting version
 		},
 		{
 			name: "Alias to the past",
@@ -116,7 +119,7 @@ func TestVersionMap(t *testing.T) {
 			},
 			from:     v4,
 			to:       v1,
-			expected: []registry.Version{v4, v3, v2, v1},
+			expected: []registry.Version{v3, v2, v1}, // Path excludes starting version
 		},
 		{
 			name: "Alias across branches",
@@ -129,7 +132,7 @@ func TestVersionMap(t *testing.T) {
 			},
 			from:     v3,
 			to:       v5,
-			expected: []registry.Version{v3, v2, v5},
+			expected: []registry.Version{v2, v5}, // Path excludes starting version (v3)
 		},
 		{
 			name: "Target and to are identical",
@@ -138,7 +141,7 @@ func TestVersionMap(t *testing.T) {
 			},
 			from:     v1,
 			to:       v1,
-			expected: []registry.Version{v1},
+			expected: []registry.Version{}, // No changes needed when from == to
 		},
 		{
 			name: "Target version not found",
@@ -178,7 +181,7 @@ func TestVersionMap(t *testing.T) {
 			},
 			from:     v1,
 			to:       v1,
-			expected: []registry.Version{v1},
+			expected: []registry.Version{}, // No changes needed when from == to
 		},
 		{
 			name: "Spawn non-existent version",

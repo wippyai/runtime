@@ -101,6 +101,11 @@ type (
 		Kind event.Kind `json:"kind"`
 		// Entry is the entry affected by the operation
 		Entry Entry `json:"entry"`
+		// OriginalEntry stores the entry value before the operation for reversal purposes
+		// For Update: contains the entry before the update
+		// For Delete: contains the deleted entry
+		// For Create: nil
+		OriginalEntry *Entry `json:"original_entry,omitempty"`
 	}
 
 	// DependencyPattern defines a pattern for extracting dependencies from entries
@@ -138,6 +143,8 @@ type (
 		Apply(context.Context, ChangeSet) (Version, error)
 		// ApplyVersion applies a specific version to the registry
 		ApplyVersion(context.Context, Version) error
+		// LoadState initializes registry state from baseline and history without creating new version records
+		LoadState(context.Context, State, Version) error
 	}
 
 	// StateBuilder defines methods for constructing registry states and calculating differences

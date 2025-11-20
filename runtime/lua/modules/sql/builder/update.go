@@ -220,7 +220,7 @@ func updateWhere(l *lua.LState) int {
 		condition := l.CheckString(2)
 		args := make([]interface{}, 0, l.GetTop()-2)
 		for i := 3; i <= l.GetTop(); i++ {
-			args = append(args, luaconv.ToGoAny(l.Get(i)))
+			args = append(args, value.ToGoAny(l.Get(i)))
 		}
 		newBuilder = wrapper.builder.Where(condition, args...)
 
@@ -336,7 +336,7 @@ func updateSuffix(l *lua.LState) int {
 	// Handle optional args
 	args := make([]interface{}, 0, l.GetTop()-2)
 	for i := 3; i <= l.GetTop(); i++ {
-		args = append(args, luaconv.ToGoAny(l.Get(i)))
+		args = append(args, value.ToGoAny(l.Get(i)))
 	}
 
 	// Create new wrapper

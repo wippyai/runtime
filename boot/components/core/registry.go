@@ -2,6 +2,9 @@ package core
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"path/filepath"
 
 	"go.uber.org/zap"
 
@@ -11,11 +14,14 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/system/registry"
 	"github.com/wippyai/runtime/system/registry/history"
+	"github.com/wippyai/runtime/system/registry/history/sqlite"
 	"github.com/wippyai/runtime/system/registry/runner"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
 )
 
 func Registry() boot.Component {
+	var histCloser io.Closer
+
 	return boot.New(boot.P{
 		Name:      RegistryName,
 		DependsOn: []boot.ComponentName{},
@@ -42,10 +48,37 @@ func Registry() boot.Component {
 			if cfg != nil {
 				registryCfg := cfg.Sub(string(RegistryName))
 				enableHistory := registryCfg.GetBool(string(RegistryEnableHistory), true)
-				if enableHistory {
-					hist = history.NewMemory()
-				} else {
+
+				if !enableHistory {
 					hist = history.NewNil()
+				} else {
+					historyType := registryCfg.GetString(string(RegistryHistoryType), "memory")
+
+					switch historyType {
+					case "sqlite":
+						historyPath := registryCfg.GetString(string(RegistryHistoryPath), ".wippy/registry.db")
+						absPath, err := filepath.Abs(historyPath)
+						if err != nil {
+							return nil, fmt.Errorf("failed to resolve history path: %w", err)
+						}
+
+						sqliteHist, err := sqlite.NewSQLite(absPath, logger.Named("history"))
+						if err != nil {
+							return nil, fmt.Errorf("failed to create SQLite history: %w", err)
+						}
+						hist = sqliteHist
+						histCloser = sqliteHist
+
+					case "nil":
+						hist = history.NewNil()
+
+					case "memory":
+						hist = history.NewMemory()
+
+					default:
+						logger.Warn("unknown history type, defaulting to memory", zap.String("type", historyType))
+						hist = history.NewMemory()
+					}
 				}
 			} else {
 				hist = history.NewMemory()
@@ -61,7 +94,15 @@ func Registry() boot.Component {
 			)
 
 			ctx = regapi.WithResolver(ctx, resolver)
-			return regapi.WithRegistry(ctx, reg), nil
+			ctx = regapi.WithRegistry(ctx, reg)
+
+			return ctx, nil
+		},
+		Stop: func(_ context.Context) error {
+			if histCloser != nil {
+				return histCloser.Close()
+			}
+			return nil
 		},
 	})
 }

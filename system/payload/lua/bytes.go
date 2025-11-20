@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -79,7 +80,7 @@ func (t *ToBytes) Transcode(p payload.Payload) (payload.Payload, error) {
 		result = []byte{}
 	case lua.LTTable:
 		// For tables, convert to string representation first
-		result = []byte(fmt.Sprintf("%v", ToGoAny(lv)))
+		result = []byte(fmt.Sprintf("%v", value.ToGoAny(lv)))
 	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
 		// FIXME rework on demand
 		fallthrough

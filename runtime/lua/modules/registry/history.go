@@ -65,7 +65,7 @@ func historyGetVersion(l *lua.LState) int {
 
 	// Get version ID - parameter check
 	vID := l.CheckNumber(2)
-	if vID <= 0 {
+	if vID < 0 {
 		l.Push(lua.LNil)
 		l.Push(newRegistryOperationError(l, fmt.Errorf("invalid version ID"), "get_version"))
 		return 2

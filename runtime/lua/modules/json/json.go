@@ -2,6 +2,8 @@ package json
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +11,9 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/kaptinlin/jsonschema"
+	"github.com/wippyai/runtime/internal/cache"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -107,12 +112,37 @@ func writeSimpleASCIIString(buf *bytes.Buffer, s string) {
 
 type Module struct {
 	Options     EncodeOptions
+	EnableCache bool
+	CacheSize   int
+	schemaCache *lru.Cache[string, *jsonschema.Schema]
 	moduleTable *lua.LTable
 	once        sync.Once
 }
 
-func NewJSONModule() *Module {
-	return &Module{Options: DefaultEncodeOptions}
+type Option func(*Module)
+
+func WithCache(enabled bool) Option {
+	return func(m *Module) {
+		m.EnableCache = enabled
+	}
+}
+
+func WithCapacity(capacity int) Option {
+	return func(m *Module) {
+		m.CacheSize = capacity
+	}
+}
+
+func NewJSONModule(opts ...Option) *Module {
+	m := &Module{
+		Options:     DefaultEncodeOptions,
+		EnableCache: false,
+		CacheSize:   100,
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 func (m *Module) Name() string {
@@ -121,9 +151,15 @@ func (m *Module) Name() string {
 
 func (m *Module) Loader(l *lua.LState) int {
 	m.once.Do(func() {
+		if m.EnableCache && m.schemaCache == nil {
+			m.schemaCache = lru.New[string, *jsonschema.Schema](lru.WithCapacity(m.CacheSize))
+		}
+
 		t := l.NewTable()
 		t.RawSetString("decode", l.NewFunction(m.decode))
 		t.RawSetString("encode", l.NewFunction(m.encode))
+		t.RawSetString("validate", l.NewFunction(m.validate))
+		t.RawSetString("validate_string", l.NewFunction(m.validateString))
 		t.Immutable = true
 		m.moduleTable = t
 	})
@@ -580,4 +616,148 @@ func DecodeValue(l *lua.LState, value any) lua.LValue {
 		return lua.LNil
 	}
 	return lua.LNil
+}
+
+func (m *Module) validate(l *lua.LState) int {
+	schemaArg := l.Get(1)
+	dataArg := l.Get(2)
+
+	if schemaArg == lua.LNil {
+		l.Push(lua.LFalse)
+		l.Push(newJSONInvalidError(l, "schema is required", "validate"))
+		return 2
+	}
+
+	if dataArg == lua.LNil {
+		l.Push(lua.LFalse)
+		l.Push(newJSONInvalidError(l, "data is required", "validate"))
+		return 2
+	}
+
+	schemaJSON, err := m.getSchemaJSON(l, schemaArg)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(newJSONValidationError(l, err))
+		return 2
+	}
+
+	schema, err := m.compileSchema(schemaJSON)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(newJSONValidationError(l, fmt.Errorf("compile schema: %w", err)))
+		return 2
+	}
+
+	// Convert Lua value directly to Go value (no JSON encoding needed)
+	dataGo := value.ToGoAny(dataArg)
+
+	// Validate using the Go value directly
+	var result *jsonschema.EvaluationResult
+	if dataMap, ok := dataGo.(map[string]any); ok {
+		// For objects, use ValidateMap for better performance
+		result = schema.ValidateMap(dataMap)
+	} else {
+		// For primitives and arrays, encode to JSON and validate
+		dataJSON, err := EncodeWithOptions(dataArg, &m.Options)
+		if err != nil {
+			l.Push(lua.LFalse)
+			l.Push(newJSONValidationError(l, fmt.Errorf("convert data: %w", err)))
+			return 2
+		}
+		result = schema.Validate(dataJSON)
+	}
+
+	if !result.IsValid() {
+		l.Push(lua.LFalse)
+		l.Push(newJSONValidationError(l, result))
+		return 2
+	}
+
+	l.Push(lua.LTrue)
+	return 1
+}
+
+func (m *Module) validateString(l *lua.LState) int {
+	schemaArg := l.Get(1)
+	jsonStr, ok := l.Get(2).(lua.LString)
+
+	if schemaArg == lua.LNil {
+		l.Push(lua.LFalse)
+		l.Push(newJSONInvalidError(l, "schema is required", "validate_string"))
+		return 2
+	}
+
+	if !ok {
+		l.Push(lua.LFalse)
+		l.Push(newJSONInvalidError(l, "data must be a JSON string", "validate_string"))
+		return 2
+	}
+
+	schemaJSON, err := m.getSchemaJSON(l, schemaArg)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(newJSONValidationError(l, err))
+		return 2
+	}
+
+	schema, err := m.compileSchema(schemaJSON)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(newJSONValidationError(l, fmt.Errorf("compile schema: %w", err)))
+		return 2
+	}
+
+	result := schema.Validate([]byte(jsonStr))
+	if !result.IsValid() {
+		l.Push(lua.LFalse)
+		l.Push(newJSONValidationError(l, result))
+		return 2
+	}
+
+	l.Push(lua.LTrue)
+	return 1
+}
+
+func (m *Module) getSchemaJSON(l *lua.LState, schemaArg lua.LValue) ([]byte, error) {
+	switch v := schemaArg.(type) {
+	case lua.LString:
+		return []byte(v), nil
+	case *lua.LTable:
+		return EncodeWithOptions(v, &m.Options)
+	default:
+		return nil, errors.New("schema must be a string or table")
+	}
+}
+
+func (m *Module) compileSchema(schemaJSON []byte) (*jsonschema.Schema, error) {
+	if m.schemaCache == nil {
+		compiler := jsonschema.NewCompiler()
+		return compiler.Compile(schemaJSON)
+	}
+
+	cacheKey := m.hashSchemaJSON(schemaJSON)
+	if schema, ok := m.schemaCache.Get(cacheKey); ok {
+		return schema, nil
+	}
+
+	compiler := jsonschema.NewCompiler()
+	schema, err := compiler.Compile(schemaJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	m.schemaCache.Set(cacheKey, schema)
+	return schema, nil
+}
+
+func (m *Module) hashSchemaJSON(data []byte) string {
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
+}
+
+func newJSONValidationError(l *lua.LState, err error) lua.LValue {
+	tbl := l.NewTable()
+	tbl.RawSetString("message", lua.LString(err.Error()))
+	tbl.RawSetString("type", lua.LString("validation_error"))
+	return tbl
 }

@@ -103,33 +103,31 @@ func (b *StateBuilder) ApplyOperation(state StateMap, op registry.Operation) (St
 	return newState, nil
 }
 
-// GetInverseOperation returns the inverse of the given operation
-func (b *StateBuilder) GetInverseOperation(state StateMap, op registry.Operation) (registry.Operation, error) {
+// GetInverseOperation returns the inverse of the given operation using OriginalEntry
+func (b *StateBuilder) GetInverseOperation(op registry.Operation) (registry.Operation, error) {
 	switch op.Kind {
 	case registry.Create:
 		return registry.Operation{Kind: registry.Delete, Entry: op.Entry}, nil
 
 	case registry.Update:
-		originalEntry, exists := state[op.Entry.ID]
-		if !exists {
-			b.log.Warn("Original entry not found for update operation, cannot create inverse",
+		if op.OriginalEntry == nil {
+			b.log.Warn("OriginalEntry not found for update operation, cannot create inverse",
 				zap.String("namespace", op.Entry.ID.NS),
 				zap.String("name", op.Entry.ID.Name))
 			return registry.Operation{}, fmt.Errorf("original entry not found for Process {ns: %s, name: %s}",
 				op.Entry.ID.NS, op.Entry.ID.Name)
 		}
-		return registry.Operation{Kind: registry.Update, Entry: originalEntry}, nil
+		return registry.Operation{Kind: registry.Update, Entry: *op.OriginalEntry}, nil
 
 	case registry.Delete:
-		originalEntry, exists := state[op.Entry.ID]
-		if !exists {
-			b.log.Warn("Original entry not found for delete operation, cannot create inverse",
+		if op.OriginalEntry == nil {
+			b.log.Warn("OriginalEntry not found for delete operation, cannot create inverse",
 				zap.String("namespace", op.Entry.ID.NS),
 				zap.String("name", op.Entry.ID.Name))
 			return registry.Operation{}, fmt.Errorf("original entry not found for Process {ns: %s, name: %s}",
 				op.Entry.ID.NS, op.Entry.ID.Name)
 		}
-		return registry.Operation{Kind: registry.Create, Entry: originalEntry}, nil
+		return registry.Operation{Kind: registry.Create, Entry: *op.OriginalEntry}, nil
 
 	default:
 		return registry.Operation{}, fmt.Errorf("unknown operation kind: %s", op.Kind)
@@ -144,6 +142,8 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		return nil, fmt.Errorf("failed to get versions from history: %w", err)
 	}
 
+	b.log.Debug("building state", zap.Uint("target_version", targetVersion.ID()), zap.Int("total_versions", len(versions)))
+
 	var first registry.Version
 
 	for _, v := range versions {
@@ -157,6 +157,8 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 				zap.String("version", v.String()),
 				zap.Error(err),
 			)
+		} else {
+			b.log.Debug("added version to map", zap.Uint("version_id", v.ID()))
 		}
 	}
 
@@ -164,10 +166,19 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		return nil, fmt.Errorf("no versions found in history")
 	}
 
+	b.log.Debug("computing path", zap.Uint("from", first.ID()), zap.Uint("to", targetVersion.ID()))
+
 	path, err := vm.Path(first, targetVersion)
 	if err != nil {
+		b.log.Error("failed to compute version path",
+			zap.Uint("from", first.ID()),
+			zap.Uint("to", targetVersion.ID()),
+			zap.Int("version_map_size", vm.Len()),
+			zap.Error(err))
 		return nil, fmt.Errorf("failed to get path from root to version %v: %w", targetVersion, err)
 	}
+
+	b.log.Debug("path computed", zap.Int("path_length", len(path)))
 
 	state := make(StateMap)
 
@@ -192,6 +203,151 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 	}
 
 	return state.ToSlice(), nil
+}
+
+// SquashChangesets aggregates multiple changesets into a single changeset,
+// combining operations on the same entry ID to minimize redundant operations.
+// For example, if an entry is updated 10 times across versions, only the final update is kept.
+func (b *StateBuilder) SquashChangesets(changesets []registry.ChangeSet) registry.ChangeSet {
+	// Track the last operation for each entry ID
+	operations := make(map[registry.ID]registry.Operation)
+
+	// Process all changesets in order
+	for _, changeset := range changesets {
+		for _, op := range changeset {
+			existing, exists := operations[op.Entry.ID]
+
+			if !exists {
+				// First operation for this entry
+				operations[op.Entry.ID] = op
+				continue
+			}
+
+			// Apply squashing rules based on the combination of operations
+			switch existing.Kind {
+			case registry.Create:
+				switch op.Kind {
+				case registry.Update:
+					// Create + Update = Create with updated value
+					operations[op.Entry.ID] = registry.Operation{
+						Kind:  registry.Create,
+						Entry: op.Entry,
+					}
+				case registry.Delete:
+					// Create + Delete = Nothing (cancel out)
+					delete(operations, op.Entry.ID)
+				case registry.Create:
+					// Create + Create = error in theory, but keep latest
+					b.log.Warn("duplicate create operations for same entry",
+						zap.String("id", op.Entry.ID.String()))
+					operations[op.Entry.ID] = op
+				}
+
+			case registry.Update:
+				switch op.Kind {
+				case registry.Update:
+					// Update + Update = Update with latest value
+					operations[op.Entry.ID] = op
+				case registry.Delete:
+					// Update + Delete = Delete
+					operations[op.Entry.ID] = op
+				case registry.Create:
+					// Update + Create = shouldn't happen, but keep create
+					b.log.Warn("create after update for same entry",
+						zap.String("id", op.Entry.ID.String()))
+					operations[op.Entry.ID] = op
+				}
+
+			case registry.Delete:
+				switch op.Kind {
+				case registry.Create:
+					// Delete + Create = Update (or Create if different kind)
+					if existing.Entry.Kind == op.Entry.Kind {
+						// Same kind, treat as update
+						operations[op.Entry.ID] = registry.Operation{
+							Kind:  registry.Update,
+							Entry: op.Entry,
+						}
+					} else {
+						// Different kind, keep as create
+						operations[op.Entry.ID] = op
+					}
+				case registry.Update:
+					// Delete + Update = shouldn't happen
+					b.log.Error("update after delete for same entry",
+						zap.String("id", op.Entry.ID.String()))
+					// Keep the update but change to create
+					operations[op.Entry.ID] = registry.Operation{
+						Kind:  registry.Create,
+						Entry: op.Entry,
+					}
+				case registry.Delete:
+					// Delete + Delete = keep delete
+					b.log.Warn("duplicate delete operations for same entry",
+						zap.String("id", op.Entry.ID.String()))
+				}
+			}
+		}
+	}
+
+	// Convert map to slice and collect entries for sorting
+	result := make(registry.ChangeSet, 0, len(operations))
+	entries := make([]registry.Entry, 0, len(operations))
+
+	for _, op := range operations {
+		result = append(result, op)
+		entries = append(entries, op.Entry)
+	}
+
+	// If no operations, return empty
+	if len(result) == 0 {
+		return result
+	}
+
+	// Sort by dependencies
+	sortedEntries, err := SortEntriesByDependency(entries, b.resolver)
+	if err != nil {
+		// Log error but still return the operations unsorted
+		// This ensures operations are applied even if dependency sorting fails
+		b.log.Error("failed to sort squashed operations by dependency",
+			zap.Int("operation_count", len(operations)),
+			zap.Error(err))
+		return result
+	}
+
+	// Rebuild changeset in dependency order
+	sorted := make(registry.ChangeSet, 0, len(operations))
+	for _, entry := range sortedEntries {
+		for _, op := range result {
+			if op.Entry.ID == entry.ID {
+				sorted = append(sorted, op)
+				break
+			}
+		}
+	}
+
+	return sorted
+}
+
+// ReverseChangeset creates a changeset that undoes the given changeset operations.
+func (b *StateBuilder) ReverseChangeset(changeset registry.ChangeSet) (registry.ChangeSet, error) {
+	reversed := make(registry.ChangeSet, 0, len(changeset))
+
+	// Process in reverse order to maintain dependency relationships
+	for i := len(changeset) - 1; i >= 0; i-- {
+		op := changeset[i]
+		inverseOp, err := b.GetInverseOperation(op)
+		if err != nil {
+			b.log.Warn("failed to reverse operation",
+				zap.String("kind", string(op.Kind)),
+				zap.String("entry", op.Entry.ID.String()),
+				zap.Error(err))
+			continue
+		}
+		reversed = append(reversed, inverseOp)
+	}
+
+	return reversed, nil
 }
 
 // BuildDelta calculates the changes required to transition from one state to another.

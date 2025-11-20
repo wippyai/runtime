@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luaconvert "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -42,7 +43,7 @@ func jwtEncode(l *lua.LState) int {
 	token := jwt.New(getSigningMethod(alg))
 
 	// Convert Lua table to Go map
-	payloadMap, ok := luaconvert.ToGoAny(payloadTable).(map[string]any)
+	payloadMap, ok := value.ToGoAny(payloadTable).(map[string]any)
 	if !ok {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("failed to convert payload to map"))

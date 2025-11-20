@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
-	"github.com/wippyai/runtime/system/payload/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -93,7 +93,7 @@ func TestExprModule_CompileAndRun(t *testing.T) {
 	result, err := runner.Execute(ctx, "test_compile_and_run")
 	require.NoError(t, err, "Lua execution failed")
 
-	resultMap := lua.ToGoAny(result).(map[string]interface{})
+	resultMap := value.ToGoAny(result).(map[string]interface{})
 
 	assert.Equal(t, true, resultMap["success"], "Test should succeed")
 	assert.Equal(t, float64(14), resultMap["basic"], "Basic arithmetic should work")
@@ -164,7 +164,7 @@ func TestExprModule_ProgramBuiltinFunctions(t *testing.T) {
 	result, err := runner.Execute(ctx, "test_program_builtins")
 	require.NoError(t, err, "Lua execution failed")
 
-	resultMap := lua.ToGoAny(result).(map[string]interface{})
+	resultMap := value.ToGoAny(result).(map[string]interface{})
 
 	assert.Equal(t, true, resultMap["all_positive"], "All positive numbers should be > 0")
 	assert.Equal(t, false, resultMap["all_mixed"], "Mixed numbers should not all be > 0")
@@ -224,7 +224,7 @@ func TestExprModule_ErrorHandling(t *testing.T) {
 	result, err := runner.Execute(ctx, "test_error_handling")
 	require.NoError(t, err, "Lua execution failed")
 
-	resultMap := lua.ToGoAny(result).(map[string]interface{})
+	resultMap := value.ToGoAny(result).(map[string]interface{})
 	assert.Equal(t, true, resultMap["success"], "Error handling test should succeed")
 }
 
@@ -309,7 +309,7 @@ func TestExprModule_CachingBehavior(t *testing.T) {
 	result, err := runner.Execute(ctx, "test_caching_behavior")
 	require.NoError(t, err, "Lua execution failed")
 
-	resultMap := lua.ToGoAny(result).(map[string]interface{})
+	resultMap := value.ToGoAny(result).(map[string]interface{})
 	assert.Equal(t, true, resultMap["success"], "Caching behavior test should succeed")
 	assert.Equal(t, float64(7), resultMap["eval_result"], "1 + 2 * 3 should equal 7")
 	assert.Equal(t, float64(7), resultMap["compile_result"], "Compile should give same result as eval")
@@ -388,7 +388,7 @@ func TestExprModule_ComplexProgramUsage(t *testing.T) {
 	result, err := runner.Execute(ctx, "test_complex_usage")
 	require.NoError(t, err, "Lua execution failed")
 
-	resultMap := lua.ToGoAny(result).(map[string]interface{})
+	resultMap := value.ToGoAny(result).(map[string]interface{})
 
 	// Check user validation results
 	userResults := resultMap["user_results"].([]interface{})
@@ -450,7 +450,7 @@ func TestExprModule_EvalStillWorks(t *testing.T) {
 	result, err := runner.Execute(ctx, "test_eval_compatibility")
 	require.NoError(t, err, "Lua execution failed")
 
-	resultMap := lua.ToGoAny(result).(map[string]interface{})
+	resultMap := value.ToGoAny(result).(map[string]interface{})
 
 	assert.Equal(t, float64(14), resultMap["arithmetic"], "2 + 3 * 4 should equal 14")
 	assert.Equal(t, float64(31.5), resultMap["variables"], "10.5 * 3 should equal 31.5")

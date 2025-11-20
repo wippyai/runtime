@@ -26,7 +26,7 @@ func Print(silent bool) {
 	}
 
 	fmt.Println()
-	fmt.Printf("  %s  %s  %s\n",
+	fmt.Printf("  %s  %s %s\n",
 		cyan("╦ ╦╦╔═╗╔═╗╦ ╦"),
 		gray("Adaptive Application Runtime"),
 		green("https://wippy.ai"))

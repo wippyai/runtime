@@ -35,6 +35,7 @@ const (
 	LuaTextName         = "lua.text"
 	LuaTimeName         = "lua.time"
 	LuaTreeSitterName   = "lua.treesitter"
+	LuaQueueName        = "lua.queue"
 	LuaUpstreamName     = "lua.upstream"
 	LuaUUIDName         = "lua.uuid"
 	LuaWebSocketName    = "lua.websocket"

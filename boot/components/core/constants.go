@@ -22,4 +22,6 @@ const (
 
 	// Registry configuration keys
 	RegistryEnableHistory boot.ConfigKey = "enable_history"
+	RegistryHistoryType   boot.ConfigKey = "history_type"
+	RegistryHistoryPath   boot.ConfigKey = "history_path"
 )

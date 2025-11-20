@@ -423,9 +423,7 @@ func TestGetInverseOperation(t *testing.T) {
 	}.toEntry()
 
 	t.Run("Spawn", func(t *testing.T) {
-		state := NewStateMap(nil)
-
-		inverse, err := builder.GetInverseOperation(state, registry.Operation{
+		inverse, err := builder.GetInverseOperation(registry.Operation{
 			Kind:  registry.Create,
 			Entry: baseEntry,
 		})
@@ -442,15 +440,13 @@ func TestGetInverseOperation(t *testing.T) {
 	})
 
 	t.Run("Update", func(t *testing.T) {
-		state := NewStateMap(nil)
-		state[baseEntry.ID] = baseEntry
-
 		updatedEntry := baseEntry
 		updatedEntry.Data = payload.NewString("updated")
 
-		inverse, err := builder.GetInverseOperation(state, registry.Operation{
-			Kind:  registry.Update,
-			Entry: updatedEntry,
+		inverse, err := builder.GetInverseOperation(registry.Operation{
+			Kind:          registry.Update,
+			Entry:         updatedEntry,
+			OriginalEntry: &baseEntry,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -465,12 +461,10 @@ func TestGetInverseOperation(t *testing.T) {
 	})
 
 	t.Run("Delete", func(t *testing.T) {
-		state := NewStateMap(nil)
-		state[baseEntry.ID] = baseEntry
-
-		inverse, err := builder.GetInverseOperation(state, registry.Operation{
-			Kind:  registry.Delete,
-			Entry: baseEntry,
+		inverse, err := builder.GetInverseOperation(registry.Operation{
+			Kind:          registry.Delete,
+			Entry:         baseEntry,
+			OriginalEntry: &baseEntry,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -485,8 +479,7 @@ func TestGetInverseOperation(t *testing.T) {
 	})
 
 	t.Run("Update Non-Existent", func(t *testing.T) {
-		state := NewStateMap(nil)
-		_, err := builder.GetInverseOperation(state, registry.Operation{
+		_, err := builder.GetInverseOperation(registry.Operation{
 			Kind:  registry.Update,
 			Entry: baseEntry,
 		})
@@ -496,8 +489,7 @@ func TestGetInverseOperation(t *testing.T) {
 	})
 
 	t.Run("Delete Non-Existent", func(t *testing.T) {
-		state := NewStateMap(nil)
-		_, err := builder.GetInverseOperation(state, registry.Operation{
+		_, err := builder.GetInverseOperation(registry.Operation{
 			Kind:  registry.Delete,
 			Entry: baseEntry,
 		})
@@ -507,8 +499,7 @@ func TestGetInverseOperation(t *testing.T) {
 	})
 
 	t.Run("Invalid Operation", func(t *testing.T) {
-		state := NewStateMap(nil)
-		_, err := builder.GetInverseOperation(state, registry.Operation{
+		_, err := builder.GetInverseOperation(registry.Operation{
 			Kind:  "invalid",
 			Entry: baseEntry,
 		})
@@ -534,7 +525,8 @@ func TestBuildState_Empty(t *testing.T) {
 		t.Errorf("expected empty state, got %d entries", len(state))
 	}
 
-	expectedCallStack := []string{"Save", "Versions", "Get(0)"}
+	// Path(v0, v0) returns empty array (no changesets to apply)
+	expectedCallStack := []string{"Save", "Versions"}
 	verifyCallStack(t, history.callStack, expectedCallStack)
 }
 
@@ -573,7 +565,8 @@ func TestBuildState_SingleVersion(t *testing.T) {
 	expectedState := registry.State{entry1, entry2}
 	verifyState(t, state, expectedState)
 
-	expectedCallStack := []string{"Save", "Save", "Versions", "Get(0)", "Get(1)"}
+	// Path(v0, v1) now returns [v1] (only changesets to apply)
+	expectedCallStack := []string{"Save", "Save", "Versions", "Get(1)"}
 	verifyCallStack(t, history.callStack, expectedCallStack)
 }
 
@@ -625,10 +618,11 @@ func TestBuildState_MultipleVersions(t *testing.T) {
 	expectedState := registry.State{entry1Updated}
 	verifyState(t, state, expectedState)
 
+	// Path(v0, v3) now returns [v1, v2, v3] (no v0)
 	expectedCallStack := []string{
 		"Save", "Save", "Save", "Save",
 		"Versions",
-		"Get(0)", "Get(1)", "Get(2)", "Get(3)",
+		"Get(1)", "Get(2)", "Get(3)",
 	}
 	verifyCallStack(t, history.callStack, expectedCallStack)
 }
@@ -744,10 +738,11 @@ func TestBuildState_IntermediateVersion(t *testing.T) {
 	expectedState := registry.State{entry1, entry2}
 	verifyState(t, state, expectedState)
 
+	// Path(v0, v2) now returns [v1, v2] (no v3)
 	expectedCallStack := []string{
 		"Save", "Save", "Save", "Save",
 		"Versions",
-		"Get(0)", "Get(1)", "Get(2)", // Should not get v3
+		"Get(1)", "Get(2)", // Should not get v3
 	}
 	verifyCallStack(t, history.callStack, expectedCallStack)
 }

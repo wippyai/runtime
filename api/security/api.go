@@ -51,10 +51,10 @@ type (
 	// Actor represents a security principal (user, service, system process)
 	Actor struct {
 		// ID returns the unique identifier of the actor
-		ID string
+		ID string `expr:"id"`
 
 		// Meta returns additional metadata about the actor
-		Meta registry.Metadata
+		Meta registry.Metadata `expr:"meta"`
 	}
 
 	// Policy defines an authorization policy

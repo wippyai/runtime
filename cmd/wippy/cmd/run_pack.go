@@ -155,7 +155,10 @@ func runFromPack(_ *cobra.Command, args []string) error {
 			}
 		}
 
-		embedReg.Register(packFile, reader)
+		if err := embedReg.Register(packFile, reader); err != nil {
+			logger.Error("failed to register pack", zap.String("pack", packFile), zap.Error(err))
+			return fmt.Errorf("register pack %s: %w", packFile, err)
+		}
 		allEntries = append(allEntries, entries...)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -71,7 +72,7 @@ func (t *ToString) Transcode(p payload.Payload) (payload.Payload, error) {
 		result = ""
 	case lua.LTTable:
 		// For tables, use a simplified string representation
-		result = fmt.Sprintf("%v", ToGoAny(lv))
+		result = fmt.Sprintf("%v", value.ToGoAny(lv))
 	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
 		// FIXME implement
 	default:
