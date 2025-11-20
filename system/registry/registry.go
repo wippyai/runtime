@@ -166,7 +166,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 
 	if isForward {
 		// Forward: collect and apply changesets in path
-		changesets := []registry.ChangeSet{}
+		var changesets []registry.ChangeSet
 		for _, ver := range path {
 			cs, err := r.history.Get(ver)
 			if err != nil {
@@ -197,7 +197,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			}
 
 			// Reverse: from current back to common ancestor
-			reversedChangesets := []registry.ChangeSet{}
+			var reversedChangesets []registry.ChangeSet
 			current := r.currentVersion
 			for current != nil && current.ID() > path[commonAncestorIdx].ID() {
 				cs, err := r.history.Get(current)
@@ -213,7 +213,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			}
 
 			// Forward: from common ancestor to target
-			forwardChangesets := []registry.ChangeSet{}
+			var forwardChangesets []registry.ChangeSet
 			for i := commonAncestorIdx; i < len(path); i++ {
 				if path[i].ID() > path[commonAncestorIdx].ID() {
 					cs, err := r.history.Get(path[i])
@@ -268,7 +268,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 
 	if targetVersion.ID() > 0 {
 		current := targetVersion
-		versions := []registry.Version{}
+		var versions []registry.Version
 
 		for current != nil && current.ID() > 0 {
 			versions = append([]registry.Version{current}, versions...)

@@ -144,8 +144,8 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 		"OPTIONS": "OPTIONS",
 	}
 	methodTbl := l.CreateTable(0, len(methods))
-	for name, value := range methods {
-		methodTbl.RawSetString(name, lua.LString(value))
+	for name, val := range methods {
+		methodTbl.RawSetString(name, lua.LString(val))
 	}
 	methodTbl.Immutable = true
 	mod.RawSetString("METHOD", methodTbl)
@@ -189,8 +189,8 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 		"VERSION_NOT_SUPPORTED": 505, // HTTP version not supported
 	}
 	statusTbl := l.CreateTable(0, len(statuses))
-	for name, value := range statuses {
-		statusTbl.RawSetString(name, lua.LNumber(value))
+	for name, val := range statuses {
+		statusTbl.RawSetString(name, lua.LNumber(val))
 	}
 	statusTbl.Immutable = true
 	mod.RawSetString("STATUS", statusTbl)
@@ -227,8 +227,8 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 		"STREAM_ERROR":  "STREAM_ERROR",  // Streaming operation failed
 	}
 	errorTbl := l.CreateTable(0, len(errorTypes))
-	for name, val := range errorTypes {
-		errorTbl.RawSetString(name, lua.LString(val))
+	for name, errVal := range errorTypes {
+		errorTbl.RawSetString(name, lua.LString(errVal))
 	}
 	errorTbl.Immutable = true
 	mod.RawSetString("ERROR", errorTbl)

@@ -463,14 +463,14 @@ func TestRegistry_EventHandling_StorageRegister(t *testing.T) {
 		wg.Add(1)
 
 		storage := newMockStorage(nil)
-		event := event.Event{
+		evt := event.Event{
 			System: env.System,
 			Kind:   env.StorageRegister,
 			Path:   "app:test-storage",
 			Data:   storage,
 		}
 
-		bus.Send(ctx, event)
+		bus.Send(ctx, evt)
 
 		// Wait for response
 		done := make(chan struct{})
@@ -494,7 +494,7 @@ func TestRegistry_EventHandling_StorageRegister(t *testing.T) {
 		mu.Lock()
 		require.Len(t, responses, 1)
 		assert.Equal(t, env.Accepted, responses[0].Kind)
-		assert.Equal(t, event.Path, responses[0].Path)
+		assert.Equal(t, evt.Path, responses[0].Path)
 		mu.Unlock()
 	})
 
@@ -502,14 +502,14 @@ func TestRegistry_EventHandling_StorageRegister(t *testing.T) {
 		responses = nil
 		wg.Add(1)
 
-		event := event.Event{
+		evt := event.Event{
 			System: env.System,
 			Kind:   env.StorageRegister,
 			Path:   "app:invalid-storage",
 			Data:   "invalid-storage", // Wrong type
 		}
 
-		bus.Send(ctx, event)
+		bus.Send(ctx, evt)
 
 		// Wait for response
 		done := make(chan struct{})
@@ -532,7 +532,7 @@ func TestRegistry_EventHandling_StorageRegister(t *testing.T) {
 		mu.Lock()
 		require.Len(t, responses, 1)
 		assert.Equal(t, env.Rejected, responses[0].Kind)
-		assert.Equal(t, event.Path, responses[0].Path)
+		assert.Equal(t, evt.Path, responses[0].Path)
 		assert.Contains(t, responses[0].Data.(string), "invalid storage data type")
 		mu.Unlock()
 	})
@@ -571,14 +571,14 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 			Name:      "test_var",
 			StorageID: registry.ParseID("app:storage"),
 		}
-		event := event.Event{
+		evt := event.Event{
 			System: env.System,
 			Kind:   env.VariableRegister,
 			Path:   "app:test_var",
 			Data:   variable,
 		}
 
-		bus.Send(ctx, event)
+		bus.Send(ctx, evt)
 
 		// Wait for response
 		done := make(chan struct{})
@@ -618,14 +618,14 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 			Name:      "invalid-name", // Invalid name with dash
 			StorageID: registry.ParseID("app:storage"),
 		}
-		event := event.Event{
+		evt := event.Event{
 			System: env.System,
 			Kind:   env.VariableRegister,
 			Path:   "app:invalid",
 			Data:   variable,
 		}
 
-		bus.Send(ctx, event)
+		bus.Send(ctx, evt)
 
 		// Wait for response
 		done := make(chan struct{})
@@ -661,14 +661,14 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 			Name:      "test_var2",
 			StorageID: registry.ParseID("app:nonexistent"), // Storage doesn't exist
 		}
-		event := event.Event{
+		evt := event.Event{
 			System: env.System,
 			Kind:   env.VariableRegister,
 			Path:   "app:test_var2",
 			Data:   variable,
 		}
 
-		bus.Send(ctx, event)
+		bus.Send(ctx, evt)
 
 		// Wait for response
 		done := make(chan struct{})
@@ -714,14 +714,14 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 			Name:      "same_name", // Same name as first variable
 			StorageID: registry.ParseID("app:storage"),
 		}
-		event := event.Event{
+		evt := event.Event{
 			System: env.System,
 			Kind:   env.VariableRegister,
 			Path:   "app:var2",
 			Data:   variable2,
 		}
 
-		bus.Send(ctx, event)
+		bus.Send(ctx, evt)
 
 		// Wait for response
 		done := make(chan struct{})
@@ -793,14 +793,14 @@ func TestRegistry_EventHandling_VariableUpdate(t *testing.T) {
 			Name:      "test_var",
 			StorageID: registry.ParseID("app:storage2"), // Different storage
 		}
-		event := event.Event{
+		evt := event.Event{
 			System: env.System,
 			Kind:   env.VariableUpdate,
 			Path:   "app:test_var",
 			Data:   updatedVariable,
 		}
 
-		bus.Send(ctx, event)
+		bus.Send(ctx, evt)
 
 		// Wait for response
 		done := make(chan struct{})
@@ -861,13 +861,13 @@ func TestRegistry_EventHandling_VariableDelete(t *testing.T) {
 	responses = nil
 	wg.Add(1)
 
-	event := event.Event{
+	evt := event.Event{
 		System: env.System,
 		Kind:   env.VariableDelete,
 		Path:   "app:test_var",
 	}
 
-	bus.Send(ctx, event)
+	bus.Send(ctx, evt)
 
 	// Wait for response
 	done := make(chan struct{})
@@ -925,13 +925,13 @@ func TestRegistry_EventHandling_StorageDelete(t *testing.T) {
 	responses = nil
 	wg.Add(1)
 
-	event := event.Event{
+	evt := event.Event{
 		System: env.System,
 		Kind:   env.StorageDelete,
 		Path:   "app:test-storage",
 	}
 
-	bus.Send(ctx, event)
+	bus.Send(ctx, evt)
 
 	// Wait for response
 	done := make(chan struct{})

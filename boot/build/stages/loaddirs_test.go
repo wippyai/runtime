@@ -49,7 +49,7 @@ component: http/server
 	}
 
 	stage := LoadDirs([]string{appDir})
-	entries := []registry.Entry{}
+	var entries []registry.Entry
 
 	if err := stage.Execute(ctx, &entries); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -100,7 +100,7 @@ component: sql/client
 	}
 
 	stage := LoadDirs([]string{appDir, moduleDir})
-	entries := []registry.Entry{}
+	var entries []registry.Entry
 
 	if err := stage.Execute(ctx, &entries); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -150,7 +150,7 @@ component: http/server
 	}
 
 	stage := LoadDirs([]string{existingDir, missingDir})
-	entries := []registry.Entry{}
+	var entries []registry.Entry
 
 	if err := stage.Execute(ctx, &entries); err != nil {
 		t.Fatalf("Execute() should not error on missing dir, got: %v", err)
@@ -165,7 +165,7 @@ func TestLoadDirs_HandlesEmptyDirectoryList(t *testing.T) {
 	ctx := setupLoadDirsContext()
 
 	stage := LoadDirs([]string{})
-	entries := []registry.Entry{}
+	var entries []registry.Entry
 
 	if err := stage.Execute(ctx, &entries); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -202,7 +202,7 @@ kind: service
 	}
 
 	stage := LoadDirs([]string{filepath.Join(tmpDir, "app")})
-	entries := []registry.Entry{}
+	var entries []registry.Entry
 
 	if err := stage.Execute(ctx, &entries); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -218,7 +218,7 @@ func TestLoadDirs_ErrorsWhenTranscoderMissing(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	stage := LoadDirs([]string{tmpDir})
-	entries := []registry.Entry{}
+	var entries []registry.Entry
 
 	err := stage.Execute(ctx, &entries)
 	if err == nil {

@@ -330,8 +330,8 @@ func TestSecurityModule(t *testing.T) {
 
 		// Add a mock token store to the registry
 		tokenStore := newMockTokenStore()
-		resource := newMockResource(registry.ID{NS: "test", Name: "tokenstore"}, tokenStore)
-		mockRegistry.Add(registry.ID{NS: "test", Name: "tokenstore"}, resource)
+		res := newMockResource(registry.ID{NS: "test", Name: "tokenstore"}, tokenStore)
+		mockRegistry.Add(registry.ID{NS: "test", Name: "tokenstore"}, res)
 
 		// Import test function
 		err := vm.Import(`

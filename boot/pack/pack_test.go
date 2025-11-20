@@ -82,7 +82,7 @@ func TestPackUnpack(t *testing.T) {
 	})
 
 	t.Run("empty entries", func(t *testing.T) {
-		entries := []registry.Entry{}
+		var entries []registry.Entry
 
 		tmpDir := t.TempDir()
 		packPath := filepath.Join(tmpDir, "empty.pack")
@@ -474,7 +474,7 @@ func TestUnpackBytes(t *testing.T) {
 	})
 
 	t.Run("empty entries pack and unpack", func(t *testing.T) {
-		entries := []registry.Entry{}
+		var entries []registry.Entry
 
 		var buf bytes.Buffer
 		err := packer.PackEntries(testMetadata(0), entries, &buf)

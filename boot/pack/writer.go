@@ -371,7 +371,7 @@ func (pw *Writer) processFilesystem(
 		}
 
 		fileData, err := io.ReadAll(file)
-		file.Close()
+		_ = file.Close()
 		if err != nil {
 			return fmt.Errorf("read %s: %w", filePath, err)
 		}
@@ -393,7 +393,7 @@ func (pw *Writer) processFilesystem(
 			if err != nil {
 				return fmt.Errorf("create zstd writer for %s: %w", filePath, err)
 			}
-			defer zw.Close()
+			defer func() { _ = zw.Close() }()
 
 			if _, err := zw.Write(fileData); err != nil {
 				return fmt.Errorf("compress %s: %w", filePath, err)
@@ -591,7 +591,7 @@ func (pw *Writer) createCompressedFrame(data interface{}, level zstd.EncoderLeve
 	if err != nil {
 		return rawFrame{}, FrameInfo{}, fmt.Errorf("create zstd writer: %w", err)
 	}
-	defer zw.Close()
+	defer func() { _ = zw.Close() }()
 
 	if _, err := zw.Write(uncompData); err != nil {
 		return rawFrame{}, FrameInfo{}, fmt.Errorf("zstd compress: %w", err)

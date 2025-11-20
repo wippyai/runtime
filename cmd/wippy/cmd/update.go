@@ -156,7 +156,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 }
 
 func extractRootDependencies(entries []regapi.Entry) []graph.DependencyRequest {
-	deps := []graph.DependencyRequest{}
+	deps := make([]graph.DependencyRequest, 0, len(entries))
 	seen := make(map[string]bool)
 
 	for _, entry := range entries {
@@ -252,8 +252,9 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		targetSet[name] = true
 	}
 
-	frozenDeps := []graph.DependencyRequest{}
-	for _, mod := range lockObj.GetModules() {
+	modules := lockObj.GetModules()
+	frozenDeps := make([]graph.DependencyRequest, 0, len(modules)+len(targetModules))
+	for _, mod := range modules {
 		if !targetSet[mod.Name] {
 			// Fixed constraint for locked modules
 			name, err := graph.ParseName(mod.Name)
@@ -325,7 +326,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	changes := lock.Diff(oldLockObj, newLockObj)
 
 	// Check if any non-target modules would be updated
-	nonTargetUpdates := []lock.ModuleChange{}
+	var nonTargetUpdates []lock.ModuleChange
 	for _, change := range changes.Updated {
 		if !targetSet[change.Name] {
 			nonTargetUpdates = append(nonTargetUpdates, change)

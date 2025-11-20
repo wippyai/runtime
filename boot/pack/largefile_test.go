@@ -45,7 +45,7 @@ func TestLargeFileChunking(t *testing.T) {
 
 		file, err := packFS.Open("large.bin")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		readContent, err := io.ReadAll(file)
 		require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestLargeFileChunking(t *testing.T) {
 
 		file, err := packFS.Open("exact.bin")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		readContent, err := io.ReadAll(file)
 		require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestLargeFileChunking(t *testing.T) {
 
 		file, err := packFS.Open("verylarge.bin")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		readContent, err := io.ReadAll(file)
 		require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestLargeFileChunking(t *testing.T) {
 
 		file, err := packFS.Open("multi.bin")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		readContent, err := io.ReadAll(file)
 		require.NoError(t, err)
@@ -188,7 +188,7 @@ func TestLargeFileChunking(t *testing.T) {
 
 		file, err := packFS.Open("chunked.bin")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		// Read in smaller chunks to test partial reads
 		readBuffer := make([]byte, 64*1024) // 64KB chunks
@@ -301,7 +301,7 @@ func TestLargeFileEdgeCases(t *testing.T) {
 
 		file, err := packFS.Open("under.bin")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		readContent, err := io.ReadAll(file)
 		require.NoError(t, err)
@@ -337,7 +337,7 @@ func TestLargeFileEdgeCases(t *testing.T) {
 
 		file, err := packFS.Open("over.bin")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		readContent, err := io.ReadAll(file)
 		require.NoError(t, err)
@@ -373,7 +373,7 @@ func TestLargeFileEdgeCases(t *testing.T) {
 
 		file, err := packFS.Open("partial.bin")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		// Read in various sized chunks
 		chunks := []int{1024, 4096, 16384, 65536, 131072}
@@ -427,7 +427,7 @@ func TestLargeFileEdgeCases(t *testing.T) {
 
 		file, err := packFS.Open("seek.bin")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		// Read the entire file to verify
 		readContent, err := io.ReadAll(file)
@@ -468,7 +468,7 @@ func TestLargeFileEdgeCases(t *testing.T) {
 
 		file, err := packFS.Open("large.txt")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		readContent, err := io.ReadAll(file)
 		require.NoError(t, err)

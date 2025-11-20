@@ -87,7 +87,7 @@ func BenchmarkPackFilesystem(b *testing.B) {
 
 			fsys := os.DirFS(tmpDir)
 			metadata := registry.Metadata{}
-			entries := []registry.Entry{}
+			var entries []registry.Entry
 			resourceID := registry.ParseID("bench:fs")
 			resourceMeta := registry.Metadata{}
 

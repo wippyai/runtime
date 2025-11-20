@@ -28,14 +28,14 @@ const (
 	// Queue stats keys (returned by GetQueueInfo)
 	StatsMessageCount  = "message_count"  // Number of messages in queue
 	StatsConsumerCount = "consumer_count" // Number of active consumers
-	StatsByteSize      = "byte_size"      // Total size in bytes
-	StatsDeliveryCount = "delivery_count" // Total deliveries
-	StatsAckCount      = "ack_count"      // Total acknowledges
-	StatsNackCount     = "nack_count"     // Total negative acknowledges
-	StatsOldestMessage = "oldest_message" // Timestamp of oldest message
-	StatsLastDelivery  = "last_delivery"  // Timestamp of last delivery
-	StatsReady         = "ready"          // Messages ready for delivery
-	StatsUnacked       = "unacked"        // Messages delivered but not acked
+	// StatsByteSize = "byte_size" // reserved for future use
+	// StatsDeliveryCount = "delivery_count" // reserved for future use
+	// StatsAckCount = "ack_count" // reserved for future use
+	// StatsNackCount = "nack_count" // reserved for future use
+	// StatsOldestMessage = "oldest_message" // reserved for future use
+	// StatsLastDelivery = "last_delivery" // reserved for future use
+	StatsReady = "ready" // Messages ready for delivery
+	// StatsUnacked = "unacked" // reserved for future use
 )
 
 // Delivery represents a message delivery to a consumer
