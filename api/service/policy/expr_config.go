@@ -40,7 +40,7 @@ type ExprConfig struct {
 func (c *ExprConfig) GetGroupIDs(namespace registry.Namespace) []registry.ID {
 	ids := make([]registry.ID, len(c.Groups))
 	for i, group := range c.Groups {
-		ids[i] = registry.ID{NS: namespace, Name: group}
+		ids[i] = registry.NewID(namespace, group)
 	}
 	return ids
 }

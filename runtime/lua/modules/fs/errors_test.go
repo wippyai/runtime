@@ -68,7 +68,7 @@ func TestFSErrorMetadata(t *testing.T) {
 				assert(file ~= nil, "expected file")
 
 				local ok, close_err = file:close()
-				assert(ok == true, "expected successful close")
+				assert(ok, "expected successful close")
 
 				local content, read_err = file:read(1024)
 				assert(content == nil, "expected nil content after close")

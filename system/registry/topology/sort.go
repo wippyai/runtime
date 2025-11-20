@@ -36,10 +36,7 @@ func resolveDependencyID(sourceNS string, depStr string) registry.ID {
 		return registry.ParseID(depStr)
 	}
 	// Otherwise, inherit the source namespace
-	return registry.ID{
-		NS:   sourceNS,
-		Name: depStr,
-	}
+	return registry.NewID(sourceNS, depStr)
 }
 
 // SortEntriesByDependency sorts entries based on dependencies.

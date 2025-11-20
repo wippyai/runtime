@@ -230,7 +230,7 @@ func TestListener_ProcessEntry_Update(t *testing.T) {
 	listener.processEntry(ctx, registry.Update, entry)
 
 	// Should receive delete then register events
-	events := []event.Event{}
+	var events []event.Event
 	timeout := time.After(200 * time.Millisecond)
 	for i := 0; i < 2; i++ {
 		select {

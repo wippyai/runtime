@@ -71,7 +71,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 	// built-in modules
 	for _, mod := range cfg.Modules {
 		node := &Node{
-			ID:     registry.ID{NS: "", Name: mod.Name()},
+			ID:     registry.NewID("", mod.Name()),
 			Kind:   api.KindModule,
 			Module: mod,
 		}

@@ -4,7 +4,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 
-	// stream "github.com/wippyai/runtime/runtime/lua/modules/stream" // No need to import directly if registered globally
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

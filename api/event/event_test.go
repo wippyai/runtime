@@ -76,7 +76,7 @@ func TestEvent_MarshalUnmarshal(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			var decoded Event
+			var decoded = Event{}
 			err = json.Unmarshal(data, &decoded)
 			require.NoError(t, err)
 			assert.Equal(t, tt.event.System, decoded.System)
@@ -88,25 +88,25 @@ func TestEvent_MarshalUnmarshal(t *testing.T) {
 
 func TestTypeAliases(t *testing.T) {
 	t.Run("SubscriberID", func(t *testing.T) {
-		var id SubscriberID = "sub-123"
+		var id = SubscriberID("sub-123")
 		assert.Equal(t, "sub-123", id)
 		assert.IsType(t, "", id)
 	})
 
 	t.Run("System", func(t *testing.T) {
-		var sys System = "test-system"
+		var sys = System("test-system")
 		assert.Equal(t, "test-system", sys)
 		assert.IsType(t, "", sys)
 	})
 
 	t.Run("Kind", func(t *testing.T) {
-		var kind Kind = "test.kind"
+		var kind = Kind("test.kind")
 		assert.Equal(t, "test.kind", kind)
 		assert.IsType(t, "", kind)
 	})
 
 	t.Run("Path", func(t *testing.T) {
-		var path Path = "test.path"
+		var path = Path("test.path")
 		assert.Equal(t, "test.path", path)
 		assert.IsType(t, "", path)
 	})

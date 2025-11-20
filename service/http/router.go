@@ -31,8 +31,8 @@ func getRouteInfo() *httpapi.RouteInfo {
 	}
 
 	// Reset other fields
-	info.Endpoint = registry.ID{}
-	info.Func = registry.ID{}
+	info.Endpoint = registry.NewID("", "")
+	info.Func = registry.NewID("", "")
 
 	return info
 }

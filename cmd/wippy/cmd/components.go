@@ -4,7 +4,7 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/boot/components/core"
 	"github.com/wippyai/runtime/boot/components/queue"
-	lua "github.com/wippyai/runtime/boot/components/runtime/lua"
+	"github.com/wippyai/runtime/boot/components/runtime/lua"
 	"github.com/wippyai/runtime/boot/components/service"
 	"github.com/wippyai/runtime/boot/components/system"
 )

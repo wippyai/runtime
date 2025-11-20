@@ -106,13 +106,13 @@ func TestHandler_Handle_LuaInvalidateEvent(t *testing.T) {
 		invalidatedIDs = ids
 	}
 
-	event := event.Event{
+	evt := event.Event{
 		System: api.System,
 		Kind:   api.InvalidateNodes,
 		Data:   []registry.ID{{Name: "test1"}, {Name: "test2"}},
 	}
 
-	err := handler.Handle(context.Background(), event)
+	err := handler.Handle(context.Background(), evt)
 	assert.NoError(t, err)
 	assert.Equal(t, []registry.ID{{Name: "test1"}, {Name: "test2"}}, invalidatedIDs)
 
@@ -129,13 +129,13 @@ func TestHandler_Handle_LuaInvalidateEvent_InvalidData(t *testing.T) {
 		invalidatedIDs = ids
 	}
 
-	event := event.Event{
+	evt := event.Event{
 		System: api.System,
 		Kind:   api.InvalidateNodes,
 		Data:   "invalid data type", // Should be []registry.ID
 	}
 
-	err := handler.Handle(context.Background(), event)
+	err := handler.Handle(context.Background(), evt)
 
 	assert.NoError(t, err)
 	// Invalidate should not be called with invalid data
@@ -146,13 +146,13 @@ func TestHandler_Handle_UnknownLuaEvent(t *testing.T) {
 	entityHandler := &mockEntityHandler{}
 	handler := NewHandler(registry.Kind("test"), entityHandler)
 
-	event := event.Event{
+	evt := event.Event{
 		System: api.System,
 		Kind:   "unknown.event",
 		Data:   "some data",
 	}
 
-	err := handler.Handle(context.Background(), event)
+	err := handler.Handle(context.Background(), evt)
 
 	// Should delegate to inner handler
 	assert.NoError(t, err)

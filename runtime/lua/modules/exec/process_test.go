@@ -17,7 +17,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
 	luatime "github.com/wippyai/runtime/runtime/lua/modules/time"
-	native "github.com/wippyai/runtime/service/exec/native"
+	"github.com/wippyai/runtime/service/exec/native"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

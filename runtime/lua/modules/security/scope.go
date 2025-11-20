@@ -86,10 +86,7 @@ func scopeWithout(l *lua.LState) int {
 			return 0
 		}
 
-		policyID = registry.ID{
-			NS:   ns.String(),
-			Name: name.String(),
-		}
+		policyID = registry.NewID(ns.String(), name.String())
 	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTThread, lua.LTChannel:
 		// FIXME rework on demand
 		fallthrough
@@ -188,10 +185,7 @@ func scopeContains(l *lua.LState) int {
 			return 0
 		}
 
-		policyID = registry.ID{
-			NS:   ns.String(),
-			Name: name.String(),
-		}
+		policyID = registry.NewID(ns.String(), name.String())
 	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTThread, lua.LTChannel:
 		// FIXME rework on demand
 		fallthrough

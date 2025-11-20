@@ -35,7 +35,7 @@ func TestHTTPErrorMetadata(t *testing.T) {
 
 			-- Check error metadata
 			assert(err:kind() == "Unavailable", "expected Unavailable kind, got: " .. err:kind())
-			assert(err:retryable() == true, "expected retryable")
+			assert(err:retryable(), "expected retryable")
 
 			local details = err:details()
 			assert(details ~= nil, "expected details")
