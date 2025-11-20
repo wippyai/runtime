@@ -26,4 +26,5 @@ const (
 	OTelHTTPName          boot.ComponentName = "otel-http"
 	OTelProcessName       boot.ComponentName = "otel-process"
 	OTelInterceptorName   boot.ComponentName = "otel-interceptor"
+	OTelQueueName         boot.ComponentName = "otel-queue"
 )

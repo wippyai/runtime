@@ -135,7 +135,7 @@ func (h *Host) worker(queueIndex int) {
 				if len(job.Messages) > 0 {
 					topic = job.Messages[0].Topic
 				}
-				h.logger.Warn("No receiver found for target PID",
+				h.logger.Debug("No receiver found for target PID",
 					zap.String("target", job.Target.String()),
 					zap.String("source", job.Source.String()),
 					zap.String("topic", topic))

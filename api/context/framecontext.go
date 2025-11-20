@@ -4,6 +4,8 @@ package context
 import (
 	"context"
 	"fmt"
+	"log"
+	"runtime/debug"
 	"sync"
 )
 
@@ -148,6 +150,9 @@ func (f *frameContext) Set(key any, value any) error {
 	defer f.mu.Unlock()
 
 	if f.sealed {
+		// TODO: This should never be triggered. If it is, it's a priority to learn how it happened.
+		// Indicates a timing issue where something is trying to write to a sealed frame.
+		log.Printf("[FRAME_DEBUG] Set FAILED - frame is sealed: key=%v\n%s", key, string(debug.Stack()))
 		return fmt.Errorf("cannot set key in sealed frame: %v", key)
 	}
 

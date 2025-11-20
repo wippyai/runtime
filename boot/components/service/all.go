@@ -26,6 +26,7 @@ func All() []boot.Component {
 		OTelHTTP(),
 		OTelProcess(),
 		OTelInterceptor(),
+		OTelQueue(),
 		InterceptorRetry(),
 	}
 }

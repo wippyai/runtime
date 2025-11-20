@@ -7,6 +7,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apiinterceptor "github.com/wippyai/runtime/api/function"
 	apiprocess "github.com/wippyai/runtime/api/process"
+	queueapi "github.com/wippyai/runtime/api/queue"
 )
 
 // Context key for storing OTEL service
@@ -22,6 +23,9 @@ type Service interface {
 
 	// Interceptor returns function call interceptor for tracing
 	Interceptor() apiinterceptor.Interceptor
+
+	// QueuePublishInterceptor returns PublishInterceptor for queue message tracing
+	QueuePublishInterceptor() queueapi.PublishInterceptor
 }
 
 // WithService stores OTEL service in AppContext
