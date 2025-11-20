@@ -46,7 +46,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24
+          go-version: '1.25'
           check-latest: false
           token: ${{ env.GITHUB_TOKEN }}
           cache: true
@@ -86,7 +86,7 @@ jobs:
         env:
           CGO_ENABLED: 1
         with:
-          version: v2.2.1
+          version: latest
           only-new-issues: false
           args: --timeout=10m --build-tags=race ./...
 
