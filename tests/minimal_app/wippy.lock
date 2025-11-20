@@ -1,7 +1,0 @@
-directories:
-  modules: .wippy
-  src: .
-modules: []
-replacements:
-- from: test/local
-  to: ./replacements/test_module
