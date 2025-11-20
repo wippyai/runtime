@@ -27,13 +27,13 @@ func TestNewContractRegistry(t *testing.T) {
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
 
-	registry := NewContractRegistry(bus, logger)
-	assert.NotNil(t, registry)
-	assert.Equal(t, bus, registry.bus)
-	assert.Equal(t, logger, registry.logger)
-	assert.NotNil(t, registry.definitions)
-	assert.NotNil(t, registry.bindings)
-	assert.NotNil(t, registry.defaultBindings)
+	reg := NewContractRegistry(bus, logger)
+	assert.NotNil(t, reg)
+	assert.Equal(t, bus, reg.bus)
+	assert.Equal(t, logger, reg.logger)
+	assert.NotNil(t, reg.definitions)
+	assert.NotNil(t, reg.bindings)
+	assert.NotNil(t, reg.defaultBindings)
 }
 
 func TestContractRegistry_StartStop(t *testing.T) {

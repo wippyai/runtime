@@ -107,7 +107,7 @@ func (s *Storage) DownloadObject(ctx context.Context, key string, w io.Writer, o
 			zap.Error(err))
 		return err
 	}
-	defer output.Body.Close()
+	defer func() { _ = output.Body.Close() }()
 
 	// Copy the data to the provided writer
 	if _, err = io.Copy(w, output.Body); err != nil {

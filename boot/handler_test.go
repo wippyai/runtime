@@ -39,15 +39,15 @@ func (m *mockEntryListener) Delete(_ context.Context, _ registry.Entry) error {
 
 func TestHandlerRegistry(t *testing.T) {
 	t.Run("NewHandlerRegistry creates empty registry", func(t *testing.T) {
-		registry := NewHandlerRegistry()
-		require.NotNil(t, registry)
+		reg := NewHandlerRegistry()
+		require.NotNil(t, reg)
 
-		handlers := registry.Handlers()
+		handlers := reg.Handlers()
 		assert.Empty(t, handlers)
 	})
 
 	t.Run("Register adds handler", func(t *testing.T) {
-		registry := NewHandlerRegistry()
+		reg := NewHandlerRegistry()
 
 		var called int32
 		handler := eventbus.NewBaseHandler(
@@ -58,9 +58,9 @@ func TestHandlerRegistry(t *testing.T) {
 			},
 		)
 
-		registry.Register(handler)
+		reg.Register(handler)
 
-		handlers := registry.Handlers()
+		handlers := reg.Handlers()
 		assert.Len(t, handlers, 1)
 
 		pattern := handlers[0].Pattern()
@@ -74,7 +74,7 @@ func TestHandlerRegistry(t *testing.T) {
 	})
 
 	t.Run("Register multiple handlers", func(t *testing.T) {
-		registry := NewHandlerRegistry()
+		reg := NewHandlerRegistry()
 
 		handler1 := eventbus.NewBaseHandler(
 			eventbus.Pattern{System: "sys1", Kind: "event.one"},
@@ -85,10 +85,10 @@ func TestHandlerRegistry(t *testing.T) {
 			func(_ context.Context, _ event.Event) error { return nil },
 		)
 
-		registry.Register(handler1)
-		registry.Register(handler2)
+		reg.Register(handler1)
+		reg.Register(handler2)
 
-		handlers := registry.Handlers()
+		handlers := reg.Handlers()
 		assert.Len(t, handlers, 2)
 	})
 
@@ -126,11 +126,11 @@ func TestHandlerRegistryContext(t *testing.T) {
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
-		registry := NewHandlerRegistry()
-		ctx = WithHandlerRegistry(ctx, registry)
+		reg := NewHandlerRegistry()
+		ctx = WithHandlerRegistry(ctx, reg)
 
 		retrieved := GetHandlerRegistry(ctx)
-		assert.Equal(t, registry, retrieved)
+		assert.Equal(t, reg, retrieved)
 	})
 
 	t.Run("GetHandlerRegistry returns nil when not set", func(t *testing.T) {
@@ -152,17 +152,17 @@ func TestHandlerRegistryContext(t *testing.T) {
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
-		registry1 := NewHandlerRegistry()
+		reg1 := NewHandlerRegistry()
 		listener1 := &mockEntryListener{}
-		registry1.RegisterListener("event.one", listener1)
+		reg1.RegisterListener("event.one", listener1)
 
-		ctx = WithHandlerRegistry(ctx, registry1)
+		ctx = WithHandlerRegistry(ctx, reg1)
 
-		registry2 := NewHandlerRegistry()
+		reg2 := NewHandlerRegistry()
 		listener2 := &mockEntryListener{}
-		registry2.RegisterListener("event.two", listener2)
+		reg2.RegisterListener("event.two", listener2)
 
-		ctx = WithHandlerRegistry(ctx, registry2)
+		ctx = WithHandlerRegistry(ctx, reg2)
 
 		retrieved := GetHandlerRegistry(ctx)
 		handlers := retrieved.Handlers()

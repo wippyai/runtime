@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	stdErrors "errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -2916,7 +2917,8 @@ func TestCoroutineVM_GoErrorPropagation(t *testing.T) {
 		for _, task := range tasks {
 			if len(task.Yielded) == 1 {
 				if ud, ok := task.Yielded[0].(*lua.LUserData); ok {
-					if _, ok := ud.Value.(*errors.WrappedError); ok {
+					var we *errors.WrappedError
+					if stdErrors.As(ud.Value.(error), &we) {
 						producerTask = task
 					}
 				} else if task.Yielded[0].String() == "ready" {

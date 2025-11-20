@@ -222,7 +222,7 @@ func TestConcurrentFSAccess(t *testing.T) {
 					errors <- err
 					return
 				}
-				defer file.Close()
+				defer func() { _ = file.Close() }()
 
 				_, err = io.ReadAll(file)
 				if err != nil {
@@ -450,7 +450,7 @@ func TestConcurrentResourceLoading(t *testing.T) {
 					errors <- err
 					return
 				}
-				defer file.Close()
+				defer func() { _ = file.Close() }()
 
 				_, err = io.ReadAll(file)
 				if err != nil {

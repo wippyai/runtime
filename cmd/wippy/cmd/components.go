@@ -12,7 +12,7 @@ import (
 // StandardComponents returns the default component set for wippy runtime.
 // Applications can customize by modifying this list or creating their own.
 func StandardComponents() []boot.Component {
-	components := []boot.Component{}
+	var components []boot.Component
 	components = append(components, core.All()...)
 	components = append(components, system.All()...)
 	components = append(components, queue.All()...)

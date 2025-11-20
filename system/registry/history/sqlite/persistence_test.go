@@ -49,13 +49,13 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	// Create temp SQLite database
 	tmpFile, err := os.CreateTemp("", "test-*.db")
 	require.NoError(t, err)
-	tmpFile.Close()
+	_ = tmpFile.Close()
 	defer os.Remove(tmpFile.Name())
 
 	// Create history with SQLite
 	hist, err := NewSQLite(tmpFile.Name(), logger)
 	require.NoError(t, err)
-	defer hist.Close()
+	defer func() { _ = hist.Close() }()
 
 	runner := &TestRunner{}
 	builder := topology.NewStateBuilder(logger, nil)
@@ -110,7 +110,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 
 	hist2, err := NewSQLite(tmpFile.Name(), logger)
 	require.NoError(t, err)
-	defer hist2.Close()
+	defer func() { _ = hist2.Close() }()
 
 	// Load changesets from database and verify OriginalEntry is persisted
 	cs1, err := hist2.Get(v1)

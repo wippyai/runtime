@@ -54,12 +54,12 @@ func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 
 	ctx := context.Background()
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	if err := runMigrations(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -70,7 +70,7 @@ func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 	}
 
 	if err := h.ensureRootVersion(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to ensure root version: %w", err)
 	}
 

@@ -90,7 +90,7 @@ func CreateFileServeMiddleware(options map[string]string, fsRegistry FSRegistry)
 				http.Error(w, fmt.Sprintf("fileserve middleware: file not found: %s", filePath), http.StatusNotFound)
 				return
 			}
-			defer file.Close()
+			defer func() { _ = file.Close() }()
 
 			// Get file stat for ServeContent
 			stat, err := file.Stat()

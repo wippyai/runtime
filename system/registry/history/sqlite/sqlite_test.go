@@ -18,7 +18,7 @@ func TestHistory_Basic(t *testing.T) {
 
 	hist, err := NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
-	defer hist.Close()
+	defer func() { _ = hist.Close() }()
 
 	head, err := hist.Head()
 	require.NoError(t, err)
@@ -31,7 +31,7 @@ func TestHistory_SaveAndGet(t *testing.T) {
 
 	hist, err := NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
-	defer hist.Close()
+	defer func() { _ = hist.Close() }()
 
 	v0, err := hist.Head()
 	require.NoError(t, err)
@@ -76,7 +76,7 @@ func TestHistory_Persistence(t *testing.T) {
 
 	hist2, err := NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
-	defer hist2.Close()
+	defer func() { _ = hist2.Close() }()
 
 	head, err := hist2.Head()
 	require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestHistory_Versions(t *testing.T) {
 
 	hist, err := NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
-	defer hist.Close()
+	defer func() { _ = hist.Close() }()
 
 	v0, err := hist.Head()
 	require.NoError(t, err)
@@ -126,7 +126,7 @@ func TestHistory_SetHead(t *testing.T) {
 
 	hist, err := NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
-	defer hist.Close()
+	defer func() { _ = hist.Close() }()
 
 	v0, err := hist.Head()
 	require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestHistory_NotFoundError(t *testing.T) {
 
 	hist, err := NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
-	defer hist.Close()
+	defer func() { _ = hist.Close() }()
 
 	v999 := version.New(999)
 	_, err = hist.Get(v999)
@@ -180,7 +180,7 @@ func TestHistory_DatabaseFileCreation(t *testing.T) {
 
 	hist, err := NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
-	defer hist.Close()
+	defer func() { _ = hist.Close() }()
 
 	_, err = os.Stat(dbPath)
 	assert.NoError(t, err)

@@ -33,7 +33,7 @@ func TestFilesystemPack(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		metadata := registry.Metadata{"test": "filesystem"}
-		entries := []registry.Entry{}
+		var entries []registry.Entry
 		resourceID := registry.ParseID("test:filesystem")
 		resourceMeta := registry.Metadata{"type": "mixed"}
 
@@ -51,7 +51,7 @@ func TestFilesystemPack(t *testing.T) {
 		// Verify files exist
 		file, err := packFS.Open("data.png")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		content, err := io.ReadAll(file)
 		require.NoError(t, err)
@@ -67,7 +67,7 @@ func TestFilesystemPack(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		metadata := registry.Metadata{}
-		entries := []registry.Entry{}
+		var entries []registry.Entry
 		resourceID := registry.ParseID("test:read")
 		resourceMeta := registry.Metadata{}
 
@@ -83,7 +83,7 @@ func TestFilesystemPack(t *testing.T) {
 
 		file, err := packFS.Open("hello.png")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		data, err := io.ReadAll(file)
 		require.NoError(t, err)
@@ -251,7 +251,7 @@ func TestFilesystemPack(t *testing.T) {
 
 		file, err := packFS.Open("test.png")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		info, err := file.Stat()
 		require.NoError(t, err)
@@ -482,7 +482,7 @@ func TestPackFileSeek(t *testing.T) {
 
 		file, err := packFS.Open("test.png")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		seeker, ok := file.(io.ReadSeeker)
 		require.True(t, ok, "packFile must implement io.ReadSeeker")
@@ -517,7 +517,7 @@ func TestPackFileSeek(t *testing.T) {
 
 		file, err := packFS.Open("test.png")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		seeker := file.(io.ReadSeeker)
 
@@ -554,7 +554,7 @@ func TestPackFileSeek(t *testing.T) {
 
 		file, err := packFS.Open("test.png")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		seeker := file.(io.ReadSeeker)
 
@@ -590,7 +590,7 @@ func TestPackFileSeek(t *testing.T) {
 
 		file, err := packFS.Open("test.png")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		seeker := file.(io.ReadSeeker)
 
@@ -626,7 +626,7 @@ func TestPackFileSeek(t *testing.T) {
 
 		file, err := packFS.Open("test.png")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		seeker := file.(io.ReadSeeker)
 
@@ -658,7 +658,7 @@ func TestPackFileSeek(t *testing.T) {
 
 		file, err := packFS.Open("test.png")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		seeker := file.(io.ReadSeeker)
 
@@ -685,7 +685,7 @@ func TestPackFileSeek(t *testing.T) {
 
 		file, err := packFS.Open("test.png")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		seeker := file.(io.ReadSeeker)
 
@@ -713,7 +713,7 @@ func TestPackFileSeek(t *testing.T) {
 
 		file, err := packFS.Open("test.txt")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		seeker := file.(io.ReadSeeker)
 
