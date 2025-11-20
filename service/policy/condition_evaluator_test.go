@@ -3,6 +3,9 @@ package policy
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/service/policy"
@@ -1132,6 +1135,410 @@ func TestTypeConversions(t *testing.T) {
 		if err == nil {
 			t.Errorf("extractMetaField() should return error for empty parts")
 		}
+	})
+}
+
+// TestConditionEvaluator_OperatorBehaviorOnRoles tests the semantic differences between
+// contains/ncontains operators (which work on arrays and strings differently) and
+// in/nin operators (which perform membership checks on the field value itself).
+func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
+	t.Parallel()
+
+	evaluator, err := NewConditionEvaluator([]policy.Condition{})
+	require.NoError(t, err, "failed to initialize condition evaluator")
+
+	const (
+		testAction   = "read"
+		testResource = "document"
+		testActorID  = "user123"
+	)
+
+	t.Run("contains operator on array fields", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name      string
+			field     string
+			value     any
+			actorMeta registry.Metadata
+			want      bool
+			assertErr assert.ErrorAssertionFunc
+		}{
+			{
+				name:      "exact match found in array",
+				field:     "actor.meta.roles",
+				value:     "distributor-admin",
+				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "exact match not found - substring in array element not matched",
+				field:     "actor.meta.roles",
+				value:     "admin",
+				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
+				want:      false,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "match found in multi-element array",
+				field:     "actor.meta.roles",
+				value:     "super-admin",
+				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin", "viewer"}},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "no match in single-element array",
+				field:     "actor.meta.roles",
+				value:     "admin",
+				actorMeta: registry.Metadata{"roles": []string{"viewer"}},
+				want:      false,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "empty array returns false",
+				field:     "actor.meta.roles",
+				value:     "admin",
+				actorMeta: registry.Metadata{"roles": []string{}},
+				want:      false,
+				assertErr: assert.NoError,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				condition := policy.Condition{
+					Field:    tt.field,
+					Operator: "contains",
+					Value:    tt.value,
+				}
+				actor := newMockActor(testActorID, tt.actorMeta)
+
+				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
+
+				tt.assertErr(t, err)
+				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
+			})
+		}
+	})
+
+	t.Run("ncontains operator on array fields", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name      string
+			field     string
+			value     any
+			actorMeta registry.Metadata
+			want      bool
+			assertErr assert.ErrorAssertionFunc
+		}{
+			{
+				name:      "exact match not in array returns true",
+				field:     "actor.meta.roles",
+				value:     "admin",
+				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "exact match found in array returns false",
+				field:     "actor.meta.roles",
+				value:     "distributor-admin",
+				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
+				want:      false,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "value not in single-element array returns true",
+				field:     "actor.meta.roles",
+				value:     "admin",
+				actorMeta: registry.Metadata{"roles": []string{"viewer"}},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "empty array returns true - value not contained",
+				field:     "actor.meta.roles",
+				value:     "admin",
+				actorMeta: registry.Metadata{"roles": []string{}},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				condition := policy.Condition{
+					Field:    tt.field,
+					Operator: "ncontains",
+					Value:    tt.value,
+				}
+				actor := newMockActor(testActorID, tt.actorMeta)
+
+				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
+
+				tt.assertErr(t, err)
+				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
+			})
+		}
+	})
+
+	t.Run("contains operator on string fields", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name      string
+			field     string
+			value     any
+			actorMeta registry.Metadata
+			want      bool
+			assertErr assert.ErrorAssertionFunc
+		}{
+			{
+				name:      "substring match found",
+				field:     "actor.meta.role",
+				value:     "admin",
+				actorMeta: registry.Metadata{"role": "distributor-admin"},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "exact match found",
+				field:     "actor.meta.role",
+				value:     "admin",
+				actorMeta: registry.Metadata{"role": "admin"},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "substring not found",
+				field:     "actor.meta.role",
+				value:     "admin",
+				actorMeta: registry.Metadata{"role": "viewer"},
+				want:      false,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "empty string field returns false",
+				field:     "actor.meta.role",
+				value:     "admin",
+				actorMeta: registry.Metadata{"role": ""},
+				want:      false,
+				assertErr: assert.NoError,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				condition := policy.Condition{
+					Field:    tt.field,
+					Operator: "contains",
+					Value:    tt.value,
+				}
+				actor := newMockActor(testActorID, tt.actorMeta)
+
+				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
+
+				tt.assertErr(t, err)
+				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
+			})
+		}
+	})
+
+	t.Run("ncontains operator on string fields", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name      string
+			field     string
+			value     any
+			actorMeta registry.Metadata
+			want      bool
+			assertErr assert.ErrorAssertionFunc
+		}{
+			{
+				name:      "substring found returns false",
+				field:     "actor.meta.role",
+				value:     "admin",
+				actorMeta: registry.Metadata{"role": "distributor-admin"},
+				want:      false,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "substring not found returns true",
+				field:     "actor.meta.role",
+				value:     "admin",
+				actorMeta: registry.Metadata{"role": "viewer"},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "empty string returns true - value not contained",
+				field:     "actor.meta.role",
+				value:     "admin",
+				actorMeta: registry.Metadata{"role": ""},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				condition := policy.Condition{
+					Field:    tt.field,
+					Operator: "ncontains",
+					Value:    tt.value,
+				}
+				actor := newMockActor(testActorID, tt.actorMeta)
+
+				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
+
+				tt.assertErr(t, err)
+				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
+			})
+		}
+	})
+
+	t.Run("nin operator with scalar field values", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name      string
+			field     string
+			value     any
+			actorMeta registry.Metadata
+			want      bool
+			assertErr assert.ErrorAssertionFunc
+		}{
+			{
+				name:      "single value not in list",
+				field:     "actor.meta.role",
+				value:     []string{"admin", "distributor-admin", "super-admin"},
+				actorMeta: registry.Metadata{"role": "viewer"},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "single value found in list",
+				field:     "actor.meta.role",
+				value:     []string{"admin", "distributor-admin", "super-admin"},
+				actorMeta: registry.Metadata{"role": "distributor-admin"},
+				want:      false,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "empty string not in list",
+				field:     "actor.meta.role",
+				value:     []string{"admin", "viewer"},
+				actorMeta: registry.Metadata{"role": ""},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				condition := policy.Condition{
+					Field:    tt.field,
+					Operator: "nin",
+					Value:    tt.value,
+				}
+				actor := newMockActor(testActorID, tt.actorMeta)
+
+				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
+
+				tt.assertErr(t, err)
+				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
+			})
+		}
+	})
+
+	t.Run("in operator with scalar field values", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name      string
+			field     string
+			value     any
+			actorMeta registry.Metadata
+			want      bool
+			assertErr assert.ErrorAssertionFunc
+		}{
+			{
+				name:      "single value found in list",
+				field:     "actor.meta.role",
+				value:     []string{"admin", "distributor-admin", "super-admin"},
+				actorMeta: registry.Metadata{"role": "distributor-admin"},
+				want:      true,
+				assertErr: assert.NoError,
+			},
+			{
+				name:      "single value not in list",
+				field:     "actor.meta.role",
+				value:     []string{"admin", "distributor-admin", "super-admin"},
+				actorMeta: registry.Metadata{"role": "viewer"},
+				want:      false,
+				assertErr: assert.NoError,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				condition := policy.Condition{
+					Field:    tt.field,
+					Operator: "in",
+					Value:    tt.value,
+				}
+				actor := newMockActor(testActorID, tt.actorMeta)
+
+				got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
+
+				tt.assertErr(t, err)
+				assert.Equal(t, tt.want, got, "condition evaluation result mismatch")
+			})
+		}
+	})
+
+	t.Run("operator behavior with array field values", func(t *testing.T) {
+		t.Parallel()
+
+		// Note: nin/in operators compare the entire array value against list elements.
+		// This is typically not the desired behavior for role checking.
+		// Use contains/ncontains for element-wise array matching instead.
+		t.Run("nin with array field compares whole array", func(t *testing.T) {
+			t.Parallel()
+
+			condition := policy.Condition{
+				Field:    "actor.meta.roles",
+				Operator: "nin",
+				Value:    []string{"admin", "distributor-admin", "super-admin"},
+			}
+			actor := newMockActor(testActorID, registry.Metadata{
+				"roles": []string{"distributor-admin"},
+			})
+
+			got, err := evaluator.EvaluateCondition(condition, actor, testAction, testResource, nil)
+
+			assert.NoError(t, err, "unexpected error during evaluation")
+			// Returns true because the array []string{"distributor-admin"} is not equal
+			// to any of the strings in the nin list. This demonstrates that nin is not
+			// appropriate for checking array element membership.
+			assert.True(t, got, "nin should compare entire array value, not elements")
+		})
 	})
 }
 

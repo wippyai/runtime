@@ -21,7 +21,6 @@ const (
 	LuaHTMLName         = "lua.html"
 	LuaHTTPName         = "lua.http"
 	LuaJSONName         = "lua.json"
-	LuaOTelName         = "lua.otel"
 	LuaPayloadName      = "lua.payload"
 	LuaProcessName      = "lua.process"
 	LuaRegistryName     = "lua.registry"

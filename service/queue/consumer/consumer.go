@@ -131,7 +131,7 @@ func (c *Consumer) worker(ctx context.Context, workerID int) {
 	for {
 		select {
 		case <-ctx.Done():
-			c.logger.Debug("worker stopped (context cancelled)",
+			c.logger.Debug("worker stopped (context canceled)",
 				zap.String("consumer", c.id.String()),
 				zap.Int("worker_id", workerID))
 			return

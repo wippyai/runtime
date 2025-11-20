@@ -42,6 +42,43 @@ Returns:
 - `decoded`: The Lua value represented by the JSON string (or nil on error).
 - `error`: Error message string (or nil on success).
 
+#### json.validate(schema: table|string, data: any)
+
+Validates a Lua value against a JSON schema.
+
+Parameters:
+
+- `schema`: The JSON schema as a Lua table or JSON string. Follows JSON Schema specification.
+- `data`: The Lua value to validate against the schema.
+
+Returns:
+
+- `valid`: Boolean `true` if validation succeeds, `false` on error.
+- `error`: Validation error details (or nil on success).
+
+Notes:
+- Schema can be provided as either a Lua table or a JSON string
+- Uses optimized path for validating objects (tables with string keys)
+- Schemas are cached internally for better performance on repeated validations
+
+#### json.validate_string(schema: table|string, json_str: string)
+
+Validates a JSON string against a JSON schema without decoding it first.
+
+Parameters:
+
+- `schema`: The JSON schema as a Lua table or JSON string.
+- `json_str`: The JSON string to validate.
+
+Returns:
+
+- `valid`: Boolean `true` if validation succeeds, `false` on error.
+- `error`: Validation error details (or nil on success).
+
+Notes:
+- More efficient than decoding + validating when you only need validation
+- Schema format is the same as `json.validate()`
+
 ## Error Handling
 
 The module functions may return errors in the following cases:
@@ -177,5 +214,43 @@ else
     print("Decoded a:", decoded.a)
     print("Original b.c:", original.b.c)
     print("Decoded b.c:", decoded.b.c)
+end
+
+-- JSON Schema Validation (schema as table)
+local schema = {
+  type = "object",
+  properties = {
+    name = {type = "string"},
+    age = {type = "number", minimum = 0}
+  },
+  required = {"name", "age"}
+}
+
+local valid_data = {name = "John", age = 30}
+local valid, err = json.validate(schema, valid_data)
+if valid then
+  print("Data is valid!")
+else
+  print("Validation error:", err)
+end
+
+local invalid_data = {name = "John", age = -5}
+valid, err = json.validate(schema, invalid_data)
+if not valid then
+  print("Validation failed as expected:", err)
+end
+
+-- Schema can also be a JSON string
+local schema_str = '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"number","minimum":0}},"required":["name","age"]}'
+valid, err = json.validate(schema_str, valid_data)
+if valid then
+  print("Valid with string schema!")
+end
+
+-- Validate JSON string directly
+local json_string = '{"name":"Jane","age":25}'
+valid, err = json.validate_string(schema, json_string)
+if valid then
+  print("JSON string is valid!")
 end
 ```

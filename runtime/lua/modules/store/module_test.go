@@ -72,7 +72,7 @@ type mockStore struct {
 
 // NewMockStore creates a new test store with initial test data
 //
-//nolint:revive // used in tests
+
 func NewMockStore() *mockStore {
 	return &mockStore{
 		data:  make(map[string]payload.Payload),

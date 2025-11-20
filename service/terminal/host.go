@@ -229,7 +229,7 @@ func (t *Terminal) handleSend(msgBatch *relay.Package) error {
 }
 
 func (t *Terminal) cleanup(_ *runtime.Result) {
-	t.logCtrl.RestoreBaseConfig(context.Background())
+	t.logCtrl.RestoreBaseConfig(t.ctx)
 	t.runner.Swap(nil)
 }
 

@@ -127,42 +127,42 @@ func TestValueStoreInterface(t *testing.T) {
 	}
 }
 
-func TestTaskCoordinatorInterface(t *testing.T) {
-	coordinator := newTaskCoordinator(10, nil)
+func TestTaskSchedulerInterface(t *testing.T) {
+	scheduler := newTaskScheduler(10, nil)
 
 	// Test initial state
-	if blocked := coordinator.Blocked(); blocked != 0 {
+	if blocked := scheduler.Blocked(); blocked != 0 {
 		t.Errorf("expected initial blocked count to be 0, got %d", blocked)
 	}
-	if ready := coordinator.Ready(); ready != 0 {
+	if ready := scheduler.Ready(); ready != 0 {
 		t.Errorf("expected initial ready count to be 0, got %d", ready)
 	}
 
 	// Test Add and Done
-	coordinator.Add()
-	if blocked := coordinator.Blocked(); blocked != 1 {
+	scheduler.Add()
+	if blocked := scheduler.Blocked(); blocked != 1 {
 		t.Errorf("expected blocked count to be 1 after Add, got %d", blocked)
 	}
 
-	coordinator.Done()
-	if blocked := coordinator.Blocked(); blocked != 0 {
+	scheduler.Done()
+	if blocked := scheduler.Blocked(); blocked != 0 {
 		t.Errorf("expected blocked count to be 0 after Done, got %d", blocked)
 	}
 
 	// Test Schedule
-	err := coordinator.Schedule(func() {})
+	err := scheduler.Schedule(func() {})
 	if err != nil {
 		t.Errorf("expected no error from Schedule, got %v", err)
 	}
 
-	err = coordinator.Schedule(nil)
+	err = scheduler.Schedule(nil)
 	if err == nil {
 		t.Errorf("expected error from Schedule with nil function")
 	}
 
 	// Test WakeUp
-	coordinator.WakeUp()
-	if ready := coordinator.Ready(); ready == 0 {
+	scheduler.WakeUp()
+	if ready := scheduler.Ready(); ready == 0 {
 		t.Errorf("expected ready count to be > 0 after WakeUp, got %d", ready)
 	}
 
@@ -172,13 +172,13 @@ func TestTaskCoordinatorInterface(t *testing.T) {
 	defer state.Close()
 	update := NewUpdate(state, nil, nil)
 
-	err = coordinator.Send(ctx, update)
+	err = scheduler.Send(ctx, update)
 	if err != nil {
 		t.Errorf("expected no error from Send, got %v", err)
 	}
 
 	// Test Wait
-	updates, err := coordinator.Wait(ctx, false)
+	updates, err := scheduler.Wait(ctx, false)
 	if err != nil {
 		t.Errorf("expected no error from Wait, got %v", err)
 	}

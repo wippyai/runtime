@@ -23,7 +23,6 @@ func All() []boot.Component {
 		HTML(),
 		HTTP(),
 		JSON(),
-		OTel(),
 		Payload(),
 		Process(),
 		Queue(),

@@ -175,15 +175,9 @@ func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator stri
 	if fieldValue == nil {
 		switch operator {
 		case "exists":
-			if boolValue, ok := compareValue.(bool); ok {
-				return !boolValue, nil
-			}
-			return false, nil
+			return !compareValue.(bool), nil
 		case "nexists":
-			if boolValue, ok := compareValue.(bool); ok {
-				return boolValue, nil
-			}
-			return true, nil
+			return compareValue.(bool), nil
 		default:
 			return false, nil
 		}
@@ -392,6 +386,8 @@ func toString(value any) (string, bool) {
 		return strconv.FormatFloat(v, 'f', -1, 64), true
 	case bool:
 		return strconv.FormatBool(v), true
+	case []any, []string, []int:
+		return "", false
 	}
 
 	return fmt.Sprintf("%v", value), true

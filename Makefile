@@ -170,7 +170,7 @@ build-runner-embed:
 lint-init:
 	# binary will be bin/golangci-lint
 	mkdir -p bin
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b bin v2.2.1
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b bin v2.6.2
 	bin/golangci-lint --version
 
 lint:

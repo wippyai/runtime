@@ -106,6 +106,20 @@ func (m *Module) publish(l *lua.LState) int {
 	// Create message
 	msg := queueapi.NewMessage(p)
 
+	// Process optional headers (third argument)
+	if l.GetTop() >= 3 {
+		headersArg := l.Get(3)
+		if tbl, ok := headersArg.(*lua.LTable); ok {
+			tbl.ForEach(func(key, val lua.LValue) {
+				keyStr, ok := key.(lua.LString)
+				if !ok {
+					return
+				}
+				msg.Headers.Set(string(keyStr), value.ToGoAny(val))
+			})
+		}
+	}
+
 	// Publish message
 	err := queueMgr.Publish(ctx, queueID, msg)
 	if err != nil {

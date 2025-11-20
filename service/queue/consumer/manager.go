@@ -104,7 +104,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
-		Path:   event.Path(entry.ID.String()),
+		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: consumer,
 			Config:  cfg.Lifecycle,
@@ -179,7 +179,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
-		Path:   event.Path(entry.ID.String()),
+		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: consumer,
 			Config:  cfg.Lifecycle,
@@ -199,11 +199,12 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.deleteConsumer(ctx, entry.ID)
+	m.deleteConsumer(ctx, entry.ID)
+	return nil
 }
 
 // deleteConsumer removes a consumer (internal, assumes lock is held)
-func (m *Manager) deleteConsumer(ctx context.Context, id registry.ID) error {
+func (m *Manager) deleteConsumer(ctx context.Context, id registry.ID) {
 	// Remove from map
 	m.consumers.Delete(id)
 
@@ -211,10 +212,8 @@ func (m *Manager) deleteConsumer(ctx context.Context, id registry.ID) error {
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
-		Path:   event.Path(id.String()),
+		Path:   id.String(),
 	})
 
 	m.logger.Info("consumer deleted", zap.String("id", id.String()))
-
-	return nil
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
-	"github.com/wippyai/runtime/internal/cache"
+	lru "github.com/wippyai/runtime/internal/cache"
 	"go.uber.org/zap"
 )
 

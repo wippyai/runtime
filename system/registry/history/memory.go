@@ -70,16 +70,19 @@ func (m *MemoryStorage) Get(version registry.Version) (registry.ChangeSet, error
 }
 
 func cloneEntry(e registry.Entry) registry.Entry {
-	cloned := registry.Entry{
+	var meta registry.Metadata
+	if e.Meta != nil {
+		meta = make(registry.Metadata, len(e.Meta))
+		for k, v := range e.Meta {
+			meta[k] = v
+		}
+	}
+	return registry.Entry{
 		ID:   e.ID,
 		Kind: e.Kind,
-		Meta: make(registry.Metadata, len(e.Meta)),
+		Meta: meta,
 		Data: e.Data,
 	}
-	for k, v := range e.Meta {
-		cloned.Meta[k] = v
-	}
-	return cloned
 }
 
 // Save records a set of actions and creates a new version.

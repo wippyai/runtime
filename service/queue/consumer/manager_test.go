@@ -197,11 +197,11 @@ type mockQueueManager struct {
 	driverNotFound bool
 }
 
-func (m *mockQueueManager) Publish(ctx context.Context, queue registry.ID, msgs ...*queueapi.Message) error {
+func (m *mockQueueManager) Publish(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
 	return nil
 }
 
-func (m *mockQueueManager) GetDriver(id registry.ID) (queueapi.Driver, bool) {
+func (m *mockQueueManager) GetDriver(_ registry.ID) (queueapi.Driver, bool) {
 	if m.driverNotFound {
 		return nil, false
 	}
@@ -232,6 +232,6 @@ func (m *mockDTT) Unmarshal(p payload.Payload, v interface{}) error {
 	return nil
 }
 
-func (m *mockDTT) Transcode(p payload.Payload, f payload.Format) (payload.Payload, error) {
+func (m *mockDTT) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }

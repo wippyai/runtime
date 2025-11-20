@@ -38,7 +38,7 @@ func TestManager_DriverRegister(t *testing.T) {
 	ctx := context.Background()
 	mgr, bus := setupTest()
 	require.NoError(t, mgr.Start(ctx))
-	defer mgr.Stop()
+	defer func() { _ = mgr.Stop() }()
 
 	driverID := registry.ID{NS: "test", Name: "mock-driver"}
 	driver := &mockDriver{}
@@ -46,7 +46,7 @@ func TestManager_DriverRegister(t *testing.T) {
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.DriverRegister,
-		Path:   event.Path(driverID.String()),
+		Path:   driverID.String(),
 		Data:   driver,
 	})
 
@@ -67,14 +67,14 @@ func TestManager_DriverRegister_InvalidType(t *testing.T) {
 	ctx := context.Background()
 	mgr, bus := setupTest()
 	require.NoError(t, mgr.Start(ctx))
-	defer mgr.Stop()
+	defer func() { _ = mgr.Stop() }()
 
 	driverID := registry.ID{NS: "test", Name: "bad-driver"}
 
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.DriverRegister,
-		Path:   event.Path(driverID.String()),
+		Path:   driverID.String(),
 		Data:   "not a driver",
 	})
 
@@ -89,7 +89,7 @@ func TestManager_QueueDeclare(t *testing.T) {
 	ctx := context.Background()
 	mgr, bus := setupTest()
 	require.NoError(t, mgr.Start(ctx))
-	defer mgr.Stop()
+	defer func() { _ = mgr.Stop() }()
 
 	driverID := registry.ID{NS: "test", Name: "mock-driver"}
 	driver := &mockDriver{}
@@ -107,7 +107,7 @@ func TestManager_QueueDeclare(t *testing.T) {
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.QueueDeclare,
-		Path:   event.Path(queueID.String()),
+		Path:   queueID.String(),
 		Data:   queueEntry,
 	})
 
@@ -127,7 +127,7 @@ func TestManager_QueueDeclare_DriverNotFound(t *testing.T) {
 	ctx := context.Background()
 	mgr, bus := setupTest()
 	require.NoError(t, mgr.Start(ctx))
-	defer mgr.Stop()
+	defer func() { _ = mgr.Stop() }()
 
 	queueID := registry.ID{NS: "test", Name: "my-queue"}
 	driverID := registry.ID{NS: "test", Name: "nonexistent-driver"}
@@ -141,7 +141,7 @@ func TestManager_QueueDeclare_DriverNotFound(t *testing.T) {
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.QueueDeclare,
-		Path:   event.Path(queueID.String()),
+		Path:   queueID.String(),
 		Data:   queueEntry,
 	})
 
@@ -156,7 +156,7 @@ func TestManager_Publish(t *testing.T) {
 	ctx := context.Background()
 	mgr, _ := setupTest()
 	require.NoError(t, mgr.Start(ctx))
-	defer mgr.Stop()
+	defer func() { _ = mgr.Stop() }()
 
 	driverID := registry.ID{NS: "test", Name: "mock-driver"}
 	driver := &mockDriver{}
@@ -182,7 +182,7 @@ func TestManager_Publish_QueueNotFound(t *testing.T) {
 	ctx := context.Background()
 	mgr, _ := setupTest()
 	require.NoError(t, mgr.Start(ctx))
-	defer mgr.Stop()
+	defer func() { _ = mgr.Stop() }()
 
 	queueID := registry.ID{NS: "test", Name: "nonexistent"}
 	msg := queueapi.NewMessage(payload.New("test"))
@@ -195,7 +195,7 @@ func TestManager_Publish_DriverNotFound(t *testing.T) {
 	ctx := context.Background()
 	mgr, _ := setupTest()
 	require.NoError(t, mgr.Start(ctx))
-	defer mgr.Stop()
+	defer func() { _ = mgr.Stop() }()
 
 	queueID := registry.ID{NS: "test", Name: "my-queue"}
 	driverID := registry.ID{NS: "test", Name: "nonexistent-driver"}
@@ -221,34 +221,34 @@ type mockDriver struct {
 	stopped            bool
 }
 
-func (m *mockDriver) Publish(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
+func (m *mockDriver) Publish(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
 	m.publishCalled = true
 	return nil
 }
 
-func (m *mockDriver) Attach(ctx context.Context, q registry.ID, deliveries chan<- *queueapi.Delivery) (context.CancelFunc, error) {
+func (m *mockDriver) Attach(_ context.Context, _ registry.ID, _ chan<- *queueapi.Delivery) (context.CancelFunc, error) {
 	m.attachCalled = true
 	return func() {}, nil
 }
 
-func (m *mockDriver) DeclareQueue(ctx context.Context, q registry.ID, opts attrs.Attributes) error {
+func (m *mockDriver) DeclareQueue(_ context.Context, _ registry.ID, _ attrs.Attributes) error {
 	m.declareQueueCalled = true
 	return nil
 }
 
-func (m *mockDriver) GetQueueInfo(ctx context.Context, q registry.ID) (attrs.Attributes, error) {
+func (m *mockDriver) GetQueueInfo(_ context.Context, _ registry.ID) (attrs.Attributes, error) {
 	m.getQueueInfoCalled = true
 	return attrs.NewBag(), nil
 }
 
-func (m *mockDriver) Start(ctx context.Context) (<-chan any, error) {
+func (m *mockDriver) Start(_ context.Context) (<-chan any, error) {
 	m.started = true
 	ch := make(chan any)
 	close(ch)
 	return ch, nil
 }
 
-func (m *mockDriver) Stop(ctx context.Context) error {
+func (m *mockDriver) Stop(_ context.Context) error {
 	m.stopped = true
 	return nil
 }

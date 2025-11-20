@@ -16,7 +16,7 @@ var unitOfWorkPool = sync.Pool{
 		return &unitOfWork{
 			valueStore:      newValueStore(),
 			resourceManager: newResourceManager(),
-			tasks:           newTaskCoordinator(scheduleSize, nil),
+			tasks:           newTaskScheduler(scheduleSize, nil),
 		}
 	},
 }
@@ -33,7 +33,7 @@ type unitOfWork struct {
 
 	valueStore      *valueStore
 	resourceManager *resourceManager
-	tasks           *taskCoordinator
+	tasks           *taskScheduler
 }
 
 // NewUnitOfWork creates a new UnitOfWork instance
@@ -129,7 +129,7 @@ func (u *unitOfWork) Run(fn func(uw UnitOfWork)) {
 	}
 
 	u.wg.Add(1)
-	u.tasks.Add() // Track in task coordinator
+	u.tasks.Add() // Track in task scheduler
 
 	go func() {
 		defer u.wg.Done()

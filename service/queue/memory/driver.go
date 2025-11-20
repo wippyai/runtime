@@ -30,13 +30,10 @@ type Driver struct {
 }
 
 func NewDriver(id registry.ID, logger *zap.Logger) *Driver {
-	ctx, cancel := context.WithCancel(context.Background())
 	return &Driver{
 		id:     id,
 		logger: logger,
 		queues: make(map[registry.ID]*queue),
-		ctx:    ctx,
-		cancel: cancel,
 	}
 }
 
@@ -62,7 +59,7 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 		case q.messages <- msg:
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-d.ctx.Done():
+		case <-d.lifecycleCtxDone():
 			return fmt.Errorf("driver is stopped")
 		}
 	}
@@ -86,7 +83,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 			select {
 			case <-consumerCtx.Done():
 				return
-			case <-d.ctx.Done():
+			case <-d.lifecycleCtxDone():
 				return
 			case msg, ok := <-q.messages:
 				if !ok {
@@ -95,7 +92,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 
 				delivery := &queueapi.Delivery{
 					Message: msg,
-					Ack: func(ctx context.Context) error {
+					Ack: func(_ context.Context) error {
 						return nil
 					},
 					Nack: func(ctx context.Context) error {
@@ -122,7 +119,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 				case deliveries <- delivery:
 				case <-consumerCtx.Done():
 					return
-				case <-d.ctx.Done():
+				case <-d.lifecycleCtxDone():
 					return
 				}
 			}
@@ -132,7 +129,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 	return cancel, nil
 }
 
-func (d *Driver) DeclareQueue(ctx context.Context, queueID registry.ID, opts attrs.Attributes) error {
+func (d *Driver) DeclareQueue(_ context.Context, queueID registry.ID, opts attrs.Attributes) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -159,7 +156,7 @@ func (d *Driver) DeclareQueue(ctx context.Context, queueID registry.ID, opts att
 	return nil
 }
 
-func (d *Driver) GetQueueInfo(ctx context.Context, queueID registry.ID) (attrs.Attributes, error) {
+func (d *Driver) GetQueueInfo(_ context.Context, queueID registry.ID) (attrs.Attributes, error) {
 	d.mu.RLock()
 	q, exists := d.queues[queueID]
 	d.mu.RUnlock()
@@ -175,6 +172,13 @@ func (d *Driver) GetQueueInfo(ctx context.Context, queueID registry.ID) (attrs.A
 	return info, nil
 }
 
+func (d *Driver) lifecycleCtxDone() <-chan struct{} {
+	if d.ctx != nil {
+		return d.ctx.Done()
+	}
+	return make(chan struct{})
+}
+
 func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
 	d.ctx, d.cancel = context.WithCancel(ctx)
 	d.logger.Info("memory driver started", zap.String("id", d.id.String()))
@@ -182,7 +186,7 @@ func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
 	return d.statusChan, nil
 }
 
-func (d *Driver) Stop(ctx context.Context) error {
+func (d *Driver) Stop(_ context.Context) error {
 	d.cancel()
 
 	d.mu.Lock()

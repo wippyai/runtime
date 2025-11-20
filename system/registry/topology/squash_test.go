@@ -195,36 +195,36 @@ func TestSquashChangesets_ComplexSequence(t *testing.T) {
 	entry3ID := registry.ID{NS: "test", Name: "entry3"}
 
 	// Entry 1: Create -> Update -> Update -> Delete -> Create
-	// Expected: Create (initial Create cancelled by Delete, then new Create)
-	entry1_v1 := registry.Entry{
+	// Expected: Create (initial Create canceled by Delete, then new Create)
+	entry1V1 := registry.Entry{
 		ID:   entry1ID,
 		Kind: "service",
 		Data: payload.NewString("v1"),
 	}
-	entry1_v2 := registry.Entry{
+	entry1V2 := registry.Entry{
 		ID:   entry1ID,
 		Kind: "service",
 		Data: payload.NewString("v2"),
 	}
-	entry1_v3 := registry.Entry{
+	entry1V3 := registry.Entry{
 		ID:   entry1ID,
 		Kind: "service",
 		Data: payload.NewString("v3"),
 	}
-	entry1_v4 := registry.Entry{
+	entry1V4 := registry.Entry{
 		ID:   entry1ID,
 		Kind: "service",
 		Data: payload.NewString("v4"),
 	}
 
 	// Entry 2: Create -> Update -> Delete
-	// Expected: Nothing (cancelled out)
-	entry2_v1 := registry.Entry{
+	// Expected: Nothing (canceled out)
+	entry2V1 := registry.Entry{
 		ID:   entry2ID,
 		Kind: "component",
 		Data: payload.NewString("v1"),
 	}
-	entry2_v2 := registry.Entry{
+	entry2V2 := registry.Entry{
 		ID:   entry2ID,
 		Kind: "component",
 		Data: payload.NewString("v2"),
@@ -241,27 +241,27 @@ func TestSquashChangesets_ComplexSequence(t *testing.T) {
 	changesets := []registry.ChangeSet{
 		// Version 1 changes
 		{
-			{Kind: registry.Create, Entry: entry1_v1},
-			{Kind: registry.Create, Entry: entry2_v1},
+			{Kind: registry.Create, Entry: entry1V1},
+			{Kind: registry.Create, Entry: entry2V1},
 		},
 		// Version 2 changes
 		{
-			{Kind: registry.Update, Entry: entry1_v2},
-			{Kind: registry.Update, Entry: entry2_v2},
+			{Kind: registry.Update, Entry: entry1V2},
+			{Kind: registry.Update, Entry: entry2V2},
 			{Kind: registry.Update, Entry: entry3},
 		},
 		// Version 3 changes
 		{
-			{Kind: registry.Update, Entry: entry1_v3},
-			{Kind: registry.Delete, Entry: entry2_v2},
+			{Kind: registry.Update, Entry: entry1V3},
+			{Kind: registry.Delete, Entry: entry2V2},
 		},
 		// Version 4 changes
 		{
-			{Kind: registry.Delete, Entry: entry1_v3},
+			{Kind: registry.Delete, Entry: entry1V3},
 		},
 		// Version 5 changes
 		{
-			{Kind: registry.Create, Entry: entry1_v4},
+			{Kind: registry.Create, Entry: entry1V4},
 		},
 	}
 
@@ -277,12 +277,12 @@ func TestSquashChangesets_ComplexSequence(t *testing.T) {
 		case entry1ID:
 			foundEntry1 = true
 			// Create -> Update -> Update -> Delete -> Create = Create
-			// (The initial Create and intermediate Updates are cancelled by Delete,
+			// (The initial Create and intermediate Updates are canceled by Delete,
 			// then a new Create is added, resulting in just Create)
 			assert.Equal(t, registry.Create, op.Kind)
-			assert.Equal(t, entry1_v4, op.Entry)
+			assert.Equal(t, entry1V4, op.Entry)
 		case entry2ID:
-			t.Error("Entry 2 should have been cancelled out (Create -> Update -> Delete)")
+			t.Error("Entry 2 should have been canceled out (Create -> Update -> Delete)")
 		case entry3ID:
 			foundEntry3 = true
 			assert.Equal(t, registry.Update, op.Kind)
@@ -373,7 +373,7 @@ func TestSquashChangesets_MultipleEntries(t *testing.T) {
 			foundEntry1 = true
 			assert.Equal(t, registry.Create, op.Kind)
 		case "entry2":
-			t.Error("Entry 2 should have been cancelled out")
+			t.Error("Entry 2 should have been canceled out")
 		case "entry3":
 			foundEntry3 = true
 			assert.Equal(t, registry.Create, op.Kind)
@@ -392,7 +392,7 @@ func TestReverseChangeset(t *testing.T) {
 		Kind: "service",
 		Data: payload.NewString("original"),
 	}
-	entry1_updated := registry.Entry{
+	entry1Updated := registry.Entry{
 		ID:   registry.ID{NS: "test", Name: "entry1"},
 		Kind: "service",
 		Data: payload.NewString("updated"),
@@ -406,7 +406,7 @@ func TestReverseChangeset(t *testing.T) {
 	// Changeset that created entry2 and updated entry1 (with OriginalEntry populated)
 	changeset := registry.ChangeSet{
 		{Kind: registry.Create, Entry: entry2},
-		{Kind: registry.Update, Entry: entry1_updated, OriginalEntry: &entry1},
+		{Kind: registry.Update, Entry: entry1Updated, OriginalEntry: &entry1},
 	}
 
 	reversed, err := builder.ReverseChangeset(changeset)

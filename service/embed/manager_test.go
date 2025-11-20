@@ -250,7 +250,7 @@ func (r *mockEmbedRegistry) Close() error {
 	return nil
 }
 
-func (r *mockEmbedRegistry) Register(packPath string, reader interface{}) error {
+func (r *mockEmbedRegistry) Register(_ string, _ interface{}) error {
 	return nil
 }
 
@@ -271,16 +271,16 @@ func (m *mockDTT) Unmarshal(p payload.Payload, v interface{}) error {
 	return nil
 }
 
-func (m *mockDTT) Transcode(p payload.Payload, f payload.Format) (payload.Payload, error) {
+func (m *mockDTT) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
 
 type mockReadDirFS struct{}
 
-func (m *mockReadDirFS) Open(name string) (fs.File, error) {
+func (m *mockReadDirFS) Open(_ string) (fs.File, error) {
 	return nil, fs.ErrNotExist
 }
 
-func (m *mockReadDirFS) ReadDir(name string) ([]fs.DirEntry, error) {
+func (m *mockReadDirFS) ReadDir(_ string) ([]fs.DirEntry, error) {
 	return nil, nil
 }

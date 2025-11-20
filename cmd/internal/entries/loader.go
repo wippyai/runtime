@@ -257,16 +257,17 @@ func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *
 
 	hist := reg.History()
 	head, err := hist.Head()
-	if err != nil {
+	switch {
+	case err != nil:
 		logger.Info("no history found, initializing registry with baseline state at v0")
 		currentVer, err := reg.Current()
 		if err != nil {
 			return fmt.Errorf("failed to get current version: %w", err)
 		}
 		head = currentVer
-	} else if head.ID() > 0 {
+	case head.ID() > 0:
 		logger.Info("restoring registry state from history", zap.Uint("version", head.ID()))
-	} else {
+	default:
 		logger.Info("initializing registry with baseline state at v0")
 	}
 

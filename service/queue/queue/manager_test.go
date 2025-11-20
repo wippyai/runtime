@@ -147,36 +147,36 @@ type mockQueueManager struct {
 	driverNotFound bool
 }
 
-func (m *mockQueueManager) Publish(ctx context.Context, queue registry.ID, msgs ...*queueapi.Message) error {
+func (m *mockQueueManager) Publish(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
 	return nil
 }
 
-func (m *mockQueueManager) GetDriver(id registry.ID) (queueapi.Driver, bool) {
+func (m *mockQueueManager) GetDriver(_ registry.ID) (queueapi.Driver, bool) {
 	if m.driverNotFound {
 		return nil, false
 	}
 	return &mockDriver{}, true
 }
 
-func (m *mockQueueManager) GetQueue(id registry.ID) (*queueapi.Queue, bool) {
+func (m *mockQueueManager) GetQueue(_ registry.ID) (*queueapi.Queue, bool) {
 	return nil, false
 }
 
 type mockDriver struct{}
 
-func (m *mockDriver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queueapi.Message) error {
+func (m *mockDriver) Publish(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
 	return nil
 }
 
-func (m *mockDriver) Attach(ctx context.Context, queueID registry.ID, deliveries chan<- *queueapi.Delivery) (context.CancelFunc, error) {
+func (m *mockDriver) Attach(_ context.Context, _ registry.ID, _ chan<- *queueapi.Delivery) (context.CancelFunc, error) {
 	return func() {}, nil
 }
 
-func (m *mockDriver) DeclareQueue(ctx context.Context, queueID registry.ID, opts attrs.Attributes) error {
+func (m *mockDriver) DeclareQueue(_ context.Context, _ registry.ID, _ attrs.Attributes) error {
 	return nil
 }
 
-func (m *mockDriver) GetQueueInfo(ctx context.Context, queueID registry.ID) (attrs.Attributes, error) {
+func (m *mockDriver) GetQueueInfo(_ context.Context, _ registry.ID) (attrs.Attributes, error) {
 	return attrs.NewBag(), nil
 }
 
@@ -192,6 +192,6 @@ func (m *mockDTT) Unmarshal(p payload.Payload, v interface{}) error {
 	return nil
 }
 
-func (m *mockDTT) Transcode(p payload.Payload, f payload.Format) (payload.Payload, error) {
+func (m *mockDTT) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
