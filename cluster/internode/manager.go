@@ -490,14 +490,18 @@ func (loop *nodeControlLoop) attemptConnection() {
 	if loop.ctx.Err() != nil {
 		return
 	}
-	addr := fmt.Sprintf("%s:%d", loop.addr, loop.port)
+	addr := net.JoinHostPort(loop.addr, fmt.Sprintf("%d", loop.port))
 	var conn net.Conn
 	var err error
 	if loop.manager.tlsConfig != nil {
-		dialer := &net.Dialer{Timeout: loop.manager.config.HandshakeTimeout}
-		conn, err = tls.DialWithDialer(dialer, "tcp", addr, loop.manager.tlsConfig)
+		dialer := &tls.Dialer{
+			NetDialer: &net.Dialer{Timeout: loop.manager.config.HandshakeTimeout},
+			Config:    loop.manager.tlsConfig,
+		}
+		conn, err = dialer.DialContext(loop.ctx, "tcp", addr)
 	} else {
-		conn, err = net.DialTimeout("tcp", addr, loop.manager.config.HandshakeTimeout)
+		dialer := &net.Dialer{Timeout: loop.manager.config.HandshakeTimeout}
+		conn, err = dialer.DialContext(loop.ctx, "tcp", addr)
 	}
 	if err != nil {
 		loop.sendDisconnected(err, true)

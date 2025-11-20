@@ -9,11 +9,11 @@ import (
 )
 
 // ------------------------------------------------------------------------------
-// Task Coordinator Implementation
+// Task Scheduler Implementation
 // ------------------------------------------------------------------------------
 
-// taskCoordinator implements the Tasks interface for coroutine coordination
-type taskCoordinator struct {
+// taskScheduler implements the Tasks interface for coroutine coordination
+type taskScheduler struct {
 	updates   chan *Update  // Channel for task updates
 	wakeCh    chan struct{} // Channel for context-aware wake-up signals
 	taskCount atomic.Int32  // Counter for external activities, usually counting blocked channels
@@ -31,10 +31,10 @@ type taskCoordinator struct {
 	undelivered     atomic.Bool
 }
 
-// newTaskCoordinator creates a new task coordinator with specified buffer size
+// newTaskScheduler creates a new task scheduler with specified buffer size
 // and optional wakeup function
-func newTaskCoordinator(bufferSize int, wakeupFunc func()) *taskCoordinator {
-	return &taskCoordinator{
+func newTaskScheduler(bufferSize int, wakeupFunc func()) *taskScheduler {
+	return &taskScheduler{
 		updates:         make(chan *Update, bufferSize),
 		wakeCh:          make(chan struct{}, 1),
 		wakeupFunc:      wakeupFunc,
@@ -44,18 +44,18 @@ func newTaskCoordinator(bufferSize int, wakeupFunc func()) *taskCoordinator {
 }
 
 // Add registers a new task and increments the task counter
-func (t *taskCoordinator) Add() {
+func (t *taskScheduler) Add() {
 	t.taskCount.Add(1)
 }
 
 // Done signals that a task has completed and decrements the counter
-func (t *taskCoordinator) Done() {
+func (t *taskScheduler) Done() {
 	t.taskCount.Add(^int32(0))
 	t.WakeUp()
 }
 
 // Schedule adds a function to be executed during Wait
-func (t *taskCoordinator) Schedule(fn func()) error {
+func (t *taskScheduler) Schedule(fn func()) error {
 	if fn == nil {
 		return errors.New("cannot schedule nil function")
 	}
@@ -70,7 +70,7 @@ func (t *taskCoordinator) Schedule(fn func()) error {
 }
 
 // executeScheduled executes any scheduled functions including ones created by scheduled functions
-func (t *taskCoordinator) executeScheduled() {
+func (t *taskScheduler) executeScheduled() {
 	t.smu.Lock()
 	if t.scheduled.Len() == 0 && t.undelivered.CompareAndSwap(true, false) {
 		t.smu.Unlock()
@@ -108,7 +108,7 @@ func (t *taskCoordinator) executeScheduled() {
 
 // WakeUp signals that threads may be ready to process
 // This is thread-safe and can be called from any goroutine
-func (t *taskCoordinator) WakeUp() {
+func (t *taskScheduler) WakeUp() {
 	t.wakeCount.Add(1)
 	if t.awaken.CompareAndSwap(false, true) {
 		// Signal the wake channel for context-aware waiting
@@ -128,7 +128,7 @@ func (t *taskCoordinator) WakeUp() {
 
 // Send pushes a result to the task channel and signals wake up
 // This is thread-safe and can be called from any goroutine
-func (t *taskCoordinator) Send(ctx context.Context, update *Update) error {
+func (t *taskScheduler) Send(ctx context.Context, update *Update) error {
 	t.updCount.Add(1)
 	select {
 	case t.updates <- update:
@@ -141,12 +141,12 @@ func (t *taskCoordinator) Send(ctx context.Context, update *Update) error {
 }
 
 // Blocked returns the current number of tasks that are currently running externally.
-func (t *taskCoordinator) Blocked() int {
+func (t *taskScheduler) Blocked() int {
 	return int(t.taskCount.Load())
 }
 
 // Ready returns the number of tasks that are currently ready to be processed
-func (t *taskCoordinator) Ready() int {
+func (t *taskScheduler) Ready() int {
 	ready := int(t.updCount.Load()) + int(t.wakeCount.Load())
 	if t.undelivered.Load() {
 		// this flag is true until executeScheduled is called with empty list
@@ -158,7 +158,7 @@ func (t *taskCoordinator) Ready() int {
 
 // Wait waits for updates or wake-up signals
 // If block is true, it will wait for at least one result or wake-up signal
-func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, error) {
+func (t *taskScheduler) Wait(ctx context.Context, block bool) ([]*Update, error) {
 	updates := make([]*Update, 0)
 
 	// Execute any pending scheduled functions first
@@ -214,8 +214,8 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 	return updates, nil
 }
 
-// clean resets the task coordinator to its initial state
-func (t *taskCoordinator) clean() {
+// clean resets the task scheduler to its initial state
+func (t *taskScheduler) clean() {
 	clean := false
 	for !clean {
 		select {
@@ -238,7 +238,7 @@ func (t *taskCoordinator) clean() {
 	t.smu.Unlock()
 }
 
-func (t *taskCoordinator) reset() {
+func (t *taskScheduler) reset() {
 	t.wmu.Lock()
 	t.wakeupFunc = nil
 	t.wmu.Unlock()
@@ -266,4 +266,4 @@ func (t *taskCoordinator) reset() {
 }
 
 // Interface implementation verification
-var _ Tasks = (*taskCoordinator)(nil)
+var _ Tasks = (*taskScheduler)(nil)

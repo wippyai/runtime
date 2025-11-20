@@ -26,7 +26,7 @@ func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 	return nil
 }
 
-func (m *mockTranscoder) Transcode(p payload.Payload, f payload.Format) (payload.Payload, error) {
+func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
 

@@ -38,7 +38,7 @@ func (m *mockPolicy) ID() registry.ID {
 	return m.id
 }
 
-func (m *mockPolicy) Evaluate(actor security.Actor, action, resource string, meta registry.Metadata) security.Result {
+func (m *mockPolicy) Evaluate(_ security.Actor, _, _ string, _ registry.Metadata) security.Result {
 	return security.Allow
 }
 
@@ -238,7 +238,7 @@ func TestManager_Add_FactoryError(t *testing.T) {
 	ctx := context.Background()
 	bus := eventbus.NewBus()
 	factory := &mockFactory{
-		createFunc: func(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error) {
+		createFunc: func(_ context.Context, _ registry.Entry) (*security.PolicyEntry, error) {
 			return nil, assert.AnError
 		},
 	}
@@ -270,7 +270,7 @@ func TestManager_Update_FactoryError(t *testing.T) {
 	ctx := context.Background()
 	bus := eventbus.NewBus()
 	factory := &mockFactory{
-		createFunc: func(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error) {
+		createFunc: func(_ context.Context, _ registry.Entry) (*security.PolicyEntry, error) {
 			return nil, assert.AnError
 		},
 	}

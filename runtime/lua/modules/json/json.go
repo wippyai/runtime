@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"github.com/kaptinlin/jsonschema"
-	"github.com/wippyai/runtime/internal/cache"
+	lru "github.com/wippyai/runtime/internal/cache"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -718,7 +718,7 @@ func (m *Module) validateString(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) getSchemaJSON(l *lua.LState, schemaArg lua.LValue) ([]byte, error) {
+func (m *Module) getSchemaJSON(_ *lua.LState, schemaArg lua.LValue) ([]byte, error) {
 	switch v := schemaArg.(type) {
 	case lua.LString:
 		return []byte(v), nil

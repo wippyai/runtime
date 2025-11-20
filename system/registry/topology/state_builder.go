@@ -339,7 +339,7 @@ func (b *StateBuilder) ReverseChangeset(changeset registry.ChangeSet) (registry.
 		inverseOp, err := b.GetInverseOperation(op)
 		if err != nil {
 			b.log.Warn("failed to reverse operation",
-				zap.String("kind", string(op.Kind)),
+				zap.String("kind", op.Kind),
 				zap.String("entry", op.Entry.ID.String()),
 				zap.Error(err))
 			continue

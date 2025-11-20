@@ -85,11 +85,11 @@ func TestConsumer_ProcessMessage(t *testing.T) {
 			Body:    payload.New("test message"),
 			Headers: attrs.NewBag(),
 		},
-		Ack: func(ctx context.Context) error {
+		Ack: func(_ context.Context) error {
 			acked.Store(true)
 			return nil
 		},
-		Nack: func(ctx context.Context) error {
+		Nack: func(_ context.Context) error {
 			nacked.Store(true)
 			return nil
 		},
@@ -98,9 +98,7 @@ func TestConsumer_ProcessMessage(t *testing.T) {
 	driver.deliveries <- delivery
 
 	// Wait for processing
-	assert.Eventually(t, func() bool {
-		return acked.Load()
-	}, 2*time.Second, 10*time.Millisecond, "message should be acked")
+	assert.Eventually(t, acked.Load, 2*time.Second, 10*time.Millisecond, "message should be acked")
 
 	assert.False(t, nacked.Load(), "message should not be nacked")
 	assert.True(t, funcReg.callCalled.Load(), "function should be called")
@@ -148,11 +146,11 @@ func TestConsumer_ProcessMessage_Error(t *testing.T) {
 			Body:    payload.New("test message"),
 			Headers: attrs.NewBag(),
 		},
-		Ack: func(ctx context.Context) error {
+		Ack: func(_ context.Context) error {
 			acked.Store(true)
 			return nil
 		},
-		Nack: func(ctx context.Context) error {
+		Nack: func(_ context.Context) error {
 			nacked.Store(true)
 			return nil
 		},
@@ -161,9 +159,7 @@ func TestConsumer_ProcessMessage_Error(t *testing.T) {
 	driver.deliveries <- delivery
 
 	// Wait for processing
-	assert.Eventually(t, func() bool {
-		return nacked.Load()
-	}, 2*time.Second, 10*time.Millisecond, "message should be nacked")
+	assert.Eventually(t, nacked.Load, 2*time.Second, 10*time.Millisecond, "message should be nacked")
 
 	assert.False(t, acked.Load(), "message should not be acked")
 	assert.True(t, funcReg.callCalled.Load(), "function should be called")
@@ -215,8 +211,8 @@ func TestConsumer_StopTimeout(t *testing.T) {
 			Body:    payload.New("test message"),
 			Headers: attrs.NewBag(),
 		},
-		Ack:  func(ctx context.Context) error { return nil },
-		Nack: func(ctx context.Context) error { return nil },
+		Ack:  func(_ context.Context) error { return nil },
+		Nack: func(_ context.Context) error { return nil },
 	}
 
 	driver.deliveries <- delivery
@@ -352,8 +348,8 @@ func TestConsumer_ConcurrentMessageProcessing(t *testing.T) {
 				Body:    payload.New("test message"),
 				Headers: attrs.NewBag(),
 			},
-			Ack:  func(ctx context.Context) error { return nil },
-			Nack: func(ctx context.Context) error { return nil },
+			Ack:  func(_ context.Context) error { return nil },
+			Nack: func(_ context.Context) error { return nil },
 		}
 		driver.deliveries <- delivery
 	}
@@ -407,8 +403,8 @@ func TestConsumer_StopDuringProcessing(t *testing.T) {
 			Body:    payload.New("test message"),
 			Headers: attrs.NewBag(),
 		},
-		Ack:  func(ctx context.Context) error { return nil },
-		Nack: func(ctx context.Context) error { return nil },
+		Ack:  func(_ context.Context) error { return nil },
+		Nack: func(_ context.Context) error { return nil },
 	}
 	driver.deliveries <- delivery
 
@@ -499,11 +495,11 @@ func TestConsumer_AckNackAfterShutdown(t *testing.T) {
 			Body:    payload.New("test message"),
 			Headers: attrs.NewBag(),
 		},
-		Ack: func(ctx context.Context) error {
+		Ack: func(_ context.Context) error {
 			ackCalled = true
 			return nil
 		},
-		Nack: func(ctx context.Context) error {
+		Nack: func(_ context.Context) error {
 			return fmt.Errorf("queue is closed")
 		},
 	}
@@ -563,8 +559,8 @@ func TestConsumer_SlowWorkers(t *testing.T) {
 				Body:    payload.New("test message"),
 				Headers: attrs.NewBag(),
 			},
-			Ack:  func(ctx context.Context) error { return nil },
-			Nack: func(ctx context.Context) error { return nil },
+			Ack:  func(_ context.Context) error { return nil },
+			Nack: func(_ context.Context) error { return nil },
 		}
 		driver.deliveries <- delivery
 	}
@@ -624,8 +620,8 @@ func TestConsumer_DeadWorkerTimeout(t *testing.T) {
 			Body:    payload.New("test message"),
 			Headers: attrs.NewBag(),
 		},
-		Ack:  func(ctx context.Context) error { return nil },
-		Nack: func(ctx context.Context) error { return nil },
+		Ack:  func(_ context.Context) error { return nil },
+		Nack: func(_ context.Context) error { return nil },
 	}
 
 	driver.deliveries <- delivery
@@ -686,8 +682,8 @@ func TestConsumer_MultipleWorkersOneBlocked(t *testing.T) {
 				Body:    payload.New("test message"),
 				Headers: attrs.NewBag(),
 			},
-			Ack:  func(ctx context.Context) error { return nil },
-			Nack: func(ctx context.Context) error { return nil },
+			Ack:  func(_ context.Context) error { return nil },
+			Nack: func(_ context.Context) error { return nil },
 		}
 		driver.deliveries <- delivery
 	}
@@ -750,8 +746,8 @@ func TestConsumer_StopWithAllWorkersBlocked(t *testing.T) {
 				Body:    payload.New("test message"),
 				Headers: attrs.NewBag(),
 			},
-			Ack:  func(ctx context.Context) error { return nil },
-			Nack: func(ctx context.Context) error { return nil },
+			Ack:  func(_ context.Context) error { return nil },
+			Nack: func(_ context.Context) error { return nil },
 		}
 		driver.deliveries <- delivery
 	}
@@ -774,7 +770,7 @@ type mockDriver struct {
 	cancel       context.CancelFunc
 }
 
-func (m *mockDriver) Attach(ctx context.Context, q registry.ID, deliveries chan<- *queueapi.Delivery) (context.CancelFunc, error) {
+func (m *mockDriver) Attach(ctx context.Context, _ registry.ID, deliveries chan<- *queueapi.Delivery) (context.CancelFunc, error) {
 	m.attachCalled.Store(true)
 	m.deliveries = make(chan *queueapi.Delivery, 10)
 	m.cancelCtx, m.cancel = context.WithCancel(ctx)
@@ -827,7 +823,7 @@ type mockFuncRegistry struct {
 	onCall     func()
 }
 
-func (m *mockFuncRegistry) Call(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+func (m *mockFuncRegistry) Call(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 	m.callCalled.Store(true)
 	if m.onCall != nil {
 		m.onCall()

@@ -115,11 +115,11 @@ func TestQueueTypes(t *testing.T) {
 
 		delivery := &queue.Delivery{
 			Message: msg,
-			Ack: func(ctx context.Context) error {
+			Ack: func(_ context.Context) error {
 				ackCalled = true
 				return nil
 			},
-			Nack: func(ctx context.Context) error {
+			Nack: func(_ context.Context) error {
 				nackCalled = true
 				return nil
 			},
@@ -145,23 +145,23 @@ func TestQueueTypes(t *testing.T) {
 func TestEventConstants(t *testing.T) {
 	// Verify event system
 	assert.Equal(t, queue.System, queue.System)
-	assert.Equal(t, "queue", string(queue.System))
+	assert.Equal(t, "queue", queue.System)
 
 	// Verify driver events
-	assert.Equal(t, "queue.driver.register", string(queue.DriverRegister))
-	assert.Equal(t, "queue.driver.start", string(queue.DriverStart))
-	assert.Equal(t, "queue.driver.stop", string(queue.DriverStop))
-	assert.Equal(t, "queue.driver.delete", string(queue.DriverDelete))
+	assert.Equal(t, "queue.driver.register", queue.DriverRegister)
+	assert.Equal(t, "queue.driver.start", queue.DriverStart)
+	assert.Equal(t, "queue.driver.stop", queue.DriverStop)
+	assert.Equal(t, "queue.driver.delete", queue.DriverDelete)
 
 	// Verify queue events
-	assert.Equal(t, "queue.queue.declare", string(queue.QueueDeclare))
-	assert.Equal(t, "queue.queue.delete", string(queue.QueueDelete))
+	assert.Equal(t, "queue.queue.declare", queue.QueueDeclare)
+	assert.Equal(t, "queue.queue.delete", queue.QueueDelete)
 
 	// Verify consumer events
-	assert.Equal(t, "queue.consumer.register", string(queue.ConsumerRegister))
-	assert.Equal(t, "queue.consumer.start", string(queue.ConsumerStart))
-	assert.Equal(t, "queue.consumer.stop", string(queue.ConsumerStop))
-	assert.Equal(t, "queue.consumer.delete", string(queue.ConsumerDelete))
+	assert.Equal(t, "queue.consumer.register", queue.ConsumerRegister)
+	assert.Equal(t, "queue.consumer.start", queue.ConsumerStart)
+	assert.Equal(t, "queue.consumer.stop", queue.ConsumerStop)
+	assert.Equal(t, "queue.consumer.delete", queue.ConsumerDelete)
 }
 
 func TestErrors(t *testing.T) {
@@ -265,7 +265,6 @@ func TestManagerInterface(t *testing.T) {
 		assert.Equal(t, q, result)
 		manager.AssertExpectations(t)
 	})
-
 }
 
 func TestInterceptorInterface(t *testing.T) {
@@ -288,7 +287,7 @@ func TestInterceptorInterface(t *testing.T) {
 		}
 
 		// Test the interceptor chain
-		err := interceptor.Handle(ctx, queueID, msgs, func(ctx context.Context, q registry.ID, msgs []*queue.Message) error {
+		err := interceptor.Handle(ctx, queueID, msgs, func(_ context.Context, q registry.ID, msgs []*queue.Message) error {
 			assert.Equal(t, queueID, q)
 			assert.Len(t, msgs, 1)
 			return nil

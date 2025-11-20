@@ -76,8 +76,8 @@ func (m *Manager) handleEvent(e event.Event) {
 		m.handleQueueDelete(e)
 	default:
 		m.logger.Warn("unknown event kind",
-			zap.String("kind", string(e.Kind)),
-			zap.String("path", string(e.Path)))
+			zap.String("kind", e.Kind),
+			zap.String("path", e.Path))
 	}
 }
 
@@ -85,23 +85,23 @@ func (m *Manager) handleDriverRegister(e event.Event) {
 	driver, ok := e.Data.(queueapi.DriverService)
 	if !ok {
 		m.logger.Error("invalid driver payload",
-			zap.String("path", string(e.Path)),
+			zap.String("path", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 		m.sendReject(e.Path, "invalid driver type")
 		return
 	}
 
-	id := registry.ParseID(string(e.Path))
+	id := registry.ParseID(e.Path)
 	m.drivers.Store(id, driver)
-	m.logger.Debug("driver registered", zap.String("path", string(e.Path)))
+	m.logger.Debug("driver registered", zap.String("path", e.Path))
 	m.sendAccept(e.Path)
 }
 
 func (m *Manager) handleDriverDelete(e event.Event) {
-	id := registry.ParseID(string(e.Path))
+	id := registry.ParseID(e.Path)
 	m.drivers.Delete(id)
 
-	m.logger.Debug("driver deleted", zap.String("path", string(e.Path)))
+	m.logger.Debug("driver deleted", zap.String("path", e.Path))
 	m.sendAccept(e.Path)
 }
 
@@ -109,7 +109,7 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 	queueEntry, ok := e.Data.(*queueapi.Queue)
 	if !ok {
 		m.logger.Error("invalid queue payload",
-			zap.String("path", string(e.Path)),
+			zap.String("path", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 		m.sendReject(e.Path, "invalid queue type")
 		return
@@ -118,7 +118,7 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 	driverVal, ok := m.drivers.Load(queueEntry.DriverID)
 	if !ok {
 		m.logger.Error("driver not found for queue",
-			zap.String("path", string(e.Path)),
+			zap.String("path", e.Path),
 			zap.String("driver", queueEntry.DriverID.String()))
 		m.sendReject(e.Path, fmt.Sprintf("driver not found: %s", queueEntry.DriverID))
 		return
@@ -127,7 +127,7 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 	driver, ok := driverVal.(queueapi.Driver)
 	if !ok {
 		m.logger.Error("driver has invalid type",
-			zap.String("path", string(e.Path)),
+			zap.String("path", e.Path),
 			zap.String("type", fmt.Sprintf("%T", driverVal)))
 		m.sendReject(e.Path, "driver has invalid type")
 		return
@@ -135,21 +135,21 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 
 	if err := driver.DeclareQueue(m.ctx, queueEntry.ID, queueEntry.Options); err != nil {
 		m.logger.Error("failed to declare queue on driver",
-			zap.String("path", string(e.Path)),
+			zap.String("path", e.Path),
 			zap.Error(err))
 		m.sendReject(e.Path, fmt.Sprintf("failed to declare queue: %v", err))
 		return
 	}
 
 	m.queues.Store(queueEntry.ID, queueEntry)
-	m.logger.Debug("queue declared", zap.String("path", string(e.Path)))
+	m.logger.Debug("queue declared", zap.String("path", e.Path))
 	m.sendAccept(e.Path)
 }
 
 func (m *Manager) handleQueueDelete(e event.Event) {
-	id := registry.ParseID(string(e.Path))
+	id := registry.ParseID(e.Path)
 	m.queues.Delete(id)
-	m.logger.Debug("queue deleted", zap.String("path", string(e.Path)))
+	m.logger.Debug("queue deleted", zap.String("path", e.Path))
 	m.sendAccept(e.Path)
 }
 

@@ -98,7 +98,7 @@ func TestMessagePool(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	t.Run("ReleaseNilMessage", func(t *testing.T) {
+	t.Run("ReleaseNilMessage", func(_ *testing.T) {
 		// Should not panic
 		queue.ReleaseMessage(nil)
 	})

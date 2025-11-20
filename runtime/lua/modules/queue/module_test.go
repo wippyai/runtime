@@ -71,6 +71,61 @@ func TestQueueModule(t *testing.T) {
 		assert.Equal(t, "app:tasks", mockMgr.lastQueueID.String())
 	})
 
+	t.Run("publish with headers", func(t *testing.T) {
+		mod := NewModule()
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Create mock queue manager
+		mockMgr := &mockQueueManager{}
+
+		// Create context with queue manager
+		ctx := ctxapi.NewRootContext()
+		ctx = queueapi.WithManager(ctx, mockMgr)
+
+		script := `
+			local queue = require("queue")
+			function test()
+				local ok, err = queue.publish("app:tasks",
+					{order_id = "123"},
+					{correlation_id = "req-456", priority = 5, custom = "value"}
+				)
+				return {success = ok, error = err}
+			end
+			return test
+		`
+		err = vm.Import(script, "test", "test")
+		require.NoError(t, err)
+
+		result, err := vm.Execute(ctx, "test")
+		require.NoError(t, err)
+		require.IsType(t, &lua.LTable{}, result)
+
+		tbl := result.(*lua.LTable)
+		success := tbl.RawGetString("success")
+		assert.Equal(t, lua.LTrue, success)
+
+		// Verify publish was called with headers
+		assert.True(t, mockMgr.publishCalled)
+		assert.Equal(t, "app:tasks", mockMgr.lastQueueID.String())
+		require.NotNil(t, mockMgr.lastMessage)
+		require.NotNil(t, mockMgr.lastMessage.Headers)
+
+		// Verify headers were set
+		corrID, ok := mockMgr.lastMessage.Headers.Get("correlation_id")
+		assert.True(t, ok)
+		assert.Equal(t, "req-456", corrID)
+
+		priority, ok := mockMgr.lastMessage.Headers.Get("priority")
+		assert.True(t, ok)
+		assert.Equal(t, float64(5), priority)
+
+		custom, ok := mockMgr.lastMessage.Headers.Get("custom")
+		assert.True(t, ok)
+		assert.Equal(t, "value", custom)
+	})
+
 	t.Run("publish without queue manager", func(t *testing.T) {
 		mod := NewModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -151,8 +206,8 @@ func TestQueueModule(t *testing.T) {
 
 		delivery := &queueapi.Delivery{
 			Message: msg,
-			Ack:     func(ctx context.Context) error { return nil },
-			Nack:    func(ctx context.Context) error { return nil },
+			Ack:     func(_ context.Context) error { return nil },
+			Nack:    func(_ context.Context) error { return nil },
 		}
 
 		// Create context with delivery in frame (need RootContext)
@@ -215,7 +270,7 @@ type mockQueueManager struct {
 	lastMessage   *queueapi.Message
 }
 
-func (m *mockQueueManager) Publish(ctx context.Context, queue registry.ID, msgs ...*queueapi.Message) error {
+func (m *mockQueueManager) Publish(_ context.Context, queue registry.ID, msgs ...*queueapi.Message) error {
 	m.publishCalled = true
 	m.lastQueueID = queue
 	if len(msgs) > 0 {
@@ -224,10 +279,10 @@ func (m *mockQueueManager) Publish(ctx context.Context, queue registry.ID, msgs 
 	return nil
 }
 
-func (m *mockQueueManager) GetDriver(id registry.ID) (queueapi.Driver, bool) {
+func (m *mockQueueManager) GetDriver(_ registry.ID) (queueapi.Driver, bool) {
 	return nil, false
 }
 
-func (m *mockQueueManager) GetQueue(id registry.ID) (*queueapi.Queue, bool) {
+func (m *mockQueueManager) GetQueue(_ registry.ID) (*queueapi.Queue, bool) {
 	return nil, false
 }

@@ -225,8 +225,8 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			}
 
 			// Combine reversed and forward changesets
-			allChangesets := append(reversedChangesets, forwardChangesets...)
-			changeset = sb.SquashChangesets(allChangesets)
+			reversedChangesets = append(reversedChangesets, forwardChangesets...)
+			changeset = sb.SquashChangesets(reversedChangesets)
 		} else {
 			return fmt.Errorf("builder does not support changeset reversal")
 		}
@@ -254,15 +254,6 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.log.Debug("version applied successfully", zap.Uint("version", targetVersion.ID()))
 
 	return nil
-}
-
-// countOperations counts total operations across multiple changesets
-func countOperations(changesets []registry.ChangeSet) int {
-	count := 0
-	for _, cs := range changesets {
-		count += len(cs)
-	}
-	return count
 }
 
 // LoadState initializes registry state from baseline and history without creating new version records.
@@ -295,10 +286,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			}
 
 			for _, op := range cs {
-				finalState, err = r.applyOperationToState(finalState, op)
-				if err != nil {
-					return fmt.Errorf("failed to apply operation from version v%d: %w", ver.ID(), err)
-				}
+				finalState = r.applyOperationToState(finalState, op)
 			}
 		}
 	}
@@ -322,7 +310,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 }
 
 // applyOperationToState applies a single operation to a state, used during restoration
-func (r *Reg) applyOperationToState(state registry.State, op registry.Operation) (registry.State, error) {
+func (r *Reg) applyOperationToState(state registry.State, op registry.Operation) registry.State {
 	stateMap := make(map[registry.ID]registry.Entry, len(state))
 	for _, entry := range state {
 		stateMap[entry.ID] = entry
@@ -342,7 +330,7 @@ func (r *Reg) applyOperationToState(state registry.State, op registry.Operation)
 		result = append(result, entry)
 	}
 
-	return result, nil
+	return result
 }
 
 // rollback state desync between actual state in system and state in history

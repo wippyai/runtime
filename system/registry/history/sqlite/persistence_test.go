@@ -18,7 +18,7 @@ import (
 // TestRunner implements registry.Runner for testing
 type TestRunner struct{}
 
-func (r *TestRunner) Transition(ctx context.Context, from registry.State, cs registry.ChangeSet) (registry.State, error) {
+func (r *TestRunner) Transition(_ context.Context, from registry.State, cs registry.ChangeSet) (registry.State, error) {
 	stateMap := make(map[registry.ID]registry.Entry, len(from))
 	for _, entry := range from {
 		stateMap[entry.ID] = entry

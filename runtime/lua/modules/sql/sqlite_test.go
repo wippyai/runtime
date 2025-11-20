@@ -1,5 +1,4 @@
 //go:build fts5 && sqlite_vec
-// +build fts5,sqlite_vec
 
 package sql
 

@@ -13,101 +13,101 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func TestNewTaskCoordinator(t *testing.T) {
+func TestNewTaskScheduler(t *testing.T) {
 	// Test with nil wakeup function
-	coordinator := newTaskCoordinator(10, nil)
-	require.NotNil(t, coordinator, "expected non-nil coordinator")
-	require.NotNil(t, coordinator.updates, "expected non-nil updates channel")
-	require.Nil(t, coordinator.wakeupFunc, "expected nil wakeup function when nil is passed")
+	scheduler := newTaskScheduler(10, nil)
+	require.NotNil(t, scheduler, "expected non-nil scheduler")
+	require.NotNil(t, scheduler.updates, "expected non-nil updates channel")
+	require.Nil(t, scheduler.wakeupFunc, "expected nil wakeup function when nil is passed")
 
 	// Test with wakeup function
 	wakeupFunc := func() {}
-	coordinator = newTaskCoordinator(5, wakeupFunc)
-	require.NotNil(t, coordinator.wakeupFunc, "expected non-nil wakeup function")
+	scheduler = newTaskScheduler(5, wakeupFunc)
+	require.NotNil(t, scheduler.wakeupFunc, "expected non-nil wakeup function")
 }
 
-func TestTaskCoordinator_AddDone(t *testing.T) {
-	coordinator := newTaskCoordinator(10, nil)
+func TestTaskScheduler_AddDone(t *testing.T) {
+	scheduler := newTaskScheduler(10, nil)
 
 	// Test initial state
-	assert.Equal(t, 0, coordinator.Blocked(), "expected initial blocked count to be 0")
+	assert.Equal(t, 0, scheduler.Blocked(), "expected initial blocked count to be 0")
 
 	// Test Add
-	coordinator.Add()
-	assert.Equal(t, 1, coordinator.Blocked(), "expected blocked count to be 1 after Add")
+	scheduler.Add()
+	assert.Equal(t, 1, scheduler.Blocked(), "expected blocked count to be 1 after Add")
 
 	// Test multiple Add calls
-	coordinator.Add()
-	coordinator.Add()
-	assert.Equal(t, 3, coordinator.Blocked(), "expected blocked count to be 3 after multiple Adds")
+	scheduler.Add()
+	scheduler.Add()
+	assert.Equal(t, 3, scheduler.Blocked(), "expected blocked count to be 3 after multiple Adds")
 
 	// Test Done
-	coordinator.Done()
-	assert.Equal(t, 2, coordinator.Blocked(), "expected blocked count to be 2 after Done")
+	scheduler.Done()
+	assert.Equal(t, 2, scheduler.Blocked(), "expected blocked count to be 2 after Done")
 
 	// Test multiple Done calls
-	coordinator.Done()
-	coordinator.Done()
-	assert.Equal(t, 0, coordinator.Blocked(), "expected blocked count to be 0 after multiple Dones")
+	scheduler.Done()
+	scheduler.Done()
+	assert.Equal(t, 0, scheduler.Blocked(), "expected blocked count to be 0 after multiple Dones")
 
 	// Test Done when already at 0
-	coordinator.Done()
-	assert.Equal(t, -1, coordinator.Blocked(), "expected blocked count to be -1 after Done when at 0")
+	scheduler.Done()
+	assert.Equal(t, -1, scheduler.Blocked(), "expected blocked count to be -1 after Done when at 0")
 }
 
-func TestTaskCoordinator_Schedule(t *testing.T) {
-	coordinator := newTaskCoordinator(10, nil)
+func TestTaskScheduler_Schedule(t *testing.T) {
+	scheduler := newTaskScheduler(10, nil)
 
 	// Test scheduling valid function
 	called := false
-	err := coordinator.Schedule(func() { called = true })
+	err := scheduler.Schedule(func() { called = true })
 	if err != nil {
 		t.Errorf("expected no error from Schedule, got %v", err)
 	}
 
 	// Execute scheduled functions
-	coordinator.executeScheduled()
+	scheduler.executeScheduled()
 	if !called {
 		t.Errorf("expected scheduled function to be called")
 	}
 
 	// Test scheduling nil function
-	err = coordinator.Schedule(nil)
+	err = scheduler.Schedule(nil)
 	if err == nil {
 		t.Errorf("expected error from Schedule with nil function")
 	}
 }
 
-func TestTaskCoordinator_ExecuteScheduled(t *testing.T) {
-	coordinator := newTaskCoordinator(10, nil)
+func TestTaskScheduler_ExecuteScheduled(t *testing.T) {
+	scheduler := newTaskScheduler(10, nil)
 
 	// Test with no scheduled functions
-	coordinator.executeScheduled()
+	scheduler.executeScheduled()
 
 	// Test with single function
 	called := false
-	err := coordinator.Schedule(func() { called = true })
+	err := scheduler.Schedule(func() { called = true })
 	require.NoError(t, err)
-	coordinator.executeScheduled()
+	scheduler.executeScheduled()
 	if !called {
 		t.Errorf("expected scheduled function to be called")
 	}
 
 	// Test with multiple functions
 	calls := make([]int, 0)
-	err = coordinator.Schedule(func() { calls = append(calls, 1) })
+	err = scheduler.Schedule(func() { calls = append(calls, 1) })
 	if err != nil {
 		t.Errorf("expected no error from Schedule, got %v", err)
 	}
-	err = coordinator.Schedule(func() { calls = append(calls, 2) })
+	err = scheduler.Schedule(func() { calls = append(calls, 2) })
 	if err != nil {
 		t.Errorf("expected no error from Schedule, got %v", err)
 	}
-	err = coordinator.Schedule(func() { calls = append(calls, 3) })
+	err = scheduler.Schedule(func() { calls = append(calls, 3) })
 	if err != nil {
 		t.Errorf("expected no error from Schedule, got %v", err)
 	}
-	coordinator.executeScheduled()
+	scheduler.executeScheduled()
 
 	expected := []int{1, 2, 3}
 	if len(calls) != len(expected) {
@@ -123,13 +123,13 @@ func TestTaskCoordinator_ExecuteScheduled(t *testing.T) {
 
 	// Test with nested scheduling
 	nestedCalls := make([]int, 0)
-	err = coordinator.Schedule(func() {
+	err = scheduler.Schedule(func() {
 		nestedCalls = append(nestedCalls, 1)
-		err := coordinator.Schedule(func() { nestedCalls = append(nestedCalls, 2) })
+		err := scheduler.Schedule(func() { nestedCalls = append(nestedCalls, 2) })
 		require.NoError(t, err)
 	})
 	require.NoError(t, err)
-	coordinator.executeScheduled()
+	scheduler.executeScheduled()
 
 	expectedNested := []int{1, 2}
 	if len(nestedCalls) != len(expectedNested) {
@@ -137,50 +137,50 @@ func TestTaskCoordinator_ExecuteScheduled(t *testing.T) {
 	}
 }
 
-func TestTaskCoordinator_WakeUp(t *testing.T) {
-	coordinator := newTaskCoordinator(10, nil)
+func TestTaskScheduler_WakeUp(t *testing.T) {
+	scheduler := newTaskScheduler(10, nil)
 
 	// Test initial state
-	if ready := coordinator.Ready(); ready != 0 {
+	if ready := scheduler.Ready(); ready != 0 {
 		t.Errorf("expected initial ready count to be 0, got %d", ready)
 	}
 
 	// Test WakeUp
-	coordinator.WakeUp()
-	if ready := coordinator.Ready(); ready == 0 {
+	scheduler.WakeUp()
+	if ready := scheduler.Ready(); ready == 0 {
 		t.Errorf("expected ready count to be > 0 after WakeUp, got %d", ready)
 	}
 
 	// Test multiple WakeUp calls (ready count may not increment further)
-	coordinator.WakeUp()
-	coordinator.WakeUp()
-	ready := coordinator.Ready()
+	scheduler.WakeUp()
+	scheduler.WakeUp()
+	ready := scheduler.Ready()
 	if ready < 1 {
 		t.Errorf("expected ready count to be >= 1 after multiple WakeUps, got %d", ready)
 	}
 }
 
-func TestTaskCoordinator_WakeUpWithFunction(t *testing.T) {
+func TestTaskScheduler_WakeUpWithFunction(t *testing.T) {
 	wakeupCalled := false
 	wakeupFunc := func() { wakeupCalled = true }
-	coordinator := newTaskCoordinator(10, wakeupFunc)
+	scheduler := newTaskScheduler(10, wakeupFunc)
 
 	// Test WakeUp calls the function
-	coordinator.WakeUp()
+	scheduler.WakeUp()
 	if !wakeupCalled {
 		t.Errorf("expected wakeup function to be called")
 	}
 }
 
-func TestTaskCoordinator_Send(t *testing.T) {
-	coordinator := newTaskCoordinator(10, nil)
+func TestTaskScheduler_Send(t *testing.T) {
+	scheduler := newTaskScheduler(10, nil)
 	ctx := ctxapi.NewRootContext()
 	state := lua.NewState()
 	defer state.Close()
 
 	// Test sending update
 	update := NewUpdate(state, nil, nil)
-	err := coordinator.Send(ctx, update)
+	err := scheduler.Send(ctx, update)
 	if err != nil {
 		t.Errorf("expected no error from Send, got %v", err)
 	}
@@ -188,42 +188,42 @@ func TestTaskCoordinator_Send(t *testing.T) {
 	// Test sending with canceled context
 	cancelledCtx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	cancel()
-	_ = coordinator.Send(cancelledCtx, update)
+	_ = scheduler.Send(cancelledCtx, update)
 	// Implementation may not return an error here, so do not assert
 }
 
-func TestTaskCoordinator_Blocked(t *testing.T) {
-	coordinator := newTaskCoordinator(10, nil)
+func TestTaskScheduler_Blocked(t *testing.T) {
+	scheduler := newTaskScheduler(10, nil)
 
 	// Test initial state
-	if blocked := coordinator.Blocked(); blocked != 0 {
+	if blocked := scheduler.Blocked(); blocked != 0 {
 		t.Errorf("expected initial blocked count to be 0, got %d", blocked)
 	}
 
 	// Test after Add
-	coordinator.Add()
-	if blocked := coordinator.Blocked(); blocked != 1 {
+	scheduler.Add()
+	if blocked := scheduler.Blocked(); blocked != 1 {
 		t.Errorf("expected blocked count to be 1, got %d", blocked)
 	}
 
 	// Test after Done
-	coordinator.Done()
-	if blocked := coordinator.Blocked(); blocked != 0 {
+	scheduler.Done()
+	if blocked := scheduler.Blocked(); blocked != 0 {
 		t.Errorf("expected blocked count to be 0, got %d", blocked)
 	}
 }
 
-func TestTaskCoordinator_Ready(t *testing.T) {
-	coordinator := newTaskCoordinator(10, nil)
+func TestTaskScheduler_Ready(t *testing.T) {
+	scheduler := newTaskScheduler(10, nil)
 
 	// Test initial state
-	if ready := coordinator.Ready(); ready != 0 {
+	if ready := scheduler.Ready(); ready != 0 {
 		t.Errorf("expected initial ready count to be 0, got %d", ready)
 	}
 
 	// Test after WakeUp
-	coordinator.WakeUp()
-	if ready := coordinator.Ready(); ready == 0 {
+	scheduler.WakeUp()
+	if ready := scheduler.Ready(); ready == 0 {
 		t.Errorf("expected ready count to be > 0 after WakeUp, got %d", ready)
 	}
 
@@ -231,26 +231,26 @@ func TestTaskCoordinator_Ready(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 	update := NewUpdate(state, nil, nil)
-	err := coordinator.Send(context.Background(), update)
+	err := scheduler.Send(context.Background(), update)
 	require.NoError(t, err)
-	if ready := coordinator.Ready(); ready == 0 {
+	if ready := scheduler.Ready(); ready == 0 {
 		t.Errorf("expected ready count to be > 0 after Send, got %d", ready)
 	}
 
 	// Test after Schedule
-	err = coordinator.Schedule(func() {})
+	err = scheduler.Schedule(func() {})
 	require.NoError(t, err)
-	if ready := coordinator.Ready(); ready == 0 {
+	if ready := scheduler.Ready(); ready == 0 {
 		t.Errorf("expected ready count to be > 0 after Schedule, got %d", ready)
 	}
 }
 
-func TestTaskCoordinator_Wait(t *testing.T) {
-	coordinator := newTaskCoordinator(10, nil)
+func TestTaskScheduler_Wait(t *testing.T) {
+	scheduler := newTaskScheduler(10, nil)
 	ctx := ctxapi.NewRootContext()
 
 	// Test Wait with no updates (non-blocking)
-	updates, err := coordinator.Wait(ctx, false)
+	updates, err := scheduler.Wait(ctx, false)
 	if err != nil {
 		t.Errorf("expected no error from Wait, got %v", err)
 	}
@@ -262,10 +262,10 @@ func TestTaskCoordinator_Wait(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 	update := NewUpdate(state, []lua.LValue{lua.LString("test")}, nil)
-	err = coordinator.Send(ctx, update)
+	err = scheduler.Send(ctx, update)
 	require.NoError(t, err)
 
-	updates, err = coordinator.Wait(ctx, false)
+	updates, err = scheduler.Wait(ctx, false)
 	if err != nil {
 		t.Errorf("expected no error from Wait, got %v", err)
 	}
@@ -274,48 +274,48 @@ func TestTaskCoordinator_Wait(t *testing.T) {
 	}
 
 	// Test Wait with wakeup signal
-	coordinator.WakeUp()
-	_, err = coordinator.Wait(ctx, false)
+	scheduler.WakeUp()
+	_, err = scheduler.Wait(ctx, false)
 	require.NoError(t, err)
 
 	// Test Wait with canceled context
 	cancelledCtx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	cancel()
-	_, err = coordinator.Wait(cancelledCtx, true)
+	_, err = scheduler.Wait(cancelledCtx, true)
 	if err == nil {
 		t.Errorf("expected error from Wait with canceled context")
 	}
 }
 
-func TestTaskCoordinator_WaitBlocking(t *testing.T) {
+func TestTaskScheduler_WaitBlocking(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*3)
 	defer cancel()
 
-	coordinator := newTaskCoordinator(10, nil)
+	scheduler := newTaskScheduler(10, nil)
 
 	// Test blocking Wait with timeout
 	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
 
-	_, err := coordinator.Wait(timeoutCtx, true)
+	_, err := scheduler.Wait(timeoutCtx, true)
 	require.Error(t, err)
 
 	// Test blocking Wait with immediate data
 	state := lua.NewState()
 	defer state.Close()
 	update := NewUpdate(state, nil, nil)
-	err = coordinator.Send(ctx, update)
+	err = scheduler.Send(ctx, update)
 	require.NoError(t, err)
 
-	updates, err := coordinator.Wait(ctx, true)
+	updates, err := scheduler.Wait(ctx, true)
 	require.NoError(t, err)
 	if len(updates) != 1 {
 		t.Errorf("expected 1 update, got %d", len(updates))
 	}
 }
 
-func TestTaskCoordinator_ConcurrentAccess(t *testing.T) {
-	coordinator := newTaskCoordinator(100, nil)
+func TestTaskScheduler_ConcurrentAccess(t *testing.T) {
+	scheduler := newTaskScheduler(100, nil)
 	ctx := ctxapi.NewRootContext()
 
 	// Test concurrent Add/Done
@@ -324,9 +324,9 @@ func TestTaskCoordinator_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			coordinator.Add()
+			scheduler.Add()
 			time.Sleep(1 * time.Millisecond)
-			coordinator.Done()
+			scheduler.Done()
 		}()
 	}
 	wg.Wait()
@@ -339,7 +339,7 @@ func TestTaskCoordinator_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			update := NewUpdate(state, nil, nil)
-			err := coordinator.Send(ctx, update)
+			err := scheduler.Send(ctx, update)
 			require.NoError(t, err)
 		}()
 	}
@@ -350,17 +350,17 @@ func TestTaskCoordinator_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := coordinator.Schedule(func() {})
+			err := scheduler.Schedule(func() {})
 			require.NoError(t, err)
 		}()
 	}
 	wg.Wait()
 
 	// Execute all scheduled functions
-	coordinator.executeScheduled()
+	scheduler.executeScheduled()
 
 	// Wait for all updates
-	updates, err := coordinator.Wait(ctx, false)
+	updates, err := scheduler.Wait(ctx, false)
 	if err != nil {
 		t.Errorf("expected no error from Wait, got %v", err)
 	}
@@ -369,36 +369,36 @@ func TestTaskCoordinator_ConcurrentAccess(t *testing.T) {
 	}
 }
 
-func TestTaskCoordinator_Clean(t *testing.T) {
-	coordinator := newTaskCoordinator(10, nil)
-	coordinator.WakeUp()
-	coordinator.clean()
+func TestTaskScheduler_Clean(t *testing.T) {
+	scheduler := newTaskScheduler(10, nil)
+	scheduler.WakeUp()
+	scheduler.clean()
 	// The ready count may not reset to 0 if not all tasks are processed, so just check it's non-negative
-	if coordinator.Ready() < 0 {
-		t.Errorf("expected ready count to be non-negative after clean, got %d", coordinator.Ready())
+	if scheduler.Ready() < 0 {
+		t.Errorf("expected ready count to be non-negative after clean, got %d", scheduler.Ready())
 	}
 }
 
-func TestTaskCoordinator_Reset(t *testing.T) {
-	coordinator := newTaskCoordinator(10, nil)
+func TestTaskScheduler_Reset(t *testing.T) {
+	scheduler := newTaskScheduler(10, nil)
 
 	// Add some data
-	coordinator.Add()
-	coordinator.WakeUp()
+	scheduler.Add()
+	scheduler.WakeUp()
 	state := lua.NewState()
 	defer state.Close()
 	update := NewUpdate(state, nil, nil)
-	err := coordinator.Send(context.Background(), update)
+	err := scheduler.Send(context.Background(), update)
 	require.NoError(t, err)
 
 	// Reset
-	coordinator.reset()
+	scheduler.reset()
 
 	// Verify state is reset
-	if blocked := coordinator.Blocked(); blocked != 0 {
+	if blocked := scheduler.Blocked(); blocked != 0 {
 		t.Errorf("expected blocked count to be 0 after reset, got %d", blocked)
 	}
-	if ready := coordinator.Ready(); ready != 0 {
+	if ready := scheduler.Ready(); ready != 0 {
 		t.Errorf("expected ready count to be 0 after reset, got %d", ready)
 	}
 }

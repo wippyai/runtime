@@ -2,13 +2,15 @@ package sqlite
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // Register SQLite3 database driver
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
@@ -50,7 +52,8 @@ func NewSQLite(dbPath string, log *zap.Logger) (*SQLiteHistory, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	if err := db.Ping(); err != nil {
+	ctx := context.Background()
+	if err := db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -78,26 +81,27 @@ func (h *SQLiteHistory) ensureRootVersion() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	ctx := context.Background()
 	var exists bool
-	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM versions WHERE id = 0)").Scan(&exists)
+	err := h.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM versions WHERE id = 0)").Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("failed to check root version: %w", err)
 	}
 
 	if !exists {
-		_, err := h.db.Exec("INSERT INTO versions (id, parent_id) VALUES (0, NULL)")
+		_, err := h.db.ExecContext(ctx, "INSERT INTO versions (id, parent_id) VALUES (0, NULL)")
 		if err != nil {
 			return fmt.Errorf("failed to insert root version: %w", err)
 		}
 
 		// Create an empty changeset for v0
 		emptyChangesetData := []byte{0x90} // MessagePack empty array
-		_, err = h.db.Exec("INSERT INTO changesets (version_id, data) VALUES (0, ?)", emptyChangesetData)
+		_, err = h.db.ExecContext(ctx, "INSERT INTO changesets (version_id, data) VALUES (0, ?)", emptyChangesetData)
 		if err != nil {
 			return fmt.Errorf("failed to insert empty changeset for v0: %w", err)
 		}
 
-		_, err = h.db.Exec("INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', '0')")
+		_, err = h.db.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', '0')")
 		if err != nil {
 			return fmt.Errorf("failed to set initial head: %w", err)
 		}
@@ -110,14 +114,15 @@ func (h *SQLiteHistory) Versions() ([]registry.Version, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	rows, err := h.db.Query("SELECT id, parent_id FROM versions ORDER BY id ASC")
+	ctx := context.Background()
+	rows, err := h.db.QueryContext(ctx, "SELECT id, parent_id FROM versions ORDER BY id ASC")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query versions: %w", err)
 	}
 	defer rows.Close()
 
 	versionMap := make(map[uint]registry.Version)
-	var versionList []registry.Version
+	versionList := make([]registry.Version, 0, 10)
 
 	for rows.Next() {
 		var id uint
@@ -153,8 +158,9 @@ func (h *SQLiteHistory) Get(v registry.Version) (registry.ChangeSet, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
+	ctx := context.Background()
 	var data []byte
-	err := h.db.QueryRow("SELECT data FROM changesets WHERE version_id = ?", v.ID()).Scan(&data)
+	err := h.db.QueryRowContext(ctx, "SELECT data FROM changesets WHERE version_id = ?", v.ID()).Scan(&data)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("changeset not found for version %d", v.ID())
 	}
@@ -186,7 +192,7 @@ func (h *SQLiteHistory) Get(v registry.Version) (registry.ChangeSet, error) {
 		}
 
 		op := registry.Operation{
-			Kind:  registry.Kind(encOp.Kind),
+			Kind:  encOp.Kind,
 			Entry: entry,
 		}
 
@@ -214,18 +220,19 @@ func (h *SQLiteHistory) Save(v registry.Version, cs registry.ChangeSet, head boo
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	tx, err := h.db.Begin()
+	ctx := context.Background()
+	tx, err := h.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var parentID sql.NullInt64
 	if v.Previous() != nil {
 		parentID = sql.NullInt64{Int64: int64(v.Previous().ID()), Valid: true}
 	}
 
-	_, err = tx.Exec("INSERT OR REPLACE INTO versions (id, parent_id) VALUES (?, ?)", v.ID(), parentID)
+	_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO versions (id, parent_id) VALUES (?, ?)", v.ID(), parentID)
 	if err != nil {
 		return fmt.Errorf("failed to insert version: %w", err)
 	}
@@ -268,7 +275,7 @@ func (h *SQLiteHistory) Save(v registry.Version, cs registry.ChangeSet, head boo
 			Entry         encodedEntry
 			OriginalEntry *encodedEntry
 		}{
-			Kind: string(op.Kind),
+			Kind: op.Kind,
 			Entry: encodedEntry{
 				ID:   op.Entry.ID,
 				Kind: op.Entry.Kind,
@@ -285,13 +292,13 @@ func (h *SQLiteHistory) Save(v registry.Version, cs registry.ChangeSet, head boo
 		return fmt.Errorf("failed to encode changeset: %w", err)
 	}
 
-	_, err = tx.Exec("INSERT OR REPLACE INTO changesets (version_id, data) VALUES (?, ?)", v.ID(), buf.Bytes())
+	_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO changesets (version_id, data) VALUES (?, ?)", v.ID(), buf.Bytes())
 	if err != nil {
 		return fmt.Errorf("failed to insert changeset: %w", err)
 	}
 
 	if head {
-		_, err = tx.Exec("INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', ?)", v.ID())
+		_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', ?)", v.ID())
 		if err != nil {
 			return fmt.Errorf("failed to update head: %w", err)
 		}
@@ -308,9 +315,10 @@ func (h *SQLiteHistory) Head() (registry.Version, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
+	ctx := context.Background()
 	var headID uint
-	err := h.db.QueryRow("SELECT value FROM metadata WHERE key = 'head'").Scan(&headID)
-	if err == sql.ErrNoRows {
+	err := h.db.QueryRowContext(ctx, "SELECT value FROM metadata WHERE key = 'head'").Scan(&headID)
+	if errors.Is(err, sql.ErrNoRows) {
 		return version.New(0), nil
 	}
 	if err != nil {
@@ -335,7 +343,8 @@ func (h *SQLiteHistory) SetHead(v registry.Version) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	_, err := h.db.Exec("INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', ?)", v.ID())
+	ctx := context.Background()
+	_, err := h.db.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', ?)", v.ID())
 	if err != nil {
 		return fmt.Errorf("failed to set head: %w", err)
 	}

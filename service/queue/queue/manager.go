@@ -41,7 +41,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	m.deleteQueue(ctx, entry.ID)
+	if err := m.deleteQueue(ctx, entry.ID); err != nil {
+		return err
+	}
 	return m.addOrUpdateQueue(ctx, entry, "updated")
 }
 
@@ -84,7 +86,7 @@ func (m *Manager) addOrUpdateQueue(ctx context.Context, entry registry.Entry, ac
 	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.QueueDeclare,
-		Path:   event.Path(entry.ID.String()),
+		Path:   entry.ID.String(),
 		Data:   queue,
 	})
 
@@ -101,7 +103,7 @@ func (m *Manager) deleteQueue(ctx context.Context, id registry.ID) error {
 	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.QueueDelete,
-		Path:   event.Path(id.String()),
+		Path:   id.String(),
 	})
 
 	m.logger.Info("queue deleted", zap.String("id", id.String()))

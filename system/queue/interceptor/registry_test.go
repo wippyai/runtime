@@ -61,7 +61,7 @@ func TestRegistry_Publish_NoInterceptors(t *testing.T) {
 	reg := NewInterceptorRegistry(zap.NewNop())
 
 	publishCalled := false
-	reg.SetPublishFunc(func(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
+	reg.SetPublishFunc(func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
 		publishCalled = true
 		return nil
 	})
@@ -87,7 +87,7 @@ func TestRegistry_Publish_WithInterceptors(t *testing.T) {
 	reg.Register("int3", int3, 300)
 
 	publishCalled := false
-	reg.SetPublishFunc(func(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
+	reg.SetPublishFunc(func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
 		publishCalled = true
 		return nil
 	})
@@ -118,7 +118,7 @@ func TestRegistry_Publish_InterceptorOrder(t *testing.T) {
 	reg.Register("high", int1, 100)
 	reg.Register("mid", int2, 200)
 
-	reg.SetPublishFunc(func(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
+	reg.SetPublishFunc(func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
 		callOrder = append(callOrder, "publish")
 		return nil
 	})
@@ -142,7 +142,7 @@ func TestRegistry_Unregister_Rebuilds(t *testing.T) {
 	reg.Register("int1", int1, 100)
 	reg.Register("int2", int2, 200)
 
-	reg.SetPublishFunc(func(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
+	reg.SetPublishFunc(func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
 		return nil
 	})
 
