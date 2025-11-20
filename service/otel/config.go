@@ -36,6 +36,9 @@ func DefaultConfig() otelapi.Config {
 			Enabled: true,
 			Order:   100,
 		},
+		Queue: otelapi.QueueConfig{
+			Enabled: true,
+		},
 	}
 }
 
@@ -99,6 +102,11 @@ func LoadConfig(bootCfg boot.Config) otelapi.Config {
 	if intCfg := otelCfg.Sub("interceptor"); intCfg != nil {
 		cfg.Interceptor.Enabled = intCfg.GetBool("enabled", cfg.Interceptor.Enabled)
 		cfg.Interceptor.Order = intCfg.GetInt("order", cfg.Interceptor.Order)
+	}
+
+	// Queue config
+	if queueCfg := otelCfg.Sub("queue"); queueCfg != nil {
+		cfg.Queue.Enabled = queueCfg.GetBool("enabled", cfg.Queue.Enabled)
 	}
 
 	return cfg

@@ -40,6 +40,9 @@ type Config struct {
 
 	// Interceptor configures function call interceptor
 	Interceptor InterceptorConfig `mapstructure:"interceptor"`
+
+	// Queue configures queue message tracing
+	Queue QueueConfig `mapstructure:"queue"`
 }
 
 // HTTPConfig configures HTTP middleware
@@ -70,4 +73,10 @@ type InterceptorConfig struct {
 
 	// Order specifies the interceptor execution order
 	Order int `mapstructure:"order"`
+}
+
+// QueueConfig configures queue message tracing
+type QueueConfig struct {
+	// Enabled controls whether queue tracing is registered
+	Enabled bool `mapstructure:"enabled"`
 }

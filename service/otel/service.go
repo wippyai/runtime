@@ -7,6 +7,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apiinterceptor "github.com/wippyai/runtime/api/function"
 	apiprocess "github.com/wippyai/runtime/api/process"
+	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	httpapi "github.com/wippyai/runtime/api/service/http"
@@ -153,7 +154,7 @@ func (s *Service) ProcessMutator() apiprocess.StartMutator {
 	}
 }
 
-// ProcessStartHook returns an OnStart hook for process start tracing
+// ProcessStartHook returns an OnStart hook for process start tracing events
 func (s *Service) ProcessStartHook() apiprocess.OnStart {
 	if !s.cfg.Process.Enabled {
 		return nil
@@ -164,37 +165,13 @@ func (s *Service) ProcessStartHook() apiprocess.OnStart {
 			return
 		}
 
-		// Get the parent remote SpanContext from process context
-		parentSpanCtx, hasParent := otelapi.GetRemoteSpanContext(ctx)
-		if !hasParent || !parentSpanCtx.IsValid() {
+		// Get the process's SpanContext from frame
+		processSpanCtx, hasSpan := otelapi.GetRemoteSpanContext(ctx)
+		if !hasSpan || !processSpanCtx.IsValid() {
 			return
 		}
 
 		sourceID, hasSource := runtime.GetFrameID(ctx)
-		processSpanName := "process.start"
-		if hasSource {
-			processSpanName = sourceID.String()
-		}
-
-		ctxWithParent := trace.ContextWithRemoteSpanContext(ctx, parentSpanCtx)
-		_, processSpan := s.tracer.Start(ctxWithParent, processSpanName,
-			trace.WithSpanKind(trace.SpanKindInternal))
-
-		processSpan.SetAttributes(
-			attribute.String("process.pid", pid.String()),
-		)
-		if hasSource {
-			processSpan.SetAttributes(attribute.String("process.source", sourceID.String()))
-		}
-		processSpan.End()
-
-		// Store this process's SpanContext for child functions to use
-		processSpanCtx := processSpan.SpanContext()
-		fc := ctxapi.FrameFromContext(ctx)
-		if fc != nil {
-			_ = fc.Set(otelapi.GetRemoteSpanContextKey(), processSpanCtx)
-		}
-
 		startEventName := "process.started"
 		if hasSource {
 			startEventName = sourceID.String() + ".started"
@@ -277,6 +254,15 @@ func (s *Service) Interceptor() apiinterceptor.Interceptor {
 	}
 }
 
+// QueuePublishInterceptor returns the queue publish interceptor
+func (s *Service) QueuePublishInterceptor() queueapi.PublishInterceptor {
+	if !s.cfg.Queue.Enabled {
+		return nil
+	}
+
+	return NewPublishInterceptor(s.tracer)
+}
+
 // interceptor implements the OTEL interceptor
 type interceptor struct {
 	tracer trace.Tracer
@@ -291,21 +277,40 @@ func (i *interceptor) Handle(ctx stdcontext.Context, task runtime.Task, next fun
 	}
 
 	var span trace.Span
+	var delivery *queueapi.Delivery
+	var isQueueMessage bool
+
+	// Priority 0: Check for queue delivery in task.Context (before it's written to frame)
+	for _, pair := range task.Context {
+		if d, ok := pair.Value.(*queueapi.Delivery); ok {
+			delivery = d
+			extractedCtx, hasSpan := extractFromDelivery(ctx, delivery)
+			if hasSpan {
+				ctx = extractedCtx
+				ctx, span = i.tracer.Start(ctx, spanName,
+					trace.WithSpanKind(trace.SpanKindConsumer))
+				isQueueMessage = true
+			}
+			break
+		}
+	}
 
 	// Priority 1: Use active parent span (from HTTP or parent function call)
-	if parentSpan, hasParent := otelapi.GetSpan(ctx); hasParent {
-		ctx, span = i.tracer.Start(trace.ContextWithSpan(ctx, parentSpan), spanName,
-			trace.WithSpanKind(trace.SpanKindInternal))
-	} else if remoteSpanCtx, hasRemote := otelapi.GetRemoteSpanContext(ctx); hasRemote && remoteSpanCtx.IsValid() {
-		// Priority 2: Check for remote SpanContext (from process)
-		ctxWithRemote := trace.ContextWithRemoteSpanContext(ctx, remoteSpanCtx)
-		ctxWithRemote, span = i.tracer.Start(ctxWithRemote, spanName,
-			trace.WithSpanKind(trace.SpanKindInternal))
-		ctx = ctxWithRemote
-	} else {
-		// Priority 3: No parent context - create root span
-		ctx, span = i.tracer.Start(ctx, spanName,
-			trace.WithSpanKind(trace.SpanKindServer))
+	if span == nil {
+		if parentSpan, hasParent := otelapi.GetSpan(ctx); hasParent {
+			ctx, span = i.tracer.Start(trace.ContextWithSpan(ctx, parentSpan), spanName,
+				trace.WithSpanKind(trace.SpanKindInternal))
+		} else if remoteSpanCtx, hasRemote := otelapi.GetRemoteSpanContext(ctx); hasRemote && remoteSpanCtx.IsValid() {
+			// Priority 2: Check for remote SpanContext (from process)
+			ctxWithRemote := trace.ContextWithRemoteSpanContext(ctx, remoteSpanCtx)
+			ctxWithRemote, span = i.tracer.Start(ctxWithRemote, spanName,
+				trace.WithSpanKind(trace.SpanKindInternal))
+			ctx = ctxWithRemote
+		} else {
+			// Priority 3: No parent context - create root span
+			ctx, span = i.tracer.Start(ctx, spanName,
+				trace.WithSpanKind(trace.SpanKindServer))
+		}
 	}
 	defer span.End()
 
@@ -350,6 +355,14 @@ func (i *interceptor) Handle(ctx stdcontext.Context, task runtime.Task, next fun
 			case bool:
 				attrs = append(attrs, attribute.Bool("opt."+key, v))
 			}
+		}
+	}
+
+	// Add messaging attributes for queue messages
+	if isQueueMessage && delivery != nil {
+		attrs = append(attrs, attribute.String("messaging.operation", "process"))
+		if delivery.Message != nil && delivery.Message.ID != "" {
+			attrs = append(attrs, attribute.String("messaging.message.id", delivery.Message.ID))
 		}
 	}
 
