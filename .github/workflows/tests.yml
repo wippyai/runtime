@@ -19,7 +19,7 @@ jobs:
         os: ["ubuntu-latest", "windows-latest"]
     steps:
       - name: Check out code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.PAT_TOKEN }}  # Use Personal Access Token
 
