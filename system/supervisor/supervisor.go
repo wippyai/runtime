@@ -353,6 +353,42 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 	}
 }
 
+// resolveDependencies returns the complete list of dependencies for a service,
+// combining lifecycle dependencies with registry-extracted dependencies.
+func (s *Supervisor) resolveDependencies(serviceID string) ([]string, error) {
+	ctrl, exists := s.controllers[serviceID]
+	if !exists {
+		return nil, fmt.Errorf("service %s not found", serviceID)
+	}
+
+	// Start with lifecycle dependencies
+	deps := make(map[string]struct{})
+	for _, dep := range ctrl.config.DependsOn {
+		deps[dep] = struct{}{}
+	}
+
+	// Add registry-extracted dependencies if resolver is configured
+	if s.dependencyResolver != nil {
+		id := registry.ParseID(serviceID)
+		registryDeps, err := s.dependencyResolver(id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve dependencies for %s: %w", serviceID, err)
+		}
+
+		for _, dep := range registryDeps {
+			deps[dep.String()] = struct{}{}
+		}
+	}
+
+	// Convert to slice
+	result := make([]string, 0, len(deps))
+	for dep := range deps {
+		result = append(result, dep)
+	}
+
+	return result, nil
+}
+
 // execute processes the transaction by creating new services,
 // stopping removed services, and starting auto-start services
 func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
@@ -372,11 +408,15 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 	// Queue stop operations for services being removed
 	for id := range tx.remove {
 		if ctrl, exists := s.controllers[id]; exists {
+			deps, err := s.resolveDependencies(id)
+			if err != nil {
+				return fmt.Errorf("failed to resolve dependencies for %s during stop: %w", id, err)
+			}
 			operations = append(operations, Operation{
 				Type:         OperationStop,
 				ID:           id,
 				Controller:   ctrl,
-				Dependencies: ctrl.config.DependsOn,
+				Dependencies: deps,
 			})
 		}
 	}
@@ -395,8 +435,14 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 			return fmt.Errorf("service %s not found", id)
 		}
 
+		// Resolve all dependencies (lifecycle + registry-extracted)
+		deps, err := s.resolveDependencies(id)
+		if err != nil {
+			return err
+		}
+
 		// Visit dependencies first
-		for _, depID := range ctrl.config.DependsOn {
+		for _, depID := range deps {
 			if err := buildStartOps(depID); err != nil {
 				return err
 			}
@@ -406,7 +452,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 			Type:         OperationStart,
 			ID:           id,
 			Controller:   ctrl,
-			Dependencies: ctrl.config.DependsOn,
+			Dependencies: deps,
 		})
 
 		return nil
