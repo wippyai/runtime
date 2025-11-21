@@ -187,24 +187,60 @@ func (l *Lock) GetVendorPath() string {
 	return filepath.Join(modulesDir, "vendor")
 }
 
+// resolvePath resolves a path relative to the lock file directory.
+// Supports both absolute paths and relative paths (including paths with ..).
+// Returns the resolved absolute path.
+//
+// Cross-platform compatibility:
+//   - On Windows: handles drive letters (C:\), UNC paths (\\server\share), and normal paths
+//   - On Unix/Linux/macOS: handles absolute paths starting with / and relative paths
+//   - filepath.IsAbs(), filepath.Join(), filepath.Abs(), and filepath.Clean() automatically
+//     handle platform-specific path separators and formats
+func (l *Lock) resolvePath(path string) string {
+	if path == "" {
+		return ""
+	}
+
+	lockDir := filepath.Dir(l.path)
+
+	// If path is already absolute, clean it to resolve any .. components
+	// filepath.IsAbs() correctly identifies absolute paths on all platforms:
+	// - Windows: C:\path, \\server\share\path
+	// - Unix/Linux/macOS: /path
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+
+	// For relative paths, join with lockDir and resolve to absolute
+	// This properly handles .. components that go outside the lockDir
+	// filepath.Join() uses the correct path separator for the current platform
+	joined := filepath.Join(lockDir, path)
+	absPath, err := filepath.Abs(joined)
+	if err != nil {
+		// If Abs fails, fall back to cleaned joined path
+		// This should rarely happen, but provides a safe fallback
+		return filepath.Clean(joined)
+	}
+	return absPath
+}
+
 // GetLoadPaths returns all directories that need to be loaded by the boot pipeline.
 // Returns paths in order: app source directory, replacement directories, module vendor directories.
-// Paths are relative to the lock file location and do not include @hash suffix.
-// Example: [".", "../replacement", ".wippy/vendor/acme/http"]
+// Paths are absolute and resolved (.. components are resolved).
+// Example: ["/path/to/app", "/path/to/replacement", "/path/to/.wippy/vendor/acme/http"]
 func (l *Lock) GetLoadPaths() []string {
-	lockDir := filepath.Dir(l.path)
 	paths := make([]string, 0, 1+len(l.data.Replacements)+len(l.data.Modules))
 
 	// Add app source directory
 	if l.data.Directories.Src != "" {
-		srcPath := filepath.Join(lockDir, l.data.Directories.Src)
+		srcPath := l.resolvePath(l.data.Directories.Src)
 		paths = append(paths, srcPath)
 	}
 
 	// Add replacement paths (local overrides)
 	for _, repl := range l.data.Replacements {
 		if repl.To != "" {
-			replPath := filepath.Join(lockDir, repl.To)
+			replPath := l.resolvePath(repl.To)
 			paths = append(paths, replPath)
 		}
 	}
@@ -227,7 +263,8 @@ func (l *Lock) GetLoadPaths() []string {
 		// Build path with version: org/module-VERSION
 		moduleDir := ModulePath(name, mod.Version)
 		modulePath := filepath.Join(vendorDir, moduleDir)
-		fullPath := filepath.Join(lockDir, modulePath)
+		// Resolve path to handle any .. components in vendorDir
+		fullPath := l.resolvePath(modulePath)
 		paths = append(paths, fullPath)
 	}
 

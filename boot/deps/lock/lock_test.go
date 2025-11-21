@@ -509,4 +509,201 @@ func TestLock_GetLoadPaths(t *testing.T) {
 			t.Errorf("expected path %q not found in %v", expectedHTTP, paths)
 		}
 	})
+
+	t.Run("handles absolute paths", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, "test.lock")
+
+		// Create a directory outside tmpDir to test absolute path
+		parentDir := filepath.Dir(tmpDir)
+		externalDir := filepath.Join(parentDir, "external-src")
+		if err := os.MkdirAll(externalDir, 0755); err != nil {
+			t.Fatalf("create external dir: %v", err)
+		}
+		defer os.RemoveAll(externalDir)
+
+		lock, _ := New(lockPath)
+		lock.SetDirectories(Directories{Modules: ".wippy", Src: externalDir})
+
+		paths := lock.GetLoadPaths()
+
+		if len(paths) != 1 {
+			t.Fatalf("expected 1 path, got %d", len(paths))
+		}
+
+		// Path should be absolute and cleaned
+		expectedPath, _ := filepath.Abs(externalDir)
+		if paths[0] != expectedPath {
+			t.Errorf("expected absolute path %q, got %q", expectedPath, paths[0])
+		}
+
+		if !filepath.IsAbs(paths[0]) {
+			t.Errorf("expected absolute path, got relative path %q", paths[0])
+		}
+	})
+
+	t.Run("handles paths with parent directory references", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, "subdir", "test.lock")
+		if err := os.MkdirAll(filepath.Dir(lockPath), 0755); err != nil {
+			t.Fatalf("create lock dir: %v", err)
+		}
+
+		// Create a directory at the same level as tmpDir
+		parentDir := filepath.Dir(tmpDir)
+		siblingDir := filepath.Join(parentDir, "sibling-src")
+		if err := os.MkdirAll(siblingDir, 0755); err != nil {
+			t.Fatalf("create sibling dir: %v", err)
+		}
+		defer os.RemoveAll(siblingDir)
+
+		lock, _ := New(lockPath)
+		// Use .. to go up from subdir to tmpDir, then up to parent, then into sibling
+		lock.SetDirectories(Directories{Modules: ".wippy", Src: "../../sibling-src"})
+
+		paths := lock.GetLoadPaths()
+
+		if len(paths) != 1 {
+			t.Fatalf("expected 1 path, got %d", len(paths))
+		}
+
+		// Path should be resolved to absolute path
+		expectedPath, _ := filepath.Abs(siblingDir)
+		if paths[0] != expectedPath {
+			t.Errorf("expected resolved path %q, got %q", expectedPath, paths[0])
+		}
+
+		if !filepath.IsAbs(paths[0]) {
+			t.Errorf("expected absolute path, got relative path %q", paths[0])
+		}
+
+		// Verify .. components are resolved (path shouldn't contain ..)
+		if filepath.Base(paths[0]) == ".." || filepath.Dir(paths[0]) == ".." {
+			t.Errorf("path should not contain .. components: %q", paths[0])
+		}
+	})
+
+	t.Run("handles absolute replacement paths", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, "test.lock")
+
+		// Create a directory outside tmpDir
+		parentDir := filepath.Dir(tmpDir)
+		externalRepl := filepath.Join(parentDir, "external-repl")
+		if err := os.MkdirAll(externalRepl, 0755); err != nil {
+			t.Fatalf("create external repl dir: %v", err)
+		}
+		defer os.RemoveAll(externalRepl)
+
+		lock, _ := New(lockPath)
+		lock.SetReplacement(Replacement{From: "acme/http", To: externalRepl})
+
+		paths := lock.GetLoadPaths()
+
+		if len(paths) != 2 {
+			t.Fatalf("expected 2 paths (src + replacement), got %d", len(paths))
+		}
+
+		// Replacement path should be absolute
+		expectedRepl, _ := filepath.Abs(externalRepl)
+		if paths[1] != expectedRepl {
+			t.Errorf("expected absolute replacement path %q, got %q", expectedRepl, paths[1])
+		}
+
+		if !filepath.IsAbs(paths[1]) {
+			t.Errorf("expected absolute path, got relative path %q", paths[1])
+		}
+	})
+
+	t.Run("cross-platform path handling", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, "test.lock")
+
+		// Test various path formats that should work on all platforms
+		testCases := []struct {
+			name     string
+			srcPath  string
+			validate func(t *testing.T, resolvedPath string)
+		}{
+			{
+				name:    "relative path with forward slashes",
+				srcPath: "./src",
+				validate: func(t *testing.T, p string) {
+					if !filepath.IsAbs(p) {
+						t.Errorf("expected absolute path, got %q", p)
+					}
+					if !strings.Contains(p, "src") {
+						t.Errorf("path should contain 'src': %q", p)
+					}
+				},
+			},
+			{
+				name:    "relative path with parent directory",
+				srcPath: "../parent-src",
+				validate: func(t *testing.T, p string) {
+					if !filepath.IsAbs(p) {
+						t.Errorf("expected absolute path, got %q", p)
+					}
+					// Verify .. is resolved
+					if strings.Contains(p, "..") {
+						t.Errorf("path should not contain '..': %q", p)
+					}
+				},
+			},
+			{
+				name:    "absolute path (using temp dir)",
+				srcPath: tmpDir,
+				validate: func(t *testing.T, p string) {
+					if !filepath.IsAbs(p) {
+						t.Errorf("expected absolute path, got %q", p)
+					}
+					expected, _ := filepath.Abs(tmpDir)
+					if p != expected {
+						t.Errorf("expected %q, got %q", expected, p)
+					}
+				},
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				lock, _ := New(lockPath)
+				lock.SetDirectories(Directories{Modules: ".wippy", Src: tc.srcPath})
+
+				paths := lock.GetLoadPaths()
+				if len(paths) != 1 {
+					t.Fatalf("expected 1 path, got %d", len(paths))
+				}
+
+				tc.validate(t, paths[0])
+			})
+		}
+	})
+
+	t.Run("handles mixed path separators", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, "test.lock")
+
+		// Create a path that might have mixed separators (though filepath.Join should normalize)
+		lock, _ := New(lockPath)
+		// Use a path that goes up and then down
+		lock.SetDirectories(Directories{Modules: ".wippy", Src: filepath.Join("..", "parent", "src")})
+
+		paths := lock.GetLoadPaths()
+
+		if len(paths) != 1 {
+			t.Fatalf("expected 1 path, got %d", len(paths))
+		}
+
+		// Path should be absolute and normalized (no .. components)
+		if !filepath.IsAbs(paths[0]) {
+			t.Errorf("expected absolute path, got %q", paths[0])
+		}
+
+		// Verify path is cleaned (no .. or . components in the middle)
+		cleaned := filepath.Clean(paths[0])
+		if paths[0] != cleaned {
+			t.Errorf("path should be cleaned: got %q, expected %q", paths[0], cleaned)
+		}
+	})
 }
