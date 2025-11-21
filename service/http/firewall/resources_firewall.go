@@ -12,21 +12,27 @@ import (
 const (
 	ResourceMiddlewareName = "resource_firewall"
 	ResourceDefaultAction  = "access"
-	ResourceOptionAction   = "resource_action"
-	ResourceOptionTarget   = "resource_target"
+
+	// Option keys (dot-separated, preferred)
+	ResourceOptionAction = "resource_firewall.action"
+	ResourceOptionTarget = "resource_firewall.target"
+
+	// Legacy option keys (deprecated, for backward compatibility)
+	legacyResourceAction = "resource_action"
+	legacyResourceTarget = "resource_target"
 )
 
 // CreateResourceFirewallMiddleware creates a security firewall middleware that blocks requests
 // that don't have sufficient permissions to access a resource specified in the options
 func CreateResourceFirewallMiddleware(options map[string]string) func(http.Handler) http.Handler {
-	// Parse options with defaults
-	action := options[ResourceOptionAction]
+	// Parse options with defaults (check new keys first, fall back to legacy)
+	action := getOption(options, ResourceOptionAction, legacyResourceAction)
 	if action == "" {
 		action = ResourceDefaultAction
 	}
 
 	// Get the resource to check access to
-	resourceID := options[ResourceOptionTarget]
+	resourceID := getOption(options, ResourceOptionTarget, legacyResourceTarget)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

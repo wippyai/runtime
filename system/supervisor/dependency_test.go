@@ -315,3 +315,28 @@ func TestSupervisor_ComplexDependencyChain_WithPreexisting(t *testing.T) {
 	h.assertServiceState("service-middle", supervisor.Running) // Should still be running
 	h.assertServiceState("service-top", supervisor.Running)    // Should not start due to missing deps
 }
+
+func TestSupervisor_WithoutDependencyResolver(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// Register services with only lifecycle dependencies
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.registerServiceWithDeps("service-b", false, nil)
+	h.registerServiceWithDeps("service-a", false, []string{"service-b"})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+
+	// Start service-a
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Start,
+		Path:   "service-a",
+	})
+
+	h.waitForAllServices(supervisor.Running)
+
+	// Verify lifecycle dependencies work without resolver
+	h.assertServiceState("service-b", supervisor.Running)
+	h.assertServiceState("service-a", supervisor.Running)
+}

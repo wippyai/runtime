@@ -5,17 +5,25 @@ import (
 	"strings"
 )
 
-// CORS middleware option constants
+// CORS middleware option constants (dot-separated, preferred)
 const (
-	MiddlewareName          = "cors"
-	CORSOptionAllowOrigins  = "allow_origins"  // Comma-separated list of allowed origins
-	CORSOptionAllowMethods  = "allow_methods"  // Comma-separated list of allowed methods
-	CORSOptionAllowHeaders  = "allow_headers"  // Comma-separated list of allowed headers
-	CORSOptionExposeHeaders = "expose_headers" // Comma-separated list of headers to expose
-	//nolint:gosec // used in tests
-	CORSOptionAllowCredentials  = "allow_credentials"     // "true" or "false"
-	CORSOptionMaxAge            = "max_age"               // Max age in seconds for preflight requests
-	CORSOptionAllowPrivateNetwk = "allow_private_network" // "true" or "false"
+	MiddlewareName              = "cors"
+	CORSOptionAllowOrigins      = "cors.allow.origins"
+	CORSOptionAllowMethods      = "cors.allow.methods"
+	CORSOptionAllowHeaders      = "cors.allow.headers"
+	CORSOptionExposeHeaders     = "cors.expose.headers"
+	CORSOptionAllowCredentials  = "cors.allow.credentials" //nolint:gosec // G101: Not a credential - this is a configuration key name
+	CORSOptionMaxAge            = "cors.max.age"
+	CORSOptionAllowPrivateNetwk = "cors.allow.private.network"
+
+	// Legacy option constants (deprecated, for backward compatibility)
+	legacyAllowOrigins      = "allow_origins"
+	legacyAllowMethods      = "allow_methods"
+	legacyAllowHeaders      = "allow_headers"
+	legacyExposeHeaders     = "expose_headers"
+	legacyAllowCredentials  = "allow_credentials" //nolint:gosec // G101: Not a credential - this is a configuration key name
+	legacyMaxAge            = "max_age"
+	legacyAllowPrivateNetwk = "allow_private_network"
 )
 
 // CORS default values
@@ -28,40 +36,49 @@ const (
 	DefaultMaxAge           = "86400" // 24 hours
 )
 
+// getOption retrieves an option value, checking the new dot-separated key first,
+// then falling back to the legacy underscore key for backward compatibility
+func getOption(options map[string]string, newKey, legacyKey string) string {
+	if val, ok := options[newKey]; ok {
+		return val
+	}
+	return options[legacyKey]
+}
+
 // CreateCORSMiddleware creates a CORS middleware with the provided options
 func CreateCORSMiddleware(options map[string]string) func(http.Handler) http.Handler {
-	// Parse options with defaults
-	allowOrigins := options[CORSOptionAllowOrigins]
+	// Parse options with defaults (check new keys first, fall back to legacy)
+	allowOrigins := getOption(options, CORSOptionAllowOrigins, legacyAllowOrigins)
 	if allowOrigins == "" {
 		allowOrigins = DefaultAllowOrigins
 	}
 
-	allowMethods := options[CORSOptionAllowMethods]
+	allowMethods := getOption(options, CORSOptionAllowMethods, legacyAllowMethods)
 	if allowMethods == "" {
 		allowMethods = DefaultAllowMethods
 	}
 
-	allowHeaders := options[CORSOptionAllowHeaders]
+	allowHeaders := getOption(options, CORSOptionAllowHeaders, legacyAllowHeaders)
 	if allowHeaders == "" {
 		allowHeaders = DefaultAllowHeaders
 	}
 
-	exposeHeaders := options[CORSOptionExposeHeaders]
+	exposeHeaders := getOption(options, CORSOptionExposeHeaders, legacyExposeHeaders)
 	if exposeHeaders == "" {
 		exposeHeaders = DefaultExposeHeaders
 	}
 
-	allowCredentials := options[CORSOptionAllowCredentials]
+	allowCredentials := getOption(options, CORSOptionAllowCredentials, legacyAllowCredentials)
 	if allowCredentials == "" {
 		allowCredentials = DefaultAllowCredentials
 	}
 
-	maxAge := options[CORSOptionMaxAge]
+	maxAge := getOption(options, CORSOptionMaxAge, legacyMaxAge)
 	if maxAge == "" {
 		maxAge = DefaultMaxAge
 	}
 
-	allowPrivateNetwork := options[CORSOptionAllowPrivateNetwk] == "true"
+	allowPrivateNetwork := getOption(options, CORSOptionAllowPrivateNetwk, legacyAllowPrivateNetwk) == "true"
 
 	// Create a list of allowed origins for matching
 	origins := parseCommaSeparatedList(allowOrigins)

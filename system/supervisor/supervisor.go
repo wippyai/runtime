@@ -441,8 +441,18 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 			return err
 		}
 
-		// Visit dependencies first
+		// Visit dependencies first and filter out non-existent ones
+		validDeps := make([]string, 0, len(deps))
 		for _, depID := range deps {
+			// Skip dependencies that don't exist as controllers
+			// (registry-extracted deps might include non-service references)
+			if _, exists := s.controllers[depID]; !exists {
+				s.logger.Debug("skipping non-existent dependency",
+					zap.String("service_id", id),
+					zap.String("dependency", depID))
+				continue
+			}
+			validDeps = append(validDeps, depID)
 			if err := buildStartOps(depID); err != nil {
 				return err
 			}
@@ -452,7 +462,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 			Type:         OperationStart,
 			ID:           id,
 			Controller:   ctrl,
-			Dependencies: deps,
+			Dependencies: validDeps,
 		})
 
 		return nil

@@ -114,7 +114,7 @@ func setupManager(t *testing.T) (*Manager, context.Context) {
 	serverFactory := NewServerFactory(middlewareFactory)
 	endpointFactory, err := NewEndpointFactory(functionRegistry)
 	require.NoError(t, err)
-	staticFactory, err := NewStaticFactory(fsRegistry)
+	staticFactory, err := NewStaticFactory(fsRegistry, middlewareFactory)
 	require.NoError(t, err)
 
 	// Create manager
@@ -143,7 +143,7 @@ func TestManager_NewManager(t *testing.T) {
 
 	serverFactory := NewServerFactory(middlewareFactory)
 	endpointFactory, _ := NewEndpointFactory(functionRegistry)
-	staticFactory, _ := NewStaticFactory(fsRegistry)
+	staticFactory, _ := NewStaticFactory(fsRegistry, middlewareFactory)
 
 	t.Run("valid creation", func(t *testing.T) {
 		manager, err := NewManager(
@@ -290,7 +290,7 @@ func TestManager_RouterOperations(t *testing.T) {
 	serverFactory := NewServerFactory(middlewareFactory)
 	endpointFactory, err := NewEndpointFactory(functionRegistry)
 	require.NoError(t, err)
-	staticFactory, err := NewStaticFactory(fsRegistry)
+	staticFactory, err := NewStaticFactory(fsRegistry, middlewareFactory)
 	require.NoError(t, err)
 
 	manager, err := NewManager(

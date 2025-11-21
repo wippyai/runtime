@@ -20,8 +20,21 @@ import (
 )
 
 const (
-	OptionAllowedOrigins = "allowed_origins"
+	// Option keys (dot-separated, preferred)
+	OptionAllowedOrigins = "websocket_relay.allowed.origins"
+
+	// Legacy option keys (deprecated, for backward compatibility)
+	legacyAllowedOrigins = "allowed_origins"
 )
+
+// getOption retrieves an option value, checking the new dot-separated key first,
+// then falling back to the legacy underscore key for backward compatibility
+func getOption(options map[string]string, newKey, legacyKey string) string {
+	if val, ok := options[newKey]; ok {
+		return val
+	}
+	return options[legacyKey]
+}
 
 // RelayManager manages WebSocket connections and their relay to the relay system
 type RelayManager struct {
@@ -42,7 +55,7 @@ func NewWebSocketRelay(ctx context.Context, logger *zap.Logger, pidGen *uniqid.P
 // CreateMiddleware creates a configurable WebSocket relay middleware
 func (m *RelayManager) CreateMiddleware(options map[string]string) func(http.Handler) http.Handler {
 	// Parse allowed origins from options (comma-separated)
-	allowedOrigins := options[OptionAllowedOrigins]
+	allowedOrigins := getOption(options, OptionAllowedOrigins, legacyAllowedOrigins)
 	if allowedOrigins == "" {
 		allowedOrigins = "*"
 	}

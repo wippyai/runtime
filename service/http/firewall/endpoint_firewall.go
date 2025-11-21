@@ -13,14 +13,19 @@ import (
 const (
 	EndpointMiddlewareName = "endpoint_firewall"
 	EndpointDefaultAction  = "access"
-	EndpointOptionAction   = "endpoint_action"
+
+	// Option keys (dot-separated, preferred)
+	EndpointOptionAction = "endpoint_firewall.action"
+
+	// Legacy option keys (deprecated, for backward compatibility)
+	legacyEndpointAction = "endpoint_action"
 )
 
 // CreateEndpointFirewallMiddleware creates a post-match security firewall middleware
 // that blocks requests that don't have sufficient permissions for a specific endpoint
 func CreateEndpointFirewallMiddleware(options map[string]string) func(http.Handler) http.Handler {
-	// Parse options with defaults
-	action := options[EndpointOptionAction]
+	// Parse options with defaults (check new keys first, fall back to legacy)
+	action := getOption(options, EndpointOptionAction, legacyEndpointAction)
 	if action == "" {
 		action = EndpointDefaultAction
 	}

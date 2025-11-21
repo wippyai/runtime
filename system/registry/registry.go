@@ -415,3 +415,8 @@ func (r *Reg) enrichChangeset(changes registry.ChangeSet) registry.ChangeSet {
 
 	return enriched
 }
+
+// DependencyResolver returns the registry's dependency resolver for external use
+func (r *Reg) DependencyResolver() registry.DependencyResolver {
+	return r.resolver
+}

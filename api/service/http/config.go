@@ -73,11 +73,13 @@ type (
 
 	// StaticConfig represents the configuration for a static file server endpoint
 	StaticConfig struct {
-		Meta      registry.Metadata `json:"meta"`      // Metadata, todo: migrate to avoid use of this
-		Path      string            `json:"path"`      // URL path prefix to serve under
-		FS        registry.ID       `json:"fs"`        // Name of the filesystem to serve from
-		Directory string            `json:"directory"` // Directory within the filesystem to serve
-		Options   StaticOptions     `json:"options"`   // Optional configuration
+		Meta          registry.Metadata `json:"meta"`           // Metadata, todo: migrate to avoid use of this
+		Path          string            `json:"path"`           // URL path prefix to serve under
+		FS            registry.ID       `json:"fs"`             // Name of the filesystem to serve from
+		Directory     string            `json:"directory"`      // Directory within the filesystem to serve
+		Middleware    []string          `json:"middleware"`     // Middleware names
+		Options       map[string]string `json:"options"`        // Middleware options
+		StaticOptions StaticOptions     `json:"static_options"` // Static-specific configuration
 	}
 
 	StaticOptions struct {
@@ -292,4 +294,59 @@ func (c *TimeoutConfig) MarshalJSON() ([]byte, error) {
 		IdleTimeout:  c.IdleTimeout.String(),
 		Alias:        (*Alias)(c),
 	})
+}
+
+// UnmarshalJSON implements custom unmarshaling for StaticConfig to handle backward compatibility.
+// Migrates legacy options like "spa" from options map to static_options struct.
+func (c *StaticConfig) UnmarshalJSON(data []byte) error {
+	type Alias StaticConfig
+	aux := &struct {
+		Options map[string]interface{} `json:"options"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Migrate legacy options from map to StaticOptions struct
+	if aux.Options != nil {
+		if c.Options == nil {
+			c.Options = make(map[string]string)
+		}
+
+		for key, val := range aux.Options {
+			switch key {
+			case "spa":
+				// Migrate spa from options map to static_options.spa
+				if boolVal, ok := val.(bool); ok {
+					c.StaticOptions.SPA = boolVal
+				} else if strVal, ok := val.(string); ok {
+					// Support string "true"/"false" for backward compatibility
+					c.StaticOptions.SPA = strVal == "true"
+				}
+			case "index":
+				// Migrate index from options map to static_options.index
+				if strVal, ok := val.(string); ok {
+					c.StaticOptions.IndexFile = strVal
+				}
+			case "cache":
+				// Migrate cache from options map to static_options.cache
+				if strVal, ok := val.(string); ok {
+					c.StaticOptions.CacheControl = strVal
+				}
+			default:
+				// Keep other options in the map as middleware options
+				if strVal, ok := val.(string); ok {
+					c.Options[key] = strVal
+				} else {
+					c.Options[key] = fmt.Sprintf("%v", val)
+				}
+			}
+		}
+	}
+
+	return nil
 }

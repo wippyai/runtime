@@ -132,6 +132,17 @@ func runApp(cmd *cobra.Command, _ []string) error {
 
 	<-sigChan
 
+	// Spawn force-exit handler for second signal
+	go func() {
+		<-sigChan
+		logger.Error("force exit")
+		os.Exit(1)
+	}()
+
+	if !silentLogs {
+		logger.Info("shutting down (press Ctrl+C again to force exit)")
+	}
+
 	// Perform shutdown and get exit code
 	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
 	if exitCode != 0 {

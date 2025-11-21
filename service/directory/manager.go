@@ -56,10 +56,6 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("directory %s already exists", entry.ID)
 	}
 
-	m.log.Info("directory filesystem created",
-		zap.String("id", entry.ID.String()),
-		zap.String("path", cfg.Directory))
-
 	return m.registerFS(ctx, entry.ID, cfg)
 }
 

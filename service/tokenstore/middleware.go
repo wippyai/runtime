@@ -17,20 +17,19 @@ const (
 	// MiddlewareName is the name to register this middleware with
 	MiddlewareName = "token_auth"
 
-	// OptionTokenStore is the option key for the token store ID
-	OptionTokenStore = "token_store"
+	// Option keys (dot-separated, preferred)
+	OptionTokenStore   = "token_auth.store"
+	OptionHeaderName   = "token_auth.header.name"
+	OptionHeaderPrefix = "token_auth.header.prefix"
+	OptionQueryParam   = "token_auth.query.param"
+	OptionCookieName   = "token_auth.cookie.name"
 
-	// OptionHeaderName is the option key for the header name
-	OptionHeaderName = "header_name"
-
-	// OptionHeaderPrefix is the option key for the header prefix
-	OptionHeaderPrefix = "header_prefix"
-
-	// OptionQueryParam is the option key for the query parameter name
-	OptionQueryParam = "query_param"
-
-	// OptionCookieName is the option key for the cookie name
-	OptionCookieName = "cookie_name"
+	// Legacy option keys (deprecated, for backward compatibility)
+	legacyTokenStore   = "token_store"
+	legacyHeaderName   = "header_name"
+	legacyHeaderPrefix = "header_prefix"
+	legacyQueryParam   = "query_param"
+	legacyCookieName   = "cookie_name"
 
 	// Default values
 	DefaultHeaderName   = "Authorization"
@@ -39,23 +38,32 @@ const (
 	DefaultCookieName   = "x-auth-token"
 )
 
+// getOption retrieves an option value, checking the new dot-separated key first,
+// then falling back to the legacy underscore key for backward compatibility
+func getOption(options map[string]string, newKey, legacyKey string) string {
+	if val, ok := options[newKey]; ok {
+		return val
+	}
+	return options[legacyKey]
+}
+
 // CreateTokenAuthMiddleware creates a token authentication middleware that only enriches request context
 func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) http.Handler {
-	// Parse options with defaults
-	tokenStoreID := registry.ParseID(options[OptionTokenStore])
-	headerName := options[OptionHeaderName]
+	// Parse options with defaults (check new keys first, fall back to legacy)
+	tokenStoreID := registry.ParseID(getOption(options, OptionTokenStore, legacyTokenStore))
+	headerName := getOption(options, OptionHeaderName, legacyHeaderName)
 	if headerName == "" {
 		headerName = DefaultHeaderName
 	}
-	headerPrefix := options[OptionHeaderPrefix]
+	headerPrefix := getOption(options, OptionHeaderPrefix, legacyHeaderPrefix)
 	if headerPrefix == "" {
 		headerPrefix = DefaultHeaderPrefix
 	}
-	queryParam := options[OptionQueryParam]
+	queryParam := getOption(options, OptionQueryParam, legacyQueryParam)
 	if queryParam == "" {
 		queryParam = DefaultQueryParam
 	}
-	cookieName := options[OptionCookieName]
+	cookieName := getOption(options, OptionCookieName, legacyCookieName)
 	if cookieName == "" {
 		cookieName = DefaultCookieName
 	}

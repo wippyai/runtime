@@ -380,6 +380,54 @@ func TestGraphDependencyLevels(t *testing.T) {
 			t.Error("expected error for cyclic dependencies")
 		}
 	})
+
+	t.Run("cyclic dependencies error details", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+
+		nodes := []string{"Component-A", "Component-B", "Component-C"}
+		for _, node := range nodes {
+			g.AddNode(node)
+		}
+
+		edgeData := TestEdgeData{Label: "cycle"}
+		g.AddEdge("Component-A", "Component-B", 1, edgeData)
+		g.AddEdge("Component-B", "Component-C", 1, edgeData)
+		g.AddEdge("Component-C", "Component-A", 1, edgeData)
+
+		_, err := g.DependencyLevels()
+		if err == nil {
+			t.Fatal("expected error for cyclic dependencies")
+		}
+
+		errMsg := err.Error()
+		// Verify error contains "cycle detected"
+		if !contains(errMsg, "cycle detected") {
+			t.Errorf("error should mention 'cycle detected', got: %s", errMsg)
+		}
+
+		// If findCycle fails, error should contain stuck nodes with details
+		// Either we get the cycle path, or we get stuck nodes with degree info
+		hasDetails := contains(errMsg, "Component-A") ||
+			contains(errMsg, "degree=") ||
+			contains(errMsg, "depends on:")
+
+		if !hasDetails {
+			t.Errorf("error should contain node details or cycle path, got: %s", errMsg)
+		}
+	})
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGraphMissingDependencyNotAutoAdded(t *testing.T) {

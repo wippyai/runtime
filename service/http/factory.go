@@ -173,19 +173,24 @@ func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // StaticFactory creates HTTP handlers for static file serving
 type StaticFactory struct {
-	fsReg fs.Registry
+	fsReg             fs.Registry
+	middlewareFactory MiddlewareAPI
 }
 
 // Ensure StaticFactory implements StaticFactoryAPI
 var _ StaticFactoryAPI = (*StaticFactory)(nil)
 
 // NewStaticFactory creates a new static file factory instance with the provided filesystem registry
-func NewStaticFactory(fsReg fs.Registry) (*StaticFactory, error) {
+func NewStaticFactory(fsReg fs.Registry, middlewareFactory MiddlewareAPI) (*StaticFactory, error) {
 	if fsReg == nil {
 		return nil, fmt.Errorf("filesystem registry is required")
 	}
+	if middlewareFactory == nil {
+		return nil, fmt.Errorf("middleware factory is required")
+	}
 	return &StaticFactory{
-		fsReg: fsReg,
+		fsReg:             fsReg,
+		middlewareFactory: middlewareFactory,
 	}, nil
 }
 
@@ -200,28 +205,47 @@ func (f *StaticFactory) CreateHandler(_ context.Context, cfg *config.StaticConfi
 		return nil, fmt.Errorf("filesystem not found: %s", cfg.FS)
 	}
 
+	// Create base handler
+	var handler http.Handler
+
 	// For SPA mode, use our custom handler
-	if cfg.Options.SPA {
-		if cfg.Options.IndexFile == "" {
+	if cfg.StaticOptions.SPA {
+		if cfg.StaticOptions.IndexFile == "" {
 			return nil, fmt.Errorf("index file must be specified for SPA mode")
 		}
-		handler := NewSPAHandler(fsys, cfg.Options.IndexFile)
+		handler = NewSPAHandler(fsys, cfg.StaticOptions.IndexFile)
 
-		if cfg.Options.CacheControl != "" {
-			handler = wrapWithCacheControl(handler, cfg.Options.CacheControl)
+		if cfg.StaticOptions.CacheControl != "" {
+			handler = wrapWithCacheControl(handler, cfg.StaticOptions.CacheControl)
+		}
+	} else {
+		handler = http.FileServer(http.FS(fsys))
+
+		if cfg.Directory != "" {
+			handler = http.StripPrefix(cfg.Path, handler)
 		}
 
-		return handler, nil
+		if cfg.StaticOptions.CacheControl != "" {
+			handler = wrapWithCacheControl(handler, cfg.StaticOptions.CacheControl)
+		}
 	}
 
-	handler := http.FileServer(http.FS(fsys))
+	// Apply middleware if configured
+	if len(cfg.Middleware) > 0 {
+		// Build middleware chain
+		middlewareHandlers := make([]func(http.Handler) http.Handler, len(cfg.Middleware))
+		for i, name := range cfg.Middleware {
+			mw, err := f.middlewareFactory.CreateMiddleware(name, cfg.Options)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create middleware %s: %w", name, err)
+			}
+			middlewareHandlers[i] = mw
+		}
 
-	if cfg.Directory != "" {
-		handler = http.StripPrefix(cfg.Path, handler)
-	}
-
-	if cfg.Options.CacheControl != "" {
-		handler = wrapWithCacheControl(handler, cfg.Options.CacheControl)
+		// Apply middleware chain in reverse order
+		for i := len(middlewareHandlers) - 1; i >= 0; i-- {
+			handler = middlewareHandlers[i](handler)
+		}
 	}
 
 	return handler, nil

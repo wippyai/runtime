@@ -41,7 +41,6 @@ func (p *TestPayloadForResolver) Format() payload.Format {
 // EntryFromJSON creates a registry entry from JSON string
 func (sdk *ResolverTestSDK) EntryFromJSON(jsonStr string) registry.Entry {
 	var entryData struct {
-		ID   string         `json:"id"`
 		Kind string         `json:"kind"`
 		Meta map[string]any `json:"meta,omitempty"`
 		Data map[string]any `json:"data,omitempty"`

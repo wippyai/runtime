@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	nethttp "net/http"
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
@@ -17,8 +18,11 @@ import (
 	bootcore "github.com/wippyai/runtime/boot/components/core"
 	bootsystem "github.com/wippyai/runtime/boot/components/system"
 	"github.com/wippyai/runtime/service/http"
+	"github.com/wippyai/runtime/service/http/compress"
 	"github.com/wippyai/runtime/service/http/cors"
+	"github.com/wippyai/runtime/service/http/fileserve"
 	"github.com/wippyai/runtime/service/http/firewall"
+	"github.com/wippyai/runtime/service/http/ratelimit"
 	"github.com/wippyai/runtime/service/http/realip"
 	"github.com/wippyai/runtime/service/http/websocketrelay"
 	"github.com/wippyai/runtime/service/tokenstore"
@@ -86,11 +90,6 @@ func HTTP() boot.Component {
 				return ctx, fmt.Errorf("failed to create endpoint factory: %w", err)
 			}
 
-			staticFactory, err := http.NewStaticFactory(fsRegistry)
-			if err != nil {
-				return ctx, fmt.Errorf("failed to create static factory: %w", err)
-			}
-
 			relayManager := websocketrelay.NewWebSocketRelay(ctx, logger.Named("ws"), pidGen)
 
 			midRegistry := http.NewMiddlewareRegistry(logger.Named("http.md"))
@@ -103,8 +102,21 @@ func HTTP() boot.Component {
 			_ = midRegistry.Register(firewall.ResourceMiddlewareName, firewall.CreateResourceFirewallMiddleware)
 			_ = midRegistry.Register(firewall.EndpointMiddlewareName, firewall.CreateEndpointFirewallMiddleware)
 
+			// Register new middleware
+			_ = midRegistry.Register(compress.MiddlewareName, compress.CreateCompressMiddleware)
+			_ = midRegistry.Register(ratelimit.MiddlewareName, ratelimit.CreateRateLimitMiddleware)
+			_ = midRegistry.Register(fileserve.MiddlewareName, func(options map[string]string) func(nethttp.Handler) nethttp.Handler {
+				return fileserve.CreateFileServeMiddleware(options, fsRegistry)
+			})
+
 			// Store registry in context for other components
 			ctx = httpapi.WithMiddlewareRegistry(ctx, midRegistry)
+
+			// Create static factory with middleware support (after middleware registry is set up)
+			staticFactory, err := http.NewStaticFactory(fsRegistry, midRegistry)
+			if err != nil {
+				return ctx, fmt.Errorf("failed to create static factory: %w", err)
+			}
 
 			manager, err := http.NewManager(
 				dtt,

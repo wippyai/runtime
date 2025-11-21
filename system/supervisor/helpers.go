@@ -19,6 +19,7 @@ type State struct {
 	Desired    supervisor.Status `json:"desired"`
 	RetryCount int32             `json:"retry_count"`
 	LastUpdate time.Time         `json:"last_update"`
+	StartedAt  time.Time         `json:"started_at"`
 }
 
 type internalState struct {
@@ -28,6 +29,7 @@ type internalState struct {
 	desired    supervisor.Status
 	retryCount int32
 	lastUpdate time.Time
+	startedAt  time.Time
 }
 
 // isTerminalError determines if the error represents a terminal state
@@ -47,6 +49,7 @@ func newServiceState() *internalState {
 		status:     supervisor.Unknown,
 		desired:    supervisor.Unknown,
 		lastUpdate: time.Now(),
+		startedAt:  time.Time{},
 	}
 }
 
@@ -61,6 +64,7 @@ func (s *internalState) getSnapshot() internalState {
 		desired:    s.desired,
 		retryCount: s.retryCount,
 		lastUpdate: s.lastUpdate,
+		startedAt:  s.startedAt,
 	}
 }
 
@@ -74,13 +78,18 @@ func (s *internalState) publicState() State {
 		Desired:    s.desired,
 		RetryCount: s.retryCount,
 		LastUpdate: s.lastUpdate,
+		StartedAt:  s.startedAt,
 	}
 }
 
 // updateState updates the service state and returns current details
 func (s *internalState) updateState(status supervisor.Status, details any) (supervisor.Status, any) {
 	s.mu.Lock()
+	prevStatus := s.status
 	s.status = status
+	if status == supervisor.Running && prevStatus != supervisor.Running {
+		s.startedAt = time.Now()
+	}
 	s.mu.Unlock()
 
 	return s.updateDetails(details)

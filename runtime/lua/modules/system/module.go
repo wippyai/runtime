@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
 	systemapi "github.com/wippyai/runtime/api/system"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
@@ -27,12 +28,19 @@ import (
 // It holds a mutex to protect concurrent access to global runtime settings
 // like GC percentage and memory limit when modified through this module.
 type Module struct {
-	mu sync.Mutex // Mutex to protect access to GC percent and memory limit
+	mu              sync.Mutex
+	once            sync.Once
+	moduleTable     *lua.LTable
+	memoryTable     *lua.LTable
+	gcTable         *lua.LTable
+	runtimeTable    *lua.LTable
+	processTable    *lua.LTable
+	supervisorTable *lua.LTable
 }
 
 // NewSystemModule creates and returns a new instance of the System Module.
 func NewSystemModule() *Module {
-	return &Module{} // mu is initialized to its zero value, which is usable
+	return &Module{}
 }
 
 // Name returns the module's unique name: "system".
@@ -41,30 +49,87 @@ func (m *Module) Name() string {
 }
 
 // Loader is the function registered with gopher-lua to load the "system" module.
-// It creates a Lua table populated with the module's functions.
+// It creates a Lua table populated with child tables and top-level functions.
 func (m *Module) Loader(l *lua.LState) int {
-	// Create a module table with exact pre-allocated size for its functions.
-	mod := l.CreateTable(0, 15) // 15 exported functions
+	m.once.Do(func() {
+		m.initModuleTables(l)
+	})
 
-	// Register functions using RawSetString for potentially better performance.
-	mod.RawSetString("mem_stats", l.NewFunction(m.memStats))
-	mod.RawSetString("allocated", l.NewFunction(m.allocated))
-	mod.RawSetString("heap_objects", l.NewFunction(m.heapObjects))
-	mod.RawSetString("gc", l.NewFunction(m.gc))
-	mod.RawSetString("set_gc_percent", l.NewFunction(m.setGCPercent))
-	mod.RawSetString("get_gc_percent", l.NewFunction(m.getGCPercent))
-	mod.RawSetString("num_goroutines", l.NewFunction(m.numGoroutines))
-	mod.RawSetString("go_max_procs", l.NewFunction(m.goMaxProcs))
-	mod.RawSetString("num_cpu", l.NewFunction(m.numCPU))
-	mod.RawSetString("hostname", l.NewFunction(m.hostname))
-	mod.RawSetString("pid", l.NewFunction(m.pid))
-	mod.RawSetString("set_memory_limit", l.NewFunction(m.setMemoryLimit))
-	mod.RawSetString("get_memory_limit", l.NewFunction(m.getMemoryLimit))
+	l.Push(m.moduleTable)
+	return 1
+}
+
+// initModuleTables creates and initializes all module tables once
+func (m *Module) initModuleTables(l *lua.LState) {
+	// Create child tables
+	m.memoryTable = m.initMemoryTable(l)
+	m.gcTable = m.initGCTable(l)
+	m.runtimeTable = m.initRuntimeTable(l)
+	m.processTable = m.initProcessTable(l)
+	m.supervisorTable = m.initSupervisorTable(l)
+
+	// Create main module table with child tables and top-level functions
+	mod := l.CreateTable(0, 6)
+	mod.RawSetString("memory", m.memoryTable)
+	mod.RawSetString("gc", m.gcTable)
+	mod.RawSetString("runtime", m.runtimeTable)
+	mod.RawSetString("process", m.processTable)
+	mod.RawSetString("supervisor", m.supervisorTable)
 	mod.RawSetString("exit", l.NewFunction(m.exit))
-	mod.RawSetString("process_stats", l.NewFunction(m.processStats))
 
-	l.Push(mod)
-	return 1 // Number of values returned to Lua (the module table)
+	mod.Immutable = true
+	m.moduleTable = mod
+}
+
+// initMemoryTable creates the memory child table
+func (m *Module) initMemoryTable(l *lua.LState) *lua.LTable {
+	t := l.CreateTable(0, 5)
+	t.RawSetString("stats", l.NewFunction(m.memStats))
+	t.RawSetString("allocated", l.NewFunction(m.allocated))
+	t.RawSetString("heap_objects", l.NewFunction(m.heapObjects))
+	t.RawSetString("set_limit", l.NewFunction(m.setMemoryLimit))
+	t.RawSetString("get_limit", l.NewFunction(m.getMemoryLimit))
+	t.Immutable = true
+	return t
+}
+
+// initGCTable creates the gc child table
+func (m *Module) initGCTable(l *lua.LState) *lua.LTable {
+	t := l.CreateTable(0, 3)
+	t.RawSetString("collect", l.NewFunction(m.gc))
+	t.RawSetString("set_percent", l.NewFunction(m.setGCPercent))
+	t.RawSetString("get_percent", l.NewFunction(m.getGCPercent))
+	t.Immutable = true
+	return t
+}
+
+// initRuntimeTable creates the runtime child table
+func (m *Module) initRuntimeTable(l *lua.LState) *lua.LTable {
+	t := l.CreateTable(0, 3)
+	t.RawSetString("goroutines", l.NewFunction(m.numGoroutines))
+	t.RawSetString("max_procs", l.NewFunction(m.goMaxProcs))
+	t.RawSetString("cpu_count", l.NewFunction(m.numCPU))
+	t.Immutable = true
+	return t
+}
+
+// initProcessTable creates the process child table
+func (m *Module) initProcessTable(l *lua.LState) *lua.LTable {
+	t := l.CreateTable(0, 3)
+	t.RawSetString("stats", l.NewFunction(m.processStats))
+	t.RawSetString("pid", l.NewFunction(m.pid))
+	t.RawSetString("hostname", l.NewFunction(m.hostname))
+	t.Immutable = true
+	return t
+}
+
+// initSupervisorTable creates the supervisor child table
+func (m *Module) initSupervisorTable(l *lua.LState) *lua.LTable {
+	t := l.CreateTable(0, 2)
+	t.RawSetString("state", l.NewFunction(m.supervisorState))
+	t.RawSetString("states", l.NewFunction(m.supervisorStates))
+	t.Immutable = true
+	return t
 }
 
 // memStats is a Lua-callable function that returns detailed Go runtime memory statistics.
@@ -492,6 +557,90 @@ func (*Module) processStats(l *lua.LState) int {
 		hostTable.RawSetString("processes", processesTable)
 
 		result.RawSetInt(i+1, hostTable)
+	}
+
+	l.Push(result)
+	l.Push(lua.LNil)
+	return 2
+}
+
+// supervisorState returns the state of a specific supervised service.
+// Requires "system.read" permission for the "supervisor" resource.
+func (*Module) supervisorState(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "supervisor", nil) {
+		l.RaiseError("permission denied: system.read on supervisor resource required")
+		return 0
+	}
+
+	serviceIDStr := l.CheckString(1)
+	if serviceIDStr == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("service ID required"))
+		return 2
+	}
+
+	serviceInfo := systemapi.GetServiceInfo(l.Context())
+	if serviceInfo == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("service info not available in context"))
+		return 2
+	}
+
+	serviceID := registry.ParseID(serviceIDStr)
+	state, err := serviceInfo.GetState(serviceID)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	stateTable := l.CreateTable(0, 7)
+	stateTable.RawSetString("id", lua.LString(state.ID.String()))
+	stateTable.RawSetString("status", lua.LString(state.Status))
+	stateTable.RawSetString("desired", lua.LString(state.Desired))
+	stateTable.RawSetString("retry_count", lua.LNumber(state.RetryCount))
+	stateTable.RawSetString("last_update", lua.LNumber(state.LastUpdate.UnixNano()))
+	stateTable.RawSetString("started_at", lua.LNumber(state.StartedAt.UnixNano()))
+	if state.Details != nil {
+		stateTable.RawSetString("details", lua.LString(fmt.Sprintf("%v", state.Details)))
+	}
+
+	l.Push(stateTable)
+	l.Push(lua.LNil)
+	return 2
+}
+
+// supervisorStates returns the states of all supervised services.
+// Requires "system.read" permission for the "supervisor" resource.
+func (*Module) supervisorStates(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "supervisor", nil) {
+		l.RaiseError("permission denied: system.read on supervisor resource required")
+		return 0
+	}
+
+	serviceInfo := systemapi.GetServiceInfo(l.Context())
+	if serviceInfo == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("service info not available in context"))
+		return 2
+	}
+
+	allStates := serviceInfo.GetAllStates()
+	result := l.CreateTable(len(allStates), 0)
+
+	for i, state := range allStates {
+		stateTable := l.CreateTable(0, 7)
+		stateTable.RawSetString("id", lua.LString(state.ID.String()))
+		stateTable.RawSetString("status", lua.LString(state.Status))
+		stateTable.RawSetString("desired", lua.LString(state.Desired))
+		stateTable.RawSetString("retry_count", lua.LNumber(state.RetryCount))
+		stateTable.RawSetString("last_update", lua.LNumber(state.LastUpdate.UnixNano()))
+		stateTable.RawSetString("started_at", lua.LNumber(state.StartedAt.UnixNano()))
+		if state.Details != nil {
+			stateTable.RawSetString("details", lua.LString(fmt.Sprintf("%v", state.Details)))
+		}
+
+		result.RawSetInt(i+1, stateTable)
 	}
 
 	l.Push(result)

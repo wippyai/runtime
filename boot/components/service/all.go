@@ -1,13 +1,17 @@
 package service
 
-import "github.com/wippyai/runtime/api/boot"
+import (
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/components/otel"
+	"github.com/wippyai/runtime/boot/components/service/aws"
+	"github.com/wippyai/runtime/boot/components/service/storage"
+	"github.com/wippyai/runtime/boot/components/temporal"
+)
 
 func All() []boot.Component {
-	return []boot.Component{
+	components := []boot.Component{
 		Directory(),
 		Embed(),
-		MemStore(),
-		SQLStore(),
 		Template(),
 		Terminal(),
 		Exec(),
@@ -15,18 +19,16 @@ func All() []boot.Component {
 		Policy(),
 		Contract(),
 		EnvService(),
-		S3(),
-		AWS(),
-		SQL(),
 		ProcessFunc(),
-		TokenStore(),
 		ProcessSupervisor(),
 		HTTP(),
-		OTel(),
-		OTelHTTP(),
-		OTelProcess(),
-		OTelInterceptor(),
-		OTelQueue(),
 		InterceptorRetry(),
 	}
+
+	components = append(components, storage.All()...)
+	components = append(components, aws.All()...)
+	components = append(components, otel.All()...)
+	components = append(components, temporal.All()...)
+
+	return components
 }

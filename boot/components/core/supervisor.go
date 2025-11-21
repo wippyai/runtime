@@ -8,6 +8,9 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	regapi "github.com/wippyai/runtime/api/registry"
+	supervisorapi "github.com/wippyai/runtime/api/supervisor"
+	systemapi "github.com/wippyai/runtime/api/system"
+	sysreg "github.com/wippyai/runtime/system/registry"
 	"github.com/wippyai/runtime/system/supervisor"
 	"go.uber.org/zap"
 )
@@ -43,7 +46,19 @@ func Supervisor() boot.Component {
 				logger.Warn("failed to register lifecycle dependency pattern", zap.Error(err))
 			}
 
-			sup = supervisor.NewSupervisor(bus, logger.Named("core"))
+			// Create dependency resolver that extracts dependencies from registry entries
+			depResolver := createDependencyResolver(reg, logger.Named("deps"))
+
+			sup = supervisor.NewSupervisor(bus, logger.Named("core"), supervisor.WithDependencyResolver(depResolver))
+			logger.Info("supervisor created with registry dependency resolver")
+
+			// Store supervisor in context for access by other components
+			ctx = supervisorapi.WithSupervisor(ctx, sup)
+
+			// Expose service info through system API
+			serviceInfo := supervisor.NewServiceInfoAdapter(sup)
+			ctx = systemapi.WithServiceInfo(ctx, serviceInfo)
+
 			return ctx, nil
 		},
 		Start: func(ctx context.Context) error {
@@ -59,4 +74,34 @@ func Supervisor() boot.Component {
 			return nil
 		},
 	})
+}
+
+// createDependencyResolver creates a supervisor dependency resolver that extracts
+// dependencies from registry entries using the registry's topology resolver.
+func createDependencyResolver(reg regapi.Registry, logger *zap.Logger) supervisorapi.DependencyResolver {
+	regImpl, ok := reg.(*sysreg.Reg)
+	if !ok {
+		return nil
+	}
+
+	resolver := regImpl.DependencyResolver()
+	if resolver == nil {
+		return nil
+	}
+
+	return func(id regapi.ID) ([]regapi.ID, error) {
+		entry, err := reg.GetEntry(id)
+		if err != nil {
+			return nil, nil
+		}
+
+		depStrings := resolver.Extract(entry)
+
+		deps := make([]regapi.ID, 0, len(depStrings))
+		for _, depStr := range depStrings {
+			deps = append(deps, regapi.ParseID(depStr))
+		}
+
+		return deps, nil
+	}
 }

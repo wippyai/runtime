@@ -708,3 +708,130 @@ func TestRequestContext_Pooling(t *testing.T) {
 		assert.False(t, reqCtx.ResponseHandled())
 	})
 }
+
+func TestStaticConfig_UnmarshalJSON_BackwardCompatibility(t *testing.T) {
+	t.Run("migrate spa from options map (bool)", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"spa": true,
+				"index": "index.html",
+				"cache": "public, max-age=3600"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.True(t, config.StaticOptions.SPA)
+		assert.Equal(t, "index.html", config.StaticOptions.IndexFile)
+		assert.Equal(t, "public, max-age=3600", config.StaticOptions.CacheControl)
+		assert.Empty(t, config.Options)
+	})
+
+	t.Run("migrate spa from options map (string true)", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"spa": "true"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.True(t, config.StaticOptions.SPA)
+	})
+
+	t.Run("spa false as string", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"spa": "false"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.False(t, config.StaticOptions.SPA)
+	})
+
+	t.Run("new format with static_options", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"static_options": {
+				"spa": true,
+				"index": "index.html",
+				"cache": "public, max-age=3600"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.True(t, config.StaticOptions.SPA)
+		assert.Equal(t, "index.html", config.StaticOptions.IndexFile)
+		assert.Equal(t, "public, max-age=3600", config.StaticOptions.CacheControl)
+	})
+
+	t.Run("middleware options preserved", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"cors.allow.origins": "*",
+				"compress.level": "best"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.Equal(t, "*", config.Options["cors.allow.origins"])
+		assert.Equal(t, "best", config.Options["compress.level"])
+	})
+
+	t.Run("mixed old and new options", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"spa": true,
+				"cors.allow.origins": "*"
+			},
+			"static_options": {
+				"index": "app.html"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.True(t, config.StaticOptions.SPA)
+		assert.Equal(t, "app.html", config.StaticOptions.IndexFile)
+		assert.Equal(t, "*", config.Options["cors.allow.origins"])
+	})
+}

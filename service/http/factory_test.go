@@ -281,7 +281,8 @@ func TestNewEndpointFactory(t *testing.T) {
 // File System Registry Tests
 func TestStaticFactory_CreateHandler(t *testing.T) {
 	fsRegistry := NewSimpleFSRegistry()
-	factory, err := NewStaticFactory(fsRegistry)
+	middlewareFactory := NewMiddlewareRegistry(nil)
+	factory, err := NewStaticFactory(fsRegistry, middlewareFactory)
 	require.NoError(t, err)
 
 	// Create a temp directory with test files
@@ -325,7 +326,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 			},
 			Path: "/app",
 			FS:   apiregistry.ID{NS: "test", Name: "files"},
-			Options: config.StaticOptions{
+			StaticOptions: config.StaticOptions{
 				SPA:       true,
 				IndexFile: "index.html",
 			},
@@ -376,7 +377,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 			},
 			Path: "/app",
 			FS:   apiregistry.ID{NS: "test", Name: "files"},
-			Options: config.StaticOptions{
+			StaticOptions: config.StaticOptions{
 				SPA: true,
 				// No index file specified
 			},
@@ -391,18 +392,29 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 func TestNewStaticFactory(t *testing.T) {
 	t.Run("with valid registry", func(t *testing.T) {
 		fsRegistry := NewSimpleFSRegistry()
-		factory, err := NewStaticFactory(fsRegistry)
+		middlewareFactory := NewMiddlewareRegistry(nil)
+		factory, err := NewStaticFactory(fsRegistry, middlewareFactory)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, factory)
 	})
 
 	t.Run("with nil registry", func(t *testing.T) {
-		factory, err := NewStaticFactory(nil)
+		middlewareFactory := NewMiddlewareRegistry(nil)
+		factory, err := NewStaticFactory(nil, middlewareFactory)
 
 		assert.Error(t, err)
 		assert.Nil(t, factory)
 		assert.Contains(t, err.Error(), "filesystem registry is required")
+	})
+
+	t.Run("with nil middleware factory", func(t *testing.T) {
+		fsRegistry := NewSimpleFSRegistry()
+		factory, err := NewStaticFactory(fsRegistry, nil)
+
+		assert.Error(t, err)
+		assert.Nil(t, factory)
+		assert.Contains(t, err.Error(), "middleware factory is required")
 	})
 }
 

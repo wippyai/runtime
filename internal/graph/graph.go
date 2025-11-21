@@ -264,7 +264,31 @@ func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 			if cycle, found := g.findCycle(); found {
 				return nil, fmt.Errorf("cycle detected: %v", cycle)
 			}
-			return nil, fmt.Errorf("cycle detected but could not identify path")
+
+			// Build detailed error with stuck nodes and their dependencies
+			stuckNodes := make([]T, 0, len(inDegree))
+			for node := range inDegree {
+				stuckNodes = append(stuckNodes, node)
+			}
+			sort.Slice(stuckNodes, func(i, j int) bool {
+				return fmt.Sprintf("%v", stuckNodes[i]) < fmt.Sprintf("%v", stuckNodes[j])
+			})
+
+			var depsInfo []string
+			for _, node := range stuckNodes {
+				deps := make([]T, 0)
+				if edges, exists := g.edges[node]; exists {
+					for dep := range edges {
+						deps = append(deps, dep)
+					}
+				}
+				sort.Slice(deps, func(i, j int) bool {
+					return fmt.Sprintf("%v", deps[i]) < fmt.Sprintf("%v", deps[j])
+				})
+				depsInfo = append(depsInfo, fmt.Sprintf("%v (degree=%d, depends on: %v)", node, inDegree[node], deps))
+			}
+
+			return nil, fmt.Errorf("cycle detected but could not identify path - stuck nodes: %s", depsInfo)
 		}
 
 		for _, node := range currentLevel {

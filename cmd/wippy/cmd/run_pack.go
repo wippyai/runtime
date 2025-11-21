@@ -177,16 +177,6 @@ func runFromPack(_ *cobra.Command, args []string) error {
 	appCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	go func() {
-		sig := <-sigChan
-		logger.Info("received shutdown signal", zap.String("signal", sig.String()))
-		cancel()
-
-		sig = <-sigChan
-		logger.Warn("received second shutdown signal, forcing exit", zap.String("signal", sig.String()))
-		os.Exit(1)
-	}()
-
 	err = bootpkg.StartRuntimeServices(appCtx)
 	if err != nil {
 		logger.Error("failed to start runtime services", zap.Error(err))
@@ -233,7 +223,20 @@ func runFromPack(_ *cobra.Command, args []string) error {
 	// Store signal channel for system.exit()
 	systemapi.SetSignalChannel(ctx, sigChan)
 
-	<-appCtx.Done()
+	sig := <-sigChan
+	logger.Info("received shutdown signal", zap.String("signal", sig.String()))
+	cancel()
+
+	// Spawn force-exit handler for second signal
+	go func() {
+		sig := <-sigChan
+		logger.Error("force exit", zap.String("signal", sig.String()))
+		os.Exit(1)
+	}()
+
+	if !silentLogs {
+		logger.Info("shutting down (press Ctrl+C again to force exit)")
+	}
 
 	// Perform shutdown and get exit code
 	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
