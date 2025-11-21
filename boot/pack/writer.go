@@ -269,6 +269,7 @@ func (pw *Writer) PackWithResources(
 
 	// Process all filesystem resources
 	resourceInfos := make([]ResourceInfo, 0, len(resources))
+	resourceFrames := make([]rawFrame, 0, len(resources))
 	allDataFrames := make([]rawFrame, 0)
 
 	for _, spec := range resources {
@@ -283,9 +284,9 @@ func (pw *Writer) PackWithResources(
 			return fmt.Errorf("create resource frame for %s: %w", spec.ID, err)
 		}
 
-		// Store resource info and frames
+		// Store resource info and frames separately
 		resourceInfos = append(resourceInfos, resourceInfo)
-		allDataFrames = append(allDataFrames, resourceFrame)
+		resourceFrames = append(resourceFrames, resourceFrame)
 		allDataFrames = append(allDataFrames, dataFrames...)
 	}
 
@@ -296,8 +297,9 @@ func (pw *Writer) PackWithResources(
 		Resources: resourceInfos,
 	}
 
-	// Combine all frames
+	// Combine all frames: metadata, entries, all resource frames, then all data frames
 	allFrames := []rawFrame{metaFrame, entriesFrame}
+	allFrames = append(allFrames, resourceFrames...)
 	allFrames = append(allFrames, allDataFrames...)
 
 	// Write pack file
@@ -634,25 +636,40 @@ func (pw *Writer) writePack(w io.Writer, toc *TOC, frames []rawFrame) error {
 		currentOffset += uint64(len(frames[1].data))
 	}
 
-	if len(frames) >= 3 {
-		// Frame 2 is resource frame
-		toc.Resources[0].Frame.Offset = currentOffset
-		currentOffset += uint64(len(frames[2].data))
+	// Update offsets for resource frames
+	// Frame structure: metadata, entries, all resource frames, then all data frames
+	numResources := len(toc.Resources)
+	frameIdx := 2
+
+	// Validate frame count
+	expectedMinFrames := 2 + numResources // metadata + entries + resources
+	if len(frames) < expectedMinFrames {
+		return fmt.Errorf("insufficient frames: got %d, need at least %d", len(frames), expectedMinFrames)
 	}
 
-	// Frames 3+ are data frames - track them in TOC for reading
-	if len(frames) > 3 {
-		toc.DataFrames = make([]FrameInfo, len(frames)-3)
-		for i := 3; i < len(frames); i++ {
-			frameIdx := i - 3
-			toc.DataFrames[frameIdx] = FrameInfo{
-				Offset:           currentOffset,
-				Size:             uint64(len(frames[i].data)), //nolint:gosec // i is bounded by loop condition
-				UncompressedSize: frames[i].uncompressedSize,  //nolint:gosec // i is bounded by loop condition
-				Hash:             "",                          // Data frames don't need hash validation
-			}
-			currentOffset += uint64(len(frames[i].data)) //nolint:gosec // i is bounded by loop condition
+	// Process all resource frames
+	for i := range toc.Resources {
+		toc.Resources[i].Frame.Offset = currentOffset
+		toc.Resources[i].Frame.Size = uint64(len(frames[frameIdx].data))            //nolint:gosec // frameIdx is validated above
+		toc.Resources[i].Frame.UncompressedSize = frames[frameIdx].uncompressedSize //nolint:gosec // frameIdx is validated above
+		currentOffset += uint64(len(frames[frameIdx].data))                         //nolint:gosec // frameIdx is validated above
+		frameIdx++
+	}
+
+	// Process all data frames (after resource frames)
+	dataFrameStart := 2 + numResources
+	numDataFrames := len(frames) - dataFrameStart
+	toc.DataFrames = make([]FrameInfo, numDataFrames)
+
+	for i := 0; i < numDataFrames; i++ {
+		toc.DataFrames[i] = FrameInfo{
+			Offset:           currentOffset,
+			Size:             uint64(len(frames[frameIdx].data)),
+			UncompressedSize: frames[frameIdx].uncompressedSize,
+			Hash:             "",
 		}
+		currentOffset += uint64(len(frames[frameIdx].data))
+		frameIdx++
 	}
 
 	// Calculate total data size
