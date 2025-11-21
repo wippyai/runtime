@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/wippyai/runtime/api/attrs"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
@@ -55,6 +56,10 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 	}
 
 	for _, msg := range msgs {
+		if msg.ID == "" {
+			msg.ID = uuid.New().String()
+		}
+
 		select {
 		case q.messages <- msg:
 		case <-ctx.Done():
