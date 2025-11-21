@@ -38,30 +38,49 @@ type (
 	// support for service state changes and integrates with the event system
 	// for coordinated operations.
 	Supervisor struct {
-		ctx         context.Context
-		bus         event.Bus
-		subscriber  *eventbus.Subscriber
-		logger      *zap.Logger
-		mu          sync.RWMutex
-		controllers map[string]*Controller
-		actions     chan action
-		wg          sync.WaitGroup
-		tx          *registryTX
-		sequencer   *Sequencer
+		ctx                context.Context
+		bus                event.Bus
+		subscriber         *eventbus.Subscriber
+		logger             *zap.Logger
+		mu                 sync.RWMutex
+		controllers        map[string]*Controller
+		actions            chan action
+		wg                 sync.WaitGroup
+		tx                 *registryTX
+		sequencer          *Sequencer
+		dependencyResolver supervisor.DependencyResolver
 	}
+
+	// Option is a functional option for configuring a Supervisor.
+	Option func(*Supervisor)
 )
 
 // NewSupervisor creates a new Supervisor instance with the provided event bus
 // and logger. The supervisor is initially inactive and must be started with
 // the Launch method.
-func NewSupervisor(bus event.Bus, logger *zap.Logger) *Supervisor {
-	return &Supervisor{
+func NewSupervisor(bus event.Bus, logger *zap.Logger, opts ...Option) *Supervisor {
+	s := &Supervisor{
 		bus:         bus,
 		logger:      logger,
 		controllers: make(map[string]*Controller),
 		actions:     make(chan action, 1024),
 		tx:          newTransactionHelper(logger),
 		sequencer:   NewSequencer(logger),
+	}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return s
+}
+
+// WithDependencyResolver configures the supervisor to use the provided resolver
+// for discovering additional service dependencies beyond those declared in the
+// lifecycle configuration.
+func WithDependencyResolver(resolver supervisor.DependencyResolver) Option {
+	return func(s *Supervisor) {
+		s.dependencyResolver = resolver
 	}
 }
 

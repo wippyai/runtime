@@ -231,16 +231,6 @@ func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *
 	}
 
 	if duplicateCount > 0 {
-		// In verbose mode (-v flag), fail on duplicates. Otherwise, warn and continue.
-		if verbose {
-			logger.Error("duplicate entries detected",
-				zap.Int("total_entries", len(entries)),
-				zap.Int("unique_entries", len(entryByID)),
-				zap.Int("duplicates", duplicateCount),
-				zap.Strings("affected", duplicateIDs))
-			return fmt.Errorf("found %d duplicate entries - check your source files for duplicate entry definitions", duplicateCount)
-		}
-
 		logger.Warn("duplicate entries detected (will use last definition)",
 			zap.Int("duplicates", duplicateCount),
 			zap.Strings("affected", duplicateIDs))
