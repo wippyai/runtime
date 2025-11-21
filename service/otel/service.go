@@ -4,10 +4,12 @@ import (
 	stdcontext "context"
 	"net/http"
 
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apiinterceptor "github.com/wippyai/runtime/api/function"
 	apiprocess "github.com/wippyai/runtime/api/process"
 	queueapi "github.com/wippyai/runtime/api/queue"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	httpapi "github.com/wippyai/runtime/api/service/http"
@@ -385,4 +387,98 @@ func (i *interceptor) Handle(ctx stdcontext.Context, task runtime.Task, next fun
 	}
 
 	return result, err
+}
+
+// publishInterceptor implements queue publish interceptor for tracing
+type publishInterceptor struct {
+	tracer trace.Tracer
+}
+
+// NewPublishInterceptor creates a new queue publish interceptor
+func NewPublishInterceptor(tracer trace.Tracer) queueapi.PublishInterceptor {
+	return &publishInterceptor{
+		tracer: tracer,
+	}
+}
+
+// Handle implements the PublishInterceptor interface
+func (p *publishInterceptor) Handle(ctx stdcontext.Context, queue registry.ID, msgs []*queueapi.Message, next func(stdcontext.Context, registry.ID, []*queueapi.Message) error) error {
+	// Start a span for the publish operation
+	spanName := "queue.publish " + queue.String()
+	ctx, span := p.tracer.Start(ctx, spanName,
+		trace.WithSpanKind(trace.SpanKindProducer))
+
+	// Add queue and messaging attributes
+	span.SetAttributes(
+		attribute.String("messaging.system", "queue"),
+		attribute.String("messaging.operation", "publish"),
+		attribute.String("messaging.destination.name", queue.String()),
+		attribute.Int("messaging.batch.message_count", len(msgs)),
+	)
+
+	// Inject trace context into message headers
+	propagator := otel.GetTextMapPropagator()
+	for _, msg := range msgs {
+		if msg.Headers == nil {
+			msg.Headers = attrs.NewBag()
+		}
+		carrier := messageHeaderCarrier{headers: msg.Headers}
+		propagator.Inject(ctx, carrier)
+	}
+
+	defer span.End()
+
+	err := next(ctx, queue, msgs)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	} else {
+		span.SetStatus(codes.Ok, "")
+	}
+
+	return err
+}
+
+// messageHeaderCarrier implements propagation.TextMapCarrier for attrs.Bag
+type messageHeaderCarrier struct {
+	headers attrs.Bag
+}
+
+// Get returns the value for a key
+func (c messageHeaderCarrier) Get(key string) string {
+	if v, ok := c.headers.Get(key); ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// Set sets the value for a key
+func (c messageHeaderCarrier) Set(key, value string) {
+	c.headers.Set(key, value)
+}
+
+// Keys returns all keys in the carrier
+func (c messageHeaderCarrier) Keys() []string {
+	return c.headers.Keys()
+}
+
+// extractFromDelivery extracts trace context from queue delivery headers
+func extractFromDelivery(ctx stdcontext.Context, delivery *queueapi.Delivery) (stdcontext.Context, bool) {
+	if delivery == nil || delivery.Message == nil || delivery.Message.Headers == nil {
+		return ctx, false
+	}
+
+	propagator := otel.GetTextMapPropagator()
+	carrier := messageHeaderCarrier{headers: delivery.Message.Headers}
+	extractedCtx := propagator.Extract(ctx, carrier)
+
+	// Check if we actually extracted a valid span context
+	spanCtx := trace.SpanContextFromContext(extractedCtx)
+	if spanCtx.IsValid() {
+		return extractedCtx, true
+	}
+
+	return ctx, false
 }
