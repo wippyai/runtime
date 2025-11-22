@@ -1,4 +1,4 @@
-package service
+package otel
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 func OTelHTTP() boot.Component {
 	return boot.New(boot.P{
 		Name:      OTelHTTPName,
-		DependsOn: []boot.ComponentName{OTelName, HTTPName},
+		DependsOn: []boot.ComponentName{OTelName, httpName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			svc := otelapi.GetService(ctx)
 			if svc == nil {

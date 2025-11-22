@@ -68,10 +68,23 @@ func (c *DataConverter) FromPayloads(payloads *commonpb.Payloads, valuePtrs ...a
 		return nil
 	}
 
-	// Special handling for payload.Messages pointer
+	// Special handling for payload.Payloads pointer (named type)
 	if len(valuePtrs) == 1 {
 		if ptr, ok := valuePtrs[0].(*payload.Payloads); ok {
 			*ptr = make(payload.Payloads, len(payloads.Payloads))
+			for i, p := range payloads.Payloads {
+				var pload payload.Payload
+				if err := c.FromPayload(p, &pload); err != nil {
+					return fmt.Errorf("error converting payload at index %d: %w", i, err)
+				}
+				(*ptr)[i] = pload
+			}
+			return nil
+		}
+
+		// Special handling for *[]payload.Payload (underlying type)
+		if ptr, ok := valuePtrs[0].(*[]payload.Payload); ok {
+			*ptr = make([]payload.Payload, len(payloads.Payloads))
 			for i, p := range payloads.Payloads {
 				var pload payload.Payload
 				if err := c.FromPayload(p, &pload); err != nil {

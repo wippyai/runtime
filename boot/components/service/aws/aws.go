@@ -1,8 +1,7 @@
-package service
+package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
 	envapi "github.com/wippyai/runtime/api/env"
@@ -11,12 +10,12 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	bootpkg "github.com/wippyai/runtime/boot"
 	bootsystem "github.com/wippyai/runtime/boot/components/system"
-	"github.com/wippyai/runtime/service/sql"
+	"github.com/wippyai/runtime/service/aws/config"
 )
 
-func SQL() boot.Component {
+func AWS() boot.Component {
 	return boot.New(boot.P{
-		Name:      SQLName,
+		Name:      AWSConfigName,
 		DependsOn: []boot.ComponentName{bootsystem.EnvironmentName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
@@ -25,17 +24,14 @@ func SQL() boot.Component {
 			envRegistry := envapi.GetRegistry(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 
-			manager, err := sql.NewManager(
-				dtt,
+			manager := config.NewManager(
 				bus,
-				logger.Named("sql"),
+				dtt,
+				logger.Named("config.aws"),
 				envRegistry,
 			)
-			if err != nil {
-				return ctx, fmt.Errorf("failed to create sql manager: %w", err)
-			}
 
-			handlers.RegisterListener("db.sql.*", manager)
+			handlers.RegisterListener("config.aws", manager)
 			return ctx, nil
 		},
 	})

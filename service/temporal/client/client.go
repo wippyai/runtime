@@ -47,7 +47,7 @@ func (c *Client) Start(ctx context.Context) (<-chan any, error) {
 	// Test connection immediately
 	_, err := c.client.CheckHealth(ctx, &client.CheckHealthRequest{})
 	if err != nil {
-		c.log.Warn("initial health check failed", zap.Error(err))
+		c.log.Error("initial health check failed", zap.Error(err))
 		statusCh <- supervisor.Failed
 	} else {
 		statusCh <- supervisor.Running
@@ -89,7 +89,7 @@ func (c *Client) Stop(ctx context.Context) error {
 	case <-done:
 		// All goroutines finished
 	case <-ctx.Done():
-		c.log.Warn("timeout waiting for health check goroutine to finish")
+		c.log.Debug("timeout waiting for health check goroutine to finish")
 	}
 
 	// Close the Temporal client
@@ -106,7 +106,7 @@ func (c *Client) Acquire(ctx context.Context, id registry.ID, mode resource.Acce
 	}
 
 	c.wg.Add(1)
-	return &ClientResource{
+	return &clientResourceImpl{
 		client: c.client,
 		prefix: c.config.TQPrefix,
 		wg:     &c.wg,
@@ -130,7 +130,7 @@ func (c *Client) healthCheckLoop(ctx context.Context, statusCh chan<- any) {
 			cancel()
 
 			if err != nil {
-				c.log.Warn("health check failed",
+				c.log.Error("health check failed",
 					zap.String("id", c.id.String()),
 					zap.Error(err))
 				statusCh <- supervisor.Failed
@@ -149,32 +149,27 @@ func (c *Client) GetTaskQueueName(queueName string) string {
 	return c.config.TQPrefix + queueName
 }
 
-// ClientResource provides access to the underlying Temporal client
-type ClientResource struct {
+// clientResourceImpl is the internal implementation of a Temporal client resource
+type clientResourceImpl struct {
 	client   client.Client
 	prefix   string
 	wg       *sync.WaitGroup
 	released atomic.Bool
 }
 
-// Get returns the underlying Temporal client
-func (r *ClientResource) Get() (any, error) {
+// Get returns the public ClientResource struct
+func (r *clientResourceImpl) Get() (any, error) {
 	if r.released.Load() {
 		return nil, fmt.Errorf("resource has been released")
 	}
-	return r.client, nil
-}
-
-// GetTaskQueueName applies the configured prefix to a task queue name
-func (r *ClientResource) GetTaskQueueName(queueName string) string {
-	if r.prefix == "" {
-		return queueName
-	}
-	return r.prefix + queueName
+	return api.ClientResource{
+		Client:   r.client,
+		TQPrefix: r.prefix,
+	}, nil
 }
 
 // Release decrements the resource wait group
-func (r *ClientResource) Release() {
+func (r *clientResourceImpl) Release() {
 	if !r.released.CompareAndSwap(false, true) {
 		return // Already released
 	}

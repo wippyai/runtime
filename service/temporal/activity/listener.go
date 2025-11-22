@@ -13,14 +13,16 @@ import (
 
 // Metadata keys for activity configuration
 const (
-	MetaTemporalActivity = "temporal.activity"
+	MetaTemporalActivity = "temporal"
 	MetaActivityName     = "name"
 	MetaActivityWorker   = "worker"
+	MetaActivityLocal    = "local"
 )
 
 // WorkerRegistry provides access to workers for activity registration
 type WorkerRegistry interface {
 	RegisterActivity(ctx context.Context, workerID registry.ID, activityName string, funcID registry.ID) error
+	RegisterLocalActivity(ctx context.Context, workerID registry.ID, activityName string, funcID registry.ID) error
 	UnregisterActivity(ctx context.Context, workerID registry.ID, activityName string) error
 }
 
@@ -84,19 +86,27 @@ func (l *Listener) handleEntry(ctx context.Context, entry registry.Entry) error 
 
 	workerID, err := l.getWorkerID(activityMeta, entry.ID.NS)
 	if err != nil {
-		l.log.Warn("skipping function registration as activity",
+		l.log.Debug("skipping function registration as activity",
 			zap.String("function", entry.ID.String()),
 			zap.Error(err))
 		return nil
 	}
 
 	activityName := l.getActivityName(activityMeta, entry.ID.String())
+	isLocal := activityMeta.GetBool(MetaActivityLocal, false)
 
-	if err := l.workers.RegisterActivity(ctx, workerID, activityName, entry.ID); err != nil {
+	if isLocal {
+		err = l.workers.RegisterLocalActivity(ctx, workerID, activityName, entry.ID)
+	} else {
+		err = l.workers.RegisterActivity(ctx, workerID, activityName, entry.ID)
+	}
+
+	if err != nil {
 		l.log.Error("failed to register activity",
 			zap.String("function", entry.ID.String()),
 			zap.String("activity", activityName),
 			zap.String("worker", workerID.String()),
+			zap.Bool("local", isLocal),
 			zap.Error(err))
 		return err
 	}
@@ -104,7 +114,8 @@ func (l *Listener) handleEntry(ctx context.Context, entry registry.Entry) error 
 	l.log.Debug("registered function as temporal activity",
 		zap.String("function", entry.ID.String()),
 		zap.String("activity", activityName),
-		zap.String("worker", workerID.String()))
+		zap.String("worker", workerID.String()),
+		zap.Bool("local", isLocal))
 
 	return nil
 }
@@ -128,7 +139,7 @@ func (l *Listener) handleDelete(ctx context.Context, entry registry.Entry) error
 	activityName := l.getActivityName(activityMeta, entry.ID.String())
 
 	if err := l.workers.UnregisterActivity(ctx, workerID, activityName); err != nil {
-		l.log.Warn("failed to unregister activity",
+		l.log.Error("failed to unregister activity",
 			zap.String("function", entry.ID.String()),
 			zap.String("activity", activityName),
 			zap.String("worker", workerID.String()),
@@ -154,18 +165,24 @@ func (l *Listener) getActivityMetadata(entry registry.Entry) registry.Metadata {
 		return nil
 	}
 
-	meta, ok := entry.Meta.GetBag(MetaTemporalActivity)
+	temporal, ok := entry.Meta.GetBag(MetaTemporalActivity)
 	if !ok {
 		return nil
 	}
-	return meta
+
+	activity, ok := temporal.GetBag("activity")
+	if !ok {
+		return nil
+	}
+
+	return activity
 }
 
 // getWorkerID extracts and validates the worker ID from metadata
 func (l *Listener) getWorkerID(activityMeta registry.Metadata, defaultNS string) (registry.ID, error) {
 	workerStr := activityMeta.GetString(MetaActivityWorker, "")
 	if workerStr == "" {
-		return registry.ID{}, fmt.Errorf("missing required worker in meta.temporal.activity")
+		return registry.ID{}, fmt.Errorf("missing required worker in meta.temporal.activity.worker")
 	}
 
 	workerID := registry.ParseID(workerStr)

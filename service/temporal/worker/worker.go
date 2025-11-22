@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -14,7 +15,6 @@ import (
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/api/supervisor"
 	"go.temporal.io/sdk/activity"
-	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
 	"go.uber.org/zap"
@@ -29,6 +29,7 @@ type Worker struct {
 	interceptors []interceptor.WorkerInterceptor
 
 	mu             sync.RWMutex
+	ctx            context.Context
 	worker         worker.Worker
 	clientResource resource.Resource[any]
 	closed         atomic.Bool
@@ -41,6 +42,7 @@ type Worker struct {
 type ActivityRegistration struct {
 	Name     string
 	Function registry.ID
+	Local    bool
 }
 
 // NewWorker creates a new Worker instance
@@ -54,7 +56,7 @@ func NewWorker(
 	return &Worker{
 		id:           id,
 		config:       config,
-		log:          logger.With(zap.String("worker", id.String())),
+		log:          logger,
 		resourceReg:  resourceReg,
 		interceptors: interceptors,
 		activities:   make(map[string]*ActivityRegistration),
@@ -78,7 +80,7 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 	}
 	w.clientResource = clientRes
 
-	// Get temporal client
+	// Get temporal client resource
 	clientAny, err := clientRes.Get()
 	if err != nil {
 		clientRes.Release()
@@ -86,11 +88,21 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 		return statusCh, fmt.Errorf("failed to get client: %w", err)
 	}
 
-	temporalClient, ok := clientAny.(client.Client)
+	temporalRes, ok := clientAny.(api.ClientResource)
 	if !ok {
 		clientRes.Release()
 		statusCh <- supervisor.Failed
-		return statusCh, fmt.Errorf("invalid client type: expected client.Client")
+		return statusCh, fmt.Errorf("invalid client type: expected temporal.ClientResource, got %T", clientAny)
+	}
+
+	temporalClient := temporalRes.Client
+
+	// Apply task queue prefix from client
+	taskQueue := temporalRes.GetTaskQueueName(w.config.TaskQueue)
+	if temporalRes.TQPrefix != "" {
+		w.log.Debug("applied task queue prefix",
+			zap.String("original", w.config.TaskQueue),
+			zap.String("prefixed", taskQueue))
 	}
 
 	// Get function registry from context
@@ -100,6 +112,9 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 		statusCh <- supervisor.Failed
 		return statusCh, fmt.Errorf("function registry not found in context")
 	}
+
+	// Store application context for activity execution
+	w.ctx = ctx
 
 	// Create worker options
 	options := worker.Options{
@@ -156,12 +171,16 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 	options.DisableRegistrationAliasing = w.config.WorkerOptions.DisableRegistrationAliasing
 
 	// Create Temporal SDK worker
-	w.worker = worker.New(temporalClient, w.config.TaskQueue, options)
+	w.worker = worker.New(temporalClient, taskQueue, options)
 
 	// Re-register all existing activities
 	w.mu.RLock()
 	for _, act := range w.activities {
-		w.registerActivity(ctx, act)
+		if act.Local {
+			w.registerLocalActivity(ctx, act)
+		} else {
+			w.registerActivity(ctx, act)
+		}
 	}
 	w.mu.RUnlock()
 
@@ -199,7 +218,6 @@ func (w *Worker) Stop(ctx context.Context) error {
 		w.clientResource.Release()
 	}
 
-	w.log.Info("worker stopped")
 	return nil
 }
 
@@ -231,6 +249,35 @@ func (w *Worker) RegisterActivity(ctx context.Context, name string, funcID regis
 	return nil
 }
 
+// RegisterLocalActivity registers a local activity with this worker
+func (w *Worker) RegisterLocalActivity(ctx context.Context, name string, funcID registry.ID) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if _, exists := w.activities[name]; exists {
+		return fmt.Errorf("activity %s already registered", name)
+	}
+
+	reg := &ActivityRegistration{
+		Name:     name,
+		Function: funcID,
+		Local:    true,
+	}
+
+	w.activities[name] = reg
+
+	// If worker is already running, register immediately
+	if w.worker != nil {
+		w.registerLocalActivity(ctx, reg)
+	}
+
+	w.log.Debug("local activity registered",
+		zap.String("name", name),
+		zap.String("function", funcID.String()))
+
+	return nil
+}
+
 // UnregisterActivity removes an activity from this worker
 func (w *Worker) UnregisterActivity(name string) error {
 	w.mu.Lock()
@@ -254,14 +301,52 @@ func (w *Worker) registerActivity(ctx context.Context, reg *ActivityRegistration
 	})
 }
 
+// registerLocalActivity registers a local activity with the Temporal SDK worker
+func (w *Worker) registerLocalActivity(ctx context.Context, reg *ActivityRegistration) {
+	handler := w.createActivityHandler(ctx, reg.Function)
+	w.worker.RegisterActivityWithOptions(handler, activity.RegisterOptions{
+		Name:                          reg.Name,
+		DisableAlreadyRegisteredCheck: false,
+		SkipInvalidStructFunctions:    false,
+	})
+}
+
 // createActivityHandler creates an activity handler that executes a function through the registry
-func (w *Worker) createActivityHandler(ctx context.Context, funcID registry.ID) func(context.Context, payload.Payloads) (payload.Payloads, error) {
-	return func(activityCtx context.Context, input payload.Payloads) (payload.Payloads, error) {
-		result, err := w.funcRegistry.Call(activityCtx, runtime.Task{
+func (w *Worker) createActivityHandler(ctx context.Context, funcID registry.ID) func(context.Context, []payload.Payload) ([]payload.Payload, error) {
+	return func(activityCtx context.Context, input []payload.Payload) ([]payload.Payload, error) {
+		info := activity.GetInfo(activityCtx)
+		w.log.Debug("executing",
+			zap.String("type", info.ActivityType.Name),
+			zap.String("id", info.ActivityID),
+			zap.String("workflow_id", info.WorkflowExecution.ID),
+			zap.Int32("attempt", info.Attempt),
+		)
+
+		// Use application context (has wippy components) but respect activity cancellation
+		execCtx := w.ctx
+		if activityCtx.Done() != nil {
+			var cancel context.CancelFunc
+			execCtx, cancel = context.WithCancel(w.ctx)
+			defer cancel()
+
+			go func() {
+				<-activityCtx.Done()
+				cancel()
+			}()
+		}
+
+		result, err := w.funcRegistry.Call(execCtx, runtime.Task{
 			ID:       funcID,
-			Payloads: input,
+			Payloads: payload.Payloads(input),
+			Context: []ctxapi.Pair{
+				{Key: api.ActivityContextKey(), Value: activityCtx},
+			},
 		})
 		if err != nil {
+			w.log.Error("execution failed",
+				zap.String("type", info.ActivityType.Name),
+				zap.Error(err),
+			)
 			return nil, err
 		}
 
@@ -269,9 +354,17 @@ func (w *Worker) createActivityHandler(ctx context.Context, funcID registry.ID) 
 			return nil, fmt.Errorf("received nil result from function executor")
 		}
 		if result.Error != nil {
+			w.log.Error("execution failed",
+				zap.String("type", info.ActivityType.Name),
+				zap.Error(result.Error),
+			)
 			return nil, result.Error
 		}
 
-		return payload.Payloads{result.Value}, nil
+		w.log.Debug("completed",
+			zap.String("type", info.ActivityType.Name),
+		)
+
+		return []payload.Payload{result.Value}, nil
 	}
 }

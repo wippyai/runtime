@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/env"
-	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
 
@@ -27,16 +26,6 @@ func NewRouterStorage(storages []env.Storage, log *zap.Logger) (*RouterStorage, 
 		log:      log,
 		cache:    sync.Map{},
 	}, nil
-}
-
-func (r *RouterStorage) Start(_ context.Context) (<-chan any, error) {
-	statusCh := make(chan any, 1)
-	statusCh <- supervisor.Running
-	return statusCh, nil
-}
-
-func (r *RouterStorage) Stop(_ context.Context) error {
-	return nil
 }
 
 func (r *RouterStorage) Get(ctx context.Context, name string) (string, error) {

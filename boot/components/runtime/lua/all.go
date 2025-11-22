@@ -34,6 +34,7 @@ func All() []boot.Component {
 		Subscribe(),
 		System(),
 		Template(),
+		TemporalActivity(),
 		Text(),
 		Time(),
 		TreeSitter(),

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
 
@@ -103,18 +102,4 @@ func TestMemoryStorage_List(t *testing.T) {
 	values, err := storage.List(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, testData, values)
-}
-
-func TestMemoryStorage_ServiceLifecycle(t *testing.T) {
-	storage := NewMemoryStorage(nil, zap.NewNop())
-
-	// Test Start
-	statusCh, err := storage.Start(context.Background())
-	assert.NoError(t, err)
-	status := <-statusCh
-	assert.Equal(t, supervisor.Running, status)
-
-	// Test Stop
-	err = storage.Stop(context.Background())
-	assert.NoError(t, err)
 }

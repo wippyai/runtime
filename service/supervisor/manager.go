@@ -70,56 +70,17 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, processapi.KindProcessService)
 	}
 
-	// Info: Log entry details before transcoding
-	m.log.Info("process supervisor add - entry details",
-		zap.String("id", entry.ID.String()),
-		zap.String("kind", entry.Kind),
-		zap.Any("meta", entry.Meta),
-		zap.Bool("has_data", entry.Data != nil),
-	)
-
-	// Info: Log payload details if available
-	if entry.Data != nil {
-		m.log.Info("process supervisor add - payload details",
-			zap.String("id", entry.ID.String()),
-			zap.String("format", string(entry.Data.Format())),
-			zap.Any("data_type", fmt.Sprintf("%T", entry.Data.Data())),
-			zap.Any("data_preview", m.previewData(entry.Data.Data())),
-		)
-	}
-
-	// Get transcoder and log its availability
+	// Get transcoder
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		m.log.Error("process supervisor add - no transcoder found in context",
-			zap.String("id", entry.ID.String()),
-		)
 		return fmt.Errorf("no transcoder found in context")
 	}
-	m.log.Info("process supervisor add - transcoder available",
-		zap.String("id", entry.ID.String()),
-		zap.String("transcoder_type", fmt.Sprintf("%T", dtt)),
-		zap.Any("entry", entry),
-	)
 
 	// Unmarshal config
 	cfg, err := entryutil.DecodeEntryConfig[processapi.ServiceConfig](ctx, dtt, entry)
 	if err != nil {
-		m.log.Error("process supervisor add - config decode failed",
-			zap.String("id", entry.ID.String()),
-			zap.Error(err),
-		)
 		return err
 	}
-
-	// Info: Log decoded config details
-	m.log.Info("process supervisor add - config decoded successfully",
-		zap.String("id", entry.ID.String()),
-		zap.String("process", cfg.Process.String()),
-		zap.String("host_id", cfg.HostID),
-		zap.Int("input_count", len(cfg.Input)),
-		zap.Any("lifecycle", cfg.Lifecycle),
-	)
 
 	cfg.Process = cfg.Process.WithDefaultNS(entry.ID.NS)
 
@@ -150,7 +111,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		},
 	})
 
-	m.log.Info("process supervisor added", zap.String("id", entry.ID.String()))
+	m.log.Debug("process supervisor added", zap.String("id", entry.ID.String()))
 
 	return nil
 }

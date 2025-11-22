@@ -7,6 +7,7 @@ import (
 
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/runtime"
@@ -126,18 +127,30 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (*runtime.Res
 		args[i] = luaPayload.Data().(lua.LValue)
 	}
 
+	// Apply Task.Context pairs to the execution context
+	execCtx := ctx
+	if len(task.Context) > 0 {
+		// Open or get frame context
+		frameCtx, fc := ctxapi.OpenFrameContext(ctx)
+		// Apply all context pairs from the task
+		if err := fc.SetMultiple(task.Context...); err != nil {
+			return nil, fmt.Errorf("failed to set task context: %w", err)
+		}
+		execCtx = frameCtx
+	}
+
 	// Acquire VM from pool
 	var vm api.VM
 	select {
 	case <-p.done:
 		return nil, fmt.Errorf("pool is closed")
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	case <-execCtx.Done():
+		return nil, execCtx.Err()
 	case vm = <-p.vms:
 	}
 
 	// Execute the function (blocking)
-	result, err := vm.Execute(ctx, p.method, args...)
+	result, err := vm.Execute(execCtx, p.method, args...)
 
 	if err == nil {
 		// Return VM to the pool

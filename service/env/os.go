@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
 
@@ -44,14 +43,4 @@ func (s *OSStorage) List(_ context.Context) (map[string]string, error) {
 		}
 	}
 	return result, nil
-}
-
-func (s *OSStorage) Start(_ context.Context) (<-chan any, error) {
-	statusCh := make(chan any, 1)
-	statusCh <- supervisor.Running
-	return statusCh, nil
-}
-
-func (s *OSStorage) Stop(_ context.Context) error {
-	return nil
 }

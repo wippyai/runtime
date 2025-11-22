@@ -1,4 +1,4 @@
-package service
+package otel
 
 import (
 	"context"
@@ -6,13 +6,12 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	apiinterceptor "github.com/wippyai/runtime/api/function"
 	otelapi "github.com/wippyai/runtime/api/service/otel"
-	bootsystem "github.com/wippyai/runtime/boot/components/system"
 )
 
 func OTelInterceptor() boot.Component {
 	return boot.New(boot.P{
 		Name:      OTelInterceptorName,
-		DependsOn: []boot.ComponentName{OTelName, bootsystem.InterceptorName},
+		DependsOn: []boot.ComponentName{OTelName, interceptorName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			svc := otelapi.GetService(ctx)
 			if svc == nil {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
 
@@ -150,17 +149,6 @@ func TestNewFileStorage(t *testing.T) {
 	storageDotPath := NewFileStorage(dotPath, true, 0644, 0755, logger)
 	assert.NotNil(t, storageDotPath)
 	assert.Equal(t, dotPath, storageDotPath.filepath)
-
-	// Test that the storage can be started and stopped
-	statusCh, err := storage.Start(context.Background())
-	assert.NoError(t, err)
-	assert.NotNil(t, statusCh)
-
-	status := <-statusCh
-	assert.Equal(t, supervisor.Running, status)
-
-	err = storage.Stop(context.Background())
-	assert.NoError(t, err)
 }
 
 func TestFileStorage_Get(t *testing.T) {
@@ -329,33 +317,4 @@ func TestFileStorage_List(t *testing.T) {
 	assert.Equal(t, "value1", values["KEY1"])
 	assert.Equal(t, "value2", values["KEY2"])
 	assert.Equal(t, "value3", values["KEY3"])
-}
-
-func TestFileStorage_StartStop(t *testing.T) {
-	testFile, cleanup := setupTestFile(t)
-	t.Cleanup(cleanup)
-
-	logger := zap.NewNop()
-	storage := NewFileStorage(testFile, true, 0644, 0755, logger)
-
-	// Ensure the test file exists and is readable
-	_, err := os.Stat(testFile)
-	require.NoError(t, err)
-
-	// Test Start
-	statusCh, err := storage.Start(context.Background())
-	assert.NoError(t, err)
-	assert.NotNil(t, statusCh)
-
-	// Verify status
-	status := <-statusCh
-	assert.Equal(t, supervisor.Running, status)
-
-	// Test Stop
-	err = storage.Stop(context.Background())
-	assert.NoError(t, err)
-
-	// Verify the file still exists after the operation
-	_, err = os.Stat(testFile)
-	assert.NoError(t, err)
 }

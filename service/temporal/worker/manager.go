@@ -162,7 +162,7 @@ func (m *Manager) AddWorker(ctx context.Context, id registry.ID, cfg *api.Worker
 	m.configs[id] = cfg
 
 	// Create new service
-	service, err := m.factory.CreateWorker(ctx, m.log.Named("worker"), id, cfg, m.res)
+	service, err := m.factory.CreateWorker(ctx, m.log, id, cfg, m.res)
 	if err != nil {
 		delete(m.configs, id)
 		return fmt.Errorf("failed to create worker: %w", err)
@@ -335,6 +335,16 @@ func (m *Manager) RegisterActivity(ctx context.Context, workerID registry.ID, ac
 	}
 
 	return worker.RegisterActivity(ctx, activityName, funcID)
+}
+
+// RegisterLocalActivity registers a local activity with a worker
+func (m *Manager) RegisterLocalActivity(ctx context.Context, workerID registry.ID, activityName string, funcID registry.ID) error {
+	worker, err := m.GetWorker(workerID)
+	if err != nil {
+		return fmt.Errorf("worker %s not found: %w", workerID, err)
+	}
+
+	return worker.RegisterLocalActivity(ctx, activityName, funcID)
 }
 
 // UnregisterActivity removes an activity from a worker

@@ -5,7 +5,6 @@ import (
 	"os"
 	"sync"
 
-	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
 
@@ -62,14 +61,4 @@ func (s *MemoryStorage) List(_ context.Context) (map[string]string, error) {
 		return true
 	})
 	return result, nil
-}
-
-func (s *MemoryStorage) Start(_ context.Context) (<-chan any, error) {
-	statusCh := make(chan any, 1)
-	statusCh <- supervisor.Running
-	return statusCh, nil
-}
-
-func (s *MemoryStorage) Stop(_ context.Context) error {
-	return nil
 }

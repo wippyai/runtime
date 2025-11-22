@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
 
@@ -299,14 +298,4 @@ func (s *FileStorage) closeFile(file *os.File) {
 			time.Sleep(5 * time.Millisecond)
 		}
 	}
-}
-
-func (s *FileStorage) Start(_ context.Context) (<-chan any, error) {
-	statusCh := make(chan any, 1)
-	statusCh <- supervisor.Running
-	return statusCh, nil
-}
-
-func (s *FileStorage) Stop(_ context.Context) error {
-	return nil
 }

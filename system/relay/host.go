@@ -83,11 +83,8 @@ func (h *Host) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, er
 		return nil, fmt.Errorf("%w: pid=%s", api.ErrAlreadyAttached, pid.String())
 	}
 
-	h.logger.Debug("package receiver attached", zap.String("pid", pid.String()))
-
 	cancel := func() {
 		h.receivers.Delete(pid)
-		h.logger.Debug("package receiver detached", zap.String("pid", pid.String()))
 	}
 	return cancel, nil
 }

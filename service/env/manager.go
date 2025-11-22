@@ -10,7 +10,6 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
-	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
@@ -66,7 +65,18 @@ func (m *Manager) handleMemoryStorageAdd(ctx context.Context, entry registry.Ent
 	m.storages[entry.ID] = storage
 	m.mu.Unlock()
 
-	return m.registerService(ctx, entry, storage)
+	m.bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   entry.ID.String(),
+		Data:   storage,
+	})
+
+	m.logger.Info("registered environment storage",
+		zap.String("id", entry.ID.String()),
+		zap.String("kind", entry.Kind))
+
+	return nil
 }
 
 func (m *Manager) handleFileStorageAdd(ctx context.Context, entry registry.Entry) error {
@@ -84,7 +94,18 @@ func (m *Manager) handleFileStorageAdd(ctx context.Context, entry registry.Entry
 	m.storages[entry.ID] = storage
 	m.mu.Unlock()
 
-	return m.registerService(ctx, entry, storage)
+	m.bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   entry.ID.String(),
+		Data:   storage,
+	})
+
+	m.logger.Info("registered environment storage",
+		zap.String("id", entry.ID.String()),
+		zap.String("kind", entry.Kind))
+
+	return nil
 }
 
 func (m *Manager) handleOSStorageAdd(ctx context.Context, entry registry.Entry) error {
@@ -102,7 +123,18 @@ func (m *Manager) handleOSStorageAdd(ctx context.Context, entry registry.Entry) 
 	m.storages[entry.ID] = storage
 	m.mu.Unlock()
 
-	return m.registerService(ctx, entry, storage)
+	m.bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   entry.ID.String(),
+		Data:   storage,
+	})
+
+	m.logger.Info("registered environment storage",
+		zap.String("id", entry.ID.String()),
+		zap.String("kind", entry.Kind))
+
+	return nil
 }
 
 func (m *Manager) handleRouterStorageAdd(ctx context.Context, entry registry.Entry) error {
@@ -127,7 +159,18 @@ func (m *Manager) handleRouterStorageAdd(ctx context.Context, entry registry.Ent
 	m.storages[entry.ID] = storage
 	m.mu.Unlock()
 
-	return m.registerService(ctx, entry, storage)
+	m.bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.StorageRegister,
+		Path:   entry.ID.String(),
+		Data:   storage,
+	})
+
+	m.logger.Info("registered environment storage",
+		zap.String("id", entry.ID.String()),
+		zap.String("kind", entry.Kind))
+
+	return nil
 }
 
 func (m *Manager) handleVariableAdd(ctx context.Context, entry registry.Entry) error {
@@ -237,33 +280,4 @@ func (m *Manager) ListStorages() map[registry.ID]env.Storage {
 		result[k] = v
 	}
 	return result
-}
-
-func (m *Manager) registerService(ctx context.Context, entry registry.Entry, storage env.Storage) error {
-	svc, ok := storage.(supervisor.Service)
-	if !ok {
-		return nil
-	}
-
-	m.bus.Send(ctx, event.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   entry.ID.String(),
-		Data: &supervisor.Entry{
-			Service: svc,
-		},
-	})
-
-	m.bus.Send(ctx, event.Event{
-		System: env.System,
-		Kind:   env.StorageRegister,
-		Path:   entry.ID.String(),
-		Data:   storage,
-	})
-
-	m.logger.Info("registered environment storage",
-		zap.String("id", entry.ID.String()),
-		zap.String("kind", entry.Kind))
-
-	return nil
 }

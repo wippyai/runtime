@@ -3,7 +3,7 @@ local json = require("json")
 
 -- Create a ProcessData activity with configuration
 local process_data = temporal.activity("ProcessData", {
-    task_queue = "simple-task-queue-2",
+    task_queue = "dev:test-queue",
     start_to_close_timeout = "25s"
 })
 

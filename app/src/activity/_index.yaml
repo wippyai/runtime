@@ -6,10 +6,26 @@ entries:
     kind: function.lua
     meta:
       comment: "Simple data processing function"
-      temporal_activity:
-        name: "ProcessData"
-        task_queue: "system:simple_queue"
+      temporal:
+        activity:
+          name: "ProcessData"
+          worker: "app.temporal:worker1"
     source: file://process_data.lua
+    method: handler
+    modules: [ "json" ]
+    pool:
+      size: 50
+
+  - name: validate_data
+    kind: function.lua
+    meta:
+      comment: "Quick local validation activity"
+      temporal:
+        activity:
+          name: "ValidateData"
+          worker: "app.temporal:worker1"
+          local: true
+    source: file://validate_data.lua
     method: handler
     modules: [ "json" ]
     pool:

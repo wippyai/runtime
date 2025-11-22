@@ -153,7 +153,7 @@ func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.Client
 	m.configs[id] = cfg
 
 	// Create new service
-	service, err := m.factory.CreateClient(ctx, m.log.Named("client"), id, cfg)
+	service, err := m.factory.CreateClient(ctx, m.log.With(zap.String("id", id.String())), id, cfg)
 	if err != nil {
 		delete(m.configs, id)
 		return fmt.Errorf("failed to create client: %w", err)
