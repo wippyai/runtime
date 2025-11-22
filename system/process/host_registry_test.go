@@ -30,20 +30,6 @@ func (m *mockManagedHost) Launch(_ context.Context, _ *process.Launch) (relay.PI
 	return relay.PID{}, nil
 }
 
-type mockDelegatedHost struct{}
-
-func (m *mockDelegatedHost) Send(_ *relay.Package) error {
-	return nil
-}
-
-func (m *mockDelegatedHost) Terminate(_ context.Context, _ relay.PID) error {
-	return nil
-}
-
-func (m *mockDelegatedHost) Dispatch(_ context.Context, _ process.Lifecycle, _ *process.Dispatch) (relay.PID, error) {
-	return relay.PID{}, nil
-}
-
 type invalidHost struct{}
 
 func newTestHostRegistry(_ *testing.T) (*HostRegistry, event.Bus) {
@@ -108,31 +94,6 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 		assert.True(t, exists)
 		assert.NotNil(t, registeredHost)
 		_, ok := registeredHost.(process.Managed)
-		assert.True(t, ok)
-	})
-
-	t.Run("register delegated host", func(t *testing.T) {
-		host := &mockDelegatedHost{}
-		bus.Send(ctx, event.Event{
-			System: process.HostSystem,
-			Kind:   process.HostRegister,
-			Path:   "test:delegated-host",
-			Data:   host,
-		})
-
-		select {
-		case resp := <-responses:
-			assert.Equal(t, process.HostAccept, resp.Kind)
-			assert.Equal(t, "test:delegated-host", resp.Path)
-		case <-time.After(time.Second):
-			t.Fatal("timeout waiting for response")
-		}
-
-		// Verify host was registered
-		registeredHost, exists := hostRegistry.GetHost("test:delegated-host")
-		assert.True(t, exists)
-		assert.NotNil(t, registeredHost)
-		_, ok := registeredHost.(process.Delegated)
 		assert.True(t, ok)
 	})
 

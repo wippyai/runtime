@@ -48,83 +48,40 @@ func (m *Manager) RegisterMutator(mutator api.StartMutator) {
 	m.mutators = append(m.mutators, mutator)
 }
 
-// preparePID creates and validates a pid for the process
-func (m *Manager) preparePID(ctx context.Context, ps *api.Start, managed bool) relay.PID {
-	// If UniqID is already provided, construct PID directly
-	if ps.UniqID != "" {
-		pid := relay.PID{
-			Host:   ps.HostID,
-			UniqID: ps.UniqID,
-		}
-
-		if managed {
-			pid.Node = m.nodeID
-		}
-
-		return pid.Precomputed()
-	}
-
-	// Use centralized PID generator
+// preparePID creates a PID for the process using the centralized generator
+func (m *Manager) preparePID(ctx context.Context, ps *api.Start) relay.PID {
 	gen := pidgen.GetGenerator(ctx)
 	return gen.Generate(ps.HostID, ps.Source)
 }
 
-// launchOnHost handles the actual process launch on either managed or delegated hosts
-func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid relay.PID, ps *api.Start) (relay.PID, error) {
+// launchOnHost handles the actual process launch on a managed host
+func (m *Manager) launchOnHost(ctx context.Context, host api.Managed, pid relay.PID, ps *api.Start) (relay.PID, error) {
 	m.logger.Debug("launching process",
 		zap.String("host", ps.HostID),
 		zap.String("pid", pid.String()),
 		zap.String("id", ps.Source.String()),
 	)
 
-	switch h := host.(type) {
-	case api.Managed:
-		proc, err := m.prototypes.Create(ps.Source)
-		if err != nil {
-			return relay.PID{}, fmt.Errorf("failed to init launch: %w", err)
-		}
-
-		newPid, err := h.Launch(ctx, &api.Launch{
-			PID:        pid,
-			Source:     ps.Source,
-			Process:    proc,
-			Input:      ps.Input,
-			Context:    ps.Context,
-			Options:    ps.Options,
-			OnStart:    ps.OnStart,
-			OnComplete: ps.OnComplete,
-		})
-		if err != nil {
-			return relay.PID{}, fmt.Errorf("failed to launch process on managed host: %w", err)
-		}
-		return newPid, nil
-
-	case api.Delegated:
-		// Construct Lifecycle from Options for Delegated hosts
-		var lifecycle api.Lifecycle
-		if parent, ok := ps.Options.Get(api.LifecycleParentKey); ok {
-			if pid, ok := parent.(relay.PID); ok {
-				lifecycle.Parent = pid
-			}
-		}
-		lifecycle.Monitor = ps.Options.GetBool(api.LifecycleMonitorKey, false)
-		lifecycle.Link = ps.Options.GetBool(api.LifecycleLinkKey, false)
-
-		newPid, err := h.Dispatch(ctx, lifecycle, &api.Dispatch{
-			PID:     pid,
-			Source:  ps.Source,
-			Input:   ps.Input,
-			Context: ps.Context,
-			Options: ps.Options,
-		})
-		if err != nil {
-			return relay.PID{}, fmt.Errorf("failed to dispatch process to delegated host: %w", err)
-		}
-		return newPid, nil
-
-	default:
-		return relay.PID{}, fmt.Errorf("invalid host type: %T", host)
+	proc, err := m.prototypes.Create(ps.Source)
+	if err != nil {
+		return relay.PID{}, fmt.Errorf("failed to init launch: %w", err)
 	}
+
+	newPid, err := host.Launch(ctx, &api.Launch{
+		PID:        pid,
+		Source:     ps.Source,
+		Process:    proc,
+		Input:      ps.Input,
+		Context:    ps.Context,
+		Options:    ps.Options,
+		OnStart:    ps.OnStart,
+		OnComplete: ps.OnComplete,
+	})
+	if err != nil {
+		return relay.PID{}, fmt.Errorf("failed to launch process: %w", err)
+	}
+
+	return newPid, nil
 }
 
 // Start launches a process, passing the lifecycle information to the host
@@ -143,10 +100,14 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error
 		return relay.PID{}, fmt.Errorf("host not found: `%s`", start.HostID)
 	}
 
-	_, managed := host.(api.Managed)
-	pid := m.preparePID(ctx, start, managed)
+	managedHost, ok := host.(api.Managed)
+	if !ok {
+		return relay.PID{}, fmt.Errorf("host must implement Managed interface, got: %T", host)
+	}
 
-	return m.launchOnHost(ctx, host, pid, start)
+	pid := m.preparePID(ctx, start)
+
+	return m.launchOnHost(ctx, managedHost, pid, start)
 }
 
 // Cancel sends a cancellation event to the process and its monitors

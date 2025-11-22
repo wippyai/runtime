@@ -47,7 +47,7 @@ func newMockProcessManager() *mockProcessManager {
 func (m *mockProcessManager) Start(_ context.Context, start *processapi.Start) (relay.PID, error) {
 	pid := relay.PID{
 		Host:   start.HostID,
-		UniqID: start.UniqID,
+		UniqID: "generated-id",
 	}
 	m.processes[pid] = true
 	return pid, nil

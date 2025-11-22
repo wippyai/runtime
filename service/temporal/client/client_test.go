@@ -221,7 +221,7 @@ func TestClient_Acquire(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, res)
 
-		clientRes, ok := res.(*ClientResource)
+		clientRes, ok := res.(*clientResourceImpl)
 		require.True(t, ok)
 		assert.Equal(t, "dev:", clientRes.prefix)
 	})
@@ -297,15 +297,18 @@ func TestClientResource_Get(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(1)
 
-		res := &ClientResource{
+		res := &clientResourceImpl{
 			client: temporalClient,
 			prefix: "dev:",
 			wg:     &wg,
 		}
 
-		client, err := res.Get()
+		result, err := res.Get()
 		require.NoError(t, err)
-		assert.Equal(t, temporalClient, client)
+		clientRes, ok := result.(api.ClientResource)
+		require.True(t, ok)
+		assert.Equal(t, temporalClient, clientRes.Client)
+		assert.Equal(t, "dev:", clientRes.TQPrefix)
 	})
 
 	t.Run("get from released resource fails", func(t *testing.T) {
@@ -313,7 +316,7 @@ func TestClientResource_Get(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(1)
 
-		res := &ClientResource{
+		res := &clientResourceImpl{
 			client: temporalClient,
 			prefix: "dev:",
 			wg:     &wg,
@@ -321,17 +324,17 @@ func TestClientResource_Get(t *testing.T) {
 
 		res.Release()
 
-		client, err := res.Get()
+		result, err := res.Get()
 		assert.Error(t, err)
-		assert.Nil(t, client)
+		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "resource has been released")
 	})
 }
 
 func TestClientResource_GetTaskQueueName(t *testing.T) {
 	t.Run("apply prefix to task queue name", func(t *testing.T) {
-		res := &ClientResource{
-			prefix: "prod:",
+		res := api.ClientResource{
+			TQPrefix: "prod:",
 		}
 
 		queueName := res.GetTaskQueueName("my-queue")
@@ -339,8 +342,8 @@ func TestClientResource_GetTaskQueueName(t *testing.T) {
 	})
 
 	t.Run("no prefix returns original name", func(t *testing.T) {
-		res := &ClientResource{
-			prefix: "",
+		res := api.ClientResource{
+			TQPrefix: "",
 		}
 
 		queueName := res.GetTaskQueueName("my-queue")
@@ -353,7 +356,7 @@ func TestClientResource_Release(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(1)
 
-		res := &ClientResource{
+		res := &clientResourceImpl{
 			wg: &wg,
 		}
 
@@ -365,7 +368,7 @@ func TestClientResource_Release(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(1)
 
-		res := &ClientResource{
+		res := &clientResourceImpl{
 			wg: &wg,
 		}
 

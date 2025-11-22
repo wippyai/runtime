@@ -14,8 +14,7 @@ import (
 )
 
 type hostInfo struct {
-	host    api.Host
-	managed bool
+	host api.Host
 }
 
 // HostRegistry manages process hosts and their topology
@@ -86,28 +85,18 @@ func (r *HostRegistry) registerHost(e event.Event) {
 		return
 	}
 
-	// Determine host type
-	managed := false
-	switch h := host.(type) {
-	case api.Managed:
-		managed = true
-		_ = h // avoid unused variable warning
-	case api.Delegated:
-		_ = h // avoid unused variable warning
-	default:
+	if _, ok := host.(api.Managed); !ok {
 		r.log.Error("invalid host implementation",
 			zap.String("host", e.Path),
 			zap.String("type", fmt.Sprintf("%T", host)))
-		r.sendReject(e.Path, "host must implement either Managed or Delegated interface")
+		r.sendReject(e.Path, "host must implement Managed interface")
 		return
 	}
 
-	info := hostInfo{host: host, managed: managed}
+	info := hostInfo{host: host}
 
 	r.hosts.Store(e.Path, info)
-	r.log.Debug("host registered",
-		zap.String("host", e.Path),
-		zap.Bool("managed", managed))
+	r.log.Debug("host registered", zap.String("host", e.Path))
 
 	r.sendAccept(e.Path)
 }

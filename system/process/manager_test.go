@@ -80,48 +80,6 @@ func (m *managerManagedHost) Launch(_ context.Context, launch *api.Launch) (rela
 	}, nil
 }
 
-// Manager-specific delegated host mock
-type managerDelegatedHost struct {
-	launchErr     error
-	terminateErr  error
-	sendErr       error
-	launched      bool
-	terminated    bool
-	lastPID       relay.PID
-	lastLifecycle api.Lifecycle
-	lastDispatch  *api.Dispatch
-	lastCancel    *relay.Package
-}
-
-func (m *managerDelegatedHost) Send(pkg *relay.Package) error {
-	m.lastCancel = pkg
-	return m.sendErr
-}
-
-func (m *managerDelegatedHost) Terminate(_ context.Context, _ relay.PID) error {
-	m.terminated = true
-	return m.terminateErr
-}
-
-// Dispatch implements the Delegated interface
-func (m *managerDelegatedHost) Dispatch(_ context.Context, lf api.Lifecycle, dispatch *api.Dispatch) (relay.PID, error) {
-	if m.launchErr != nil {
-		return relay.PID{}, m.launchErr
-	}
-
-	m.launched = true
-	m.lastPID = dispatch.PID
-	m.lastLifecycle = lf
-	m.lastDispatch = dispatch
-
-	// Return a PID with the provided values but a modified UniqID
-	return relay.PID{
-		Node:   "delegated-node",
-		Host:   dispatch.PID.Host,
-		UniqID: "delegated-host-assigned-" + dispatch.PID.UniqID,
-	}, nil
-}
-
 // Manager-specific mock process
 type managerProcessMock struct {
 	createErr error
@@ -230,16 +188,16 @@ func (m *managerTopology) Release(caller, _ relay.PID) error {
 // Helper to create a context with mock topology
 //
 //nolint:unparam // managerTopology return value used in some tests
-func contextWithManagerTopology() (context.Context, *managerTopology) {
+func contextWithManagerTopology(nodeID relay.NodeID) (context.Context, *managerTopology) {
 	topo := newManagerTopology()
 	ctx := ctxapi.NewRootContext()
 
 	ctx = topology.WithTopology(ctx, topo)
 	ctx = topology.WithRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
 
-	// Add PID generator to context
+	// Add PID generator to context with provided nodeID
 	uniqGen := uniqid.NewGenerator()
-	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	pidGen := uniqid.NewPIDGenerator(uniqGen, nodeID)
 	ctx = pidgen.WithGenerator(ctx, pidGen)
 
 	return ctx, topo
@@ -252,7 +210,7 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 
 	hostLookup := newManagerHostLookup()
 	factory := &managerProcessMock{}
-	ctx, _ := contextWithManagerTopology()
+	ctx, _ := contextWithManagerTopology(nodeID)
 
 	// Create the managed host mock
 	managedHost := &managerManagedHost{}
@@ -264,7 +222,6 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 
 	// Test data
 	sourceID := registry.ID{NS: "test", Name: "process"}
-	uniqID := "test-uniq"
 	inputs := payload.Payloads{}
 	parentPID := relay.PID{
 		Node:   "parent-node",
@@ -281,7 +238,6 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 	startReq := &api.Start{
 		HostID:  hostID,
 		Source:  sourceID,
-		UniqID:  uniqID,
 		Input:   inputs,
 		Options: opts,
 	}
@@ -291,13 +247,13 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 	// Assertions
 	require.NoError(t, err)
 	assert.True(t, managedHost.launched, "Expected host Launch to be called")
-	assert.Equal(t, "managed-host-assigned-test-uniq", resultPID.UniqID)
 	assert.Equal(t, hostID, resultPID.Host)
 	assert.Equal(t, nodeID, resultPID.Node)
+	assert.NotEmpty(t, resultPID.UniqID, "PID should have generated UniqID")
 
 	// Verify Launch parameters
 	require.NotNil(t, managedHost.lastLaunch)
-	assert.Equal(t, uniqID, managedHost.lastLaunch.PID.UniqID)
+	assert.NotEmpty(t, managedHost.lastLaunch.PID.UniqID, "Launch PID should have UniqID")
 	assert.Equal(t, nodeID, managedHost.lastLaunch.PID.Node)
 	assert.Equal(t, hostID, managedHost.lastLaunch.PID.Host)
 	assert.Equal(t, inputs, managedHost.lastLaunch.Input)
@@ -308,63 +264,6 @@ func TestManager_Start_ManagedHost(t *testing.T) {
 	assert.True(t, managedHost.lastLaunch.Options.GetBool(api.LifecycleLinkKey, false))
 }
 
-func TestManager_Start_DelegatedHost(t *testing.T) {
-	// Setup test dependencies
-	nodeID := relay.NodeID("test-node")
-	logger := zap.NewNop()
-
-	hostLookup := newManagerHostLookup()
-	factory := &managerProcessMock{}
-	ctx, _ := contextWithManagerTopology()
-
-	// Create the delegated host mock
-	delegatedHost := &managerDelegatedHost{}
-	hostID := "delegated-host"
-	hostLookup.AddHost(hostID, delegatedHost)
-
-	// Create the manager
-	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
-
-	// Test data
-	sourceID := registry.ID{NS: "test", Name: "process"}
-	uniqID := "test-uniq"
-	inputs := payload.Payloads{}
-	lifecycle := api.Lifecycle{
-		Monitor: true,
-		Link:    true,
-	}
-
-	opts := attrs.NewBag()
-	opts.Set(api.LifecycleMonitorKey, true)
-	opts.Set(api.LifecycleLinkKey, true)
-
-	// Execute the test
-	startReq := &api.Start{
-		HostID:  hostID,
-		Source:  sourceID,
-		UniqID:  uniqID,
-		Input:   inputs,
-		Options: opts,
-	}
-
-	resultPID, err := manager.Start(ctx, startReq)
-
-	// Assertions
-	require.NoError(t, err)
-	assert.True(t, delegatedHost.launched, "Expected host Launch to be called")
-	assert.Equal(t, "delegated-host-assigned-test-uniq", resultPID.UniqID)
-	assert.Equal(t, hostID, resultPID.Host)
-	assert.Equal(t, "delegated-node", resultPID.Node)
-
-	// Verify Dispatch parameters
-	assert.Equal(t, uniqID, delegatedHost.lastPID.UniqID)
-	assert.Equal(t, hostID, delegatedHost.lastPID.Host)
-	require.NotNil(t, delegatedHost.lastDispatch)
-	assert.Equal(t, inputs, delegatedHost.lastDispatch.Input)
-	assert.Equal(t, sourceID, delegatedHost.lastDispatch.Source)
-	assert.Equal(t, lifecycle, delegatedHost.lastLifecycle)
-}
-
 func TestManager_Start_HostNotFound(t *testing.T) {
 	// Setup test dependencies
 	nodeID := relay.NodeID("test-node")
@@ -372,7 +271,7 @@ func TestManager_Start_HostNotFound(t *testing.T) {
 
 	hostLookup := newManagerHostLookup()
 	factory := &managerProcessMock{}
-	ctx, _ := contextWithManagerTopology()
+	ctx, _ := contextWithManagerTopology(nodeID)
 
 	// Create the manager
 	manager := NewProcessManager(hostLookup, factory, nodeID, logger)
@@ -403,7 +302,7 @@ func TestManager_Start_ProcessCreationFails(t *testing.T) {
 	factory := &managerProcessMock{
 		createErr: errors.New("process creation error"),
 	}
-	ctx, _ := contextWithManagerTopology()
+	ctx, _ := contextWithManagerTopology(nodeID)
 
 	// Create the managed host mock
 	managedHost := &managerManagedHost{}
@@ -597,7 +496,7 @@ func TestManager_GeneratesUniqID(t *testing.T) {
 
 	hostLookup := newManagerHostLookup()
 	factory := &managerProcessMock{}
-	ctx, _ := contextWithManagerTopology()
+	ctx, _ := contextWithManagerTopology(nodeID)
 
 	// Create the managed host mock
 	managedHost := &managerManagedHost{}
@@ -643,7 +542,7 @@ func TestManager_Start_InvalidHostType(t *testing.T) {
 
 	hostLookup := newManagerHostLookup()
 	factory := &managerProcessMock{}
-	ctx, _ := contextWithManagerTopology()
+	ctx, _ := contextWithManagerTopology(nodeID)
 
 	// Create an invalid host type
 	hostID := "invalid-host"
@@ -661,7 +560,7 @@ func TestManager_Start_InvalidHostType(t *testing.T) {
 
 	_, err := manager.Start(ctx, start)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid host type")
+	assert.Contains(t, err.Error(), "host must implement Managed interface")
 }
 
 func TestManager_Start_ProcessCreationError(t *testing.T) {
@@ -673,7 +572,7 @@ func TestManager_Start_ProcessCreationError(t *testing.T) {
 	factory := &managerProcessMock{
 		createErr: errors.New("process creation failed"),
 	}
-	ctx, _ := contextWithManagerTopology()
+	ctx, _ := contextWithManagerTopology(nodeID)
 
 	// Create the managed host mock
 	managedHost := &managerManagedHost{}

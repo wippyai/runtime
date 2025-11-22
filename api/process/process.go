@@ -164,10 +164,6 @@ type (
 		// Source is the registry ID of the process prototype to instantiate
 		Source registry.ID
 
-		// UniqID is an optional unique identifier for the process instance.
-		// If not provided, one will be generated automatically.
-		UniqID string
-
 		// Input contains the initialization data for the process
 		Input payload.Payloads
 
@@ -226,32 +222,6 @@ type (
 		OnComplete []OnComplete
 	}
 
-	// Dispatch contains the information needed to dispatch a process to a delegated host.
-	// It is used by delegated hosts (e.g., Temporal workers) to create and start a process remotely.
-	// Unlike Launch, Dispatch does not include the Process instance since delegated hosts
-	// create their own processes from the Source registry ID.
-	// This structure is created by the Manager from a Start request after applying mutators.
-	Dispatch struct {
-		// PID is the process identifier to assign to the new process
-		PID relay.PID
-
-		// Source is the registry ID of the process type to instantiate
-		Source registry.ID
-
-		// Input contains the initialization data for the process
-		Input payload.Payloads
-
-		// Context contains context overrides to apply when launching this process.
-		// These pairs are set in the new FrameContext after inheritance but before sealing.
-		// Includes user-provided pairs and mutator additions.
-		Context []context.Pair
-
-		// Options contains runtime configuration options for the process.
-		// Includes user-provided options and mutator additions.
-		// Lifecycle parameters are stored here (lifecycle.parent, lifecycle.monitor, lifecycle.link).
-		Options attrs.Attributes
-	}
-
 	// Terminator defines the interface for forcefully stopping a running process.
 	Terminator interface {
 		// Terminate forcefully stops a running process identified by pid.
@@ -299,19 +269,6 @@ type (
 		// Returns the Target of the started process or an error if the process
 		// cannot be started.
 		Launch(ctx stdcontext.Context, launch *Launch) (relay.PID, error)
-	}
-
-	// Delegated defines the interface for delegated process hosts.
-	// Delegated hosts receive dispatch information from the manager and
-	// are responsible for creating and executing the processes themselves remotely.
-	// Examples include Temporal workers or other external executors.
-	Delegated interface {
-		Host
-
-		// Dispatch starts a process remotely with the given lifecycle and dispatch configuration.
-		// The delegated host creates the process instance from dispatch.Source.
-		// Returns the PID of the started process or an error if the process cannot be started.
-		Dispatch(ctx stdcontext.Context, lf Lifecycle, dispatch *Dispatch) (relay.PID, error)
 	}
 
 	// InfoProvider is an optional interface processes can implement to expose runtime information.
