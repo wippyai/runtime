@@ -132,6 +132,9 @@ type (
 		Terminate()
 	}
 
+	// Workflow extends Process with command-based execution for deterministic replay.
+	// Moved to api/workflow package to avoid import cycles.
+	// Use workflow.Workflow instead.
 	Workflow interface {
 		Process
 		Commands() []runtime.Command

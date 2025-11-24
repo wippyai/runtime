@@ -197,3 +197,26 @@ func (r *Request) IsCanceled() bool {
 func (r *Request) ResponseChannel() lua.LValue {
 	return r.channelValue
 }
+
+// GetChannel returns the internal response channel for Go code to yield on
+func (r *Request) GetChannel() *channel.Channel {
+	return r.responseChannel
+}
+
+// SendAndYield sends a request to the upstream handler and yields on its response channel.
+// This is a convenience function for workflow modules that need to send a request and
+// immediately wait for its completion.
+func SendAndYield(l *lua.LState, req *Request) int {
+	upstream, ok := runtime.GetUpstream(l.Context())
+	if !ok {
+		l.RaiseError("no upstream handler found in context")
+		return 0
+	}
+
+	if err := upstream.SendRequest(req); err != nil {
+		l.RaiseError("failed to send request: %s", err.Error())
+		return 0
+	}
+
+	return channel.Receive(l, req.responseChannel)
+}

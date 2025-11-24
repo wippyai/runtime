@@ -137,6 +137,10 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
+func RegisterDurationMethods(l *lua.LState) {
+	registerDurationMethods(l)
+}
+
 // registerDurationMethods registers Duration type methods
 func registerDurationMethods(l *lua.LState) {
 	value.RegisterTypeMethods(l, "time.Duration",
@@ -153,6 +157,10 @@ func registerDurationMethods(l *lua.LState) {
 	)
 }
 
+func RegisterLocationMethods(l *lua.LState) {
+	registerLocationMethods(l)
+}
+
 // registerLocationMethods registers Location type methods
 func registerLocationMethods(l *lua.LState) {
 	value.RegisterTypeMethods(l, "time.Location",
@@ -163,6 +171,10 @@ func registerLocationMethods(l *lua.LState) {
 			"string": locationString,
 		},
 	)
+}
+
+func RegisterTimeMethods(l *lua.LState) {
+	registerTimeMethods(l)
 }
 
 // registerTimeMethods registers Time type methods

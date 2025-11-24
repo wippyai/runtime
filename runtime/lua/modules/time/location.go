@@ -13,6 +13,14 @@ type Location struct {
 	location *time.Location
 }
 
+func NewUTCLocation() *Location {
+	return &Location{location: time.UTC}
+}
+
+func NewLocalLocation() *Location {
+	return &Location{location: time.Local}
+}
+
 // locationString returns the name of the location
 func locationString(l *lua.LState) int {
 	ud := l.CheckUserData(1)
@@ -22,6 +30,10 @@ func locationString(l *lua.LState) int {
 	}
 	l.ArgError(1, "location expected")
 	return 0
+}
+
+func LoadLocation(l *lua.LState) int {
+	return loadLocation(l)
 }
 
 // loadLocation implements time.LoadLocation for Lua
@@ -46,6 +58,10 @@ func loadLocation(l *lua.LState) int {
 	ud.Metatable = value.GetTypeMetatable(nil, "time.Location")
 	l.Push(ud)
 	return 1
+}
+
+func FixedZone(l *lua.LState) int {
+	return fixedZone(l)
 }
 
 // fixedZone implements time.FixedZone for Lua

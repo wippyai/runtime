@@ -60,6 +60,10 @@ func (m *Module) osClock(l *lua.LState) int {
 	return 1
 }
 
+func OsTime(l *lua.LState) int {
+	return osTime(l)
+}
+
 // osTime implements os.time() function
 // In standard Lua:
 // - Without arguments: returns current time
@@ -88,12 +92,20 @@ func osTime(l *lua.LState) int {
 	return 1
 }
 
+func GetIntField(table *lua.LTable, key string, defaultValue int) int {
+	return getIntField(nil, table, key, defaultValue)
+}
+
 // Helper to get integer field from table with default value
 func getIntField(_ *lua.LState, table *lua.LTable, key string, defaultValue int) int {
 	if v := table.RawGetString(key); v.Type() == lua.LTNumber {
 		return int(v.(lua.LNumber))
 	}
 	return defaultValue
+}
+
+func OsDate(l *lua.LState) int {
+	return osDate(l)
 }
 
 // osDate implements os.date() function
@@ -160,6 +172,10 @@ func osDate(l *lua.LState) int {
 	return 1
 }
 
+func OsDateTable(l *lua.LState, t time.Time) int {
+	return osDateTable(l, t)
+}
+
 // osDateTable returns a table with date/time components
 func osDateTable(l *lua.LState, t time.Time) int {
 	tbl := l.CreateTable(0, 9) // Exactly 9 fields
@@ -180,6 +196,10 @@ func osDateTable(l *lua.LState, t time.Time) int {
 
 	l.Push(tbl)
 	return 1
+}
+
+func FormatDate(format string, t time.Time) string {
+	return formatDate(format, t)
 }
 
 // formatDate implements simplified Lua os.date() formatting

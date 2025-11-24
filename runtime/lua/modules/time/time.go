@@ -17,6 +17,10 @@ type Time struct {
 	time time.Time
 }
 
+func NewTime(t time.Time) *Time {
+	return &Time{time: t}
+}
+
 func isTime(l *lua.LState, n int) (*Time, bool) {
 	if ud, ok := l.Get(n).(*lua.LUserData); ok {
 		if t, ok := ud.Value.(*Time); ok {
@@ -45,6 +49,10 @@ func isLocation(l *lua.LState, n int) (*Location, bool) {
 }
 
 // Core time functions
+func Now(l *lua.LState) int {
+	return now(l)
+}
+
 func now(l *lua.LState) int {
 	t := time.Now()
 	ud := l.NewUserData()
@@ -122,6 +130,10 @@ func sleepCoroutine(l *lua.LState) int {
 	return -1
 }
 
+func Date(l *lua.LState) int {
+	return date(l)
+}
+
 func date(l *lua.LState) int {
 	year := l.CheckInt(1)
 	month := time.Month(l.CheckInt(2))
@@ -152,6 +164,10 @@ func date(l *lua.LState) int {
 	return 1
 }
 
+func Unix(l *lua.LState) int {
+	return unix(l)
+}
+
 func unix(l *lua.LState) int {
 	sec := l.CheckInt64(1)
 	nsec := l.CheckInt64(2)
@@ -162,6 +178,10 @@ func unix(l *lua.LState) int {
 
 	l.Push(ud)
 	return 1
+}
+
+func Parse(l *lua.LState) int {
+	return parse(l)
 }
 
 func parse(l *lua.LState) int {

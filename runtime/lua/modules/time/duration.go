@@ -86,6 +86,11 @@ func durationToString(l *lua.LState) int {
 	return 0
 }
 
+// ParseDuration implements time.ParseDuration for Lua
+func ParseDuration(l *lua.LState) int {
+	return parseDuration(l)
+}
+
 // parseDuration implements time.ParseDuration for Lua
 func parseDuration(l *lua.LState) int {
 	duration, err := parseDurationValue(l.Get(1))
@@ -101,6 +106,10 @@ func parseDuration(l *lua.LState) int {
 
 	l.Push(ud)
 	return 1
+}
+
+func ParseDurationValue(value lua.LValue) (time.Duration, error) {
+	return parseDurationValue(value)
 }
 
 func parseDurationValue(value lua.LValue) (time.Duration, error) {
