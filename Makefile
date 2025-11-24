@@ -278,6 +278,57 @@ build-wippy-windows-amd64:
 run-wippy:
 	go run -ldflags="$(WIPPY_LDFLAGS)" ./cmd/wippy/ $(ARGS)
 
+.PHONY: build-wippy-release-linux-amd64
+build-wippy-release-linux-amd64:
+	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build --tags "fts5 sqlite_vec" \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-buildmode=pie \
+		-o ./dist/wippy-linux-amd64 \
+		./cmd/wippy/
+
+.PHONY: build-wippy-release-linux-arm64
+build-wippy-release-linux-arm64:
+	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc \
+		CGO_CFLAGS="-I/usr/include/aarch64-linux-gnu" \
+		CGO_LDFLAGS="-L/usr/lib/aarch64-linux-gnu" \
+		go build --tags "fts5 sqlite_vec" \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-buildmode=pie \
+		-o ./dist/wippy-linux-arm64 \
+		./cmd/wippy/
+
+.PHONY: build-wippy-release-darwin-amd64
+build-wippy-release-darwin-amd64:
+	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build --tags "fts5 sqlite_vec" \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-o ./dist/wippy-darwin-amd64 \
+		./cmd/wippy/
+
+.PHONY: build-wippy-release-darwin-arm64
+build-wippy-release-darwin-arm64:
+	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build --tags "fts5 sqlite_vec" \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-o ./dist/wippy-darwin-arm64 \
+		./cmd/wippy/
+
+.PHONY: build-wippy-release-windows-amd64
+build-wippy-release-windows-amd64:
+	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build --tags "fts5 sqlite_vec" \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-buildmode=pie \
+		-o ./dist/wippy-windows-amd64.exe \
+		./cmd/wippy/
+
 # Build standalone application from pack file
 # Usage: make build-app PACK=myapp.wapp OUTPUT=myapp
 .PHONY: build-app
