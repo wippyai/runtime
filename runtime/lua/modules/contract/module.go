@@ -14,11 +14,11 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	secapi "github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/runtime/lua/command"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
+	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
@@ -825,20 +825,20 @@ func executeAsync(l *lua.LState, wrapper *InstanceWrapper, methodName string, ar
 		return 0
 	}
 	ctx, cancel := context.WithCancel(execCtx)
-	cmd := command.NewCommand(l, methodName, func(_ runtime.Command) { cancel() }, args...)
+	req := upstream.NewRequest(l, methodName, func(_ runtime.Command) { cancel() }, args...)
 
 	// Execute method in background with call context applied
 	uw.Run(func(_ engine.UnitOfWork) {
 		result, err := wrapper.instance.Call(ctx, methodName, args)
 		if err != nil {
-			_ = cmd.Complete(&runtime.Result{Error: err})
+			_ = req.Complete(&runtime.Result{Error: err})
 			return
 		}
 
-		_ = cmd.Complete(result)
+		_ = req.Complete(result)
 	})
 
-	l.Push(command.WrapCommand(l, cmd))
+	l.Push(req.ResponseChannel())
 	return 1
 }
 

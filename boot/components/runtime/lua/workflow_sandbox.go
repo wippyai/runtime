@@ -4,12 +4,14 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
+	sandbox "github.com/wippyai/runtime/runtime/lua/modules/workflow_sandbox"
 )
 
-func Upstream() boot.Component {
+const WorkflowSandboxName boot.ComponentName = "lua.workflow_sandbox"
+
+func WorkflowSandbox() boot.Component {
 	return boot.New(boot.P{
-		Name:      "lua.upstream",
+		Name:      WorkflowSandboxName,
 		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
@@ -18,7 +20,7 @@ func Upstream() boot.Component {
 			}
 
 			if err := AddModules(ctx, cm,
-				upstream.NewUpstreamModule(),
+				sandbox.NewWorkflowSandboxModule(),
 			); err != nil {
 				return ctx, err
 			}

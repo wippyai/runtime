@@ -1,4 +1,4 @@
-package task
+package upstream
 
 import (
 	"errors"
@@ -15,7 +15,8 @@ var (
 	ErrTaskCompleted = errors.New("task already completed")
 )
 
-// Task represents a task with payload input and completion callback
+// Task represents a task with payload input and completion callback (IN + Response)
+// Backend creates tasks and sends them to Lua, Lua processes and completes
 type Task struct {
 	// Input payload
 	Input payload.Payload

@@ -4,12 +4,12 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
+	"github.com/wippyai/runtime/runtime/lua/modules/temporal/activity"
 )
 
-func Upstream() boot.Component {
+func TemporalActivity() boot.Component {
 	return boot.New(boot.P{
-		Name:      "lua.upstream",
+		Name:      LuaTemporalActivityName,
 		DependsOn: []boot.ComponentName{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
@@ -17,9 +17,7 @@ func Upstream() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm,
-				upstream.NewUpstreamModule(),
-			); err != nil {
+			if err := AddModules(ctx, cm, activity.NewModule()); err != nil {
 				return ctx, err
 			}
 

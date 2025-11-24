@@ -243,6 +243,11 @@ func (cm *Manager) GetNode(id registry.ID) (*Node, error) {
 	return cm.memGraph.GetNode(id)
 }
 
+// GetDirectDependencies returns direct dependencies of a node
+func (cm *Manager) GetDirectDependencies(id registry.ID) ([]*Node, error) {
+	return cm.memGraph.GetDirectDependencies(id)
+}
+
 // DeleteNode removes a node and its dependencies from the graph
 func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 	// Get node to verify it exists

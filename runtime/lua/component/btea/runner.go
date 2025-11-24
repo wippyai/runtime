@@ -8,11 +8,10 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
 
-	taskmod "github.com/wippyai/runtime/runtime/lua/task"
-
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
+	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -56,12 +55,12 @@ func (r *TaskRunner) SendTask(taskType string, input lua.LValue) error {
 	inputPayload := luaconv.ExportPayload(input)
 
 	// Create task without completion callback
-	t := taskmod.NewTask(inputPayload, nil)
+	t := upstream.NewTask(inputPayload, nil)
 
 	// Create message table
 	msg := state.CreateTable(0, 2)
 	msg.RawSetString("type", lua.LString(taskType))
-	msg.RawSetString("task", taskmod.WrapTask(state, t))
+	msg.RawSetString("task", upstream.WrapTask(state, t))
 
 	// Publish to events channel
 	return subscribe.Publish(r.app.state.Ctx, ChannelEvents, msg)
@@ -103,7 +102,7 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	resultCh := make(chan runtime.Result, 1)
 
 	// Create task with completion callback
-	t := taskmod.NewTask(inputPayload, func(result runtime.Result) {
+	t := upstream.NewTask(inputPayload, func(result runtime.Result) {
 		select {
 		case resultCh <- result:
 			// Result sent
@@ -115,7 +114,7 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	// Create message table
 	msg := state.CreateTable(0, 2)
 	msg.RawSetString("type", lua.LString(taskType))
-	msg.RawSetString("task", taskmod.WrapTask(state, t))
+	msg.RawSetString("task", upstream.WrapTask(state, t))
 
 	// Publish to events channel
 	if err := subscribe.Publish(r.app.state.Ctx, ChannelEvents, msg); err != nil {

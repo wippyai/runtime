@@ -220,6 +220,17 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 
 	if len(tasks) > 0 {
 		// some threads leaked out of the wrapped chain
+		e.cvm.vm.log.Error("MISSING VM LAYER DEBUG",
+			zap.Int("layer_count", len(e.layers)),
+			zap.Int("leaked_tasks", len(tasks)),
+			zap.String("tasks", fmt.Sprintf("%v", tasks)))
+
+		for i, layer := range e.layers {
+			e.cvm.vm.log.Error("Layer info",
+				zap.Int("index", i),
+				zap.String("type", fmt.Sprintf("%T", layer)))
+		}
+
 		return fmt.Errorf("unexpected threads, missing VM layer: %v", tasks)
 	}
 

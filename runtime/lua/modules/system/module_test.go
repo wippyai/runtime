@@ -35,17 +35,21 @@ func TestSystemModuleWithVM(t *testing.T) {
 		err = vm.DoString(newTestContext(), `
 			local system = require("system")
 			assert(type(system) == "table")
-			assert(type(system.mem_stats) == "function")
-			assert(type(system.allocated) == "function")
-			assert(type(system.heap_objects) == "function")
-			assert(type(system.gc) == "function")
-			assert(type(system.set_gc_percent) == "function")
-			assert(type(system.get_gc_percent) == "function")
-			assert(type(system.num_goroutines) == "function")
-			assert(type(system.go_max_procs) == "function")
-			assert(type(system.num_cpu) == "function")
-			assert(type(system.hostname) == "function")
-			assert(type(system.pid) == "function")
+			assert(type(system.memory) == "table")
+			assert(type(system.memory.stats) == "function")
+			assert(type(system.memory.allocated) == "function")
+			assert(type(system.memory.heap_objects) == "function")
+			assert(type(system.gc) == "table")
+			assert(type(system.gc.collect) == "function")
+			assert(type(system.gc.set_percent) == "function")
+			assert(type(system.gc.get_percent) == "function")
+			assert(type(system.runtime) == "table")
+			assert(type(system.runtime.goroutines) == "function")
+			assert(type(system.runtime.max_procs) == "function")
+			assert(type(system.runtime.cpu_count) == "function")
+			assert(type(system.process) == "table")
+			assert(type(system.process.hostname) == "function")
+			assert(type(system.process.pid) == "function")
 		`, "test")
 		assert.NoError(t, err)
 	})
@@ -59,20 +63,20 @@ func TestSystemModuleWithVM(t *testing.T) {
 		script := `
 			local system = require("system")
 			function test()
-				local stats, err = system.mem_stats()
+				local stats, err = system.memory.stats()
 				if err then
 					return nil, err
 				end
-				
+
 				-- Check some basic expectations
 				if type(stats) ~= "table" then
 					return nil, "expected table result"
 				end
-				
+
 				if stats.alloc == nil or stats.heap_objects == nil or stats.num_gc == nil then
 					return nil, "missing expected fields"
 				end
-				
+
 				return {
 					has_alloc = stats.alloc > 0,
 					has_heap_objects = stats.heap_objects > 0
@@ -105,23 +109,23 @@ func TestSystemModuleWithVM(t *testing.T) {
 			local system = require("system")
 			function test()
 				-- Get current allocation
-				local alloc_before, err = system.allocated()
+				local alloc_before, err = system.memory.allocated()
 				if err then
 					return nil, err
 				end
-				
+
 				-- Force garbage collection
-				local gc_success, err = system.gc()
+				local gc_success, err = system.gc.collect()
 				if err then
 					return nil, err
 				end
-				
+
 				-- Get allocation after GC
-				local alloc_after, err = system.allocated()
+				local alloc_after, err = system.memory.allocated()
 				if err then
 					return nil, err
 				end
-				
+
 				return {
 					gc_success = gc_success,
 					alloc_before = alloc_before,
@@ -157,26 +161,26 @@ func TestSystemModuleWithVM(t *testing.T) {
 			local system = require("system")
 			function test()
 				-- Get current GC percent
-				local original, err = system.get_gc_percent()
+				local original, err = system.gc.get_percent()
 				if err then
 					return nil, err
 				end
-				
+
 				-- Set new value
-				local old, err = system.set_gc_percent(200)
+				local old, err = system.gc.set_percent(200)
 				if err then
 					return nil, err
 				end
-				
+
 				-- Get updated value
-				local new, err = system.get_gc_percent()
+				local new, err = system.gc.get_percent()
 				if err then
 					return nil, err
 				end
-				
+
 				-- Restore original value
-				system.set_gc_percent(original)
-				
+				system.gc.set_percent(original)
+
 				return {
 					original = original,
 					old_from_set = old,
@@ -213,35 +217,35 @@ func TestSystemModuleWithVM(t *testing.T) {
 			local system = require("system")
 			function test()
 				-- Get number of goroutines
-				local goroutines, err = system.num_goroutines()
+				local goroutines, err = system.runtime.goroutines()
 				if err then
 					return nil, err
 				end
-				
+
 				-- Get number of CPUs
-				local cpus, err = system.num_cpu()
+				local cpus, err = system.runtime.cpu_count()
 				if err then
 					return nil, err
 				end
-				
+
 				-- Get GOMAXPROCS
-				local procs, err = system.go_max_procs()
+				local procs, err = system.runtime.max_procs()
 				if err then
 					return nil, err
 				end
-				
+
 				-- Get hostname
-				local hostname, err = system.hostname()
+				local hostname, err = system.process.hostname()
 				if err then
 					return nil, err
 				end
-				
+
 				-- Get PID
-				local pid, err = system.pid()
+				local pid, err = system.process.pid()
 				if err then
 					return nil, err
 				end
-				
+
 				return {
 					goroutines = goroutines,
 					cpus = cpus,
@@ -286,27 +290,27 @@ func TestSystemModuleWithVM(t *testing.T) {
 			local system = require("system")
 			function test()
 				-- Get current GOMAXPROCS
-				local original, err = system.go_max_procs()
+				local original, err = system.runtime.max_procs()
 				if err then
 					return nil, err
 				end
-				
+
 				-- Set to 2 (or current if already 2)
 				local target = original == 2 and 3 or 2
-				local old, err = system.go_max_procs(target)
+				local old, err = system.runtime.max_procs(target)
 				if err then
 					return nil, err
 				end
-				
+
 				-- Get new value
-				local new, err = system.go_max_procs()
+				local new, err = system.runtime.max_procs()
 				if err then
 					return nil, err
 				end
-				
+
 				-- Restore original
-				system.go_max_procs(original)
-				
+				system.runtime.max_procs(original)
+
 				return {
 					original = original,
 					old_returned = old,

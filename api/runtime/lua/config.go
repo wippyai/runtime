@@ -13,8 +13,9 @@ const (
 	// KindFunction identifies a Lua function component in the registry
 	KindFunction registry.Kind = "function.lua"
 
-	KindBteaApp registry.Kind = "btea.app.lua"
-	KindProcess registry.Kind = "process.lua"
+	KindBteaApp  registry.Kind = "btea.app.lua"
+	KindProcess  registry.Kind = "process.lua"
+	KindWorkflow registry.Kind = "workflow.lua"
 
 	// KindLibrary identifies a Lua library component in the registry
 	KindLibrary registry.Kind = "library.lua"

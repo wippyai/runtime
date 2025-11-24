@@ -31,7 +31,8 @@ func init() {
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.NewID("", "channel")}).
 		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.NewID("", "process_api")}).
 		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.NewID("", "os")}).
-		WithPreloaded(code.Preload{Name: "payload", ModuleID: registry.NewID("", "payload")})
+		WithPreloaded(code.Preload{Name: "payload", ModuleID: registry.NewID("", "payload")}).
+		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.NewID("", "upstream")})
 
 	layers = component.WithRunnerOption(
 		engine.WithLayer(channel.NewChannelLayer()),

@@ -18,10 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/runtime/lua/command"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
 	"github.com/wippyai/runtime/system/payload/lua"
@@ -169,51 +169,10 @@ func securityModuleLoader(l *lua2.LState) int {
 	return 1
 }
 
-// Make sure command package is properly initialized for tests
-func setupCommandPackage(l *lua2.LState) {
-	// Register the command metatable
-	const CommandMetatable = "command.Command"
-	value.RegisterMethods(l, CommandMetatable, map[string]lua2.LGFunction{
-		"await": func(l *lua2.LState) int {
-			// Get command userdata
-			ud := l.CheckUserData(1)
-			cmd, ok := ud.Value.(runtime.Command)
-			if !ok {
-				l.ArgError(1, "Command expected")
-				return 0
-			}
-
-			// Get result from command
-			result := cmd.Result()
-			if result == nil {
-				l.Push(lua2.LNil)
-				return 1
-			}
-
-			// Check for error
-			if result.Error != nil {
-				l.Push(lua2.LNil)
-				l.Push(lua2.LString(result.Error.Error()))
-				return 2
-			}
-
-			// Return value
-			if result.Value != nil {
-				// In a real impl, this would use transcoder, but for test convert to string
-				l.Push(lua2.LString(fmt.Sprintf("%v", result.Value)))
-				return 1
-			}
-
-			l.Push(lua2.LNil)
-			return 1
-		},
-	})
-}
-
-// Register mock command functions in the VM
-func setupCommandModule(l *lua2.LState) {
-	// Register command module and wrap function
-	command.RegisterCommand(l)
+// Register upstream module in the VM for tests
+func setupUpstreamModule(l *lua2.LState) *upstream.Module {
+	mod := upstream.NewUpstreamModule()
+	return mod
 }
 
 func TestExecutorModule(t *testing.T) {
@@ -506,36 +465,34 @@ func TestExecutorModule(t *testing.T) {
 	})
 
 	t.Run("async with security context", func(t *testing.T) {
+		upstreamMod := upstream.NewUpstreamModule()
 		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
 			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(upstreamMod.Name(), upstreamMod.Loader),
 			engine.WithLoader("security", securityModuleLoader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Setup command module for async tests
-		setupCommandPackage(vm.State())
-		setupCommandModule(vm.State())
-
-		// Modified test script to use a simpler approach with fixed result
+		// Modified test script to use channel response
 		err = vm.Import(`
 			function test_async_with_actor()
 				local security = require("security")
 				local executor = funcs.new()
-				
+
 				-- Create an actor
 				local actor = security.new_actor("async_user")
-				
+
 				-- Create executor with actor
 				local executor_with_actor = executor:with_actor(actor)
-				
+
 				-- Call function asynchronously
-				local cmd = executor_with_actor:async("test:function")
-				
-				-- For test purposes, we'll just verify we got a command object
-				assert(cmd ~= nil, "expected command object but got nil")
-				
+				local ch = executor_with_actor:async("test:function")
+
+				-- For test purposes, we'll just verify we got a channel
+				assert(ch ~= nil, "expected channel but got nil")
+
 				-- Return fixed string to verify test passed
 				return "actor:async_user"
 			end

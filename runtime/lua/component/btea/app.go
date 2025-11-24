@@ -13,11 +13,11 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/service/terminal"
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	"github.com/wippyai/runtime/runtime/lua/engine/upstream"
 	"github.com/wippyai/runtime/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -36,6 +36,20 @@ const (
 	// ExitKey is used to trigger process cancellation.
 	ExitKey = "esc"
 )
+
+// channelSender wraps a channel as an UpstreamSender for BubbleTea
+type channelSender struct {
+	ch chan<- payload.Payload
+}
+
+func (s *channelSender) Send(p payload.Payload) error {
+	select {
+	case s.ch <- p:
+		return nil
+	default:
+		return errors.New("upstream channel full")
+	}
+}
 
 // App represents the main BubbleTea application that uses a State under the hood.
 type App struct {
@@ -140,8 +154,9 @@ func (a *App) Start(ctx context.Context, pid relay.PID, input payload.Payloads) 
 	// Create bubbletea program
 	a.program = tea.NewProgram(a, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
 
-	// Enhance the context with upstream channel
-	if err := upstream.WithUpstreamChannel(ctx, a.upstream); err != nil {
+	// Enhance the context with upstream sender
+	sender := &channelSender{ch: a.upstream}
+	if err := runtime.WithUpstreamSender(ctx, sender); err != nil {
 		return err
 	}
 

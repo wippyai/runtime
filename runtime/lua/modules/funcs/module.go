@@ -13,11 +13,11 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	secapi "github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/runtime/lua/command"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
+	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
@@ -78,9 +78,6 @@ func (m *Module) initModuleTable(l *lua.LState) {
 		"call":         m.call,
 		"async":        m.async,
 	})
-
-	// Register command once
-	command.RegisterCommand(l)
 
 	// Create module table
 	t := l.CreateTable(0, 1)
@@ -487,8 +484,8 @@ func (m *Module) async(l *lua.LState) int {
 
 	ctx, cancel := context.WithCancel(uw.Context())
 
-	// Create a Command for the function call with the task's params
-	cmd := command.NewCommand(
+	// Create a Request for the function call with the task's params
+	req := upstream.NewRequest(
 		l,
 		runtimeTask.ID.String(),
 		func(_ runtime.Command) { cancel() },
@@ -499,21 +496,21 @@ func (m *Module) async(l *lua.LState) int {
 		// Run the function
 		result, err := functions.funcs.Call(ctx, runtimeTask)
 		if err != nil {
-			_ = cmd.Complete(&runtime.Result{
+			_ = req.Complete(&runtime.Result{
 				Error: err,
 			})
 			return
 		}
 
 		// Complete with result
-		_ = cmd.Complete(&runtime.Result{
+		_ = req.Complete(&runtime.Result{
 			Value: result.Value,
 			Error: result.Error,
 		})
 	})
 
-	// Return the command object
-	l.Push(command.WrapCommand(l, cmd))
+	// Return the request wrapped as upstream.Request userdata
+	l.Push(upstream.WrapRequest(l, req))
 	return 1
 }
 
