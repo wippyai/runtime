@@ -40,7 +40,7 @@ func NewProcessAPIModule(log *zap.Logger) *Module {
 // Info returns module metadata
 func (m *Module) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
-		Name:        "process.api",
+		Name:        "process_api",
 		Description: "Process API with inbox and event handling",
 		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
 	}

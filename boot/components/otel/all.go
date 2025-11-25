@@ -9,5 +9,6 @@ func All() []boot.Component {
 		OTelProcess(),
 		OTelInterceptor(),
 		OTelQueue(),
+		OTelMetrics(),
 	}
 }

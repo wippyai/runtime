@@ -598,12 +598,16 @@ func TestConcurrentSubscribeWithFilter(t *testing.T) {
 
 	sendWg.Wait()
 
-	// Verify message distribution
+	// Give time for messages to be delivered to subscriber channels
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify message distribution with timeout
 	timeout := time.After(5 * time.Second)
 	messageCount := make([]int, numSubscribers)
 
 	done := make(chan bool)
 	go func() {
+		deadline := time.Now().Add(2 * time.Second)
 		for i, ch := range subscriberChans {
 		loop:
 			for {
@@ -613,8 +617,11 @@ func TestConcurrentSubscribeWithFilter(t *testing.T) {
 						break loop
 					}
 					messageCount[i]++
-				default:
-					break loop
+				case <-time.After(10 * time.Millisecond):
+					// Check if we've waited long enough
+					if time.Now().After(deadline) {
+						break loop
+					}
 				}
 			}
 		}

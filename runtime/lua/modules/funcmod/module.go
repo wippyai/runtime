@@ -44,7 +44,7 @@ func NewFunctionAPIModule(log *zap.Logger) *Module {
 // Info returns module metadata
 func (e *Module) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
-		Name:        "function.api",
+		Name:        "function_api",
 		Description: "Function API with lazy inbox handling",
 		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
 	}

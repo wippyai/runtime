@@ -30,6 +30,7 @@ type TaskPool struct {
 	factory    api.Factory
 	tasks      chan *runtimeTask
 	workers    int
+	buffer     int
 	closed     atomic.Bool
 	closeOnce  sync.Once
 	done       chan struct{}
@@ -67,13 +68,22 @@ func WithTaskLogger(logger *zap.Logger) TaskOption {
 	}
 }
 
+// WithTaskBuffer sets the task channel buffer size.
+func WithTaskBuffer(buffer int) TaskOption {
+	return func(p *TaskPool) {
+		if buffer > 0 {
+			p.buffer = buffer
+		}
+	}
+}
+
 // NewTaskPool creates a new TaskPool with the given configuration.
 func NewTaskPool(factory api.Factory, method string, opts ...TaskOption) (*TaskPool, error) {
 	p := &TaskPool{
 		size:    5,
 		workers: 2,
+		buffer:  0, // Will be calculated after opts
 		logger:  zap.NewNop(),
-		tasks:   make(chan *runtimeTask, 1000),
 		done:    make(chan struct{}),
 		method:  method,
 	}
@@ -81,6 +91,17 @@ func NewTaskPool(factory api.Factory, method string, opts ...TaskOption) (*TaskP
 	for _, opt := range opts {
 		opt(p)
 	}
+
+	// If buffer not explicitly set, calculate based on workers
+	if p.buffer == 0 {
+		p.buffer = p.workers * 1000
+		if p.buffer < 1000 {
+			p.buffer = 1000
+		}
+	}
+
+	// Create tasks channel with configured buffer size
+	p.tasks = make(chan *runtimeTask, p.buffer)
 
 	if err := p.init(factory); err != nil {
 		return nil, fmt.Errorf("failed to initialize task pool: %w", err)

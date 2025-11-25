@@ -21,7 +21,7 @@ func NewModule() *Module {
 // Info returns module metadata
 func (m *Module) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
-		Name:        "temporal.activity",
+		Name:        "temporal_activity",
 		Description: "Temporal activity context functions",
 		Class:       []string{luaapi.ClassWorkflow, luaapi.ClassNondeterministic},
 	}

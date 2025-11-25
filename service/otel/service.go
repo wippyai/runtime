@@ -56,7 +56,13 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 				ctx = propagator.Extract(ctx, propagation.HeaderCarrier(r.Header))
 			}
 
-			spanName := r.Method + " " + r.URL.Path
+			// Read route ONCE at start, store in local variable
+			route := "unmatched"
+			if label, ok := httpapi.GetRouteLabel(ctx); ok && label != "" {
+				route = label
+			}
+
+			spanName := r.Method + " " + route
 
 			ctx, span := s.tracer.Start(ctx, spanName,
 				trace.WithSpanKind(trace.SpanKindServer),
@@ -64,7 +70,7 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 					attribute.String("http.method", r.Method),
 					attribute.String("http.url", r.URL.String()),
 					attribute.String("http.host", r.Host),
-					attribute.String("http.target", r.URL.Path),
+					attribute.String("http.route", route),
 				),
 			)
 			defer span.End()
@@ -76,21 +82,7 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 			}
 
 			r = r.WithContext(ctx)
-
-			// Check for RouteInfo before calling next handler (safe read for post-middleware)
-			if routeInfo, ok := httpapi.GetRouteInfo(ctx); ok {
-				if routeInfo != nil && routeInfo.Func.Name != "" {
-					span.SetName(r.Method + " " + routeInfo.Func.String())
-					span.SetAttributes(attribute.String("http.route", routeInfo.Func.String()))
-				} else if routeInfo != nil && routeInfo.Endpoint.Name != "" {
-					span.SetName(r.Method + " " + routeInfo.Endpoint.String())
-					span.SetAttributes(attribute.String("http.route", routeInfo.Endpoint.String()))
-				}
-			}
-
 			next.ServeHTTP(w, r)
-
-			span.SetAttributes(attribute.Int("http.status_code", 200))
 		})
 	}
 }

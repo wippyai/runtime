@@ -15,6 +15,7 @@ var (
 	// todo: privatize
 	RequestCtx         = &ctxapi.Key{Name: "http.request"}
 	RouteCtx           = &ctxapi.Key{Name: "http.route"}
+	RouteLabelCtx      = &ctxapi.Key{Name: "http.route_label"}
 	ContextServerID    = &ctxapi.Key{Name: "http.server_id"}
 	ContextHost        = &ctxapi.Key{Name: "http.server.host"}
 	EndpointConfigCtx  = &ctxapi.Key{Name: "http.endpoint_config"}
@@ -64,6 +65,22 @@ func GetRouteInfo(ctx context.Context) (*RouteInfo, bool) {
 	}
 	info, ok := val.(*RouteInfo)
 	return info, ok
+}
+
+// GetRouteLabel retrieves the immutable route label string from FrameContext.
+// This is safe to use throughout request lifecycle including in defers.
+// Returns empty string and false if not available.
+func GetRouteLabel(ctx context.Context) (string, bool) {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return "", false
+	}
+	val, ok := fc.Get(RouteLabelCtx)
+	if !ok {
+		return "", false
+	}
+	label, ok := val.(string)
+	return label, ok
 }
 
 // NewRequestContext creates a new RequestContext instance with the provided

@@ -33,6 +33,7 @@ type (
 	PoolConfig struct {
 		Size    int `json:"size"`    // Total number of VMs in the pool
 		Workers int `json:"workers"` // Number of worker threads
+		Buffer  int `json:"buffer"`  // Task queue buffer size (default: workers * 1000)
 		// lazy/flex pool specifics
 		WarmStart bool `json:"warm_start"` // Whether to precompile (default: false)
 		MaxSize   int  `json:"max_size"`   // Maximum size for lazy pool / concurrent executions (default: 100)

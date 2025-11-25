@@ -6,9 +6,14 @@ import (
 
 	otelapi "github.com/wippyai/runtime/api/service/otel"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/metric"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
@@ -17,6 +22,12 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// Providers holds both TracerProvider and MeterProvider
+type Providers struct {
+	Tracer trace.TracerProvider
+	Meter  metric.MeterProvider
+}
 
 // InitializeProvider creates and configures an OpenTelemetry TracerProvider
 func InitializeProvider(ctx context.Context, cfg otelapi.Config, logger *zap.Logger) (trace.TracerProvider, error) {
@@ -186,6 +197,88 @@ func ShutdownProvider(ctx context.Context, tp trace.TracerProvider, logger *zap.
 			return fmt.Errorf("failed to shutdown tracer provider: %w", err)
 		}
 		logger.Debug("OTEL provider shutdown complete")
+	}
+	return nil
+}
+
+// InitializeMeterProvider creates and configures an OpenTelemetry MeterProvider
+func InitializeMeterProvider(ctx context.Context, cfg otelapi.Config, logger *zap.Logger) (metric.MeterProvider, error) {
+	if !cfg.Enabled || !cfg.MetricsEnabled {
+		logger.Debug("OTEL metrics disabled, using noop provider")
+		return metricnoop.NewMeterProvider(), nil
+	}
+
+	exporter, err := createMetricExporter(ctx, cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OTLP metric exporter: %w", err)
+	}
+
+	res, err := createResource(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create resource: %w", err)
+	}
+
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)),
+		sdkmetric.WithResource(res),
+	)
+
+	otel.SetMeterProvider(mp)
+
+	logger.Info("OTEL meter provider initialized",
+		zap.String("service", cfg.ServiceName),
+		zap.String("endpoint", cfg.Endpoint))
+
+	return mp, nil
+}
+
+func createMetricExporter(ctx context.Context, cfg otelapi.Config, logger *zap.Logger) (sdkmetric.Exporter, error) {
+	switch cfg.Protocol {
+	case "grpc":
+		return createGRPCMetricExporter(ctx, cfg, logger)
+	case "http/protobuf", "http":
+		return createHTTPMetricExporter(ctx, cfg, logger)
+	default:
+		return nil, fmt.Errorf("unsupported protocol: %s", cfg.Protocol)
+	}
+}
+
+func createGRPCMetricExporter(ctx context.Context, cfg otelapi.Config, logger *zap.Logger) (sdkmetric.Exporter, error) {
+	opts := []otlpmetricgrpc.Option{
+		otlpmetricgrpc.WithEndpoint(cfg.Endpoint),
+	}
+
+	if cfg.Insecure {
+		opts = append(opts, otlpmetricgrpc.WithInsecure())
+	}
+
+	logger.Debug("creating gRPC metric exporter", zap.String("endpoint", cfg.Endpoint))
+
+	return otlpmetricgrpc.New(ctx, opts...)
+}
+
+func createHTTPMetricExporter(ctx context.Context, cfg otelapi.Config, logger *zap.Logger) (sdkmetric.Exporter, error) {
+	opts := []otlpmetrichttp.Option{
+		otlpmetrichttp.WithEndpoint(cfg.Endpoint),
+	}
+
+	if cfg.Insecure {
+		opts = append(opts, otlpmetrichttp.WithInsecure())
+	}
+
+	logger.Debug("creating HTTP metric exporter", zap.String("endpoint", cfg.Endpoint))
+
+	return otlpmetrichttp.New(ctx, opts...)
+}
+
+// ShutdownMeterProvider gracefully shuts down the meter provider
+func ShutdownMeterProvider(ctx context.Context, mp metric.MeterProvider, logger *zap.Logger) error {
+	if sdkMP, ok := mp.(*sdkmetric.MeterProvider); ok {
+		logger.Debug("shutting down OTEL meter provider")
+		if err := sdkMP.Shutdown(ctx); err != nil {
+			return fmt.Errorf("failed to shutdown meter provider: %w", err)
+		}
+		logger.Debug("OTEL meter provider shutdown complete")
 	}
 	return nil
 }

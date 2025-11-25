@@ -3,7 +3,6 @@ package workflow
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -70,7 +69,6 @@ func NewManager(log *zap.Logger, codeManager *code.Manager, bus event.Bus) *Mana
 
 // Add implements component.Manager - adds a new workflow
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	log.Printf("ASDDD")
 	// Unpack workflow configuration
 	cfg, err := component.UnpackConfig[luaapi.ProcessConfig](ctx, entry)
 	if err != nil {
@@ -107,9 +105,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to register workflow prototype: %w", err)
 	}
 
-	m.log.Info("workflow added",
+	m.log.Debug("workflow added",
 		zap.Stringer("id", entry.ID),
-		zap.String("source", cfg.Source),
 		zap.String("method", cfg.Method),
 	)
 
@@ -145,9 +142,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to re-register workflow prototype: %w", err)
 	}
 
-	m.log.Info("workflow updated",
+	m.log.Debug("workflow updated",
 		zap.Stringer("id", entry.ID),
-		zap.String("source", cfg.Source),
 		zap.String("method", cfg.Method),
 	)
 

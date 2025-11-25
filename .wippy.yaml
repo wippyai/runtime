@@ -19,7 +19,7 @@ logmanager:
 # Profiler configuration
 # Enables pprof profiling endpoints for performance analysis
 profiler:
-  enabled: false              # Enable profiler HTTP server
+  enabled: true               # Enable profiler HTTP server
   address: localhost:6060     # Profiler server address
   read_timeout: 15s           # HTTP read timeout
   write_timeout: 15s          # HTTP write timeout
@@ -64,7 +64,7 @@ lua:
 # OpenTelemetry configuration
 # Distributed tracing and observability
 otel:
-  enabled: true                 # Enable OpenTelemetry tracing
+  enabled: false                # Enable OpenTelemetry tracing
   endpoint: http://localhost:4318  # OTLP exporter endpoint
   protocol: http/protobuf       # OTLP protocol: grpc | http/protobuf
   service_name: wippy           # Service name in traces
@@ -74,7 +74,7 @@ otel:
   propagators:                  # Trace context propagators
     - tracecontext
     - baggage
-  traces_enabled: true          # Enable trace collection
+  traces_enabled: false         # Enable trace collection
   metrics_enabled: false        # Enable metrics collection
   http:
     enabled: true               # Enable HTTP middleware
@@ -84,13 +84,27 @@ otel:
     enabled: true               # Enable process lifecycle tracing
     trace_lifecycle: true       # Trace process start and termination events
   interceptor:
-    enabled: true               # Enable function call interceptor
+    enabled: false              # Enable function call interceptor
     order: 0                    # Interceptor execution order
 
 # Shutdown configuration
 # Controls graceful shutdown behavior
 shutdown:
   timeout: 30s                  # Global shutdown timeout (max time to wait for all components to stop)
+
+# Metrics configuration
+# Application metrics collection and export
+metrics:
+  buffer:
+    size: 10000                   # Metrics buffer size
+  interceptor:
+    enabled: true                 # Auto-track function calls
+
+# Prometheus configuration
+# Prometheus metrics export
+prometheus:
+  enabled: true                   # Enable Prometheus exporter
+  address: localhost:9090         # HTTP server address for /metrics endpoint
 
 # Cluster configuration
 # Multi-node clustering with gossip-based membership and TCP internode communication

@@ -10,6 +10,7 @@ import (
 	fsapi "github.com/wippyai/runtime/api/fs"
 	funcapi "github.com/wippyai/runtime/api/function"
 	logapi "github.com/wippyai/runtime/api/logs"
+	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pidgen"
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -22,6 +23,7 @@ import (
 	"github.com/wippyai/runtime/service/http/cors"
 	"github.com/wippyai/runtime/service/http/fileserve"
 	"github.com/wippyai/runtime/service/http/firewall"
+	"github.com/wippyai/runtime/service/http/httpmetrics"
 	"github.com/wippyai/runtime/service/http/ratelimit"
 	"github.com/wippyai/runtime/service/http/realip"
 	"github.com/wippyai/runtime/service/http/websocketrelay"
@@ -108,6 +110,12 @@ func HTTP() boot.Component {
 			_ = midRegistry.Register(fileserve.MiddlewareName, func(options map[string]string) func(nethttp.Handler) nethttp.Handler {
 				return fileserve.CreateFileServeMiddleware(options, fsRegistry)
 			})
+
+			// Register metrics middleware if collector available
+			collector := metricsapi.GetCollector(ctx)
+			if collector != nil {
+				_ = midRegistry.Register(httpmetrics.MiddlewareName, httpmetrics.CreateHTTPMetricsMiddleware(collector))
+			}
 
 			// Store registry in context for other components
 			ctx = httpapi.WithMiddlewareRegistry(ctx, midRegistry)

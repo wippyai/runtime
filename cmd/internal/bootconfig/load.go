@@ -63,10 +63,47 @@ func buildBootConfig(sections map[string]map[string]any) (boot.Config, error) {
 		if name == "version" {
 			continue
 		}
-		opts = append(opts, boot.WithSection(name, values))
+		flattened := flattenMap(values, "")
+		opts = append(opts, boot.WithSection(name, flattened))
 	}
 
 	return boot.NewConfig(opts...), nil
+}
+
+// flattenMap recursively flattens nested maps to dot notation
+func flattenMap(m map[string]any, prefix string) map[string]any {
+	result := make(map[string]any)
+	for k, v := range m {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+
+		// Handle map[string]any
+		if nested, ok := v.(map[string]any); ok {
+			for nk, nv := range flattenMap(nested, key) {
+				result[nk] = nv
+			}
+			continue
+		}
+
+		// Handle map[interface{}]interface{} from yaml.v3
+		if nestedInterface, ok := v.(map[interface{}]interface{}); ok {
+			converted := make(map[string]any)
+			for nk, nv := range nestedInterface {
+				if strKey, ok := nk.(string); ok {
+					converted[strKey] = nv
+				}
+			}
+			for nk, nv := range flattenMap(converted, key) {
+				result[nk] = nv
+			}
+			continue
+		}
+
+		result[key] = v
+	}
+	return result
 }
 
 func Merge(base, override boot.Config) boot.Config {

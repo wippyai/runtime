@@ -302,13 +302,15 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) (pool, err
 
 	// For worker-based execution, use queued pool
 	if cfg.Pool.Workers > 0 {
-		return queued.NewTaskPool(
-			factory,
-			cfg.Method,
+		opts := []queued.TaskOption{
 			queued.WithTaskSize(cfg.Pool.Size),
 			queued.WithTaskLogger(m.log),
 			queued.WithTaskWorkers(cfg.Pool.Workers),
-		)
+		}
+		if cfg.Pool.Buffer > 0 {
+			opts = append(opts, queued.WithTaskBuffer(cfg.Pool.Buffer))
+		}
+		return queued.NewTaskPool(factory, cfg.Method, opts...)
 	}
 
 	// For synchronous execution, use sync pool

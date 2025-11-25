@@ -8,9 +8,11 @@ const (
 	OTelProcessName     boot.ComponentName = "otel-process"
 	OTelInterceptorName boot.ComponentName = "otel-interceptor"
 	OTelQueueName       boot.ComponentName = "otel-queue"
+	OTelMetricsName     boot.ComponentName = "otel-metrics"
 
 	httpName         boot.ComponentName = "http"
 	processName      boot.ComponentName = "process"
 	interceptorName  boot.ComponentName = "interceptor"
 	queueManagerName boot.ComponentName = "queues"
+	metricsName      boot.ComponentName = "metrics"
 )

@@ -316,10 +316,17 @@ func (rm *RouteManager) createRouteHandler(routeID registry.ID, route *RouteEntr
 		routeInfo.Endpoint = routeID
 		routeInfo.Func = route.funcID
 
-		// Add route info to FrameContext
+		// Extract route label (prefer Func over Endpoint)
+		routeLabel := route.funcID.String()
+		if routeLabel == "" {
+			routeLabel = routeID.String()
+		}
+
+		// Add route info and label to FrameContext
 		fc := contextapi.FrameFromContext(r.Context())
 		if fc != nil {
 			_ = fc.Set(httpapi.RouteCtx, routeInfo)
+			_ = fc.Set(httpapi.RouteLabelCtx, routeLabel)
 		}
 
 		// Apply post-match middleware and call endpoint handler

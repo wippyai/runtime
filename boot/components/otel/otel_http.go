@@ -15,20 +15,28 @@ func OTelHTTP() boot.Component {
 		Name:      OTelHTTPName,
 		DependsOn: []boot.ComponentName{OTelName, httpName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			svc := otelapi.GetService(ctx)
-			if svc == nil {
-				return ctx, nil
-			}
-
 			middlewareRegistry := httpapi.GetMiddlewareRegistry(ctx)
 			if middlewareRegistry == nil {
 				return ctx, fmt.Errorf("HTTP middleware registry not available in context")
 			}
 
-			if err := middlewareRegistry.Register("otel", func(_ map[string]string) func(http.Handler) http.Handler {
-				return svc.HTTPMiddleware()
-			}); err != nil {
-				return ctx, err
+			svc := otelapi.GetService(ctx)
+			if svc == nil {
+				// Register no-op middleware when OTEL is disabled
+				if err := middlewareRegistry.Register("otel", func(_ map[string]string) func(http.Handler) http.Handler {
+					return func(next http.Handler) http.Handler {
+						return next
+					}
+				}); err != nil {
+					return ctx, err
+				}
+			} else {
+				// Register actual OTEL middleware when enabled
+				if err := middlewareRegistry.Register("otel", func(_ map[string]string) func(http.Handler) http.Handler {
+					return svc.HTTPMiddleware()
+				}); err != nil {
+					return ctx, err
+				}
 			}
 
 			return ctx, nil
