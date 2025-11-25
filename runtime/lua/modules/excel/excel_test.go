@@ -20,7 +20,7 @@ func setupTestVM(t *testing.T) *lua.LState {
 
 	// Register the module
 	mod := NewModule(logger)
-	l.PreloadModule(mod.Name(), mod.Loader)
+	l.PreloadModule(mod.Info().Name, mod.Loader)
 
 	// Load the module
 	err := l.DoString(`local excel = require("excel")`)

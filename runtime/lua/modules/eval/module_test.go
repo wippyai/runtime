@@ -46,7 +46,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *engine.Runner, co
 	require.NoError(t, err)
 
 	L := vm.State()
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
@@ -63,7 +63,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *engine.Runner, co
 
 func TestEvalModule_Name(t *testing.T) {
 	mod := NewEvalModule()
-	assert.Equal(t, "eval", mod.Name())
+	assert.Equal(t, "eval", mod.Info().Name)
 }
 
 func TestEvalModule_CompileAndRun(t *testing.T) {

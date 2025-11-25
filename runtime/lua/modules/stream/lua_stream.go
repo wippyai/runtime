@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -50,6 +52,8 @@ type LuaScanner struct {
 
 // Module represents the Stream Lua module
 type Module struct {
+	once        sync.Once
+	moduleTable *lua.LTable
 }
 
 // NewStreamModule creates a new Stream module
@@ -57,16 +61,24 @@ func NewStreamModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "stream"
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "stream",
+		Description: "Stream reading and scanning",
+		Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader registers the module functions and constants
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.NewTable()
-	RegisterStream(l)
-	l.Push(mod)
+	m.once.Do(func() {
+		mod := l.NewTable()
+		RegisterStream(l)
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

@@ -70,13 +70,14 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 
 	// built-in modules
 	for _, mod := range cfg.Modules {
+		info := mod.Info()
 		node := &Node{
-			ID:     registry.NewID("", mod.Name()),
+			ID:     registry.NewID("", info.Name),
 			Kind:   api.KindModule,
 			Module: mod,
 		}
 
-		cm.log.Debug("adding built-in module", zap.String("name", mod.Name()))
+		cm.log.Debug("adding built-in module", zap.String("name", info.Name))
 
 		if err := cm.memGraph.AddNode(node); err != nil {
 			return nil, fmt.Errorf("failed to add module node: %w", err)
@@ -264,4 +265,15 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 	cm.txNodes[id] = true
 
 	return nil
+}
+
+// GetModules returns all registered modules with their info
+func (cm *Manager) GetModules() []api.ModuleInfo {
+	var modules []api.ModuleInfo
+	for _, node := range cm.memGraph.nodes {
+		if node.Module != nil {
+			modules = append(modules, node.Module.Info())
+		}
+	}
+	return modules
 }

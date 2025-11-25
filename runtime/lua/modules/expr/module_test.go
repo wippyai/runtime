@@ -29,7 +29,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *engine.Runner, co
 	L := vm.State()
 
 	// Register the expr module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
@@ -236,7 +236,7 @@ func TestExprModule_CachingBehavior(t *testing.T) {
 	defer vm.Close()
 
 	L := vm.State()
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	ctx := ctxapi.NewRootContext()
@@ -469,5 +469,5 @@ func TestExprModule_CustomCapacity(t *testing.T) {
 
 func TestExprModule_ModuleName(t *testing.T) {
 	module := NewExprModule()
-	assert.Equal(t, "expr", module.Name(), "Module name should be 'expr'")
+	assert.Equal(t, "expr", module.Info().Name, "Module name should be 'expr'")
 }

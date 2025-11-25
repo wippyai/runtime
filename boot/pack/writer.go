@@ -650,9 +650,9 @@ func (pw *Writer) writePack(w io.Writer, toc *TOC, frames []rawFrame) error {
 	// Process all resource frames
 	for i := range toc.Resources {
 		toc.Resources[i].Frame.Offset = currentOffset
-		toc.Resources[i].Frame.Size = uint64(len(frames[frameIdx].data))            //nolint:gosec // frameIdx is validated above
-		toc.Resources[i].Frame.UncompressedSize = frames[frameIdx].uncompressedSize //nolint:gosec // frameIdx is validated above
-		currentOffset += uint64(len(frames[frameIdx].data))                         //nolint:gosec // frameIdx is validated above
+		toc.Resources[i].Frame.Size = uint64(len(frames[frameIdx].data))
+		toc.Resources[i].Frame.UncompressedSize = frames[frameIdx].uncompressedSize
+		currentOffset += uint64(len(frames[frameIdx].data))
 		frameIdx++
 	}
 

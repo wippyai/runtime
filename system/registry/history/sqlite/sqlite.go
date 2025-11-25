@@ -119,7 +119,7 @@ func (h *History) Versions() ([]registry.Version, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query versions: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	versionMap := make(map[uint]registry.Version)
 	versionList := make([]registry.Version, 0, 10)

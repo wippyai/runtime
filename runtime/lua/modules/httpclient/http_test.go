@@ -48,7 +48,7 @@ func TestHTTPModule(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -90,7 +90,7 @@ func TestHTTPModule(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -130,7 +130,7 @@ func TestHTTPModule(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -172,7 +172,7 @@ func TestHTTPModule(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -198,7 +198,7 @@ func TestHTTPModule(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -232,7 +232,7 @@ func TestHTTPModule(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -252,7 +252,7 @@ func TestHTTPModule(t *testing.T) {
 
 	t.Run("URL component encoding/decoding", func(t *testing.T) {
 		mod := NewHTTPClientModule(logger, nil) // client not needed for this test
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -284,7 +284,7 @@ func TestHTTPModule(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -315,7 +315,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 	mod := NewHTTPClientModule(logger, mockClient)
 
 	t.Run("validation errors", func(t *testing.T) {
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -441,7 +441,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -494,7 +494,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -529,7 +529,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -598,7 +598,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -666,7 +666,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

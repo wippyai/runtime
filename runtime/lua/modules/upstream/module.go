@@ -3,58 +3,64 @@ package upstream
 import (
 	"errors"
 	"fmt"
-
-	luaconv "github.com/wippyai/runtime/system/payload/lua"
+	"sync"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/runtime"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/workflow/std"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // Module provides functionality to send values upstream from Lua
-type Module struct{}
+type Module struct {
+	once        sync.Once
+	moduleTable *lua.LTable
+}
 
 // NewUpstreamModule creates a new upstream module instance
 func NewUpstreamModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "upstream"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "upstream",
+		Description: "Upstream communication for workflow commands",
+		Class:       []string{luaapi.ClassProcess},
+	}
 }
 
 // Loader registers the module functions and metatables
 func (m *Module) Loader(l *lua.LState) int {
-	// Register Request metatable (compatible with old command.Command interface)
-	value.RegisterMethods(l, "upstream.Request", map[string]lua.LGFunction{
-		"response":    m.requestResponse,
-		"type":        m.requestType,
-		"complete":    m.requestComplete,
-		"is_canceled": m.requestIsCanceled,
-		"is_complete": m.requestIsComplete,
-		"result":      m.requestResult,
-		"cancel":      m.requestCancel,
+	m.once.Do(func() {
+		value.RegisterMethods(l, "upstream.Request", map[string]lua.LGFunction{
+			"response":    m.requestResponse,
+			"type":        m.requestType,
+			"complete":    m.requestComplete,
+			"is_canceled": m.requestIsCanceled,
+			"is_complete": m.requestIsComplete,
+			"result":      m.requestResult,
+			"cancel":      m.requestCancel,
+		})
+
+		value.RegisterMethods(l, "upstream.Task", map[string]lua.LGFunction{
+			"type":     m.taskType,
+			"input":    m.taskInput,
+			"complete": m.taskComplete,
+			"fail":     m.taskFail,
+		})
+
+		mod := l.NewTable()
+		l.SetField(mod, "send", l.NewFunction(m.send))
+		l.SetField(mod, "request", l.NewFunction(m.request))
+		mod.Immutable = true
+		m.moduleTable = mod
 	})
-
-	// Register Task metatable
-	value.RegisterMethods(l, "upstream.Task", map[string]lua.LGFunction{
-		"input":    m.taskInput,
-		"complete": m.taskComplete,
-		"fail":     m.taskFail,
-	})
-
-	// Create module table
-	mod := l.NewTable()
-
-	// Register functions
-	l.SetField(mod, "send", l.NewFunction(m.send))
-	l.SetField(mod, "request", l.NewFunction(m.request))
-
-	// Register module
-	l.Push(mod)
+	l.Push(m.moduleTable)
 	return 1
 }
 
@@ -83,9 +89,14 @@ func (m *Module) send(l *lua.LState) int {
 		if req, ok := ud.Value.(*Request); ok {
 			return m.sendRequest(l, req)
 		}
-		// Task can also be sent, but we just extract its input
+		// Task can also be sent, but we just extract first input
 		if task, ok := ud.Value.(*Task); ok {
-			return m.sendPayload(l, task.Input)
+			inputs := task.Input()
+			if len(inputs) > 0 {
+				return m.sendPayload(l, inputs[0])
+			}
+			l.RaiseError("task has no input")
+			return 0
 		}
 	}
 
@@ -269,30 +280,48 @@ func (m *Module) requestCancel(l *lua.LState) int {
 	return 1
 }
 
-// taskInput implements task:input() -> returns task input value
+// taskType implements task:type() -> returns task type string
+func (m *Module) taskType(l *lua.LState) int {
+	task := CheckTask(l, 1)
+	l.Push(lua.LString(task.Type()))
+	return 1
+}
+
+// taskInput implements task:input() -> returns first input value
 func (m *Module) taskInput(l *lua.LState) int {
 	task := CheckTask(l, 1)
+	inputs := task.Input()
 
-	// Get transcoder directly from context
+	if len(inputs) == 0 {
+		l.Push(lua.LNil)
+		return 1
+	}
+
+	// Return first input payload
+	input := inputs[0]
+
+	// If already Lua format, return directly
+	if input.Format() == payload.Lua {
+		if lv, ok := input.Data().(lua.LValue); ok {
+			l.Push(lv)
+			return 1
+		}
+	}
+
+	// Need to transcode
 	dtt := payload.GetTranscoder(l.Context())
 	if dtt == nil {
 		l.RaiseError("no transcoder found in context")
 		return 0
 	}
 
-	// Convert payload to Lua if needed
-	if task.Input.Format() != payload.Lua {
-		luaPayload, err := dtt.Transcode(task.Input, payload.Lua)
-		if err != nil {
-			l.RaiseError("failed to transcode input: %v", err)
-			return 0
-		}
+	luaPayload, err := dtt.Transcode(input, payload.Lua)
+	if err != nil {
+		l.RaiseError("failed to transcode input: %v", err)
+		return 0
+	}
 
-		if lv, ok := luaPayload.Data().(lua.LValue); ok {
-			l.Push(lv)
-			return 1
-		}
-	} else if lv, ok := task.Input.Data().(lua.LValue); ok {
+	if lv, ok := luaPayload.Data().(lua.LValue); ok {
 		l.Push(lv)
 		return 1
 	}
@@ -358,17 +387,17 @@ func WrapRequest(l *lua.LState, req *Request) lua.LValue {
 }
 
 // CheckTask validates and returns the Task from Lua stack
-func CheckTask(l *lua.LState, n int) *Task {
+func CheckTask(l *lua.LState, n int) std.Task {
 	ud := l.CheckUserData(n)
-	if v, ok := ud.Value.(*Task); ok {
+	if v, ok := ud.Value.(std.Task); ok {
 		return v
 	}
 	l.ArgError(n, "task expected")
 	return nil
 }
 
-// WrapTask wraps a Task in a Lua userdata
-func WrapTask(l *lua.LState, task *Task) lua.LValue {
+// WrapTask wraps a std.Task in a Lua userdata
+func WrapTask(l *lua.LState, task std.Task) lua.LValue {
 	ud := l.NewUserData()
 	ud.Value = task
 	ud.Metatable = value.GetTypeMetatable(l, "upstream.Task")

@@ -163,7 +163,7 @@ func TestStreamLua(t *testing.T) {
 		require.NoError(t, err)
 
 		mod := NewStreamModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -202,7 +202,7 @@ func TestStreamLua(t *testing.T) {
 		require.NoError(t, err)
 
 		mod := NewStreamModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -244,7 +244,7 @@ func TestStreamLua(t *testing.T) {
 		require.NoError(t, err)
 
 		mod := NewStreamModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

@@ -129,13 +129,23 @@ func (c *Client) healthCheckLoop(ctx context.Context, statusCh chan<- any) {
 			_, err := c.client.CheckHealth(checkCtx, &client.CheckHealthRequest{})
 			cancel()
 
+			var status any
 			if err != nil {
 				c.log.Error("health check failed",
 					zap.String("id", c.id.String()),
 					zap.Error(err))
-				statusCh <- supervisor.Failed
+				status = supervisor.Failed
 			} else {
-				statusCh <- supervisor.Running
+				status = supervisor.Running
+			}
+
+			// Non-blocking send to avoid deadlock if channel is not being drained
+			select {
+			case statusCh <- status:
+			case <-ctx.Done():
+				return
+			default:
+				// Channel full, skip this status update
 			}
 		}
 	}

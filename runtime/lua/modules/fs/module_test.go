@@ -475,7 +475,7 @@ func setupLuaWithFS(t *testing.T, mockRes *mockResource) (
 	L := vm.State()
 
 	// Register the FS module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
@@ -501,7 +501,7 @@ func TestModuleLoading(t *testing.T) {
 	defer L.Close()
 
 	// Register the FS module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Load the module and check basic properties
 	err := L.DoString(`

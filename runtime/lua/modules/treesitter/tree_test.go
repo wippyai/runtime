@@ -19,7 +19,7 @@ func TestTreeMethods(t *testing.T) {
 	t.Run("tree root node", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestTreeMethods(t *testing.T) {
 	t.Run("tree copy", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestTreeMethods(t *testing.T) {
 	t.Run("tree walk", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestTreeAdditionalMethods(t *testing.T) {
 	t.Run("tree error handling", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestTreeAdditionalMethods(t *testing.T) {
 	t.Run("tree gc", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -174,7 +174,7 @@ func TestTreeTraversal(t *testing.T) {
 	t.Run("structured code traversal", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 			engine.WithGlobalFunction("print", func(l *lua.LState) int {
 				top := l.GetTop()
@@ -306,7 +306,7 @@ func TestTreeEditOperations(t *testing.T) {
 	t.Run("tree edit operations", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -361,7 +361,7 @@ func TestTreeEditOperations(t *testing.T) {
 	t.Run("closed tree operations", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -390,7 +390,7 @@ func TestTreeEditOperations(t *testing.T) {
 	t.Run("memory management", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -447,7 +447,7 @@ func TestComplexTreeOperations(t *testing.T) {
 	t.Run("root node with offset", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -492,7 +492,7 @@ func TestComplexTreeOperations(t *testing.T) {
 	t.Run("complex tree edits", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -616,7 +616,7 @@ func TestTreeWalking(t *testing.T) {
 	t.Run("comprehensive tree walk", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 			engine.WithGlobalFunction("print", func(l *lua.LState) int {
 				t.Log(l.ToString(1))
@@ -718,7 +718,7 @@ func TestTreeEditAndReparse(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)

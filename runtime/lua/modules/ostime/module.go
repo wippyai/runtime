@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -23,9 +24,12 @@ type Module struct {
 	once        sync.Once
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "os"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "os",
+		Description: "OS time functions (os.time, os.date, os.clock)",
+		Class:       []string{luaapi.ClassTime, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader registers the module's functions into Lua state

@@ -97,7 +97,7 @@ func setupLuaWithTemplates(t *testing.T, mockRes *mockResource) (*engine.Corouti
 	L := vm.State()
 
 	// Register the template module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Set up a transcoder to convert between Lua and Go values
 	dtt := payloadSystem.GlobalTranscoder()
@@ -316,7 +316,7 @@ func TestTemplateAutomaticRelease(t *testing.T) {
 	L := vm.State()
 
 	// Register the template module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Set up a transcoder to convert between Lua and Go values
 	dtt := payloadSystem.GlobalTranscoder()
@@ -388,7 +388,7 @@ func TestTemplateError(t *testing.T) {
 	L := vm.State()
 
 	// Register the template module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Set up the context
 	ctx := newTestContext()

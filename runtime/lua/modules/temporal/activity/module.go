@@ -3,6 +3,7 @@ package activity
 import (
 	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -17,9 +18,13 @@ func NewModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module name as it will be used in Lua require()
-func (m *Module) Name() string {
-	return "temporal_activity"
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "temporal.activity",
+		Description: "Temporal activity context functions",
+		Class:       []string{luaapi.ClassWorkflow, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader initializes and returns the module table for Lua

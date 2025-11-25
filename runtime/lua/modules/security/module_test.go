@@ -130,7 +130,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	L := vm.State()
 
 	// Register the Security module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Create a runner
 	runner := engine.NewRunner(vm)
@@ -164,12 +164,12 @@ func TestSecurityModule(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewSecurityModule(logger)
 
-		vm, err := engine.NewVM(logger, engine.WithLoader(module.Name(), module.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(module.Info().Name, module.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		// Check that the module name is correct
-		assert.Equal(t, "security", module.Name())
+		assert.Equal(t, "security", module.Info().Name)
 
 		// Load the module and check that functions are registered
 		err = vm.DoString(newTestContext(), `
@@ -358,7 +358,7 @@ func TestSecurityModuleErrorHandling(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewSecurityModule(logger)
 
-		vm, err := engine.NewVM(logger, engine.WithLoader(module.Name(), module.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(module.Info().Name, module.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -374,7 +374,7 @@ func TestSecurityModuleErrorHandling(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewSecurityModule(logger)
 
-		vm, err := engine.NewVM(logger, engine.WithLoader(module.Name(), module.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(module.Info().Name, module.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -390,7 +390,7 @@ func TestSecurityModuleErrorHandling(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewSecurityModule(logger)
 
-		vm, err := engine.NewVM(logger, engine.WithLoader(module.Name(), module.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(module.Info().Name, module.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -406,7 +406,7 @@ func TestSecurityModuleErrorHandling(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewSecurityModule(logger)
 
-		vm, err := engine.NewVM(logger, engine.WithLoader(module.Name(), module.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(module.Info().Name, module.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

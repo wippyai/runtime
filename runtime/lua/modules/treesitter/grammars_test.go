@@ -111,7 +111,7 @@ func TestGrammarSupport(t *testing.T) {
 	t.Run("supported languages", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestGrammarSupport(t *testing.T) {
 	t.Run("language aliases", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -188,7 +188,7 @@ func TestGrammarSupport(t *testing.T) {
 	t.Run("parser error handling", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)

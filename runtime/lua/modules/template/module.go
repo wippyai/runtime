@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/service/template"
@@ -17,7 +19,9 @@ import (
 
 // Module represents a template Lua module
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	once        sync.Once
+	moduleTable *lua.LTable
 }
 
 // NewTemplateModule creates and returns a new instance of the template Module
@@ -27,26 +31,28 @@ func NewTemplateModule(log *zap.Logger) *Module {
 	}
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "templates"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "templates",
+		Description: "Template rendering engine",
+		Class:       []string{luaapi.ClassDeterministic},
+	}
 }
 
 // Loader loads the module into the given Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	// Create a module table with the get function
-	mod := l.CreateTable(0, 1)
+	m.once.Do(func() {
+		mod := l.CreateTable(0, 1)
 
-	// Register get function
-	mod.RawSetString("get", l.NewFunction(func(l *lua.LState) int {
-		return templateGet(l, m.log)
-	}))
+		mod.RawSetString("get", l.NewFunction(func(l *lua.LState) int {
+			return templateGet(l, m.log)
+		}))
 
-	// Register Template type methods
-	registerTemplateSet(l)
-
-	// Push the module table
-	l.Push(mod)
+		registerTemplateSet(l)
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

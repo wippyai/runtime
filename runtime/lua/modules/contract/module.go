@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
@@ -82,9 +83,12 @@ func NewContractModule(log *zap.Logger) *Module {
 	return &Module{log: log.Named("contract")}
 }
 
-// Name returns the module name for registration
-func (m *Module) Name() string {
-	return "contract"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "contract",
+		Description: "Contract-based interface invocation",
+		Class:       []string{luaapi.ClassDeterministic},
+	}
 }
 
 // Loader registers the contract module types and functions with the Lua state

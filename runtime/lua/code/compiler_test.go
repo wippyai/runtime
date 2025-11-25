@@ -226,7 +226,7 @@ func TestCompiler_PreloadedDependencies(t *testing.T) {
 	assert.Equal(t, "pre_mod", dep.Name)
 	assert.Equal(t, preloadedModule, dep.Node)
 	assert.NotNil(t, dep.Node.Module)
-	assert.Equal(t, "preloaded", dep.Node.Module.Name())
+	assert.Equal(t, "preloaded", dep.Node.Module.Info().Name)
 }
 
 // testModule implements lua.Module interface for testing
@@ -244,8 +244,12 @@ func (m *testModule) Loader(l *glua.LState) int {
 	return 1
 }
 
-func (m *testModule) Name() string {
-	return m.name
+func (m *testModule) Info() lua.ModuleInfo {
+	return lua.ModuleInfo{
+		Name:        m.name,
+		Description: "test module",
+		Class:       []string{lua.ClassDeterministic},
+	}
 }
 
 func TestNewCompiler(t *testing.T) {

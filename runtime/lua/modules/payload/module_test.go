@@ -37,7 +37,7 @@ func TestPayloadModule(t *testing.T) {
 	t.Run("module creation and loading", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestPayloadModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewPayloadModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 					engine.WithGlobalFunction("assert", assertLua),
 				)
 				require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestPayloadModule(t *testing.T) {
 	t.Run("get_format method", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -189,7 +189,7 @@ func TestPayloadModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewPayloadModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 					engine.WithGlobalFunction("assert", assertLua),
 				)
 				require.NoError(t, err)
@@ -234,7 +234,7 @@ func TestPayloadModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewPayloadModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 					engine.WithGlobalFunction("assert", assertLua),
 				)
 				require.NoError(t, err)
@@ -249,7 +249,7 @@ func TestPayloadModule(t *testing.T) {
 	t.Run("nil payload creation", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -270,7 +270,7 @@ func TestPayloadModule(t *testing.T) {
 	t.Run("format constants", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -311,7 +311,7 @@ func TestPayloadModule(t *testing.T) {
 	t.Run("payload wrapper functions", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -350,7 +350,7 @@ func TestPayloadModule(t *testing.T) {
 	t.Run("complex nested data structures", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -407,7 +407,7 @@ func TestPayloadHelperFunctions(t *testing.T) {
 	t.Run("CheckPayload function", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -435,7 +435,7 @@ func TestPayloadHelperFunctions(t *testing.T) {
 	t.Run("PushPayload function", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -465,7 +465,7 @@ func TestPayloadEdgeCases(t *testing.T) {
 	t.Run("empty string payload", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -485,7 +485,7 @@ func TestPayloadEdgeCases(t *testing.T) {
 	t.Run("zero number payload", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -505,7 +505,7 @@ func TestPayloadEdgeCases(t *testing.T) {
 	t.Run("empty table payload", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -529,7 +529,7 @@ func TestPayloadEdgeCases(t *testing.T) {
 	t.Run("very large numbers", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -550,7 +550,7 @@ func TestPayloadEdgeCases(t *testing.T) {
 	t.Run("negative numbers", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -575,7 +575,7 @@ func TestPayloadTypeConsistency(t *testing.T) {
 	t.Run("type consistency across operations", func(t *testing.T) {
 		mod := NewPayloadModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)

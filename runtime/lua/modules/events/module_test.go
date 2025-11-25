@@ -37,7 +37,7 @@ func TestEventsModule_BasicSubscribe(t *testing.T) {
 	// Create VM with needed modules
 	vm, err := engine.NewCVM(
 		logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		engine.WithGlobalFunction("mark_ready", func(_ *luaapi.LState) int {
 			close(ready)
@@ -143,7 +143,7 @@ func TestEventsModule_SendAndReceive(t *testing.T) {
 	// Create VM with needed modules
 	vm, err := engine.NewCVM(
 		logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		engine.WithGlobalFunction("mark_ready", func(_ *luaapi.LState) int {
 			close(ready)
@@ -252,7 +252,7 @@ func TestEventsModule_SendWithoutData(t *testing.T) {
 	// Create VM with needed modules
 	vm, err := engine.NewCVM(
 		logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 	)
 	require.NoError(t, err)
 	defer vm.Close()

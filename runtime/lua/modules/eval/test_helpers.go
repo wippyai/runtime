@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/event"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -22,7 +23,14 @@ type mockModule struct {
 	name string
 }
 
-func (m *mockModule) Name() string { return m.name }
+func (m *mockModule) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        m.name,
+		Description: "mock module",
+		Class:       []string{luaapi.ClassDeterministic},
+	}
+}
+
 func (m *mockModule) Loader(l *lua.LState) int {
 	t := l.CreateTable(0, 1)
 	t.RawSetString("test", lua.LString("module_loaded"))

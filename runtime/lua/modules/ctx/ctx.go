@@ -3,7 +3,8 @@ package ctx
 import (
 	"sync"
 
-	ctxapi "github.com/wippyai/runtime/api/context" // Spawn sure this import path is correct
+	ctxapi "github.com/wippyai/runtime/api/context"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	transcoder "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
@@ -24,9 +25,12 @@ func NewCtxModule(log *zap.Logger) *Module {
 	}
 }
 
-// Name returns the module name.
-func (m *Module) Name() string {
-	return "ctx"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "ctx",
+		Description: "Request context access",
+		Class:       []string{luaapi.ClassDeterministic},
+	}
 }
 
 // Loader is the entry point for loading the module into Lua.

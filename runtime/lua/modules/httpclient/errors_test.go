@@ -22,7 +22,7 @@ func TestHTTPErrorMetadata(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -59,7 +59,7 @@ func TestHTTPErrorMetadata(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -90,7 +90,7 @@ func TestHTTPErrorMetadata(t *testing.T) {
 		}
 
 		mod := NewHTTPClientModule(logger, mockClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

@@ -3,6 +3,7 @@ package time
 import (
 	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	origtime "github.com/wippyai/runtime/runtime/lua/modules/time"
 	lua "github.com/yuin/gopher-lua"
@@ -17,8 +18,13 @@ func NewTimeModule() *Module {
 	return &Module{}
 }
 
-func (m *Module) Name() string {
-	return "time"
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "time",
+		Description: "Workflow-safe time operations",
+		Class:       []string{luaapi.ClassWorkflow, luaapi.ClassTime},
+	}
 }
 
 func (m *Module) Loader(l *lua.LState) int {

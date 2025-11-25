@@ -7,8 +7,11 @@ import (
 
 	"github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/api/workflow/std"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
@@ -21,7 +24,11 @@ import (
 var (
 	inboxChannel  = &context.Key{Name: "workflow.process.channel.inbox"}
 	eventsChannel = &context.Key{Name: "workflow.process.channel.events"}
+	tasksChannel  = &context.Key{Name: "workflow.process.channel.tasks"}
 )
+
+// TopicTasks is the internal topic for workflow tasks from host
+const TopicTasks = "@workflow/tasks"
 
 // Module provides workflow-safe process API
 type Module struct {
@@ -34,9 +41,13 @@ func NewProcessModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "process"
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "process",
+		Description: "Workflow-safe process API",
+		Class:       []string{luaapi.ClassWorkflow, luaapi.ClassProcess},
+	}
 }
 
 // Loader registers the module functions
@@ -62,6 +73,7 @@ func (m *Module) initModuleTable(l *lua.LState) {
 	// Channel-based functions - work with named channels
 	mod.RawSetString("inbox", l.NewFunction(m.inbox))
 	mod.RawSetString("events", l.NewFunction(m.events))
+	mod.RawSetString("tasks", l.NewFunction(m.tasks))
 	mod.RawSetString("listen", l.NewFunction(m.listen))
 	mod.RawSetString("unlisten", l.NewFunction(m.unlisten))
 
@@ -128,7 +140,14 @@ func (m *Module) id(l *lua.LState) int {
 		return 2
 	}
 
-	l.Push(lua.LString(idValue.(string)))
+	callID, ok := idValue.(registry.ID)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("invalid call ID type"))
+		return 2
+	}
+
+	l.Push(lua.LString(callID.String()))
 	return 1
 }
 
@@ -161,21 +180,20 @@ func (m *Module) send(l *lua.LState) int {
 		return 2
 	}
 
-	// Build payloads for the message
-	var payloads []payload.Payload
-	// First payload: destination and topic
-	payloads = append(payloads, payload.New(map[string]string{
-		"destination": pidOrName,
-		"topic":       topic,
-	}))
+	// Build typed header
+	header := &std.ProcessSendHeader{
+		Target: pidOrName,
+		Topic:  topic,
+	}
 
-	// Additional payloads: message content
+	// Build payloads: header first, then message content
+	payloads := []payload.Payload{payload.New(header)}
 	for i := 3; i <= l.GetTop(); i++ {
 		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
 	}
 
 	// Create request
-	req := upstream.NewRequest(l, "process.send", nil, payloads...)
+	req := upstream.NewRequest(l, std.TypeProcessSend, nil, payloads...)
 
 	// Send to upstream (non-blocking)
 	up, ok := runtime.GetUpstream(l.Context())
@@ -242,6 +260,32 @@ func (m *Module) events(l *lua.LState) int {
 	if result == 1 {
 		channelWrapper := l.Get(-1)
 		uw.Values().Set(eventsChannel, channelWrapper)
+	}
+
+	return result
+}
+
+// tasks creates the tasks channel for receiving host tasks (queries, updates)
+func (m *Module) tasks(l *lua.LState) int {
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no unit of work found"))
+		return 2
+	}
+
+	existingChannel, found := uw.Values().Get(tasksChannel)
+	if found {
+		l.Push(existingChannel.(lua.LValue))
+		return 1
+	}
+
+	ch := channel.Named(TopicTasks, 0)
+	result := subscribe.Subscribe(l, ch, TopicTasks)
+
+	if result == 1 {
+		channelWrapper := l.Get(-1)
+		uw.Values().Set(tasksChannel, channelWrapper)
 	}
 
 	return result

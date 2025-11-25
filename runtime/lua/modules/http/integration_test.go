@@ -34,7 +34,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -110,7 +110,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -167,7 +167,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -217,7 +217,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

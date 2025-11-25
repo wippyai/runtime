@@ -159,7 +159,7 @@ func evalSource(ctx context.Context, cm *code.Manager, source, method string) (i
 func buildRunner(ctx context.Context, cm *code.Manager, source, method string) (*engine.Runner, error) {
 	mod := sandbox.NewWorkflowSandboxModule()
 
-	cvm, err := engine.NewCVM(nil, engine.WithLoader(mod.Name(), mod.Loader))
+	cvm, err := engine.NewCVM(nil, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CVM: %w", err)
 	}

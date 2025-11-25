@@ -101,7 +101,7 @@ func TestHashModuleWithVM(t *testing.T) {
 
 	t.Run("module creation and loading", func(t *testing.T) {
 		mod := NewHashModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -159,7 +159,7 @@ func TestHashModuleWithVM(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewHashModule()
-				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
 
@@ -212,7 +212,7 @@ func TestHashModuleWithVM(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewHashModule()
-				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
 
@@ -293,7 +293,7 @@ func TestHashModuleWithVM(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewHashModule()
-				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
 
@@ -342,7 +342,7 @@ func TestHashModuleWithVM(t *testing.T) {
 
 	t.Run("error handling in Lua", func(t *testing.T) {
 		mod := NewHashModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -387,7 +387,7 @@ func TestHashModuleWithVM(t *testing.T) {
 
 	t.Run("binary option test", func(t *testing.T) {
 		mod := NewHashModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -438,7 +438,7 @@ func TestHashModuleWithVM_HMAC(t *testing.T) {
 
 	t.Run("module hmac functions loading", func(t *testing.T) {
 		mod := NewHashModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -495,7 +495,7 @@ func TestHashModuleWithVM_HMAC(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewHashModule()
-				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
 
@@ -559,7 +559,7 @@ func TestHashModuleWithVM_HMAC(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewHashModule()
-				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
 
@@ -615,7 +615,7 @@ func TestHashModuleWithVM_HMAC(t *testing.T) {
 
 	t.Run("hmac binary option test", func(t *testing.T) {
 		mod := NewHashModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

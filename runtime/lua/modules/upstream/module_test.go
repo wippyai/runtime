@@ -39,7 +39,7 @@ func setupTest(t *testing.T, ch chan<- payload.Payload) (*engine.VM, context.Con
 	logger := zap.NewNop()
 	mod := NewUpstreamModule()
 
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 
 	// Create context with upstream sender in FrameContext
@@ -59,8 +59,8 @@ func setupTestWithRunner(t *testing.T, ch chan<- payload.Payload, upstream runti
 	channelMod := channel.NewChannelModule()
 
 	cvm, err := engine.NewCVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
-		engine.WithLoader(channelMod.Name(), channelMod.Loader))
+		engine.WithLoader(mod.Info().Name, mod.Loader),
+		engine.WithLoader(channelMod.Info().Name, channelMod.Loader))
 	require.NoError(t, err)
 
 	// Create context with upstream sender and Upstream handler in FrameContext
@@ -344,16 +344,12 @@ func TestUpstreamRequest(t *testing.T) {
 		uw, frameCtx := runner.InitUnitOfWork(ctx)
 		defer uw.Close()
 
+		// upstream.request() auto-sends to upstream handler, no need for explicit send()
 		script := `
 			local channel = require("channel")
 			local upstream = require("upstream")
 
 			local req = upstream.request("timer.sleep", 5000)
-			local ok, err = upstream.send(req)
-			if not ok then
-				error("failed to send request: " .. tostring(err))
-			end
-
 			local ch = req:response()
 			return ch
 		`
@@ -365,7 +361,7 @@ func TestUpstreamRequest(t *testing.T) {
 		_ = cvm.State().Get(-1) // chVal
 		cvm.State().Pop(1)
 
-		// Verify request was queued
+		// Verify request was queued (auto-sent by upstream.request())
 		requests := upstream.GetRequests()
 		require.Equal(t, 1, len(requests))
 		assert.Equal(t, "timer.sleep", string(requests[0].Type()))
@@ -384,77 +380,97 @@ func TestUpstreamRequest(t *testing.T) {
 	})
 }
 
+func setupTaskTestVM(t *testing.T) (*engine.CoroutineVM, *engine.Runner) {
+	logger := zap.NewNop()
+	mod := NewUpstreamModule()
+	channelMod := channel.NewChannelModule()
+
+	cvm, err := engine.NewCVM(logger,
+		engine.WithPreloaded(mod.Info().Name, mod.Loader),
+		engine.WithPreloaded(channelMod.Info().Name, channelMod.Loader))
+	require.NoError(t, err)
+
+	runner := engine.NewRunner(cvm,
+		engine.WithLayer(coroutine.NewCoroutineLayer()),
+		engine.WithLayer(channel.NewChannelLayer()))
+
+	return cvm, runner
+}
+
 func TestUpstreamTask(t *testing.T) {
 	t.Run("task input and complete", func(t *testing.T) {
-		ch := make(chan payload.Payload, 1)
-		cvm, ctx := setupTestWithRunner(t, ch, nil)
-		defer cvm.Close()
+		cvm, runner := setupTaskTestVM(t)
+		defer runner.Close()
 
-		runner := engine.NewRunner(cvm,
-			engine.WithLayer(coroutine.NewCoroutineLayer()),
-			engine.WithLayer(channel.NewChannelLayer()))
-
-		uw, frameCtx := runner.InitUnitOfWork(ctx)
-		defer uw.Close()
-
-		// Create task
+		// Create task with callback
 		resultCh := make(chan runtime.Result, 1)
 		task := NewTask(
-			payload.NewPayload(lua.LString("test input"), payload.Lua),
+			"test",
+			payload.Payloads{payload.NewPayload(lua.LString("test input"), payload.Lua)},
 			func(result runtime.Result) {
 				resultCh <- result
 			},
 		)
 
-		// Wrap task and set as global
+		// Wrap task and set as global (metatables already registered via WithPreloaded)
 		taskVal := WrapTask(cvm.State(), task)
 		cvm.State().SetGlobal("test_task", taskVal)
 
 		script := `
-			local input = test_task:input()
-			if input ~= "test input" then
-				error("expected 'test input', got: " .. tostring(input))
-			end
+			function test()
+				local input = test_task:input()
+				if input ~= "test input" then
+					error("expected 'test input', got: " .. tostring(input))
+				end
 
-			local ok = test_task:complete("completed")
-			if not ok then
-				error("failed to complete task")
+				local taskType = test_task:type()
+				if taskType ~= "test" then
+					error("expected type 'test', got: " .. tostring(taskType))
+				end
+
+				local ok = test_task:complete("completed")
+				if not ok then
+					error("failed to complete task")
+				end
+				return "done"
 			end
 		`
-
-		err := cvm.State().DoString(script)
+		err := cvm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		// Wait for completion callback
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		uw, ctx := runner.InitUnitOfWork(ctx)
+		defer uw.Close()
+
+		exitCh, err := runner.Start(ctx, "test")
+		require.NoError(t, err)
+
+		result, err := runner.Run(ctx, exitCh)
+		require.NoError(t, err)
+		assert.Equal(t, lua.LString("done"), result)
+
+		// Verify completion callback was called
 		select {
-		case result := <-resultCh:
-			assert.NoError(t, result.Error)
-			luaVal, ok := result.Value.Data().(lua.LString)
+		case res := <-resultCh:
+			assert.NoError(t, res.Error)
+			luaVal, ok := res.Value.Data().(lua.LString)
 			require.True(t, ok)
 			assert.Equal(t, "completed", string(luaVal))
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for task completion")
 		}
-
-		_ = frameCtx
 	})
 
 	t.Run("task fail", func(t *testing.T) {
-		ch := make(chan payload.Payload, 1)
-		cvm, ctx := setupTestWithRunner(t, ch, nil)
-		defer cvm.Close()
+		cvm, runner := setupTaskTestVM(t)
+		defer runner.Close()
 
-		runner := engine.NewRunner(cvm,
-			engine.WithLayer(coroutine.NewCoroutineLayer()),
-			engine.WithLayer(channel.NewChannelLayer()))
-
-		uw, frameCtx := runner.InitUnitOfWork(ctx)
-		defer uw.Close()
-
-		// Create task
+		// Create task with callback
 		resultCh := make(chan runtime.Result, 1)
 		task := NewTask(
-			payload.NewPayload(lua.LString("test input"), payload.Lua),
+			"error_test",
+			payload.Payloads{payload.NewPayload(lua.LString("input"), payload.Lua)},
 			func(result runtime.Result) {
 				resultCh <- result
 			},
@@ -465,25 +481,37 @@ func TestUpstreamTask(t *testing.T) {
 		cvm.State().SetGlobal("test_task", taskVal)
 
 		script := `
-			local ok = test_task:fail("something went wrong")
-			if not ok then
-				error("failed to fail task")
+			function test()
+				local ok = test_task:fail("something went wrong")
+				if not ok then
+					error("failed to fail task")
+				end
+				return "done"
 			end
 		`
-
-		err := cvm.State().DoString(script)
+		err := cvm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		// Wait for completion callback
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+		uw, ctx := runner.InitUnitOfWork(ctx)
+		defer uw.Close()
+
+		exitCh, err := runner.Start(ctx, "test")
+		require.NoError(t, err)
+
+		result, err := runner.Run(ctx, exitCh)
+		require.NoError(t, err)
+		assert.Equal(t, lua.LString("done"), result)
+
+		// Verify failure callback was called
 		select {
-		case result := <-resultCh:
-			require.Error(t, result.Error)
-			assert.Equal(t, "something went wrong", result.Error.Error())
+		case res := <-resultCh:
+			require.Error(t, res.Error)
+			assert.Equal(t, "something went wrong", res.Error.Error())
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for task failure")
 		}
-
-		_ = frameCtx
 	})
 }
 

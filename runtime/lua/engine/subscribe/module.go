@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -43,9 +44,13 @@ func NewSubscribeModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "subscribe"
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "subscribe",
+		Description: "Pub/sub topic subscription",
+		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader registers the module functions

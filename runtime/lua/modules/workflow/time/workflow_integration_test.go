@@ -32,7 +32,7 @@ func TestWorkflowIntegration_TimeSleepWithCommandCompletion(t *testing.T) {
 
 	// Create workflow time module
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -152,7 +152,7 @@ func TestWorkflowIntegration_MultipleTimerCommands(t *testing.T) {
 	timeRef := newMockTimeReference(time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
 
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -254,7 +254,7 @@ func TestWorkflowIntegration_TimeNowDeterministic(t *testing.T) {
 	timeRef := newMockTimeReference(fixedTime)
 
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -308,7 +308,7 @@ func TestWorkflowIntegration_PureFunctionsNoCommands(t *testing.T) {
 	timeRef := newMockTimeReference(time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
 
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 

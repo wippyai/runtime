@@ -3,6 +3,7 @@ package http
 import (
 	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
@@ -28,9 +29,12 @@ func NewHTTPAPIModule(log *zap.Logger) *Module {
 	return &Module{log: log}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "http"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "http",
+		Description: "HTTP server request/response handling",
+		Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO},
+	}
 }
 
 // Loader registers the module functions and constants

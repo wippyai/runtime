@@ -17,7 +17,7 @@ func TestTextModule(t *testing.T) {
 	t.Run("module creation and loading", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -77,7 +77,7 @@ func TestTextModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()
@@ -126,7 +126,7 @@ func TestTextModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()
@@ -220,7 +220,7 @@ func TestTextModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()
@@ -244,7 +244,7 @@ func TestTextModule(t *testing.T) {
 	t.Run("batch splitting functionality", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -292,7 +292,7 @@ func TestTextModule(t *testing.T) {
 	t.Run("markdown splitting", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -343,7 +343,7 @@ More content here with **bold** and *italic* text.
 	t.Run("metadata preservation and reuse", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -410,7 +410,7 @@ More content here with **bold** and *italic* text.
 	t.Run("large document splitting", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -536,7 +536,7 @@ More content here with **bold** and *italic* text.
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()
@@ -569,7 +569,7 @@ More content here with **bold** and *italic* text.
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()

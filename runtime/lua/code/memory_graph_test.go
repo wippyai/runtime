@@ -32,9 +32,13 @@ func (d *dummyModule) Loader(_ *lua.LState) int {
 	return 0
 }
 
-// Name returns the dummy module's name.
-func (d *dummyModule) Name() string {
-	return d.name
+// Info returns the dummy module's metadata.
+func (d *dummyModule) Info() runtime.ModuleInfo {
+	return runtime.ModuleInfo{
+		Name:        d.name,
+		Description: "test module",
+		Class:       []string{runtime.ClassDeterministic},
+	}
 }
 
 // TestMemoryGraph_AddNode tests node addition, including duplicate and nil cases.
@@ -392,7 +396,7 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 			}
 			// Verify module is included as a dependency
 			if dep.Node.ID.Name == "DepNodeC" {
-				if dep.Node.Module == nil || dep.Node.Module.Name() != "dummyMod" {
+				if dep.Node.Module == nil || dep.Node.Module.Info().Name != "dummyMod" {
 					t.Errorf("expected module 'dummyMod' in nodeC dependency")
 				}
 			}
@@ -525,13 +529,13 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 
 	// Track main node's module if it has one
 	if rt.Main.Module != nil {
-		seenModules[rt.Main.Module.Name()] = true
+		seenModules[rt.Main.Module.Info().Name] = true
 	}
 
 	// Track modules from dependencies
 	for _, dep := range rt.Dependencies {
 		if dep.Node.Module != nil {
-			seenModules[dep.Node.Module.Name()] = true
+			seenModules[dep.Node.Module.Info().Name] = true
 		}
 
 		// Verify specific aliases
@@ -640,7 +644,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	uniqueModules := make(map[string]bool)
 	for _, dep := range rt.Dependencies {
 		if dep.Node.Module != nil {
-			uniqueModules[dep.Node.Module.Name()] = true
+			uniqueModules[dep.Node.Module.Info().Name] = true
 		}
 	}
 
@@ -841,7 +845,7 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 	uniqueModules := make(map[string]bool)
 	for _, dep := range rt.Dependencies {
 		if dep.Node.Module != nil {
-			uniqueModules[dep.Node.Module.Name()] = true
+			uniqueModules[dep.Node.Module.Info().Name] = true
 		}
 	}
 

@@ -19,10 +19,10 @@ func TestRegistryModule(t *testing.T) {
 		defer vm.Close()
 
 		// Register the Registry module
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Check that the module name is correct
-		assert.Equal(t, "registry", module.Name())
+		assert.Equal(t, "registry", module.Info().Name)
 
 		// Load the module and check that functions are registered
 		err = vm.State().DoString(`
@@ -52,7 +52,7 @@ func TestRegistryModule(t *testing.T) {
 		defer vm.Close()
 
 		// Register the Registry module
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Test parse_id function
 		err = vm.State().DoString(`
@@ -76,7 +76,7 @@ func TestRegistryModule(t *testing.T) {
 		defer vm.Close()
 
 		// Register the Registry module
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Test parse_id function with invalid format
 		err = vm.State().DoString(`

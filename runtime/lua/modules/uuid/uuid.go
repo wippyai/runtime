@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -20,9 +21,12 @@ func NewUUIDModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module's name.
-func (m *Module) Name() string {
-	return "uuid"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "uuid",
+		Description: "UUID generation and parsing",
+		Class:       []string{luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader registers the module's functions into Lua state.

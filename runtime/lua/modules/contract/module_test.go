@@ -305,7 +305,7 @@ func setupContractTest(t *testing.T) (*engine.CoroutineVM, engine.UnitOfWork, co
 
 	// Get the Lua state and register modules
 	L := vm.State()
-	L.PreloadModule(mod.Name(), mod.Loader)
+	L.PreloadModule(mod.Info().Name, mod.Loader)
 	L.PreloadModule("security", securityModuleLoader)
 
 	// Setup coroutine support

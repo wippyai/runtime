@@ -28,7 +28,7 @@ func TestManualTimeAdvancement(t *testing.T) {
 	timeRef := newMockTimeReference(startTime)
 
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -145,7 +145,7 @@ func TestManualTimeControl(t *testing.T) {
 	timeRef := newMockTimeReference(startTime)
 
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -329,7 +329,7 @@ func TestTimeReferenceIsolation(t *testing.T) {
 	`
 
 	// Execute with first time reference
-	vm1, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm1, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm1.Close()
 
@@ -353,7 +353,7 @@ func TestTimeReferenceIsolation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute with second time reference
-	vm2, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm2, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm2.Close()
 
@@ -400,7 +400,7 @@ func TestTimeAdvancementDuringExecution(t *testing.T) {
 	timeRef := newMockTimeReference(startTime)
 
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 

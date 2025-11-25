@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/store"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -19,7 +21,9 @@ import (
 
 // Module represents a store Lua module
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	once        sync.Once
+	moduleTable *lua.LTable
 }
 
 // NewStoreModule creates and returns a new instance of the store Module
@@ -29,26 +33,26 @@ func NewStoreModule(log *zap.Logger) *Module {
 	}
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "store"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "store",
+		Description: "Key-value store access",
+		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO},
+	}
 }
 
 // Loader loads the module into the given Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	// Create a simple module table with only the get function
-	mod := l.CreateTable(0, 1)
-
-	// Register get function
-	mod.RawSetString("get", l.NewFunction(func(l *lua.LState) int {
-		return storeGet(l, m.log)
-	}))
-
-	// Register Store type methods
-	registerStore(l)
-
-	// Push the module table
-	l.Push(mod)
+	m.once.Do(func() {
+		mod := l.CreateTable(0, 1)
+		mod.RawSetString("get", l.NewFunction(func(l *lua.LState) int {
+			return storeGet(l, m.log)
+		}))
+		registerStore(l)
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

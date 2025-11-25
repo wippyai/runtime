@@ -148,7 +148,7 @@ func setupLuaWithStore(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM
 	L := vm.State()
 
 	// Register the store module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Set up a transcoder to convert between Lua and Go values
 	// This is a simplified version for testing - in a real environment,
@@ -535,7 +535,7 @@ func TestStoreGetError(t *testing.T) {
 	L := vm.State()
 
 	// Register the store module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Set up the context
 	ctx := ctxapi.NewRootContext()

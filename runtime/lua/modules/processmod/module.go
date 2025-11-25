@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/context"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/component/process"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -36,9 +37,13 @@ func NewProcessAPIModule(log *zap.Logger) *Module {
 	}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "process_api"
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "process.api",
+		Description: "Process API with inbox and event handling",
+		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader is the entry point for loading the module into Lua

@@ -28,7 +28,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 
 	t.Run("module creation and loading", func(t *testing.T) {
 		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -56,7 +56,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 
 	t.Run("mem_stats function", func(t *testing.T) {
 		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -101,7 +101,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 
 	t.Run("gc and allocated functions", func(t *testing.T) {
 		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -153,7 +153,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 
 	t.Run("gc_percent functions", func(t *testing.T) {
 		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -209,7 +209,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 
 	t.Run("system info functions", func(t *testing.T) {
 		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -282,7 +282,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 
 	t.Run("go_max_procs set function", func(t *testing.T) {
 		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -339,7 +339,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 
 	t.Run("exit function", func(t *testing.T) {
 		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -371,7 +371,7 @@ func TestSystemModuleWithVM(t *testing.T) {
 
 	t.Run("exit function default code", func(t *testing.T) {
 		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

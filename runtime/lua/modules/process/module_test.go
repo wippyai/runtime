@@ -197,7 +197,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *lua.LState, engin
 	L := vm.State()
 
 	// Register the Process module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Create a runner
 	runner := engine.NewRunner(vm)
@@ -228,12 +228,12 @@ func TestProcessModule(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewProcessAPIModule(logger)
 
-		vm, err := engine.NewVM(logger, engine.WithLoader(module.Name(), module.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(module.Info().Name, module.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		// Check that the module name is correct
-		assert.Equal(t, "process", module.Name())
+		assert.Equal(t, "process", module.Info().Name)
 
 		// Load the module and set it as a global in Lua
 		err = vm.State().DoString(`process = require("process")`)
@@ -375,7 +375,7 @@ func TestProcessModuleErrorHandling(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewProcessAPIModule(logger)
 
-		vm, err := engine.NewVM(logger, engine.WithLoader(module.Name(), module.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(module.Info().Name, module.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -394,7 +394,7 @@ func TestProcessModuleErrorHandling(t *testing.T) {
 		logger := zap.NewNop()
 		module := NewProcessAPIModule(logger)
 
-		vm, err := engine.NewVM(logger, engine.WithLoader(module.Name(), module.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(module.Info().Name, module.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

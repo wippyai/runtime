@@ -18,16 +18,20 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
+	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
+	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
+	workflowprocess "github.com/wippyai/runtime/runtime/lua/modules/workflow/process"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	json "github.com/wippyai/runtime/system/payload/json"
-	lua "github.com/wippyai/runtime/system/payload/lua"
+	luaconv "github.com/wippyai/runtime/system/payload/lua"
+	glua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap/zaptest"
 )
 
 func createTestTranscoder() payload.Transcoder {
 	tr := transcoder.NewTranscoder()
 	json.Register(tr)
-	lua.Register(tr)
+	luaconv.Register(tr)
 	return tr
 }
 
@@ -49,7 +53,7 @@ func createTestState(t *testing.T, funcName string, funcBody string) (*baseproce
 	// Preload channel module so Lua code can use channel.new()
 	L := vm.State()
 	channelMod := channel.NewChannelModule()
-	L.PreloadModule(channelMod.Name(), channelMod.Loader)
+	L.PreloadModule(channelMod.Info().Name, channelMod.Loader)
 
 	// Import test function
 	err = vm.Import(funcBody, "test", funcName)
@@ -399,4 +403,125 @@ func TestLuaWorkflow_Terminate(t *testing.T) {
 
 	// State should be closed
 	assert.True(t, state.Closed.Load())
+}
+
+// mockTask implements std.Task for testing
+type mockTask struct {
+	taskType  string
+	input     interface{}
+	completed bool
+	result    payload.Payload
+	err       error
+}
+
+func (t *mockTask) Type() string            { return t.taskType }
+func (t *mockTask) Input() payload.Payloads { return payload.Payloads{payload.New(t.input)} }
+func (t *mockTask) Complete(result payload.Payload) error {
+	t.completed = true
+	t.result = result
+	return nil
+}
+func (t *mockTask) Fail(err error) error { t.completed = true; t.err = err; return nil }
+
+func TestLuaWorkflow_PushTask(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+
+	// Create VM with preloaded modules
+	vm, err := engine.NewCVM(logger,
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+		engine.WithPreloaded("relay", subscribe.NewSubscribeModule().Loader),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	// Preload workflow process module and upstream
+	L := vm.State()
+	processMod := workflowprocess.NewProcessModule()
+	L.PreloadModule("process", processMod.Loader)
+
+	upstreamMod := upstream.NewUpstreamModule()
+	upstreamMod.Loader(L)
+	L.Pop(1)
+
+	// Import test function that uses process.tasks()
+	err = vm.Import(`
+		function test_task_handler()
+			local process = require("process")
+
+			-- Get tasks channel
+			local tasks_ch, err = process.tasks()
+			if tasks_ch == nil then
+				error("process.tasks() failed: " .. tostring(err))
+			end
+
+			-- Wait for task on channel (use :receive() method)
+			local task = tasks_ch:receive()
+			if task == nil then
+				error("no task received")
+			end
+
+			-- Get task type and input
+			local task_type = task:type()
+			local input = task:input()
+
+			-- Complete the task with response
+			local ok, cerr = task:complete("handled: " .. task_type .. " - " .. tostring(input))
+			if not ok and cerr then
+				error("task:complete failed: " .. tostring(cerr))
+			end
+
+			return "done"
+		end
+	`, "test", "test_task_handler")
+	require.NoError(t, err)
+
+	// Create runner with layers (order matters: channel, subscribe, coroutine)
+	runner := engine.NewRunner(vm,
+		engine.WithLayer(channel.NewChannelLayer()),
+		engine.WithLayer(subscribe.NewSubscribeLayer()),
+		engine.WithLayer(coroutine.NewCoroutineLayer()))
+
+	// Create state
+	state, err := baseprocess.NewState(logger, runner, "test_task_handler")
+	require.NoError(t, err)
+
+	workflow := NewLuaWorkflow(logger, state)
+
+	ctx := newTestContext(t)
+	pid := relay.PID{UniqID: uuid.New().String()}
+
+	// Start workflow
+	err = workflow.Start(ctx, pid, nil)
+	require.NoError(t, err)
+
+	// Step to let workflow subscribe to tasks channel and block waiting for task
+	_, err = workflow.Step()
+	require.NoError(t, err)
+
+	// Create and push a task
+	task := &mockTask{
+		taskType: "query",
+		input:    "get_state",
+	}
+
+	err = workflow.PushTask(task)
+	require.NoError(t, err)
+
+	// Step until task is completed (workflow needs multiple steps to process)
+	for i := 0; i < 10 && !task.completed; i++ {
+		_, err = workflow.Step()
+		if err != nil {
+			break
+		}
+	}
+
+	// Task should be completed
+	assert.True(t, task.completed, "task should be completed")
+	assert.Nil(t, task.err, "task should not have error")
+	if task.result != nil {
+		// Result data is glua.LString, compare as string
+		assert.Equal(t, "handled: query - get_state", task.result.Data().(glua.LValue).String())
+	} else {
+		t.Error("task result is nil")
+	}
 }

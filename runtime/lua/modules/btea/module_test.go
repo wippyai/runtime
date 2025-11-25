@@ -22,7 +22,7 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("module loads successfully", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -35,12 +35,12 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("module name is correct", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		require.Equal(t, "btea", mod.Name())
+		require.Equal(t, "btea", mod.Info().Name)
 	})
 
 	t.Run("all protocol components are available", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -68,7 +68,7 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("all render components are available", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -94,7 +94,7 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("all model components are available", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -130,7 +130,7 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("list components are available", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -145,7 +145,7 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("events channel is available", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -160,7 +160,7 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("basic command execution", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -183,7 +183,7 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("basic model creation", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -220,7 +220,7 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("basic render functionality", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -251,7 +251,7 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("list functionality", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -267,7 +267,7 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("key binding functionality", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -287,7 +287,7 @@ func TestBteaModule(t *testing.T) {
 
 	t.Run("module integration test", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -318,7 +318,7 @@ func TestBteaModuleErrorHandling(t *testing.T) {
 
 	t.Run("invalid module operations", func(t *testing.T) {
 		mod := NewBteaModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -348,7 +348,7 @@ func TestBteaModulePerformance(t *testing.T) {
 
 		// Test that module creation is fast
 		for i := 0; i < 100; i++ {
-			vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+			vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 			require.NoError(t, err)
 
 			err = vm.DoString(newTestContext(), `

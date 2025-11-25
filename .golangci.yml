@@ -1,4 +1,3 @@
-version: "2"
 run:
   allow-parallel-runners: true
 linters:
@@ -20,6 +19,7 @@ linters:
     - nakedret
     - noctx
     - nolintlint
+    - nilnil
     - prealloc
     - revive
     - staticcheck
@@ -31,16 +31,32 @@ linters:
   settings:
     dupl:
       threshold: 100
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      disable-default-exclusions: true
     goconst:
       min-len: 2
       min-occurrences: 3
     godot:
       scope: declarations
       capital: true
+    govet:
+      enable-all: true
+      settings:
+        nilness:
+          enabled: true
     lll:
       line-length: 120
     misspell:
       locale: US
+    nilnil:
+      checked-types:
+        - ptr
+        - func
+        - iface
+        - map
+        - chan
     nolintlint:
       require-specific: true
       require-explanation: true
@@ -48,15 +64,14 @@ linters:
       simple: true
       range-loops: true
       for-loops: true
+    staticcheck:
+      checks: ["all"]
     wsl:
       allow-assign-and-anything: true
   exclusions:
     generated: lax
     presets:
       - comments
-      - common-false-positives
-      - legacy
-      - std-error-handling
     rules:
       - linters:
           - dupl
@@ -64,9 +79,14 @@ linters:
           - gocognit
           - scopelint
         path: _test\.go
+      - linters:
+          - errcheck
+        text: "Error return value of.*Close.*is not checked"
+        path: _test\.go
     paths:
       - .github
       - .git
+      - 
       - third_party$
       - builtin$
       - examples$

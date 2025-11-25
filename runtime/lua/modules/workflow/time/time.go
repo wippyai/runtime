@@ -4,6 +4,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/workflow"
+	"github.com/wippyai/runtime/api/workflow/std"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	origtime "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
@@ -33,7 +34,10 @@ func sleep(l *lua.LState) int {
 		return 0
 	}
 
-	req := upstream.NewRequest(l, "timer.sleep", nil, payload.New(duration.Milliseconds()))
+	header := &std.TimerHeader{
+		Milliseconds: duration.Milliseconds(),
+	}
+	req := upstream.NewRequest(l, std.TypeTimerSleep, nil, payload.New(header))
 	return upstream.SendAndYield(l, req)
 }
 
@@ -44,7 +48,10 @@ func after(l *lua.LState) int {
 		return 0
 	}
 
-	req := upstream.NewRequest(l, "timer.sleep", nil, payload.New(duration.Milliseconds()))
+	header := &std.TimerHeader{
+		Milliseconds: duration.Milliseconds(),
+	}
+	req := upstream.NewRequest(l, std.TypeTimerSleep, nil, payload.New(header))
 	timerUD := l.NewUserData()
 	timerUD.Value = &Timer{req: req}
 	timerUD.Metatable = value.GetTypeMetatable(l, "time.Timer")
@@ -70,7 +77,10 @@ func timer(l *lua.LState) int {
 		return 0
 	}
 
-	req := upstream.NewRequest(l, "timer.sleep", nil, payload.New(duration.Milliseconds()))
+	header := &std.TimerHeader{
+		Milliseconds: duration.Milliseconds(),
+	}
+	req := upstream.NewRequest(l, std.TypeTimerSleep, nil, payload.New(header))
 	timerUD := l.NewUserData()
 	timerUD.Value = &Timer{req: req, resettable: true}
 	timerUD.Metatable = value.GetTypeMetatable(l, "time.Timer")

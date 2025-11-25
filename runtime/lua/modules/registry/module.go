@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	regapi "github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	"github.com/wippyai/runtime/system/registry/topology"
@@ -40,9 +41,13 @@ func NewRegistryModule(log *zap.Logger) *Module {
 	return &Module{log: log}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return moduleName
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        moduleName,
+		Description: "Registry access and version management",
+		Class:       []string{luaapi.ClassStorage, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader loads the module into the Lua state

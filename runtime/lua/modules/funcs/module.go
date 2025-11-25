@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
@@ -52,9 +53,12 @@ func NewFunctionModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "funcs"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "funcs",
+		Description: "Function execution and async calls",
+		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader registers the module functions
@@ -532,7 +536,6 @@ func (f *Functions) createTask(l *lua.LState, _ *zap.Logger) (runtime.Task, erro
 		return runtime.Task{}, fmt.Errorf("invalid registry ID: %w", err)
 	}
 
-	//nolint:prealloc // ok for now
 	var payloads []payload.Payload
 	for i := targetIndex + 1; i <= l.GetTop(); i++ {
 		val := l.Get(i)

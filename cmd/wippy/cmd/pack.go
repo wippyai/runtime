@@ -566,7 +566,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	if err != nil {
 		return fmt.Errorf("create pack file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if len(resources) > 0 {
 		if err := packWriter.PackWithResources(metadata, entries, resources, file); err != nil {

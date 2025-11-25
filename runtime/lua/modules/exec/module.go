@@ -1,6 +1,9 @@
 package exec
 
 import (
+	"sync"
+
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 
@@ -19,7 +22,9 @@ const (
 
 // Module represents the exec Lua module
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	once        sync.Once
+	moduleTable *lua.LTable
 }
 
 // NewExecModule creates and returns a new instance of the exec Module
@@ -32,31 +37,28 @@ func NewExecModule(log *zap.Logger) *Module {
 	}
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "exec"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "exec",
+		Description: "External command execution",
+		Class:       []string{luaapi.ClassIO},
+	}
 }
 
 // Loader loads the module into the given Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	// Create the main module table
-	mod := l.CreateTable(0, 1) // Only 'get' function initially
-
-	// Register exec.get function (gets the Executor factory)
-	mod.RawSetString("get", l.NewFunction(func(ls *lua.LState) int {
-		return execGet(ls, m.log) // Returns Executor userdata
-	}))
-
-	// Register Executor type methods (factory)
-	registerExecutor(l)
-
-	// Register Process type methods (handle)
-	registerProcess(l)
-
-	stream.RegisterStream(l)
-
-	// Push the module table
-	l.Push(mod)
+	m.once.Do(func() {
+		mod := l.CreateTable(0, 1)
+		mod.RawSetString("get", l.NewFunction(func(ls *lua.LState) int {
+			return execGet(ls, m.log)
+		}))
+		registerExecutor(l)
+		registerProcess(l)
+		stream.RegisterStream(l)
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

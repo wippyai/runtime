@@ -17,7 +17,7 @@ func TestSQLQueries(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -75,7 +75,7 @@ func TestMarkdownQueries(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestBasicQuery(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -201,7 +201,7 @@ func TestQueryMultipleCaptures(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -269,7 +269,7 @@ func TestQueryFunctionDetails(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -379,7 +379,7 @@ func TestQueryParamDebug(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -499,7 +499,7 @@ func TestQueryAdvancedFeatures(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -610,7 +610,7 @@ func TestQueryOperations(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -750,7 +750,7 @@ func TestQueryErrorCases(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -823,7 +823,7 @@ func TestQueryTextPredicates(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -916,7 +916,7 @@ func TestQueryNestedGrammars(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -936,7 +936,7 @@ func TestQueryLuaInLua(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)
@@ -956,7 +956,7 @@ func TestQueryLuaFileStruct(t *testing.T) {
 	mod := NewTreeSitterModule(logger)
 
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 		engine.WithGlobalFunction("assert", assertLua),
 	)
 	require.NoError(t, err)

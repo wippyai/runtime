@@ -129,7 +129,11 @@ func (l *FileLoader) loadFileAsPayload(fSys fs.FS, path string, format payload.F
 	if err != nil {
 		return nil, fmt.Errorf("open file %s: %w", path, err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			l.log.Error("close file", zap.String("path", path), zap.Error(closeErr))
+		}
+	}()
 
 	data, err := io.ReadAll(file)
 	if err != nil {

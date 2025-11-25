@@ -9,40 +9,49 @@ import (
 	"encoding/hex"
 	"hash"
 	"hash/fnv"
+	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // Module represents a hash Lua module.
-type Module struct{}
+type Module struct {
+	once        sync.Once
+	moduleTable *lua.LTable
+}
 
 // NewHashModule creates and returns a new instance of the hash Module.
 func NewHashModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module's name.
-func (m *Module) Name() string {
-	return "hash"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "hash",
+		Description: "Cryptographic hash functions (MD5, SHA, HMAC)",
+		Class:       []string{luaapi.ClassSecurity, luaapi.ClassDeterministic},
+	}
 }
 
 // Loader registers the module's functions into Lua state.
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.CreateTable(0, 6)
-
-	// Register functions directly using RawSetString for better performance
-	mod.RawSetString("md5", l.NewFunction(m.md5))
-	mod.RawSetString("sha1", l.NewFunction(m.sha1))
-	mod.RawSetString("sha256", l.NewFunction(m.sha256))
-	mod.RawSetString("sha512", l.NewFunction(m.sha512))
-	mod.RawSetString("fnv32", l.NewFunction(m.fnv32))
-	mod.RawSetString("fnv64", l.NewFunction(m.fnv64))
-	mod.RawSetString("hmac_sha256", l.NewFunction(m.hmac_sha256))
-	mod.RawSetString("hmac_sha512", l.NewFunction(m.hmac_sha512))
-	mod.RawSetString("hmac_sha1", l.NewFunction(m.hmac_sha1))
-	mod.RawSetString("hmac_md5", l.NewFunction(m.hmac_md5))
-
-	l.Push(mod)
+	m.once.Do(func() {
+		mod := l.CreateTable(0, 10)
+		mod.RawSetString("md5", l.NewFunction(m.md5))
+		mod.RawSetString("sha1", l.NewFunction(m.sha1))
+		mod.RawSetString("sha256", l.NewFunction(m.sha256))
+		mod.RawSetString("sha512", l.NewFunction(m.sha512))
+		mod.RawSetString("fnv32", l.NewFunction(m.fnv32))
+		mod.RawSetString("fnv64", l.NewFunction(m.fnv64))
+		mod.RawSetString("hmac_sha256", l.NewFunction(m.hmac_sha256))
+		mod.RawSetString("hmac_sha512", l.NewFunction(m.hmac_sha512))
+		mod.RawSetString("hmac_sha1", l.NewFunction(m.hmac_sha1))
+		mod.RawSetString("hmac_md5", l.NewFunction(m.hmac_md5))
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

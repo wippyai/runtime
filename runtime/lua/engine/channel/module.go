@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
@@ -123,9 +124,13 @@ func NewChannelModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "channel"
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "channel",
+		Description: "Channel-based concurrency primitives",
+		Class:       []string{luaapi.ClassProcess, luaapi.ClassDeterministic},
+	}
 }
 
 // Loader registers the module functions

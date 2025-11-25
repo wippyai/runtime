@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
@@ -40,9 +41,13 @@ func NewFunctionAPIModule(log *zap.Logger) *Module {
 	}
 }
 
-// Name returns the module name
-func (e *Module) Name() string {
-	return "function_api"
+// Info returns module metadata
+func (e *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "function.api",
+		Description: "Function API with lazy inbox handling",
+		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader is the entry point for loading the module into Lua

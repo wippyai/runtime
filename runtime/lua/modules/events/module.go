@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -34,9 +35,12 @@ func NewEventsModule(log *zap.Logger) *Module {
 	}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "events"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "events",
+		Description: "Event bus subscription and publishing",
+		Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader is the entry point for loading the module into Lua

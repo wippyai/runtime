@@ -184,7 +184,7 @@ func TestExecutorModule(t *testing.T) {
 
 		// Create VM with the module preloaded
 		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -222,7 +222,7 @@ func TestExecutorModule(t *testing.T) {
 	t.Run("call with multiple arguments", func(t *testing.T) {
 		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -258,7 +258,7 @@ func TestExecutorModule(t *testing.T) {
 	t.Run("with_actor functionality", func(t *testing.T) {
 		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
 			engine.WithLoader("security", securityModuleLoader),
 		)
 		require.NoError(t, err)
@@ -306,7 +306,7 @@ func TestExecutorModule(t *testing.T) {
 	t.Run("with_scope functionality", func(t *testing.T) {
 		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
 			engine.WithLoader("security", securityModuleLoader),
 		)
 		require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestExecutorModule(t *testing.T) {
 	t.Run("cannot remove actor", func(t *testing.T) {
 		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
 			engine.WithLoader("security", securityModuleLoader),
 		)
 		require.NoError(t, err)
@@ -410,7 +410,7 @@ func TestExecutorModule(t *testing.T) {
 	t.Run("cannot remove scope", func(t *testing.T) {
 		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
 			engine.WithLoader("security", securityModuleLoader),
 		)
 		require.NoError(t, err)
@@ -468,8 +468,8 @@ func TestExecutorModule(t *testing.T) {
 		upstreamMod := upstream.NewUpstreamModule()
 		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-			engine.WithPreloaded(upstreamMod.Name(), upstreamMod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
+			engine.WithPreloaded(upstreamMod.Info().Name, upstreamMod.Loader),
 			engine.WithLoader("security", securityModuleLoader),
 		)
 		require.NoError(t, err)
@@ -519,7 +519,7 @@ func TestExecutorModule(t *testing.T) {
 	t.Run("with_options functionality", func(t *testing.T) {
 		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()

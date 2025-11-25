@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/workflow"
 	origostime "github.com/wippyai/runtime/runtime/lua/modules/ostime"
 	lua "github.com/yuin/gopher-lua"
@@ -18,8 +19,13 @@ func NewOSTimeModule() *Module {
 	return &Module{}
 }
 
-func (m *Module) Name() string {
-	return "os"
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "os",
+		Description: "Workflow-safe OS time functions",
+		Class:       []string{luaapi.ClassWorkflow, luaapi.ClassTime},
+	}
 }
 
 func (m *Module) Loader(l *lua.LState) int {

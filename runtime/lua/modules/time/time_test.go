@@ -18,7 +18,7 @@ func TestTimeModule(t *testing.T) {
 		t.Run("now()", func(t *testing.T) {
 			mod := NewTimeModule()
 			vm, err := engine.NewVM(logger,
-				engine.WithLoader(mod.Name(), mod.Loader),
+				engine.WithLoader(mod.Info().Name, mod.Loader),
 				engine.WithGlobalFunction("assert", assertLua),
 			)
 			require.NoError(t, err)
@@ -38,7 +38,7 @@ func TestTimeModule(t *testing.T) {
 		t.Run("date()", func(t *testing.T) {
 			mod := NewTimeModule()
 			vm, err := engine.NewVM(logger,
-				engine.WithLoader(mod.Name(), mod.Loader),
+				engine.WithLoader(mod.Info().Name, mod.Loader),
 				engine.WithGlobalFunction("assert", assertLua),
 			)
 			require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestTimeModule(t *testing.T) {
 		t.Run("unix()", func(t *testing.T) {
 			mod := NewTimeModule()
 			vm, err := engine.NewVM(logger,
-				engine.WithLoader(mod.Name(), mod.Loader),
+				engine.WithLoader(mod.Info().Name, mod.Loader),
 				engine.WithGlobalFunction("assert", assertLua),
 			)
 			require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestTimeModule(t *testing.T) {
 		t.Run("parse()", func(t *testing.T) {
 			mod := NewTimeModule()
 			vm, err := engine.NewVM(logger,
-				engine.WithLoader(mod.Name(), mod.Loader),
+				engine.WithLoader(mod.Info().Name, mod.Loader),
 				engine.WithGlobalFunction("assert", assertLua),
 			)
 			require.NoError(t, err)
@@ -114,7 +114,7 @@ func TestTimeModule(t *testing.T) {
 		t.Run("add()", func(t *testing.T) {
 			mod := NewTimeModule()
 			vm, err := engine.NewVM(logger,
-				engine.WithLoader(mod.Name(), mod.Loader),
+				engine.WithLoader(mod.Info().Name, mod.Loader),
 				engine.WithGlobalFunction("assert", assertLua),
 			)
 			require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestTimeModule(t *testing.T) {
 		t.Run("sub() with time", func(t *testing.T) {
 			mod := NewTimeModule()
 			vm, err := engine.NewVM(logger,
-				engine.WithLoader(mod.Name(), mod.Loader),
+				engine.WithLoader(mod.Info().Name, mod.Loader),
 				engine.WithGlobalFunction("assert", assertLua),
 			)
 			require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestTimeModule_TestBath(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTimeModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()
@@ -395,7 +395,7 @@ func TestTimeModule_TestBath(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTimeModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()
@@ -543,7 +543,7 @@ func TestTimeModule_TestBath(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTimeModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()

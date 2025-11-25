@@ -40,7 +40,7 @@ func buildIsolatedRunner(ctx context.Context, config *evalConfig) (*engine.Runne
 			return nil, fmt.Errorf("module '%s' has no loader", modName)
 		}
 
-		options = append(options, engine.WithLoader(node.Module.Name(), node.Module.Loader))
+		options = append(options, engine.WithLoader(node.Module.Info().Name, node.Module.Loader))
 	}
 
 	for alias, importID := range config.Imports {

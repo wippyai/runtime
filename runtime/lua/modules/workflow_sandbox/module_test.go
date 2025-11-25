@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/workflow/std"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
@@ -243,7 +244,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *engine.Runner, co
 	require.NoError(t, err)
 
 	L := vm.State()
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Load upstream module for command methods - must call Loader to register metatables
 	upstreamMod := upstream.NewUpstreamModule()
@@ -269,7 +270,7 @@ func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *engine.Runner, co
 
 func TestWorkflowSandboxModule_Name(t *testing.T) {
 	mod := NewWorkflowSandboxModule()
-	assert.Equal(t, "workflow_sandbox", mod.Name())
+	assert.Equal(t, "workflow_sandbox", mod.Info().Name)
 }
 
 func TestWorkflowSandboxModule_GetWorkflow(t *testing.T) {
@@ -707,6 +708,643 @@ func TestWorkflowSandboxModule_ParallelWorkflows(t *testing.T) {
 	require.NoError(t, err)
 
 	result, err := runner.Execute(ctx, "test_parallel_workflows")
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+}
+
+// mockUpstreamSendWorkflow uses upstream.send() directly from Lua code
+type mockUpstreamSendWorkflow struct {
+	mu           sync.Mutex
+	started      bool
+	stepCount    int
+	ctx          context.Context
+	pid          relay.PID
+	sendCount    int
+	maxSteps     int
+	completeType string
+}
+
+func (w *mockUpstreamSendWorkflow) Start(ctx context.Context, pid relay.PID, _ payload.Payloads) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.started = true
+	w.ctx = ctx
+	w.pid = pid
+	return nil
+}
+
+func (w *mockUpstreamSendWorkflow) Step() (process.StepResult, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.started {
+		return process.StepContinue, fmt.Errorf("not started")
+	}
+
+	w.stepCount++
+
+	if w.stepCount < w.maxSteps {
+		if w.ctx != nil {
+			if upstream, ok := runtime.GetUpstream(w.ctx); ok {
+				cmd := newMockCommand("activity.execute", payload.New(w.sendCount))
+				_ = upstream.SendRequest(cmd)
+				w.sendCount++
+			}
+		}
+		return process.StepContinue, nil
+	}
+
+	// Complete workflow
+	if w.ctx != nil {
+		hooks := process.GetOnCompleteHooks(w.ctx)
+		if hooks != nil {
+			result := &runtime.Result{Value: payload.New("workflow completed")}
+			for _, hook := range hooks {
+				hook(w.ctx, w.pid, result)
+			}
+		}
+	}
+	return process.StepDone, nil
+}
+
+func (w *mockUpstreamSendWorkflow) Commands() []runtime.Command {
+	return nil
+}
+
+func (w *mockUpstreamSendWorkflow) Send(_ *relay.Package) error {
+	return nil
+}
+
+func (w *mockUpstreamSendWorkflow) Terminate() {}
+
+func TestWorkflowSandboxModule_UpstreamSend(t *testing.T) {
+	vm, runner, ctx, factory := setupTestEnvironment(t)
+	defer vm.Close()
+
+	// Register workflow that uses upstream.send
+	mockFactory := factory.(*mockPrototypeFactory)
+	mockFactory.prototypes["app.workflows:upstream_send"] = func() process.Workflow {
+		return &mockUpstreamSendWorkflow{
+			maxSteps:     3,
+			completeType: "workflow.complete",
+		}
+	}
+
+	err := vm.Import(`
+		function test_upstream_send()
+			local workflow_sandbox = require("workflow_sandbox")
+
+			local wf, err = workflow_sandbox.get("app.workflows:upstream_send")
+			if err then error("failed to get workflow: " .. tostring(err)) end
+
+			-- Start workflow
+			local ok, err = wf:start("test")
+			if not ok then error("start failed: " .. tostring(err)) end
+
+			-- Execute steps and verify commands are queued via upstream
+			local ok, err = wf:step()
+			if not ok then error("step 1 failed: " .. tostring(err)) end
+
+			local commands = wf:commands()
+			assert(#commands == 1, "step 1: expected 1 command, got: " .. #commands)
+
+			-- Access command properties via runtime.Command interface methods
+			local cmd = commands[1]
+			assert(cmd ~= nil, "command should not be nil")
+			assert(cmd:type() == "activity.execute", "command type should be 'activity.execute', got: " .. tostring(cmd:type()))
+			assert(cmd:id() ~= nil, "command id should not be nil")
+
+			-- Step 2
+			local ok, err = wf:step()
+			if not ok then error("step 2 failed: " .. tostring(err)) end
+
+			commands = wf:commands()
+			assert(#commands == 1, "step 2: expected 1 command, got: " .. #commands)
+
+			-- Step 3 (completes)
+			local ok, err = wf:step()
+			if not ok then error("step 3 failed: " .. tostring(err)) end
+
+			assert(wf:done(), "workflow should be done after step 3")
+
+			wf:close()
+			return {success = true}
+		end
+	`, "test", "test_upstream_send")
+	require.NoError(t, err)
+
+	result, err := runner.Execute(ctx, "test_upstream_send")
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+}
+
+// mockProcessSendWorkflow emits process.send commands
+type mockProcessSendWorkflow struct {
+	mu        sync.Mutex
+	started   bool
+	stepCount int
+	ctx       context.Context
+	pid       relay.PID
+	maxSteps  int
+}
+
+func (w *mockProcessSendWorkflow) Start(ctx context.Context, pid relay.PID, _ payload.Payloads) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.started = true
+	w.ctx = ctx
+	w.pid = pid
+	return nil
+}
+
+func (w *mockProcessSendWorkflow) Step() (process.StepResult, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.started {
+		return process.StepContinue, fmt.Errorf("not started")
+	}
+
+	w.stepCount++
+
+	if w.stepCount < w.maxSteps {
+		if w.ctx != nil {
+			if upstream, ok := runtime.GetUpstream(w.ctx); ok {
+				// Create process.send command with destination and topic metadata
+				cmd := newMockCommand("process.send",
+					payload.New(map[string]string{"destination": "target_pid", "topic": "greeting"}),
+					payload.New("hello world"),
+				)
+				_ = upstream.SendRequest(cmd)
+			}
+		}
+		return process.StepContinue, nil
+	}
+
+	// Complete workflow
+	if w.ctx != nil {
+		hooks := process.GetOnCompleteHooks(w.ctx)
+		if hooks != nil {
+			result := &runtime.Result{Value: payload.New("done")}
+			for _, hook := range hooks {
+				hook(w.ctx, w.pid, result)
+			}
+		}
+	}
+	return process.StepDone, nil
+}
+
+func (w *mockProcessSendWorkflow) Commands() []runtime.Command {
+	return nil
+}
+
+func (w *mockProcessSendWorkflow) Send(_ *relay.Package) error {
+	return nil
+}
+
+func (w *mockProcessSendWorkflow) Terminate() {}
+
+func TestWorkflowSandboxModule_ProcessSend(t *testing.T) {
+	vm, runner, ctx, factory := setupTestEnvironment(t)
+	defer vm.Close()
+
+	// Register workflow that uses process.send
+	mockFactory := factory.(*mockPrototypeFactory)
+	mockFactory.prototypes["app.workflows:process_send"] = func() process.Workflow {
+		return &mockProcessSendWorkflow{
+			maxSteps: 2,
+		}
+	}
+
+	err := vm.Import(`
+		function test_process_send()
+			local workflow_sandbox = require("workflow_sandbox")
+
+			local wf, err = workflow_sandbox.get("app.workflows:process_send")
+			if err then error("failed to get workflow: " .. tostring(err)) end
+
+			-- Start workflow
+			local ok, err = wf:start()
+			if not ok then error("start failed: " .. tostring(err)) end
+
+			-- Step triggers process.send command
+			local ok, err = wf:step()
+			if not ok then error("step failed: " .. tostring(err)) end
+
+			-- Verify process.send command
+			local commands = wf:commands()
+			assert(#commands == 1, "expected 1 command, got: " .. #commands)
+
+			local cmd = commands[1]
+			assert(cmd:type() == "process.send", "expected process.send command, got: " .. cmd:type())
+			assert(cmd:id() ~= nil, "command id should not be nil")
+
+			-- Get params
+			local params = cmd:params()
+			assert(#params >= 2, "expected at least 2 params")
+
+			-- Complete workflow
+			local ok, err = wf:step()
+			if not ok then error("step 2 failed: " .. tostring(err)) end
+
+			assert(wf:done(), "workflow should be done")
+
+			wf:close()
+			return {success = true}
+		end
+	`, "test", "test_process_send")
+	require.NoError(t, err)
+
+	result, err := runner.Execute(ctx, "test_process_send")
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+}
+
+// mockReceivingWorkflow can receive messages via Send()
+type mockReceivingWorkflow struct {
+	mu           sync.Mutex
+	started      bool
+	stepCount    int
+	ctx          context.Context
+	pid          relay.PID
+	maxSteps     int
+	receivedMsgs []*relay.Package
+}
+
+func (w *mockReceivingWorkflow) Start(ctx context.Context, pid relay.PID, _ payload.Payloads) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.started = true
+	w.ctx = ctx
+	w.pid = pid
+	w.receivedMsgs = make([]*relay.Package, 0)
+	return nil
+}
+
+func (w *mockReceivingWorkflow) Step() (process.StepResult, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.started {
+		return process.StepContinue, fmt.Errorf("not started")
+	}
+
+	w.stepCount++
+
+	if w.stepCount >= w.maxSteps {
+		// Complete workflow
+		if w.ctx != nil {
+			hooks := process.GetOnCompleteHooks(w.ctx)
+			if hooks != nil {
+				result := &runtime.Result{Value: payload.New(len(w.receivedMsgs))}
+				for _, hook := range hooks {
+					hook(w.ctx, w.pid, result)
+				}
+			}
+		}
+		return process.StepDone, nil
+	}
+
+	return process.StepContinue, nil
+}
+
+func (w *mockReceivingWorkflow) Commands() []runtime.Command {
+	return nil
+}
+
+func (w *mockReceivingWorkflow) Send(pkg *relay.Package) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.receivedMsgs = append(w.receivedMsgs, pkg)
+	return nil
+}
+
+func (w *mockReceivingWorkflow) Terminate() {}
+
+func (w *mockReceivingWorkflow) ReceivedCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.receivedMsgs)
+}
+
+func TestWorkflowSandboxModule_SendMessage(t *testing.T) {
+	vm, runner, ctx, factory := setupTestEnvironment(t)
+	defer vm.Close()
+
+	var receivingWorkflow *mockReceivingWorkflow
+
+	// Register workflow that receives messages
+	mockFactory := factory.(*mockPrototypeFactory)
+	mockFactory.prototypes["app.workflows:receiving"] = func() process.Workflow {
+		receivingWorkflow = &mockReceivingWorkflow{
+			maxSteps: 3,
+		}
+		return receivingWorkflow
+	}
+
+	err := vm.Import(`
+		function test_send_message()
+			local workflow_sandbox = require("workflow_sandbox")
+
+			local wf, err = workflow_sandbox.get("app.workflows:receiving")
+			if err then error("failed to get workflow: " .. tostring(err)) end
+
+			-- Start workflow
+			local ok, err = wf:start()
+			if not ok then error("start failed: " .. tostring(err)) end
+
+			-- Step 1
+			local ok, err = wf:step()
+			if not ok then error("step 1 failed: " .. tostring(err)) end
+
+			-- Send message to workflow (queues it)
+			local ok, err = wf:send("my_topic", "hello", 123)
+			if not ok then error("send failed: " .. tostring(err)) end
+
+			-- Step 2 (processes queued message)
+			local ok, err = wf:step()
+			if not ok then error("step 2 failed: " .. tostring(err)) end
+
+			-- Step 3 (completes)
+			local ok, err = wf:step()
+			if not ok then error("step 3 failed: " .. tostring(err)) end
+
+			assert(wf:done(), "workflow should be done")
+
+			wf:close()
+			return {success = true}
+		end
+	`, "test", "test_send_message")
+	require.NoError(t, err)
+
+	result, err := runner.Execute(ctx, "test_send_message")
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+
+	// Verify the workflow received the message
+	assert.Equal(t, 1, receivingWorkflow.ReceivedCount(), "workflow should have received 1 message")
+}
+
+// mockProcessIDWorkflow verifies that process.id() and process.pid() work correctly
+type mockProcessIDWorkflow struct {
+	mu        sync.Mutex
+	started   bool
+	stepCount int
+	ctx       context.Context
+	pid       relay.PID
+	maxSteps  int
+	// Store what we got from context for verification
+	gotID  string
+	gotPID string
+}
+
+func (w *mockProcessIDWorkflow) Start(ctx context.Context, pid relay.PID, _ payload.Payloads) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.started = true
+	w.ctx = ctx
+	w.pid = pid
+
+	// Check frame context for ID and PID values
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc != nil {
+		if idVal, ok := fc.Get(runtime.FrameIDKey); ok {
+			if id, ok := idVal.(registry.ID); ok {
+				w.gotID = id.String()
+			}
+		}
+		if pidVal, ok := runtime.GetFramePID(ctx); ok {
+			w.gotPID = pidVal.String()
+		}
+	}
+
+	return nil
+}
+
+func (w *mockProcessIDWorkflow) Step() (process.StepResult, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.started {
+		return process.StepContinue, fmt.Errorf("not started")
+	}
+
+	w.stepCount++
+
+	if w.stepCount >= w.maxSteps {
+		// Complete workflow with ID and PID in result
+		if w.ctx != nil {
+			hooks := process.GetOnCompleteHooks(w.ctx)
+			if hooks != nil {
+				result := &runtime.Result{
+					Value: payload.New(map[string]string{
+						"id":  w.gotID,
+						"pid": w.gotPID,
+					}),
+				}
+				for _, hook := range hooks {
+					hook(w.ctx, w.pid, result)
+				}
+			}
+		}
+		return process.StepDone, nil
+	}
+
+	return process.StepContinue, nil
+}
+
+func (w *mockProcessIDWorkflow) Commands() []runtime.Command {
+	return nil
+}
+
+func (w *mockProcessIDWorkflow) Send(_ *relay.Package) error {
+	return nil
+}
+
+func (w *mockProcessIDWorkflow) Terminate() {}
+
+func (w *mockProcessIDWorkflow) GetGotID() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.gotID
+}
+
+func (w *mockProcessIDWorkflow) GetGotPID() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.gotPID
+}
+
+func TestWorkflowSandboxModule_FrameContext(t *testing.T) {
+	vm, runner, ctx, factory := setupTestEnvironment(t)
+	defer vm.Close()
+
+	var processIDWorkflow *mockProcessIDWorkflow
+
+	// Register workflow that checks frame context
+	mockFactory := factory.(*mockPrototypeFactory)
+	mockFactory.prototypes["app.workflows:process_id"] = func() process.Workflow {
+		processIDWorkflow = &mockProcessIDWorkflow{
+			maxSteps: 1,
+		}
+		return processIDWorkflow
+	}
+
+	err := vm.Import(`
+		function test_frame_context()
+			local workflow_sandbox = require("workflow_sandbox")
+
+			local wf, err = workflow_sandbox.get("app.workflows:process_id")
+			if err then error("failed to get workflow: " .. tostring(err)) end
+
+			-- Start workflow
+			local ok, err = wf:start()
+			if not ok then error("start failed: " .. tostring(err)) end
+
+			-- Step to completion
+			local ok, err = wf:step()
+			if not ok then error("step failed: " .. tostring(err)) end
+
+			assert(wf:done(), "workflow should be done")
+
+			wf:close()
+			return {success = true}
+		end
+	`, "test", "test_frame_context")
+	require.NoError(t, err)
+
+	result, err := runner.Execute(ctx, "test_frame_context")
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+
+	// Verify that workflow got proper ID and PID from frame context
+	assert.Equal(t, "app.workflows:process_id", processIDWorkflow.GetGotID(), "workflow should see correct registry ID")
+	assert.NotEmpty(t, processIDWorkflow.GetGotPID(), "workflow should see non-empty PID")
+}
+
+// mockTaskWorkflow receives tasks via PushTask and processes them
+type mockTaskWorkflow struct {
+	mu           sync.Mutex
+	started      bool
+	stepCount    int
+	ctx          context.Context
+	pid          relay.PID
+	maxSteps     int
+	receivedTask std.Task
+}
+
+func (w *mockTaskWorkflow) Start(ctx context.Context, pid relay.PID, _ payload.Payloads) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.started = true
+	w.ctx = ctx
+	w.pid = pid
+	return nil
+}
+
+func (w *mockTaskWorkflow) Step() (process.StepResult, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.stepCount++
+
+	if w.stepCount > w.maxSteps {
+		if w.ctx != nil {
+			hooks := process.GetOnCompleteHooks(w.ctx)
+			if hooks != nil {
+				result := &runtime.Result{Value: payload.New("done")}
+				for _, hook := range hooks {
+					hook(w.ctx, w.pid, result)
+				}
+			}
+		}
+		return process.StepDone, nil
+	}
+
+	// On first step, process received task if any
+	if w.receivedTask != nil && w.stepCount == 1 {
+		w.receivedTask.Complete(payload.NewPayload("task completed: "+w.receivedTask.Type(), payload.Golang))
+	}
+
+	return process.StepContinue, nil
+}
+
+func (w *mockTaskWorkflow) Commands() []runtime.Command {
+	return nil
+}
+
+func (w *mockTaskWorkflow) Send(pkg *relay.Package) error {
+	return nil
+}
+
+func (w *mockTaskWorkflow) Terminate() {}
+
+func (w *mockTaskWorkflow) PushTask(task std.Task) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.receivedTask = task
+	return nil
+}
+
+func TestWorkflowSandboxModule_MockTask(t *testing.T) {
+	vm, runner, ctx, factory := setupTestEnvironment(t)
+	defer vm.Close()
+
+	// Register workflow that processes tasks
+	mockFactory := factory.(*mockPrototypeFactory)
+	mockFactory.prototypes["app.workflows:task_handler"] = func() process.Workflow {
+		return &mockTaskWorkflow{
+			maxSteps: 1,
+		}
+	}
+
+	err := vm.Import(`
+		function test_mock_task()
+			local workflow_sandbox = require("workflow_sandbox")
+
+			-- Create a task
+			local task = workflow_sandbox.new_task("query", "get_state")
+			assert(task ~= nil, "task should not be nil")
+			assert(task:type() == "query", "task type should be 'query'")
+			assert(task:input() == "get_state", "task input should be 'get_state'")
+			assert(task:completed() == false, "task should not be completed yet")
+
+			-- Get workflow
+			local wf, err = workflow_sandbox.get("app.workflows:task_handler")
+			if err then error("failed to get workflow: " .. tostring(err)) end
+
+			-- Start workflow
+			local ok, err = wf:start()
+			if not ok then error("start failed: " .. tostring(err)) end
+
+			-- Push task to workflow
+			local ok, err = wf:push_task(task)
+			if not ok then error("push_task failed: " .. tostring(err)) end
+
+			-- Step to process the task
+			local ok, err = wf:step()
+			if not ok then error("step failed: " .. tostring(err)) end
+
+			-- Check task was completed
+			assert(task:completed(), "task should be completed after step")
+
+			-- Get task result
+			local result, err = task:result()
+			assert(err == nil, "task result should not have error: " .. tostring(err))
+			assert(result == "task completed: query", "unexpected result: " .. tostring(result))
+
+			-- Complete workflow
+			local ok, err = wf:step()
+			if not ok then error("step 2 failed: " .. tostring(err)) end
+
+			assert(wf:done(), "workflow should be done")
+
+			wf:close()
+			return {success = true}
+		end
+	`, "test", "test_mock_task")
+	require.NoError(t, err)
+
+	result, err := runner.Execute(ctx, "test_mock_task")
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 }

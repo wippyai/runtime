@@ -100,7 +100,7 @@ func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *
 	L := vm.State()
 
 	// Register the SQL module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))

@@ -51,8 +51,16 @@ func (f *DefaultClientFactory) CreateClient(ctx context.Context, logger *zap.Log
 		return nil, fmt.Errorf("failed to build client options: %w", err)
 	}
 
-	// Create Temporal SDK client
-	temporalClient, err := client.Dial(opts)
+	// Apply connection timeout to context
+	dialCtx := ctx
+	if config.ConnectionTimeout > 0 {
+		var cancel context.CancelFunc
+		dialCtx, cancel = context.WithTimeout(ctx, config.ConnectionTimeout)
+		defer cancel()
+	}
+
+	// Create Temporal SDK client with timeout context
+	temporalClient, err := client.DialContext(dialCtx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to temporal: %w", err)
 	}

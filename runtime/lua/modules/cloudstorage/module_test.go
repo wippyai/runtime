@@ -230,7 +230,7 @@ func setupTestEnvironment(t *testing.T, mockStorage cloudstorage.Storage) (*engi
 	L := vm.State()
 
 	// Register the CloudStorage module
-	L.PreloadModule(module.Name(), module.Loader)
+	L.PreloadModule(module.Info().Name, module.Loader)
 
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))

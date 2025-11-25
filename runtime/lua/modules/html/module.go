@@ -3,6 +3,7 @@ package html
 import (
 	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -15,8 +16,12 @@ func NewHTMLModule() *Module {
 	return &Module{}
 }
 
-func (m *Module) Name() string {
-	return "html"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "html",
+		Description: "HTML sanitization and processing",
+		Class:       []string{luaapi.ClassDeterministic},
+	}
 }
 
 func (m *Module) Loader(l *lua.LState) int {

@@ -18,7 +18,7 @@ func TestOSTimeModule(t *testing.T) {
 	t.Run("module registration", func(t *testing.T) {
 		mod := NewOSTimeModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -37,7 +37,7 @@ func TestOSTimeModule(t *testing.T) {
 	t.Run("os.time", func(t *testing.T) {
 		mod := NewOSTimeModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -83,7 +83,7 @@ func TestOSTimeModule(t *testing.T) {
 	t.Run("os.date", func(t *testing.T) {
 		mod := NewOSTimeModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -171,7 +171,7 @@ func TestOSTimeModule(t *testing.T) {
 	t.Run("os.clock", func(t *testing.T) {
 		mod := NewOSTimeModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
+			engine.WithPreloaded(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()

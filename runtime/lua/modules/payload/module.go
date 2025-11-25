@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/payload"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/errors"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -25,9 +26,12 @@ func NewPayloadModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "payload"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "payload",
+		Description: "Payload handling and transcoding",
+		Class:       []string{luaapi.ClassDeterministic},
+	}
 }
 
 // Loader is the entry point for loading the module into Lua

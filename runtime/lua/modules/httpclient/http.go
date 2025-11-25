@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
-
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
+	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -48,9 +48,12 @@ func NewHTTPClientModule(log *zap.Logger, client Client) *Module {
 	}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "http_client"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "http_client",
+		Description: "HTTP client for outbound requests",
+		Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO},
+	}
 }
 
 // Loader implements the module loader

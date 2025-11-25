@@ -19,14 +19,14 @@ func TestProcessmodModule(t *testing.T) {
 		defer vm.Close()
 
 		// Register only the process_api module
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Check that the module name is correct
-		assert.Equal(t, "process_api", module.Name())
+		assert.Equal(t, "process.api", module.Info().Name)
 
 		// Load process_api as complete process API
 		err = vm.State().DoString(`
-			local process = require("process_api")
+			local process = require("process.api")
 			
 			-- Check that all core process functions exist
 			assert(process ~= nil, "process table should exist")
@@ -60,11 +60,11 @@ func TestProcessmodModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Test that the table is immutable
 		err = vm.State().DoString(`
-			local process = require("process_api")
+			local process = require("process.api")
 			
 			-- This should fail because table is immutable
 			process.test_field = "should fail"
@@ -81,12 +81,12 @@ func TestProcessmodModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Test that multiple requires return the same table
 		err = vm.State().DoString(`
-			local process1 = require("process_api")
-			local process2 = require("process_api")
+			local process1 = require("process.api")
+			local process2 = require("process.api")
 			
 			-- Should be the same table reference
 			assert(process1 == process2, "should return same table instance")
@@ -102,11 +102,11 @@ func TestProcessmodModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Test that listen fails with empty topic
 		err = vm.State().DoString(`
-			local process = require("process_api")
+			local process = require("process.api")
 			
 			local ch, err = process.listen("")
 			if err then
@@ -125,11 +125,11 @@ func TestProcessmodModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Test that listen fails with @ topic
 		err = vm.State().DoString(`
-			local process = require("process_api")
+			local process = require("process.api")
 
 			local ch, err = process.listen("@test")
 			if err then
@@ -148,11 +148,11 @@ func TestProcessmodModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Test that unlisten fails without channel
 		err = vm.State().DoString(`
-			local process = require("process_api")
+			local process = require("process.api")
 
 			local result = process.unlisten()
 		`)
@@ -168,11 +168,11 @@ func TestProcessmodModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Test that unlisten fails with non-channel argument
 		err = vm.State().DoString(`
-			local process = require("process_api")
+			local process = require("process.api")
 
 			local result = process.unlisten("not a channel")
 		`)
@@ -190,11 +190,11 @@ func TestProcessmodModuleErrorHandling(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Test that functions fail without proper context setup
 		err = vm.State().DoString(`
-			local process = require("process_api")
+			local process = require("process.api")
 			
 			local inbox, err = process.inbox()
 			if err then
@@ -213,10 +213,10 @@ func TestProcessmodModuleErrorHandling(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		err = vm.State().DoString(`
-			local process = require("process_api")
+			local process = require("process.api")
 			
 			local options, err = process.get_options()
 			if err then
@@ -235,10 +235,10 @@ func TestProcessmodModuleErrorHandling(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		vm.State().PreloadModule(module.Name(), module.Loader)
+		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		err = vm.State().DoString(`
-			local process = require("process_api")
+			local process = require("process.api")
 			
 			local success, err = process.set_options({trap_links = true})
 			if err then

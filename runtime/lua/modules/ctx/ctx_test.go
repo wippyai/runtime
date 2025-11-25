@@ -21,7 +21,7 @@ func TestCtxModule(t *testing.T) {
 		vm, err := engine.NewCVM(logger)
 		require.NoError(t, err)
 		L := vm.State()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 		defer vm.Close()
 
 		// Import test function
@@ -70,7 +70,7 @@ func TestCtxModule(t *testing.T) {
 
 	t.Run("get and set with no contexter", func(t *testing.T) {
 		mod := NewCtxModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -100,7 +100,7 @@ func TestCtxModule(t *testing.T) {
 		vm, err := engine.NewCVM(logger)
 		require.NoError(t, err)
 		L := vm.State()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 		defer vm.Close()
 
 		// Import test function that reads pre-populated values
@@ -133,7 +133,7 @@ func TestCtxModule(t *testing.T) {
 		vm, err := engine.NewCVM(logger)
 		require.NoError(t, err)
 		L := vm.State()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 		defer vm.Close()
 
 		err = vm.Import(`
@@ -161,7 +161,7 @@ func TestCtxModule(t *testing.T) {
 		vm, err := engine.NewCVM(logger)
 		require.NoError(t, err)
 		L := vm.State()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 		defer vm.Close()
 
 		err = vm.Import(`
@@ -189,7 +189,7 @@ func TestCtxModule(t *testing.T) {
 		vm, err := engine.NewCVM(logger)
 		require.NoError(t, err)
 		L := vm.State()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 		defer vm.Close()
 
 		err = vm.Import(`
@@ -218,7 +218,7 @@ func TestCtxModule(t *testing.T) {
 		vm, err := engine.NewCVM(logger)
 		require.NoError(t, err)
 		L := vm.State()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 		defer vm.Close()
 
 		err = vm.Import(`
@@ -261,7 +261,7 @@ func TestCtxModule(t *testing.T) {
 
 	t.Run("all with no contexter", func(t *testing.T) {
 		mod := NewCtxModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -282,7 +282,7 @@ func TestCtxModule(t *testing.T) {
 		vm, err := engine.NewCVM(logger)
 		require.NoError(t, err)
 		L := vm.State()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 		defer vm.Close()
 
 		err = vm.Import(`

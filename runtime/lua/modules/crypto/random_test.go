@@ -17,7 +17,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 	// Test loading the module and registering the random submodule
 	t.Run("module loading", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -35,7 +35,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 	// Test input validation for randomBytes
 	t.Run("randomBytes input validation", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -80,7 +80,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 	// Test randomBytes functionality
 	t.Run("randomBytes functionality", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -147,7 +147,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 	// Test input validation for randomString
 	t.Run("randomString input validation", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -201,7 +201,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 	// Test randomString functionality
 	t.Run("randomString functionality", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -305,7 +305,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 	// Test randomUUID functionality
 	t.Run("randomUUID functionality", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -359,7 +359,7 @@ func TestRandomModuleWithVM(t *testing.T) {
 	// Test error handling in Lua
 	t.Run("error handling in Lua", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

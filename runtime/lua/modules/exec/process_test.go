@@ -140,7 +140,7 @@ func setupLuaWithExec(t *testing.T, logger *zap.Logger) (*engine.CoroutineVM, *e
 	vm, err := engine.NewCVM(
 		logger,
 		// Preload necessary modules
-		engine.WithLoader(execMod.Name(), execMod.Loader),
+		engine.WithLoader(execMod.Info().Name, execMod.Loader),
 		engine.WithLoader("time", luatime.NewTimeModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 	)

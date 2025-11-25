@@ -12,7 +12,10 @@ var CodeManagerKey = &ctxapi.Key{Name: "lua.codeManager"}
 
 // CodeManager is the interface for the code manager to avoid circular imports.
 // The actual implementation is in runtime/lua/code package.
-type CodeManager interface{}
+type CodeManager interface {
+	// GetModules returns info about all registered Lua modules
+	GetModules() []ModuleInfo
+}
 
 // SetCodeManager stores the code manager in AppContext.
 func SetCodeManager(ctx context.Context, cm CodeManager) context.Context {
@@ -32,5 +35,8 @@ func GetCodeManager(ctx context.Context) CodeManager {
 	if ac == nil {
 		return nil
 	}
-	return ac.Get(CodeManagerKey)
+	if cm, ok := ac.Get(CodeManagerKey).(CodeManager); ok {
+		return cm
+	}
+	return nil
 }

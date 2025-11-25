@@ -51,7 +51,7 @@ func TestResponse_Basic(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -76,7 +76,7 @@ func TestResponse_Basic(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -99,7 +99,7 @@ func TestResponse_Basic(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -124,7 +124,7 @@ func TestResponse_Basic(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -147,7 +147,7 @@ func TestResponse_Basic(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -199,7 +199,7 @@ func TestResponse_ServerSentEvents(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -224,7 +224,7 @@ func TestResponse_ServerSentEvents(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -259,7 +259,7 @@ func TestResponse_TransferEncoding(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -286,7 +286,7 @@ func TestResponse_TransferEncoding(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -314,7 +314,7 @@ func TestResponse_ContentTypeHandling(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -338,7 +338,7 @@ func TestResponse_ContentTypeHandling(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -367,7 +367,7 @@ func TestResponse_JSONHandling(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -438,7 +438,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -462,7 +462,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -486,7 +486,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -515,7 +515,7 @@ func TestResponse_Flush(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -542,7 +542,7 @@ func TestResponse_Flush(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -568,7 +568,7 @@ func TestResponse_Flush(t *testing.T) {
 		_ = fc.Set(http.RequestCtx, reqCtx)
 
 		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

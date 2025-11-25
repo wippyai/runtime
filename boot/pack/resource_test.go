@@ -378,7 +378,7 @@ func TestChunkInfoAlignment(t *testing.T) {
 	for i := 0; i < len(chunks)-1; i++ {
 		if chunks[i].Size != uint32(ChunkSize) {
 			t.Errorf("Chunk %d should be full size: got %d, want %d",
-				i, chunks[i].Size, ChunkSize) //nolint:gosec // i is bounded by loop condition
+				i, chunks[i].Size, ChunkSize)
 		}
 	}
 

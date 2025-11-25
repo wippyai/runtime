@@ -82,7 +82,7 @@ func TestWorkflowTime_Now(t *testing.T) {
 	timeRef := newMockTimeReference(time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
 
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -121,7 +121,7 @@ func TestWorkflowTime_Sleep(t *testing.T) {
 	timeRef := newMockTimeReference(time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
 
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -205,7 +205,7 @@ func TestWorkflowTime_Timer(t *testing.T) {
 	timeRef := newMockTimeReference(time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
 
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -246,7 +246,7 @@ func TestWorkflowTime_TickerNotSupported(t *testing.T) {
 	timeRef := newMockTimeReference(time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
 
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -283,7 +283,7 @@ func TestWorkflowTime_PureFunctions(t *testing.T) {
 	timeRef := newMockTimeReference(time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
 
 	mod := workflowtime.NewTimeModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 

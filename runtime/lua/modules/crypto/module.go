@@ -6,42 +6,47 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"hash"
+	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 	"golang.org/x/crypto/pbkdf2"
 )
 
 // Module represents a crypto Lua module
-type Module struct{}
+type Module struct {
+	once        sync.Once
+	moduleTable *lua.LTable
+}
 
 // NewCryptoModule creates and returns a new instance of the crypto Module
 func NewCryptoModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "crypto"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "crypto",
+		Description: "Cryptographic operations (hashing, encryption, JWT)",
+		Class:       []string{luaapi.ClassSecurity, luaapi.ClassDeterministic},
+	}
 }
 
 // Loader loads the module into the given Lua state
-// Loader loads the module into the given Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	// Create table with pre-allocated size for all known elements
-	mod := l.CreateTable(0, 7) // 5 submodules + 2 utility functions
-
-	// Register all submodules efficiently with exact pre-allocation
-	registerRandom(l, mod)
-	registerHMAC(l, mod)
-	registerEncrypt(l, mod)
-	registerDecrypt(l, mod)
-	registerJWT(l, mod)
-
-	// Register top-level utility functions directly with RawSetString
-	mod.RawSetString("pbkdf2", l.NewFunction(pbkdf2Func))
-	mod.RawSetString("constant_time_compare", l.NewFunction(constantTimeCompare))
-
-	l.Push(mod)
+	m.once.Do(func() {
+		mod := l.CreateTable(0, 7)
+		registerRandom(l, mod)
+		registerHMAC(l, mod)
+		registerEncrypt(l, mod)
+		registerDecrypt(l, mod)
+		registerJWT(l, mod)
+		mod.RawSetString("pbkdf2", l.NewFunction(pbkdf2Func))
+		mod.RawSetString("constant_time_compare", l.NewFunction(constantTimeCompare))
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

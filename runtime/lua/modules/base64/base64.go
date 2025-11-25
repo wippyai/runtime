@@ -2,33 +2,41 @@ package base64
 
 import (
 	"encoding/base64"
+	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // Module represents a base64 Lua module.
-type Module struct{}
+type Module struct {
+	once        sync.Once
+	moduleTable *lua.LTable
+}
 
 // NewBase64Module creates and returns a new instance of the base64 Module.
 func NewBase64Module() *Module {
 	return &Module{}
 }
 
-// Name returns the module's name.
-func (m *Module) Name() string {
-	return "base64"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "base64",
+		Description: "Base64 encoding and decoding",
+		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	}
 }
 
 // Loader registers the module's functions into Lua state.
 func (m *Module) Loader(l *lua.LState) int {
-	// Create table with pre-allocated size for our known elements
-	mod := l.CreateTable(0, 2) // Exactly 2 functions: encode and decode
-
-	// Register functions using RawSetString for better performance
-	mod.RawSetString("encode", l.NewFunction(m.encode))
-	mod.RawSetString("decode", l.NewFunction(m.decode))
-
-	l.Push(mod)
+	m.once.Do(func() {
+		mod := l.CreateTable(0, 2)
+		mod.RawSetString("encode", l.NewFunction(m.encode))
+		mod.RawSetString("decode", l.NewFunction(m.decode))
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

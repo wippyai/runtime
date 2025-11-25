@@ -17,7 +17,7 @@ func TestLanguageMethods(t *testing.T) {
 	t.Run("language version", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -40,7 +40,7 @@ func TestLanguageMethods(t *testing.T) {
 	t.Run("language version", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestLanguageMethods(t *testing.T) {
 	t.Run("node kind operations", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -98,7 +98,7 @@ func TestLanguageMethods(t *testing.T) {
 	t.Run("field operations", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -129,7 +129,7 @@ func TestLanguageMethods(t *testing.T) {
 	t.Run("parse state count", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -156,7 +156,7 @@ func TestLanguageEdgeCases(t *testing.T) {
 	t.Run("invalid language operations", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -188,7 +188,7 @@ func TestLanguageEdgeCases(t *testing.T) {
 	t.Run("boundary cases", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -218,7 +218,7 @@ func TestLanguageEdgeCases(t *testing.T) {
 	t.Run("cross-language compatibility", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -52,15 +53,15 @@ func setupContext(t *testing.T) (context.Context, *upstreamHandler) {
 	ctx := ctxapi.NewRootContext()
 	frameCtx, frame := ctxapi.OpenFrameContext(ctx)
 
-	// Set ID on frame
-	frame.Set(runtime.FrameIDKey, "test.workflows:my_workflow")
+	// Set ID on frame (must be registry.ID type, not string)
+	require.NoError(t, frame.Set(runtime.FrameIDKey, registry.NewID("test.workflows", "my_workflow")))
 
 	// Set PID on frame with proper interning
 	pid := relay.PID{
 		Host:   "test-host",
 		UniqID: "test-workflow-123",
 	}.Precomputed()
-	runtime.SetFramePID(frameCtx, pid)
+	require.NoError(t, runtime.SetFramePID(frameCtx, pid))
 
 	upstreamH := &upstreamHandler{}
 	err := runtime.WithUpstream(frameCtx, upstreamH)
@@ -73,7 +74,7 @@ func TestWorkflowProcess_ID(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	mod := workflowprocess.NewProcessModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -106,7 +107,7 @@ func TestWorkflowProcess_PID(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	mod := workflowprocess.NewProcessModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -135,7 +136,7 @@ func TestWorkflowProcess_Send(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	mod := workflowprocess.NewProcessModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -177,7 +178,7 @@ func TestWorkflowProcess_SpawnDisabled(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	mod := workflowprocess.NewProcessModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -205,7 +206,7 @@ func TestWorkflowProcess_TerminateDisabled(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	mod := workflowprocess.NewProcessModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -233,7 +234,7 @@ func TestWorkflowProcess_MonitorDisabled(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	mod := workflowprocess.NewProcessModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -261,7 +262,7 @@ func TestWorkflowProcess_EventConstants(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	mod := workflowprocess.NewProcessModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 

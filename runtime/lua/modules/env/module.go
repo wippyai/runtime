@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/env"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -19,9 +20,12 @@ func NewEnvModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "env"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "env",
+		Description: "Environment variable access",
+		Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader is the entry point for loading the module into Lua

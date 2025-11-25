@@ -3,13 +3,17 @@ package workflow
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/api/workflow/std"
 	baseprocess "github.com/wippyai/runtime/runtime/lua/component/process"
+	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
+	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -78,4 +82,24 @@ func (w *LuaWorkflow) Send(pkg *relay.Package) error {
 // Terminate implements process.Process
 func (w *LuaWorkflow) Terminate() {
 	w.Complete(process.ErrTerminated, lua.LNil)
+}
+
+// TopicTasks is the internal topic for workflow tasks
+const TopicTasks = "@workflow/tasks"
+
+// PushTask implements workflow.TaskReceiver
+func (w *LuaWorkflow) PushTask(task std.Task) error {
+	if w.UoW == nil {
+		return fmt.Errorf("workflow not started")
+	}
+
+	ctx := w.UoW.Context()
+	state := w.UoW.State()
+	if state == nil {
+		return fmt.Errorf("no lua state available")
+	}
+
+	// Wrap task as userdata and publish to tasks topic
+	wrappedTask := upstream.WrapTask(state, task)
+	return subscribe.Publish(ctx, TopicTasks, wrappedTask)
 }

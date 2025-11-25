@@ -2,9 +2,11 @@ package registry
 
 import (
 	"fmt"
+	"sync"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/payload"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
 	lua "github.com/yuin/gopher-lua"
@@ -18,7 +20,9 @@ const (
 
 // LoaderModule represents the registry.loader submodule
 type LoaderModule struct {
-	log *zap.Logger
+	log         *zap.Logger
+	once        sync.Once
+	moduleTable *lua.LTable
 }
 
 // LoaderInstance represents a filesystem-bound loader instance
@@ -40,30 +44,34 @@ func NewLoaderModule(log *zap.Logger) *LoaderModule {
 	}
 }
 
-// Name returns the module name
-func (m *LoaderModule) Name() string {
-	return loaderModuleName
+// Info returns module metadata
+func (m *LoaderModule) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        loaderModuleName,
+		Description: "Registry loader for filesystem-bound loading",
+		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO},
+	}
 }
 
 // Loader loads the module into the Lua state
 func (m *LoaderModule) Loader(l *lua.LState) int {
-	// Create module table
-	mod := l.CreateTable(0, 1)
+	m.once.Do(func() {
+		mod := l.CreateTable(0, 1)
 
-	// Register the loader instance metatable
-	mt := l.NewTypeMetatable(loaderInstanceMetatable)
-	methods := l.NewTable()
-	l.SetFuncs(methods, map[string]lua.LGFunction{
-		"load_directory": loaderLoadDirectory,
-		"load_file":      loaderLoadFile,
+		// Register the loader instance metatable
+		mt := l.NewTypeMetatable(loaderInstanceMetatable)
+		methods := l.NewTable()
+		l.SetFuncs(methods, map[string]lua.LGFunction{
+			"load_directory": loaderLoadDirectory,
+			"load_file":      loaderLoadFile,
+		})
+		mt.RawSetString("__index", methods)
+
+		mod.RawSetString("new", l.NewFunction(m.createLoader))
+		mod.Immutable = true
+		m.moduleTable = mod
 	})
-	mt.RawSetString("__index", methods)
-
-	// Add the "new" function to the module table
-	mod.RawSetString("new", l.NewFunction(m.createLoader))
-
-	// Push the module table
-	l.Push(mod)
+	l.Push(m.moduleTable)
 	return 1
 }
 

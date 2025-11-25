@@ -2,7 +2,9 @@ package treesitter
 
 import (
 	"fmt"
+	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
@@ -13,8 +15,10 @@ import (
 
 // Module is the Lua module for the Tree-sitter bindings.
 type Module struct {
-	languages *Languages
-	log       *zap.Logger
+	languages   *Languages
+	log         *zap.Logger
+	once        sync.Once
+	moduleTable *lua.LTable
 }
 
 // NewTreeSitterModule creates a new Tree-sitter module.
@@ -25,30 +29,34 @@ func NewTreeSitterModule(log *zap.Logger) *Module {
 	}
 }
 
-// Name is the module name.
-func (m *Module) Name() string {
-	return "treesitter"
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "treesitter",
+		Description: "Tree-sitter parsing and syntax analysis",
+		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	}
 }
 
 // Loader is the module loader function.
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.CreateTable(0, 5) // 5 function entries
-
-	registerParser(l)
-	registerTree(l)
-	registerNode(l)
-	registerQuery(l)
-	registerCursor(l)
-	registerLanguage(l)
-
-	// Add module functions directly for better performance
-	t.RawSetString("supported_languages", l.NewFunction(m.supportedLanguages))
-	t.RawSetString("language", l.NewFunction(m.language))
-	t.RawSetString("parser", l.NewFunction(newParser))
-	t.RawSetString("parse", l.NewFunction(m.parse))
-	t.RawSetString("query", l.NewFunction(newQuery))
-
-	l.Push(t)
+	m.once.Do(func() {
+		t := l.CreateTable(0, 5)
+		registerParser(l)
+		registerTree(l)
+		registerNode(l)
+		registerQuery(l)
+		registerCursor(l)
+		registerLanguage(l)
+		t.RawSetString("supported_languages", l.NewFunction(m.supportedLanguages))
+		t.RawSetString("language", l.NewFunction(m.language))
+		t.RawSetString("parser", l.NewFunction(newParser))
+		t.RawSetString("parse", l.NewFunction(m.parse))
+		t.RawSetString("query", l.NewFunction(newQuery))
+		t.Immutable = true
+		m.moduleTable = t
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

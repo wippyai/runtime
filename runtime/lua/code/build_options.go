@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 )
 
 type AccessMode int
@@ -40,16 +41,26 @@ type BuildOptions struct {
 
 	// Preloaded contains dependencies that will be automatically included
 	Preloaded []Preload
+
+	// DeniedClasses defines module classes that are not allowed
+	// Modules with any of these classes will be rejected
+	DeniedClasses []string
+
+	// AllowedClasses defines module classes that are allowed
+	// If non-empty, only modules with at least one of these classes are allowed
+	AllowedClasses []string
 }
 
 // NewBuildOptions creates a new BuildOptions with default settings
 func NewBuildOptions() *BuildOptions {
 	return &BuildOptions{
-		Mode:      AllowAll,
-		Allowed:   make([]registry.ID, 0),
-		Denied:    make([]registry.ID, 0),
-		Required:  make([]registry.ID, 0),
-		Preloaded: make([]Preload, 0),
+		Mode:           AllowAll,
+		Allowed:        make([]registry.ID, 0),
+		Denied:         make([]registry.ID, 0),
+		Required:       make([]registry.ID, 0),
+		Preloaded:      make([]Preload, 0),
+		DeniedClasses:  make([]string, 0),
+		AllowedClasses: make([]string, 0),
 	}
 }
 
@@ -83,6 +94,18 @@ func (o *BuildOptions) WithPreloaded(deps ...Preload) *BuildOptions {
 	return o
 }
 
+// WithDeniedClasses adds classes to the denied classes list
+func (o *BuildOptions) WithDeniedClasses(classes ...string) *BuildOptions {
+	o.DeniedClasses = append(o.DeniedClasses, classes...)
+	return o
+}
+
+// WithAllowedClasses adds classes to the allowed classes list
+func (o *BuildOptions) WithAllowedClasses(classes ...string) *BuildOptions {
+	o.AllowedClasses = append(o.AllowedClasses, classes...)
+	return o
+}
+
 // contains is a helper function to check if a slice contains an Process
 func contains(slice []registry.ID, item registry.ID) bool {
 	for _, id := range slice {
@@ -91,6 +114,34 @@ func contains(slice []registry.ID, item registry.ID) bool {
 		}
 	}
 	return false
+}
+
+// containsString checks if a string slice contains a string
+func containsString(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAnyClass checks if any of the module's classes match the given classes
+func hasAnyClass(moduleClasses, checkClasses []string) bool {
+	for _, mc := range moduleClasses {
+		if containsString(checkClasses, mc) {
+			return true
+		}
+	}
+	return false
+}
+
+// getModuleClasses returns the classes for a node's module, or nil if not a module
+func getModuleClasses(node *Node) []string {
+	if node.Module == nil {
+		return nil
+	}
+	return node.Module.Info().Class
 }
 
 // Validate checks if the given nodes comply with the build constraints
@@ -111,10 +162,25 @@ func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 	}
 
 	// Validate nodes
-	for id := range nodes {
+	for id, node := range nodes {
 		// Check denied IDs first (highest precedence)
 		if contains(o.Denied, id) {
 			return fmt.Errorf("process `%v` is not allowed in this build", id)
+		}
+
+		// Check class-based filtering for modules
+		if node.Kind == luaapi.KindModule {
+			classes := getModuleClasses(node)
+			if classes != nil {
+				// Check denied classes
+				if len(o.DeniedClasses) > 0 && hasAnyClass(classes, o.DeniedClasses) {
+					return fmt.Errorf("module `%v` has denied class", id)
+				}
+				// Check allowed classes (if specified, module must have at least one)
+				if len(o.AllowedClasses) > 0 && !hasAnyClass(classes, o.AllowedClasses) {
+					return fmt.Errorf("module `%v` does not have any allowed class", id)
+				}
+			}
 		}
 
 		// Mark required IDs as found

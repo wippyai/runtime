@@ -19,6 +19,7 @@ import (
 
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	systemapi "github.com/wippyai/runtime/api/system"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
@@ -43,9 +44,13 @@ func NewSystemModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module's unique name: "system".
-func (m *Module) Name() string {
-	return "system"
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "system",
+		Description: "Go runtime and system information",
+		Class:       []string{luaapi.ClassSecurity, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader is the function registered with gopher-lua to load the "system" module.
@@ -69,13 +74,14 @@ func (m *Module) initModuleTables(l *lua.LState) {
 	m.supervisorTable = m.initSupervisorTable(l)
 
 	// Create main module table with child tables and top-level functions
-	mod := l.CreateTable(0, 6)
+	mod := l.CreateTable(0, 7)
 	mod.RawSetString("memory", m.memoryTable)
 	mod.RawSetString("gc", m.gcTable)
 	mod.RawSetString("runtime", m.runtimeTable)
 	mod.RawSetString("process", m.processTable)
 	mod.RawSetString("supervisor", m.supervisorTable)
 	mod.RawSetString("exit", l.NewFunction(m.exit))
+	mod.RawSetString("modules", l.NewFunction(m.modules))
 
 	mod.Immutable = true
 	m.moduleTable = mod
@@ -641,6 +647,45 @@ func (*Module) supervisorStates(l *lua.LState) int {
 		}
 
 		result.RawSetInt(i+1, stateTable)
+	}
+
+	l.Push(result)
+	l.Push(lua.LNil)
+	return 2
+}
+
+// modules returns information about all registered Lua modules.
+// Returns a table with module info including name, description, and classes.
+// Requires "system.read" permission for the "modules" resource.
+func (*Module) modules(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "modules", nil) {
+		l.RaiseError("permission denied: system.read on modules resource required")
+		return 0
+	}
+
+	cm := luaapi.GetCodeManager(l.Context())
+	if cm == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("code manager not available"))
+		return 2
+	}
+
+	modules := cm.GetModules()
+	result := l.CreateTable(len(modules), 0)
+
+	for i, mod := range modules {
+		modTable := l.CreateTable(0, 3)
+		modTable.RawSetString("name", lua.LString(mod.Name))
+		modTable.RawSetString("description", lua.LString(mod.Description))
+
+		// Build classes array
+		classTable := l.CreateTable(len(mod.Class), 0)
+		for j, class := range mod.Class {
+			classTable.RawSetInt(j+1, lua.LString(class))
+		}
+		modTable.RawSetString("class", classTable)
+
+		result.RawSetInt(i+1, modTable)
 	}
 
 	l.Push(result)

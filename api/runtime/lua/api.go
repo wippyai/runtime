@@ -14,6 +14,27 @@ const (
 	InvalidateNodes event.Kind   = "lua.reset_code"
 )
 
+// Module class constants for consistent categorization
+const (
+	ClassDeterministic    = "deterministic"    // Same input = same output
+	ClassNondeterministic = "nondeterministic" // Output varies (time, random)
+	ClassIO               = "io"               // External I/O operations
+	ClassNetwork          = "network"          // Network operations
+	ClassEncoding         = "encoding"         // Data serialization
+	ClassTime             = "time"             // Time-related
+	ClassProcess          = "process"          // Process management
+	ClassSecurity         = "security"         // Security operations
+	ClassStorage          = "storage"          // Data storage
+	ClassWorkflow         = "workflow"         // Workflow-safe replacements
+)
+
+// ModuleInfo contains metadata about a Lua module
+type ModuleInfo struct {
+	Name        string   // Module identifier (used for require)
+	Description string   // Human-readable description
+	Class       []string // Tags using Class* constants
+}
+
 type (
 	// Module represents a loadable Lua module that can be registered with the VM.
 	// It provides methods to load the module into a Lua state and identify the module by name.
@@ -21,8 +42,8 @@ type (
 		// Loader initializes the module in the given Lua state and returns the number of
 		// values pushed onto the stack.
 		Loader(*lua.LState) int
-		// Name returns the identifier for this module.
-		Name() string
+		// Info returns metadata about this module including name, description, and classification.
+		Info() ModuleInfo
 	}
 
 	// Factory creates new instances of the Lua virtual machine with compiled code.

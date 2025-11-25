@@ -3,6 +3,7 @@ package sql
 import (
 	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/runtime/lua/modules/sql/builder"
 	"github.com/wippyai/runtime/runtime/lua/modules/sql/sqlutil"
@@ -55,9 +56,12 @@ func NewSQLModule(log *zap.Logger) *Module {
 	}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "sql"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "sql",
+		Description: "SQL database access",
+		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO},
+	}
 }
 
 // Loader is the entry point for loading the module into Lua

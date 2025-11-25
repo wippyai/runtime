@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	engerr "github.com/wippyai/runtime/runtime/lua/engine/errors"
 	"github.com/wippyai/runtime/runtime/lua/engine/inspect"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -32,9 +33,12 @@ func NewLoggerModule(log *zap.Logger) *Module {
 	}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "logger"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "logger",
+		Description: "Structured logging",
+		Class:       []string{luaapi.ClassIO},
+	}
 }
 
 // Loader is the entry point for loading the plugin

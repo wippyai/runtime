@@ -2,51 +2,58 @@
 package text
 
 import (
+	"sync"
+
 	"github.com/tmc/langchaingo/textsplitter"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // Module represents the text Lua module
-type Module struct{}
+type Module struct {
+	once        sync.Once
+	moduleTable *lua.LTable
+}
 
 // NewTextModule creates a new text module
 func NewTextModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "text"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "text",
+		Description: "Text processing, splitting, diff, and regex",
+		Class:       []string{luaapi.ClassDeterministic},
+	}
 }
 
 // Loader registers the module functions and types
 func (m *Module) Loader(l *lua.LState) int {
-	// Create main module table
-	mod := l.CreateTable(0, 3)
+	m.once.Do(func() {
+		mod := l.CreateTable(0, 3)
 
-	// Splitter sub-module
-	splitterMod := l.CreateTable(0, 2)
-	splitterMod.RawSetString("recursive", l.NewFunction(newRecursiveSplitter))
-	splitterMod.RawSetString("markdown", l.NewFunction(newMarkdownSplitter))
-	mod.RawSetString("splitter", splitterMod)
+		splitterMod := l.CreateTable(0, 2)
+		splitterMod.RawSetString("recursive", l.NewFunction(newRecursiveSplitter))
+		splitterMod.RawSetString("markdown", l.NewFunction(newMarkdownSplitter))
+		mod.RawSetString("splitter", splitterMod)
 
-	// Diff sub-module
-	diffMod := l.CreateTable(0, 1)
-	diffMod.RawSetString("new", l.NewFunction(newDiffer))
-	mod.RawSetString("diff", diffMod)
+		diffMod := l.CreateTable(0, 1)
+		diffMod.RawSetString("new", l.NewFunction(newDiffer))
+		mod.RawSetString("diff", diffMod)
 
-	// Regexp sub-module
-	regexpMod := l.CreateTable(0, 1)
-	regexpMod.RawSetString("compile", l.NewFunction(newRegexpCompile))
-	mod.RawSetString("regexp", regexpMod)
+		regexpMod := l.CreateTable(0, 1)
+		regexpMod.RawSetString("compile", l.NewFunction(newRegexpCompile))
+		mod.RawSetString("regexp", regexpMod)
 
-	// Register types
-	registerTextSplitter(l)
-	registerDiffer(l)
-	registerRegexp(l)
-
-	l.Push(mod)
+		registerTextSplitter(l)
+		registerDiffer(l)
+		registerRegexp(l)
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

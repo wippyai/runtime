@@ -17,7 +17,7 @@ func TestHTMLModule(t *testing.T) {
 	t.Run("module creation and loading", func(t *testing.T) {
 		mod := NewHTMLModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -76,7 +76,7 @@ func TestHTMLModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewHTMLModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()
@@ -147,7 +147,7 @@ func TestHTMLModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewHTMLModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()
@@ -165,7 +165,7 @@ func TestHTMLModule(t *testing.T) {
 	t.Run("policy building", func(t *testing.T) {
 		mod := NewHTMLModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -236,7 +236,7 @@ func TestHTMLModule(t *testing.T) {
 	t.Run("attr builder functionality", func(t *testing.T) {
 		mod := NewHTMLModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -318,7 +318,7 @@ func TestHTMLModule(t *testing.T) {
 	t.Run("url security features", func(t *testing.T) {
 		mod := NewHTMLModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -400,7 +400,7 @@ func TestHTMLModule(t *testing.T) {
 	t.Run("convenience methods", func(t *testing.T) {
 		mod := NewHTMLModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -473,7 +473,7 @@ func TestHTMLModule(t *testing.T) {
 	t.Run("data uri images", func(t *testing.T) {
 		mod := NewHTMLModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -543,7 +543,7 @@ func TestHTMLModule(t *testing.T) {
 	t.Run("regex validation errors", func(t *testing.T) {
 		mod := NewHTMLModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -574,7 +574,7 @@ func TestHTMLModule(t *testing.T) {
 	t.Run("malformed html handling", func(t *testing.T) {
 		mod := NewHTMLModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -624,7 +624,7 @@ func TestHTMLModule(t *testing.T) {
 	t.Run("method chaining and multiple calls", func(t *testing.T) {
 		mod := NewHTMLModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -718,7 +718,7 @@ func TestHTMLModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewHTMLModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()

@@ -29,7 +29,20 @@ var (
 func init() {
 	workflowBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).
-		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.NewID("", "upstream")})
+		WithPreloaded(
+			code.Preload{Name: "upstream", ModuleID: registry.NewID("", "upstream")},
+			code.Preload{Name: "channel", ModuleID: registry.NewID("", "channel")},
+			code.Preload{Name: "process", ModuleID: registry.NewID("", "workflow.process")},
+			code.Preload{Name: "os", ModuleID: registry.NewID("", "workflow.os")},
+			code.Preload{Name: "payload", ModuleID: registry.NewID("", "payload")},
+		).
+		WithDeniedClasses(
+			luaapi.ClassIO,
+			luaapi.ClassNetwork,
+			luaapi.ClassNondeterministic,
+			luaapi.ClassProcess,
+			luaapi.ClassStorage,
+		)
 
 	layers = component.WithRunnerOption(
 		engine.WithLayer(channel.NewChannelLayer()),

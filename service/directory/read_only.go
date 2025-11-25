@@ -30,7 +30,7 @@ func (r ReadOnlyFS) Stat(name string) (fs.FileInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ReadOnlyFS.Stat: %w", err)
 	}
-	defer open.Close()
+	defer func() { _ = open.Close() }()
 
 	info, err := open.Stat()
 	if err != nil {

@@ -35,7 +35,7 @@ func TestHMACModuleWithVM(t *testing.T) {
 	// Test loading the module and registering the HMAC submodule
 	t.Run("module loading", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -52,7 +52,7 @@ func TestHMACModuleWithVM(t *testing.T) {
 	// Test input validation
 	t.Run("input validation", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -96,7 +96,7 @@ func TestHMACModuleWithVM(t *testing.T) {
 	// Test correct HMAC calculation
 	t.Run("HMAC calculation", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -196,7 +196,7 @@ func TestHMACModuleWithVM(t *testing.T) {
 	// Test HMAC error handling in Lua
 	t.Run("error handling in Lua", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

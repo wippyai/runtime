@@ -138,7 +138,7 @@ func TestUnixSocketRequests(t *testing.T) {
 		server.setResponse("GET", "/test", `{"message":"hello from unix socket"}`)
 
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -164,7 +164,7 @@ func TestUnixSocketRequests(t *testing.T) {
 		server.setResponse("POST", "/data", `{"received":"ok"}`)
 
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -194,7 +194,7 @@ func TestUnixSocketRequests(t *testing.T) {
 		server.setResponse("GET", "/slow", `{"message":"slow response"}`)
 
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -220,7 +220,7 @@ func TestUnixSocketRequests(t *testing.T) {
 		server.setResponse("GET", "/error", "STATUS:500:Internal Server Error")
 
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -240,7 +240,7 @@ func TestUnixSocketRequests(t *testing.T) {
 
 	t.Run("invalid unix socket path", func(t *testing.T) {
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -270,7 +270,7 @@ func TestUnixSocketSecurity(t *testing.T) {
 		server.setResponse("GET", "/test", `{"message":"security check passed"}`)
 
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -298,7 +298,7 @@ func TestUnixSocketSecurity(t *testing.T) {
 		server.setResponse("GET", "/test2", `{"id":"test2"}`)
 
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -332,7 +332,7 @@ func TestUnixSocketBatchRequests(t *testing.T) {
 		server.setResponse("GET", "/info", `{"version":"1.0"}`)
 
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -370,7 +370,7 @@ func TestUnixSocketStreaming(t *testing.T) {
 		server.setResponse("GET", "/stream", "simple stream content")
 
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -411,7 +411,7 @@ func TestUnixSocketFileUpload(t *testing.T) {
 		server.setResponse("POST", "/upload", `{"uploaded":"success"}`)
 
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -453,7 +453,7 @@ func TestDockerAPISimulation(t *testing.T) {
 		server.setResponse("POST", "/containers/create", `{"Id":"newcontainer789","Warnings":[]}`)
 
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -511,7 +511,7 @@ func TestUnixSocketOptionsValidation(t *testing.T) {
 		server.setResponse("POST", "/api/endpoint", `{"result":"success"}`)
 
 		mod := NewHTTPClientModule(logger, http.DefaultClient)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

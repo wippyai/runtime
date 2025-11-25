@@ -7,7 +7,9 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/api/workflow/std"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
@@ -40,9 +42,13 @@ func NewFuncsModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "funcs"
+// Info returns module metadata
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "funcs",
+		Description: "Workflow function executor",
+		Class:       []string{luaapi.ClassWorkflow, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader registers the module functions
@@ -290,11 +296,11 @@ func (m *Module) call(l *lua.LState) int {
 		return 2
 	}
 
-	// Build payloads from arguments
-	payloads := executor.buildPayloads(l, targetIndex+1)
+	// Build payloads with typed header
+	payloads := executor.buildPayloads(l, regID, targetIndex+1)
 
 	// Create request with funcs.call command type
-	req := upstream.NewRequest(l, "funcs.call", nil, payloads...)
+	req := upstream.NewRequest(l, std.TypeFuncsCall, nil, payloads...)
 
 	// Send and yield waiting for response
 	return upstream.SendAndYield(l, req)
@@ -327,11 +333,11 @@ func (m *Module) async(l *lua.LState) int {
 		return 0
 	}
 
-	// Build payloads from arguments
-	payloads := executor.buildPayloads(l, targetIndex+1)
+	// Build payloads with typed header
+	payloads := executor.buildPayloads(l, regID, targetIndex+1)
 
 	// Create request with funcs.call command type
-	req := upstream.NewRequest(l, "funcs.call", nil, payloads...)
+	req := upstream.NewRequest(l, std.TypeFuncsCall, nil, payloads...)
 
 	// Send command to upstream (non-blocking)
 	up, ok := runtime.GetUpstream(l.Context())
@@ -350,11 +356,47 @@ func (m *Module) async(l *lua.LState) int {
 	return 1
 }
 
-// buildPayloads extracts payloads from Lua arguments starting at given index
-func (e *Executor) buildPayloads(l *lua.LState, startIndex int) []payload.Payload {
-	var payloads []payload.Payload
+// buildPayloads creates typed header and extracts argument payloads
+func (e *Executor) buildPayloads(l *lua.LState, target registry.ID, argsStartIndex int) []payload.Payload {
+	// Build typed header
+	header := &std.FuncsCallHeader{
+		Target: target,
+	}
 
-	for i := startIndex; i <= l.GetTop(); i++ {
+	// Add context values if present
+	if e.values != nil && e.values.Len() > 0 {
+		header.Context = make(map[string]any)
+		e.values.Iterate(func(k string, v any) {
+			header.Context[k] = v
+		})
+	}
+
+	// Add security context if present
+	if e.hasActor || e.hasScope {
+		header.Security = &std.SecurityContext{}
+		if e.hasActor {
+			header.Security.ActorID = e.actor.ID
+			header.Security.ActorMeta = e.actor.Meta
+		}
+		if e.hasScope {
+			policies := e.scope.Policies()
+			header.Security.ScopePolicies = make([]registry.ID, len(policies))
+			for i, p := range policies {
+				header.Security.ScopePolicies[i] = p.ID()
+			}
+		}
+	}
+
+	// Add options if present
+	if e.hasOptions {
+		header.Options = e.convertOptions()
+	}
+
+	// Start with header as first payload
+	payloads := []payload.Payload{payload.New(header)}
+
+	// Extract argument payloads
+	for i := argsStartIndex; i <= l.GetTop(); i++ {
 		val := l.Get(i)
 
 		// Check if already a payload wrapper
@@ -369,28 +411,52 @@ func (e *Executor) buildPayloads(l *lua.LState, startIndex int) []payload.Payloa
 		payloads = append(payloads, luaconv.ExportPayload(val))
 	}
 
-	// Prepend context information if present
-	if e.hasActor || e.hasScope || (e.values != nil && e.values.Len() > 0) || e.hasOptions {
-		ctx := make(map[string]any)
-		if e.hasActor {
-			ctx["actor"] = e.actor
-		}
-		if e.hasScope {
-			ctx["scope"] = e.scope
-		}
-		if e.values != nil && e.values.Len() > 0 {
-			vals := make(map[string]any)
-			e.values.Iterate(func(k string, v any) {
-				vals[k] = v
-			})
-			ctx["values"] = vals
-		}
-		if e.hasOptions {
-			ctx["options"] = e.options
-		}
-		// Context is sent as first payload
-		payloads = append([]payload.Payload{payload.New(ctx)}, payloads...)
+	return payloads
+}
+
+// convertOptions converts runtime.Bag to FuncsCallOptions
+func (e *Executor) convertOptions() *std.FuncsCallOptions {
+	if !e.hasOptions || e.options == nil {
+		return nil
 	}
 
-	return payloads
+	opts := &std.FuncsCallOptions{}
+
+	if v, ok := e.options["timeout"].(string); ok {
+		opts.Timeout = v
+	}
+	if v, ok := e.options["start_to_close_timeout"].(string); ok {
+		opts.StartToCloseTimeout = v
+	}
+	if v, ok := e.options["schedule_to_start_timeout"].(string); ok {
+		opts.ScheduleToStartTimeout = v
+	}
+	if v, ok := e.options["heartbeat_timeout"].(string); ok {
+		opts.HeartbeatTimeout = v
+	}
+	if v, ok := e.options["task_queue"].(string); ok {
+		opts.TaskQueue = v
+	}
+	if v, ok := e.options["wait_for_cancellation"].(bool); ok {
+		opts.WaitForCancellation = v
+	}
+
+	// Convert retry policy if present
+	if retryMap, ok := e.options["retry"].(map[string]any); ok {
+		opts.Retry = &std.RetryPolicy{}
+		if v, ok := retryMap["max_attempts"].(int); ok {
+			opts.Retry.MaxAttempts = v
+		}
+		if v, ok := retryMap["initial_interval"].(string); ok {
+			opts.Retry.InitialInterval = v
+		}
+		if v, ok := retryMap["backoff_coefficient"].(float64); ok {
+			opts.Retry.BackoffCoefficient = v
+		}
+		if v, ok := retryMap["max_interval"].(string); ok {
+			opts.Retry.MaxInterval = v
+		}
+	}
+
+	return opts
 }

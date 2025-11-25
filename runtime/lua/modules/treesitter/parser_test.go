@@ -21,7 +21,7 @@ func TestParser(t *testing.T) {
 	t.Run("parser creation and basic usage", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestParser(t *testing.T) {
 	t.Run("parser with timeout", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestParser(t *testing.T) {
 	t.Run("parser with old tree", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -104,7 +104,7 @@ func TestParser(t *testing.T) {
 		ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -122,7 +122,7 @@ func TestParser(t *testing.T) {
 	t.Run("parser errors", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestParser(t *testing.T) {
 	t.Run("parser reset", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -186,7 +186,7 @@ func TestParser(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -206,7 +206,7 @@ func TestParser(t *testing.T) {
 	t.Run("get language", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -248,7 +248,7 @@ func TestParserContextCancellation(t *testing.T) {
 	rootCtx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 	vm, err := engine.NewVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithLoader(mod.Info().Name, mod.Loader),
 	)
 	require.NoError(t, err)
 	defer vm.Close()
@@ -272,7 +272,7 @@ func TestParserLifecycle(t *testing.T) {
 	t.Run("parser close and reset", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -319,7 +319,7 @@ func TestParserLifecycle(t *testing.T) {
 	t.Run("parser close with memory write", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -372,7 +372,7 @@ func TestParserResetAndClose(t *testing.T) {
 	t.Run("parser reset and close", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -417,7 +417,7 @@ func TestParserResetAndClose(t *testing.T) {
 	t.Run("multiple reset cycles", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -456,7 +456,7 @@ func TestParserResetAndClose(t *testing.T) {
 	t.Run("reset with different languages", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)

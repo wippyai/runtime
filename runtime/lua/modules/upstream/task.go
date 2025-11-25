@@ -16,10 +16,14 @@ var (
 )
 
 // Task represents a task with payload input and completion callback (IN + Response)
-// Backend creates tasks and sends them to Lua, Lua processes and completes
+// Backend creates tasks and sends them to Lua, Lua processes and completes.
+// Implements std.Task interface.
 type Task struct {
-	// Input payload
-	Input payload.Payload
+	// taskType is driver-specific task type (e.g., "view", "update")
+	taskType string
+
+	// input payloads
+	input payload.Payloads
 
 	// Completion callback
 	onComplete ResultCallback
@@ -30,13 +34,24 @@ type Task struct {
 	result    runtime.Result
 }
 
-// NewTask creates a new task with the given input and completion callback
-func NewTask(input payload.Payload, onComplete ResultCallback) *Task {
+// NewTask creates a new task with the given type, input and completion callback
+func NewTask(taskType string, input payload.Payloads, onComplete ResultCallback) *Task {
 	return &Task{
-		Input:      input,
+		taskType:   taskType,
+		input:      input,
 		onComplete: onComplete,
 		completed:  false,
 	}
+}
+
+// Type returns the task type
+func (t *Task) Type() string {
+	return t.taskType
+}
+
+// Input returns the task input payloads
+func (t *Task) Input() payload.Payloads {
+	return t.input
 }
 
 // Complete completes the task with a successful result value

@@ -6,6 +6,7 @@ import (
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lru "github.com/wippyai/runtime/internal/cache"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/system/payload/lua"
@@ -71,9 +72,12 @@ func NewExprModule(opts ...Option) *Module {
 	}
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "expr"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "expr",
+		Description: "Expression evaluation engine",
+		Class:       []string{luaapi.ClassDeterministic},
+	}
 }
 
 // Loader loads the module into the given Lua state

@@ -9,6 +9,7 @@ import (
 	"io"
 	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -27,8 +28,12 @@ func NewCompressModule() *Module {
 	return &Module{}
 }
 
-func (m *Module) Name() string {
-	return "compress"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "compress",
+		Description: "Compression algorithms (gzip, deflate, zlib, brotli, zstd)",
+		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	}
 }
 
 func (m *Module) Loader(l *lua.LState) int {

@@ -76,8 +76,8 @@ func TestExcelFileSystemIntegration(t *testing.T) {
 	L := vm.State()
 
 	// Register the modules
-	L.PreloadModule(fsModule.Name(), fsModule.Loader)
-	L.PreloadModule(excelModule.Name(), excelModule.Loader)
+	L.PreloadModule(fsModule.Info().Name, fsModule.Loader)
+	L.PreloadModule(excelModule.Info().Name, excelModule.Loader)
 
 	// Create a runner with the coroutine layer
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))

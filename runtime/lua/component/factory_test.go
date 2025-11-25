@@ -28,6 +28,14 @@ func (tm *testModule) Name() string {
 	return tm.name
 }
 
+func (tm *testModule) Info() api.ModuleInfo {
+	return api.ModuleInfo{
+		Name:        tm.name,
+		Description: "Test module",
+		Class:       []string{api.ClassDeterministic},
+	}
+}
+
 func TestNewRunnerFactory(t *testing.T) {
 	tests := []struct {
 		name        string

@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -12,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/security"
@@ -24,7 +26,9 @@ const defaultCancelTimeout = "30s"
 
 // Module provides a unified process API for all contexts
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	once        sync.Once
+	moduleTable *lua.LTable
 }
 
 // NewProcessAPIModule creates a new unified process API module
@@ -34,52 +38,58 @@ func NewProcessAPIModule(log *zap.Logger) *Module {
 	}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "process"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "process",
+		Description: "Process management and messaging",
+		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	m.registerContextType(l)
+	m.once.Do(func() {
+		m.registerContextType(l)
 
-	mod := l.CreateTable(0, 16)
+		mod := l.CreateTable(0, 16)
 
-	// Register process functions
-	mod.RawSetString("id", l.NewFunction(m.id))
-	mod.RawSetString("pid", l.NewFunction(m.pid))
-	mod.RawSetString("send", l.NewFunction(m.send))
-	mod.RawSetString("spawn", l.NewFunction(m.spawn))
-	mod.RawSetString("spawn_monitored", l.NewFunction(m.spawnMonitored))
-	mod.RawSetString("spawn_linked", l.NewFunction(m.spawnLinked))
-	mod.RawSetString("spawn_linked_monitored", l.NewFunction(m.spawnLinkedMonitored))
-	mod.RawSetString("terminate", l.NewFunction(m.terminate))
-	mod.RawSetString("cancel", l.NewFunction(m.cancel))
-	mod.RawSetString("get_options", l.NewFunction(m.getOptions))
-	mod.RawSetString("set_options", l.NewFunction(m.setOptions))
-	mod.RawSetString("monitor", l.NewFunction(m.monitor))
-	mod.RawSetString("unmonitor", l.NewFunction(m.unmonitor))
-	mod.RawSetString("link", l.NewFunction(m.link))
-	mod.RawSetString("unlink", l.NewFunction(m.unlink))
+		mod.RawSetString("id", l.NewFunction(m.id))
+		mod.RawSetString("pid", l.NewFunction(m.pid))
+		mod.RawSetString("send", l.NewFunction(m.send))
+		mod.RawSetString("spawn", l.NewFunction(m.spawn))
+		mod.RawSetString("spawn_monitored", l.NewFunction(m.spawnMonitored))
+		mod.RawSetString("spawn_linked", l.NewFunction(m.spawnLinked))
+		mod.RawSetString("spawn_linked_monitored", l.NewFunction(m.spawnLinkedMonitored))
+		mod.RawSetString("terminate", l.NewFunction(m.terminate))
+		mod.RawSetString("cancel", l.NewFunction(m.cancel))
+		mod.RawSetString("get_options", l.NewFunction(m.getOptions))
+		mod.RawSetString("set_options", l.NewFunction(m.setOptions))
+		mod.RawSetString("monitor", l.NewFunction(m.monitor))
+		mod.RawSetString("unmonitor", l.NewFunction(m.unmonitor))
+		mod.RawSetString("link", l.NewFunction(m.link))
+		mod.RawSetString("unlink", l.NewFunction(m.unlink))
 
-	mod.RawSetString("with_context", l.NewFunction(m.withContext))
+		mod.RawSetString("with_context", l.NewFunction(m.withContext))
 
-	// Create event constants table
-	events := l.CreateTable(0, 3)
-	events.RawSetString("CANCEL", lua.LString(topology.KindCancel))
-	events.RawSetString("EXIT", lua.LString(topology.KindExit))
-	events.RawSetString("LINK_DOWN", lua.LString(topology.KindLinkDown))
-	mod.RawSetString("event", events)
+		events := l.CreateTable(0, 3)
+		events.RawSetString("CANCEL", lua.LString(topology.KindCancel))
+		events.RawSetString("EXIT", lua.LString(topology.KindExit))
+		events.RawSetString("LINK_DOWN", lua.LString(topology.KindLinkDown))
+		events.Immutable = true
+		mod.RawSetString("event", events)
 
-	// Registry table
-	reg := l.CreateTable(0, 3)
-	reg.RawSetString("register", l.NewFunction(m.registryRegister))
-	reg.RawSetString("lookup", l.NewFunction(m.registryLookup))
-	reg.RawSetString("unregister", l.NewFunction(m.registryUnregister))
-	mod.RawSetString("registry", reg)
+		reg := l.CreateTable(0, 3)
+		reg.RawSetString("register", l.NewFunction(m.registryRegister))
+		reg.RawSetString("lookup", l.NewFunction(m.registryLookup))
+		reg.RawSetString("unregister", l.NewFunction(m.registryUnregister))
+		reg.Immutable = true
+		mod.RawSetString("registry", reg)
 
-	RegisterMessageType(l)
-	l.Push(mod)
+		RegisterMessageType(l)
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

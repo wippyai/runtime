@@ -17,7 +17,7 @@ func TestLocation(t *testing.T) {
 	t.Run("location constants", func(t *testing.T) {
 		mod := NewTimeModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestLocation(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTimeModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 					engine.WithGlobalFunction("assert", assertLua),
 				)
 				require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestLocation(t *testing.T) {
 	t.Run("fixed_zone", func(t *testing.T) {
 		mod := NewTimeModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)

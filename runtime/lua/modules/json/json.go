@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/kaptinlin/jsonschema"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lru "github.com/wippyai/runtime/internal/cache"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -145,8 +146,12 @@ func NewJSONModule(opts ...Option) *Module {
 	return m
 }
 
-func (m *Module) Name() string {
-	return "json"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "json",
+		Description: "JSON encoding and decoding with schema validation",
+		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	}
 }
 
 func (m *Module) Loader(l *lua.LState) int {

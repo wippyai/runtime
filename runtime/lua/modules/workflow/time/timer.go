@@ -3,6 +3,7 @@ package time
 import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/workflow/std"
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	origtime "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
@@ -49,7 +50,10 @@ func timerReset(l *lua.LState) int {
 
 	_ = timer.req.Cancel()
 
-	newReq := upstream.NewRequest(l, "timer.sleep", nil, payload.New(duration.Milliseconds()))
+	header := &std.TimerHeader{
+		Milliseconds: duration.Milliseconds(),
+	}
+	newReq := upstream.NewRequest(l, std.TypeTimerSleep, nil, payload.New(header))
 	timer.req = newReq
 
 	upstream, ok := runtime.GetUpstream(l.Context())

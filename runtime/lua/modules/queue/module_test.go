@@ -21,7 +21,7 @@ func TestQueueModule(t *testing.T) {
 
 	t.Run("module creation and loading", func(t *testing.T) {
 		mod := NewModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -36,7 +36,7 @@ func TestQueueModule(t *testing.T) {
 
 	t.Run("publish success", func(t *testing.T) {
 		mod := NewModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -73,7 +73,7 @@ func TestQueueModule(t *testing.T) {
 
 	t.Run("publish with headers", func(t *testing.T) {
 		mod := NewModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -128,7 +128,7 @@ func TestQueueModule(t *testing.T) {
 
 	t.Run("publish without queue manager", func(t *testing.T) {
 		mod := NewModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -160,7 +160,7 @@ func TestQueueModule(t *testing.T) {
 
 	t.Run("message without delivery", func(t *testing.T) {
 		mod := NewModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -192,7 +192,7 @@ func TestQueueModule(t *testing.T) {
 
 	t.Run("message with delivery", func(t *testing.T) {
 		mod := NewModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

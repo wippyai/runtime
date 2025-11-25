@@ -18,7 +18,7 @@ func TestLoggerModule(t *testing.T) {
 		logger := zap.New(core)
 
 		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -34,7 +34,7 @@ func TestLoggerModule(t *testing.T) {
 		logger := zap.New(core)
 
 		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -67,7 +67,7 @@ func TestLoggerModule(t *testing.T) {
 		logger := zap.New(core)
 
 		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -98,7 +98,7 @@ func TestLoggerModule(t *testing.T) {
 		logger := zap.New(core)
 
 		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -129,7 +129,7 @@ func TestLoggerModule(t *testing.T) {
 		logger := zap.New(core)
 
 		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -153,7 +153,7 @@ func TestLoggerModule(t *testing.T) {
 		logger := zap.New(core)
 
 		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -206,7 +206,7 @@ func TestLoggerModule(t *testing.T) {
 		logger := zap.New(core)
 
 		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -237,8 +237,8 @@ func TestLoggerModule(t *testing.T) {
 		mod := NewLoggerModule(logger)
 		jsonMod := json.NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
-			engine.WithLoader(jsonMod.Name(), jsonMod.Loader))
+			engine.WithLoader(mod.Info().Name, mod.Loader),
+			engine.WithLoader(jsonMod.Info().Name, jsonMod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -278,8 +278,8 @@ func TestLoggerModule(t *testing.T) {
 		mod := NewLoggerModule(logger)
 		jsonMod := json.NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
-			engine.WithLoader(jsonMod.Name(), jsonMod.Loader))
+			engine.WithLoader(mod.Info().Name, mod.Loader),
+			engine.WithLoader(jsonMod.Info().Name, jsonMod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -319,8 +319,8 @@ func TestLoggerModule(t *testing.T) {
 		mod := NewLoggerModule(logger)
 		jsonMod := json.NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
-			engine.WithLoader(jsonMod.Name(), jsonMod.Loader))
+			engine.WithLoader(mod.Info().Name, mod.Loader),
+			engine.WithLoader(jsonMod.Info().Name, jsonMod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

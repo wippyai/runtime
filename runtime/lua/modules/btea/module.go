@@ -1,6 +1,9 @@
 package btea
 
 import (
+	"sync"
+
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
 	"github.com/wippyai/runtime/runtime/lua/modules/btea/models"
@@ -13,7 +16,9 @@ import (
 
 // Module provides Lua bindings for Bubbletea TUI framework
 type Module struct {
-	log *zap.Logger
+	log         *zap.Logger
+	once        sync.Once
+	moduleTable *lua.LTable
 }
 
 // NewBteaModule creates a new bubbletea module
@@ -21,45 +26,43 @@ func NewBteaModule(log *zap.Logger) *Module {
 	return &Module{log: log}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "btea"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "btea",
+		Description: "Bubbletea TUI framework bindings",
+		Class:       []string{luaapi.ClassIO},
+	}
 }
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	// Spawn main module table
-	mod := l.NewTable()
+	m.once.Do(func() {
+		mod := l.NewTable()
 
-	// Protocol
-	protocol.RegisterCmd(l, mod)
-	protocol.RegisterKeyBinding(l, mod)
+		protocol.RegisterCmd(l, mod)
+		protocol.RegisterKeyBinding(l, mod)
 
-	// Styling
-	render.RegisterTextUtils(l, mod)
-	render.RegisterStyle(l, mod)
-	render.RegisterZone(l, mod)
+		render.RegisterTextUtils(l, mod)
+		render.RegisterStyle(l, mod)
+		render.RegisterZone(l, mod)
 
-	// editable elements
-	models.RegisterTextInput(l, mod)
-	models.RegisterTextArea(l, mod)
-	models.RegisterPaginator(l, mod)
-	models.RegisterViewport(l, mod)
-	models.RegisterTable(l, mod)
+		models.RegisterTextInput(l, mod)
+		models.RegisterTextArea(l, mod)
+		models.RegisterPaginator(l, mod)
+		models.RegisterViewport(l, mod)
+		models.RegisterTable(l, mod)
 
-	// lists of elements
-	list.RegisterList(l, mod)
+		list.RegisterList(l, mod)
 
-	// additional view components
-	models.RegisterHelp(l, mod)
-	models.RegisterSpinner(l, mod)
-	models.RegisterProgress(l, mod)
+		models.RegisterHelp(l, mod)
+		models.RegisterSpinner(l, mod)
+		models.RegisterProgress(l, mod)
 
-	// communication channel
-	mod.RawSetString("events", l.NewFunction(m.events))
-
-	// Set the module
-	l.Push(mod)
+		mod.RawSetString("events", l.NewFunction(m.events))
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

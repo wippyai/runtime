@@ -15,7 +15,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 
 	t.Run("module creation and loading", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -35,7 +35,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 
 	t.Run("pbkdf2 function with Serve", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -86,7 +86,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 
 	t.Run("pbkdf2 function error cases", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -173,7 +173,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 
 	t.Run("constant_time_compare function", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

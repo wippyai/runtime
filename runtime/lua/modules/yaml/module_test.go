@@ -14,7 +14,7 @@ func TestYAMLModule(t *testing.T) {
 		mod := NewYAMLModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local yaml = require("yaml")
@@ -29,7 +29,7 @@ func TestYAMLModule(t *testing.T) {
 		mod := NewYAMLModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local yaml = require("yaml")
@@ -64,7 +64,7 @@ func TestYAMLModule(t *testing.T) {
 		mod := NewYAMLModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local yaml = require("yaml")
@@ -97,7 +97,7 @@ func TestYAMLModule(t *testing.T) {
 		mod := NewYAMLModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local yaml = require("yaml")
@@ -135,7 +135,7 @@ func TestYAMLModule(t *testing.T) {
 		mod := NewYAMLModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local yaml = require("yaml")
@@ -173,7 +173,7 @@ func TestYAMLModule(t *testing.T) {
 		mod := NewYAMLModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local yaml = require("yaml")
@@ -293,7 +293,7 @@ func TestYAMLModule(t *testing.T) {
 		mod := NewYAMLModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local yaml = require("yaml")
@@ -367,7 +367,7 @@ func TestYAMLModule(t *testing.T) {
 		mod := NewYAMLModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local yaml = require("yaml")

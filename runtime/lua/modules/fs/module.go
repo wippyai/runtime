@@ -2,18 +2,21 @@ package fs
 
 import (
 	"io/fs"
-
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
-
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"sync"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // Module represents a fs Lua module
-type Module struct{}
+type Module struct {
+	once        sync.Once
+	moduleTable *lua.LTable
+}
 
 const (
 	// Type constants
@@ -31,34 +34,42 @@ func NewFSModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "fs"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "fs",
+		Description: "Filesystem operations",
+		Class:       []string{luaapi.ClassIO},
+	}
 }
 
 // Loader loads the module into the given Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.CreateTable(0, 3) // 3 fields: type, seek, and get function
+	m.once.Do(func() {
+		t := l.CreateTable(0, 3)
 
-	// Register type constants
-	typeTable := l.CreateTable(0, 2)
-	typeTable.RawSetString("FILE", lua.LString(typeFile))
-	typeTable.RawSetString("DIR", lua.LString(typeDir))
-	t.RawSetString("type", typeTable)
+		// Register type constants
+		typeTable := l.CreateTable(0, 2)
+		typeTable.RawSetString("FILE", lua.LString(typeFile))
+		typeTable.RawSetString("DIR", lua.LString(typeDir))
+		typeTable.Immutable = true
+		t.RawSetString("type", typeTable)
 
-	// Register seek constants
-	seekTable := l.CreateTable(0, 3)
-	seekTable.RawSetString("SET", lua.LString(seekSet))
-	seekTable.RawSetString("CUR", lua.LString(seekCur))
-	seekTable.RawSetString("END", lua.LString(seekEnd))
-	t.RawSetString("seek", seekTable)
+		// Register seek constants
+		seekTable := l.CreateTable(0, 3)
+		seekTable.RawSetString("SET", lua.LString(seekSet))
+		seekTable.RawSetString("CUR", lua.LString(seekCur))
+		seekTable.RawSetString("END", lua.LString(seekEnd))
+		seekTable.Immutable = true
+		t.RawSetString("seek", seekTable)
 
-	t.RawSetString("get", l.NewFunction(apiGet))
+		t.RawSetString("get", l.NewFunction(apiGet))
 
-	registerFile(l)
-	registerFS(l)
-
-	l.Push(t)
+		registerFile(l)
+		registerFS(l)
+		t.Immutable = true
+		m.moduleTable = t
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

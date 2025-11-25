@@ -53,7 +53,7 @@ func TestWorkflowFuncs_New(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	mod := workflowfuncs.NewFuncsModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -88,8 +88,8 @@ func TestWorkflowFuncs_Call(t *testing.T) {
 	mod := workflowfuncs.NewFuncsModule()
 	upstreamMod := upstream.NewUpstreamModule()
 	vm, err := engine.NewCVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
-		engine.WithLoader(upstreamMod.Name(), upstreamMod.Loader))
+		engine.WithLoader(mod.Info().Name, mod.Loader),
+		engine.WithLoader(upstreamMod.Info().Name, upstreamMod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -173,8 +173,8 @@ func TestWorkflowFuncs_Async(t *testing.T) {
 	mod := workflowfuncs.NewFuncsModule()
 	upstreamMod := upstream.NewUpstreamModule()
 	vm, err := engine.NewCVM(logger,
-		engine.WithLoader(mod.Name(), mod.Loader),
-		engine.WithLoader(upstreamMod.Name(), upstreamMod.Loader))
+		engine.WithLoader(mod.Info().Name, mod.Loader),
+		engine.WithLoader(upstreamMod.Info().Name, upstreamMod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 
@@ -215,7 +215,7 @@ func TestWorkflowFuncs_CallWithInvalidID(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	mod := workflowfuncs.NewFuncsModule()
-	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewCVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	require.NoError(t, err)
 	defer vm.Close()
 

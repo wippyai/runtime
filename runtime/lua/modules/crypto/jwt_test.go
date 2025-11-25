@@ -23,7 +23,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 	// Test loading the module and registering the JWT submodule
 	t.Run("module loading", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -40,7 +40,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 	// Test JWT encoding
 	t.Run("JWT encoding", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -186,7 +186,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 	// Test JWT verification
 	t.Run("JWT verification", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -278,7 +278,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 	// Test JWT verification failures
 	t.Run("JWT verification failures", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -407,7 +407,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 	// Test error handling in Lua
 	t.Run("error handling in Lua", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -607,7 +607,7 @@ func TestJWTModuleRS256(t *testing.T) {
 	// Test RS256 encoding
 	t.Run("RS256 encoding", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -695,7 +695,7 @@ func TestJWTModuleRS256(t *testing.T) {
 	// Test RS256 verification
 	t.Run("RS256 verification", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -764,7 +764,7 @@ func TestJWTModuleRS256(t *testing.T) {
 	// Test error handling for RS256
 	t.Run("RS256 error handling", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

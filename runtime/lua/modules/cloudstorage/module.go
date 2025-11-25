@@ -3,41 +3,47 @@ package cloudstorage
 import (
 	"context"
 	"fmt"
-
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"sync"
 
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // Module represents a cloudstorage Lua module
-type Module struct{}
+type Module struct {
+	once        sync.Once
+	moduleTable *lua.LTable
+}
 
 // NewModule creates and returns a new instance of the cloudstorage Module
 func NewModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "cloudstorage"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "cloudstorage",
+		Description: "Cloud storage operations (S3, GCS, etc.)",
+		Class:       []string{luaapi.ClassStorage, luaapi.ClassNetwork, luaapi.ClassIO},
+	}
 }
 
 // Loader loads the module into the given Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.CreateTable(0, 1) // 1 field: get function
-
-	// Register the get function
-	t.RawSetString("get", l.NewFunction(apiGet))
-
-	// Register CloudStorage type
-	registerCloudStorage(l)
-
-	l.Push(t)
+	m.once.Do(func() {
+		t := l.CreateTable(0, 1)
+		t.RawSetString("get", l.NewFunction(apiGet))
+		registerCloudStorage(l)
+		t.Immutable = true
+		m.moduleTable = t
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

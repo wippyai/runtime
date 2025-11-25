@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 func TestBuildOptions_WithMethods(t *testing.T) {
@@ -61,6 +63,125 @@ func TestBuildOptions_WithMethods(t *testing.T) {
 	assert.Equal(t, DenyAll, opts2.Mode)
 	assert.True(t, contains(opts2.Required, fooID))
 	assert.True(t, contains(opts2.Allowed, barID))
+
+	// Test WithDeniedClasses
+	opts3 := NewBuildOptions().
+		WithDeniedClasses(luaapi.ClassNetwork, luaapi.ClassIO)
+	assert.Len(t, opts3.DeniedClasses, 2)
+	assert.True(t, containsString(opts3.DeniedClasses, luaapi.ClassNetwork))
+	assert.True(t, containsString(opts3.DeniedClasses, luaapi.ClassIO))
+
+	// Test WithAllowedClasses
+	opts4 := NewBuildOptions().
+		WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassEncoding)
+	assert.Len(t, opts4.AllowedClasses, 2)
+	assert.True(t, containsString(opts4.AllowedClasses, luaapi.ClassDeterministic))
+	assert.True(t, containsString(opts4.AllowedClasses, luaapi.ClassEncoding))
+}
+
+// mockModule implements luaapi.Module for testing
+type mockModule struct {
+	name    string
+	classes []string
+}
+
+func (m *mockModule) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        m.name,
+		Description: "test module",
+		Class:       m.classes,
+	}
+}
+
+func (m *mockModule) Loader(l *lua.LState) int {
+	return 0
+}
+
+func TestBuildOptions_ClassFiltering(t *testing.T) {
+	netModID := registry.NewID("", "network_mod")
+	ioModID := registry.NewID("", "io_mod")
+	deterministicModID := registry.NewID("", "deterministic_mod")
+
+	netModule := &mockModule{name: "network_mod", classes: []string{luaapi.ClassNetwork}}
+	ioModule := &mockModule{name: "io_mod", classes: []string{luaapi.ClassIO}}
+	deterministicModule := &mockModule{name: "deterministic_mod", classes: []string{luaapi.ClassDeterministic, luaapi.ClassEncoding}}
+
+	t.Run("deny network class", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithDeniedClasses(luaapi.ClassNetwork)
+
+		nodes := map[registry.ID]*Node{
+			netModID: {ID: netModID, Kind: luaapi.KindModule, Module: netModule},
+		}
+
+		err := opts.Validate(nodes)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "denied class")
+	})
+
+	t.Run("deny multiple classes", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithDeniedClasses(luaapi.ClassNetwork, luaapi.ClassIO)
+
+		nodes := map[registry.ID]*Node{
+			ioModID: {ID: ioModID, Kind: luaapi.KindModule, Module: ioModule},
+		}
+
+		err := opts.Validate(nodes)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "denied class")
+	})
+
+	t.Run("allow only deterministic", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithAllowedClasses(luaapi.ClassDeterministic)
+
+		nodes := map[registry.ID]*Node{
+			deterministicModID: {ID: deterministicModID, Kind: luaapi.KindModule, Module: deterministicModule},
+		}
+
+		err := opts.Validate(nodes)
+		assert.NoError(t, err)
+	})
+
+	t.Run("reject non-deterministic when only deterministic allowed", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithAllowedClasses(luaapi.ClassDeterministic)
+
+		nodes := map[registry.ID]*Node{
+			netModID: {ID: netModID, Kind: luaapi.KindModule, Module: netModule},
+		}
+
+		err := opts.Validate(nodes)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "does not have any allowed class")
+	})
+
+	t.Run("mixed modules with class filtering", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithDeniedClasses(luaapi.ClassNetwork)
+
+		nodes := map[registry.ID]*Node{
+			deterministicModID: {ID: deterministicModID, Kind: luaapi.KindModule, Module: deterministicModule},
+			ioModID:            {ID: ioModID, Kind: luaapi.KindModule, Module: ioModule},
+		}
+
+		err := opts.Validate(nodes)
+		assert.NoError(t, err)
+	})
+
+	t.Run("non-module nodes are not affected by class filtering", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithDeniedClasses(luaapi.ClassNetwork)
+
+		funcID := registry.NewID("", "some_func")
+		nodes := map[registry.ID]*Node{
+			funcID: {ID: funcID, Kind: luaapi.KindFunction, Source: "return 1"},
+		}
+
+		err := opts.Validate(nodes)
+		assert.NoError(t, err)
+	})
 }
 
 func TestBuildOptions_StateConsistency(t *testing.T) {

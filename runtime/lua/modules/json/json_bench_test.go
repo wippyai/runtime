@@ -11,7 +11,7 @@ import (
 func BenchmarkValidate_WithCache(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule(WithCache(true), WithCapacity(100))
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func BenchmarkValidate_WithCache(b *testing.B) {
 func BenchmarkValidate_WithoutCache(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule(WithCache(false))
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func BenchmarkValidate_WithoutCache(b *testing.B) {
 func BenchmarkValidate_CacheHit(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule(WithCache(true), WithCapacity(100))
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func BenchmarkValidate_CacheHit(b *testing.B) {
 func BenchmarkValidate_CacheMiss(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule(WithCache(true), WithCapacity(10))
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func BenchmarkValidate_CacheMiss(b *testing.B) {
 func BenchmarkValidate_StringSchema(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule(WithCache(true), WithCapacity(100))
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func BenchmarkValidate_StringSchema(b *testing.B) {
 func BenchmarkValidate_TableSchema(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule(WithCache(true), WithCapacity(100))
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func BenchmarkValidate_TableSchema(b *testing.B) {
 func BenchmarkValidateString(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule(WithCache(true), WithCapacity(100))
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func BenchmarkValidateString(b *testing.B) {
 func BenchmarkValidate_ComplexSchema(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule(WithCache(true), WithCapacity(100))
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func BenchmarkValidate_ComplexSchema(b *testing.B) {
 func BenchmarkEncode_SimpleObject(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule()
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func BenchmarkEncode_SimpleObject(b *testing.B) {
 func BenchmarkEncode_ComplexNested(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule()
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func BenchmarkEncode_ComplexNested(b *testing.B) {
 func BenchmarkEncode_LargeArray(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule()
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func BenchmarkEncode_LargeArray(b *testing.B) {
 func BenchmarkDecode_SimpleObject(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule()
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func BenchmarkDecode_SimpleObject(b *testing.B) {
 func BenchmarkDecode_ComplexNested(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule()
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -364,7 +364,7 @@ func BenchmarkDecode_ComplexNested(b *testing.B) {
 func BenchmarkDecode_LargeArray(b *testing.B) {
 	logger := zap.NewNop()
 	mod := NewJSONModule()
-	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+	vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 	if err != nil {
 		b.Fatal(err)
 	}

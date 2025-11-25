@@ -19,7 +19,7 @@ func TestUUIDModuleWithVM(t *testing.T) {
 
 	t.Run("module creation and loading", func(t *testing.T) {
 		mod := NewUUIDModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -42,7 +42,7 @@ func TestUUIDModuleWithVM(t *testing.T) {
 
 	t.Run("v4 generation", func(t *testing.T) {
 		mod := NewUUIDModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -85,7 +85,7 @@ func TestUUIDModuleWithVM(t *testing.T) {
 
 	t.Run("v7 generation and timestamp", func(t *testing.T) {
 		mod := NewUUIDModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -154,7 +154,7 @@ func TestUUIDModuleWithVM(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewUUIDModule()
-				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
 
@@ -250,7 +250,7 @@ func TestUUIDModuleWithVM(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewUUIDModule()
-				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
 
@@ -324,7 +324,7 @@ func TestUUIDModuleWithVM(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewUUIDModule()
-				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
 
@@ -362,7 +362,7 @@ func TestUUIDModuleWithVM(t *testing.T) {
 
 	t.Run("parse function", func(t *testing.T) {
 		mod := NewUUIDModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -403,7 +403,7 @@ func TestUUIDModuleWithVM(t *testing.T) {
 	})
 	t.Run("error handling edge cases", func(t *testing.T) {
 		mod := NewUUIDModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -601,7 +601,7 @@ func TestUUIDModuleWithVM(t *testing.T) {
 
 	t.Run("chained operations", func(t *testing.T) {
 		mod := NewUUIDModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

@@ -27,7 +27,7 @@ func GetCodeManager(ctx context.Context) *code.Manager {
 func AddModules(ctx context.Context, cm *code.Manager, modules ...luaapi.Module) error {
 	for _, mod := range modules {
 		node := code.Node{
-			ID:     registry.NewID("", mod.Name()),
+			ID:     registry.NewID("", mod.Info().Name),
 			Kind:   luaapi.KindModule,
 			Module: mod,
 		}

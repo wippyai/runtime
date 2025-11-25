@@ -44,7 +44,7 @@ func TestJsonModule(t *testing.T) {
 	t.Run("module creation and loading", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -140,7 +140,7 @@ func TestJsonModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewJSONModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 					engine.WithGlobalFunction("assert", assertLua),
 				)
 				require.NoError(t, err)
@@ -238,7 +238,7 @@ func TestJsonModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewJSONModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 					engine.WithGlobalFunction("assert", assertLua),
 				)
 				require.NoError(t, err)
@@ -294,7 +294,7 @@ func TestJsonModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewJSONModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 					engine.WithGlobalFunction("assert", assertLua),
 				)
 				require.NoError(t, err)
@@ -313,7 +313,7 @@ func TestJsonModule(t *testing.T) {
 	t.Run("round trip", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -358,7 +358,7 @@ func TestSharedTableReferences(t *testing.T) {
 	t.Run("non-recursive shared table references", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -422,7 +422,7 @@ func TestSharedTableReferences(t *testing.T) {
 	t.Run("truly recursive table references", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -456,7 +456,7 @@ func TestSharedTableReferences(t *testing.T) {
 	t.Run("complex but valid structures", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -524,7 +524,7 @@ func TestJSONOptimization(t *testing.T) {
 	t.Run("large table encoding performance", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -603,7 +603,7 @@ func TestJsonValidation(t *testing.T) {
 	t.Run("validate with schema string and valid data", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -623,7 +623,7 @@ func TestJsonValidation(t *testing.T) {
 	t.Run("validate with schema string and invalid data", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -644,7 +644,7 @@ func TestJsonValidation(t *testing.T) {
 	t.Run("validate with schema table and valid data", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -671,7 +671,7 @@ func TestJsonValidation(t *testing.T) {
 	t.Run("validate with missing schema", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -690,7 +690,7 @@ func TestJsonValidation(t *testing.T) {
 	t.Run("validate with missing data", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -709,7 +709,7 @@ func TestJsonValidation(t *testing.T) {
 	t.Run("validate_string with valid JSON", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -729,7 +729,7 @@ func TestJsonValidation(t *testing.T) {
 	t.Run("validate_string with invalid JSON", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -749,7 +749,7 @@ func TestJsonValidation(t *testing.T) {
 	t.Run("validate_string with non-string data", func(t *testing.T) {
 		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)
@@ -771,7 +771,7 @@ func TestJsonValidation(t *testing.T) {
 		mod.CacheSize = 10
 
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
 		)
 		require.NoError(t, err)

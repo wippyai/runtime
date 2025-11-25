@@ -155,7 +155,7 @@ func (r *resourceManager) Close() error {
 	r.closed = true
 
 	// Create a slice of functions to execute without holding the lock
-	//nolint:prealloc // ok for now
+
 	var closers []func() error
 	for e := r.closers.Back(); e != nil; e = e.Prev() {
 		closers = append(closers, e.Value.(func() error))

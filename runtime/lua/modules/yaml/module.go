@@ -3,7 +3,9 @@ package yaml
 import (
 	"sort"
 	"strings"
+	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
@@ -32,24 +34,34 @@ type YAMLOptions struct {
 }
 
 // Module represents a YAML Lua module
-type Module struct{}
+type Module struct {
+	once        sync.Once
+	moduleTable *lua.LTable
+}
 
 // NewYAMLModule creates and returns a new instance of the YAML Module
 func NewYAMLModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "yaml"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "yaml",
+		Description: "YAML encoding and decoding",
+		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	}
 }
 
 // Loader registers the module's functions into Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.CreateTable(0, 2)
-	mod.RawSetString("encode", l.NewFunction(m.encode))
-	mod.RawSetString("decode", l.NewFunction(m.decode))
-	l.Push(mod)
+	m.once.Do(func() {
+		mod := l.CreateTable(0, 2)
+		mod.RawSetString("encode", l.NewFunction(m.encode))
+		mod.RawSetString("decode", l.NewFunction(m.decode))
+		mod.Immutable = true
+		m.moduleTable = mod
+	})
+	l.Push(m.moduleTable)
 	return 1
 }
 

@@ -55,7 +55,7 @@ func (r *TaskRunner) SendTask(taskType string, input lua.LValue) error {
 	inputPayload := luaconv.ExportPayload(input)
 
 	// Create task without completion callback
-	t := upstream.NewTask(inputPayload, nil)
+	t := upstream.NewTask(taskType, payload.Payloads{inputPayload}, nil)
 
 	// Create message table
 	msg := state.CreateTable(0, 2)
@@ -102,7 +102,7 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	resultCh := make(chan runtime.Result, 1)
 
 	// Create task with completion callback
-	t := upstream.NewTask(inputPayload, func(result runtime.Result) {
+	t := upstream.NewTask(taskType, payload.Payloads{inputPayload}, func(result runtime.Result) {
 		select {
 		case resultCh <- result:
 			// Result sent

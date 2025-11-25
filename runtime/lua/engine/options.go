@@ -99,12 +99,16 @@ func WithLoader(name string, loader lua.LGFunction) Option {
 	}
 }
 
-// WithPreloaded preloads a module using the provided loader function and sets
-// the result as a global variable with the given name.
+// WithPreloaded preloads a module using the provided loader function, sets
+// the result as a global variable, and also adds to package.preload so require() works.
 func WithPreloaded(name string, loader lua.LGFunction) Option {
 	return func(vm *VM) {
-		// Spawn module instance using loader
 		L := vm.state
+
+		// Also add to package.preload so require() works
+		L.PreloadModule(name, loader)
+
+		// Spawn module instance using loader
 		L.Push(L.NewFunction(loader))
 		err := L.PCall(0, lua.MultRet, nil)
 		if err != nil {

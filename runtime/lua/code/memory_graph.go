@@ -460,7 +460,7 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 			}
 			// Mark module as processed if present
 			if node.Module != nil {
-				processedModules[node.Module.Name()] = true
+				processedModules[node.Module.Info().Name] = true
 			}
 		} else {
 			// No aliases found and no module, add node with default name

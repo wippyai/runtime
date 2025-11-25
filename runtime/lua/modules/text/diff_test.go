@@ -17,7 +17,7 @@ func TestDiffModule(t *testing.T) {
 	t.Run("module creation and loading", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -81,7 +81,7 @@ func TestDiffModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()
@@ -166,7 +166,7 @@ func TestDiffModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()
@@ -180,7 +180,7 @@ func TestDiffModule(t *testing.T) {
 	t.Run("pretty text output", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -213,7 +213,7 @@ func TestDiffModule(t *testing.T) {
 	t.Run("patch creation and application", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -259,7 +259,7 @@ func TestDiffModule(t *testing.T) {
 	t.Run("external patch handling", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -353,7 +353,7 @@ func TestDiffModule(t *testing.T) {
 	t.Run("malformed patch handling", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -473,7 +473,7 @@ func TestDiffModule(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				mod := NewTextModule()
 				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
+					engine.WithLoader(mod.Info().Name, mod.Loader),
 				)
 				require.NoError(t, err)
 				defer vm.Close()
@@ -487,7 +487,7 @@ func TestDiffModule(t *testing.T) {
 	t.Run("summarize functionality", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -530,7 +530,7 @@ func TestDiffModule(t *testing.T) {
 	t.Run("round trip patch application", func(t *testing.T) {
 		mod := NewTextModule()
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(mod.Info().Name, mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()

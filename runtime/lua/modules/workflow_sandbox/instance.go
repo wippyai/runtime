@@ -11,6 +11,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/workflow"
+	"github.com/wippyai/runtime/api/workflow/std"
 )
 
 // upstreamHandler implements runtime.Upstream for workflow request queuing
@@ -159,4 +161,29 @@ func (w *WorkflowInstance) GetResult() *runtime.Result {
 // Close terminates the workflow
 func (w *WorkflowInstance) Close() {
 	w.workflow.Terminate()
+}
+
+// Send delivers a package to the workflow (implements relay.Receiver pattern)
+// This allows tests to send messages to the workflow, simulating external message delivery.
+// After Send(), call Step() to process the queued messages (Temporal model: send != step).
+func (w *WorkflowInstance) Send(pkg *relay.Package) error {
+	if !w.started {
+		return fmt.Errorf("workflow not started - call start() first")
+	}
+	return w.workflow.Send(pkg)
+}
+
+// PushTask delivers a task to the workflow via TaskReceiver interface.
+// After PushTask(), call Step() to process the task.
+func (w *WorkflowInstance) PushTask(task std.Task) error {
+	if !w.started {
+		return fmt.Errorf("workflow not started - call start() first")
+	}
+
+	tr, ok := w.workflow.(workflow.TaskReceiver)
+	if !ok {
+		return fmt.Errorf("workflow does not implement TaskReceiver")
+	}
+
+	return tr.PushTask(task)
 }

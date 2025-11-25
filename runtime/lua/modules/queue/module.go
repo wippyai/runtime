@@ -5,6 +5,7 @@ import (
 
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
@@ -21,9 +22,12 @@ func NewModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "queue"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "queue",
+		Description: "Message queue operations",
+		Class:       []string{luaapi.ClassIO},
+	}
 }
 
 // Loader registers the module's functions into Lua state

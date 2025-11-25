@@ -3,6 +3,7 @@ package websocket
 import (
 	"sync"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -20,9 +21,12 @@ func NewWebSocketModule(log *zap.Logger) *Module {
 	return &Module{log: log}
 }
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "websocket"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "websocket",
+		Description: "WebSocket client connections",
+		Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO},
+	}
 }
 
 // Loader registers the WebSocket module

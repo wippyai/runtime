@@ -27,7 +27,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 	// Test loading the module and registering the encrypt/decrypt submodules
 	t.Run("module loading", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -50,7 +50,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 	// Test AES key validation
 	t.Run("AES key validation", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -143,7 +143,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 	// Test ChaCha20 key validation
 	t.Run("ChaCha20 key validation", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -221,7 +221,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 	// Test AES round-trip encryption/decryption
 	t.Run("AES round-trip", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -333,7 +333,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 	// Test ChaCha20 round-trip encryption/decryption
 	t.Run("ChaCha20 round-trip", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -439,7 +439,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 	// Test decryption with invalid data
 	t.Run("decrypt with invalid data", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -524,7 +524,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 	// Test AAD validation
 	t.Run("AAD validation", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
@@ -653,7 +653,7 @@ func TestEncryptDecryptModuleWithVM(t *testing.T) {
 	// Test error handling in Lua
 	t.Run("error handling in Lua", func(t *testing.T) {
 		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 

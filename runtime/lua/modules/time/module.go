@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -29,9 +30,12 @@ func NewTimeModule() *Module {
 	return &Module{}
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "time"
+func (m *Module) Info() luaapi.ModuleInfo {
+	return luaapi.ModuleInfo{
+		Name:        "time",
+		Description: "Time and date operations",
+		Class:       []string{luaapi.ClassTime, luaapi.ClassNondeterministic},
+	}
 }
 
 // Loader registers the module's functions and constants into Lua state

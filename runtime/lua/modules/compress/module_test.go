@@ -13,7 +13,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
@@ -41,7 +41,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
@@ -65,7 +65,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
@@ -91,7 +91,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
@@ -112,7 +112,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
@@ -133,7 +133,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
@@ -155,7 +155,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
@@ -177,7 +177,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
@@ -193,7 +193,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
@@ -210,7 +210,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
@@ -226,7 +226,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
@@ -257,7 +257,7 @@ func TestCompressModule(t *testing.T) {
 		mod := NewCompressModule()
 		L := lua.NewState()
 		defer L.Close()
-		L.PreloadModule(mod.Name(), mod.Loader)
+		L.PreloadModule(mod.Info().Name, mod.Loader)
 
 		err := L.DoString(`
 			local compress = require("compress")
