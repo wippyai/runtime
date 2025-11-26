@@ -14,6 +14,7 @@ var (
 	workerInterceptorRegistryKey = &ctxapi.Key{Name: "temporal.worker.interceptor.registry"}
 	dataConverterRegistryKey     = &ctxapi.Key{Name: "temporal.dataconverter.registry"}
 	activityContextKey           = &ctxapi.Key{Name: "temporal.activity.context"}
+	workflowContextKey           = &ctxapi.Key{Name: "temporal.workflow.context"}
 )
 
 // ClientInterceptorRegistry provides access to registered client interceptors
@@ -141,6 +142,36 @@ func GetActivityContext(ctx context.Context) context.Context {
 	}
 	if activityCtx, ok := fc.Get(activityContextKey); ok && activityCtx != nil {
 		return activityCtx.(context.Context)
+	}
+	return nil
+}
+
+// WorkflowContextKey returns the context key for workflow context storage
+func WorkflowContextKey() *ctxapi.Key {
+	return workflowContextKey
+}
+
+// WithWorkflowContext attaches a Temporal workflow context to the provided context.
+func WithWorkflowContext(ctx context.Context, workflowCtx context.Context) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(workflowContextKey) == nil {
+		ac.With(workflowContextKey, workflowCtx)
+	}
+	return ctx
+}
+
+// GetWorkflowContext retrieves the Temporal workflow context from the provided context.
+// Returns nil if no workflow context is found in the context.
+func GetWorkflowContext(ctx context.Context) context.Context {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	if workflowCtx, ok := fc.Get(workflowContextKey); ok && workflowCtx != nil {
+		return workflowCtx.(context.Context)
 	}
 	return nil
 }

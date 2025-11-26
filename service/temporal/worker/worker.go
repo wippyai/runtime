@@ -17,6 +17,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 	"go.uber.org/zap"
 )
 
@@ -35,6 +36,7 @@ type Worker struct {
 	closed         atomic.Bool
 	cancel         context.CancelFunc
 	activities     map[string]*ActivityRegistration
+	workflows      map[string]*WorkflowRegistration
 	funcRegistry   function.Registry
 }
 
@@ -43,6 +45,12 @@ type ActivityRegistration struct {
 	Name     string
 	Function registry.ID
 	Local    bool
+}
+
+// WorkflowRegistration represents a registered workflow
+type WorkflowRegistration struct {
+	Name    string
+	Handler any // Can be a DefinitionFactory or a native Go workflow function
 }
 
 // NewWorker creates a new Worker instance
@@ -60,6 +68,7 @@ func NewWorker(
 		resourceReg:  resourceReg,
 		interceptors: interceptors,
 		activities:   make(map[string]*ActivityRegistration),
+		workflows:    make(map[string]*WorkflowRegistration),
 	}
 }
 
@@ -173,7 +182,7 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 	// Create Temporal SDK worker
 	w.worker = worker.New(temporalClient, taskQueue, options)
 
-	// Re-register all existing activities
+	// Re-register all existing activities and workflows
 	w.mu.RLock()
 	for _, act := range w.activities {
 		if act.Local {
@@ -181,6 +190,9 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 		} else {
 			w.registerActivity(ctx, act)
 		}
+	}
+	for _, wf := range w.workflows {
+		w.registerWorkflow(ctx, wf)
 	}
 	w.mu.RUnlock()
 
@@ -194,7 +206,8 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 	w.log.Info("worker started",
 		zap.String("task_queue", w.config.TaskQueue),
 		zap.String("client", w.config.Client.String()),
-		zap.Int("activities", len(w.activities)))
+		zap.Int("activities", len(w.activities)),
+		zap.Int("workflows", len(w.workflows)))
 
 	statusCh <- supervisor.Running
 	return statusCh, nil
@@ -293,6 +306,48 @@ func (w *Worker) UnregisterActivity(name string) error {
 	return nil
 }
 
+// RegisterWorkflow registers a workflow with this worker
+func (w *Worker) RegisterWorkflow(ctx context.Context, name string, handler any) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if _, exists := w.workflows[name]; exists {
+		return fmt.Errorf("workflow %s already registered", name)
+	}
+
+	reg := &WorkflowRegistration{
+		Name:    name,
+		Handler: handler,
+	}
+
+	w.workflows[name] = reg
+
+	// If worker is already running, register immediately
+	if w.worker != nil {
+		w.registerWorkflow(ctx, reg)
+	}
+
+	w.log.Debug("workflow registered",
+		zap.String("name", name))
+
+	return nil
+}
+
+// UnregisterWorkflow removes a workflow from this worker
+func (w *Worker) UnregisterWorkflow(name string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if _, exists := w.workflows[name]; !exists {
+		return fmt.Errorf("workflow %s not found", name)
+	}
+
+	delete(w.workflows, name)
+
+	w.log.Debug("workflow unregistered", zap.String("name", name))
+	return nil
+}
+
 // registerActivity registers an activity with the Temporal SDK worker
 func (w *Worker) registerActivity(ctx context.Context, reg *ActivityRegistration) {
 	handler := w.createActivityHandler(ctx, reg.Function)
@@ -308,6 +363,20 @@ func (w *Worker) registerLocalActivity(ctx context.Context, reg *ActivityRegistr
 		Name:                          reg.Name,
 		DisableAlreadyRegisteredCheck: false,
 		SkipInvalidStructFunctions:    false,
+	})
+}
+
+// registerWorkflow registers a workflow with the Temporal SDK worker
+func (w *Worker) registerWorkflow(ctx context.Context, reg *WorkflowRegistration) {
+	// Support DefinitionFactory with WithContext method (for Lua workflows)
+	handler := reg.Handler
+	if cwf, ok := handler.(interface{ WithContext(context.Context) any }); ok {
+		handler = cwf.WithContext(w.ctx)
+	}
+
+	// Register directly with Temporal SDK
+	w.worker.RegisterWorkflowWithOptions(handler, workflow.RegisterOptions{
+		Name: reg.Name,
 	})
 }
 

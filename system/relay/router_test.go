@@ -94,7 +94,7 @@ func TestRouter_Send(t *testing.T) {
 
 		err := router.Send(pkgToRemote)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no upstream available")
+		assert.Contains(t, err.Error(), "not found")
 		assert.Equal(t, int32(0), localNode.sendCalled, "localNode.Send should not be called")
 	})
 
@@ -121,6 +121,121 @@ func TestRouter_Send(t *testing.T) {
 		router := relay.NewRouter(localNode, errInternode)
 
 		err := router.Send(pkgToRemote)
+		require.Error(t, err)
+		assert.Equal(t, errToSend, err)
+	})
+}
+
+func TestRouter_VirtualNodes(t *testing.T) {
+	localNode := &mockNode{id: "local"}
+
+	t.Run("RegisterVirtualNode", func(t *testing.T) {
+		router := relay.NewRouter(localNode, nil)
+		virtualReceiver := &mockReceiver{}
+
+		err := router.RegisterVirtualNode("virtual1", virtualReceiver)
+		require.NoError(t, err)
+	})
+
+	t.Run("RegisterVirtualNode with empty nodeID", func(t *testing.T) {
+		router := relay.NewRouter(localNode, nil)
+		virtualReceiver := &mockReceiver{}
+
+		err := router.RegisterVirtualNode("", virtualReceiver)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "nodeID cannot be empty")
+	})
+
+	t.Run("RegisterVirtualNode conflicts with local node", func(t *testing.T) {
+		router := relay.NewRouter(localNode, nil)
+		virtualReceiver := &mockReceiver{}
+
+		err := router.RegisterVirtualNode("local", virtualReceiver)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "conflicts with local node")
+	})
+
+	t.Run("RegisterVirtualNode duplicate", func(t *testing.T) {
+		router := relay.NewRouter(localNode, nil)
+		virtualReceiver1 := &mockReceiver{}
+		virtualReceiver2 := &mockReceiver{}
+
+		err := router.RegisterVirtualNode("virtual1", virtualReceiver1)
+		require.NoError(t, err)
+
+		err = router.RegisterVirtualNode("virtual1", virtualReceiver2)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "already registered")
+	})
+
+	t.Run("UnregisterVirtualNode", func(t *testing.T) {
+		router := relay.NewRouter(localNode, nil)
+		virtualReceiver := &mockReceiver{}
+
+		err := router.RegisterVirtualNode("virtual1", virtualReceiver)
+		require.NoError(t, err)
+
+		existed := router.UnregisterVirtualNode("virtual1")
+		assert.True(t, existed)
+	})
+
+	t.Run("UnregisterVirtualNode not found", func(t *testing.T) {
+		router := relay.NewRouter(localNode, nil)
+
+		existed := router.UnregisterVirtualNode("nonexistent")
+		assert.False(t, existed)
+	})
+
+	t.Run("Send to virtual node", func(t *testing.T) {
+		localNode.sendCalled = 0
+		router := relay.NewRouter(localNode, nil)
+		virtualReceiver := &mockReceiver{}
+
+		err := router.RegisterVirtualNode("virtual1", virtualReceiver)
+		require.NoError(t, err)
+
+		pkgToVirtual := &api.Package{Target: api.PID{Node: "virtual1", Host: "queue", UniqID: "wf-123"}}
+		err = router.Send(pkgToVirtual)
+		require.NoError(t, err)
+
+		assert.Equal(t, int32(0), localNode.sendCalled, "localNode.Send should not be called")
+		assert.Equal(t, int32(1), virtualReceiver.sendCalled, "virtualReceiver.Send should be called")
+	})
+
+	t.Run("Send to unregistered virtual node", func(t *testing.T) {
+		localNode.sendCalled = 0
+		router := relay.NewRouter(localNode, nil)
+
+		pkgToVirtual := &api.Package{Target: api.PID{Node: "nonexistent", Host: "queue", UniqID: "wf-123"}}
+		err := router.Send(pkgToVirtual)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("Virtual node takes priority over internode", func(t *testing.T) {
+		router := relay.NewRouter(localNode, &mockReceiver{})
+		virtualReceiver := &mockReceiver{}
+
+		err := router.RegisterVirtualNode("virtual1", virtualReceiver)
+		require.NoError(t, err)
+
+		pkgToVirtual := &api.Package{Target: api.PID{Node: "virtual1", Host: "queue", UniqID: "wf-123"}}
+		err = router.Send(pkgToVirtual)
+		require.NoError(t, err)
+
+		assert.Equal(t, int32(1), virtualReceiver.sendCalled, "virtualReceiver.Send should be called")
+	})
+
+	t.Run("Propagate error from virtual node", func(t *testing.T) {
+		router := relay.NewRouter(localNode, nil)
+		errToSend := errors.New("virtual send failed")
+		virtualReceiver := &mockReceiver{sendErr: errToSend}
+
+		err := router.RegisterVirtualNode("virtual1", virtualReceiver)
+		require.NoError(t, err)
+
+		pkgToVirtual := &api.Package{Target: api.PID{Node: "virtual1", Host: "queue", UniqID: "wf-123"}}
+		err = router.Send(pkgToVirtual)
 		require.Error(t, err)
 		assert.Equal(t, errToSend, err)
 	})

@@ -18,37 +18,53 @@ import (
 	"go.uber.org/zap"
 )
 
+// workflowUpstream implements runtime.Upstream for workflow command queuing
+type workflowUpstream struct {
+	commands []runtime.Command
+}
+
+func (u *workflowUpstream) SendRequest(cmd runtime.Command) error {
+	u.commands = append(u.commands, cmd)
+	return nil
+}
+
+func (u *workflowUpstream) FlushRequests() []runtime.Command {
+	cmds := u.commands
+	u.commands = nil
+	return cmds
+}
+
 // LuaWorkflow wraps a Lua process state for workflow execution
 type LuaWorkflow struct {
 	*baseprocess.State
-	log *zap.Logger
+	log      *zap.Logger
+	upstream *workflowUpstream
 }
 
 // NewLuaWorkflow creates a new Lua workflow from a runner
 func NewLuaWorkflow(log *zap.Logger, state *baseprocess.State) *LuaWorkflow {
 	return &LuaWorkflow{
-		State: state,
-		log:   log,
+		State:    state,
+		log:      log,
+		upstream: &workflowUpstream{},
 	}
 }
 
-// Commands returns all pending requests from the upstream handler in context
+// Commands returns all pending requests from the upstream handler
 func (w *LuaWorkflow) Commands() []runtime.Command {
-	if w.UoW == nil {
+	if w.upstream == nil {
 		return nil
 	}
-
-	ctx := w.UoW.Context()
-	upstream, ok := runtime.GetUpstream(ctx)
-	if !ok {
-		return nil
-	}
-
-	return upstream.FlushRequests()
+	return w.upstream.FlushRequests()
 }
 
 // Start initializes the workflow with context, PID, and input payloads
 func (w *LuaWorkflow) Start(ctx context.Context, pid relay.PID, input payload.Payloads) error {
+	// Attach upstream handler to the context before initializing
+	if err := runtime.WithUpstream(ctx, w.upstream); err != nil {
+		return fmt.Errorf("failed to attach upstream handler: %w", err)
+	}
+
 	if err := w.InitContext(ctx, pid); err != nil {
 		return err
 	}

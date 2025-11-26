@@ -33,6 +33,8 @@ func init() {
 			code.Preload{Name: "channel", ModuleID: registry.NewID("", "channel")},
 			code.Preload{Name: "process", ModuleID: registry.NewID("", "workflow.process")},
 			code.Preload{Name: "os", ModuleID: registry.NewID("", "workflow.os")},
+			code.Preload{Name: "time", ModuleID: registry.NewID("", "workflow.time")},
+			code.Preload{Name: "funcs", ModuleID: registry.NewID("", "workflow.funcs")},
 			code.Preload{Name: "payload", ModuleID: registry.NewID("", "payload")},
 		).
 		WithDeniedClasses(

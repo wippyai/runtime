@@ -92,7 +92,8 @@ func (l *Listener) handleEntry(ctx context.Context, entry registry.Entry) error 
 		return nil
 	}
 
-	activityName := l.getActivityName(activityMeta, entry.ID.String())
+	// Always use full ID as activity name
+	activityName := entry.ID.String()
 	isLocal := activityMeta.GetBool(MetaActivityLocal, false)
 
 	if isLocal {
@@ -136,7 +137,8 @@ func (l *Listener) handleDelete(ctx context.Context, entry registry.Entry) error
 		return nil
 	}
 
-	activityName := l.getActivityName(activityMeta, entry.ID.String())
+	// Always use full ID as activity name
+	activityName := entry.ID.String()
 
 	if err := l.workers.UnregisterActivity(ctx, workerID, activityName); err != nil {
 		l.log.Error("failed to unregister activity",

@@ -10,5 +10,7 @@ func All() []boot.Component {
 		ClientManager(),
 		WorkerManager(),
 		ActivityListener(),
+		WorkflowListener(),
+		HostManager(),
 	}
 }

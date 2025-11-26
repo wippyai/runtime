@@ -44,7 +44,7 @@ func NewProcessModule() *Module {
 // Info returns module metadata
 func (m *Module) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
-		Name:        "process",
+		Name:        "workflow.process",
 		Description: "Workflow-safe process API",
 		Class:       []string{luaapi.ClassWorkflow, luaapi.ClassProcess},
 	}

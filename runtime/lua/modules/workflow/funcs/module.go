@@ -45,7 +45,7 @@ func NewFuncsModule() *Module {
 // Info returns module metadata
 func (m *Module) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
-		Name:        "funcs",
+		Name:        "workflow.funcs",
 		Description: "Workflow function executor",
 		Class:       []string{luaapi.ClassWorkflow, luaapi.ClassNondeterministic},
 	}

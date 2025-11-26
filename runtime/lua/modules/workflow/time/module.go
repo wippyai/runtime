@@ -21,7 +21,7 @@ func NewTimeModule() *Module {
 // Info returns module metadata
 func (m *Module) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
-		Name:        "time",
+		Name:        "workflow.time",
 		Description: "Workflow-safe time operations",
 		Class:       []string{luaapi.ClassWorkflow, luaapi.ClassTime},
 	}

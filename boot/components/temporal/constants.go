@@ -9,4 +9,6 @@ const (
 	ClientManagerName     boot.ComponentName = "temporal.client.manager"
 	WorkerManagerName     boot.ComponentName = "temporal.worker.manager"
 	ActivityListenerName  boot.ComponentName = "temporal.activity.listener"
+	WorkflowListenerName  boot.ComponentName = "temporal.workflow.listener"
+	HostManagerName       boot.ComponentName = "temporal.host.manager"
 )

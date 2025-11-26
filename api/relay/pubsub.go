@@ -23,6 +23,19 @@ const (
 	HostAccept event.Kind = "node.accept_host"
 	// HostReject is emitted when a host registration fails
 	HostReject event.Kind = "node.reject_host"
+
+	// VirtualNodeSystem identifies the virtual node management system
+	VirtualNodeSystem event.System = "virtual_nodes"
+
+	// VirtualNodeRegister requests registration of a virtual node
+	VirtualNodeRegister event.Kind = "virtual_nodes.register"
+	// VirtualNodeDelete requests removal of a virtual node
+	VirtualNodeDelete event.Kind = "virtual_nodes.delete"
+
+	// VirtualNodeAccept confirms successful registration
+	VirtualNodeAccept event.Kind = "virtual_nodes.accept"
+	// VirtualNodeReject indicates registration failure
+	VirtualNodeReject event.Kind = "virtual_nodes.reject"
 )
 
 // Common errors returned by pubsub operations
@@ -78,5 +91,11 @@ type (
 	Receiver interface {
 		// Send dispatches a package to the upstream receiver
 		Send(*Package) error
+	}
+
+	// VirtualNodeInfo contains metadata about a virtual node
+	VirtualNodeInfo struct {
+		NodeID   NodeID
+		Receiver Receiver
 	}
 )

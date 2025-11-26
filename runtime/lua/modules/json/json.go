@@ -173,7 +173,9 @@ func (m *Module) Loader(l *lua.LState) int {
 }
 
 func (m *Module) decode(l *lua.LState) int {
-	str, ok := l.Get(1).(lua.LString)
+	arg1 := l.Get(1)
+
+	str, ok := arg1.(lua.LString)
 	if !ok {
 		l.Push(lua.LNil)
 		l.Push(newJSONInvalidError(l, "string expected", "decode"))

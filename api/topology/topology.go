@@ -34,6 +34,16 @@ const (
 	KindLinkEstablished Kind = "pid.link.established"
 	// KindLinkRemoved indicates a link has been removed
 	KindLinkRemoved Kind = "pid.link.removed"
+
+	// KindMonitorRequest requests monitoring of a remote PID
+	KindMonitorRequest Kind = "pid.monitor.request"
+	// KindMonitorRelease releases monitoring of a remote PID
+	KindMonitorRelease Kind = "pid.monitor.release"
+
+	// KindLinkRequest requests linking with a remote PID
+	KindLinkRequest Kind = "pid.link.request"
+	// KindUnlinkRequest requests unlinking from a remote PID
+	KindUnlinkRequest Kind = "pid.unlink.request"
 )
 
 // PIDRegistry errors that can occur during name registration operations
@@ -126,6 +136,38 @@ type (
 		// Deadline specifies when the cancellation should take effect
 		Deadline time.Time `json:"deadline"`
 	}
+
+	// MonitorRequestEvent requests monitoring of a PID
+	MonitorRequestEvent struct {
+		At     time.Time `json:"at"`
+		Kind   Kind      `json:"kind"`
+		Caller relay.PID `json:"caller"`
+		Target relay.PID `json:"target"`
+	}
+
+	// MonitorReleaseEvent releases monitoring of a PID
+	MonitorReleaseEvent struct {
+		At     time.Time `json:"at"`
+		Kind   Kind      `json:"kind"`
+		Caller relay.PID `json:"caller"`
+		Target relay.PID `json:"target"`
+	}
+
+	// LinkRequestEvent requests bidirectional link with a PID
+	LinkRequestEvent struct {
+		At   time.Time `json:"at"`
+		Kind Kind      `json:"kind"`
+		From relay.PID `json:"from"`
+		To   relay.PID `json:"to"`
+	}
+
+	// UnlinkRequestEvent requests removing bidirectional link
+	UnlinkRequestEvent struct {
+		At   time.Time `json:"at"`
+		Kind Kind      `json:"kind"`
+		From relay.PID `json:"from"`
+		To   relay.PID `json:"to"`
+	}
 )
 
 // Cancel creates a package for requesting cancellation of a process.
@@ -159,6 +201,66 @@ func Exit(pid relay.PID, result payload.Payload, err error) *relay.Package {
 				Value: result,
 				Error: err,
 			},
+		}),
+	)
+}
+
+// MonitorRequest creates a package for requesting monitoring of a remote PID.
+func MonitorRequest(caller, target relay.PID) *relay.Package {
+	return relay.NewPackage(
+		caller,
+		target,
+		TopicEvents,
+		payload.New(&MonitorRequestEvent{
+			At:     time.Now(),
+			Kind:   KindMonitorRequest,
+			Caller: caller,
+			Target: target,
+		}),
+	)
+}
+
+// MonitorRelease creates a package for releasing monitoring of a remote PID.
+func MonitorRelease(caller, target relay.PID) *relay.Package {
+	return relay.NewPackage(
+		caller,
+		target,
+		TopicEvents,
+		payload.New(&MonitorReleaseEvent{
+			At:     time.Now(),
+			Kind:   KindMonitorRelease,
+			Caller: caller,
+			Target: target,
+		}),
+	)
+}
+
+// LinkRequest creates a package for requesting a link with a remote PID.
+func LinkRequest(from, to relay.PID) *relay.Package {
+	return relay.NewPackage(
+		from,
+		to,
+		TopicEvents,
+		payload.New(&LinkRequestEvent{
+			At:   time.Now(),
+			Kind: KindLinkRequest,
+			From: from,
+			To:   to,
+		}),
+	)
+}
+
+// UnlinkRequest creates a package for requesting unlinking from a remote PID.
+func UnlinkRequest(from, to relay.PID) *relay.Package {
+	return relay.NewPackage(
+		from,
+		to,
+		TopicEvents,
+		payload.New(&UnlinkRequestEvent{
+			At:   time.Now(),
+			Kind: KindUnlinkRequest,
+			From: from,
+			To:   to,
 		}),
 	)
 }

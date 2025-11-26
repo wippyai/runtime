@@ -82,6 +82,7 @@ func WorkerManager() boot.Component {
 				workerPatterns := []regapi.DependencyPattern{
 					{Path: "data.client", Description: "Reference to temporal client in worker config"},
 					{Path: "meta.temporal.activity.worker", Description: "Worker reference in activity metadata"},
+					{Path: "meta.temporal.workflow.worker", Description: "Worker reference in workflow metadata"},
 				}
 				for _, pattern := range workerPatterns {
 					if err := reg.RegisterDependencyPattern(pattern); err != nil {

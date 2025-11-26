@@ -22,11 +22,11 @@ func TestFuncmodModule(t *testing.T) {
 		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		// Check that the module name is correct
-		assert.Equal(t, "function.api", module.Info().Name)
+		assert.Equal(t, "function_api", module.Info().Name)
 
 		// Load function_api as complete process API
 		err = vm.State().DoString(`
-			local process = require("function.api")
+			local process = require("function_api")
 			
 			-- Check that all core process functions exist
 			assert(process ~= nil, "process table should exist")
@@ -62,7 +62,7 @@ func TestFuncmodModule(t *testing.T) {
 
 		// Test that the table is immutable
 		err = vm.State().DoString(`
-			local process = require("function.api")
+			local process = require("function_api")
 			
 			-- This should fail because table is immutable
 			process.test_field = "should fail"
@@ -83,8 +83,8 @@ func TestFuncmodModule(t *testing.T) {
 
 		// Test that multiple requires return the same table
 		err = vm.State().DoString(`
-			local process1 = require("function.api")
-			local process2 = require("function.api")
+			local process1 = require("function_api")
+			local process2 = require("function_api")
 			
 			-- Should be the same table reference
 			assert(process1 == process2, "should return same table instance")
@@ -104,7 +104,7 @@ func TestFuncmodModule(t *testing.T) {
 
 		// Test that listen fails with empty topic
 		err = vm.State().DoString(`
-			local process = require("function.api")
+			local process = require("function_api")
 			
 			local ch, err = process.listen("")
 			if err then
@@ -127,7 +127,7 @@ func TestFuncmodModule(t *testing.T) {
 
 		// Test that listen fails with @ topic
 		err = vm.State().DoString(`
-			local process = require("function.api")
+			local process = require("function_api")
 
 			local ch, err = process.listen("@test")
 			if err then
@@ -150,7 +150,7 @@ func TestFuncmodModule(t *testing.T) {
 
 		// Test that unlisten fails without channel
 		err = vm.State().DoString(`
-			local process = require("function.api")
+			local process = require("function_api")
 
 			local result = process.unlisten()
 		`)
@@ -170,7 +170,7 @@ func TestFuncmodModule(t *testing.T) {
 
 		// Test that unlisten fails with non-channel argument
 		err = vm.State().DoString(`
-			local process = require("function.api")
+			local process = require("function_api")
 
 			local result = process.unlisten("not a channel")
 		`)
@@ -192,7 +192,7 @@ func TestFuncmodModuleErrorHandling(t *testing.T) {
 
 		// Test that functions fail without proper context setup
 		err = vm.State().DoString(`
-			local process = require("function.api")
+			local process = require("function_api")
 			
 			local ch, err = process.listen("test_topic")
 			if err then
@@ -214,7 +214,7 @@ func TestFuncmodModuleErrorHandling(t *testing.T) {
 		vm.State().PreloadModule(module.Info().Name, module.Loader)
 
 		err = vm.State().DoString(`
-			local process = require("function.api")
+			local process = require("function_api")
 			
 			local inbox, err = process.inbox()
 			if err then

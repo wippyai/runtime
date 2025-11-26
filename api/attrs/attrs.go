@@ -8,6 +8,7 @@ type Attributes interface {
 	Get(key string) (any, bool)
 	GetString(key string, def string) string
 	GetInt(key string, def int) int
+	GetFloat(key string, def float64) float64
 	GetBool(key string, def bool) bool
 	GetDuration(key string, def time.Duration) time.Duration
 	GetSlice(key string) []string
@@ -61,6 +62,16 @@ func (b Bag) GetInt(key string, def int) int {
 	if v, ok := b.Get(key); ok {
 		if i, ok := v.(int); ok {
 			return i
+		}
+	}
+	return def
+}
+
+// GetFloat retrieves the value as a float64, returning def if not found or not a float64.
+func (b Bag) GetFloat(key string, def float64) float64 {
+	if v, ok := b.Get(key); ok {
+		if f, ok := v.(float64); ok {
+			return f
 		}
 	}
 	return def

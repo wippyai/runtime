@@ -14,6 +14,7 @@ type (
 
 	Canceller func(cmd Command)
 
+	// todo: ok, drop it, have fun v3
 	Command interface {
 		ID() ID
 		Type() Type

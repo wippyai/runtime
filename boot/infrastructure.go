@@ -103,8 +103,9 @@ func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Conf
 func createTopologyInfrastructure(ctx context.Context) context.Context {
 	logger := logapi.GetLogger(ctx)
 	node := relayapi.GetNode(ctx)
+	router := relayapi.GetRouter(ctx)
 
-	topo := topology.NewTopology(node)
+	topo := topology.NewTopology(node, router, node.ID())
 	pidReg := topology.NewPIDRegistry(topology.PIDRegistryConfig{
 		Logger: logger.Named("pid"),
 	})

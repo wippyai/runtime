@@ -97,6 +97,9 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error
 
 	host, exists := m.hosts.GetHost(start.HostID)
 	if !exists {
+		m.logger.Warn("HOST NOT FOUND in process manager",
+			zap.String("host_id", start.HostID),
+			zap.String("source", start.Source.String()))
 		return relay.PID{}, fmt.Errorf("host not found: `%s`", start.HostID)
 	}
 

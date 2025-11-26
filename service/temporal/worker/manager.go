@@ -181,6 +181,18 @@ func (m *Manager) AddWorker(ctx context.Context, id registry.ID, cfg *api.Worker
 		},
 	})
 
+	// Send task queue registration event to host manager
+	m.bus.Send(ctx, event.Event{
+		System: api.SystemTemporalTaskQueue,
+		Kind:   api.TaskQueueRegister,
+		Path:   id.String(),
+		Data: &api.TaskQueueRegistration{
+			ID:        id,
+			Client:    cfg.Client,
+			TaskQueue: cfg.TaskQueue,
+		},
+	})
+
 	m.log.Info("initialized temporal worker",
 		zap.String("id", id.String()),
 		zap.String("client", cfg.Client.String()),
@@ -355,4 +367,24 @@ func (m *Manager) UnregisterActivity(ctx context.Context, workerID registry.ID, 
 	}
 
 	return worker.UnregisterActivity(activityName)
+}
+
+// RegisterWorkflow registers a workflow with a worker
+func (m *Manager) RegisterWorkflow(ctx context.Context, workerID registry.ID, workflowName string, handler any) error {
+	worker, err := m.GetWorker(workerID)
+	if err != nil {
+		return fmt.Errorf("worker %s not found: %w", workerID, err)
+	}
+
+	return worker.RegisterWorkflow(ctx, workflowName, handler)
+}
+
+// UnregisterWorkflow removes a workflow from a worker
+func (m *Manager) UnregisterWorkflow(ctx context.Context, workerID registry.ID, workflowName string) error {
+	worker, err := m.GetWorker(workerID)
+	if err != nil {
+		return fmt.Errorf("worker %s not found: %w", workerID, err)
+	}
+
+	return worker.UnregisterWorkflow(workflowName)
 }

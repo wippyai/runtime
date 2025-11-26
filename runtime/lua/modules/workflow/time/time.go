@@ -1,6 +1,8 @@
 package time
 
 import (
+	stdtime "time"
+
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/workflow"
@@ -28,7 +30,9 @@ func now(l *lua.LState) int {
 }
 
 func sleep(l *lua.LState) int {
-	duration, err := origtime.ParseDurationValue(l.Get(1))
+	arg := l.Get(1)
+
+	duration, err := origtime.ParseDurationValue(arg)
 	if err != nil {
 		l.RaiseError("%s", err.Error())
 		return 0
@@ -42,14 +46,26 @@ func sleep(l *lua.LState) int {
 }
 
 func after(l *lua.LState) int {
-	duration, err := origtime.ParseDurationValue(l.Get(1))
-	if err != nil {
-		l.RaiseError("%s", err.Error())
-		return 0
+	arg := l.Get(1)
+
+	// For raw numbers, treat as nanoseconds to match time constants (time.SECOND, etc.)
+	// For strings and Duration objects, use ParseDurationValue
+	var milliseconds int64
+	if num, ok := arg.(lua.LNumber); ok {
+		// Raw number - treat as nanoseconds
+		milliseconds = int64(float64(num) / float64(stdtime.Millisecond))
+	} else {
+		// String or Duration object - use standard parsing
+		duration, err := origtime.ParseDurationValue(arg)
+		if err != nil {
+			l.RaiseError("%s", err.Error())
+			return 0
+		}
+		milliseconds = duration.Milliseconds()
 	}
 
 	header := &std.TimerHeader{
-		Milliseconds: duration.Milliseconds(),
+		Milliseconds: milliseconds,
 	}
 	req := upstream.NewRequest(l, std.TypeTimerSleep, nil, payload.New(header))
 	timerUD := l.NewUserData()
@@ -71,14 +87,26 @@ func after(l *lua.LState) int {
 }
 
 func timer(l *lua.LState) int {
-	duration, err := origtime.ParseDurationValue(l.Get(1))
-	if err != nil {
-		l.RaiseError("%s", err.Error())
-		return 0
+	arg := l.Get(1)
+
+	// For raw numbers, treat as nanoseconds to match time constants (time.SECOND, etc.)
+	// For strings and Duration objects, use ParseDurationValue
+	var milliseconds int64
+	if num, ok := arg.(lua.LNumber); ok {
+		// Raw number - treat as nanoseconds
+		milliseconds = int64(float64(num) / float64(stdtime.Millisecond))
+	} else {
+		// String or Duration object - use standard parsing
+		duration, err := origtime.ParseDurationValue(arg)
+		if err != nil {
+			l.RaiseError("%s", err.Error())
+			return 0
+		}
+		milliseconds = duration.Milliseconds()
 	}
 
 	header := &std.TimerHeader{
-		Milliseconds: duration.Milliseconds(),
+		Milliseconds: milliseconds,
 	}
 	req := upstream.NewRequest(l, std.TypeTimerSleep, nil, payload.New(header))
 	timerUD := l.NewUserData()

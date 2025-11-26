@@ -41,6 +41,7 @@ func All() []boot.Component {
 		Upstream(),
 		UUID(),
 		WebSocket(),
+		WorkflowModules(),
 		WorkflowSandbox(),
 		YAML(),
 	}

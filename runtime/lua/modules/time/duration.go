@@ -124,8 +124,8 @@ func parseDurationValue(value lua.LValue) (time.Duration, error) {
 		return time.ParseDuration(string(v))
 
 	case lua.LNumber:
-		// Treat raw numbers as milliseconds for compatibility
-		return time.Duration(float64(v) * float64(time.Millisecond)), nil
+		// Treat raw numbers as nanoseconds (consistent with Go's time.Duration and time constants like time.SECOND)
+		return time.Duration(v), nil
 	}
 
 	return 0, fmt.Errorf("duration, string, or number expected, got %T", value)
