@@ -65,16 +65,14 @@ require (
 	golang.org/x/crypto v0.45.0
 	golang.org/x/time v0.5.0
 	google.golang.org/grpc v1.75.0
+	google.golang.org/protobuf v1.36.9
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 // replace github.com/ponyruntime/tree-sitter-sql => ../tree-sitter-sql
 
-replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v1.2.6
-
-replace github.com/ponyruntime/go-lua => github.com/wippyai/go-lua v1.2.6
-
-//replace github.com/wippyai/go-lua => ../go-lua
+// Direct replace to local fork (chained replaces don't work in Go)
+replace github.com/yuin/gopher-lua => ../go-lua
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250425153114-8976f5be98c1.1 // indirect
@@ -181,7 +179,6 @@ require (
 	golang.org/x/tools v0.38.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250825161204-c5933d9347a5 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250825161204-c5933d9347a5 // indirect
-	google.golang.org/protobuf v1.36.9 // indirect
 )
 
 tool go.uber.org/mock/mockgen
