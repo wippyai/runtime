@@ -80,19 +80,21 @@ func (l *ChannelLayer) Step(proc *Process, tasks ...*Task) ([]*Task, error) {
 
 					t, err := proc.GetTask(upd.State)
 					if err != nil {
+						ReleaseResult(result)
 						return nil, fmt.Errorf("task not found for channel result: %w", err)
 					}
 
 					if upd.Error != nil {
-						// For now, just set error on resumed values
-						t.Resumed = []lua.LValue{lua.LNil, lua.LString(upd.Error.Error())}
+						t.ResumeWith(lua.LNil, lua.LString(upd.Error.Error()))
 					} else {
-						t.Resumed = upd.GetResult()
+						t.ResumeWith(upd.GetResult()...)
 					}
 
 					lctx.queue.Push(t)
 				}
 			}
+
+			ReleaseResult(result)
 		}
 	}
 

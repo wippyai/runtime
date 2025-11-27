@@ -402,7 +402,14 @@ func (p *Process) yieldToCommand(task *Task) scheduler.Command {
 
 	// Check last yielded value for convertible types
 	lastValue := task.Yielded[len(task.Yielded)-1]
-	return ConvertYieldToCommand(lastValue)
+	cmd := ConvertYieldToCommand(lastValue)
+
+	// Release pooled yield objects after conversion
+	if sleepYield, ok := lastValue.(*SleepYield); ok && cmd != nil {
+		ReleaseSleepYield(sleepYield)
+	}
+
+	return cmd
 }
 
 // Close releases all process resources.

@@ -530,9 +530,11 @@ func BenchmarkYieldResumePrecompiled(b *testing.B) {
 
 // BenchmarkHotPathYield measures just the yield/resume hot path (no process creation).
 func BenchmarkHotPathYield(b *testing.B) {
+	// Cache yield function to avoid string lookups
 	script := `
+		local yield = coroutine.yield
 		while true do
-			coroutine.yield()
+			yield()
 		end
 	`
 	proto, err := lua.CompileString(script, "test.lua")
@@ -724,6 +726,46 @@ func BenchmarkStressCoroutinesTimers(b *testing.B) {
 			}
 		}
 		proc.Close()
+	}
+}
+
+// BenchmarkTimeSleepHotPath measures the real yield hot path via time.sleep (return -1).
+// This isolates just yield+resume cycles without process creation overhead.
+func BenchmarkTimeSleepHotPath(b *testing.B) {
+	script := `
+		while true do
+			time.sleep(time.NANOSECOND)
+		end
+	`
+	proto, err := lua.CompileString(script, "hotpath.lua")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	proc := NewProcess(
+		WithProto(proto),
+		WithModuleBinder(BindTimeSleep),
+	)
+	if err := proc.Start(ctx, nil); err != nil {
+		b.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Warm up - first step to get into the loop
+	result, _ := proc.Step(nil)
+	if result.YieldCount == 0 {
+		b.Fatal("expected yield")
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		// Resume from sleep
+		proc.Step(&scheduler.YieldResults{})
+		// Step again to hit next sleep
+		proc.Step(nil)
 	}
 }
 

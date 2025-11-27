@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/relay"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -107,11 +108,13 @@ func (l *SubscribeLayer) Step(proc *Process, tasks ...*Task) ([]*Task, error) {
 							}
 							t, err := proc.GetTask(upd.State)
 							if err == nil {
-								t.Resumed = upd.GetResult()
+								t.ResumeWith(upd.GetResult()...)
 								proc.queue.Push(t)
 							}
 						}
 					}
+
+					ReleaseResult(result)
 				}
 			}
 		}
@@ -131,9 +134,9 @@ func (l *SubscribeLayer) Step(proc *Process, tasks ...*Task) ([]*Task, error) {
 		if req, ok := lastYield.(*SubscribeRequest); ok {
 			sub, err := lctx.subs.add(req.Topic, req.Channel)
 			if err != nil {
-				task.Resumed = []lua.LValue{lua.LNil, lua.LString(err.Error())}
+				task.ResumeWith(lua.LNil, lua.LString(err.Error()))
 			} else {
-				task.Resumed = []lua.LValue{sub.channel.Value()}
+				task.ResumeWith(sub.channel.Value())
 			}
 			proc.queue.Push(task)
 			continue
@@ -143,10 +146,10 @@ func (l *SubscribeLayer) Step(proc *Process, tasks ...*Task) ([]*Task, error) {
 		if req, ok := lastYield.(*UnsubscribeRequest); ok {
 			err := lctx.subs.remove(req.Channel)
 			if err != nil {
-				task.Resumed = []lua.LValue{lua.LFalse, lua.LString(err.Error())}
+				task.ResumeWith(lua.LFalse, lua.LString(err.Error()))
 			} else {
 				req.Channel.Close()
-				task.Resumed = []lua.LValue{lua.LTrue}
+				task.ResumeWith(lua.LTrue)
 			}
 			proc.queue.Push(task)
 			continue
@@ -212,8 +215,21 @@ func (r *UnsubscribeRequest) String() string       { return "<unsubscribe_reques
 func (r *UnsubscribeRequest) Type() lua.LValueType { return lua.LTUserData }
 
 // messageToLua converts a relay.Message to Lua value.
-func messageToLua(l *lua.LState, msg interface{}) lua.LValue {
-	// Simplified: extract payload data
-	// Full implementation would convert payloads properly
-	return lua.LString(fmt.Sprintf("%v", msg))
+func messageToLua(l *lua.LState, msg *relay.Message) lua.LValue {
+	// No payloads: return topic as string
+	if len(msg.Payloads) == 0 {
+		return lua.LString(msg.Topic)
+	}
+
+	// Single payload: convert directly
+	if len(msg.Payloads) == 1 {
+		return payloadToLua(l, msg.Payloads[0])
+	}
+
+	// Multiple payloads: return as table with preallocated size
+	tbl := l.CreateTable(len(msg.Payloads), 0)
+	for i, pl := range msg.Payloads {
+		tbl.RawSetInt(i+1, payloadToLua(l, pl))
+	}
+	return tbl
 }

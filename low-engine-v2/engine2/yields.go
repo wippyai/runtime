@@ -1,6 +1,7 @@
 package engine2
 
 import (
+	"sync"
 	"time"
 
 	"github.com/wippyai/runtime/low-engine-v2/clock"
@@ -11,6 +12,21 @@ import (
 // SleepYield is yielded by time.sleep to request the scheduler pause execution.
 type SleepYield struct {
 	Duration time.Duration
+}
+
+var sleepYieldPool = sync.Pool{
+	New: func() interface{} { return &SleepYield{} },
+}
+
+func acquireSleepYield(d time.Duration) *SleepYield {
+	y := sleepYieldPool.Get().(*SleepYield)
+	y.Duration = d
+	return y
+}
+
+func ReleaseSleepYield(y *SleepYield) {
+	y.Duration = 0
+	sleepYieldPool.Put(y)
 }
 
 func (y *SleepYield) String() string       { return "<sleep_yield>" }
@@ -73,8 +89,8 @@ func BindTimeSleep(l *lua.LState) {
 			return 0
 		}
 
-		// Yield with SleepYield
-		yield := &SleepYield{Duration: duration}
+		// Yield with pooled SleepYield
+		yield := acquireSleepYield(duration)
 		l.Push(yield)
 		return -1
 	}))
