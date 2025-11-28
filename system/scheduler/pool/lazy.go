@@ -1,0 +1,256 @@
+package pool
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/runtime"
+)
+
+// Lazy creates processes on demand and destroys them after idle timeout.
+// Zero memory footprint when no work is happening.
+//
+// Lifecycle:
+//   - No processes at init
+//   - Creates process when call arrives and no idle process available
+//   - Reuses idle processes for subsequent calls
+//   - Destroys all processes after idle timeout
+//
+// Use cases:
+//   - Rarely called functions
+//   - Memory-constrained environments
+//   - Functions that may never be called but need to exist
+type Lazy struct {
+	factory     Factory
+	dispatcher  Dispatcher
+	executor    *Executor
+	maxWorkers  int
+	idleTimeout time.Duration
+
+	mu       sync.Mutex
+	idle     []process2.Process
+	waiters  []chan struct{}
+	active   int
+	lastUsed time.Time
+
+	done       chan struct{}
+	closed     atomic.Bool
+	reaperDone chan struct{}
+	reaper     *time.Ticker
+}
+
+// LazyConfig configures the lazy pool.
+type LazyConfig struct {
+	MaxWorkers  int
+	IdleTimeout time.Duration
+}
+
+// NewLazy creates a lazy pool that starts with zero processes.
+func NewLazy(factory Factory, dispatcher Dispatcher, cfg LazyConfig) (*Lazy, error) {
+	if cfg.MaxWorkers <= 0 {
+		cfg.MaxWorkers = 16
+	}
+	if cfg.IdleTimeout <= 0 {
+		cfg.IdleTimeout = 30 * time.Second
+	}
+
+	return &Lazy{
+		factory:     factory,
+		dispatcher:  dispatcher,
+		executor:    NewExecutor(dispatcher),
+		maxWorkers:  cfg.MaxWorkers,
+		idleTimeout: cfg.IdleTimeout,
+		idle:        make([]process2.Process, 0, cfg.MaxWorkers),
+		done:        make(chan struct{}),
+		reaperDone:  make(chan struct{}),
+	}, nil
+}
+
+// Start begins the idle reaper.
+func (l *Lazy) Start() {
+	l.reaper = time.NewTicker(l.idleTimeout / 2)
+	go l.runReaper()
+}
+
+// Stop shuts down and destroys all processes.
+func (l *Lazy) Stop() {
+	if l.closed.Swap(true) {
+		return
+	}
+	close(l.done)
+
+	if l.reaper != nil {
+		l.reaper.Stop()
+		close(l.reaperDone)
+	}
+
+	l.mu.Lock()
+	for _, proc := range l.idle {
+		proc.Close()
+	}
+	l.idle = nil
+	l.mu.Unlock()
+}
+
+// Call executes using an idle or newly created process.
+func (l *Lazy) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
+	if l.closed.Load() {
+		return nil, fmt.Errorf("pool is closed")
+	}
+
+	proc, err := l.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result := l.executor.Run(ctx, proc, method, input)
+
+	l.release(proc)
+	return result, nil
+}
+
+// acquire gets an idle process or creates a new one.
+// Waits if at max workers until one becomes available or ctx is cancelled.
+func (l *Lazy) acquire(ctx context.Context) (process2.Process, error) {
+	for {
+		// Check context first
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-l.done:
+			return nil, fmt.Errorf("pool is closed")
+		default:
+		}
+
+		l.mu.Lock()
+
+		// Try to get idle process
+		if len(l.idle) > 0 {
+			proc := l.idle[len(l.idle)-1]
+			l.idle = l.idle[:len(l.idle)-1]
+			l.active++
+			l.mu.Unlock()
+			return proc, nil
+		}
+
+		// Check if we can create more
+		if l.active < l.maxWorkers {
+			l.active++
+			l.mu.Unlock()
+
+			// Create new process outside lock
+			proc, err := l.factory()
+			if err != nil {
+				l.mu.Lock()
+				l.active--
+				// Wake one waiter on factory error
+				if len(l.waiters) > 0 {
+					waiter := l.waiters[0]
+					l.waiters = l.waiters[1:]
+					l.mu.Unlock()
+					select {
+					case waiter <- struct{}{}:
+					default:
+					}
+				} else {
+					l.mu.Unlock()
+				}
+				return nil, err
+			}
+
+			return proc, nil
+		}
+
+		// At max workers - wait for signal via channel
+		waiter := make(chan struct{}, 1)
+		l.waiters = append(l.waiters, waiter)
+		l.mu.Unlock()
+
+		// Wait for worker release or context cancellation
+		select {
+		case <-waiter:
+			// Woken up - retry
+		case <-ctx.Done():
+			// Remove from waiters
+			l.mu.Lock()
+			for i, w := range l.waiters {
+				if w == waiter {
+					l.waiters = append(l.waiters[:i], l.waiters[i+1:]...)
+					break
+				}
+			}
+			l.mu.Unlock()
+			return nil, ctx.Err()
+		case <-l.done:
+			return nil, fmt.Errorf("pool is closed")
+		}
+	}
+}
+
+// release returns process to idle pool.
+func (l *Lazy) release(proc process2.Process) {
+	l.mu.Lock()
+
+	l.active--
+	l.lastUsed = time.Now()
+
+	if l.closed.Load() {
+		l.mu.Unlock()
+		proc.Close()
+		return
+	}
+
+	l.idle = append(l.idle, proc)
+
+	// Wake one waiter if any
+	if len(l.waiters) > 0 {
+		waiter := l.waiters[0]
+		l.waiters = l.waiters[1:]
+		l.mu.Unlock()
+		select {
+		case waiter <- struct{}{}:
+		default:
+		}
+		return
+	}
+
+	l.mu.Unlock()
+}
+
+// runReaper periodically destroys idle processes.
+func (l *Lazy) runReaper() {
+	for {
+		select {
+		case <-l.reaperDone:
+			return
+		case <-l.reaper.C:
+			l.reapIdle()
+		}
+	}
+}
+
+// reapIdle destroys all processes if pool has been idle long enough.
+func (l *Lazy) reapIdle() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// Don't reap if there's active work or recent activity
+	if l.active > 0 {
+		return
+	}
+
+	if time.Since(l.lastUsed) < l.idleTimeout {
+		return
+	}
+
+	// Destroy all idle processes
+	for _, proc := range l.idle {
+		proc.Close()
+	}
+	l.idle = l.idle[:0]
+}

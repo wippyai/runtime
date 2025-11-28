@@ -30,3 +30,13 @@ func PIDGen() boot.Component {
 		},
 	})
 }
+
+func Dispatcher() boot.Component {
+	return boot.New(boot.P{
+		Name: DispatcherName,
+		Load: func(ctx context.Context) (context.Context, error) {
+			// Dispatcher infrastructure init - handlers registered by service plugins
+			return ctx, nil
+		},
+	})
+}

@@ -10,11 +10,11 @@ import (
 // All stored metatables are made immutable for safe reuse across goroutines
 var metatableRegistry sync.Map
 
-// Single LState used for creating shared function objects
+// Single LState used for creating shared table objects (not functions)
 var sharedState *lua.LState
 var initOnce sync.Once
 
-// getSharedState returns a singleton LState used for creating shared functions
+// getSharedState returns a singleton LState used for creating shared tables
 func getSharedState() *lua.LState {
 	initOnce.Do(func() {
 		sharedState = lua.NewState()
@@ -47,17 +47,17 @@ func GetTypeMetatable(_ *lua.LState, typeName string) *lua.LTable {
 // It stores metatables in internal sync.Map instead of polluting Lua state.
 // Takes separate maps for metamethods and regular methods, either can be nil.
 //
-// Functions are created once using a shared LState and the immutable metatables
-// are safely reused across all LStates since the Go functions don't depend on environment.
+// Functions are stored as LGoFunc directly (zero allocation) and the immutable metatables
+// are safely reused across all LStates since Go functions don't depend on environment.
 // If a metatable already exists and is immutable, attempting to add new methods
 // will create a new metatable (this allows for incremental registration).
 func RegisterTypeMethods(
-	_ *lua.LState, // Not used for function creation, only for validation
+	_ *lua.LState, // Not used, kept for API compatibility
 	typeName string,
 	metamethods map[string]lua.LGFunction,
 	methods map[string]lua.LGFunction,
 ) *lua.LTable {
-	// Use shared state for function creation
+	// Use shared state for table creation only
 	sharedL := getSharedState()
 
 	// Check if metatable already exists in our registry
@@ -88,10 +88,10 @@ func RegisterTypeMethods(
 		mt = sharedL.CreateTable(0, totalSize)
 	}
 
-	// Add metamethods directly to metatable (only if not immutable)
+	// Add metamethods directly to metatable using LGoFunc (zero allocation)
 	if !mt.Immutable {
 		for name, fn := range metamethods {
-			mt.RawSetString(name, sharedL.NewFunction(fn))
+			mt.RawSetString(name, lua.LGoFunc(fn))
 		}
 	} else if len(metamethods) > 0 {
 		// This should not happen due to shouldCreateNew logic above,
@@ -115,9 +115,9 @@ func RegisterTypeMethods(
 			mt.RawSetString("__index", indexTable)
 		}
 
-		// Add all methods to indexTable using shared state
+		// Add all methods to indexTable using LGoFunc (zero allocation)
 		for name, fn := range methods {
-			indexTable.RawSetString(name, sharedL.NewFunction(fn))
+			indexTable.RawSetString(name, lua.LGoFunc(fn))
 		}
 
 		// Make the index table immutable for safe reuse

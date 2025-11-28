@@ -8,22 +8,26 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
+	"github.com/wippyai/runtime/boot/components/dispatcher"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	bteaapp "github.com/wippyai/runtime/runtime/lua/component/btea"
-	funclua "github.com/wippyai/runtime/runtime/lua/component/function"
+	func2lua "github.com/wippyai/runtime/runtime/lua/component/function2"
 	"github.com/wippyai/runtime/runtime/lua/component/library"
 	proclua "github.com/wippyai/runtime/runtime/lua/component/process"
 	workflowlua "github.com/wippyai/runtime/runtime/lua/component/workflow"
 	envlua "github.com/wippyai/runtime/runtime/lua/modules/env"
 	loggermod "github.com/wippyai/runtime/runtime/lua/modules/logger"
+	sysdispatcher "github.com/wippyai/runtime/system/dispatcher"
 	reghandler "github.com/wippyai/runtime/system/registry/events"
 )
 
 func Engine() boot.Component {
+	var funcs *func2lua.Manager
+
 	return boot.New(boot.P{
 		Name:      LuaEngineName,
-		DependsOn: []boot.ComponentName{},
+		DependsOn: []boot.ComponentName{dispatcher.ClockName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)
@@ -46,8 +50,6 @@ func Engine() boot.Component {
 				bus,
 				code.Config{
 					Modules: []luaapi.Module{
-						// Core infrastructure modules only
-						// Other modules are added via individual components
 						envlua.NewEnvModule(),
 						loggermod.NewLoggerModule(logger),
 					},
@@ -59,17 +61,20 @@ func Engine() boot.Component {
 				return ctx, err
 			}
 
-			// Store code manager in context for other plugins to use
 			ctx = SetCodeManager(ctx, codeManager)
 
-			// Create component managers
-			funcs := funclua.NewManager(logger.Named("lua.funcs"), codeManager, bus)
+			// Create engine2 function manager with dispatcher
+			funcs = func2lua.NewManager(
+				logger.Named("lua.funcs"),
+				codeManager,
+				bus,
+				sysdispatcher.Dispatcher(),
+			)
 			libraries := library.NewManager(logger.Named("lua.libs"), codeManager)
 			processes := proclua.NewProcessManager(logger.Named("lua.proc"), codeManager, bus)
 			workflows := workflowlua.NewManager(logger.Named("lua.workflow"), codeManager, bus)
 			terminalApps := bteaapp.NewBteaManager(logger.Named("lua.bteaapp"), codeManager, bus)
 
-			// Register all handlers
 			handlers.Register(reghandler.NewTransactionHandler(codeManager))
 			handlers.Register(component.NewHandler("function.lua", funcs))
 			handlers.Register(component.NewHandler("library.lua", libraries))
@@ -78,6 +83,18 @@ func Engine() boot.Component {
 			handlers.Register(component.NewHandler("btea.app.lua", terminalApps))
 
 			return ctx, nil
+		},
+		Start: func(ctx context.Context) error {
+			if funcs != nil {
+				funcs.Start()
+			}
+			return nil
+		},
+		Stop: func(ctx context.Context) error {
+			if funcs != nil {
+				funcs.Stop()
+			}
+			return nil
 		},
 	})
 }

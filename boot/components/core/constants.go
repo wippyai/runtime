@@ -15,6 +15,7 @@ const (
 	ProfilerName    boot.ComponentName = "profiler"
 	LoaderName      boot.ComponentName = "loader"
 	EventRouterName boot.ComponentName = "eventrouter"
+	DispatcherName  boot.ComponentName = "dispatcher"
 
 	// Finder configuration keys
 	FinderQueryCacheSize boot.ConfigKey = "query_cache_size"

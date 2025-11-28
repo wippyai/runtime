@@ -10,11 +10,23 @@ import (
 	"go.uber.org/zap"
 )
 
+// Type name constants for metatable registration
+const (
+	TypeRequest       = "http.Request"
+	TypeResponse      = "http.Response"
+	TypeMultipartFile = "http.MultipartFile"
+)
+
+// LGoFunc constants for zero-allocation function registration
+var (
+	gofuncNewRequest  = lua.LGoFunc(newRequest)
+	gofuncNewResponse = lua.LGoFunc(newResponse)
+)
+
 // Module represents the http Lua module
 type Module struct {
-	log         *zap.Logger
-	moduleTable *lua.LTable
-	once        sync.Once
+	log  *zap.Logger
+	once sync.Once
 }
 
 func getTransferConstants() map[string]string {
@@ -39,43 +51,31 @@ func (m *Module) Info() luaapi.ModuleInfo {
 
 // Loader registers the module functions and constants
 func (m *Module) Loader(l *lua.LState) int {
+	// Register types once (shared metatables)
 	m.once.Do(func() {
-		m.initModuleTable(l)
+		stream.RegisterStream(l)
+		m.registerMultipartFileType(l)
+		m.registerRequestType(l)
+		m.registerResponseType(l)
 	})
 
-	l.Push(m.moduleTable)
-	return 1
-}
-
-// initModuleTable creates and initializes the module table once
-func (m *Module) initModuleTable(l *lua.LState) {
-	// Register stream helper (only once)
-	stream.RegisterStream(l)
-
-	// Register all HTTP types with their methods (only once)
-	m.registerMultipartFileType(l)
-	m.registerRequestType(l)
-	m.registerResponseType(l)
-
-	// Create module table
+	// Create module table per-state with shared LGoFunc values
 	mod := l.NewTable()
 
-	// Register constants with immutable tables
+	// Register constants
 	m.registerConstants(l, mod)
 
-	// Register constructors
-	mod.RawSetString("request", l.NewFunction(newRequest))
-	mod.RawSetString("response", l.NewFunction(newResponse))
+	// Register constructors using LGoFunc (zero allocation)
+	mod.RawSetString("request", gofuncNewRequest)
+	mod.RawSetString("response", gofuncNewResponse)
 
-	// Make the module table immutable so it can be safely reused
-	mod.Immutable = true
-
-	m.moduleTable = mod
+	l.Push(mod)
+	return 1
 }
 
 // registerMultipartFileType registers the MultipartFile type and its methods
 func (m *Module) registerMultipartFileType(l *lua.LState) {
-	value.RegisterTypeMethods(l, "MultipartFile",
+	value.RegisterTypeMethods(l, TypeMultipartFile,
 		map[string]lua.LGFunction{
 			"__tostring": multipartFileToString,
 		},
@@ -89,7 +89,7 @@ func (m *Module) registerMultipartFileType(l *lua.LState) {
 
 // registerRequestType registers the Request type and its methods
 func (m *Module) registerRequestType(l *lua.LState) {
-	value.RegisterTypeMethods(l, "Request",
+	value.RegisterTypeMethods(l, TypeRequest,
 		map[string]lua.LGFunction{
 			"__tostring": requestToString,
 		},
@@ -118,7 +118,7 @@ func (m *Module) registerRequestType(l *lua.LState) {
 
 // registerResponseType registers the Response type and its methods
 func (m *Module) registerResponseType(l *lua.LState) {
-	value.RegisterTypeMethods(l, "Response",
+	value.RegisterTypeMethods(l, TypeResponse,
 		map[string]lua.LGFunction{
 			"__tostring": responseToString,
 		},

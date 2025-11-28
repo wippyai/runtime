@@ -4,6 +4,7 @@ package lua
 import (
 	"fmt"
 
+	"github.com/wippyai/runtime/api/funcpool"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -27,16 +28,26 @@ const (
 	DefaultMaxSize = 100
 )
 
+// Pool type constants for selecting scheduler implementation.
+const (
+	PoolTypeLazy         = "lazy"         // Zero processes at idle, creates on demand (default)
+	PoolTypeStatic       = "static"       // Fixed-size channel-based pool
+	PoolTypeElastic      = "elastic"      // Growing/shrinking pool for spiking workloads
+	PoolTypeWorkStealing = "workstealing" // Work-stealing scheduler for varying execution times
+	PoolTypeInline       = "inline"       // Synchronous inline execution
+)
+
 type (
 	// PoolConfig defines settings for a pool of Lua VMs.
 	// It manages the number of VMs and workers available for executing Lua code.
 	PoolConfig struct {
-		Size    int `json:"size"`    // Total number of VMs in the pool
-		Workers int `json:"workers"` // Number of worker threads
-		Buffer  int `json:"buffer"`  // Task queue buffer size (default: workers * 1000)
-		// lazy/flex pool specifics
+		Type    string `json:"type"`    // Pool type: static, elastic, workstealing, inline
+		Size    int    `json:"size"`    // Total number of VMs in the pool / workers for engine2
+		Workers int    `json:"workers"` // Number of worker threads
+		Buffer  int    `json:"buffer"`  // Task queue buffer size (default: workers * 64)
+		// elastic pool specifics
 		WarmStart bool `json:"warm_start"` // Whether to precompile (default: false)
-		MaxSize   int  `json:"max_size"`   // Maximum size for lazy pool / concurrent executions (default: 100)
+		MaxSize   int  `json:"max_size"`   // Maximum workers for elastic pool (default: 16)
 	}
 
 	// FunctionConfig defines the configuration for a Lua function component.
@@ -78,6 +89,25 @@ type (
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 	}
 )
+
+// ToFuncpoolConfig converts PoolConfig to funcpool.PoolConfig for engine2.
+// Uses Workers directly if set, otherwise falls back to Size.
+func (c *PoolConfig) ToFuncpoolConfig() funcpool.PoolConfig {
+	workers := c.Workers
+	if workers == 0 {
+		workers = c.Size
+	}
+
+	queueSize := c.Buffer
+	if queueSize == 0 && workers > 0 {
+		queueSize = workers * 64
+	}
+
+	return funcpool.PoolConfig{
+		Workers:   workers,
+		QueueSize: queueSize,
+	}
+}
 
 // Validate checks if the FunctionConfig has all required fields set to valid values.
 // It returns an error if any validation check fails.

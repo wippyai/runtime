@@ -1,0 +1,27 @@
+version: "1.0"
+namespace: app.api
+
+entries:
+  # app.api:hello - Lua function with pool
+  - name: hello
+    kind: function.lua
+    meta:
+      comment: Returns hello world JSON
+    source: file://hello.lua
+    modules:
+      - http
+    method: handler
+    pool:
+      type: workstealing
+      size: 32
+      buffer: 1024
+
+  # app.api:hello.endpoint - HTTP endpoint
+  - name: hello.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Public hello endpoint
+      router: app:api.public
+    method: GET
+    func: hello
+    path: /hello

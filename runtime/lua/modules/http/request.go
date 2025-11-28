@@ -504,7 +504,7 @@ func newRequest(l *lua.LState) int {
 		request: reqCtx.Request(),
 		config:  cfg,
 	}
-	ud.Metatable = value.GetTypeMetatable(l, "Request")
+	ud.Metatable = value.GetTypeMetatable(l, TypeRequest)
 
 	l.Push(ud)
 	l.Push(lua.LNil)
@@ -556,7 +556,7 @@ func requestParseMultipart(l *lua.LState) int {
 				fileHeader: fileHeader,
 				request:    req.request,
 			}
-			ud.Metatable = value.GetTypeMetatable(l, "MultipartFile")
+			ud.Metatable = value.GetTypeMetatable(l, TypeMultipartFile)
 
 			filesList.RawSetInt(i+1, ud)
 		}

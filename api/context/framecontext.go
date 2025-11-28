@@ -61,6 +61,41 @@ type frameContext struct {
 	sealed bool
 }
 
+// frameContextPool for reusing frame contexts to reduce allocations.
+var frameContextPool = sync.Pool{
+	New: func() any {
+		return &frameContext{
+			values: make(map[any]any, 4),
+		}
+	},
+}
+
+// AcquireFrameContext gets a frame context from the pool and wraps it with the parent context.
+// Call ReleaseFrameContext when done to return it to the pool.
+func AcquireFrameContext(parent context.Context) (context.Context, FrameContext) {
+	fc := frameContextPool.Get().(*frameContext)
+	fc.sealed = false
+	fc.parent = nil
+	if parentFC := FrameFromContext(parent); parentFC != nil {
+		fc.parent = parentFC
+	}
+	return WithFrameContext(parent, fc), fc
+}
+
+// ReleaseFrameContext returns a frame context to the pool after clearing its values.
+func ReleaseFrameContext(fc FrameContext) {
+	if f, ok := fc.(*frameContext); ok {
+		f.mu.Lock()
+		for k := range f.values {
+			delete(f.values, k)
+		}
+		f.parent = nil
+		f.sealed = false
+		f.mu.Unlock()
+		frameContextPool.Put(f)
+	}
+}
+
 // newFrameContext creates a new FrameContext with optional parent.
 // No values are inherited from parent by default.
 // Parent link is kept for debugging/tracing only.

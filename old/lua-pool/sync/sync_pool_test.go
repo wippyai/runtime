@@ -1,0 +1,477 @@
+package sync
+
+import (
+	"context"
+	"fmt"
+	"runtime"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
+
+	api "github.com/wippyai/runtime/api/runtime/lua"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/runtime/lua/component"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
+	lua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/parse"
+	"go.uber.org/zap"
+)
+
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
+// testFunction represents a Lua function definition for testing
+type testFunction struct {
+	source string
+	name   string
+	proto  *lua.FunctionProto
+}
+
+// testFactoryConfig holds configuration for test factory setup
+type testFactoryConfig struct {
+	functions   []testFunction
+	engineOpts  []engine.Option
+	factoryOpts []component.Option
+}
+
+// testOption configures the test factory
+type testOption func(*testFactoryConfig)
+
+// withFunction adds a test function to the configuration
+func withFunction(source string, method string) testOption {
+	return func(cfg *testFactoryConfig) {
+		cfg.functions = append(cfg.functions, testFunction{
+			source: source,
+			name:   method,
+		})
+	}
+}
+
+// withEngineOption adds an engine option to the configuration
+//
+//nolint:unused // to be used later
+func withEngineOption(opt engine.Option) testOption {
+	return func(cfg *testFactoryConfig) {
+		cfg.engineOpts = append(cfg.engineOpts, opt)
+	}
+}
+
+// withFactoryOption adds a factory option to the configuration
+//
+//nolint:unused // to be used later
+func withFactoryOption(opt component.Option) testOption {
+	return func(cfg *testFactoryConfig) {
+		cfg.factoryOpts = append(cfg.factoryOpts, opt)
+	}
+}
+
+// defaultTestFunction returns the basic echo test function
+func defaultTestFunction() testFunction {
+	return testFunction{
+		source: `
+			function test(arg)
+				return arg
+			end
+			return test
+		`,
+		name: "test",
+	}
+}
+
+// setupTestFactory creates a configured factory for testing with the given options
+func setupTestFactory(opts ...testOption) (api.Factory, error) {
+	logger := zap.NewNop()
+
+	// Initialize config with defaults
+	cfg := &testFactoryConfig{
+		functions: []testFunction{defaultTestFunction()},
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	// compile all funcs
+	for i, fn := range cfg.functions {
+		chunk, err := parse.Parse(strings.NewReader(fn.source), fn.name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse function %q: %w", fn.name, err)
+		}
+
+		proto, err := lua.Compile(chunk, fn.name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile function %q: %w", fn.name, err)
+		}
+
+		cfg.functions[i].proto = proto
+	}
+
+	// Spawn compiled main
+	compiled := &code.CompiledMain{
+		Main:     cfg.functions[0].proto,
+		FuncName: cfg.functions[0].name,
+		Dependencies: []code.CompiledProto{
+			{
+				Name: "time",
+				Node: &code.Node{
+					Kind:   api.KindModule,
+					Module: timemod.NewTimeModule(),
+				},
+			},
+		},
+	}
+
+	//nolint:gocritic // used in tests
+	factoryOpts := append(cfg.factoryOpts,
+		component.WithEngineOption(engine.WithGlobalValue("_VERSION", lua.LString("test"))),
+	)
+
+	// all rest of the functions
+	for _, fn := range cfg.functions[1:] {
+		//nolint:gocritic // used in tests
+		factoryOpts = append(cfg.factoryOpts,
+			component.WithEngineOption(engine.WithFunctionProto(fn.name, fn.proto)),
+		)
+	}
+
+	// Prepare engine options
+	engineOpts := cfg.engineOpts
+	for _, opt := range engineOpts {
+		factoryOpts = append(factoryOpts, component.WithEngineOption(opt))
+	}
+
+	f, err := component.NewRunnerFactory(logger, compiled, factoryOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create factory: %w", err)
+	}
+
+	return f, nil
+}
+
+func TestPool_Execute_Basic(t *testing.T) {
+	f, err := setupTestFactory() // Use default config
+	assert.NoError(t, err)
+
+	p, err := NewPool(f, WithSize(1), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+	defer p.Close()
+
+	ctx, cancel := context.WithTimeout(newTestContext(), 5*time.Second)
+	defer cancel()
+
+	arg := lua.LString("hello")
+	result, err := p.Execute(ctx, "test", arg)
+	require.NoError(t, err)
+	assert.Equal(t, arg, result)
+}
+
+func TestPool_Execute_AfterClose(t *testing.T) {
+	f, err := setupTestFactory()
+	require.NoError(t, err)
+
+	p, err := NewPool(f, WithSize(1), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+
+	p.Close()
+
+	_, err = p.Execute(newTestContext(), "test", lua.LNil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "pool is closed")
+}
+
+func TestPool_Execute_ContextCancellation(t *testing.T) {
+	f, err := setupTestFactory()
+	require.NoError(t, err)
+
+	p, err := NewPool(f, WithSize(1), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+	defer p.Close()
+
+	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
+	cancel() // Cancel immediately
+
+	_, err = p.Execute(ctx, "test", lua.LNil)
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "context canceled")
+}
+
+func TestPool_Execute_Failure(t *testing.T) {
+	f, err := setupTestFactory(
+		withFunction(`
+			function fail()
+				error("intentional failure")
+			end
+			return fail
+		`, "fail"),
+		withFunction(`
+			function test(arg)
+				return arg
+			end
+			return test
+		`, "test"),
+	)
+	require.NoError(t, err)
+
+	p, err := NewPool(f, WithSize(1), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+	defer p.Close()
+
+	ctx1, cancel1 := context.WithTimeout(newTestContext(), 5*time.Second)
+	defer cancel1()
+
+	// Run failing function
+	_, err = p.Execute(ctx1, "fail", lua.LNil)
+	assert.Error(t, err)
+
+	ctx2, cancel2 := context.WithTimeout(newTestContext(), 5*time.Second)
+	defer cancel2()
+
+	// Verify pool still works
+	result, err := p.Execute(ctx2, "test", lua.LString("test"))
+	assert.NoError(t, err)
+	assert.Equal(t, lua.LString("test"), result)
+}
+
+func TestPool_Close(t *testing.T) {
+	f, err := setupTestFactory()
+	require.NoError(t, err)
+
+	p, err := NewPool(f, WithSize(1), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+
+	p.Close()
+
+	_, err = p.Execute(newTestContext(), "test", lua.LNil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "pool is closed")
+}
+
+func TestPool_ParallelExecution(t *testing.T) {
+	f, err := setupTestFactory() // Default function is sufficient for parallel test
+	require.NoError(t, err)
+
+	p, err := NewPool(f, WithSize(3), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+	defer p.Close()
+
+	var wg sync.WaitGroup
+	results := make(chan string, 10)
+
+	// Launch 10 jobs with 3 VMs
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			result, err := p.Execute(newTestContext(), "test",
+				lua.LString(fmt.Sprintf("job-%d", id)))
+			if err != nil {
+				results <- fmt.Sprintf("error-%d", id)
+				return
+			}
+			results <- result.String()
+		}(i)
+	}
+
+	wg.Wait()
+	close(results)
+
+	// Collect and verify results
+	var count int
+	for r := range results {
+		require.Contains(t, r, "job-")
+		count++
+	}
+	require.Equal(t, 10, count, "All jobs should complete")
+}
+
+// //	func TestPool_JobCompletionOnClose(t *testing.T) {
+// //		f := setupTestFactory(t,
+// //			withFunction(`
+// //				function sleep_test()
+// //					local time = require("time")
+// //					time.sleep(time.parse_duration("1s"))
+// //					return "completed"
+// //				end
+// //				return sleep_test
+// //			`, "sleep_test", nil),
+// //		)
+// //
+// //		p, err := NewPool(f, WithSize(1), WithLogger(zap.NewNop()))
+// //		require.NoError(t, err)
+// //
+// //		// Launch a job that will run for a known duration
+// //		resultChan := make(chan lua.LValue, 1)
+// //		errorChan := make(chan error, 1)
+// //
+// //		// Launch the job
+// //		go func() {
+// //			result, err := p.Serve(newTestContext(), "sleep_test", lua.LNil)
+// //			if err != nil {
+// //				errorChan <- err
+// //				return
+// //			}
+// //			resultChan <- result
+// //		}()
+// //
+// //		// Give job time to start
+// //		time.Sleep(10 * time.Millisecond)
+// //
+// //		// close the pool while job is running
+// //		p.close()
+// //
+// //		// wait for result or error
+// //		select {
+// //		case result := <-resultChan:
+// //			require.Equal(t, lua.LString("completed"), result, "Job should complete")
+// //		case err := <-errorChan:
+// //			t.Fatalf("Job failed: %v", err)
+// //		case <-time.After(2 * time.Second):
+// //			t.Fatal("Job did not complete in time")
+// //		}
+// //	}
+func TestPool_StressTest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping stress test in short mode")
+	}
+
+	t.Run("rapid parallel execution and close", func(t *testing.T) {
+		iterations := 5
+		for i := 0; i < iterations; i++ {
+			f, err := setupTestFactory()
+			require.NoError(t, err)
+
+			p, err := NewPool(f, WithSize(3), WithLogger(zap.NewNop()))
+			require.NoError(t, err)
+
+			var wg sync.WaitGroup
+			successCount := atomic.Int32{}
+			errorCount := atomic.Int32{}
+
+			// First, launch a batch of jobs that should succeed
+			// This ensures we have some successful jobs regardless of timing
+			for j := 0; j < 200; j++ {
+				wg.Add(1)
+				go func(id int) {
+					defer wg.Done()
+					result, err := p.Execute(newTestContext(), "test",
+						lua.LString(fmt.Sprintf("job-%d", id)))
+					if err == nil && result != nil {
+						successCount.Add(1)
+					} else {
+						errorCount.Add(1)
+					}
+				}(j)
+			}
+
+			// Give some time for the first batch to start
+			time.Sleep(10 * time.Millisecond)
+
+			// Now close the pool
+			go p.Close()
+
+			// Launch the remaining jobs that should mostly fail
+			for j := 200; j < 1000; j++ {
+				wg.Add(1)
+				go func(id int) {
+					defer wg.Done()
+					result, err := p.Execute(newTestContext(), "test",
+						lua.LString(fmt.Sprintf("job-%d", id)))
+					if err == nil && result != nil {
+						successCount.Add(1)
+					} else {
+						errorCount.Add(1)
+					}
+				}(j)
+			}
+
+			wg.Wait()
+			success := successCount.Load()
+			errors := errorCount.Load()
+
+			// In slower CI/CD environments, we need to be more flexible with our expectations
+			// The key is that we have some mix of successes and failures, not exact numbers
+
+			// Ensure we have some successful jobs (jobs that started before close)
+			require.True(t, success > 0, "Some jobs should succeed")
+			// Ensure we have some failed jobs (jobs that started after close)
+			require.True(t, errors > 0, "Some jobs should fail due to close")
+			// Ensure not all jobs succeed (some should fail due to close)
+			require.True(t, success < 1000, "Not all jobs should succeed due to close")
+		}
+	})
+}
+
+func TestPool_VMReuse(t *testing.T) {
+	f, err := setupTestFactory(
+		withFunction(`
+			local id = 0
+			function get_id()
+				id = id + 1
+				return id
+			end
+			return get_id
+		`, "get_id"),
+	)
+	require.NoError(t, err)
+
+	p, err := NewPool(f, WithSize(1), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+	defer p.Close()
+
+	// Run multiple times - should get incrementing IDs from same VM
+	var lastID float64
+	for i := 0; i < 5; i++ {
+		result, err := p.Execute(newTestContext(), "get_id", lua.LNil)
+		require.NoError(t, err)
+
+		id := float64(result.(lua.LNumber))
+		if i > 0 {
+			require.Equal(t, lastID+1, id, "IDs should increment indicating VM reuse")
+		}
+		lastID = id
+	}
+}
+
+func BenchmarkPool_Execute(b *testing.B) {
+	f, err := setupTestFactory(
+		withFunction(`
+			function bench(arg)
+				return arg
+			end
+			return bench
+		`, "bench"),
+	)
+	require.NoError(b, err)
+
+	p, err := NewPool(f, WithSize(runtime.GOMAXPROCS(0)))
+	require.NoError(b, err)
+	defer p.Close()
+
+	ctx := ctxapi.NewRootContext()
+	arg := lua.LString("benchmark")
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			result, err := p.Execute(ctx, "bench", arg)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if result != arg {
+				b.Fatal("unexpected result")
+			}
+		}
+	})
+}

@@ -1,0 +1,31 @@
+version: "1.0"
+namespace: app
+
+entries:
+  # app:gateway - HTTP server
+  - name: gateway
+    kind: http.service
+    meta:
+      comment: Main HTTP gateway service
+    addr: :8085
+    lifecycle:
+      auto_start: true
+
+  # app:api.public - public router
+  - name: api.public
+    kind: http.router
+    meta:
+      comment: Public API router
+      server: gateway
+    prefix: /
+
+  # app:processes - process host
+  - name: processes
+    kind: process.host
+    meta:
+      comment: Process execution host
+    host:
+      max_processes: 10000
+      workers: 32
+    lifecycle:
+      auto_start: true

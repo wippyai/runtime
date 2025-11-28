@@ -288,21 +288,20 @@ func responseToString(l *lua.LState) int {
 
 // newResponse creates a new Response from the context
 func newResponse(l *lua.LState) int {
-	// Get HTTP context from Lua state context
 	ctx := l.Context()
 	if ctx == nil {
-		l.ArgError(1, "no context available")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context available"))
+		return 2
 	}
 
-	// Get HTTP request context from FrameContext
 	reqCtx, ok := http.GetRequestContext(ctx)
 	if !ok {
-		l.ArgError(1, "no HTTP request context found")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no HTTP request context found"))
+		return 2
 	}
 
-	// Spawn response userdata
 	ud := l.NewUserData()
 	ud.Value = &Response{
 		writer:       reqCtx.ResponseWriter(),
@@ -310,7 +309,7 @@ func newResponse(l *lua.LState) int {
 		headersSent:  false,
 		transferMode: "",
 	}
-	ud.Metatable = value.GetTypeMetatable(l, "Response")
+	ud.Metatable = value.GetTypeMetatable(l, TypeResponse)
 
 	l.Push(ud)
 	return 1
