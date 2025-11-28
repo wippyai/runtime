@@ -166,34 +166,70 @@ This feature significantly improves the developer experience by reducing configu
 
 ### Installation
 
-1. Clone the repository:
-```bash
-git clone https://github.com/wippyai/runtime.git
-cd runtime
-```
+You have two options for installing Wippy Runtime:
 
-2. Build the Wippy runtime:
-```bash
-go build -o wippy ./cmd/runner/
-```
+#### Option 1: Download Pre-built Binaries (Recommended)
 
-3. Make the binary available in your PATH (optional):
-```bash
-# Add to PATH for current session
-export PATH=$PATH:$(pwd)
+1. **Download the latest release:**
+   - Visit the [wippy-releases repository](https://github.com/wippyai/wippy-releases)
+   - Download the appropriate archive for your platform:
+     - **Windows**: `wippy-windows-amd64-{version}.zip`
+     - **Linux**: `wippy-linux-amd64-{version}.tar.gz` or `wippy-linux-arm64-{version}.tar.gz`
+     - **macOS**: `wippy-darwin-amd64-{version}.tar.gz` or `wippy-darwin-arm64-{version}.tar.gz`
 
-# Or create a symlink
-sudo ln -s $(pwd)/wippy /usr/local/bin/wippy
-```
+2. **Extract the archive:**
+   ```bash
+   # Linux/macOS
+   tar -xzf wippy-linux-amd64-{version}.tar.gz
+   
+   # Windows
+   unzip wippy-windows-amd64-{version}.zip
+   ```
 
-4. Verify the installation:
-```bash
-# Check if wippy is available
-wippy help
+3. **Make executable (Linux/macOS only):**
+   ```bash
+   chmod +x wippy packcli
+   ```
 
-# Or if not in PATH
-./wippy help
-```
+4. **Verify the installation:**
+   ```bash
+   # Linux/macOS
+   ./wippy help
+   
+   # Windows
+   wippy.exe help
+   ```
+
+#### Option 2: Build from Source
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/wippyai/runtime.git
+   cd runtime
+   ```
+
+2. **Build the Wippy runtime:**
+   ```bash
+   go build -o wippy ./cmd/runner/
+   ```
+
+3. **Make the binary available in your PATH (optional):**
+   ```bash
+   # Add to PATH for current session
+   export PATH=$PATH:$(pwd)
+   
+   # Or create a symlink
+   sudo ln -s $(pwd)/wippy /usr/local/bin/wippy
+   ```
+
+4. **Verify the installation:**
+   ```bash
+   # Check if wippy is available
+   wippy help
+   
+   # Or if not in PATH
+   ./wippy help
+   ```
 
 ### Dependency Management
 
@@ -906,10 +942,17 @@ We welcome contributions to Wippy Runtime! Here's how you can get started:
 ### Development Setup
 
 1. **Fork and clone the repository:**
-```bash
-git clone https://github.com/your-username/runtime.git
-cd runtime
-```
+   - Fork the [runtime repository](https://github.com/wippyai/runtime) on GitHub
+   - Clone your fork:
+   ```bash
+   git clone https://github.com/your-username/runtime.git
+   cd runtime
+   ```
+   - Or clone the main repository directly:
+   ```bash
+   git clone https://github.com/wippyai/runtime.git
+   cd runtime
+   ```
 
 2. **Build the development version:**
 ```bash
@@ -1011,8 +1054,8 @@ Run the test suite:
 # Run all tests
 go test ./...
 
-# Run specific test
-go test ./moduleloader
+# Run specific test package
+go test ./deps/...
 
 # Run with coverage
 go test -cover ./...
@@ -1073,6 +1116,82 @@ go test ./cmd/runner -run TestDependency
 - Use `wippy <command> --help` for command-specific help
 - Check the [CLI documentation](https://docs.wippy.ai/cli) for detailed guides
 - Report CLI issues with command output and error messages
+
+## Release Process
+
+Wippy Runtime uses an automated release process that integrates with GitLab CI/CD.
+
+### Creating a Release
+
+When you create a release in this repository, it automatically triggers a GitLab CI/CD pipeline from the `runtime-mirror-actions` repository. This pipeline handles the build, testing, and distribution of the release artifacts.
+
+**Important Notes:**
+- **Automatic Trigger**: Creating a release (tag) in this repository automatically triggers the GitLab pipeline
+- **External Repository**: The CI/CD scripts are located in the `runtime-mirror-actions` repository
+- **No Manual Steps**: Once a release is created, the GitLab pipeline handles the rest of the process
+
+### Release Workflow
+
+1. **Create a Release Tag:**
+   - Navigate to the [GitHub Releases page](https://github.com/wippyai/runtime/releases)
+   - Click "Draft a new release" or "Create a new release"
+   - Create a new tag following semantic versioning (e.g., `v1.2.3`)
+   - Add release title and description
+   - Click "Publish release"
+   - The release tag will automatically trigger the GitLab CI/CD pipeline
+
+2. **GitLab Pipeline Activation:**
+   - The release tag triggers the GitLab CI/CD pipeline in `runtime-mirror-actions`
+   - The pipeline automatically:
+     - Builds binaries for all supported platforms
+     - Runs tests and validations
+     - Creates release artifacts
+     - Publishes distributions to [GitHub Releases](https://github.com/wippyai/wippy-releases)
+
+3. **Release Publication:**
+   - All release artifacts (wippy + packcli binaries) are automatically published to the [wippy-releases repository](https://github.com/wippyai/wippy-releases)
+   - The releases include binaries for all supported platforms (Windows, Linux, macOS)
+   - Each release includes SHA256 checksums for verification
+
+4. **Monitor the Pipeline:**
+   - Check the GitLab CI/CD pipeline status: [GitLab Pipelines](https://git.spiralscout.com/wippy-iceborn/runtime-mirror-actions/-/pipelines)
+   - Verify that all build jobs complete successfully
+   - Confirm that artifacts are properly published
+
+### Release Best Practices
+
+- **Version Naming**: Follow semantic versioning (e.g., `v1.2.3`)
+- **Release Notes**: Include meaningful release notes when creating the tag
+- **Testing**: Ensure all tests pass before creating a release tag
+- **Documentation**: Update relevant documentation if the release includes breaking changes
+- **Verification**: Monitor the GitLab pipeline to ensure successful completion
+
+### Troubleshooting Releases
+
+If a release pipeline fails:
+
+1. **Check GitLab Pipeline Logs:**
+   - View pipeline status: [GitLab Pipelines](https://git.spiralscout.com/wippy-iceborn/runtime-mirror-actions/-/pipelines)
+   - Navigate to the `runtime-mirror-actions` repository
+   - Review the failed pipeline logs for error details
+
+2. **Verify Tag Format:**
+   - Ensure the tag follows the expected version format
+   - Check that the tag was pushed correctly
+
+3. **Re-run Pipeline:**
+   - If needed, manually trigger the pipeline in GitLab
+   - Or create a new release tag if the previous one had issues
+
+4. **Contact Maintainers:**
+   - If pipeline issues persist, contact the team responsible for the `runtime-mirror-actions` repository
+
+### Related Resources
+
+- **CI/CD Repository**: `runtime-mirror-actions` - Contains the GitLab CI/CD configuration and scripts
+- **GitLab Pipelines**: [View pipeline status](https://git.spiralscout.com/wippy-iceborn/runtime-mirror-actions/-/pipelines) - Monitor build and deployment pipelines
+- **Release Repository**: [wippy-releases](https://github.com/wippyai/wippy-releases) - Published releases with binaries for all platforms
+- **Release Tags**: Check the repository tags to see all previous releases
 
 ## License
 
