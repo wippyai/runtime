@@ -6,18 +6,19 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/resource"
 )
 
 // ResourcesKey is the context key for Resources in FrameContext
 var ResourcesKey = &ctxapi.Key{Name: "engine.resources", Inherit: false}
 
 // Resources holds process-local state accessible from context.
-// Replaces UnitOfWork for the new scheduler model.
+// Uses resource.Store for unified handle-based resource management.
 type Resources struct {
 	mu       sync.Mutex
+	store    *resource.Store
 	channels *ChannelRegistry
 	incoming []*relay.Package
-	cleanups []*cleanupEntry
 	closed   bool
 }
 
@@ -25,9 +26,9 @@ type Resources struct {
 var resourcesPool = sync.Pool{
 	New: func() any {
 		return &Resources{
+			store:    resource.NewStore(),
 			channels: NewChannelRegistry(),
 			incoming: make([]*relay.Package, 0, 4),
-			cleanups: make([]*cleanupEntry, 0, 4),
 		}
 	},
 }
@@ -36,6 +37,9 @@ var resourcesPool = sync.Pool{
 func NewResources() *Resources {
 	r := resourcesPool.Get().(*Resources)
 	r.closed = false
+	if r.store == nil {
+		r.store = resource.NewStore()
+	}
 	return r
 }
 
@@ -52,12 +56,27 @@ func GetResources(ctx context.Context) *Resources {
 }
 
 // SetResources stores Resources in FrameContext.
+// Also sets the Store via resource.StoreKey for dispatcher access.
 func SetResources(ctx context.Context, r *Resources) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
 		return ctxapi.ErrNoFrameContext
 	}
-	return fc.Set(ResourcesKey, r)
+	if err := fc.Set(ResourcesKey, r); err != nil {
+		return err
+	}
+	// Set Store via shared key so dispatchers can access it
+	return fc.Set(resource.StoreKey, r.store)
+}
+
+// Store returns the resource store for handle-based access.
+func (r *Resources) Store() *resource.Store {
+	return r.store
+}
+
+// Table returns the underlying resource table for direct handle operations.
+func (r *Resources) Table() *resource.Table {
+	return r.store.Table()
 }
 
 // Channels returns the channel registry.
@@ -81,32 +100,15 @@ func (r *Resources) DrainMessages() []*relay.Package {
 	return msgs
 }
 
-// cleanupEntry wraps a cleanup function with cancellation support.
-type cleanupEntry struct {
-	fn        func() error
-	cancelled bool
-}
-
 // AddCleanup registers a cleanup function to run on Close.
 // Cleanups run in LIFO order.
-// Returns a cancel function that removes this cleanup from the list.
-// Call the cancel function when the resource is explicitly closed to prevent double-close.
+// Returns a cancel function that prevents this cleanup from running.
 func (r *Resources) AddCleanup(fn func() error) func() {
-	entry := &cleanupEntry{fn: fn}
-	r.mu.Lock()
-	r.cleanups = append(r.cleanups, entry)
-	r.mu.Unlock()
-
-	return func() {
-		r.mu.Lock()
-		entry.cancelled = true
-		r.mu.Unlock()
-	}
+	return r.store.AddCleanup(fn)
 }
 
 // Close runs all cleanup functions and returns to pool.
 // Safe to call multiple times - only first call has effect.
-// Skips cancelled cleanups (resources that were explicitly closed).
 func (r *Resources) Close() error {
 	r.mu.Lock()
 	if r.closed {
@@ -114,27 +116,20 @@ func (r *Resources) Close() error {
 		return nil
 	}
 	r.closed = true
-	cleanups := r.cleanups
-	r.cleanups = r.cleanups[:0]
 	r.incoming = r.incoming[:0]
 	r.mu.Unlock()
 
-	var lastErr error
-	for i := len(cleanups) - 1; i >= 0; i-- {
-		entry := cleanups[i]
-		if entry.cancelled {
-			continue
-		}
-		if err := entry.fn(); err != nil {
-			lastErr = err
-		}
-	}
+	// Close the store (runs all cleanups and closes table)
+	err := r.store.Close()
 
-	// Reset channel registry and return to pool
+	// Reset channel registry
 	r.channels.Reset()
+
+	// Get fresh store for pool reuse
+	r.store = resource.NewStore()
 	resourcesPool.Put(r)
 
-	return lastErr
+	return err
 }
 
 // ChannelRegistry manages named channels for the process.

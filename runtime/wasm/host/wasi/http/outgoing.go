@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
 	"github.com/wippyai/runtime/api/registry"
+	apiresource "github.com/wippyai/runtime/api/resource"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/wasm/host"
@@ -36,18 +37,18 @@ const (
 // OutgoingHost implements wasi:http/outgoing-handler@0.2.0.
 type OutgoingHost struct {
 	resources        *resource.InstanceResources
-	outgoingRequests *resource.TypedTable[*OutgoingRequest]
-	responses        *resource.TypedTable[*IncomingResponse]
-	bodies           *resource.TypedTable[*Body]
+	outgoingRequests *apiresource.TypedTable[*OutgoingRequest]
+	responses        *apiresource.TypedTable[*IncomingResponse]
+	bodies           *apiresource.TypedTable[*Body]
 }
 
 // NewOutgoingHost creates a new HTTP outgoing handler host with shared resources.
 func NewOutgoingHost(resources *resource.InstanceResources) *OutgoingHost {
 	return &OutgoingHost{
 		resources:        resources,
-		outgoingRequests: resource.NewTypedTable[*OutgoingRequest](resources.Table(), uint32(TypeOutgoingRequest)),
-		responses:        resource.NewTypedTable[*IncomingResponse](resources.Table(), uint32(TypeIncomingResponse)),
-		bodies:           resource.NewTypedTable[*Body](resources.Table(), uint32(TypeHTTPBody)),
+		outgoingRequests: apiresource.NewTypedTable[*OutgoingRequest](resources.Table(), uint32(TypeOutgoingRequest)),
+		responses:        apiresource.NewTypedTable[*IncomingResponse](resources.Table(), uint32(TypeIncomingResponse)),
+		bodies:           apiresource.NewTypedTable[*Body](resources.Table(), uint32(TypeHTTPBody)),
 	}
 }
 
@@ -113,17 +114,17 @@ func (h *OutgoingHost) Resources() *resource.InstanceResources {
 }
 
 // OutgoingRequests returns the typed table for outgoing requests.
-func (h *OutgoingHost) OutgoingRequests() *resource.TypedTable[*OutgoingRequest] {
+func (h *OutgoingHost) OutgoingRequests() *apiresource.TypedTable[*OutgoingRequest] {
 	return h.outgoingRequests
 }
 
 // Responses returns the typed table for incoming responses.
-func (h *OutgoingHost) Responses() *resource.TypedTable[*IncomingResponse] {
+func (h *OutgoingHost) Responses() *apiresource.TypedTable[*IncomingResponse] {
 	return h.responses
 }
 
 // Bodies returns the typed table for bodies.
-func (h *OutgoingHost) Bodies() *resource.TypedTable[*Body] {
+func (h *OutgoingHost) Bodies() *apiresource.TypedTable[*Body] {
 	return h.bodies
 }
 

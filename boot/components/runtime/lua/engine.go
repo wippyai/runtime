@@ -2,8 +2,10 @@ package lua
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
+	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
@@ -15,7 +17,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/component/library"
 	envlua "github.com/wippyai/runtime/runtime/lua/modules/env"
 	loggermod "github.com/wippyai/runtime/runtime/lua/modules/logger"
-	sysdispatcher "github.com/wippyai/runtime/system/dispatcher"
 	reghandler "github.com/wippyai/runtime/system/registry/events"
 )
 
@@ -60,12 +61,18 @@ func Engine() boot.Component {
 
 			ctx = SetCodeManager(ctx, codeManager)
 
+			// Get dispatcher from context
+			disp := dispatcherapi.GetDispatcher(ctx)
+			if disp == nil {
+				return ctx, fmt.Errorf("dispatcher not found in context")
+			}
+
 			// Create function manager with dispatcher
 			funcs = funclua.NewManager(
 				logger.Named("lua.funcs"),
 				codeManager,
 				bus,
-				sysdispatcher.Dispatcher(),
+				disp,
 			)
 			libraries := library.NewManager(logger.Named("lua.libs"), codeManager)
 

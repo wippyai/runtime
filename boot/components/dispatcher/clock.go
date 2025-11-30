@@ -2,10 +2,11 @@ package dispatcher
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/service/dispatcher/clock"
-	sysdispatcher "github.com/wippyai/runtime/system/dispatcher"
+	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/system/clock"
 )
 
 func Clock() boot.Component {
@@ -13,8 +14,12 @@ func Clock() boot.Component {
 		Name:      ClockName,
 		DependsOn: []boot.ComponentName{DispatcherDeps},
 		Load: func(ctx context.Context) (context.Context, error) {
+			reg := dispatcherapi.GetRegistrar(ctx)
+			if reg == nil {
+				return ctx, fmt.Errorf("dispatcher registrar not found in context")
+			}
 			svc := clock.NewService()
-			svc.RegisterAll(sysdispatcher.Register)
+			svc.RegisterAll(reg.Register)
 			return ctx, nil
 		},
 	})

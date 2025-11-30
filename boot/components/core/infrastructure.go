@@ -4,9 +4,11 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
+	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/pidgen"
 	"github.com/wippyai/runtime/internal/uniqid"
+	"github.com/wippyai/runtime/system/dispatcher"
 	"github.com/wippyai/runtime/system/eventbus"
 )
 
@@ -35,7 +37,11 @@ func Dispatcher() boot.Component {
 	return boot.New(boot.P{
 		Name: DispatcherName,
 		Load: func(ctx context.Context) (context.Context, error) {
-			// Dispatcher infrastructure init - handlers registered by service plugins
+			// Create dispatcher registry for this application instance
+			reg := dispatcher.NewRegistry()
+			if err := dispatcherapi.WithRegistry(ctx, reg); err != nil {
+				return ctx, err
+			}
 			return ctx, nil
 		},
 	})

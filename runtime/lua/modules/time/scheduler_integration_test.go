@@ -14,7 +14,7 @@ import (
 	apiruntime "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/workflow"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	"github.com/wippyai/runtime/service/dispatcher/clock"
+	"github.com/wippyai/runtime/system/clock"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	lua "github.com/yuin/gopher-lua"

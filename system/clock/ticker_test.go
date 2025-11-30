@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
-	clockapi "github.com/wippyai/runtime/api/dispatcher/clock"
 )
 
 func TestTickerRegistry(t *testing.T) {

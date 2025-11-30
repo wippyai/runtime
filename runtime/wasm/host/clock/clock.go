@@ -8,8 +8,8 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 
+	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
-	clockapi "github.com/wippyai/runtime/api/dispatcher/clock"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/runtime/wasm/host"
 )

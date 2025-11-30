@@ -30,7 +30,7 @@ func setupDispatcherTestContext(reg function.Registry) context.Context {
 func TestCallHandler(t *testing.T) {
 	handler := &CallHandler{}
 	mock := &mockRegistry{
-		callFn: func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
 		},
 	}
@@ -225,7 +225,7 @@ func TestAsyncCancelHandler(t *testing.T) {
 
 	cmd := &funcapi.AsyncCancelCmd{CallID: callID}
 
-	err := handler.Handle(ctx, cmd, func(data any) {})
+	err := handler.Handle(ctx, cmd, func(_ any) {})
 	require.NoError(t, err)
 }
 
@@ -236,7 +236,7 @@ func TestAsyncCancelHandler_NotFound(t *testing.T) {
 
 	cmd := &funcapi.AsyncCancelCmd{CallID: 999}
 
-	err := handler.Handle(ctx, cmd, func(data any) {})
+	err := handler.Handle(ctx, cmd, func(_ any) {})
 	assert.ErrorIs(t, err, ErrCallNotFound)
 }
 
@@ -245,7 +245,7 @@ func TestAsyncCancelHandler_NoRegistry(t *testing.T) {
 	ctx := context.Background()
 	cmd := &funcapi.AsyncCancelCmd{CallID: 1}
 
-	err := handler.Handle(ctx, cmd, func(data any) {})
+	err := handler.Handle(ctx, cmd, func(_ any) {})
 	assert.ErrorIs(t, err, ErrCallNotFound)
 }
 
@@ -253,7 +253,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	d := NewDispatcher()
 
 	registered := make(map[uint16]bool)
-	register := func(id dispatcher.CommandID, h dispatcher.Handler) {
+	register := func(id dispatcher.CommandID, _ dispatcher.Handler) {
 		registered[uint16(id)] = true
 	}
 
@@ -277,11 +277,11 @@ func BenchmarkCallHandler(b *testing.B) {
 	cmd := &funcapi.CallCmd{
 		Task: runtime.Task{ID: registry.NewID("test", "func")},
 	}
-	emit := func(data any) {}
+	emit := func(_ any) {}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		handler.Handle(ctx, cmd, emit)
+		_ = handler.Handle(ctx, cmd, emit)
 	}
 }
 
@@ -297,12 +297,12 @@ func BenchmarkCallHandler_Parallel(b *testing.B) {
 	cmd := &funcapi.CallCmd{
 		Task: runtime.Task{ID: registry.NewID("test", "func")},
 	}
-	emit := func(data any) {}
+	emit := func(_ any) {}
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			handler.Handle(ctx, cmd, emit)
+			_ = handler.Handle(ctx, cmd, emit)
 		}
 	})
 }
@@ -376,8 +376,12 @@ func TestAsyncStartHandler_Stress(t *testing.T) {
 }
 
 func TestDispatcher_FullCycle_Stress(t *testing.T) {
+	// Use a channel to control when the mock function completes
+	// This ensures the async call is still in progress when we call Await
+	ready := make(chan struct{})
 	mock := &mockRegistry{
 		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+			<-ready
 			return &runtime.Result{Value: payload.New("result")}, nil
 		},
 	}
@@ -404,7 +408,8 @@ func TestDispatcher_FullCycle_Stress(t *testing.T) {
 			require.NoError(t, err)
 			require.Nil(t, startResult.Error)
 
-			time.Sleep(time.Millisecond)
+			// Signal the mock to complete
+			ready <- struct{}{}
 
 			var awaitResult funcapi.AsyncAwaitResponse
 			err = awaitHandler.Handle(ctx, &funcapi.AsyncAwaitCmd{
@@ -433,11 +438,11 @@ func BenchmarkAsyncStartHandler(b *testing.B) {
 	cmd := &funcapi.AsyncStartCmd{
 		Task: runtime.Task{ID: registry.NewID("test", "func")},
 	}
-	emit := func(data any) {}
+	emit := func(_ any) {}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		handler.Handle(ctx, cmd, emit)
+		_ = handler.Handle(ctx, cmd, emit)
 	}
 }
 
@@ -453,12 +458,12 @@ func BenchmarkAsyncStartHandler_Parallel(b *testing.B) {
 	cmd := &funcapi.AsyncStartCmd{
 		Task: runtime.Task{ID: registry.NewID("test", "func")},
 	}
-	emit := func(data any) {}
+	emit := func(_ any) {}
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			handler.Handle(ctx, cmd, emit)
+			_ = handler.Handle(ctx, cmd, emit)
 		}
 	})
 }

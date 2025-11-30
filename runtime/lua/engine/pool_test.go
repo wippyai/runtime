@@ -8,7 +8,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/process2"
-	"github.com/wippyai/runtime/service/dispatcher/clock"
+	"github.com/wippyai/runtime/system/clock"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	lua "github.com/yuin/gopher-lua"
 )

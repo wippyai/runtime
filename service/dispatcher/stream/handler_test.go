@@ -10,10 +10,19 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	streamapi "github.com/wippyai/runtime/api/dispatcher/stream"
+	"github.com/wippyai/runtime/api/resource"
 )
 
+func setupTestContext() (context.Context, *resource.Store) {
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	store := resource.NewStore()
+	_ = resource.SetStore(ctx, store)
+	return ctx, store
+}
+
 func TestStreamRegistry(t *testing.T) {
-	r := NewStreamRegistry()
+	table := resource.NewTable()
+	r := NewStreamRegistry(table)
 
 	reader := io.NopCloser(strings.NewReader("hello"))
 	id := r.Register(reader)
@@ -29,7 +38,8 @@ func TestStreamRegistry(t *testing.T) {
 }
 
 func TestStreamRegistryRead(t *testing.T) {
-	r := NewStreamRegistry()
+	table := resource.NewTable()
+	r := NewStreamRegistry(table)
 
 	data := "hello world"
 	reader := io.NopCloser(strings.NewReader(data))
@@ -59,7 +69,8 @@ func TestStreamRegistryRead(t *testing.T) {
 }
 
 func TestStreamRegistryReadNotFound(t *testing.T) {
-	r := NewStreamRegistry()
+	table := resource.NewTable()
+	r := NewStreamRegistry(table)
 
 	_, err := r.Read(999, 10)
 	if err != ErrStreamNotFound {
@@ -68,7 +79,8 @@ func TestStreamRegistryReadNotFound(t *testing.T) {
 }
 
 func TestStreamRegistryReadDefaultSize(t *testing.T) {
-	r := NewStreamRegistry()
+	table := resource.NewTable()
+	r := NewStreamRegistry(table)
 
 	data := strings.Repeat("x", 100)
 	reader := io.NopCloser(strings.NewReader(data))
@@ -85,7 +97,8 @@ func TestStreamRegistryReadDefaultSize(t *testing.T) {
 }
 
 func TestStreamRegistryClose(t *testing.T) {
-	r := NewStreamRegistry()
+	table := resource.NewTable()
+	r := NewStreamRegistry(table)
 
 	reader := io.NopCloser(strings.NewReader("test"))
 	id := r.Register(reader)
@@ -101,23 +114,25 @@ func TestStreamRegistryClose(t *testing.T) {
 	}
 }
 
-func TestStreamRegistryCloseAll(t *testing.T) {
-	r := NewStreamRegistry()
+func TestStreamRegistryTableClose(t *testing.T) {
+	table := resource.NewTable()
+	r := NewStreamRegistry(table)
 
 	r.Register(io.NopCloser(strings.NewReader("a")))
 	r.Register(io.NopCloser(strings.NewReader("b")))
 	r.Register(io.NopCloser(strings.NewReader("c")))
 
-	r.CloseAll()
+	// Closing the table should clean up all streams
+	table.Close()
 
 	_, err := r.Read(1, 10)
 	if err != ErrStreamNotFound {
-		t.Errorf("expected ErrStreamNotFound after CloseAll, got %v", err)
+		t.Errorf("expected ErrStreamNotFound after table close, got %v", err)
 	}
 }
 
 func TestStreamReadHandler(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _ := setupTestContext()
 	registry := GetOrCreateStreamRegistry(ctx)
 
 	data := "hello world"
@@ -143,7 +158,7 @@ func TestStreamReadHandler(t *testing.T) {
 }
 
 func TestStreamReadHandlerEOF(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _ := setupTestContext()
 	registry := GetOrCreateStreamRegistry(ctx)
 
 	id := registry.Register(io.NopCloser(bytes.NewReader(nil)))
@@ -165,7 +180,7 @@ func TestStreamReadHandlerEOF(t *testing.T) {
 }
 
 func TestStreamCloseHandler(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _ := setupTestContext()
 	registry := GetOrCreateStreamRegistry(ctx)
 
 	id := registry.Register(io.NopCloser(strings.NewReader("test")))
@@ -184,7 +199,7 @@ func TestStreamCloseHandler(t *testing.T) {
 }
 
 func TestStreamFullCycle(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _ := setupTestContext()
 	registry := GetOrCreateStreamRegistry(ctx)
 
 	data := "chunk1chunk2chunk3"
@@ -246,8 +261,8 @@ func (tc *trackingCloser) Close() error {
 	return nil
 }
 
-func TestStreamCleanupOnFrameClose(t *testing.T) {
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+func TestStreamCleanupOnStoreClose(t *testing.T) {
+	ctx, store := setupTestContext()
 
 	var closed1, closed2, closed3 bool
 
@@ -256,34 +271,23 @@ func TestStreamCleanupOnFrameClose(t *testing.T) {
 	registry.RegisterStream(&trackingCloser{strings.NewReader("b"), &closed2})
 	registry.RegisterStream(&trackingCloser{strings.NewReader("c"), &closed3})
 
-	registry.mu.Lock()
-	count := len(registry.streams)
-	registry.mu.Unlock()
-	if count != 3 {
-		t.Errorf("expected 3 streams, got %d", count)
+	// Verify streams are registered
+	if _, err := registry.Read(1, 1); err != nil {
+		t.Errorf("stream 1 should be readable: %v", err)
 	}
 
-	// Close frame - should cleanup all streams
-	fc.Close()
+	// Close store - should cleanup all streams via Table
+	store.Close()
 
-	// Verify all streams were closed
+	// Verify all streams were closed via Dropper interface
 	if !closed1 || !closed2 || !closed3 {
 		t.Errorf("expected all streams closed, got: %v %v %v", closed1, closed2, closed3)
-	}
-
-	// Registry should be empty
-	registry.mu.Lock()
-	count = len(registry.streams)
-	registry.mu.Unlock()
-	if count != 0 {
-		t.Errorf("expected 0 streams after cleanup, got %d", count)
 	}
 }
 
 func TestStreamCleanupIdempotent(t *testing.T) {
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	ctx, store := setupTestContext()
 
-	var closeCount int
 	registry := GetOrCreateStreamRegistry(ctx)
 	registry.RegisterStream(&trackingCloser{
 		Reader: strings.NewReader("test"),
@@ -293,11 +297,8 @@ func TestStreamCleanupIdempotent(t *testing.T) {
 		}(),
 	})
 
-	// Close frame multiple times - should not panic
-	fc.Close()
-	fc.Close()
-	fc.Close()
-
-	// Verify no panic and count is reasonable
-	_ = closeCount
+	// Close store multiple times - should not panic
+	store.Close()
+	store.Close()
+	store.Close()
 }

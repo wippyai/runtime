@@ -2,15 +2,16 @@ package wasm
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
+	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/components/dispatcher"
 	"github.com/wippyai/runtime/runtime/wasm/component/function"
-	sysdispatcher "github.com/wippyai/runtime/system/dispatcher"
 	reghandler "github.com/wippyai/runtime/system/registry/events"
 )
 
@@ -27,10 +28,15 @@ func Engine() boot.Component {
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 
+			disp := dispatcherapi.GetDispatcher(ctx)
+			if disp == nil {
+				return ctx, fmt.Errorf("dispatcher not found in context")
+			}
+
 			manager = function.NewManager(
 				logger.Named("wasm"),
 				bus,
-				sysdispatcher.Dispatcher(),
+				disp,
 			)
 
 			handlers.Register(reghandler.NewRegistryHandler(wasmapi.KindFunction, manager))

@@ -1,5 +1,5 @@
-// Package http provides HTTP client command handlers for the dispatcher system.
-package http
+// Package client provides HTTP client command handlers for the dispatcher system.
+package client
 
 import (
 	"bytes"

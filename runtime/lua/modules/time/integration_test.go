@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	timeyields "github.com/wippyai/runtime/runtime/lua/modules/time"
-	"github.com/wippyai/runtime/service/dispatcher/clock"
+	"github.com/wippyai/runtime/system/clock"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
 )

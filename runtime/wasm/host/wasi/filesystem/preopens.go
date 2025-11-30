@@ -6,6 +6,7 @@ import (
 	"github.com/tetratelabs/wazero/api"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	fsapi "github.com/wippyai/runtime/api/fs"
+	apiresource "github.com/wippyai/runtime/api/resource"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/runtime/wasm/resource"
 )
@@ -19,14 +20,14 @@ const (
 // It provides pre-opened directory handles based on context configuration.
 type PreopensHost struct {
 	resources   *resource.InstanceResources
-	descriptors *resource.TypedTable[*Descriptor]
+	descriptors *apiresource.TypedTable[*Descriptor]
 }
 
 // NewPreopensHost creates a new preopens host.
 func NewPreopensHost(resources *resource.InstanceResources) *PreopensHost {
 	return &PreopensHost{
 		resources:   resources,
-		descriptors: resource.NewTypedTable[*Descriptor](resources.Table(), uint32(TypeDescriptor)),
+		descriptors: apiresource.NewTypedTable[*Descriptor](resources.Table(), uint32(TypeDescriptor)),
 	}
 }
 

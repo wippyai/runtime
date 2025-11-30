@@ -2,10 +2,11 @@ package dispatcher
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
+	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/service/dispatcher/store"
-	sysdispatcher "github.com/wippyai/runtime/system/dispatcher"
 )
 
 func Store() boot.Component {
@@ -13,8 +14,12 @@ func Store() boot.Component {
 		Name:      StoreName,
 		DependsOn: []boot.ComponentName{DispatcherDeps},
 		Load: func(ctx context.Context) (context.Context, error) {
+			reg := dispatcherapi.GetRegistrar(ctx)
+			if reg == nil {
+				return ctx, fmt.Errorf("dispatcher registrar not found in context")
+			}
 			svc := store.NewService()
-			svc.RegisterAll(sysdispatcher.Register)
+			svc.RegisterAll(reg.Register)
 			return ctx, nil
 		},
 	})

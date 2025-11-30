@@ -3,6 +3,8 @@ package resource
 import (
 	"sync"
 	"testing"
+
+	apiresource "github.com/wippyai/runtime/api/resource"
 )
 
 func TestTable(t *testing.T) {
@@ -201,7 +203,7 @@ func TestTypedTable(t *testing.T) {
 	table := New()
 	defer table.Close()
 
-	streams := NewTypedTable[*InputStream](table, uint32(TypeInputStream))
+	streams := apiresource.NewTypedTable[*InputStream](table, uint32(TypeInputStream))
 
 	t.Run("insert and get", func(t *testing.T) {
 		stream := &InputStream{StreamID: 42}
@@ -227,12 +229,12 @@ func TestTypedTable(t *testing.T) {
 	})
 
 	t.Run("len counts only typed", func(t *testing.T) {
-		streams2 := NewTypedTable[*InputStream](table, uint32(TypeInputStream))
+		streams2 := apiresource.NewTypedTable[*InputStream](table, uint32(TypeInputStream))
 		table2 := New()
 		defer table2.Close()
 
-		streams3 := NewTypedTable[*InputStream](table2, uint32(TypeInputStream))
-		out := NewTypedTable[*OutputStream](table2, uint32(TypeOutputStream))
+		streams3 := apiresource.NewTypedTable[*InputStream](table2, uint32(TypeInputStream))
+		out := apiresource.NewTypedTable[*OutputStream](table2, uint32(TypeOutputStream))
 
 		streams3.Insert(&InputStream{StreamID: 1})
 		streams3.Insert(&InputStream{StreamID: 2})
@@ -252,7 +254,7 @@ func TestTypedTable(t *testing.T) {
 		table := New()
 		defer table.Close()
 
-		streams := NewTypedTable[*InputStream](table, uint32(TypeInputStream))
+		streams := apiresource.NewTypedTable[*InputStream](table, uint32(TypeInputStream))
 		stream := &InputStream{StreamID: 10}
 		h := streams.Insert(stream)
 
@@ -399,7 +401,7 @@ func BenchmarkTypedTableInsertGet(b *testing.B) {
 	table := New()
 	defer table.Close()
 
-	streams := NewTypedTable[*InputStream](table, uint32(TypeInputStream))
+	streams := apiresource.NewTypedTable[*InputStream](table, uint32(TypeInputStream))
 	stream := &InputStream{StreamID: 1}
 
 	b.ResetTimer()

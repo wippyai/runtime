@@ -7,6 +7,7 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 
+	apiresource "github.com/wippyai/runtime/api/resource"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	httpservice "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/runtime/wasm/resource"
@@ -30,22 +31,22 @@ const (
 // IncomingHost implements wasi:http/types@0.2.0 for incoming requests.
 type IncomingHost struct {
 	resources         *resource.InstanceResources
-	incomingRequests  *resource.TypedTable[*HTTPIncomingRequest]
-	incomingBodies    *resource.TypedTable[*HTTPIncomingBody]
-	outgoingResponses *resource.TypedTable[*HTTPOutgoingResponse]
-	outgoingBodies    *resource.TypedTable[*HTTPOutgoingBody]
-	fields            *resource.TypedTable[*HTTPFields]
+	incomingRequests  *apiresource.TypedTable[*HTTPIncomingRequest]
+	incomingBodies    *apiresource.TypedTable[*HTTPIncomingBody]
+	outgoingResponses *apiresource.TypedTable[*HTTPOutgoingResponse]
+	outgoingBodies    *apiresource.TypedTable[*HTTPOutgoingBody]
+	fields            *apiresource.TypedTable[*HTTPFields]
 }
 
 // NewIncomingHost creates a new incoming HTTP host with shared resources.
 func NewIncomingHost(resources *resource.InstanceResources) *IncomingHost {
 	return &IncomingHost{
 		resources:         resources,
-		incomingRequests:  resource.NewTypedTable[*HTTPIncomingRequest](resources.Table(), uint32(TypeHTTPIncomingRequest)),
-		incomingBodies:    resource.NewTypedTable[*HTTPIncomingBody](resources.Table(), uint32(TypeHTTPIncomingBody)),
-		outgoingResponses: resource.NewTypedTable[*HTTPOutgoingResponse](resources.Table(), uint32(TypeHTTPOutgoingResponse)),
-		outgoingBodies:    resource.NewTypedTable[*HTTPOutgoingBody](resources.Table(), uint32(TypeHTTPOutgoingBody)),
-		fields:            resource.NewTypedTable[*HTTPFields](resources.Table(), uint32(TypeHTTPFields)),
+		incomingRequests:  apiresource.NewTypedTable[*HTTPIncomingRequest](resources.Table(), uint32(TypeHTTPIncomingRequest)),
+		incomingBodies:    apiresource.NewTypedTable[*HTTPIncomingBody](resources.Table(), uint32(TypeHTTPIncomingBody)),
+		outgoingResponses: apiresource.NewTypedTable[*HTTPOutgoingResponse](resources.Table(), uint32(TypeHTTPOutgoingResponse)),
+		outgoingBodies:    apiresource.NewTypedTable[*HTTPOutgoingBody](resources.Table(), uint32(TypeHTTPOutgoingBody)),
+		fields:            apiresource.NewTypedTable[*HTTPFields](resources.Table(), uint32(TypeHTTPFields)),
 	}
 }
 

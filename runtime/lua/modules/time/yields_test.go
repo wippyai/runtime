@@ -5,7 +5,7 @@ import (
 	"testing"
 	stdtime "time"
 
-	clockapi "github.com/wippyai/runtime/api/dispatcher/clock"
+	clockapi "github.com/wippyai/runtime/api/clock"
 	lua "github.com/yuin/gopher-lua"
 )
 

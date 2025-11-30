@@ -210,31 +210,40 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 // executor creates frame context and executes the function handler.
 // This is called as the final step in the interceptor chain or directly if no chain exists.
 func (f *Registry) executor(ctx context.Context, handler function.Func, task runtimeapi.Task) (*runtimeapi.Result, error) {
-	// Create new frame from sealed parent
-	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	// Acquire pooled frame context
+	ctx, fc := ctxapi.AcquireFrameContext(ctx)
 
 	// Generate PID for this function call
 	gen := pidgen.GetGenerator(ctx)
 	pid := gen.Generate(function.HostID, task.ID)
 
-	// Pre-allocate pairs slice with exact size
-	pairsLen := 3 + len(task.Context)
-	pairs := make([]ctxapi.Pair, pairsLen)
-	pairs[0] = ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID}
-	pairs[1] = ctxapi.Pair{Key: runtimeapi.FramePIDKey, Value: pid}
-	pairs[2] = ctxapi.Pair{Key: runtimeapi.FrameHostKey, Value: f.host}
-
-	// Add task context overrides
-	if len(task.Context) > 0 {
+	// Fast path: no task context overrides (most common case)
+	if len(task.Context) == 0 {
+		_ = fc.Set(runtimeapi.FrameIDKey, task.ID)
+		_ = fc.Set(runtimeapi.FramePIDKey, pid)
+		_ = fc.Set(runtimeapi.FrameHostKey, f.host)
+	} else {
+		// Slow path: has task context overrides
+		pairsLen := 3 + len(task.Context)
+		pairs := make([]ctxapi.Pair, pairsLen)
+		pairs[0] = ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID}
+		pairs[1] = ctxapi.Pair{Key: runtimeapi.FramePIDKey, Value: pid}
+		pairs[2] = ctxapi.Pair{Key: runtimeapi.FrameHostKey, Value: f.host}
 		copy(pairs[3:], task.Context)
-	}
 
-	if err := fc.SetMultiple(pairs...); err != nil {
-		return nil, fmt.Errorf("failed to set frame context: %w", err)
+		if err := fc.SetMultiple(pairs...); err != nil {
+			ctxapi.ReleaseFrameContext(fc)
+			return nil, fmt.Errorf("failed to set frame context: %w", err)
+		}
 	}
 
 	// Execute function handler
-	return handler(ctx, task)
+	result, err := handler(ctx, task)
+
+	// Release frame back to pool
+	ctxapi.ReleaseFrameContext(fc)
+
+	return result, err
 }
 
 // Ensure Registry implements the operation.Registry interface

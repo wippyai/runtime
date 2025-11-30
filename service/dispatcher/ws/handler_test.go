@@ -12,22 +12,32 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	wsapi "github.com/wippyai/runtime/api/dispatcher/ws"
+	"github.com/wippyai/runtime/api/resource"
 
 	"github.com/coder/websocket"
 )
 
+// setupTestContext creates a FrameContext with a resource Store
+func setupTestContext() (context.Context, ctxapi.FrameContext, *resource.Store) {
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	store := resource.NewStore()
+	_ = resource.SetStore(ctx, store)
+	return ctx, fc, store
+}
+
 func TestWsRegistry(t *testing.T) {
-	r := NewWsRegistry()
+	table := resource.NewTable()
+	defer table.Close()
+	r := NewWsRegistry(table)
 	if r == nil {
 		t.Fatal("expected non-nil registry")
-	}
-	if len(r.conns) != 0 {
-		t.Errorf("expected empty conns map, got %d", len(r.conns))
 	}
 }
 
 func TestWsRegistryGetNotFound(t *testing.T) {
-	r := NewWsRegistry()
+	table := resource.NewTable()
+	defer table.Close()
+	r := NewWsRegistry(table)
 
 	_, err := r.Get(999)
 	if err != ErrConnNotFound {
@@ -36,7 +46,9 @@ func TestWsRegistryGetNotFound(t *testing.T) {
 }
 
 func TestWsRegistryCloseNotFound(t *testing.T) {
-	r := NewWsRegistry()
+	table := resource.NewTable()
+	defer table.Close()
+	r := NewWsRegistry(table)
 
 	err := r.Close(999, 0, "")
 	if err != ErrConnNotFound {
@@ -69,7 +81,9 @@ func TestWsRegistryRegisterAndGet(t *testing.T) {
 	}
 	defer conn.CloseNow()
 
-	r := NewWsRegistry()
+	table := resource.NewTable()
+	defer table.Close()
+	r := NewWsRegistry(table)
 	id := r.Register(conn)
 
 	if id == 0 {
@@ -107,7 +121,9 @@ func TestWsRegistryClose(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	r := NewWsRegistry()
+	table := resource.NewTable()
+	defer table.Close()
+	r := NewWsRegistry(table)
 	id := r.Register(conn)
 
 	err = r.Close(id, 1000, "test close")
@@ -138,7 +154,8 @@ func TestWsRegistryCloseAll(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	r := NewWsRegistry()
+	table := resource.NewTable()
+	r := NewWsRegistry(table)
 
 	for i := 0; i < 5; i++ {
 		conn, _, err := websocket.Dial(context.Background(), wsURL, nil)
@@ -148,14 +165,11 @@ func TestWsRegistryCloseAll(t *testing.T) {
 		r.Register(conn)
 	}
 
-	r.CloseAll()
+	// Table Close calls Drop() on all resources
+	table.Close()
 
-	r.mu.Lock()
-	count := len(r.conns)
-	r.mu.Unlock()
-
-	if count != 0 {
-		t.Errorf("expected 0 connections after CloseAll, got %d", count)
+	if table.Len() != 0 {
+		t.Errorf("expected 0 connections after Close, got %d", table.Len())
 	}
 }
 
@@ -181,7 +195,9 @@ func TestWsRegistryDoubleClose(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	r := NewWsRegistry()
+	table := resource.NewTable()
+	defer table.Close()
+	r := NewWsRegistry(table)
 	id := r.Register(conn)
 
 	err = r.Close(id, 1000, "first close")
@@ -213,7 +229,8 @@ func TestWsConnectHandler(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 	h := NewWsConnectHandler()
 
 	var connID uint64
@@ -261,7 +278,8 @@ func TestWsConnectHandlerWithHeaders(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 	h := NewWsConnectHandler()
 
 	err := h.Handle(ctx, wsapi.WsConnectCmd{
@@ -299,7 +317,8 @@ func TestWsSendHandler(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
@@ -339,7 +358,8 @@ func TestWsReceiveHandler(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
@@ -382,7 +402,8 @@ func TestWsReceiveHandlerBinary(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
@@ -417,7 +438,8 @@ func TestWsReceiveHandlerEOF(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
@@ -458,7 +480,8 @@ func TestWsCloseHandler(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
@@ -502,7 +525,8 @@ func TestWsPingHandler(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	baseCtx, _ := ctxapi.OpenFrameContext(context.Background())
+	baseCtx, _, store := setupTestContext()
+	defer store.Close()
 
 	conn, _, err := websocket.Dial(baseCtx, wsURL, nil)
 	if err != nil {
@@ -534,7 +558,8 @@ func TestWsPingHandler(t *testing.T) {
 }
 
 func TestWsSendHandlerNotFound(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 	GetOrCreateWsRegistry(ctx)
 
 	h := NewWsSendHandler()
@@ -549,7 +574,8 @@ func TestWsSendHandlerNotFound(t *testing.T) {
 }
 
 func TestWsReceiveHandlerNotFound(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 	GetOrCreateWsRegistry(ctx)
 
 	h := NewWsReceiveHandler()
@@ -588,7 +614,8 @@ func TestWsConcurrentSends(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
@@ -640,7 +667,8 @@ func TestWsFullCycle(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 
 	connectH := NewWsConnectHandler()
 	sendH := NewWsSendHandler()
@@ -698,7 +726,8 @@ func TestWsContextCancellation(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	baseCtx, _ := ctxapi.OpenFrameContext(context.Background())
+	baseCtx, _, store := setupTestContext()
+	defer store.Close()
 
 	conn, _, err := websocket.Dial(baseCtx, wsURL, nil)
 	if err != nil {
@@ -768,7 +797,8 @@ func TestWsSubscribeHandler(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
@@ -840,7 +870,7 @@ func TestWsCleanupOnFrameClose(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
 
 	// Connect via handler
 	h := NewWsConnectHandler()
@@ -862,8 +892,8 @@ func TestWsCleanupOnFrameClose(t *testing.T) {
 		t.Fatalf("connection should be active: %v", err)
 	}
 
-	// Close the frame context (simulates process eviction)
-	fc.Close()
+	// Close the store (simulates process eviction)
+	store.Close()
 
 	// Wait for server to detect close
 	time.Sleep(50 * time.Millisecond)
@@ -873,12 +903,9 @@ func TestWsCleanupOnFrameClose(t *testing.T) {
 		t.Error("server should have detected connection close")
 	}
 
-	// Registry should be empty after cleanup
-	registry.mu.Lock()
-	count := len(registry.conns)
-	registry.mu.Unlock()
-	if count != 0 {
-		t.Errorf("expected 0 connections after cleanup, got %d", count)
+	// Table should be empty after cleanup
+	if store.Table().Len() != 0 {
+		t.Errorf("expected 0 connections after cleanup, got %d", store.Table().Len())
 	}
 }
 
@@ -901,7 +928,7 @@ func TestWsCleanupMultipleConnections(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
 
 	h := NewWsConnectHandler()
 
@@ -913,16 +940,12 @@ func TestWsCleanupMultipleConnections(t *testing.T) {
 		}
 	}
 
-	registry := GetWsRegistry(ctx)
-	registry.mu.Lock()
-	connCount := len(registry.conns)
-	registry.mu.Unlock()
-	if connCount != 5 {
-		t.Errorf("expected 5 connections, got %d", connCount)
+	if store.Table().Len() != 5 {
+		t.Errorf("expected 5 connections, got %d", store.Table().Len())
 	}
 
-	// Close frame - should cleanup all connections
-	fc.Close()
+	// Close store - should cleanup all connections
+	store.Close()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -948,7 +971,8 @@ func BenchmarkWsSend(b *testing.B) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _, store := setupTestContext()
+	defer store.Close()
 
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {

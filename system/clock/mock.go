@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
-	clockapi "github.com/wippyai/runtime/api/dispatcher/clock"
 )
 
 // MockClock provides controllable time for testing.

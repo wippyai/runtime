@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"unsafe"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -33,11 +32,10 @@ type CallResult struct {
 
 // asyncCallEntry tracks a single async call.
 type asyncCallEntry struct {
-	cancel   context.CancelFunc
-	done     chan struct{}
-	result   any
-	err      error
-	complete atomic.Bool
+	cancel context.CancelFunc
+	done   chan struct{}
+	result any
+	err    error
 }
 
 // AsyncCallRegistry manages async function calls for a process.
@@ -57,15 +55,16 @@ func NewAsyncCallRegistry() *AsyncCallRegistry {
 // Start begins an async function call and returns immediately with a call ID.
 // The call executes in a goroutine and results can be retrieved via Await.
 func (r *AsyncCallRegistry) Start(ctx context.Context, registry function.Registry, task runtime.Task) uint64 {
-	r.mu.Lock()
-	r.nextID++
-	id := r.nextID
-
 	callCtx, cancel := context.WithCancel(ctx)
+
 	entry := &asyncCallEntry{
 		cancel: cancel,
 		done:   make(chan struct{}),
 	}
+
+	r.mu.Lock()
+	r.nextID++
+	id := r.nextID
 	r.calls[id] = entry
 	r.mu.Unlock()
 
@@ -83,7 +82,6 @@ func (r *AsyncCallRegistry) Start(ctx context.Context, registry function.Registr
 				entry.result = result.Value
 			}
 		}
-		entry.complete.Store(true)
 	}()
 
 	return id
@@ -195,6 +193,28 @@ func (f *Registry) CallAsync(ctx context.Context, task runtime.Task) (<-chan *Ca
 	}()
 
 	return ch, nil
+}
+
+// CallAsyncCallback executes a function call asynchronously with a callback.
+// This is the most efficient async pattern - no channel allocation.
+// The callback is invoked in the goroutine that executes the function.
+func (f *Registry) CallAsyncCallback(ctx context.Context, task runtime.Task, callback func(*runtime.Result, error)) error {
+	handler, exists := f.handlers.Load(task.ID)
+	if !exists {
+		return fmt.Errorf("no handler registered for target: %s", task.ID)
+	}
+
+	_, ok := handler.(function.Func)
+	if !ok {
+		return fmt.Errorf("invalid handler type for target: %s", task.ID)
+	}
+
+	go func() {
+		result, err := f.Call(ctx, task)
+		callback(result, err)
+	}()
+
+	return nil
 }
 
 // ReleaseResultChan returns a result channel to the pool for reuse.

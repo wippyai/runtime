@@ -2,10 +2,11 @@ package dispatcher
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/service/dispatcher/http"
-	sysdispatcher "github.com/wippyai/runtime/system/dispatcher"
+	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
+	httpclient "github.com/wippyai/runtime/service/http/client"
 )
 
 func HTTP() boot.Component {
@@ -13,8 +14,12 @@ func HTTP() boot.Component {
 		Name:      HTTPName,
 		DependsOn: []boot.ComponentName{DispatcherDeps},
 		Load: func(ctx context.Context) (context.Context, error) {
-			svc := http.NewService()
-			svc.RegisterAll(sysdispatcher.Register)
+			reg := dispatcherapi.GetRegistrar(ctx)
+			if reg == nil {
+				return ctx, fmt.Errorf("dispatcher registrar not found in context")
+			}
+			svc := httpclient.NewService()
+			svc.RegisterAll(reg.Register)
 			return ctx, nil
 		},
 	})

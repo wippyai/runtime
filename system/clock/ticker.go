@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
-	clockapi "github.com/wippyai/runtime/api/dispatcher/clock"
 )
 
 // TickerRegistryKey is the context key for TickerRegistry.

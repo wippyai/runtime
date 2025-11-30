@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/function"
 )
 
+// ErrRegistryNotFound is returned when the function registry is not in context.
 var ErrRegistryNotFound = errors.New("function registry not found in context")
 
 // Dispatcher handles function call commands from the scheduler.
@@ -109,7 +110,7 @@ func (h *AsyncAwaitHandler) Handle(ctx context.Context, cmd dispatcher.Command, 
 // AsyncCancelHandler cancels an in-progress async call.
 type AsyncCancelHandler struct{}
 
-func (h *AsyncCancelHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+func (h *AsyncCancelHandler) Handle(ctx context.Context, cmd dispatcher.Command, _ dispatcher.EmitFunc) error {
 	cancelCmd := cmd.(*funcapi.AsyncCancelCmd)
 
 	callRegistry := GetAsyncCallRegistry(ctx)

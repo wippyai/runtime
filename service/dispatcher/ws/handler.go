@@ -5,17 +5,16 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"sync"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	wsapi "github.com/wippyai/runtime/api/dispatcher/ws"
+	"github.com/wippyai/runtime/api/resource"
 
 	"github.com/coder/websocket"
 )
 
-// WsRegistryKey is the context key for WsRegistry.
-var WsRegistryKey = &ctxapi.Key{Name: "ws.registry", Inherit: false}
+// TypeWsConn is the type ID for WebSocket connections in the resource table.
+const TypeWsConn uint32 = 0x20
 
 // Errors
 var (
@@ -26,45 +25,42 @@ var (
 // connEntry holds an active WebSocket connection.
 type connEntry struct {
 	conn   *websocket.Conn
-	mu     sync.Mutex
 	closed bool
 }
 
-// WsRegistry manages active WebSocket connections for a process.
-type WsRegistry struct {
-	mu     sync.Mutex
-	conns  map[uint64]*connEntry
-	nextID uint64
+// Drop implements resource.Dropper for automatic cleanup.
+func (e *connEntry) Drop() {
+	if !e.closed {
+		e.closed = true
+		e.conn.Close(websocket.StatusGoingAway, "resource dropped")
+	}
 }
 
-// NewWsRegistry creates a new WebSocket registry.
-func NewWsRegistry() *WsRegistry {
+// WsRegistry manages active WebSocket connections using the resource table.
+type WsRegistry struct {
+	conns *resource.TypedTable[*connEntry]
+}
+
+// NewWsRegistry creates a WebSocket registry backed by the given table.
+func NewWsRegistry(table *resource.Table) *WsRegistry {
 	return &WsRegistry{
-		conns: make(map[uint64]*connEntry),
+		conns: resource.NewTypedTable[*connEntry](table, TypeWsConn),
 	}
 }
 
 // Register adds a connection to the registry.
 func (r *WsRegistry) Register(conn *websocket.Conn) uint64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.nextID++
-	id := r.nextID
-
-	r.conns[id] = &connEntry{
+	entry := &connEntry{
 		conn:   conn,
 		closed: false,
 	}
-	return id
+	handle := r.conns.Insert(entry)
+	return uint64(handle)
 }
 
-// Get returns a connection by ID.
+// Get returns a connection entry by ID.
 func (r *WsRegistry) Get(id uint64) (*connEntry, error) {
-	r.mu.Lock()
-	entry, ok := r.conns[id]
-	r.mu.Unlock()
-
+	entry, ok := r.conns.Get(resource.Handle(id))
 	if !ok {
 		return nil, ErrConnNotFound
 	}
@@ -76,19 +72,10 @@ func (r *WsRegistry) Get(id uint64) (*connEntry, error) {
 
 // Close closes a connection.
 func (r *WsRegistry) Close(id uint64, code int, reason string) error {
-	r.mu.Lock()
-	entry, ok := r.conns[id]
-	if ok {
-		delete(r.conns, id)
-	}
-	r.mu.Unlock()
-
+	entry, ok := r.conns.Remove(resource.Handle(id))
 	if !ok {
 		return ErrConnNotFound
 	}
-
-	entry.mu.Lock()
-	defer entry.mu.Unlock()
 
 	if entry.closed {
 		return nil
@@ -103,62 +90,24 @@ func (r *WsRegistry) Close(id uint64, code int, reason string) error {
 	return entry.conn.Close(statusCode, reason)
 }
 
-// CloseAll closes all connections.
-func (r *WsRegistry) CloseAll() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	for id, entry := range r.conns {
-		entry.mu.Lock()
-		if !entry.closed {
-			entry.closed = true
-			entry.conn.Close(websocket.StatusGoingAway, "process terminating")
-		}
-		entry.mu.Unlock()
-		delete(r.conns, id)
-	}
-}
-
-// GetWsRegistry retrieves WsRegistry from FrameContext.
+// GetWsRegistry returns a WsRegistry backed by the Table from context.
+// Returns nil if no Table is available in the context.
 func GetWsRegistry(ctx context.Context) *WsRegistry {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
+	table := resource.GetTable(ctx)
+	if table == nil {
 		return nil
 	}
-	if val, ok := fc.Get(WsRegistryKey); ok {
-		return val.(*WsRegistry)
-	}
-	return nil
+	return NewWsRegistry(table)
 }
 
-// SetWsRegistry stores WsRegistry in FrameContext.
-func SetWsRegistry(ctx context.Context, r *WsRegistry) error {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return ctxapi.ErrNoFrameContext
-	}
-	return fc.Set(WsRegistryKey, r)
-}
-
-// GetOrCreateWsRegistry returns existing registry or creates a new one.
-// Registers cleanup with FrameContext to close all connections on process termination.
+// GetOrCreateWsRegistry returns a WsRegistry for the context.
+// Panics if no Store is available - engines must set resource.Store during initialization.
 func GetOrCreateWsRegistry(ctx context.Context) *WsRegistry {
-	if r := GetWsRegistry(ctx); r != nil {
-		return r
+	registry := GetWsRegistry(ctx)
+	if registry == nil {
+		panic("ws: no resource.Store in context - engine must set it during initialization")
 	}
-	r := NewWsRegistry()
-	_ = SetWsRegistry(ctx, r)
-
-	// Register cleanup to close all connections when frame closes
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc != nil {
-		fc.AddCleanup(func() error {
-			r.CloseAll()
-			return nil
-		})
-	}
-
-	return r
+	return registry
 }
 
 // WsConnectHandler connects to a WebSocket server.
@@ -242,13 +191,6 @@ func (h *WsSendHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit
 	msgType := websocket.MessageText
 	if sendCmd.MessageType == wsapi.MessageBinary {
 		msgType = websocket.MessageBinary
-	}
-
-	entry.mu.Lock()
-	defer entry.mu.Unlock()
-
-	if entry.closed {
-		return ErrConnClosed
 	}
 
 	return entry.conn.Write(ctx, msgType, sendCmd.Data)
@@ -339,13 +281,6 @@ func (h *WsPingHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit
 		return err
 	}
 
-	entry.mu.Lock()
-	defer entry.mu.Unlock()
-
-	if entry.closed {
-		return ErrConnClosed
-	}
-
 	return entry.conn.Ping(ctx)
 }
 
@@ -369,14 +304,6 @@ func (h *WsSubscribeHandler) Handle(ctx context.Context, cmd dispatcher.Command,
 	if err != nil {
 		return err
 	}
-
-	entry.mu.Lock()
-	if entry.closed {
-		entry.mu.Unlock()
-		emit(wsapi.WsMessage{EOF: true})
-		return nil
-	}
-	entry.mu.Unlock()
 
 	// Emit subscription confirmation
 	emit(wsapi.WsSubscription(subCmd))

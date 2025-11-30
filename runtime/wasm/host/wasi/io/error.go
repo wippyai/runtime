@@ -5,6 +5,7 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 
+	apiresource "github.com/wippyai/runtime/api/resource"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/runtime/wasm/resource"
 )
@@ -22,14 +23,14 @@ const (
 // ErrorHost implements wasi:io/error@0.2.8.
 type ErrorHost struct {
 	resources *resource.InstanceResources
-	errors    *resource.TypedTable[*IOError]
+	errors    *apiresource.TypedTable[*IOError]
 }
 
 // NewErrorHost creates a new error host with shared resources.
 func NewErrorHost(resources *resource.InstanceResources) *ErrorHost {
 	return &ErrorHost{
 		resources: resources,
-		errors:    resource.NewTypedTable[*IOError](resources.Table(), uint32(TypeIOError)),
+		errors:    apiresource.NewTypedTable[*IOError](resources.Table(), uint32(TypeIOError)),
 	}
 }
 
@@ -63,7 +64,7 @@ func (h *ErrorHost) Resources() *resource.InstanceResources {
 }
 
 // Errors returns the typed table for errors.
-func (h *ErrorHost) Errors() *resource.TypedTable[*IOError] {
+func (h *ErrorHost) Errors() *apiresource.TypedTable[*IOError] {
 	return h.errors
 }
 

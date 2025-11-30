@@ -5,17 +5,16 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sync"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	streamapi "github.com/wippyai/runtime/api/dispatcher/stream"
+	"github.com/wippyai/runtime/api/resource"
 )
 
 const DefaultChunkSize = 32 * 1024 // 32KB
 
-// StreamRegistryKey is the context key for StreamRegistry.
-var StreamRegistryKey = &ctxapi.Key{Name: "stream.registry", Inherit: false}
+// TypeStream is the type ID for stream entries in the resource table.
+const TypeStream uint32 = 0x10
 
 // ErrStreamNotFound is returned when stream ID doesn't exist.
 var ErrStreamNotFound = errors.New("stream not found")
@@ -52,6 +51,14 @@ type streamEntry struct {
 	closed  bool
 }
 
+// Drop implements resource.Dropper for automatic cleanup.
+func (e *streamEntry) Drop() {
+	if !e.closed && e.closer != nil {
+		e.closed = true
+		e.closer.Close()
+	}
+}
+
 // Flusher is an optional interface for streams that support flush.
 type Flusher interface {
 	Flush() error
@@ -62,18 +69,15 @@ type Stater interface {
 	Stat() (size int64, err error)
 }
 
-// StreamRegistry manages active streams for a process.
-// Thread-safe, stores streams by uint64 ID.
+// StreamRegistry manages active streams using the resource table.
 type StreamRegistry struct {
-	mu      sync.Mutex
-	streams map[uint64]*streamEntry
-	nextID  uint64
+	streams *resource.TypedTable[*streamEntry]
 }
 
-// NewStreamRegistry creates a new stream registry.
-func NewStreamRegistry() *StreamRegistry {
+// NewStreamRegistry creates a stream registry backed by the given table.
+func NewStreamRegistry(table *resource.Table) *StreamRegistry {
 	return &StreamRegistry{
-		streams: make(map[uint64]*streamEntry),
+		streams: resource.NewTypedTable[*streamEntry](table, TypeStream),
 	}
 }
 
@@ -84,12 +88,6 @@ func (r *StreamRegistry) Register(reader io.ReadCloser) uint64 {
 
 // RegisterStream adds any stream to the registry, detecting its capabilities.
 func (r *StreamRegistry) RegisterStream(stream io.Closer) uint64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.nextID++
-	id := r.nextID
-
 	entry := &streamEntry{
 		closer: stream,
 		size:   -1,
@@ -116,27 +114,22 @@ func (r *StreamRegistry) RegisterStream(stream io.Closer) uint64 {
 		entry.stater = st
 	}
 
-	r.streams[id] = entry
-	return id
+	handle := r.streams.Insert(entry)
+	return uint64(handle)
 }
 
 // RegisterWithSize adds a stream with known size.
 func (r *StreamRegistry) RegisterWithSize(stream io.Closer, size int64) uint64 {
 	id := r.RegisterStream(stream)
-	r.mu.Lock()
-	if entry, ok := r.streams[id]; ok {
+	if entry, ok := r.streams.Get(resource.Handle(id)); ok {
 		entry.size = size
 	}
-	r.mu.Unlock()
 	return id
 }
 
 // Capabilities returns the capabilities of a stream.
 func (r *StreamRegistry) Capabilities(id uint64) (StreamCapabilities, error) {
-	r.mu.Lock()
-	entry, ok := r.streams[id]
-	r.mu.Unlock()
-
+	entry, ok := r.streams.Get(resource.Handle(id))
 	if !ok {
 		return StreamCapabilities{}, ErrStreamNotFound
 	}
@@ -147,12 +140,8 @@ func (r *StreamRegistry) Capabilities(id uint64) (StreamCapabilities, error) {
 }
 
 // Read reads a chunk from stream with given ID.
-// Returns bytes or error if stream not found, closed, or not readable.
 func (r *StreamRegistry) Read(id uint64, size int64) ([]byte, error) {
-	r.mu.Lock()
-	entry, ok := r.streams[id]
-	r.mu.Unlock()
-
+	entry, ok := r.streams.Get(resource.Handle(id))
 	if !ok {
 		return nil, ErrStreamNotFound
 	}
@@ -186,12 +175,8 @@ func (r *StreamRegistry) Read(id uint64, size int64) ([]byte, error) {
 }
 
 // Write writes data to stream with given ID.
-// Returns number of bytes written.
 func (r *StreamRegistry) Write(id uint64, data []byte) (int, error) {
-	r.mu.Lock()
-	entry, ok := r.streams[id]
-	r.mu.Unlock()
-
+	entry, ok := r.streams.Get(resource.Handle(id))
 	if !ok {
 		return 0, ErrStreamNotFound
 	}
@@ -206,12 +191,8 @@ func (r *StreamRegistry) Write(id uint64, data []byte) (int, error) {
 }
 
 // Seek seeks to a position in the stream.
-// Returns new position.
 func (r *StreamRegistry) Seek(id uint64, offset int64, whence int) (int64, error) {
-	r.mu.Lock()
-	entry, ok := r.streams[id]
-	r.mu.Unlock()
-
+	entry, ok := r.streams.Get(resource.Handle(id))
 	if !ok {
 		return 0, ErrStreamNotFound
 	}
@@ -227,10 +208,7 @@ func (r *StreamRegistry) Seek(id uint64, offset int64, whence int) (int64, error
 
 // Flush flushes any buffered data to the underlying stream.
 func (r *StreamRegistry) Flush(id uint64) error {
-	r.mu.Lock()
-	entry, ok := r.streams[id]
-	r.mu.Unlock()
-
+	entry, ok := r.streams.Get(resource.Handle(id))
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -238,7 +216,7 @@ func (r *StreamRegistry) Flush(id uint64) error {
 		return ErrStreamClosed
 	}
 	if entry.flusher == nil {
-		return nil // no-op if not flushable
+		return nil
 	}
 
 	return entry.flusher.Flush()
@@ -246,10 +224,7 @@ func (r *StreamRegistry) Flush(id uint64) error {
 
 // Stat returns information about the stream.
 func (r *StreamRegistry) Stat(id uint64) (size int64, position int64, caps StreamCapabilities, err error) {
-	r.mu.Lock()
-	entry, ok := r.streams[id]
-	r.mu.Unlock()
-
+	entry, ok := r.streams.Get(resource.Handle(id))
 	if !ok {
 		return -1, -1, StreamCapabilities{}, ErrStreamNotFound
 	}
@@ -260,12 +235,10 @@ func (r *StreamRegistry) Stat(id uint64) (size int64, position int64, caps Strea
 	size = entry.size
 	position = int64(-1)
 
-	// Try to get size from stater
 	if size < 0 && entry.stater != nil {
 		size, _ = entry.stater.Stat()
 	}
 
-	// Try to get position from seeker
 	if entry.seeker != nil {
 		position, _ = entry.seeker.Seek(0, io.SeekCurrent)
 	}
@@ -275,21 +248,13 @@ func (r *StreamRegistry) Stat(id uint64) (size int64, position int64, caps Strea
 
 // Close closes stream with given ID.
 func (r *StreamRegistry) Close(id uint64) error {
-	r.mu.Lock()
-	entry, ok := r.streams[id]
-	if ok {
-		delete(r.streams, id)
-	}
-	r.mu.Unlock()
-
+	entry, ok := r.streams.Remove(resource.Handle(id))
 	if !ok {
 		return ErrStreamNotFound
 	}
-
 	if entry.closed {
 		return nil
 	}
-
 	entry.closed = true
 	if entry.closer != nil {
 		return entry.closer.Close()
@@ -297,60 +262,30 @@ func (r *StreamRegistry) Close(id uint64) error {
 	return nil
 }
 
-// CloseAll closes all streams and clears the registry.
-func (r *StreamRegistry) CloseAll() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	for id, entry := range r.streams {
-		if !entry.closed && entry.closer != nil {
-			entry.closed = true
-			entry.closer.Close()
-		}
-		delete(r.streams, id)
-	}
+// TableProvider is implemented by types that provide a resource table.
+type TableProvider interface {
+	Table() *resource.Table
 }
 
-// GetStreamRegistry retrieves StreamRegistry from FrameContext.
+// GetStreamRegistry returns a StreamRegistry backed by the Table from context.
+// Checks resource.StoreKey first (set by Lua engine), then falls back to legacy lookup.
+// Returns nil if no Table is available in the context.
 func GetStreamRegistry(ctx context.Context) *StreamRegistry {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
+	table := resource.GetTable(ctx)
+	if table == nil {
 		return nil
 	}
-	if val, ok := fc.Get(StreamRegistryKey); ok {
-		return val.(*StreamRegistry)
-	}
-	return nil
+	return NewStreamRegistry(table)
 }
 
-// SetStreamRegistry stores StreamRegistry in FrameContext.
-func SetStreamRegistry(ctx context.Context, r *StreamRegistry) error {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return ctxapi.ErrNoFrameContext
-	}
-	return fc.Set(StreamRegistryKey, r)
-}
-
-// GetOrCreateStreamRegistry returns existing registry or creates a new one.
-// Registers cleanup with FrameContext to close all streams on process termination.
+// GetOrCreateStreamRegistry returns a StreamRegistry for the context.
+// Panics if no Store is available - engines must set resource.Store during initialization.
 func GetOrCreateStreamRegistry(ctx context.Context) *StreamRegistry {
-	if r := GetStreamRegistry(ctx); r != nil {
-		return r
+	registry := GetStreamRegistry(ctx)
+	if registry == nil {
+		panic("stream: no resource.Store in context - engine must set it during initialization")
 	}
-	r := NewStreamRegistry()
-	_ = SetStreamRegistry(ctx, r)
-
-	// Register cleanup to close all streams when frame closes
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc != nil {
-		fc.AddCleanup(func() error {
-			r.CloseAll()
-			return nil
-		})
-	}
-
-	return r
+	return registry
 }
 
 // StreamReadHandler reads a chunk from a stream.

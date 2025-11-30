@@ -5,8 +5,8 @@ import (
 	"sync"
 	stdtime "time"
 
+	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
-	clockapi "github.com/wippyai/runtime/api/dispatcher/clock"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/api/workflow"

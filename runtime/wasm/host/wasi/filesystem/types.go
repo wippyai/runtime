@@ -13,6 +13,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/registry"
+	apiresource "github.com/wippyai/runtime/api/resource"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/wasm/resource"
@@ -33,16 +34,16 @@ const (
 // TypesHost implements wasi:filesystem/types@0.2.8.
 type TypesHost struct {
 	resources   *resource.InstanceResources
-	descriptors *resource.TypedTable[*Descriptor]
-	dirStreams  *resource.TypedTable[*DirectoryEntryStream]
+	descriptors *apiresource.TypedTable[*Descriptor]
+	dirStreams  *apiresource.TypedTable[*DirectoryEntryStream]
 }
 
 // NewTypesHost creates a new filesystem types host.
 func NewTypesHost(resources *resource.InstanceResources) *TypesHost {
 	return &TypesHost{
 		resources:   resources,
-		descriptors: resource.NewTypedTable[*Descriptor](resources.Table(), uint32(TypeDescriptor)),
-		dirStreams:  resource.NewTypedTable[*DirectoryEntryStream](resources.Table(), uint32(TypeDirectoryEntryStream)),
+		descriptors: apiresource.NewTypedTable[*Descriptor](resources.Table(), uint32(TypeDescriptor)),
+		dirStreams:  apiresource.NewTypedTable[*DirectoryEntryStream](resources.Table(), uint32(TypeDirectoryEntryStream)),
 	}
 }
 
@@ -110,7 +111,7 @@ func (h *TypesHost) Resources() *resource.InstanceResources {
 }
 
 // Descriptors returns the typed table for file descriptors.
-func (h *TypesHost) Descriptors() *resource.TypedTable[*Descriptor] {
+func (h *TypesHost) Descriptors() *apiresource.TypedTable[*Descriptor] {
 	return h.descriptors
 }
 

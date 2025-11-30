@@ -216,7 +216,7 @@ func TestAsyncCallRegistry_ResultError(t *testing.T) {
 func TestAsyncCallRegistry_AwaitContextCancel(t *testing.T) {
 	reg := NewAsyncCallRegistry()
 	mock := &mockRegistry{
-		callFn: func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 			time.Sleep(1 * time.Second)
 			return &runtime.Result{Value: payload.New("result")}, nil
 		},
@@ -236,7 +236,7 @@ func TestCallAsync(t *testing.T) {
 	executor, bus := setupTest()
 	ctx := setupTestContext()
 	require.NoError(t, executor.Start(ctx))
-	defer executor.Stop()
+	defer func() { _ = executor.Stop() }()
 
 	funcID := registry.NewID("test", "async_func")
 	called := false
@@ -270,7 +270,7 @@ func TestCallAsync_NotFound(t *testing.T) {
 	executor, _ := setupTest()
 	ctx := setupTestContext()
 	require.NoError(t, executor.Start(ctx))
-	defer executor.Stop()
+	defer func() { _ = executor.Stop() }()
 
 	_, err := executor.CallAsync(ctx, runtime.Task{
 		ID: registry.NewID("test", "nonexistent"),
@@ -291,7 +291,7 @@ func BenchmarkAsyncCallRegistry_Start(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		id := reg.Start(ctx, mock, task)
-		reg.Await(ctx, id)
+		_, _ = reg.Await(ctx, id)
 	}
 }
 
@@ -309,16 +309,16 @@ func BenchmarkAsyncCallRegistry_StartParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			id := reg.Start(ctx, mock, task)
-			reg.Await(ctx, id)
+			_, _ = reg.Await(ctx, id)
 		}
 	})
 }
 
 func BenchmarkCallAsync(b *testing.B) {
 	executor, bus := setupTest()
-	ctx := ctxapi.NewRootContext()
-	executor.Start(ctx)
-	defer executor.Stop()
+	ctx := setupTestContext()
+	_ = executor.Start(ctx)
+	defer func() { _ = executor.Stop() }()
 
 	funcID := registry.NewID("test", "bench_func")
 	bus.Send(ctx, event.Event{
@@ -345,9 +345,9 @@ func BenchmarkCallAsync(b *testing.B) {
 
 func BenchmarkCallAsync_Parallel(b *testing.B) {
 	executor, bus := setupTest()
-	ctx := ctxapi.NewRootContext()
-	executor.Start(ctx)
-	defer executor.Stop()
+	ctx := setupTestContext()
+	_ = executor.Start(ctx)
+	defer func() { _ = executor.Stop() }()
 
 	funcID := registry.NewID("test", "bench_func")
 	bus.Send(ctx, event.Event{
@@ -370,6 +370,127 @@ func BenchmarkCallAsync_Parallel(b *testing.B) {
 			ch, _ := executor.CallAsync(ctx, task)
 			<-ch
 			ReleaseResultChan(ch)
+		}
+	})
+}
+
+func BenchmarkCallAsyncCallback(b *testing.B) {
+	executor, bus := setupTest()
+	ctx := setupTestContext()
+	_ = executor.Start(ctx)
+	defer func() { _ = executor.Stop() }()
+
+	funcID := registry.NewID("test", "bench_func")
+	bus.Send(ctx, event.Event{
+		System: function.System,
+		Kind:   function.Register,
+		Path:   funcID.String(),
+		Data: &function.FuncEntry{
+			Handler: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+				return &runtime.Result{Value: payload.New("result")}, nil
+			},
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	task := runtime.Task{ID: funcID}
+	done := make(chan struct{}, 1)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = executor.CallAsyncCallback(ctx, task, func(_ *runtime.Result, _ error) {
+			done <- struct{}{}
+		})
+		<-done
+	}
+}
+
+func BenchmarkCallAsyncCallback_Parallel(b *testing.B) {
+	executor, bus := setupTest()
+	ctx := setupTestContext()
+	_ = executor.Start(ctx)
+	defer func() { _ = executor.Stop() }()
+
+	funcID := registry.NewID("test", "bench_func")
+	bus.Send(ctx, event.Event{
+		System: function.System,
+		Kind:   function.Register,
+		Path:   funcID.String(),
+		Data: &function.FuncEntry{
+			Handler: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+				return &runtime.Result{Value: payload.New("result")}, nil
+			},
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	task := runtime.Task{ID: funcID}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		done := make(chan struct{}, 1)
+		for pb.Next() {
+			_ = executor.CallAsyncCallback(ctx, task, func(_ *runtime.Result, _ error) {
+				done <- struct{}{}
+			})
+			<-done
+		}
+	})
+}
+
+// BenchmarkCall benchmarks the synchronous Call path (used by HTTP handlers)
+func BenchmarkCall(b *testing.B) {
+	executor, bus := setupTest()
+	ctx := setupTestContext()
+	_ = executor.Start(ctx)
+	defer func() { _ = executor.Stop() }()
+
+	funcID := registry.NewID("test", "bench_func")
+	bus.Send(ctx, event.Event{
+		System: function.System,
+		Kind:   function.Register,
+		Path:   funcID.String(),
+		Data: &function.FuncEntry{
+			Handler: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+				return &runtime.Result{Value: payload.New("result")}, nil
+			},
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	task := runtime.Task{ID: funcID}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = executor.Call(ctx, task)
+	}
+}
+
+func BenchmarkCall_Parallel(b *testing.B) {
+	executor, bus := setupTest()
+	ctx := setupTestContext()
+	_ = executor.Start(ctx)
+	defer func() { _ = executor.Stop() }()
+
+	funcID := registry.NewID("test", "bench_func")
+	bus.Send(ctx, event.Event{
+		System: function.System,
+		Kind:   function.Register,
+		Path:   funcID.String(),
+		Data: &function.FuncEntry{
+			Handler: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+				return &runtime.Result{Value: payload.New("result")}, nil
+			},
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	task := runtime.Task{ID: funcID}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, _ = executor.Call(ctx, task)
 		}
 	})
 }
@@ -434,7 +555,7 @@ func TestAsyncCallRegistry_StressCancelWhileRunning(t *testing.T) {
 	for i := 0; i < numCalls; i++ {
 		go func(idx int) {
 			defer wg.Done()
-			reg.Cancel(ids[idx])
+			_ = reg.Cancel(ids[idx])
 		}(i)
 	}
 	wg.Wait()
@@ -447,7 +568,7 @@ func TestAsyncCallRegistry_StressCancelWhileRunning(t *testing.T) {
 	}
 }
 
-func TestAsyncCallRegistry_StressMixedOperations(t *testing.T) {
+func TestAsyncCallRegistry_StressMixedOperations(_ *testing.T) {
 	reg := NewAsyncCallRegistry()
 	mock := &mockRegistry{
 		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -467,7 +588,7 @@ func TestAsyncCallRegistry_StressMixedOperations(t *testing.T) {
 			id := reg.Start(ctx, mock, runtime.Task{
 				ID: registry.NewID("test", fmt.Sprintf("start%d", idx)),
 			})
-			reg.Await(ctx, id)
+			_, _ = reg.Await(ctx, id)
 		}(i)
 
 		go func(idx int) {
@@ -475,13 +596,14 @@ func TestAsyncCallRegistry_StressMixedOperations(t *testing.T) {
 			id := reg.Start(ctx, mock, runtime.Task{
 				ID: registry.NewID("test", fmt.Sprintf("cancel%d", idx)),
 			})
-			reg.Cancel(id)
-			reg.Await(ctx, id)
+			_ = reg.Cancel(id)
+			_, _ = reg.Await(ctx, id)
 		}(i)
 
 		go func(idx int) {
 			defer wg.Done()
-			reg.Await(ctx, uint64(idx+1000000))
+			//nolint:gosec // test code, safe conversion
+			_, _ = reg.Await(ctx, uint64(idx+1000000))
 		}(i)
 	}
 
@@ -492,7 +614,7 @@ func TestCallAsync_StressParallel(t *testing.T) {
 	executor, bus := setupTest()
 	ctx := setupTestContext()
 	require.NoError(t, executor.Start(ctx))
-	defer executor.Stop()
+	defer func() { _ = executor.Stop() }()
 
 	funcID := registry.NewID("test", "stress_func")
 	bus.Send(ctx, event.Event{

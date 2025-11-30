@@ -6,9 +6,9 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	contextapi "github.com/wippyai/runtime/api/context"
+	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/internal/graph"
-	"github.com/wippyai/runtime/system/dispatcher"
 	"github.com/wippyai/runtime/system/eventbus"
 )
 
@@ -105,7 +105,11 @@ func (l *Loader) Start(ctx context.Context) error {
 
 	// Freeze dispatcher registry for lock-free lookups
 	// All handlers were registered during Load() phase
-	dispatcher.Freeze()
+	if reg := dispatcherapi.GetRegistry(ctx); reg != nil {
+		if freezer, ok := reg.(dispatcherapi.Freezer); ok {
+			freezer.Freeze()
+		}
+	}
 
 	for _, c := range l.loaded {
 		if starter, ok := c.(boot.Starter); ok {

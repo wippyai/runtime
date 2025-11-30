@@ -6,8 +6,8 @@ import (
 	"context"
 	"time"
 
+	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
-	clockapi "github.com/wippyai/runtime/api/dispatcher/clock"
 	"github.com/wippyai/runtime/api/workflow"
 )
 

@@ -9,7 +9,7 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 
-	clockapi "github.com/wippyai/runtime/api/dispatcher/clock"
+	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/runtime/wasm/engine"
 	"github.com/wippyai/runtime/runtime/wasm/host"
 	"github.com/wippyai/runtime/runtime/wasm/host/wasi/clocks"
