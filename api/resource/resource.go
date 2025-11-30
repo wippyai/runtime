@@ -4,6 +4,8 @@ package resource
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -32,6 +34,8 @@ var (
 	ErrResourceReleased = errors.New("resource has been released")
 	// ErrResourceClosed indicates an attempt to use a closed resource provider
 	ErrResourceClosed = errors.New("resource provider is closed")
+	// ErrResourceInUse indicates the resource cannot be deleted while borrowed
+	ErrResourceInUse = errors.New("resource is in use")
 )
 
 // AccessMode defines the type of access requested for a resource
@@ -97,3 +101,46 @@ type (
 		Exists(id registry.ID) bool
 	}
 )
+
+// TrackedResource wraps a Resource with borrow tracking.
+// Release is idempotent - safe to call multiple times.
+type TrackedResource struct {
+	inner     Resource[any]
+	onRelease func()
+	released  atomic.Bool
+}
+
+var trackedResourcePool = sync.Pool{
+	New: func() any {
+		return &TrackedResource{}
+	},
+}
+
+// NewTrackedResource creates a tracked wrapper around a resource.
+// onRelease is called once when Release() is first invoked.
+func NewTrackedResource(inner Resource[any], onRelease func()) *TrackedResource {
+	tr := trackedResourcePool.Get().(*TrackedResource)
+	tr.inner = inner
+	tr.onRelease = onRelease
+	tr.released.Store(false)
+	return tr
+}
+
+func (t *TrackedResource) Get() (any, error) {
+	if t.released.Load() {
+		return nil, ErrResourceReleased
+	}
+	return t.inner.Get()
+}
+
+func (t *TrackedResource) Release() {
+	if t.released.CompareAndSwap(false, true) {
+		t.inner.Release()
+		if t.onRelease != nil {
+			t.onRelease()
+		}
+		t.inner = nil
+		t.onRelease = nil
+		trackedResourcePool.Put(t)
+	}
+}

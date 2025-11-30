@@ -2,14 +2,32 @@ version: "1.0"
 namespace: app.api
 
 entries:
+  # app.api:add - WAT function (WASM)
+  - name: add
+    kind: function.wat
+    meta:
+      comment: Add two integers (WASM)
+    source: file://add.wat
+    wit: |
+      package app:math;
+      world calculator {
+        export add: func(a: s32, b: s32) -> s32;
+      }
+    method: add
+    pool:
+      type: workstealing
+      size: 4
+      buffer: 64
+
   # app.api:hello - Lua function with pool
   - name: hello
     kind: function.lua
     meta:
-      comment: Returns hello world JSON
+      comment: Returns hello world JSON, calls WASM add function
     source: file://hello.lua
     modules:
       - http
+      - funcs
     method: handler
     pool:
       type: workstealing

@@ -5,23 +5,51 @@ package dispatcher
 
 import (
 	"context"
+	"fmt"
+	"sync"
 
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// CommandID identifies a command type for O(1) handler lookup.
-// Uses uint8 to limit to 256 command types but enables array-indexed dispatch.
+// CommandID identifies a command type for handler lookup.
 //
 // Reserved ranges (convention):
 //   - 0-9: Core commands (complete, yield, error)
-//   - 10-49: Time commands (sleep, timer, ticker)
-//   - 50-99: IO commands (http, websocket)
-//   - 100-149: Database commands (sql, redis)
-//   - 150-199: Messaging commands (queue, pubsub)
-//   - 200-255: User/extension commands
+//   - 10-19: Time commands (sleep, timer, ticker)
+//   - 50-59: Stream commands (read, write, seek)
+//   - 60-79: HTTP commands
+//   - 80-89: WebSocket commands
+//   - 100-119: SQL commands
+//   - 120-129: Store commands (kv)
+//   - 130-139: Excel commands
+//   - 150-159: Queue commands
+//   - 160-179: Relay commands (pubsub, inbox)
+//   - 200-209: Function commands (call, async)
+//   - 210-219: Exec commands (process)
+//   - 1000+: User/WASM/extension commands
 //
-// Command IDs are defined in their respective packages (e.g., api/dispatcher/clock).
-type CommandID uint8
+// Use MustRegisterCommands in init() to catch collisions at startup.
+type CommandID uint16
+
+var (
+	registeredCmds   = make(map[CommandID]string)
+	registeredCmdsMu sync.Mutex
+)
+
+// MustRegisterCommands registers command IDs for a module.
+// Panics if any ID is already registered (catches collisions at startup).
+// Call this in init() of each command package.
+func MustRegisterCommands(module string, ids ...CommandID) {
+	registeredCmdsMu.Lock()
+	defer registeredCmdsMu.Unlock()
+
+	for _, id := range ids {
+		if existing, ok := registeredCmds[id]; ok {
+			panic(fmt.Sprintf("command ID %d already registered by %q, cannot register for %q", id, existing, module))
+		}
+		registeredCmds[id] = module
+	}
+}
 
 // Command represents a yield from a process requesting external work.
 // Commands are pure data - they carry no callbacks or internal references.
@@ -100,4 +128,12 @@ const KindHandler registry.Kind = "dispatcher.handler"
 // Dispatcher routes commands to handlers.
 type Dispatcher interface {
 	Dispatch(cmd Command) Handler
+}
+
+// AsyncScheduler is the interface for WASM asyncify schedulers.
+// Defined here to avoid boxing allocations - SetPending takes Command directly.
+type AsyncScheduler interface {
+	SetPending(cmd Command)
+	GetResult() (uint64, error)
+	ClearPending()
 }

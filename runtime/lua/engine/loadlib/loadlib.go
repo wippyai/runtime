@@ -10,7 +10,6 @@ func OpenRestrictedPackage(l *lua.LState) int {
 	packagemod := l.RegisterModule(lua.LoadLibName, packageFuncs)
 
 	// Set up the preload table with optimized size
-	// Most apps have few preloaded modules, start small
 	l.SetField(packagemod, "preload", l.CreateTable(0, 8))
 
 	// Set up the single preload loader
@@ -27,8 +26,76 @@ func OpenRestrictedPackage(l *lua.LState) int {
 	l.SetField(packagemod, "path", lua.LString(""))
 	l.SetField(packagemod, "cpath", lua.LString(""))
 
+	// Set up require as a global function
+	l.SetGlobal("require", l.NewFunction(loRequire))
+
 	l.Push(packagemod)
 	return 1
+}
+
+// loRequire implements the require function
+func loRequire(l *lua.LState) int {
+	name := l.CheckString(1)
+
+	// Check package.loaded
+	loaded := l.GetField(l.GetField(l.Get(lua.EnvironIndex), "package"), "loaded")
+	lv := l.GetField(loaded, name)
+	if lv != lua.LFalse && lv != lua.LNil {
+		l.Push(lv)
+		return 1
+	}
+
+	// Get loaders
+	loaders := l.GetField(l.Get(lua.RegistryIndex), "_LOADERS")
+	if loaders == lua.LNil {
+		l.RaiseError("package.loaders not found")
+	}
+	loadersTbl, ok := loaders.(*lua.LTable)
+	if !ok {
+		l.RaiseError("package.loaders must be a table")
+	}
+
+	// Try each loader
+	var errMsgs []string
+	loadersTbl.ForEach(func(_, loader lua.LValue) {
+		if errMsgs != nil && len(errMsgs) > 0 && errMsgs[len(errMsgs)-1] == "" {
+			return // already found
+		}
+		l.Push(loader)
+		l.Push(lua.LString(name))
+		l.Call(1, 1)
+		ret := l.Get(-1)
+		l.Pop(1)
+
+		if fn, ok := ret.(*lua.LFunction); ok {
+			// Found loader, call it
+			l.Push(fn)
+			l.Push(lua.LString(name))
+			l.Call(1, 1)
+			result := l.Get(-1)
+			l.Pop(1)
+
+			// Cache result (use true if nil)
+			if result == lua.LNil {
+				result = lua.LTrue
+			}
+			l.SetField(loaded, name, result)
+			l.Push(result)
+			errMsgs = []string{""} // signal success
+			return
+		}
+		// Not a function = error message
+		if str, ok := ret.(lua.LString); ok {
+			errMsgs = append(errMsgs, string(str))
+		}
+	})
+
+	if len(errMsgs) > 0 && errMsgs[len(errMsgs)-1] == "" {
+		return 1 // success, result already pushed
+	}
+
+	l.RaiseError("module '%s' not found", name)
+	return 0
 }
 
 // Package functions map

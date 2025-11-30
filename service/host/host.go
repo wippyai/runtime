@@ -200,6 +200,12 @@ func (h *Host) prepareContext(callCtx context.Context, launch *process.Launch) c
 	// Add host's finalizeProcess to OnComplete hooks
 	onCompleteHooks := launch.OnComplete
 	onCompleteHooks = append(onCompleteHooks, h.finalizeProcess)
+	// Add frame cleanup as final hook
+	onCompleteHooks = append(onCompleteHooks, func(ctx context.Context, _ relay.PID, _ *runtime.Result) {
+		if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+			_ = fc.Close()
+		}
+	})
 	if err := process.SetOnCompleteHooks(pCtx, onCompleteHooks); err != nil {
 		h.log.Error("failed to set onComplete hooks", zap.Error(err))
 	}

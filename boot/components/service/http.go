@@ -26,7 +26,7 @@ import (
 	"github.com/wippyai/runtime/service/http/httpmetrics"
 	"github.com/wippyai/runtime/service/http/ratelimit"
 	"github.com/wippyai/runtime/service/http/realip"
-	"github.com/wippyai/runtime/service/http/websocketrelay"
+	"github.com/wippyai/runtime/service/http/wsrelay"
 	"github.com/wippyai/runtime/service/tokenstore"
 	"go.uber.org/zap"
 )
@@ -92,14 +92,14 @@ func HTTP() boot.Component {
 				return ctx, fmt.Errorf("failed to create endpoint factory: %w", err)
 			}
 
-			relayManager := websocketrelay.NewWebSocketRelay(ctx, logger.Named("ws"), pidGen)
+			relayManager := wsrelay.NewWebSocketRelay(ctx, logger.Named("ws"), pidGen)
 
 			midRegistry := http.NewMiddlewareRegistry(logger.Named("http.md"))
 
 			// Register built-in middleware
 			_ = midRegistry.Register(cors.MiddlewareName, cors.CreateCORSMiddleware)
 			_ = midRegistry.Register(realip.MiddlewareName, realip.CreateRealIPMiddleware)
-			_ = midRegistry.Register("websocket_relay", relayManager.CreateMiddleware)
+			_ = midRegistry.Register("wsrelay", relayManager.CreateMiddleware)
 			_ = midRegistry.Register(tokenstore.MiddlewareName, tokenstore.CreateTokenAuthMiddleware)
 			_ = midRegistry.Register(firewall.ResourceMiddlewareName, firewall.CreateResourceFirewallMiddleware)
 			_ = midRegistry.Register(firewall.EndpointMiddlewareName, firewall.CreateEndpointFirewallMiddleware)

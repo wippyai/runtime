@@ -8,6 +8,7 @@ const (
 	ProcessSupervisorName boot.ComponentName = "process_supervisor"
 	ProcessFuncName       boot.ComponentName = "process_func"
 	EphemeralHostName     boot.ComponentName = "ephemeral_host"
+	EphemeralHost2Name    boot.ComponentName = "ephemeral_host2"
 	NativeExecName        boot.ComponentName = "exec"
 	TemplateName          boot.ComponentName = "template"
 	EnvName               boot.ComponentName = "envstore"

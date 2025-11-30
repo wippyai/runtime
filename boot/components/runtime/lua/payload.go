@@ -17,9 +17,7 @@ func Payload() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm,
-				payloadmod.NewPayloadModule(),
-			); err != nil {
+			if err := AddModules(ctx, cm, payloadmod.Module); err != nil {
 				return ctx, err
 			}
 

@@ -111,7 +111,7 @@ func writeSimpleASCIIString(buf *bytes.Buffer, s string) {
 	buf.WriteByte('"')
 }
 
-type Module struct {
+type OldModule struct {
 	Options     EncodeOptions
 	EnableCache bool
 	CacheSize   int
@@ -120,22 +120,22 @@ type Module struct {
 	once        sync.Once
 }
 
-type Option func(*Module)
+type Option func(*OldModule)
 
 func WithCache(enabled bool) Option {
-	return func(m *Module) {
+	return func(m *OldModule) {
 		m.EnableCache = enabled
 	}
 }
 
 func WithCapacity(capacity int) Option {
-	return func(m *Module) {
+	return func(m *OldModule) {
 		m.CacheSize = capacity
 	}
 }
 
-func NewJSONModule(opts ...Option) *Module {
-	m := &Module{
+func NewOldJSONModule(opts ...Option) *OldModule {
+	m := &OldModule{
 		Options:     DefaultEncodeOptions,
 		EnableCache: false,
 		CacheSize:   100,
@@ -146,7 +146,7 @@ func NewJSONModule(opts ...Option) *Module {
 	return m
 }
 
-func (m *Module) Info() luaapi.ModuleInfo {
+func (m *OldModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "json",
 		Description: "JSON encoding and decoding with schema validation",
@@ -154,7 +154,7 @@ func (m *Module) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *Module) Loader(l *lua.LState) int {
+func (m *OldModule) Loader(l *lua.LState) int {
 	m.once.Do(func() {
 		if m.EnableCache && m.schemaCache == nil {
 			m.schemaCache = lru.New[string, *jsonschema.Schema](lru.WithCapacity(m.CacheSize))
@@ -172,7 +172,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) decode(l *lua.LState) int {
+func (m *OldModule) decode(l *lua.LState) int {
 	arg1 := l.Get(1)
 
 	str, ok := arg1.(lua.LString)
@@ -198,7 +198,7 @@ func (m *Module) decode(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) encode(l *lua.LState) int {
+func (m *OldModule) encode(l *lua.LState) int {
 	value := l.Get(1)
 	if value == lua.LNil {
 		l.Push(lua.LString("null"))
@@ -260,6 +260,8 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 			return []byte("null"), nil
 		}
 		return json.Marshal(f)
+	case lua.LInteger:
+		return json.Marshal(int64(converted))
 	case *lua.LNilType:
 		return []byte("null"), nil
 	case lua.LString:
@@ -559,6 +561,9 @@ func (j *jsonValue) writeValueOptimized(buf *bytes.Buffer, value lua.LValue) err
 			}
 		}
 		return nil
+	case lua.LInteger:
+		buf.WriteString(strconv.FormatInt(int64(v), 10))
+		return nil
 	case lua.LBool:
 		if v {
 			buf.WriteString("true")
@@ -625,7 +630,7 @@ func DecodeValue(l *lua.LState, value any) lua.LValue {
 	return lua.LNil
 }
 
-func (m *Module) validate(l *lua.LState) int {
+func (m *OldModule) validate(l *lua.LState) int {
 	schemaArg := l.Get(1)
 	dataArg := l.Get(2)
 
@@ -684,7 +689,7 @@ func (m *Module) validate(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) validateString(l *lua.LState) int {
+func (m *OldModule) validateString(l *lua.LState) int {
 	schemaArg := l.Get(1)
 	jsonStr, ok := l.Get(2).(lua.LString)
 
@@ -725,7 +730,7 @@ func (m *Module) validateString(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) getSchemaJSON(_ *lua.LState, schemaArg lua.LValue) ([]byte, error) {
+func (m *OldModule) getSchemaJSON(_ *lua.LState, schemaArg lua.LValue) ([]byte, error) {
 	switch v := schemaArg.(type) {
 	case lua.LString:
 		return []byte(v), nil
@@ -736,7 +741,7 @@ func (m *Module) getSchemaJSON(_ *lua.LState, schemaArg lua.LValue) ([]byte, err
 	}
 }
 
-func (m *Module) compileSchema(schemaJSON []byte) (*jsonschema.Schema, error) {
+func (m *OldModule) compileSchema(schemaJSON []byte) (*jsonschema.Schema, error) {
 	if m.schemaCache == nil {
 		compiler := jsonschema.NewCompiler()
 		return compiler.Compile(schemaJSON)
@@ -757,7 +762,7 @@ func (m *Module) compileSchema(schemaJSON []byte) (*jsonschema.Schema, error) {
 	return schema, nil
 }
 
-func (m *Module) hashSchemaJSON(data []byte) string {
+func (m *OldModule) hashSchemaJSON(data []byte) string {
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
 }

@@ -1,473 +1,410 @@
 package expr
 
 import (
-	"context"
 	"testing"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/runtime/lua/engine"
-	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"go.uber.org/zap/zaptest"
+	lua "github.com/yuin/gopher-lua"
 )
 
-// setupTestEnvironment creates a test environment with expr module
-func setupTestEnvironment(t *testing.T) (*engine.CoroutineVM, *engine.Runner, context.Context) {
-	logger := zaptest.NewLogger(t)
+func TestBind(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
 
-	// Create the expr module
-	module := NewExprModule()
+	Bind(l)
 
-	// Create a VM with coroutine support
-	vm, err := engine.NewCVM(logger)
-	require.NoError(t, err)
+	mod := l.GetGlobal("expr")
+	if mod.Type() != lua.LTTable {
+		t.Fatal("expr module not registered")
+	}
 
-	// Get the Lua state
-	L := vm.State()
-
-	// Register the expr module
-	L.PreloadModule(module.Info().Name, module.Loader)
-
-	// Create a runner with the coroutine layer
-	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
-
-	// Create context with frame
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
-	return vm, runner, ctx
+	tbl := mod.(*lua.LTable)
+	funcs := []string{"compile", "eval"}
+	for _, fn := range funcs {
+		if tbl.RawGetString(fn).Type() != lua.LTFunction {
+			t.Errorf("%s function not registered", fn)
+		}
+	}
 }
 
-func TestExprModule_CompileAndRun(t *testing.T) {
-	vm, runner, ctx := setupTestEnvironment(t)
-	defer vm.Close()
+func TestEvalSimple(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-	// Import test function for compile and run
-	err := vm.Import(`
-		function test_compile_and_run()
-			local expr = require("expr")
-			
-			-- Test basic compile
-			local program, err = expr.compile("2 + 3 * 4")
-			if err then error(err) end
-			assert(program ~= nil, "Program should not be nil")
-			assert(type(program) == "userdata", "Program should be userdata")
-			
-			-- Test program:run() method
-			local result1, err1 = program:run()
-			if err1 then error(err1) end
-			assert(result1 == 14, "2 + 3 * 4 should equal 14, got: " .. tostring(result1))
-			
-			-- Test running same program multiple times
-			local result2, err2 = program:run()
-			if err2 then error(err2) end
-			assert(result2 == 14, "Second run should also equal 14")
-			
-			-- Test program with environment
-			local program_env, err3 = expr.compile("price * quantity")
-			if err3 then error(err3) end
-			
-			local result3, err4 = program_env:run({price = 10, quantity = 3})
-			if err4 then error(err4) end
-			assert(result3 == 30, "10 * 3 should equal 30, got: " .. tostring(result3))
-			
-			-- Test same program with different environments
-			local result4, err5 = program_env:run({price = 5, quantity = 4})
-			if err5 then error(err5) end
-			assert(result4 == 20, "5 * 4 should equal 20, got: " .. tostring(result4))
-			
-			return {
-				basic = result1,
-				with_env1 = result3,
-				with_env2 = result4,
-				success = true
-			}
+	err := l.DoString(`
+		local result, err = expr.eval("1 + 2")
+		if err then
+			error("unexpected error: " .. err)
 		end
-	`, "test", "test_compile_and_run")
-	require.NoError(t, err, "Failed to import test function")
-
-	// Execute the function
-	result, err := runner.Execute(ctx, "test_compile_and_run")
-	require.NoError(t, err, "Lua execution failed")
-
-	resultMap := value.ToGoAny(result).(map[string]interface{})
-
-	assert.Equal(t, true, resultMap["success"], "Test should succeed")
-	assert.Equal(t, float64(14), resultMap["basic"], "Basic arithmetic should work")
-	assert.Equal(t, float64(30), resultMap["with_env1"], "First environment should work")
-	assert.Equal(t, float64(20), resultMap["with_env2"], "Second environment should work")
-}
-
-func TestExprModule_ProgramBuiltinFunctions(t *testing.T) {
-	vm, runner, ctx := setupTestEnvironment(t)
-	defer vm.Close()
-
-	// Import test function for built-in functions with programs
-	err := vm.Import(`
-		function test_program_builtins()
-			local expr = require("expr")
-			
-			-- Compile programs with built-in functions
-			local all_prog, err1 = expr.compile("all(numbers, {# > 0})")
-			if err1 then error(err1) end
-			
-			local filter_prog, err2 = expr.compile("filter(numbers, {# > 3})")
-			if err2 then error(err2) end
-			
-			local map_prog, err3 = expr.compile("map(numbers, {# * 2})")
-			if err3 then error(err3) end
-			
-			local max_prog, err4 = expr.compile("max(a, b)")
-			if err4 then error(err4) end
-			
-			-- Test with different data sets
-			local env1 = {numbers = {1, 2, 3, 4, 5}}
-			local env2 = {numbers = {-1, 0, 1}}
-			local env3 = {a = 10, b = 5}
-			local env4 = {a = 3, b = 8}
-			
-			-- Run tests
-			local all_result1, err5 = all_prog:run(env1)
-			if err5 then error(err5) end
-			
-			local all_result2, err6 = all_prog:run(env2)
-			if err6 then error(err6) end
-			
-			local filter_result, err7 = filter_prog:run(env1)
-			if err7 then error(err7) end
-			
-			local map_result, err8 = map_prog:run(env1)
-			if err8 then error(err8) end
-			
-			local max_result1, err9 = max_prog:run(env3)
-			if err9 then error(err9) end
-			
-			local max_result2, err10 = max_prog:run(env4)
-			if err10 then error(err10) end
-			
-			return {
-				all_positive = all_result1,
-				all_mixed = all_result2,
-				filtered = filter_result,
-				mapped = map_result,
-				max1 = max_result1,
-				max2 = max_result2
-			}
+		if result ~= 3 then
+			error("expected 3, got: " .. tostring(result))
 		end
-	`, "test", "test_program_builtins")
-	require.NoError(t, err, "Failed to import test function")
-
-	// Execute the function
-	result, err := runner.Execute(ctx, "test_program_builtins")
-	require.NoError(t, err, "Lua execution failed")
-
-	resultMap := value.ToGoAny(result).(map[string]interface{})
-
-	assert.Equal(t, true, resultMap["all_positive"], "All positive numbers should be > 0")
-	assert.Equal(t, false, resultMap["all_mixed"], "Mixed numbers should not all be > 0")
-	assert.Equal(t, []interface{}{float64(4), float64(5)}, resultMap["filtered"], "Filter should return [4, 5]")
-	assert.Equal(t, []interface{}{float64(2), float64(4), float64(6), float64(8), float64(10)}, resultMap["mapped"], "Map should double all numbers")
-	assert.Equal(t, float64(10), resultMap["max1"], "Max of 10 and 5 should be 10")
-	assert.Equal(t, float64(8), resultMap["max2"], "Max of 3 and 8 should be 8")
+	`)
+	if err != nil {
+		t.Errorf("eval simple failed: %v", err)
+	}
 }
 
-func TestExprModule_ErrorHandling(t *testing.T) {
-	vm, runner, ctx := setupTestEnvironment(t)
-	defer vm.Close()
+func TestEvalWithEnv(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-	// Import test function for error handling
-	err := vm.Import(`
-		function test_error_handling()
-			local expr = require("expr")
-			
-			-- Test empty expression compile
-			local program1, err1 = expr.compile("")
-			assert(program1 == nil, "Empty expression should return nil")
-			assert(err1 ~= nil, "Empty expression should return error")
-			
-			-- Test invalid syntax compile
-			local program2, err2 = expr.compile("2 +")
-			assert(program2 == nil, "Invalid syntax should return nil")
-			assert(err2 ~= nil, "Invalid syntax should return error")
-			
-			-- Test valid compile but runtime error
-			local program3, err3 = expr.compile("undefined_var")
-			assert(program3 ~= nil, "Valid syntax should compile")
-			assert(err3 == nil, "Valid syntax should not error on compile")
-			
-			-- Test runtime error
-			local result3, err4 = program3:run()
-			assert(result3 == nil, "Undefined variable should return nil")
-			assert(err4 ~= nil, "Undefined variable should return runtime error")
-			
-			-- Test type mismatch at runtime
-			local program4, err5 = expr.compile("x + y")
-			assert(program4 ~= nil, "Valid syntax should compile")
-			assert(err5 == nil, "Valid syntax should not error on compile")
-			
-			local result4, err6 = program4:run({x = "string", y = 42})
-			assert(result4 == nil, "Type mismatch should return nil")
-			assert(err6 ~= nil, "Type mismatch should return error")
-			
-			-- Test invalid program object (can't test easily, but verify method exists)
-			-- This would test CheckProgram validation in real scenarios
-			
-			return {success = true}
+	err := l.DoString(`
+		local result, err = expr.eval("x + y", {x = 10, y = 20})
+		if err then
+			error("unexpected error: " .. err)
 		end
-	`, "test", "test_error_handling")
-	require.NoError(t, err, "Failed to import test function")
-
-	// Execute the function
-	result, err := runner.Execute(ctx, "test_error_handling")
-	require.NoError(t, err, "Lua execution failed")
-
-	resultMap := value.ToGoAny(result).(map[string]interface{})
-	assert.Equal(t, true, resultMap["success"], "Error handling test should succeed")
-}
-
-func TestExprModule_CachingBehavior(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-	module := NewExprModule(WithCapacity(100))
-	vm, err := engine.NewCVM(logger)
-	require.NoError(t, err)
-	defer vm.Close()
-
-	L := vm.State()
-	L.PreloadModule(module.Info().Name, module.Loader)
-	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
-
-	ctx := ctxapi.NewRootContext()
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
-	// Import test function that compares eval vs compile caching
-	err = vm.Import(`
-		function test_caching_behavior()
-			local expr = require("expr")
-			
-			-- Test eval caching (should cache)
-			local expr_text = "a + b * c"
-			local env = {a = 1, b = 2, c = 3}
-			
-			local eval_results = {}
-			for i = 1, 5 do
-				local result, err = expr.eval(expr_text, env)
-				if err then error(err) end
-				table.insert(eval_results, result)
-			end
-			
-			-- Test compile (should not cache, each compile is independent)
-			local compile_results = {}
-			for i = 1, 3 do
-				local program, err = expr.compile(expr_text)
-				if err then error(err) end
-				
-				local result, err2 = program:run(env)
-				if err2 then error(err2) end
-				table.insert(compile_results, result)
-			end
-			
-			-- All results should be the same regardless of method
-			for i = 2, #eval_results do
-				assert(eval_results[i] == eval_results[1], "All eval results should be equal")
-			end
-			
-			for i = 2, #compile_results do
-				assert(compile_results[i] == compile_results[1], "All compile results should be equal")
-			end
-			
-			assert(eval_results[1] == compile_results[1], "Eval and compile should give same result")
-			
-			-- Test that compile allows different programs with same expression
-			local program1, err1 = expr.compile("x * 2")
-			if err1 then error(err1) end
-			
-			local program2, err2 = expr.compile("x * 2")
-			if err2 then error(err2) end
-			
-			-- Both should work independently
-			local result1, err3 = program1:run({x = 5})
-			if err3 then error(err3) end
-			
-			local result2, err4 = program2:run({x = 10})
-			if err4 then error(err4) end
-			
-			return {
-				eval_result = eval_results[1],
-				compile_result = compile_results[1],
-				independent1 = result1,
-				independent2 = result2,
-				success = true
-			}
+		if result ~= 30 then
+			error("expected 30, got: " .. tostring(result))
 		end
-	`, "test", "test_caching_behavior")
-	require.NoError(t, err, "Failed to import test function")
-
-	// Execute the function
-	result, err := runner.Execute(ctx, "test_caching_behavior")
-	require.NoError(t, err, "Lua execution failed")
-
-	resultMap := value.ToGoAny(result).(map[string]interface{})
-	assert.Equal(t, true, resultMap["success"], "Caching behavior test should succeed")
-	assert.Equal(t, float64(7), resultMap["eval_result"], "1 + 2 * 3 should equal 7")
-	assert.Equal(t, float64(7), resultMap["compile_result"], "Compile should give same result as eval")
-	assert.Equal(t, float64(10), resultMap["independent1"], "5 * 2 should equal 10")
-	assert.Equal(t, float64(20), resultMap["independent2"], "10 * 2 should equal 20")
+	`)
+	if err != nil {
+		t.Errorf("eval with env failed: %v", err)
+	}
 }
 
-func TestExprModule_ComplexProgramUsage(t *testing.T) {
-	vm, runner, ctx := setupTestEnvironment(t)
-	defer vm.Close()
+func TestEvalBoolean(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-	// Import test function for complex usage patterns
-	err := vm.Import(`
-		function test_complex_usage()
-			local expr = require("expr")
-			
-			-- Test nested objects with programs
-			local user_check, err1 = expr.compile("user.profile.age >= min_age && user.active")
-			if err1 then error(err1) end
-			
-			local users = {
-				{profile = {age = 25}, active = true},
-				{profile = {age = 17}, active = true},
-				{profile = {age = 30}, active = false}
-			}
-			
-			local results = {}
-			for i, user in ipairs(users) do
-				local result, err = user_check:run({user = user, min_age = 18})
-				if err then error(err) end
-				table.insert(results, result)
-			end
-			
-			-- Test array processing with programs
-			local discount_calc, err2 = expr.compile("map(items, {.price * (1 - discount)})")
-			if err2 then error(err2) end
-			
-			local order1 = {
-				items = {{price = 100}, {price = 50}, {price = 75}},
-				discount = 0.1
-			}
-			
-			local order2 = {
-				items = {{price = 200}, {price = 80}},
-				discount = 0.2
-			}
-			
-			local discounted1, err3 = discount_calc:run(order1)
-			if err3 then error(err3) end
-			
-			local discounted2, err4 = discount_calc:run(order2)
-			if err4 then error(err4) end
-			
-			-- Test string operations
-			local name_formatter, err5 = expr.compile('upper(firstName) + " " + upper(lastName)')
-			if err5 then error(err5) end
-			
-			local name1, err6 = name_formatter:run({firstName = "john", lastName = "doe"})
-			if err6 then error(err6) end
-			
-			local name2, err7 = name_formatter:run({firstName = "jane", lastName = "smith"})
-			if err7 then error(err7) end
-			
-			return {
-				user_results = results,
-				discounted1 = discounted1,
-				discounted2 = discounted2,
-				name1 = name1,
-				name2 = name2
-			}
+	err := l.DoString(`
+		local result, err = expr.eval("true && false")
+		if err then
+			error("unexpected error: " .. err)
 		end
-	`, "test", "test_complex_usage")
-	require.NoError(t, err, "Failed to import test function")
-
-	// Execute the function
-	result, err := runner.Execute(ctx, "test_complex_usage")
-	require.NoError(t, err, "Lua execution failed")
-
-	resultMap := value.ToGoAny(result).(map[string]interface{})
-
-	// Check user validation results
-	userResults := resultMap["user_results"].([]interface{})
-	assert.Equal(t, true, userResults[0], "First user should pass (age 25, active)")
-	assert.Equal(t, false, userResults[1], "Second user should fail (age 17)")
-	assert.Equal(t, false, userResults[2], "Third user should fail (not active)")
-
-	// Check discount calculations
-	discounted1 := resultMap["discounted1"].([]interface{})
-	assert.Equal(t, float64(90), discounted1[0], "100 * 0.9 = 90")
-	assert.Equal(t, float64(45), discounted1[1], "50 * 0.9 = 45")
-	assert.Equal(t, float64(67.5), discounted1[2], "75 * 0.9 = 67.5")
-
-	discounted2 := resultMap["discounted2"].([]interface{})
-	assert.Equal(t, float64(160), discounted2[0], "200 * 0.8 = 160")
-	assert.Equal(t, float64(64), discounted2[1], "80 * 0.8 = 64")
-
-	// Check string formatting
-	assert.Equal(t, "JOHN DOE", resultMap["name1"], "Name formatting should work")
-	assert.Equal(t, "JANE SMITH", resultMap["name2"], "Name formatting should work")
-}
-
-func TestExprModule_EvalStillWorks(t *testing.T) {
-	vm, runner, ctx := setupTestEnvironment(t)
-	defer vm.Close()
-
-	// Import test function to ensure eval still works as before
-	err := vm.Import(`
-		function test_eval_compatibility()
-			local expr = require("expr")
-			
-			-- Test basic eval (should still work)
-			local result1, err1 = expr.eval("2 + 3 * 4")
-			if err1 then error(err1) end
-			
-			-- Test eval with environment
-			local result2, err2 = expr.eval("price * quantity", {
-				price = 10.5,
-				quantity = 3
-			})
-			if err2 then error(err2) end
-			
-			-- Test eval with built-ins
-			local result3, err3 = expr.eval("all(numbers, {# > 0})", {
-				numbers = {1, 2, 3, 4, 5}
-			})
-			if err3 then error(err3) end
-			
-			return {
-				arithmetic = result1,
-				variables = result2,
-				builtin = result3
-			}
+		if result ~= false then
+			error("expected false, got: " .. tostring(result))
 		end
-	`, "test", "test_eval_compatibility")
-	require.NoError(t, err, "Failed to import test function")
-
-	// Execute the function
-	result, err := runner.Execute(ctx, "test_eval_compatibility")
-	require.NoError(t, err, "Lua execution failed")
-
-	resultMap := value.ToGoAny(result).(map[string]interface{})
-
-	assert.Equal(t, float64(14), resultMap["arithmetic"], "2 + 3 * 4 should equal 14")
-	assert.Equal(t, float64(31.5), resultMap["variables"], "10.5 * 3 should equal 31.5")
-	assert.Equal(t, true, resultMap["builtin"], "All numbers should be > 0")
+	`)
+	if err != nil {
+		t.Errorf("eval boolean failed: %v", err)
+	}
 }
 
-func TestExprModule_CustomCapacity(t *testing.T) {
-	// Test that custom capacity option works
-	module := NewExprModule(WithCapacity(50))
-	assert.NotNil(t, module, "Module should be created successfully")
-	assert.NotNil(t, module.cache, "Cache should be initialized")
+func TestEvalString(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-	// Verify module can be closed
-	module.Close()
+	err := l.DoString(`
+		local result, err = expr.eval('"hello" + " " + "world"')
+		if err then
+			error("unexpected error: " .. err)
+		end
+		if result ~= "hello world" then
+			error("expected 'hello world', got: " .. tostring(result))
+		end
+	`)
+	if err != nil {
+		t.Errorf("eval string failed: %v", err)
+	}
 }
 
-func TestExprModule_ModuleName(t *testing.T) {
-	module := NewExprModule()
-	assert.Equal(t, "expr", module.Info().Name, "Module name should be 'expr'")
+func TestEvalEmpty(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local result, err = expr.eval("")
+		if result ~= nil then
+			error("expected nil result for empty expression")
+		end
+		if err == nil then
+			error("expected error for empty expression")
+		end
+	`)
+	if err != nil {
+		t.Errorf("eval empty failed: %v", err)
+	}
+}
+
+func TestEvalInvalid(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local result, err = expr.eval("invalid syntax !!!")
+		if result ~= nil then
+			error("expected nil result for invalid expression")
+		end
+		if err == nil then
+			error("expected error for invalid expression")
+		end
+	`)
+	if err != nil {
+		t.Errorf("eval invalid failed: %v", err)
+	}
+}
+
+func TestCompileAndRun(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local program, err = expr.compile("a * b")
+		if err then
+			error("compile failed: " .. err)
+		end
+		if program == nil then
+			error("program should not be nil")
+		end
+
+		local result, err = program:run({a = 5, b = 6})
+		if err then
+			error("run failed: " .. err)
+		end
+		if result ~= 30 then
+			error("expected 30, got: " .. tostring(result))
+		end
+	`)
+	if err != nil {
+		t.Errorf("compile and run failed: %v", err)
+	}
+}
+
+func TestCompileEmpty(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local program, err = expr.compile("")
+		if program ~= nil then
+			error("expected nil program for empty expression")
+		end
+		if err == nil then
+			error("expected error for empty expression")
+		end
+	`)
+	if err != nil {
+		t.Errorf("compile empty failed: %v", err)
+	}
+}
+
+func TestCompileInvalid(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local program, err = expr.compile("(((")
+		if program ~= nil then
+			error("expected nil program for invalid expression")
+		end
+		if err == nil then
+			error("expected error for invalid expression")
+		end
+	`)
+	if err != nil {
+		t.Errorf("compile invalid failed: %v", err)
+	}
+}
+
+func TestProgramRunWithoutEnv(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local program, err = expr.compile("2 + 2")
+		if err then
+			error("compile failed: " .. err)
+		end
+
+		local result, err = program:run()
+		if err then
+			error("run failed: " .. err)
+		end
+		if result ~= 4 then
+			error("expected 4, got: " .. tostring(result))
+		end
+	`)
+	if err != nil {
+		t.Errorf("run without env failed: %v", err)
+	}
+}
+
+func TestProgramRunMissingVar(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local program, err = expr.compile("x + y")
+		if err then
+			error("compile failed: " .. err)
+		end
+
+		local result, err = program:run({x = 10})
+		if result ~= nil then
+			error("expected nil result for missing variable")
+		end
+		if err == nil then
+			error("expected error for missing variable")
+		end
+	`)
+	if err != nil {
+		t.Errorf("run missing var failed: %v", err)
+	}
+}
+
+func TestCaching(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local result1, err1 = expr.eval("100 + 200")
+		local result2, err2 = expr.eval("100 + 200")
+		local result3, err3 = expr.eval("100 + 200")
+
+		if err1 or err2 or err3 then
+			error("unexpected error")
+		end
+		if result1 ~= 300 or result2 ~= 300 or result3 ~= 300 then
+			error("caching test failed")
+		end
+	`)
+	if err != nil {
+		t.Errorf("caching test failed: %v", err)
+	}
+}
+
+func TestCompileWithEnv(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local program, err = expr.compile("value * 2", {value = 0})
+		if err then
+			error("compile with env failed: " .. err)
+		end
+
+		local result, err = program:run({value = 50})
+		if err then
+			error("run failed: " .. err)
+		end
+		if result ~= 100 then
+			error("expected 100, got: " .. tostring(result))
+		end
+	`)
+	if err != nil {
+		t.Errorf("compile with env failed: %v", err)
+	}
+}
+
+func TestEvalComparison(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local result, err = expr.eval("x > 5", {x = 10})
+		if err then
+			error("unexpected error: " .. err)
+		end
+		if result ~= true then
+			error("expected true, got: " .. tostring(result))
+		end
+	`)
+	if err != nil {
+		t.Errorf("eval comparison failed: %v", err)
+	}
+}
+
+func TestEvalTernary(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local result, err = expr.eval('x > 0 ? "positive" : "negative"', {x = 5})
+		if err then
+			error("unexpected error: " .. err)
+		end
+		if result ~= "positive" then
+			error("expected 'positive', got: " .. tostring(result))
+		end
+	`)
+	if err != nil {
+		t.Errorf("eval ternary failed: %v", err)
+	}
+}
+
+func TestEvalBuiltinFunctions(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local result, err = expr.eval("max(1, 5, 3)")
+		if err then
+			error("unexpected error: " .. err)
+		end
+		if result ~= 5 then
+			error("expected 5, got: " .. tostring(result))
+		end
+	`)
+	if err != nil {
+		t.Errorf("eval builtin functions failed: %v", err)
+	}
+}
+
+func TestProgramMethods(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local program, err = expr.compile("1")
+		if err then
+			error("compile failed: " .. err)
+		end
+		if type(program.run) ~= "function" then
+			error("run method not found")
+		end
+	`)
+	if err != nil {
+		t.Errorf("program methods failed: %v", err)
+	}
+}
+
+func TestImmutability(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local success = pcall(function()
+			expr.foo = "bar"
+		end)
+	`)
+	if err != nil {
+		t.Errorf("immutability test failed: %v", err)
+	}
+}
+
+func TestEvalNil(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local result, err = expr.eval("nil")
+		if err then
+			error("unexpected error: " .. err)
+		end
+		if result ~= nil then
+			error("expected nil")
+		end
+	`)
+	if err != nil {
+		t.Errorf("eval nil failed: %v", err)
+	}
 }

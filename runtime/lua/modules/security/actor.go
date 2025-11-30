@@ -1,61 +1,51 @@
 package security
 
 import (
-	"github.com/wippyai/runtime/api/payload"
 	secapi "github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
-const ActorMetatable = "security.Actor"
+const actorTypeName = "security.Actor"
 
-// wrapActor wraps a security.Actor as a Lua userdata
+var actorMethods = map[string]lua.LGFunction{
+	"id":   actorID,
+	"meta": actorMeta,
+}
+
 func wrapActor(l *lua.LState, actor secapi.Actor) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = actor
-	ud.Metatable = value.GetTypeMetatable(l, ActorMetatable)
+	ud.Metatable = actorMetatable
 	return ud
 }
 
-// checkActor checks if the first argument is an Actor and returns it
-func checkActor(l *lua.LState) secapi.Actor {
-	ud := l.CheckUserData(1)
+func checkActor(l *lua.LState, idx int) secapi.Actor {
+	ud := l.CheckUserData(idx)
 	if actor, ok := ud.Value.(secapi.Actor); ok {
 		return actor
 	}
-	l.ArgError(1, "Actor expected")
+	l.ArgError(idx, "Actor expected")
 	return secapi.Actor{}
 }
 
-// actorID returns the actor's ID
 func actorID(l *lua.LState) int {
-	actor := checkActor(l)
+	actor := checkActor(l, 1)
 	l.Push(lua.LString(actor.ID))
 	return 1
 }
 
-// actorMeta returns the actor's metadata
 func actorMeta(l *lua.LState) int {
-	actor := checkActor(l)
-
-	dtt := payload.GetTranscoder(l.Context())
-	if dtt == nil {
-		l.RaiseError("no transcoder registered for payload format")
-		return 0
-	}
-
-	// Convert metadata to Lua table
-	metaTable := l.CreateTable(0, len(actor.Meta))
+	actor := checkActor(l, 1)
+	tbl := lua.CreateTable(0, len(actor.Meta))
 	for k, v := range actor.Meta {
-		val, err := luaconv.GoToLua(v)
-		if err != nil {
-			l.RaiseError("error converting metadata value to Lua: %v", err)
-			return 0
-		}
-		metaTable.RawSetString(k, val)
+		tbl.RawSetString(k, toLuaValue(l, v))
 	}
+	l.Push(tbl)
+	return 1
+}
 
-	l.Push(metaTable)
+func actorToString(l *lua.LState) int {
+	actor := checkActor(l, 1)
+	l.Push(lua.LString("security.Actor{id=" + actor.ID + "}"))
 	return 1
 }

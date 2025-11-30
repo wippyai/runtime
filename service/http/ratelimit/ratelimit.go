@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -17,54 +18,148 @@ const (
 	MiddlewareName = "ratelimit"
 
 	// Option keys (dot-separated)
-	OptionRequests = "ratelimit.requests"
-	OptionWindow   = "ratelimit.window"
-	OptionBurst    = "ratelimit.burst"
-	OptionKey      = "ratelimit.key"
+	OptionRequests        = "ratelimit.requests"
+	OptionWindow          = "ratelimit.window"
+	OptionBurst           = "ratelimit.burst"
+	OptionKey             = "ratelimit.key"
+	OptionCleanupInterval = "ratelimit.cleanup_interval"
+	OptionEntryTTL        = "ratelimit.entry_ttl"
+	OptionMaxEntries      = "ratelimit.max_entries"
 
 	// Default values
-	DefaultRequests = 100
-	DefaultWindow   = "1m"
-	DefaultBurst    = 20
-	DefaultKey      = "ip"
+	DefaultRequests        = 100
+	DefaultWindow          = "1m"
+	DefaultBurst           = 20
+	DefaultKey             = "ip"
+	DefaultCleanupInterval = "5m"
+	DefaultEntryTTL        = "10m"
+	DefaultMaxEntries      = 100000
 )
 
-// limiterStore holds rate limiters per key
-type limiterStore struct {
-	mu       sync.RWMutex
-	limiters map[string]*rate.Limiter
-	limit    rate.Limit
-	burst    int
+// limiterEntry holds a rate limiter with last access time
+type limiterEntry struct {
+	limiter    *rate.Limiter
+	lastAccess int64 // Unix nano timestamp
 }
 
-func newLimiterStore(limit rate.Limit, burst int) *limiterStore {
-	return &limiterStore{
-		limiters: make(map[string]*rate.Limiter),
-		limit:    limit,
-		burst:    burst,
+// limiterStore holds rate limiters per key with TTL-based cleanup
+type limiterStore struct {
+	mu         sync.RWMutex
+	limiters   map[string]*limiterEntry
+	limit      rate.Limit
+	burst      int
+	ttl        time.Duration
+	maxEntries int
+	stopCh     chan struct{}
+	stopped    bool
+}
+
+func newLimiterStore(limit rate.Limit, burst int, cleanupInterval, ttl time.Duration, maxEntries int) *limiterStore {
+	s := &limiterStore{
+		limiters:   make(map[string]*limiterEntry),
+		limit:      limit,
+		burst:      burst,
+		ttl:        ttl,
+		maxEntries: maxEntries,
+		stopCh:     make(chan struct{}),
+	}
+
+	go s.cleanupLoop(cleanupInterval)
+	return s
+}
+
+func (s *limiterStore) cleanupLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.cleanup()
+		case <-s.stopCh:
+			return
+		}
 	}
 }
 
+func (s *limiterStore) cleanup() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UnixNano()
+	ttlNano := s.ttl.Nanoseconds()
+
+	for key, entry := range s.limiters {
+		if now-atomic.LoadInt64(&entry.lastAccess) > ttlNano {
+			delete(s.limiters, key)
+		}
+	}
+}
+
+func (s *limiterStore) stop() {
+	s.mu.Lock()
+	if !s.stopped {
+		s.stopped = true
+		close(s.stopCh)
+	}
+	s.mu.Unlock()
+}
+
 func (s *limiterStore) getLimiter(key string) *rate.Limiter {
+	now := time.Now().UnixNano()
+
 	s.mu.RLock()
-	limiter, exists := s.limiters[key]
+	entry, exists := s.limiters[key]
 	s.mu.RUnlock()
 
 	if exists {
-		return limiter
+		atomic.StoreInt64(&entry.lastAccess, now)
+		return entry.limiter
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Double-check after acquiring write lock
-	if limiter, exists := s.limiters[key]; exists {
-		return limiter
+	if entry, exists := s.limiters[key]; exists {
+		atomic.StoreInt64(&entry.lastAccess, now)
+		return entry.limiter
 	}
 
-	limiter = rate.NewLimiter(s.limit, s.burst)
-	s.limiters[key] = limiter
+	// Enforce max entries limit - evict oldest if at capacity
+	if len(s.limiters) >= s.maxEntries {
+		s.evictOldest()
+	}
+
+	limiter := rate.NewLimiter(s.limit, s.burst)
+	s.limiters[key] = &limiterEntry{
+		limiter:    limiter,
+		lastAccess: now,
+	}
 	return limiter
+}
+
+func (s *limiterStore) evictOldest() {
+	var oldestKey string
+	oldestTime := time.Now().UnixNano()
+
+	for key, entry := range s.limiters {
+		lastAccess := atomic.LoadInt64(&entry.lastAccess)
+		if lastAccess < oldestTime {
+			oldestTime = lastAccess
+			oldestKey = key
+		}
+	}
+
+	if oldestKey != "" {
+		delete(s.limiters, oldestKey)
+	}
+}
+
+func (s *limiterStore) len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.limiters)
 }
 
 // CreateRateLimitMiddleware creates a rate limiting middleware using token bucket algorithm
@@ -101,17 +196,44 @@ func CreateRateLimitMiddleware(options map[string]string) func(http.Handler) htt
 		keyStrategy = DefaultKey
 	}
 
+	// Parse cleanup interval
+	cleanupIntervalStr := options[OptionCleanupInterval]
+	if cleanupIntervalStr == "" {
+		cleanupIntervalStr = DefaultCleanupInterval
+	}
+	cleanupInterval, err := parseDuration(cleanupIntervalStr)
+	if err != nil {
+		cleanupInterval = 5 * time.Minute
+	}
+
+	// Parse entry TTL
+	entryTTLStr := options[OptionEntryTTL]
+	if entryTTLStr == "" {
+		entryTTLStr = DefaultEntryTTL
+	}
+	entryTTL, err := parseDuration(entryTTLStr)
+	if err != nil {
+		entryTTL = 10 * time.Minute
+	}
+
+	// Parse max entries
+	maxEntries := DefaultMaxEntries
+	if maxStr := options[OptionMaxEntries]; maxStr != "" {
+		if parsed, err := strconv.Atoi(maxStr); err == nil && parsed > 0 {
+			maxEntries = parsed
+		}
+	}
+
 	// Calculate rate limit
 	limit := rate.Limit(float64(requests) / window.Seconds())
 
-	store := newLimiterStore(limit, burst)
+	store := newLimiterStore(limit, burst, cleanupInterval, entryTTL, maxEntries)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Extract key based on strategy
 			key := extractKey(r, keyStrategy)
 			if key == "" {
-				// If key extraction fails, reject request
 				http.Error(w, "Rate limit key extraction failed", http.StatusBadRequest)
 				return
 			}

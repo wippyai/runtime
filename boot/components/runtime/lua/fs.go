@@ -18,7 +18,7 @@ func FS() boot.Component {
 			}
 
 			if err := AddModules(ctx, cm,
-				fsmod.NewFSModule(),
+				fsmod.Module,
 			); err != nil {
 				return ctx, err
 			}

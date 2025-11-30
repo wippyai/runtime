@@ -205,6 +205,12 @@ func (t *Terminal) prepareContext(
 		}
 		t.cleanup(result)
 	})
+	// Add frame cleanup as final hook
+	onCompleteHooks = append(onCompleteHooks, func(ctx context.Context, _ relay.PID, _ *runtime.Result) {
+		if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+			_ = fc.Close()
+		}
+	})
 	if err := process.SetOnCompleteHooks(pCtx, onCompleteHooks); err != nil {
 		t.log.Error("failed to set onComplete hooks", zap.Error(err))
 	}

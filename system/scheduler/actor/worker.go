@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 	_ "unsafe"
+
+	"github.com/wippyai/runtime/api/dispatcher"
 )
 
 // Worker is a goroutine that processes Processors from queues.
@@ -255,32 +257,51 @@ func (w *Worker) executeOne(proc *Processor) {
 			return
 		}
 
-		// Dispatch first yield to handler
-		cmd := yields[0]
-		handler := w.scheduler.getHandler(cmd)
-		if handler == nil {
-			proc.State = StateComplete
-			w.scheduler.completeProcessor(proc, nil, &UnknownCommandError{ID: cmd.CmdID()})
-			return
+		// Validate all handlers exist before starting
+		handlers := make([]dispatcher.Handler, len(yields))
+		for i, cmd := range yields {
+			handlers[i] = w.scheduler.getHandler(cmd)
+			if handlers[i] == nil {
+				proc.State = StateComplete
+				w.scheduler.completeProcessor(proc, nil, &UnknownCommandError{ID: cmd.CmdID()})
+				return
+			}
 		}
 
 		proc.State = StateBlocked
-
-		// Run handler in goroutine - it blocks until complete
-		// Context allows cancellation when process dies
 		ctx := proc.Context()
-		go func() {
-			var emittedData any
-			emit := func(data any) {
-				// For one-shot: capture first emitted value
-				// For streaming: this will be enhanced to queue values
-				if emittedData == nil {
-					emittedData = data
-				}
-			}
 
-			err := handler.Handle(ctx, cmd, emit)
-			proc.Complete(emittedData, err)
-		}()
+		if len(yields) == 1 {
+			// Single yield - simple path
+			go func() {
+				var emittedData any
+				emit := func(data any) {
+					if emittedData == nil {
+						emittedData = data
+					}
+				}
+				err := handlers[0].Handle(ctx, yields[0], emit)
+				proc.Complete(emittedData, err)
+			}()
+		} else {
+			// Multiple yields - handle sequentially, collect results
+			go func() {
+				results := make([]any, len(yields))
+				for i, cmd := range yields {
+					var emittedData any
+					emit := func(data any) {
+						if emittedData == nil {
+							emittedData = data
+						}
+					}
+					if err := handlers[i].Handle(ctx, cmd, emit); err != nil {
+						proc.Complete(nil, err)
+						return
+					}
+					results[i] = emittedData
+				}
+				proc.Complete(results, nil)
+			}()
+		}
 	}
 }

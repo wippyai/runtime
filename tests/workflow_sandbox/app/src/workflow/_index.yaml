@@ -1,6 +1,0 @@
-simple_workflow:
-  meta:
-    description: "Simple workflow with timer"
-  source: "simple.lua"
-  method: "main"
-  modules: []

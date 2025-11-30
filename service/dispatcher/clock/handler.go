@@ -40,103 +40,79 @@ func (h *SleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit 
 	}
 }
 
-// TickerHandler processes ticker commands.
-// Streaming: emits tick values at regular intervals until cancelled.
-type TickerHandler struct{}
+// AfterHandler creates a channel that fires after a duration.
+// Returns immediately with channel reference, fires in background.
+type AfterHandler struct{}
 
-// NewTickerHandler creates a new ticker handler.
-func NewTickerHandler() *TickerHandler {
-	return &TickerHandler{}
+func NewAfterHandler() *AfterHandler {
+	return &AfterHandler{}
 }
 
-// Handle implements dispatcher.Handler.
-// Emits current time on each tick until context is cancelled.
-func (h *TickerHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	ticker := cmd.(clockapi.TickerCmd)
+// AfterResult contains the channel and cleanup info for time.after().
+type AfterResult struct {
+	ChannelID uint64
+}
 
-	if ticker.Duration <= 0 {
+func (h *AfterHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	afterCmd := cmd.(clockapi.AfterCmd)
+
+	if afterCmd.Duration <= 0 {
 		return nil
 	}
 
-	t := time.NewTicker(ticker.Duration)
-	defer t.Stop()
+	registry := GetOrCreateAfterRegistry(ctx)
+	id := registry.Create(ctx, afterCmd.Duration)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case tick := <-t.C:
-			emit(tick)
-		}
-	}
-}
-
-// TimerHandler processes one-shot timer commands.
-// Emits the fire time once, then returns.
-type TimerHandler struct{}
-
-// NewTimerHandler creates a new timer handler.
-func NewTimerHandler() *TimerHandler {
-	return &TimerHandler{}
-}
-
-// Handle implements dispatcher.Handler.
-// Waits for duration, emits fire time, returns.
-func (h *TimerHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	timer := cmd.(clockapi.TimerCmd)
-
-	if timer.Duration <= 0 {
-		emit(now(ctx))
-		return nil
-	}
-
-	t := time.NewTimer(timer.Duration)
-	defer t.Stop()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case fireTime := <-t.C:
-		emit(fireTime)
-		return nil
-	}
+	emit(&AfterResult{ChannelID: id})
+	return nil
 }
 
 // Service bundles all clock handlers for convenient registration.
 type Service struct {
-	Sleep  *SleepHandler
-	Ticker *TickerHandler // legacy streaming ticker
-	Timer  *TimerHandler
-	Now    *NowHandler
+	Sleep *SleepHandler
+	Now   *NowHandler
+	After *AfterHandler
 
-	// Streaming ticker handlers (decomposed one-shot)
+	// Decomposed ticker handlers (one-shot pattern)
 	TickerStart *TickerStartHandler
 	TickerNext  *TickerNextHandler
 	TickerStop  *TickerStopHandler
+
+	// Decomposed timer handlers (one-shot pattern)
+	TimerStart *TimerStartHandler
+	TimerWait  *TimerWaitHandler
+	TimerStop  *TimerStopHandler
+	TimerReset *TimerResetHandler
 }
 
 // NewService creates a new clock service with all handlers initialized.
 func NewService() *Service {
 	return &Service{
 		Sleep:       NewSleepHandler(),
-		Ticker:      NewTickerHandler(),
-		Timer:       NewTimerHandler(),
 		Now:         NewNowHandler(),
+		After:       NewAfterHandler(),
 		TickerStart: NewTickerStartHandler(),
 		TickerNext:  NewTickerNextHandler(),
 		TickerStop:  NewTickerStopHandler(),
+		TimerStart:  NewTimerStartHandler(),
+		TimerWait:   NewTimerWaitHandler(),
+		TimerStop:   NewTimerStopHandler(),
+		TimerReset:  NewTimerResetHandler(),
 	}
 }
 
 // RegisterAll registers all clock handlers with the given registry function.
 func (s *Service) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	register(clockapi.CmdSleep, s.Sleep)
-	register(clockapi.CmdTicker, s.Ticker)
-	register(clockapi.CmdTimer, s.Timer)
 	register(clockapi.CmdNow, s.Now)
+	register(clockapi.CmdAfter, s.After)
 	register(clockapi.CmdTickerStart, s.TickerStart)
 	register(clockapi.CmdTickerNext, s.TickerNext)
 	register(clockapi.CmdTickerStop, s.TickerStop)
+	register(clockapi.CmdTimerStart, s.TimerStart)
+	register(clockapi.CmdTimerWait, s.TimerWait)
+	register(clockapi.CmdTimerStop, s.TimerStop)
+	register(clockapi.CmdTimerReset, s.TimerReset)
 }
 
 // NowHandler returns current time.

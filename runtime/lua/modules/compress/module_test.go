@@ -3,277 +3,699 @@ package compress
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 )
 
-func TestCompressModule(t *testing.T) {
-	t.Run("module loading", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+func TestBind(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
 
-		err := L.DoString(`
-			local compress = require("compress")
-			assert(type(compress) == "table")
-			assert(type(compress.gzip) == "table")
-			assert(type(compress.gzip.encode) == "function")
-			assert(type(compress.gzip.decode) == "function")
-			assert(type(compress.deflate) == "table")
-			assert(type(compress.deflate.encode) == "function")
-			assert(type(compress.deflate.decode) == "function")
-			assert(type(compress.zlib) == "table")
-			assert(type(compress.zlib.encode) == "function")
-			assert(type(compress.zlib.decode) == "function")
-			assert(type(compress.brotli) == "table")
-			assert(type(compress.brotli.encode) == "function")
-			assert(type(compress.brotli.decode) == "function")
-			assert(type(compress.zstd) == "table")
-			assert(type(compress.zstd.encode) == "function")
-			assert(type(compress.zstd.decode) == "function")
-		`)
-		assert.NoError(t, err)
-	})
+	Bind(l)
 
-	t.Run("gzip encode/decode", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+	mod := l.GetGlobal("compress")
+	if mod.Type() != lua.LTTable {
+		t.Fatal("compress module not registered")
+	}
 
-		err := L.DoString(`
-			local compress = require("compress")
+	tbl := mod.(*lua.LTable)
+	algos := []string{"gzip", "deflate", "zlib", "brotli", "zstd"}
+	for _, algo := range algos {
+		sub := tbl.RawGetString(algo)
+		if sub.Type() != lua.LTTable {
+			t.Errorf("%s submodule not registered", algo)
+			continue
+		}
+		subTbl := sub.(*lua.LTable)
+		if subTbl.RawGetString("encode").Type() != lua.LTFunction {
+			t.Errorf("%s.encode not registered", algo)
+		}
+		if subTbl.RawGetString("decode").Type() != lua.LTFunction {
+			t.Errorf("%s.decode not registered", algo)
+		}
+	}
+}
 
-			local data = string.rep("Hello, World! This is a test string for gzip compression. ", 10)
+func TestGzipRoundTrip(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local compressed, err = compress.gzip.encode(data)
-			assert(err == nil, "encoding error: " .. tostring(err))
-			assert(#compressed < #data, "compressed data should be smaller")
+	err := l.DoString(`
+		local original = "Hello, World! This is a test string for compression."
+		local encoded, err = compress.gzip.encode(original)
+		if not encoded then error(err) end
+		local decoded, err = compress.gzip.decode(encoded)
+		if not decoded then error(err) end
+		if decoded ~= original then error("gzip round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("gzip round trip failed: %v", err)
+	}
+}
 
-			local decompressed, err = compress.gzip.decode(compressed)
-			assert(err == nil, "decoding error: " .. tostring(err))
-			assert(decompressed == data, "decompressed data should match original")
+func TestGzipWithLevel(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			return "ok"
-		`)
-		require.NoError(t, err)
-	})
+	err := l.DoString(`
+		local data = "Hello, World!"
+		local encoded, err = compress.gzip.encode(data, {level = 9})
+		if not encoded then error(err) end
+		local decoded, err = compress.gzip.decode(encoded)
+		if decoded ~= data then error("gzip with level failed") end
+	`)
+	if err != nil {
+		t.Errorf("gzip with level failed: %v", err)
+	}
+}
 
-	t.Run("gzip with compression level", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+func TestGzipInvalidLevel(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-		err := L.DoString(`
-			local compress = require("compress")
+	err := l.DoString(`
+		local _, err = compress.gzip.encode("test", {level = 100})
+		if err == nil then error("expected error for invalid level") end
+	`)
+	if err != nil {
+		t.Errorf("gzip invalid level test failed: %v", err)
+	}
+}
 
-			local data = string.rep("Hello, World! ", 100)
+func TestGzipEmptyInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local compressed_fast, err = compress.gzip.encode(data, {level = 1})
-			assert(err == nil, "fast encoding error: " .. tostring(err))
+	err := l.DoString(`
+		local _, err = compress.gzip.encode("")
+		if err == nil then error("expected error for empty input") end
+	`)
+	if err != nil {
+		t.Errorf("gzip empty input test failed: %v", err)
+	}
+}
 
-			local compressed_best, err = compress.gzip.encode(data, {level = 9})
-			assert(err == nil, "best encoding error: " .. tostring(err))
+func TestGzipInvalidInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			assert(#compressed_best <= #compressed_fast, "best compression should be smaller or equal")
+	err := l.DoString(`
+		local _, err = compress.gzip.encode(123)
+		if err == nil then error("expected error for non-string") end
+	`)
+	if err != nil {
+		t.Errorf("gzip invalid input test failed: %v", err)
+	}
+}
 
-			local decompressed, err = compress.gzip.decode(compressed_best)
-			assert(err == nil, "decoding error: " .. tostring(err))
-			assert(decompressed == data, "decompressed data should match original")
-		`)
-		assert.NoError(t, err)
-	})
+func TestGzipDecodeInvalid(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-	t.Run("deflate encode/decode", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+	err := l.DoString(`
+		local _, err = compress.gzip.decode("not gzip data")
+		if err == nil then error("expected error for invalid gzip") end
+	`)
+	if err != nil {
+		t.Errorf("gzip decode invalid test failed: %v", err)
+	}
+}
 
-		err := L.DoString(`
-			local compress = require("compress")
+func TestDeflateRoundTrip(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local data = "Deflate compression test data with some repeating patterns."
+	err := l.DoString(`
+		local original = "Hello, World! This is a test string for compression."
+		local encoded, err = compress.deflate.encode(original)
+		if not encoded then error(err) end
+		local decoded, err = compress.deflate.decode(encoded)
+		if not decoded then error(err) end
+		if decoded ~= original then error("deflate round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("deflate round trip failed: %v", err)
+	}
+}
 
-			local compressed, err = compress.deflate.encode(data)
-			assert(err == nil, "encoding error: " .. tostring(err))
+func TestDeflateEmptyInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local decompressed, err = compress.deflate.decode(compressed)
-			assert(err == nil, "decoding error: " .. tostring(err))
-			assert(decompressed == data, "decompressed data should match original")
-		`)
-		assert.NoError(t, err)
-	})
+	err := l.DoString(`
+		local _, err = compress.deflate.encode("")
+		if err == nil then error("expected error for empty input") end
+	`)
+	if err != nil {
+		t.Errorf("deflate empty input test failed: %v", err)
+	}
+}
 
-	t.Run("zlib encode/decode", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+func TestDeflateInvalidInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-		err := L.DoString(`
-			local compress = require("compress")
+	err := l.DoString(`
+		local _, err = compress.deflate.decode(123)
+		if err == nil then error("expected error for non-string") end
+	`)
+	if err != nil {
+		t.Errorf("deflate invalid input test failed: %v", err)
+	}
+}
 
-			local data = "Zlib compression test with checksum validation."
+func TestZlibRoundTrip(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local compressed, err = compress.zlib.encode(data)
-			assert(err == nil, "encoding error: " .. tostring(err))
+	err := l.DoString(`
+		local original = "Hello, World! This is a test string for compression."
+		local encoded, err = compress.zlib.encode(original)
+		if not encoded then error(err) end
+		local decoded, err = compress.zlib.decode(encoded)
+		if not decoded then error(err) end
+		if decoded ~= original then error("zlib round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("zlib round trip failed: %v", err)
+	}
+}
 
-			local decompressed, err = compress.zlib.decode(compressed)
-			assert(err == nil, "decoding error: " .. tostring(err))
-			assert(decompressed == data, "decompressed data should match original")
-		`)
-		assert.NoError(t, err)
-	})
+func TestZlibEmptyInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-	t.Run("brotli encode/decode", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+	err := l.DoString(`
+		local _, err = compress.zlib.encode("")
+		if err == nil then error("expected error for empty input") end
+	`)
+	if err != nil {
+		t.Errorf("zlib empty input test failed: %v", err)
+	}
+}
 
-		err := L.DoString(`
-			local compress = require("compress")
+func TestZlibDecodeInvalid(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local data = string.rep("Brotli is a modern compression algorithm. ", 10)
+	err := l.DoString(`
+		local _, err = compress.zlib.decode("not zlib data")
+		if err == nil then error("expected error for invalid zlib") end
+	`)
+	if err != nil {
+		t.Errorf("zlib decode invalid test failed: %v", err)
+	}
+}
 
-			local compressed, err = compress.brotli.encode(data, {level = 6})
-			assert(err == nil, "encoding error: " .. tostring(err))
-			assert(#compressed < #data, "compressed data should be smaller")
+func TestBrotliRoundTrip(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local decompressed, err = compress.brotli.decode(compressed)
-			assert(err == nil, "decoding error: " .. tostring(err))
-			assert(decompressed == data, "decompressed data should match original")
-		`)
-		assert.NoError(t, err)
-	})
+	err := l.DoString(`
+		local original = "Hello, World! This is a test string for compression."
+		local encoded, err = compress.brotli.encode(original)
+		if not encoded then error(err) end
+		local decoded, err = compress.brotli.decode(encoded)
+		if not decoded then error(err) end
+		if decoded ~= original then error("brotli round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("brotli round trip failed: %v", err)
+	}
+}
 
-	t.Run("zstd encode/decode", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+func TestBrotliWithLevel(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-		err := L.DoString(`
-			local compress = require("compress")
+	err := l.DoString(`
+		local data = "Hello, World!"
+		local encoded, err = compress.brotli.encode(data, {level = 11})
+		if not encoded then error(err) end
+		local decoded, err = compress.brotli.decode(encoded)
+		if decoded ~= data then error("brotli with level failed") end
+	`)
+	if err != nil {
+		t.Errorf("brotli with level failed: %v", err)
+	}
+}
 
-			local data = string.rep("Zstandard offers excellent compression ratios. ", 20)
+func TestBrotliInvalidLevel(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local compressed, err = compress.zstd.encode(data, {level = 3})
-			assert(err == nil, "encoding error: " .. tostring(err))
-			assert(#compressed < #data, "compressed data should be smaller")
+	err := l.DoString(`
+		local _, err = compress.brotli.encode("test", {level = 100})
+		if err == nil then error("expected error for invalid level") end
+	`)
+	if err != nil {
+		t.Errorf("brotli invalid level test failed: %v", err)
+	}
+}
 
-			local decompressed, err = compress.zstd.decode(compressed)
-			assert(err == nil, "decoding error: " .. tostring(err))
-			assert(decompressed == data, "decompressed data should match original")
-		`)
-		assert.NoError(t, err)
-	})
+func TestBrotliEmptyInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-	t.Run("error on empty input", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+	err := l.DoString(`
+		local _, err = compress.brotli.encode("")
+		if err == nil then error("expected error for empty input") end
+	`)
+	if err != nil {
+		t.Errorf("brotli empty input test failed: %v", err)
+	}
+}
 
-		err := L.DoString(`
-			local compress = require("compress")
+func TestZstdRoundTrip(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local compressed, err = compress.gzip.encode("")
-			assert(compressed == nil, "should return nil for empty input")
-			assert(err ~= nil, "should return error for empty input")
-		`)
-		assert.NoError(t, err)
-	})
+	err := l.DoString(`
+		local original = "Hello, World! This is a test string for compression."
+		local encoded, err = compress.zstd.encode(original)
+		if not encoded then error(err) end
+		local decoded, err = compress.zstd.decode(encoded)
+		if not decoded then error(err) end
+		if decoded ~= original then error("zstd round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("zstd round trip failed: %v", err)
+	}
+}
 
-	t.Run("error on invalid compression level", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+func TestZstdWithLevel(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-		err := L.DoString(`
-			local compress = require("compress")
+	err := l.DoString(`
+		local data = "Hello, World!"
+		local encoded, err = compress.zstd.encode(data, {level = 10})
+		if not encoded then error(err) end
+		local decoded, err = compress.zstd.decode(encoded)
+		if decoded ~= data then error("zstd with level failed") end
+	`)
+	if err != nil {
+		t.Errorf("zstd with level failed: %v", err)
+	}
+}
 
-			local data = "test data"
-			local compressed, err = compress.gzip.encode(data, {level = 100})
-			assert(compressed == nil, "should return nil for invalid level")
-			assert(err ~= nil, "should return error for invalid level")
-		`)
-		assert.NoError(t, err)
-	})
+func TestZstdInvalidLevel(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-	t.Run("error on invalid compressed data", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+	err := l.DoString(`
+		local _, err = compress.zstd.encode("test", {level = 100})
+		if err == nil then error("expected error for invalid level") end
+	`)
+	if err != nil {
+		t.Errorf("zstd invalid level test failed: %v", err)
+	}
+}
 
-		err := L.DoString(`
-			local compress = require("compress")
+func TestZstdEmptyInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local decompressed, err = compress.gzip.decode("not valid gzip data")
-			assert(decompressed == nil, "should return nil for invalid data")
-			assert(err ~= nil, "should return error for invalid data")
-		`)
-		assert.NoError(t, err)
-	})
+	err := l.DoString(`
+		local _, err = compress.zstd.encode("")
+		if err == nil then error("expected error for empty input") end
+	`)
+	if err != nil {
+		t.Errorf("zstd empty input test failed: %v", err)
+	}
+}
 
-	t.Run("large data compression", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+func TestZstdDecodeInvalid(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-		err := L.DoString(`
-			local compress = require("compress")
+	err := l.DoString(`
+		local _, err = compress.zstd.decode("not zstd data")
+		if err == nil then error("expected error for invalid zstd") end
+	`)
+	if err != nil {
+		t.Errorf("zstd decode invalid test failed: %v", err)
+	}
+}
 
-			local data = string.rep("Large data block for testing compression efficiency. ", 1000)
+func TestDeflateWithLevel(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local compressed_gzip, err = compress.gzip.encode(data)
-			assert(err == nil, "gzip encoding error: " .. tostring(err))
+	err := l.DoString(`
+		local data = "Hello, World!"
+		local encoded, err = compress.deflate.encode(data, {level = 9})
+		if not encoded then error(err) end
+		local decoded, err = compress.deflate.decode(encoded)
+		if decoded ~= data then error("deflate with level failed") end
+	`)
+	if err != nil {
+		t.Errorf("deflate with level failed: %v", err)
+	}
+}
 
-			local compressed_zstd, err = compress.zstd.encode(data)
-			assert(err == nil, "zstd encoding error: " .. tostring(err))
+func TestDeflateInvalidLevel(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			assert(#compressed_gzip < #data * 0.5, "gzip should compress well")
-			assert(#compressed_zstd < #data * 0.5, "zstd should compress well")
+	err := l.DoString(`
+		local _, err = compress.deflate.encode("test", {level = 100})
+		if err == nil then error("expected error for invalid level") end
+	`)
+	if err != nil {
+		t.Errorf("deflate invalid level test failed: %v", err)
+	}
+}
 
-			local decompressed, err = compress.gzip.decode(compressed_gzip)
-			assert(err == nil, "gzip decoding error: " .. tostring(err))
-			assert(decompressed == data, "gzip decompressed data should match")
+func TestZlibWithLevel(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			decompressed, err = compress.zstd.decode(compressed_zstd)
-			assert(err == nil, "zstd decoding error: " .. tostring(err))
-			assert(decompressed == data, "zstd decompressed data should match")
-		`)
-		assert.NoError(t, err)
-	})
+	err := l.DoString(`
+		local data = "Hello, World!"
+		local encoded, err = compress.zlib.encode(data, {level = 9})
+		if not encoded then error(err) end
+		local decoded, err = compress.zlib.decode(encoded)
+		if decoded ~= data then error("zlib with level failed") end
+	`)
+	if err != nil {
+		t.Errorf("zlib with level failed: %v", err)
+	}
+}
 
-	t.Run("binary data handling", func(t *testing.T) {
-		mod := NewCompressModule()
-		L := lua.NewState()
-		defer L.Close()
-		L.PreloadModule(mod.Info().Name, mod.Loader)
+func TestZlibInvalidLevel(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-		err := L.DoString(`
-			local compress = require("compress")
+	err := l.DoString(`
+		local _, err = compress.zlib.encode("test", {level = 100})
+		if err == nil then error("expected error for invalid level") end
+	`)
+	if err != nil {
+		t.Errorf("zlib invalid level test failed: %v", err)
+	}
+}
 
-			local data = ""
-			for i = 0, 255 do
-				data = data .. string.char(i)
-			end
+func TestZlibInvalidInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-			local compressed, err = compress.gzip.encode(data)
-			assert(err == nil, "encoding error: " .. tostring(err))
+	err := l.DoString(`
+		local _, err = compress.zlib.encode(123)
+		if err == nil then error("expected error for non-string") end
+	`)
+	if err != nil {
+		t.Errorf("zlib invalid input test failed: %v", err)
+	}
+}
 
-			local decompressed, err = compress.gzip.decode(compressed)
-			assert(err == nil, "decoding error: " .. tostring(err))
-			assert(decompressed == data, "binary data should be preserved")
-		`)
-		assert.NoError(t, err)
-	})
+func TestBrotliInvalidInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.brotli.encode(123)
+		if err == nil then error("expected error for non-string") end
+	`)
+	if err != nil {
+		t.Errorf("brotli invalid input test failed: %v", err)
+	}
+}
+
+func TestBrotliDecodeInvalid(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.brotli.decode("not brotli data")
+		if err == nil then error("expected error for invalid brotli") end
+	`)
+	if err != nil {
+		t.Errorf("brotli decode invalid test failed: %v", err)
+	}
+}
+
+func TestBrotliDecodeEmpty(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.brotli.decode("")
+		if err == nil then error("expected error for empty input") end
+	`)
+	if err != nil {
+		t.Errorf("brotli decode empty test failed: %v", err)
+	}
+}
+
+func TestZstdInvalidInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.zstd.encode(123)
+		if err == nil then error("expected error for non-string") end
+	`)
+	if err != nil {
+		t.Errorf("zstd invalid input test failed: %v", err)
+	}
+}
+
+func TestDeflateDecodeInvalid(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.deflate.decode("not deflate data")
+		if err == nil then error("expected error for invalid deflate") end
+	`)
+	if err != nil {
+		t.Errorf("deflate decode invalid test failed: %v", err)
+	}
+}
+
+func TestGzipDecodeEmpty(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.gzip.decode("")
+		if err == nil then error("expected error for empty input") end
+	`)
+	if err != nil {
+		t.Errorf("gzip decode empty test failed: %v", err)
+	}
+}
+
+func TestDeflateDecodeEmpty(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.deflate.decode("")
+		if err == nil then error("expected error for empty input") end
+	`)
+	if err != nil {
+		t.Errorf("deflate decode empty test failed: %v", err)
+	}
+}
+
+func TestZlibDecodeEmpty(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.zlib.decode("")
+		if err == nil then error("expected error for empty input") end
+	`)
+	if err != nil {
+		t.Errorf("zlib decode empty test failed: %v", err)
+	}
+}
+
+func TestZstdDecodeEmpty(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.zstd.decode("")
+		if err == nil then error("expected error for empty input") end
+	`)
+	if err != nil {
+		t.Errorf("zstd decode empty test failed: %v", err)
+	}
+}
+
+func TestZstdDecodeInvalidInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.zstd.decode(123)
+		if err == nil then error("expected error for non-string") end
+	`)
+	if err != nil {
+		t.Errorf("zstd decode invalid input test failed: %v", err)
+	}
+}
+
+func TestBrotliDecodeInvalidInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.brotli.decode(123)
+		if err == nil then error("expected error for non-string") end
+	`)
+	if err != nil {
+		t.Errorf("brotli decode invalid input test failed: %v", err)
+	}
+}
+
+func TestZstdAllLevels(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local data = "Hello, World!"
+		for _, level in ipairs({1, 4, 7, 15}) do
+			local encoded, err = compress.zstd.encode(data, {level = level})
+			if not encoded then error(err) end
+			local decoded, err = compress.zstd.decode(encoded)
+			if decoded ~= data then error("zstd level " .. level .. " failed") end
+		end
+	`)
+	if err != nil {
+		t.Errorf("zstd all levels test failed: %v", err)
+	}
+}
+
+func TestGzipDecodeInvalidInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.gzip.decode(123)
+		if err == nil then error("expected error for non-string") end
+	`)
+	if err != nil {
+		t.Errorf("gzip decode invalid input test failed: %v", err)
+	}
+}
+
+func TestDeflateDecodeInvalidInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.deflate.decode(123)
+		if err == nil then error("expected error for non-string") end
+	`)
+	if err != nil {
+		t.Errorf("deflate decode invalid input test failed: %v", err)
+	}
+}
+
+func TestZlibDecodeInvalidInput(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = compress.zlib.decode(123)
+		if err == nil then error("expected error for non-string") end
+	`)
+	if err != nil {
+		t.Errorf("zlib decode invalid input test failed: %v", err)
+	}
+}
+
+func TestBrotliLevelZero(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local data = "Hello, World!"
+		local encoded, err = compress.brotli.encode(data, {level = 0})
+		if not encoded then error(err) end
+		local decoded, err = compress.brotli.decode(encoded)
+		if decoded ~= data then error("brotli level 0 failed") end
+	`)
+	if err != nil {
+		t.Errorf("brotli level zero test failed: %v", err)
+	}
+}
+
+func TestGzipLevelOne(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local data = "Hello, World!"
+		local encoded, err = compress.gzip.encode(data, {level = 1})
+		if not encoded then error(err) end
+		local decoded, err = compress.gzip.decode(encoded)
+		if decoded ~= data then error("gzip level 1 failed") end
+	`)
+	if err != nil {
+		t.Errorf("gzip level 1 test failed: %v", err)
+	}
+}
+
+func TestBindReuse(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
+
+	Bind(l1)
+	Bind(l2)
+
+	mod1 := l1.GetGlobal("compress").(*lua.LTable)
+	mod2 := l2.GetGlobal("compress").(*lua.LTable)
+
+	if mod1 != mod2 {
+		t.Error("module table should be reused across states")
+	}
 }

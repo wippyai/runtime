@@ -17,7 +17,7 @@ func Compress() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, compressmod.NewCompressModule()); err != nil {
+			if err := AddModules(ctx, cm, compressmod.Module); err != nil {
 				return ctx, err
 			}
 

@@ -4,95 +4,95 @@ import (
 	"sync"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	"github.com/wippyai/runtime/api/service/sql"
-	"github.com/wippyai/runtime/runtime/lua/modules/sql/builder"
-	"github.com/wippyai/runtime/runtime/lua/modules/sql/sqlutil"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
+	servicesql "github.com/wippyai/runtime/api/service/sql"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
 const (
-	// TypePostgres identifies a PostgreSQL database
 	TypePostgres = "postgres"
+	TypeMySQL    = "mysql"
+	TypeSQLite   = "sqlite"
+	TypeMSSQL    = "mssql"
+	TypeOracle   = "oracle"
+	TypeUnknown  = "unknown"
 
-	// TypeMySQL identifies a MySQL database
-	TypeMySQL = "mysql"
-
-	// TypeSQLite identifies a SQLite database
-	TypeSQLite = "sqlite"
-
-	// TypeMSSQL identifies a Microsoft SQL Server database
-	TypeMSSQL = "mssql"
-
-	// TypeOracle identifies an Oracle database
-	TypeOracle = "oracle"
-
-	// TypeUnknown for unrecognized database types
-	TypeUnknown = "unknown"
-
-	// Isolation level constants
 	IsolationDefault         = "default"
 	IsolationReadUncommitted = "read_uncommitted"
 	IsolationReadCommitted   = "read_committed"
 	IsolationWriteCommitted  = "write_committed"
 	IsolationRepeatableRead  = "repeatable_read"
 	IsolationSerializable    = "serializable"
+
+	dbTypeName          = "sql.DB"
+	statementTypeName   = "sql.Statement"
+	transactionTypeName = "sql.Transaction"
 )
 
-// Module represents the SQL module for Lua
-type Module struct {
-	log         *zap.Logger
-	moduleTable *lua.LTable
-	once        sync.Once
-}
+var (
+	moduleTable          *lua.LTable
+	registration         *lua2api.Registration
+	dbMetatable          *lua.LTable
+	statementMetatable   *lua.LTable
+	transactionMetatable *lua.LTable
+	initOnce             sync.Once
+)
 
-// NewSQLModule creates a new SQL module
-func NewSQLModule(log *zap.Logger) *Module {
-	if log == nil {
-		log = zap.NewNop()
-	}
-	return &Module{
-		log: log,
-	}
-}
+// Module is the singleton sql module instance.
+var Module = &sqlModule{}
 
-func (m *Module) Info() luaapi.ModuleInfo {
+type sqlModule struct{}
+
+func (m *sqlModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "sql",
-		Description: "SQL database access",
-		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO},
+		Description: "SQL database operations",
+		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
 	}
 }
 
-// Loader is the entry point for loading the module into Lua
-func (m *Module) Loader(l *lua.LState) int {
-	m.once.Do(func() {
-		m.initModuleTable(l)
+func (m *sqlModule) Register(l *lua.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		moduleTable = createModuleTable()
+		dbMetatable = value.RegisterTypeMethods(nil, dbTypeName,
+			map[string]lua.LGFunction{"__tostring": dbToString},
+			dbMethods)
+		statementMetatable = value.RegisterTypeMethods(nil, statementTypeName,
+			map[string]lua.LGFunction{"__tostring": statementToString},
+			statementMethods)
+		transactionMetatable = value.RegisterTypeMethods(nil, transactionTypeName,
+			map[string]lua.LGFunction{"__tostring": transactionToString},
+			transactionMethods)
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
 
-	l.Push(m.moduleTable)
+	return registration
+}
+
+func (m *sqlModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
 	return 1
 }
 
-// initModuleTable creates and initializes the module table once
-func (m *Module) initModuleTable(l *lua.LState) {
-	// Create main module table with exact capacity
-	mod := l.CreateTable(0, 5) // 5 elements: get function, type table, isolation table, NULL, and submodules
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *lua.LState) {
+	lua2api.LoadModule(l, Module)
+}
 
-	// Register main DB functions
-	registerDB(l, mod, m.log)
+func createModuleTable() *lua.LTable {
+	mod := lua.CreateTable(0, 5)
 
-	// Register statement and transaction methods
-	registerStatement(l, m.log)
-	registerTransaction(l, m.log)
+	mod.RawSetString("get", lua.LGoFunc(sqlGet))
 
-	// Create NULL value
-	nullUserData := l.NewUserData()
-	nullUserData.Value = "SQL_NULL"
-	mod.RawSetString("NULL", nullUserData)
+	nullUD := &lua.LUserData{Value: "SQL_NULL"}
+	mod.RawSetString("NULL", nullUD)
 
-	// Create database type constants table
-	types := l.CreateTable(0, 6) // 6 database types
+	types := lua.CreateTable(0, 6)
 	types.RawSetString("POSTGRES", lua.LString(TypePostgres))
 	types.RawSetString("MYSQL", lua.LString(TypeMySQL))
 	types.RawSetString("SQLITE", lua.LString(TypeSQLite))
@@ -102,8 +102,7 @@ func (m *Module) initModuleTable(l *lua.LState) {
 	types.Immutable = true
 	mod.RawSetString("type", types)
 
-	// Create isolation level constants table
-	isolation := l.CreateTable(0, 6) // 6 isolation levels
+	isolation := lua.CreateTable(0, 6)
 	isolation.RawSetString("DEFAULT", lua.LString(IsolationDefault))
 	isolation.RawSetString("READ_UNCOMMITTED", lua.LString(IsolationReadUncommitted))
 	isolation.RawSetString("READ_COMMITTED", lua.LString(IsolationReadCommitted))
@@ -113,30 +112,21 @@ func (m *Module) initModuleTable(l *lua.LState) {
 	isolation.Immutable = true
 	mod.RawSetString("isolation", isolation)
 
-	// Register sqlutil as submodule
-	sqlutil.RegisterAsModule(l, mod)
-
-	// Register builder submodule
-	builder.RegisterBuilderModule(l, mod)
-
-	// Make the main module table immutable
 	mod.Immutable = true
-
-	m.moduleTable = mod
+	return mod
 }
 
-// mapDBTypeFromResourceKind maps a registry.Kind to a database type string
 func mapDBTypeFromResourceKind(dbType string) string {
 	switch dbType {
-	case sql.KindPostgres:
+	case servicesql.KindPostgres:
 		return TypePostgres
-	case sql.KindMySQL:
+	case servicesql.KindMySQL:
 		return TypeMySQL
-	case sql.KindSQLite:
+	case servicesql.KindSQLite:
 		return TypeSQLite
-	case sql.KindMSSQL:
+	case servicesql.KindMSSQL:
 		return TypeMSSQL
-	case sql.KindOracle:
+	case servicesql.KindOracle:
 		return TypeOracle
 	default:
 		return TypeUnknown

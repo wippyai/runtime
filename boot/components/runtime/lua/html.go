@@ -18,7 +18,7 @@ func HTML() boot.Component {
 			}
 
 			if err := AddModules(ctx, cm,
-				html.NewHTMLModule(),
+				html.Module,
 			); err != nil {
 				return ctx, err
 			}

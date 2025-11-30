@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 func TestCreateRateLimitMiddleware(t *testing.T) {
@@ -328,6 +329,63 @@ func TestParseDuration(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLimiterStoreCleanup(t *testing.T) {
+	t.Run("cleanup removes expired entries", func(t *testing.T) {
+		store := newLimiterStore(rate.Limit(1), 1, 50*time.Millisecond, 100*time.Millisecond, 1000)
+		defer store.stop()
+
+		// Add some limiters
+		store.getLimiter("key1")
+		store.getLimiter("key2")
+
+		assert.Equal(t, 2, store.len())
+
+		// Wait for TTL + cleanup interval
+		time.Sleep(200 * time.Millisecond)
+
+		assert.Equal(t, 0, store.len())
+	})
+
+	t.Run("active entries not cleaned up", func(t *testing.T) {
+		store := newLimiterStore(rate.Limit(1), 1, 50*time.Millisecond, 100*time.Millisecond, 1000)
+		defer store.stop()
+
+		// Add and keep accessing key1
+		store.getLimiter("key1")
+
+		for i := 0; i < 5; i++ {
+			time.Sleep(30 * time.Millisecond)
+			store.getLimiter("key1") // keep it alive
+		}
+
+		// key1 should still exist since we kept accessing it
+		assert.Equal(t, 1, store.len())
+	})
+
+	t.Run("max entries enforced with eviction", func(t *testing.T) {
+		store := newLimiterStore(rate.Limit(1), 1, time.Hour, time.Hour, 3)
+		defer store.stop()
+
+		store.getLimiter("key1")
+		time.Sleep(10 * time.Millisecond)
+		store.getLimiter("key2")
+		time.Sleep(10 * time.Millisecond)
+		store.getLimiter("key3")
+
+		assert.Equal(t, 3, store.len())
+
+		// Adding 4th should evict oldest (key1)
+		store.getLimiter("key4")
+		assert.Equal(t, 3, store.len())
+	})
+
+	t.Run("stop prevents goroutine leak", func(_ *testing.T) {
+		store := newLimiterStore(rate.Limit(1), 1, time.Millisecond, time.Millisecond, 1000)
+		store.stop()
+		store.stop() // double stop should be safe
+	})
 }
 
 func TestExtractKey(t *testing.T) {

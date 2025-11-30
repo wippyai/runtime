@@ -8,22 +8,16 @@ import (
 )
 
 // Registry maps CommandID to Handler with O(1) lookup.
-// Uses fixed array instead of map for performance (no hashing).
-//
-// CommandID ranges (convention, not enforced):
-//   - 0-9: Core commands (complete, yield, error)
-//   - 10-49: Time commands (sleep, timer, after)
-//   - 50-99: IO commands (http, websocket)
-//   - 100-149: Database commands (sql, redis)
-//   - 150-199: Messaging commands (queue, pubsub)
-//   - 200-255: User/extension commands
+// Uses map for uint16 CommandID space.
 type Registry struct {
-	handlers [256]dispatcher.Handler
+	handlers map[dispatcher.CommandID]dispatcher.Handler
 }
 
 // NewRegistry creates an empty handler registry.
 func NewRegistry() *Registry {
-	return &Registry{}
+	return &Registry{
+		handlers: make(map[dispatcher.CommandID]dispatcher.Handler),
+	}
 }
 
 // Register adds a handler for a command ID.

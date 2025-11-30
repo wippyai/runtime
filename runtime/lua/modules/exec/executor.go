@@ -2,212 +2,222 @@ package exec
 
 import (
 	"context"
-	"sync" // Import sync
-
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"fmt"
+	"sync"
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	apiexec "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
-// Executor wraps an acquired ProcessExecutor factory resource for Lua
 type Executor struct {
-	log       *zap.Logger
-	mu        sync.Mutex
-	resource  resource.Resource[any]
-	factory   apiexec.ProcessExecutor
-	onRelease context.CancelFunc // UoW cleanup cancel func for the factory handle
+	resource      resource.Resource[any]
+	factory       apiexec.ProcessExecutor
+	released      bool
+	mu            sync.Mutex
+	cancelCleanup func()
 }
 
-// NewExecutor creates a new Executor wrapper with UoW integration for the factory handle
-func NewExecutor(uw engine.UnitOfWork, res resource.Resource[any], factory apiexec.ProcessExecutor, log *zap.Logger) *Executor {
-	wrapper := &Executor{
+func NewExecutor(ctx context.Context, res resource.Resource[any], factory apiexec.ProcessExecutor) *Executor {
+	e := &Executor{
 		resource: res,
 		factory:  factory,
-		log:      log,
+		released: false,
 	}
 
-	wrapper.onRelease = uw.AddCleanup(func() error {
-		wrapper.mu.Lock()
-		resHandle := wrapper.resource
-		wrapper.resource = nil
-		wrapper.factory = nil
-		wrapper.mu.Unlock()
-
-		if resHandle != nil {
-			resHandle.Release()
-		}
-		return nil
-	})
-
-	return wrapper
-}
-
-// CheckExecutor checks if the Lua argument is a valid, non-released Executor userdata
-func CheckExecutor(l *lua.LState, n int) *Executor {
-	ud := l.CheckUserData(n)
-	execWrapper, ok := ud.Value.(*Executor)
-	if !ok {
-		l.ArgError(n, "expected executor object")
-		return nil
+	resources := engine.GetResources(ctx)
+	if resources != nil {
+		e.cancelCleanup = resources.AddCleanup(func() error {
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			if !e.released && e.resource != nil {
+				e.resource.Release()
+				e.released = true
+			}
+			return nil
+		})
 	}
 
-	execWrapper.mu.Lock()
-	valid := execWrapper.resource != nil && execWrapper.factory != nil
-	execWrapper.mu.Unlock()
+	return e
+}
 
-	if !valid {
-		l.RaiseError("executor has been released")
-		return nil
+var executorMethods = map[string]lua.LGFunction{
+	"exec":    executorExec,
+	"release": executorRelease,
+}
+
+func checkExecutor(l *lua.LState, idx int) *Executor {
+	ud := l.CheckUserData(idx)
+	if v, ok := ud.Value.(*Executor); ok {
+		return v
 	}
-	return execWrapper
+	l.ArgError(idx, "executor expected")
+	return nil
 }
 
-// WrapExecutor wraps an Executor struct as Lua userdata
-func WrapExecutor(l *lua.LState, execWrapper *Executor) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = execWrapper
-	l.SetMetatable(ud, value.GetTypeMetatable(l, executorMetatable))
-	return ud
-}
+func execGet(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context"))
+		return 2
+	}
 
-// --- Lua Functions ---
+	id := l.CheckString(1)
+	if id == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("resource id is required"))
+		return 2
+	}
 
-// execGet (Lua: exec.get(id)) acquires a process executor factory resource
-func execGet(l *lua.LState, log *zap.Logger) int {
-	idStr := l.CheckString(1)
-	if idStr == "" {
-		l.RaiseError("resource ID is required")
+	if !security.IsAllowed(ctx, "exec.get", id, nil) {
+		l.RaiseError("not allowed to access executor: %s", id)
 		return 0
 	}
 
-	if !security.IsAllowed(l.Context(), "exec.get", idStr, nil) {
-		l.RaiseError("not allowed to access executor: %s", idStr)
-		return 0
-	}
-
-	log = log.With(zap.String("id", idStr))
-
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("no unit of work found in context")
-		return 0
-	}
-
-	reg := resource.GetRegistry(uw.Context())
+	reg := resource.GetRegistry(ctx)
 	if reg == nil {
-		l.RaiseError("resource registry not found in context")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("resource registry not found"))
+		return 2
 	}
 
-	resID := registry.ParseID(idStr)
-	res, err := reg.Acquire(uw.Context(), resID, resource.ModeNormal)
+	resID := registry.ParseID(id)
+	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
 	if err != nil {
-		l.RaiseError("failed to acquire resource '%s': %v", idStr, err)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
+		return 2
 	}
 
-	execInstance, err := res.Get()
+	execRes, err := res.Get()
 	if err != nil {
 		res.Release()
-		l.RaiseError("failed to get executor factory from resource '%s': %v", idStr, err)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to get resource: %v", err)))
+		return 2
 	}
 
-	factory, ok := execInstance.(apiexec.ProcessExecutor)
+	factory, ok := execRes.(apiexec.ProcessExecutor)
 	if !ok {
 		res.Release()
-		l.RaiseError("resource '%s' is not a process executor factory: %T", idStr, execInstance)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("resource is not an executor: %T", execRes)))
+		return 2
 	}
 
-	execWrapper := NewExecutor(uw, res, factory, log)
-	ud := WrapExecutor(l, execWrapper)
-	l.Push(ud)
-	return 1
+	e := NewExecutor(ctx, res, factory)
+
+	value.NewUserData(l, e, executorMetatable)
+	l.Push(lua.LNil)
+	return 2
 }
 
-// executorNewProcess (Lua: executor:new_process(cmd, opts_table))
-func executorNewProcess(l *lua.LState) int {
-	execWrapper := CheckExecutor(l, 1)
-	if execWrapper == nil {
+func executorExec(l *lua.LState) int {
+	e := checkExecutor(l, 1)
+	if e == nil {
 		return 0
 	}
-	cmd := l.CheckString(2)
-	optsTable := l.OptTable(3, l.CreateTable(0, 0))
+	ctx := l.Context()
 
-	if !security.IsAllowed(l.Context(), "exec.run", cmd, nil) {
+	e.mu.Lock()
+	if e.released {
+		e.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.LString("executor is released"))
+		return 2
+	}
+	factory := e.factory
+	e.mu.Unlock()
+
+	cmd := l.CheckString(2)
+	if cmd == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("command is required"))
+		return 2
+	}
+
+	if !security.IsAllowed(ctx, "exec.run", cmd, nil) {
 		l.RaiseError("not allowed to execute command: %s", cmd)
 		return 0
 	}
 
-	procOpts := apiexec.ProcessOptions{}
-	wd := optsTable.RawGetString("work_dir")
-	if wdStr, ok := wd.(lua.LString); ok {
-		procOpts.WorkDir = string(wdStr)
-	}
-	envTable := optsTable.RawGetString("env")
-	if envT, ok := envTable.(*lua.LTable); ok {
-		procOpts.Env = make(map[string]string)
-		envT.ForEach(func(k lua.LValue, v lua.LValue) {
-			procOpts.Env[k.String()] = v.String()
-		})
+	opts := apiexec.ProcessOptions{}
+	if l.GetTop() >= 3 && l.Get(3).Type() == lua.LTTable {
+		optsTable := l.CheckTable(3)
+
+		if wd := optsTable.RawGetString("work_dir"); wd != lua.LNil {
+			if wdStr, ok := wd.(lua.LString); ok {
+				opts.WorkDir = string(wdStr)
+			}
+		}
+
+		if envTable := optsTable.RawGetString("env"); envTable != lua.LNil {
+			if envT, ok := envTable.(*lua.LTable); ok {
+				opts.Env = make(map[string]string)
+				envT.ForEach(func(k, v lua.LValue) {
+					opts.Env[k.String()] = v.String()
+				})
+			}
+		}
 	}
 
-	execWrapper.mu.Lock()
-	if execWrapper.factory == nil {
-		execWrapper.mu.Unlock()
-		l.RaiseError("executor has been released")
-		return 0
-	}
-	factory := execWrapper.factory
-	execWrapper.mu.Unlock()
-
-	// *** This is where the actual apiexec.Process is created ***
-	processHandle, err := factory.NewProcess(cmd, procOpts)
+	proc, err := factory.NewProcess(cmd, opts)
 	if err != nil {
-		l.RaiseError("failed to create process: %v", err)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to create process: %v", err)))
+		return 2
 	}
 
-	// Wrap the returned apiexec.Process handle in its own userdata
-	ud := WrapProcess(l, processHandle, execWrapper.log) // Pass logger down
-	l.Push(ud)
-	return 1
+	p := NewProcess(ctx, proc)
+
+	value.NewUserData(l, p, processMetatable)
+	l.Push(lua.LNil)
+	return 2
 }
 
-// executorRelease (Lua: executor:release()) - Releases the factory resource handle
 func executorRelease(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	execWrapper, ok := ud.Value.(*Executor)
-	if !ok {
-		l.ArgError(1, "expected executor object")
+	e := checkExecutor(l, 1)
+	if e == nil {
 		return 0
 	}
-
-	execWrapper.mu.Lock()
-	if execWrapper.resource == nil {
-		execWrapper.mu.Unlock()
-		l.Push(lua.LTrue)
-		return 1
-	}
-	onRelease := execWrapper.onRelease
-	execWrapper.resource = nil
-	execWrapper.factory = nil
-	execWrapper.onRelease = nil
-	execWrapper.mu.Unlock()
-
-	// var releaseErr error // Removed unused variable
-	if onRelease != nil {
-		// Call context.CancelFunc without arguments
-		onRelease()
+	e.mu.Lock()
+	if !e.released && e.resource != nil {
+		e.resource.Release()
+		e.resource = nil
+		e.released = true
+		cancel := e.cancelCleanup
+		e.cancelCleanup = nil
+		e.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+	} else {
+		e.mu.Unlock()
 	}
 
 	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func executorToString(l *lua.LState) int {
+	e := checkExecutor(l, 1)
+	if e == nil {
+		return 0
+	}
+	e.mu.Lock()
+	released := e.released
+	e.mu.Unlock()
+
+	if released {
+		l.Push(lua.LString("exec.Executor{released}"))
+	} else {
+		l.Push(lua.LString("exec.Executor{}"))
+	}
 	return 1
 }

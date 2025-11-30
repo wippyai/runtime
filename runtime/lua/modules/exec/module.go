@@ -4,83 +4,69 @@ import (
 	"sync"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/modules/stream"
-
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
 const (
-	// Metatable name for the Executor factory userdata type
-	executorMetatable = "exec.Executor"
-	// Metatable name for the Process handle userdata type
-	processMetatable = "exec.Process"
-	// Metatable name for the Stream type from the stream module (Verify this name!)
-	streamMetatable = "Stream"
+	executorTypeName = "exec.Executor"
+	processTypeName  = "exec.Process"
 )
 
-// Module represents the exec Lua module
-type Module struct {
-	log         *zap.Logger
-	once        sync.Once
-	moduleTable *lua.LTable
-}
+var (
+	moduleTable       *lua.LTable
+	registration      *lua2api.Registration
+	executorMetatable *lua.LTable
+	processMetatable  *lua.LTable
+	initOnce          sync.Once
+)
 
-// NewExecModule creates and returns a new instance of the exec Module
-func NewExecModule(log *zap.Logger) *Module {
-	if log == nil {
-		log = zap.NewNop()
-	}
-	return &Module{
-		log: log,
-	}
-}
+// Module is the singleton exec module instance.
+var Module = &execModule{}
 
-func (m *Module) Info() luaapi.ModuleInfo {
+type execModule struct{}
+
+func (m *execModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "exec",
-		Description: "External command execution",
-		Class:       []string{luaapi.ClassIO},
+		Description: "Command execution and process management",
+		Class:       []string{luaapi.ClassIO, luaapi.ClassProcess, luaapi.ClassNondeterministic},
 	}
 }
 
-// Loader loads the module into the given Lua state
-func (m *Module) Loader(l *lua.LState) int {
-	m.once.Do(func() {
-		mod := l.CreateTable(0, 1)
-		mod.RawSetString("get", l.NewFunction(func(ls *lua.LState) int {
-			return execGet(ls, m.log)
-		}))
-		registerExecutor(l)
-		registerProcess(l)
-		stream.RegisterStream(l)
-		mod.Immutable = true
-		m.moduleTable = mod
+func (m *execModule) Register(l *lua.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		moduleTable = createModuleTable()
+		executorMetatable = value.RegisterTypeMethods(nil, executorTypeName,
+			map[string]lua.LGFunction{"__tostring": executorToString},
+			executorMethods)
+		processMetatable = value.RegisterTypeMethods(nil, processTypeName,
+			map[string]lua.LGFunction{"__tostring": processToString},
+			processMethods)
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
-	l.Push(m.moduleTable)
+
+	return registration
+}
+
+func (m *execModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
 	return 1
 }
 
-// registerExecutor registers methods for the Executor factory type
-func registerExecutor(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		"exec":    executorNewProcess, // todo: do not allow release while running processes, make error
-		"release": executorRelease,    // Keep release for factory resource
-	}
-	value.RegisterMethods(l, executorMetatable, methods)
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *lua.LState) {
+	lua2api.LoadModule(l, Module)
 }
 
-// registerProcess registers methods for the Process handle type
-func registerProcess(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		"start":         processStart,
-		"stdout_stream": processStdoutStream,
-		"stderr_stream": processStderrStream,
-		"write_stdin":   processWriteStdin,
-		"signal":        processSignal,
-		"wait":          processWait,  // Only this one uses coroutine.Wrap
-		"close":         processClose, // Renamed from release
-	}
-	value.RegisterMethods(l, processMetatable, methods)
+func createModuleTable() *lua.LTable {
+	mod := lua.CreateTable(0, 1)
+	mod.RawSetString("get", lua.LGoFunc(execGet))
+	mod.Immutable = true
+	return mod
 }

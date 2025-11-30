@@ -97,31 +97,121 @@ func (h *MockSleepHandler) Reset() {
 
 // MockTimerHandler handles timer commands for testing.
 // Emits mock time and advances clock.
-type MockTimerHandler struct {
-	clock *MockClock
-	count atomic.Int64
+// MockTimerStartHandler creates mock timers for testing.
+type MockTimerStartHandler struct {
+	clock  *MockClock
+	count  atomic.Int64
+	nextID atomic.Uint64
+	timers sync.Map // map[uint64]time.Duration
 }
 
-// NewMockTimerHandler creates a mock timer handler.
-func NewMockTimerHandler(clock *MockClock) *MockTimerHandler {
-	return &MockTimerHandler{clock: clock}
+// NewMockTimerStartHandler creates a mock timer start handler.
+func NewMockTimerStartHandler(clock *MockClock) *MockTimerStartHandler {
+	return &MockTimerStartHandler{clock: clock}
 }
 
 // Handle implements dispatcher.Handler.
-// Advances clock by duration, emits resulting time.
-func (h *MockTimerHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	timer := cmd.(clockapi.TimerCmd)
+func (h *MockTimerStartHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	timer := cmd.(clockapi.TimerStartCmd)
 	h.count.Add(1)
 
-	if h.clock != nil && timer.Duration > 0 {
-		h.clock.Advance(timer.Duration)
-	}
-	emit(h.clock.Now())
+	id := h.nextID.Add(1)
+	h.timers.Store(id, timer.Duration)
+	emit(id)
 	return nil
 }
 
-// Count returns total number of handled timers.
-func (h *MockTimerHandler) Count() int64 {
+// Count returns total number of timers created.
+func (h *MockTimerStartHandler) Count() int64 {
+	return h.count.Load()
+}
+
+// MockTimerWaitHandler waits for mock timers.
+type MockTimerWaitHandler struct {
+	clock  *MockClock
+	count  atomic.Int64
+	timers *sync.Map
+}
+
+// NewMockTimerWaitHandler creates a mock timer wait handler.
+func NewMockTimerWaitHandler(clock *MockClock, timers *sync.Map) *MockTimerWaitHandler {
+	return &MockTimerWaitHandler{clock: clock, timers: timers}
+}
+
+// Handle implements dispatcher.Handler.
+func (h *MockTimerWaitHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	wait := cmd.(clockapi.TimerWaitCmd)
+	h.count.Add(1)
+
+	if d, ok := h.timers.LoadAndDelete(wait.TimerID); ok {
+		duration := d.(time.Duration)
+		if h.clock != nil && duration > 0 {
+			h.clock.Advance(duration)
+		}
+	}
+	emit(h.clock.Now().UnixNano())
+	return nil
+}
+
+// Count returns total timer waits.
+func (h *MockTimerWaitHandler) Count() int64 {
+	return h.count.Load()
+}
+
+// MockTimerStopHandler stops mock timers.
+type MockTimerStopHandler struct {
+	count  atomic.Int64
+	timers *sync.Map
+}
+
+// NewMockTimerStopHandler creates a mock timer stop handler.
+func NewMockTimerStopHandler(timers *sync.Map) *MockTimerStopHandler {
+	return &MockTimerStopHandler{timers: timers}
+}
+
+// Handle implements dispatcher.Handler.
+func (h *MockTimerStopHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	stop := cmd.(clockapi.TimerStopCmd)
+	h.count.Add(1)
+
+	_, stopped := h.timers.LoadAndDelete(stop.TimerID)
+	emit(stopped)
+	return nil
+}
+
+// Count returns total timer stops.
+func (h *MockTimerStopHandler) Count() int64 {
+	return h.count.Load()
+}
+
+// MockTimerResetHandler resets mock timers.
+type MockTimerResetHandler struct {
+	clock  *MockClock
+	count  atomic.Int64
+	timers *sync.Map
+}
+
+// NewMockTimerResetHandler creates a mock timer reset handler.
+func NewMockTimerResetHandler(clock *MockClock, timers *sync.Map) *MockTimerResetHandler {
+	return &MockTimerResetHandler{clock: clock, timers: timers}
+}
+
+// Handle implements dispatcher.Handler.
+func (h *MockTimerResetHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	reset := cmd.(clockapi.TimerResetCmd)
+	h.count.Add(1)
+
+	if _, ok := h.timers.Load(reset.TimerID); ok {
+		h.timers.Store(reset.TimerID, reset.Duration)
+		emit(true)
+	} else {
+		emit(false)
+	}
+	return nil
+}
+
+// Count returns total timer resets.
+func (h *MockTimerResetHandler) Count() int64 {
 	return h.count.Load()
 }
 
@@ -149,70 +239,38 @@ func (h *MockNowHandler) Count() int64 {
 	return h.count.Load()
 }
 
-// MockTickerHandler handles ticker commands for testing.
-// Emits a configurable number of ticks immediately.
-type MockTickerHandler struct {
-	clock     *MockClock
-	tickCount int
-	emitCount atomic.Int64
-}
-
-// NewMockTickerHandler creates a mock ticker handler.
-// tickCount specifies how many ticks to emit before returning.
-func NewMockTickerHandler(clock *MockClock, tickCount int) *MockTickerHandler {
-	return &MockTickerHandler{clock: clock, tickCount: tickCount}
-}
-
-// Handle implements dispatcher.Handler.
-// Emits tickCount values immediately, advancing clock each tick.
-func (h *MockTickerHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	ticker := cmd.(clockapi.TickerCmd)
-	for i := 0; i < h.tickCount; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			if h.clock != nil {
-				h.clock.Advance(ticker.Duration)
-			}
-			emit(h.clock.Now())
-			h.emitCount.Add(1)
-		}
-	}
-	return nil
-}
-
-// EmitCount returns total number of emitted ticks.
-func (h *MockTickerHandler) EmitCount() int64 {
-	return h.emitCount.Load()
-}
-
 // MockService bundles all mock handlers for testing.
 type MockService struct {
-	Clock  *MockClock
-	Sleep  *MockSleepHandler
-	Timer  *MockTimerHandler
-	Ticker *MockTickerHandler
-	Now    *MockNowHandler
+	Clock      *MockClock
+	Sleep      *MockSleepHandler
+	TimerStart *MockTimerStartHandler
+	TimerWait  *MockTimerWaitHandler
+	TimerStop  *MockTimerStopHandler
+	TimerReset *MockTimerResetHandler
+	Now        *MockNowHandler
 }
 
 // NewMockService creates a mock clock service.
-// tickCount specifies how many ticks the ticker handler emits.
-func NewMockService(tickCount int) *MockService {
+func NewMockService() *MockService {
 	clock := NewMockClock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+	timerStart := NewMockTimerStartHandler(clock)
 	return &MockService{
-		Clock:  clock,
-		Sleep:  NewMockSleepHandler(clock),
-		Timer:  NewMockTimerHandler(clock),
-		Ticker: NewMockTickerHandler(clock, tickCount),
-		Now:    NewMockNowHandler(clock),
+		Clock:      clock,
+		Sleep:      NewMockSleepHandler(clock),
+		TimerStart: timerStart,
+		TimerWait:  NewMockTimerWaitHandler(clock, &timerStart.timers),
+		TimerStop:  NewMockTimerStopHandler(&timerStart.timers),
+		TimerReset: NewMockTimerResetHandler(clock, &timerStart.timers),
+		Now:        NewMockNowHandler(clock),
 	}
 }
 
 // RegisterAll registers all mock handlers.
 func (s *MockService) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	register(clockapi.CmdSleep, s.Sleep)
-	register(clockapi.CmdTicker, s.Ticker)
-	register(clockapi.CmdTimer, s.Timer)
+	register(clockapi.CmdTimerStart, s.TimerStart)
+	register(clockapi.CmdTimerWait, s.TimerWait)
+	register(clockapi.CmdTimerStop, s.TimerStop)
+	register(clockapi.CmdTimerReset, s.TimerReset)
 	register(clockapi.CmdNow, s.Now)
 }

@@ -45,7 +45,7 @@ type Static struct {
 }
 
 // NewStatic creates a static pool with the given configuration.
-func NewStatic(factory Factory, dispatcher Dispatcher, cfg Config) (*Static, error) {
+func NewStatic(factory Factory, dispatcher Dispatcher, cfg Config, hooks ...ExecutionHooks) (*Static, error) {
 	if cfg.Workers <= 0 {
 		cfg.Workers = 4
 	}
@@ -61,6 +61,9 @@ func NewStatic(factory Factory, dispatcher Dispatcher, cfg Config) (*Static, err
 	}
 
 	executor := NewExecutor(dispatcher)
+	if len(hooks) > 0 {
+		executor = executor.WithExecutionHooks(hooks[0])
+	}
 
 	for i := 0; i < cfg.Workers; i++ {
 		proc, err := factory()

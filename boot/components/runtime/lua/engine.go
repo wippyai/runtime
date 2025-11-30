@@ -11,11 +11,8 @@ import (
 	"github.com/wippyai/runtime/boot/components/dispatcher"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
-	bteaapp "github.com/wippyai/runtime/runtime/lua/component/btea"
-	func2lua "github.com/wippyai/runtime/runtime/lua/component/function2"
+	funclua "github.com/wippyai/runtime/runtime/lua/component/function"
 	"github.com/wippyai/runtime/runtime/lua/component/library"
-	proclua "github.com/wippyai/runtime/runtime/lua/component/process"
-	workflowlua "github.com/wippyai/runtime/runtime/lua/component/workflow"
 	envlua "github.com/wippyai/runtime/runtime/lua/modules/env"
 	loggermod "github.com/wippyai/runtime/runtime/lua/modules/logger"
 	sysdispatcher "github.com/wippyai/runtime/system/dispatcher"
@@ -23,7 +20,7 @@ import (
 )
 
 func Engine() boot.Component {
-	var funcs *func2lua.Manager
+	var funcs *funclua.Manager
 
 	return boot.New(boot.P{
 		Name:      LuaEngineName,
@@ -50,8 +47,8 @@ func Engine() boot.Component {
 				bus,
 				code.Config{
 					Modules: []luaapi.Module{
-						envlua.NewEnvModule(),
-						loggermod.NewLoggerModule(logger),
+						envlua.Module,
+						loggermod.Module,
 					},
 					ProtoCacheSize: protoCacheSize,
 					MainCacheSize:  mainCacheSize,
@@ -63,30 +60,24 @@ func Engine() boot.Component {
 
 			ctx = SetCodeManager(ctx, codeManager)
 
-			// Create engine2 function manager with dispatcher
-			funcs = func2lua.NewManager(
+			// Create function manager with dispatcher
+			funcs = funclua.NewManager(
 				logger.Named("lua.funcs"),
 				codeManager,
 				bus,
 				sysdispatcher.Dispatcher(),
 			)
 			libraries := library.NewManager(logger.Named("lua.libs"), codeManager)
-			processes := proclua.NewProcessManager(logger.Named("lua.proc"), codeManager, bus)
-			workflows := workflowlua.NewManager(logger.Named("lua.workflow"), codeManager, bus)
-			terminalApps := bteaapp.NewBteaManager(logger.Named("lua.bteaapp"), codeManager, bus)
 
 			handlers.Register(reghandler.NewTransactionHandler(codeManager))
 			handlers.Register(component.NewHandler("function.lua", funcs))
 			handlers.Register(component.NewHandler("library.lua", libraries))
-			handlers.Register(component.NewHandler("process.lua", processes))
-			handlers.Register(component.NewHandler("workflow.lua", workflows))
-			handlers.Register(component.NewHandler("btea.app.lua", terminalApps))
 
 			return ctx, nil
 		},
 		Start: func(ctx context.Context) error {
 			if funcs != nil {
-				funcs.Start()
+				return funcs.Start(ctx)
 			}
 			return nil
 		},

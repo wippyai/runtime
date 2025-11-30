@@ -5,47 +5,64 @@ import (
 
 	api "github.com/wippyai/runtime/api/metrics"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	lua "github.com/yuin/gopher-lua"
 )
 
-type Module struct {
-	once        sync.Once
-	moduleTable *lua.LTable
-}
+var (
+	moduleTable  *lua.LTable
+	registration *lua2api.Registration
+	initOnce     sync.Once
+)
 
-func NewMetricsModule() *Module {
-	return &Module{}
-}
+// Module is the singleton metrics module instance.
+var Module = &metricsModule{}
 
-func (m *Module) Info() luaapi.ModuleInfo {
+type metricsModule struct{}
+
+func (m *metricsModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "metrics",
-		Description: "Metrics collection and export",
-		Class:       []string{luaapi.ClassNondeterministic},
+		Description: "Counters, gauges, and histograms",
+		Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
 	}
 }
 
-func (m *Module) Loader(l *lua.LState) int {
-	m.once.Do(func() {
-		m.initModuleTable(l)
+func (m *metricsModule) Register(l *lua.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		moduleTable = createModuleTable()
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
-	l.Push(m.moduleTable)
+	return registration
+}
+
+func (m *metricsModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
 	return 1
 }
 
-func (m *Module) initModuleTable(l *lua.LState) {
-	mod := l.CreateTable(0, 6)
-	mod.RawSetString("counter_inc", l.NewFunction(m.counterInc))
-	mod.RawSetString("counter_add", l.NewFunction(m.counterAdd))
-	mod.RawSetString("gauge_set", l.NewFunction(m.gaugeSet))
-	mod.RawSetString("gauge_inc", l.NewFunction(m.gaugeInc))
-	mod.RawSetString("gauge_dec", l.NewFunction(m.gaugeDec))
-	mod.RawSetString("histogram", l.NewFunction(m.histogram))
-	mod.Immutable = true
-	m.moduleTable = mod
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *lua.LState) {
+	lua2api.LoadModule(l, Module)
 }
 
-func (m *Module) counterInc(l *lua.LState) int {
+func createModuleTable() *lua.LTable {
+	mod := lua.CreateTable(0, 6)
+	mod.RawSetString("counter_inc", lua.LGoFunc(counterInc))
+	mod.RawSetString("counter_add", lua.LGoFunc(counterAdd))
+	mod.RawSetString("gauge_set", lua.LGoFunc(gaugeSet))
+	mod.RawSetString("gauge_inc", lua.LGoFunc(gaugeInc))
+	mod.RawSetString("gauge_dec", lua.LGoFunc(gaugeDec))
+	mod.RawSetString("histogram", lua.LGoFunc(histogram))
+	mod.Immutable = true
+	return mod
+}
+
+func counterInc(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
 		l.Push(lua.LNil)
@@ -54,7 +71,7 @@ func (m *Module) counterInc(l *lua.LState) int {
 	}
 
 	name := l.CheckString(1)
-	labels := m.parseLabels(l, 2)
+	labels := parseLabels(l, 2)
 
 	collector.CounterInc(name, labels)
 
@@ -63,7 +80,7 @@ func (m *Module) counterInc(l *lua.LState) int {
 	return 2
 }
 
-func (m *Module) counterAdd(l *lua.LState) int {
+func counterAdd(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
 		l.Push(lua.LNil)
@@ -73,7 +90,7 @@ func (m *Module) counterAdd(l *lua.LState) int {
 
 	name := l.CheckString(1)
 	value := l.CheckNumber(2)
-	labels := m.parseLabels(l, 3)
+	labels := parseLabels(l, 3)
 
 	collector.CounterAdd(name, float64(value), labels)
 
@@ -82,7 +99,7 @@ func (m *Module) counterAdd(l *lua.LState) int {
 	return 2
 }
 
-func (m *Module) gaugeSet(l *lua.LState) int {
+func gaugeSet(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
 		l.Push(lua.LNil)
@@ -92,7 +109,7 @@ func (m *Module) gaugeSet(l *lua.LState) int {
 
 	name := l.CheckString(1)
 	value := l.CheckNumber(2)
-	labels := m.parseLabels(l, 3)
+	labels := parseLabels(l, 3)
 
 	collector.GaugeSet(name, float64(value), labels)
 
@@ -101,7 +118,7 @@ func (m *Module) gaugeSet(l *lua.LState) int {
 	return 2
 }
 
-func (m *Module) gaugeInc(l *lua.LState) int {
+func gaugeInc(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
 		l.Push(lua.LNil)
@@ -110,7 +127,7 @@ func (m *Module) gaugeInc(l *lua.LState) int {
 	}
 
 	name := l.CheckString(1)
-	labels := m.parseLabels(l, 2)
+	labels := parseLabels(l, 2)
 
 	collector.GaugeInc(name, labels)
 
@@ -119,7 +136,7 @@ func (m *Module) gaugeInc(l *lua.LState) int {
 	return 2
 }
 
-func (m *Module) gaugeDec(l *lua.LState) int {
+func gaugeDec(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
 		l.Push(lua.LNil)
@@ -128,7 +145,7 @@ func (m *Module) gaugeDec(l *lua.LState) int {
 	}
 
 	name := l.CheckString(1)
-	labels := m.parseLabels(l, 2)
+	labels := parseLabels(l, 2)
 
 	collector.GaugeDec(name, labels)
 
@@ -137,7 +154,7 @@ func (m *Module) gaugeDec(l *lua.LState) int {
 	return 2
 }
 
-func (m *Module) histogram(l *lua.LState) int {
+func histogram(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
 		l.Push(lua.LNil)
@@ -147,7 +164,7 @@ func (m *Module) histogram(l *lua.LState) int {
 
 	name := l.CheckString(1)
 	value := l.CheckNumber(2)
-	labels := m.parseLabels(l, 3)
+	labels := parseLabels(l, 3)
 
 	collector.HistogramObserve(name, float64(value), labels)
 
@@ -156,7 +173,7 @@ func (m *Module) histogram(l *lua.LState) int {
 	return 2
 }
 
-func (m *Module) parseLabels(l *lua.LState, argIndex int) api.Labels {
+func parseLabels(l *lua.LState, argIndex int) api.Labels {
 	if l.GetTop() < argIndex {
 		return nil
 	}

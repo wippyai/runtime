@@ -58,13 +58,49 @@ func TestSleepHandlerCancellation(t *testing.T) {
 	}
 }
 
-func TestTimerHandler(t *testing.T) {
-	h := NewTimerHandler()
-	ctx := context.Background()
+func TestTimerStartHandler(t *testing.T) {
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	h := NewTimerStartHandler()
+
+	var emitted any
+	err := h.Handle(ctx, clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, func(data any) {
+		emitted = data
+	})
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	id, ok := emitted.(uint64)
+	if !ok || id == 0 {
+		t.Errorf("expected non-zero timer ID, got %v", emitted)
+	}
+}
+
+func TestTimerStartHandlerZeroDuration(t *testing.T) {
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	h := NewTimerStartHandler()
+
+	err := h.Handle(ctx, clockapi.TimerStartCmd{Duration: 0}, func(data any) {})
+	if err == nil {
+		t.Error("expected error for zero duration")
+	}
+}
+
+func TestTimerWaitHandler(t *testing.T) {
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	// Create a timer first
+	registry := GetOrCreateTimerRegistry(ctx)
+	id := registry.Start(10 * time.Millisecond)
+
+	h := NewTimerWaitHandler()
 
 	var emitted any
 	start := time.Now()
-	err := h.Handle(ctx, clockapi.TimerCmd{Duration: 10 * time.Millisecond}, func(data any) {
+	err := h.Handle(ctx, clockapi.TimerWaitCmd{TimerID: id}, func(data any) {
 		emitted = data
 	})
 	elapsed := time.Since(start)
@@ -73,27 +109,37 @@ func TestTimerHandler(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if elapsed < 10*time.Millisecond {
-		t.Errorf("timer too short: %v", elapsed)
+		t.Errorf("timer wait too short: %v", elapsed)
 	}
 	if emitted == nil {
 		t.Error("timer did not emit fire time")
 	}
 }
 
-func TestTimerHandlerZeroDuration(t *testing.T) {
-	h := NewTimerHandler()
-	ctx := context.Background()
+func TestTimerStopHandler(t *testing.T) {
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	// Create a timer first
+	registry := GetOrCreateTimerRegistry(ctx)
+	id := registry.Start(time.Hour) // Long timer
+
+	h := NewTimerStopHandler()
 
 	var emitted any
-	err := h.Handle(ctx, clockapi.TimerCmd{Duration: 0}, func(data any) {
+	err := h.Handle(ctx, clockapi.TimerStopCmd{TimerID: id}, func(data any) {
 		emitted = data
 	})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if emitted == nil {
-		t.Error("zero timer did not emit time")
+
+	stopped, ok := emitted.(bool)
+	if !ok {
+		t.Fatalf("expected bool, got %T", emitted)
+	}
+	if !stopped {
+		t.Error("expected timer to be stopped")
 	}
 }
 
@@ -197,17 +243,35 @@ func TestMockSleepHandler(t *testing.T) {
 	}
 }
 
-func TestMockTimerHandler(t *testing.T) {
+func TestMockTimerHandlers(t *testing.T) {
 	clock := NewMockClock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
-	h := NewMockTimerHandler(clock)
+	startHandler := NewMockTimerStartHandler(clock)
+	waitHandler := NewMockTimerWaitHandler(clock, &startHandler.timers)
+	stopHandler := NewMockTimerStopHandler(&startHandler.timers)
 
-	var emitted any
-	err := h.Handle(context.Background(), clockapi.TimerCmd{Duration: 30 * time.Minute}, func(data any) {
-		emitted = data
+	// Test timer start
+	var timerID any
+	err := startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: 30 * time.Minute}, func(data any) {
+		timerID = data
 	})
-
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+	id, ok := timerID.(uint64)
+	if !ok || id == 0 {
+		t.Errorf("expected non-zero timer ID, got %v", timerID)
+	}
+
+	// Test timer wait
+	var waitResult any
+	err = waitHandler.Handle(context.Background(), clockapi.TimerWaitCmd{TimerID: id}, func(data any) {
+		waitResult = data
+	})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if waitResult == nil {
+		t.Error("timer wait did not emit")
 	}
 
 	// Mock clock should advance
@@ -215,9 +279,22 @@ func TestMockTimerHandler(t *testing.T) {
 		t.Errorf("expected 00:30, got %v", got)
 	}
 
-	// Should emit the new time
-	if emitted == nil {
-		t.Error("timer did not emit")
+	// Test timer stop (create new timer)
+	var timerID2 any
+	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, func(data any) {
+		timerID2 = data
+	})
+	id2 := timerID2.(uint64)
+
+	var stopped any
+	err = stopHandler.Handle(context.Background(), clockapi.TimerStopCmd{TimerID: id2}, func(data any) {
+		stopped = data
+	})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if stopped != true {
+		t.Errorf("expected true, got %v", stopped)
 	}
 }
 
@@ -245,10 +322,10 @@ func TestMockNowHandler(t *testing.T) {
 }
 
 func TestMockService(t *testing.T) {
-	svc := NewMockService(3)
+	svc := NewMockService()
 
 	// Test that all handlers are initialized
-	if svc.Sleep == nil || svc.Timer == nil || svc.Ticker == nil || svc.Now == nil {
+	if svc.Sleep == nil || svc.TimerStart == nil || svc.TimerWait == nil || svc.TimerStop == nil || svc.Now == nil {
 		t.Error("mock service has nil handlers")
 	}
 
@@ -256,6 +333,59 @@ func TestMockService(t *testing.T) {
 	svc.Clock.Advance(time.Hour)
 	if got := svc.Clock.Now().Hour(); got != 1 {
 		t.Errorf("expected hour 1, got %d", got)
+	}
+}
+
+func TestTimerResetHandler(t *testing.T) {
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	// Create a timer first
+	registry := GetOrCreateTimerRegistry(ctx)
+	id := registry.Start(time.Hour)
+
+	h := NewTimerResetHandler()
+
+	var emitted any
+	err := h.Handle(ctx, clockapi.TimerResetCmd{TimerID: id, Duration: 10 * time.Millisecond}, func(data any) {
+		emitted = data
+	})
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	wasActive, ok := emitted.(bool)
+	if !ok {
+		t.Fatalf("expected bool, got %T", emitted)
+	}
+	if !wasActive {
+		t.Error("expected timer to be active")
+	}
+}
+
+func TestTimerResetHandlerZeroDuration(t *testing.T) {
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	registry := GetOrCreateTimerRegistry(ctx)
+	id := registry.Start(time.Hour)
+
+	h := NewTimerResetHandler()
+
+	err := h.Handle(ctx, clockapi.TimerResetCmd{TimerID: id, Duration: 0}, func(data any) {})
+	if err == nil {
+		t.Error("expected error for zero duration")
+	}
+}
+
+func TestTimerResetHandlerNotFound(t *testing.T) {
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	GetOrCreateTimerRegistry(ctx)
+
+	h := NewTimerResetHandler()
+
+	err := h.Handle(ctx, clockapi.TimerResetCmd{TimerID: 999, Duration: time.Second}, func(data any) {})
+	if err != ErrTimerNotFound {
+		t.Errorf("expected ErrTimerNotFound, got %v", err)
 	}
 }
 
@@ -269,9 +399,15 @@ func TestServiceRegisterAll(t *testing.T) {
 
 	expected := []dispatcher.CommandID{
 		clockapi.CmdSleep,
-		clockapi.CmdTicker,
-		clockapi.CmdTimer,
 		clockapi.CmdNow,
+		clockapi.CmdAfter,
+		clockapi.CmdTickerStart,
+		clockapi.CmdTickerNext,
+		clockapi.CmdTickerStop,
+		clockapi.CmdTimerStart,
+		clockapi.CmdTimerWait,
+		clockapi.CmdTimerStop,
+		clockapi.CmdTimerReset,
 	}
 
 	for _, id := range expected {

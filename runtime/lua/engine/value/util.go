@@ -10,18 +10,6 @@ import (
 // All stored metatables are made immutable for safe reuse across goroutines
 var metatableRegistry sync.Map
 
-// Single LState used for creating shared table objects (not functions)
-var sharedState *lua.LState
-var initOnce sync.Once
-
-// getSharedState returns a singleton LState used for creating shared tables
-func getSharedState() *lua.LState {
-	initOnce.Do(func() {
-		sharedState = lua.NewState()
-	})
-	return sharedState
-}
-
 // IsTypeRegistered checks if a type metatable is already registered and immutable
 func IsTypeRegistered(typeName string) bool {
 	if mt, ok := metatableRegistry.Load(typeName); ok {
@@ -57,9 +45,6 @@ func RegisterTypeMethods(
 	metamethods map[string]lua.LGFunction,
 	methods map[string]lua.LGFunction,
 ) *lua.LTable {
-	// Use shared state for table creation only
-	sharedL := getSharedState()
-
 	// Check if metatable already exists in our registry
 	var mt *lua.LTable
 	var shouldCreateNew = false
@@ -85,7 +70,7 @@ func RegisterTypeMethods(
 		if len(methods) > 0 {
 			totalSize++ // for __index
 		}
-		mt = sharedL.CreateTable(0, totalSize)
+		mt = lua.CreateTable(0, totalSize)
 	}
 
 	// Add metamethods directly to metatable using LGoFunc (zero allocation)
@@ -110,7 +95,7 @@ func RegisterTypeMethods(
 			indexTable = existing
 		} else {
 			// Create new methods table with exact size
-			indexTable = sharedL.CreateTable(0, len(methods))
+			indexTable = lua.CreateTable(0, len(methods))
 			// Set __index to the methods table
 			mt.RawSetString("__index", indexTable)
 		}
@@ -147,6 +132,28 @@ func RegisterMetamethods(l *lua.LState, typeName string, metamethods map[string]
 // RegisterMethods registers only regular methods for a type
 func RegisterMethods(l *lua.LState, typeName string, methods map[string]lua.LGFunction) *lua.LTable {
 	return RegisterTypeMethods(l, typeName, nil, methods)
+}
+
+// NewUserData creates a new userdata with the given value and metatable,
+// pushes it onto the stack, and returns it. This is the preferred way to
+// create typed userdata with shared metatables.
+func NewUserData(l *lua.LState, val any, metatable *lua.LTable) *lua.LUserData {
+	ud := l.NewUserData()
+	ud.Value = val
+	ud.Metatable = metatable
+	l.Push(ud)
+	return ud
+}
+
+// NewTypedUserData creates a new userdata with the given value, looks up
+// the metatable by type name from the registry, pushes it onto the stack,
+// and returns it. Returns nil if the type is not registered.
+func NewTypedUserData(l *lua.LState, val any, typeName string) *lua.LUserData {
+	mt := GetTypeMetatable(l, typeName)
+	if mt == nil {
+		return nil
+	}
+	return NewUserData(l, val, mt)
 }
 
 // GetField retrieves a field value from a Lua value following Lua's field access rules.
@@ -234,6 +241,8 @@ func ToGoAny(v lua.LValue) any {
 		return lua.LVAsBool(v)
 	case lua.LTNumber:
 		return float64(v.(lua.LNumber))
+	case lua.LTInteger:
+		return int64(v.(lua.LInteger))
 	case lua.LTString:
 		return string(v.(lua.LString))
 	case lua.LTTable:

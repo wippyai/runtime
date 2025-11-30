@@ -51,7 +51,7 @@ type LazyConfig struct {
 }
 
 // NewLazy creates a lazy pool that starts with zero processes.
-func NewLazy(factory Factory, dispatcher Dispatcher, cfg LazyConfig) (*Lazy, error) {
+func NewLazy(factory Factory, dispatcher Dispatcher, cfg LazyConfig, hooks ...ExecutionHooks) (*Lazy, error) {
 	if cfg.MaxWorkers <= 0 {
 		cfg.MaxWorkers = 16
 	}
@@ -59,10 +59,15 @@ func NewLazy(factory Factory, dispatcher Dispatcher, cfg LazyConfig) (*Lazy, err
 		cfg.IdleTimeout = 30 * time.Second
 	}
 
+	executor := NewExecutor(dispatcher)
+	if len(hooks) > 0 {
+		executor = executor.WithExecutionHooks(hooks[0])
+	}
+
 	return &Lazy{
 		factory:     factory,
 		dispatcher:  dispatcher,
-		executor:    NewExecutor(dispatcher),
+		executor:    executor,
 		maxWorkers:  cfg.MaxWorkers,
 		idleTimeout: cfg.IdleTimeout,
 		idle:        make([]process2.Process, 0, cfg.MaxWorkers),

@@ -9,18 +9,33 @@ import (
 )
 
 // Command IDs for clock operations.
-// Range 10-49 is reserved for time commands.
+// Range 10-29 is reserved for time commands.
 const (
-	CmdSleep  dispatcher.CommandID = 10 // Pause execution for duration (one-shot)
-	CmdTicker dispatcher.CommandID = 11 // Legacy streaming ticker (deprecated)
-	CmdTimer  dispatcher.CommandID = 12 // One-shot timer, emits time when fired
-	CmdNow    dispatcher.CommandID = 13 // Get current time (for deterministic time in workflows)
+	CmdSleep dispatcher.CommandID = 10 // Pause execution for duration (one-shot)
+	CmdNow   dispatcher.CommandID = 13 // Get current time (for deterministic time in workflows)
 
-	// Streaming ticker decomposed into one-shot commands
+	// Decomposed ticker pattern (one-shot commands)
 	CmdTickerStart dispatcher.CommandID = 14 // Create ticker, returns ID
 	CmdTickerNext  dispatcher.CommandID = 15 // Wait for next tick, returns time
 	CmdTickerStop  dispatcher.CommandID = 16 // Stop and cleanup ticker
+
+	CmdAfter dispatcher.CommandID = 17 // Returns channel that fires after duration
+
+	// Decomposed timer pattern (one-shot commands)
+	CmdTimerStart dispatcher.CommandID = 18 // Create timer, returns ID
+	CmdTimerWait  dispatcher.CommandID = 19 // Wait for timer to fire, returns time
+	CmdTimerStop  dispatcher.CommandID = 20 // Stop and cleanup timer
+	CmdTimerReset dispatcher.CommandID = 21 // Reset timer with new duration
 )
+
+func init() {
+	dispatcher.MustRegisterCommands("clock",
+		CmdSleep, CmdNow,
+		CmdTickerStart, CmdTickerNext, CmdTickerStop,
+		CmdAfter,
+		CmdTimerStart, CmdTimerWait, CmdTimerStop, CmdTimerReset,
+	)
+}
 
 // SleepCmd requests the scheduler to pause execution for a duration.
 // The process yields and resumes after the duration elapses.
@@ -34,17 +49,6 @@ type SleepCmd struct {
 // CmdID implements dispatcher.Command.
 func (c SleepCmd) CmdID() dispatcher.CommandID {
 	return CmdSleep
-}
-
-// TickerCmd creates a ticker that emits at regular intervals.
-// Deprecated: Use TickerStartCmd/TickerNextCmd/TickerStopCmd for cleaner streaming.
-type TickerCmd struct {
-	Duration time.Duration
-}
-
-// CmdID implements dispatcher.Command.
-func (c TickerCmd) CmdID() dispatcher.CommandID {
-	return CmdTicker
 }
 
 // TickerStartCmd creates a new ticker with given interval.
@@ -81,17 +85,6 @@ func (c TickerStopCmd) CmdID() dispatcher.CommandID {
 	return CmdTickerStop
 }
 
-// TimerCmd creates a one-shot timer that fires after duration.
-// Unlike sleep, emits the fire time via emit() before returning.
-type TimerCmd struct {
-	Duration time.Duration
-}
-
-// CmdID implements dispatcher.Command.
-func (c TimerCmd) CmdID() dispatcher.CommandID {
-	return CmdTimer
-}
-
 // NowCmd requests current time from the clock service.
 // Returns time.Time via emit(). For deterministic workflows (Temporal),
 // handler returns workflow time instead of real time.
@@ -100,4 +93,62 @@ type NowCmd struct{}
 // CmdID implements dispatcher.Command.
 func (c NowCmd) CmdID() dispatcher.CommandID {
 	return CmdNow
+}
+
+// AfterCmd creates a channel that receives a value after duration.
+// Returns a channel immediately, the channel fires after duration.
+// Used for non-blocking timers with select.
+type AfterCmd struct {
+	Duration time.Duration
+}
+
+// CmdID implements dispatcher.Command.
+func (c AfterCmd) CmdID() dispatcher.CommandID {
+	return CmdAfter
+}
+
+// TimerStartCmd creates a new one-shot timer with given duration.
+// Returns timer ID (uint64) via emit. One-shot command.
+type TimerStartCmd struct {
+	Duration time.Duration
+}
+
+// CmdID implements dispatcher.Command.
+func (c TimerStartCmd) CmdID() dispatcher.CommandID {
+	return CmdTimerStart
+}
+
+// TimerWaitCmd waits for a timer to fire.
+// Returns fire time (int64 nanoseconds) via emit. Blocks until timer fires.
+// One-shot command - timer is consumed after this call.
+type TimerWaitCmd struct {
+	TimerID uint64
+}
+
+// CmdID implements dispatcher.Command.
+func (c TimerWaitCmd) CmdID() dispatcher.CommandID {
+	return CmdTimerWait
+}
+
+// TimerStopCmd stops and cleans up a timer before it fires.
+// One-shot command, returns bool (true if stopped before firing).
+type TimerStopCmd struct {
+	TimerID uint64
+}
+
+// CmdID implements dispatcher.Command.
+func (c TimerStopCmd) CmdID() dispatcher.CommandID {
+	return CmdTimerStop
+}
+
+// TimerResetCmd resets a timer with a new duration.
+// Returns bool (true if timer was active and reset, false if already fired).
+type TimerResetCmd struct {
+	TimerID  uint64
+	Duration time.Duration
+}
+
+// CmdID implements dispatcher.Command.
+func (c TimerResetCmd) CmdID() dispatcher.CommandID {
+	return CmdTimerReset
 }

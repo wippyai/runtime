@@ -17,25 +17,7 @@ func JSON() boot.Component {
 				return ctx, nil
 			}
 
-			cfg := boot.GetConfig(ctx)
-			cacheEnabled := true
-			capacity := 1000
-
-			if cfg != nil {
-				luaCfg := cfg.Sub("lua")
-				if luaCfg != nil {
-					jsonCfg := luaCfg.Sub("json")
-					if jsonCfg != nil {
-						cacheEnabled = jsonCfg.GetBool("cache_enabled", cacheEnabled)
-						capacity = jsonCfg.GetInt("capacity", capacity)
-					}
-				}
-			}
-
-			if err := AddModules(ctx, cm, jsonmod.NewJSONModule(
-				jsonmod.WithCache(cacheEnabled),
-				jsonmod.WithCapacity(capacity),
-			)); err != nil {
+			if err := AddModules(ctx, cm, jsonmod.Module); err != nil {
 				return ctx, err
 			}
 

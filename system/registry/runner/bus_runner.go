@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -25,6 +26,8 @@ type BusRunner struct {
 	rejectSubID event.SubscriberID
 	builder     *topology.StateBuilder
 }
+
+const eventWaitTimeout = 30 * time.Second
 
 // NewBusRunner creates a new BusRunner. This is a sequential bus, order of operations matter.
 func NewBusRunner(bus event.Bus, log *zap.Logger) *BusRunner {
@@ -116,10 +119,6 @@ func (br *BusRunner) applyOperation(
 		registry.KindNamespaceRequirement,
 	}
 	if slices.Contains(allowProcess, op.Entry.Kind) {
-		br.log.Debug("processing entry",
-			zap.String("id", op.Entry.ID.String()),
-			zap.String("kind", op.Entry.Kind))
-
 		// with entry events we dont propagate any events and handle them internally
 		// use registry.entry for dynamic configs
 		newState, err := br.builder.ApplyOperation(state, op)
@@ -130,11 +129,6 @@ func (br *BusRunner) applyOperation(
 		return newState, nil
 	}
 
-	br.log.Debug("starting operation",
-		zap.String("operation", op.Kind),
-		zap.String("entry_kind", op.Entry.Kind),
-		zap.String("id", op.Entry.ID.String()))
-
 	// send the operation event
 	br.bus.Send(ctx, event.Event{
 		System: registry.System,
@@ -142,6 +136,9 @@ func (br *BusRunner) applyOperation(
 		Path:   op.Entry.ID.String(),
 		Data:   op.Entry,
 	})
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, eventWaitTimeout)
+	defer cancel()
 
 	for {
 		select {
@@ -180,8 +177,18 @@ func (br *BusRunner) applyOperation(
 			}
 			return state, fmt.Errorf("operation failed for entry %s: %w", op.Entry.ID.String(), err)
 
-		case <-ctx.Done():
-			return state, fmt.Errorf("failed to apply operation %s (%s): %w", op.Entry.ID, op.Entry.Kind, ctx.Err())
+		case <-timeoutCtx.Done():
+			if ctx.Err() != nil {
+				return state, fmt.Errorf("operation context canceled for %s (%s): %w", op.Entry.ID, op.Entry.Kind, ctx.Err())
+			}
+			br.log.Error("event handler timeout - no listener responded",
+				zap.String("id", op.Entry.ID.String()),
+				zap.String("kind", string(op.Entry.Kind)),
+				zap.String("operation", string(op.Kind)),
+				zap.Duration("timeout", eventWaitTimeout),
+				zap.String("hint", "check if a listener is registered for this entry kind"))
+			return state, fmt.Errorf("event handler timeout after %v for entry %s (kind: %s): no listener responded - check if listener is registered for this kind",
+				eventWaitTimeout, op.Entry.ID, op.Entry.Kind)
 		}
 	}
 }

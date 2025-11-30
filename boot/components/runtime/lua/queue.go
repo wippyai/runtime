@@ -17,7 +17,7 @@ func Queue() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, queue.NewModule()); err != nil {
+			if err := AddModules(ctx, cm, queue.Module); err != nil {
 				return ctx, err
 			}
 

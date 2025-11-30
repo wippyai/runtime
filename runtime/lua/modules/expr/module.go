@@ -7,110 +7,92 @@ import (
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	lru "github.com/wippyai/runtime/internal/cache"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/system/payload/lua"
 	luavm "github.com/yuin/gopher-lua"
 )
 
-// Option defines a functional option for configuring the expr module
-type Option func(*config)
+const programMetatable = "expr.Program"
 
-// config holds the configuration for the expr module
-type config struct {
-	capacity     int
-	cacheEnabled bool
-}
+var (
+	cache        *lru.Cache[string, *vm.Program]
+	moduleTable  *luavm.LTable
+	programMT    *luavm.LTable
+	registration *lua2api.Registration
+	initOnce     sync.Once
+)
 
-// WithCache enables or disables expression caching
-func WithCache(enabled bool) Option {
-	return func(c *config) {
-		c.cacheEnabled = enabled
-	}
-}
+// Module is the singleton expr module instance.
+var Module = &exprModule{}
 
-// WithCapacity sets the LRU cache capacity
-func WithCapacity(capacity int) Option {
-	return func(c *config) {
-		c.capacity = capacity
-	}
-}
+type exprModule struct{}
 
-// Module represents the expr Lua module
-type Module struct {
-	cache       *lru.Cache[string, *vm.Program]
-	moduleTable *luavm.LTable
-	once        sync.Once
-}
-
-// Program wraps a compiled expr program
-type Program struct {
-	program *vm.Program
-}
-
-// NewExprModule creates a new expr module with LRU cache
-func NewExprModule(opts ...Option) *Module {
-	cfg := &config{
-		capacity:     1000, // default capacity
-		cacheEnabled: true, // default enabled
-	}
-
-	// Apply options
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
-	var cache *lru.Cache[string, *vm.Program]
-	if cfg.cacheEnabled {
-		cache = lru.New[string, *vm.Program](
-			lru.WithCapacity(cfg.capacity),
-		)
-	}
-
-	return &Module{
-		cache: cache,
-	}
-}
-
-func (m *Module) Info() luaapi.ModuleInfo {
+func (m *exprModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "expr",
-		Description: "Expression evaluation engine",
+		Description: "Expression language evaluation",
 		Class:       []string{luaapi.ClassDeterministic},
 	}
 }
 
-// Loader loads the module into the given Lua state
-func (m *Module) Loader(l *luavm.LState) int {
-	m.once.Do(func() {
-		m.initModuleTable(l)
+func (m *exprModule) Register(l *luavm.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		cache = lru.New[string, *vm.Program](
+			lru.WithCapacity(1000),
+		)
+
+		programMT = createProgramMetatable(l)
+
+		mod := &luavm.LTable{}
+		mod.RawSetString("compile", luavm.LGoFunc(luaCompile))
+		mod.RawSetString("eval", luavm.LGoFunc(luaEval))
+		mod.Immutable = true
+		moduleTable = mod
+
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
 
-	l.Push(m.moduleTable)
+	l.SetField(l.Get(luavm.RegistryIndex), programMetatable, programMT)
+
+	return registration
+}
+
+func (m *exprModule) Loader(l *luavm.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
 	return 1
 }
 
-// initModuleTable creates and initializes the module table once
-func (m *Module) initModuleTable(l *luavm.LState) {
-	// Register the Program type methods
-	value.RegisterMethods(l, "expr.Program", map[string]luavm.LGFunction{
-		"run": m.programRun,
-	})
-
-	// Create module table
-	t := l.CreateTable(0, 2) // 2 functions: compile, eval
-
-	t.RawSetString("compile", l.NewFunction(m.luaCompile))
-	t.RawSetString("eval", l.NewFunction(m.luaEval))
-
-	// Make the table immutable so it can be safely reused
-	t.Immutable = true
-
-	m.moduleTable = t
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *luavm.LState) {
+	lua2api.LoadModule(l, Module)
 }
 
-// CheckProgram checks if the first argument is a Program and returns it
-func CheckProgram(l *luavm.LState) *Program {
+type Program struct {
+	program *vm.Program
+}
+
+func getProgramMT(l *luavm.LState) luavm.LValue {
+	return l.GetField(l.Get(luavm.RegistryIndex), programMetatable)
+}
+
+func createProgramMetatable(l *luavm.LState) *luavm.LTable {
+	mt := l.CreateTable(0, 2)
+
+	index := l.CreateTable(0, 1)
+	index.RawSetString("run", luavm.LGoFunc(programRun))
+	index.Immutable = true
+
+	mt.RawSetString("__index", index)
+	mt.Immutable = true
+	return mt
+}
+
+func checkProgram(l *luavm.LState) *Program {
 	ud := l.CheckUserData(1)
 	if program, ok := ud.Value.(*Program); ok {
 		return program
@@ -119,17 +101,14 @@ func CheckProgram(l *luavm.LState) *Program {
 	return nil
 }
 
-// WrapProgram wraps a Program as a Lua userdata
-func WrapProgram(l *luavm.LState, program *Program) *luavm.LUserData {
+func wrapProgram(l *luavm.LState, program *Program) *luavm.LUserData {
 	ud := l.NewUserData()
 	ud.Value = program
-	ud.Metatable = value.GetTypeMetatable(l, "expr.Program")
+	ud.Metatable = getProgramMT(l)
 	return ud
 }
 
-// luaCompile compiles an expression without caching
-func (m *Module) luaCompile(l *luavm.LState) int {
-	// Get expression string
+func luaCompile(l *luavm.LState) int {
 	expression := l.CheckString(1)
 	if expression == "" {
 		l.Push(luavm.LNil)
@@ -137,31 +116,26 @@ func (m *Module) luaCompile(l *luavm.LState) int {
 		return 2
 	}
 
-	// Get optional environment
 	var env any
 	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
-		env = value.ToGoAny(l.Get(2))
+		env = toGoAny(l.Get(2))
 	}
 
-	// Compile expression
-	program, err := m.compileExpression(expression, env)
+	program, err := compileExpression(expression, env)
 	if err != nil {
 		l.Push(luavm.LNil)
 		l.Push(luavm.LString(err.Error()))
 		return 2
 	}
 
-	// Wrap program in our Program type
 	wrappedProgram := &Program{program: program}
-	ud := WrapProgram(l, wrappedProgram)
+	ud := wrapProgram(l, wrappedProgram)
 	l.Push(ud)
 	l.Push(luavm.LNil)
 	return 2
 }
 
-// luaEval evaluates an expression with caching
-func (m *Module) luaEval(l *luavm.LState) int {
-	// Get expression string
+func luaEval(l *luavm.LState) int {
 	expression := l.CheckString(1)
 	if expression == "" {
 		l.Push(luavm.LNil)
@@ -169,21 +143,18 @@ func (m *Module) luaEval(l *luavm.LState) int {
 		return 2
 	}
 
-	// Get optional environment
 	var env any
 	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
-		env = value.ToGoAny(l.Get(2))
+		env = toGoAny(l.Get(2))
 	}
 
-	// Get or compile program from cache
-	program, err := m.getCachedProgram(expression)
+	program, err := getCachedProgram(expression)
 	if err != nil {
 		l.Push(luavm.LNil)
 		l.Push(luavm.LString(err.Error()))
 		return 2
 	}
 
-	// Run program
 	result, err := expr.Run(program, env)
 	if err != nil {
 		l.Push(luavm.LNil)
@@ -191,7 +162,6 @@ func (m *Module) luaEval(l *luavm.LState) int {
 		return 2
 	}
 
-	// Convert result back to Lua
 	luaResult, err := lua.GoToLua(result)
 	if err != nil {
 		l.Push(luavm.LNil)
@@ -204,21 +174,17 @@ func (m *Module) luaEval(l *luavm.LState) int {
 	return 2
 }
 
-// programRun runs a compiled program with environment
-func (m *Module) programRun(l *luavm.LState) int {
-	// Check and get program
-	program := CheckProgram(l)
+func programRun(l *luavm.LState) int {
+	program := checkProgram(l)
 	if program == nil {
 		return 0
 	}
 
-	// Get optional environment
 	var env any
 	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
-		env = value.ToGoAny(l.Get(2))
+		env = toGoAny(l.Get(2))
 	}
 
-	// Run program
 	result, err := expr.Run(program.program, env)
 	if err != nil {
 		l.Push(luavm.LNil)
@@ -226,7 +192,6 @@ func (m *Module) programRun(l *luavm.LState) int {
 		return 2
 	}
 
-	// Convert result back to Lua
 	luaResult, err := lua.GoToLua(result)
 	if err != nil {
 		l.Push(luavm.LNil)
@@ -239,44 +204,58 @@ func (m *Module) programRun(l *luavm.LState) int {
 	return 2
 }
 
-// getCachedProgram gets a compiled program from cache or compiles and caches it
-func (m *Module) getCachedProgram(expression string) (*vm.Program, error) {
-	// If cache is disabled, compile directly
-	if m.cache == nil {
-		return m.compileExpression(expression, nil)
+func getCachedProgram(expression string) (*vm.Program, error) {
+	if cache == nil {
+		return compileExpression(expression, nil)
 	}
 
-	// Try to get from cache first
-	if program, found := m.cache.Get(expression); found {
+	if program, found := cache.Get(expression); found {
 		return program, nil
 	}
 
-	// Compile and cache
-	program, err := m.compileExpression(expression, nil)
+	program, err := compileExpression(expression, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cache the compiled program
-	m.cache.Set(expression, program)
+	cache.Set(expression, program)
 	return program, nil
 }
 
-// compileExpression compiles an expression (only built-ins supported)
-func (m *Module) compileExpression(expression string, env any) (*vm.Program, error) {
-	// Build options
+func compileExpression(expression string, env any) (*vm.Program, error) {
 	var options []expr.Option
 	if env != nil {
 		options = append(options, expr.Env(env))
 	}
 
-	// Compile expression (only built-in functions available)
 	return expr.Compile(expression, options...)
 }
 
-// Close cleans up the module resources
-func (m *Module) Close() {
-	if m.cache != nil {
-		m.cache.Close()
+func toGoAny(lv luavm.LValue) any {
+	switch v := lv.(type) {
+	case luavm.LBool:
+		return bool(v)
+	case luavm.LNumber:
+		return float64(v)
+	case luavm.LInteger:
+		return int64(v)
+	case luavm.LString:
+		return string(v)
+	case *luavm.LTable:
+		return tableToMap(v)
+	case *luavm.LNilType:
+		return nil
+	default:
+		return nil
 	}
+}
+
+func tableToMap(tbl *luavm.LTable) map[string]any {
+	result := make(map[string]any)
+	tbl.ForEach(func(key luavm.LValue, val luavm.LValue) {
+		if keyStr, ok := key.(luavm.LString); ok {
+			result[string(keyStr)] = toGoAny(val)
+		}
+	})
+	return result
 }

@@ -17,27 +17,7 @@ func Expr() boot.Component {
 				return ctx, nil
 			}
 
-			cfg := boot.GetConfig(ctx)
-			cacheEnabled := true
-			capacity := 5000
-
-			if cfg != nil {
-				luaCfg := cfg.Sub("lua")
-				if luaCfg != nil {
-					exprCfg := luaCfg.Sub("expr")
-					if exprCfg != nil {
-						cacheEnabled = exprCfg.GetBool("cache_enabled", cacheEnabled)
-						capacity = exprCfg.GetInt("capacity", capacity)
-					}
-				}
-			}
-
-			if err := AddModules(ctx, cm,
-				expr.NewExprModule(
-					expr.WithCache(cacheEnabled),
-					expr.WithCapacity(capacity),
-				),
-			); err != nil {
+			if err := AddModules(ctx, cm, expr.Module); err != nil {
 				return ctx, err
 			}
 

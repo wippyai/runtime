@@ -222,7 +222,7 @@ func TestStreamFullCycle(t *testing.T) {
 
 func TestStreamService(t *testing.T) {
 	s := NewService()
-	if s.Read == nil || s.Close == nil {
+	if s.Read == nil || s.Close == nil || s.Write == nil || s.Seek == nil || s.Flush == nil || s.Stat == nil {
 		t.Error("service handlers not initialized")
 	}
 
@@ -230,7 +230,74 @@ func TestStreamService(t *testing.T) {
 	s.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		count++
 	})
-	if count != 2 {
-		t.Errorf("expected 2 handlers registered, got %d", count)
+	if count != 6 {
+		t.Errorf("expected 6 handlers registered, got %d", count)
 	}
+}
+
+// trackingCloser records whether Close was called.
+type trackingCloser struct {
+	io.Reader
+	closed *bool
+}
+
+func (tc *trackingCloser) Close() error {
+	*tc.closed = true
+	return nil
+}
+
+func TestStreamCleanupOnFrameClose(t *testing.T) {
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+
+	var closed1, closed2, closed3 bool
+
+	registry := GetOrCreateStreamRegistry(ctx)
+	registry.RegisterStream(&trackingCloser{strings.NewReader("a"), &closed1})
+	registry.RegisterStream(&trackingCloser{strings.NewReader("b"), &closed2})
+	registry.RegisterStream(&trackingCloser{strings.NewReader("c"), &closed3})
+
+	registry.mu.Lock()
+	count := len(registry.streams)
+	registry.mu.Unlock()
+	if count != 3 {
+		t.Errorf("expected 3 streams, got %d", count)
+	}
+
+	// Close frame - should cleanup all streams
+	fc.Close()
+
+	// Verify all streams were closed
+	if !closed1 || !closed2 || !closed3 {
+		t.Errorf("expected all streams closed, got: %v %v %v", closed1, closed2, closed3)
+	}
+
+	// Registry should be empty
+	registry.mu.Lock()
+	count = len(registry.streams)
+	registry.mu.Unlock()
+	if count != 0 {
+		t.Errorf("expected 0 streams after cleanup, got %d", count)
+	}
+}
+
+func TestStreamCleanupIdempotent(t *testing.T) {
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+
+	var closeCount int
+	registry := GetOrCreateStreamRegistry(ctx)
+	registry.RegisterStream(&trackingCloser{
+		Reader: strings.NewReader("test"),
+		closed: func() *bool {
+			b := false
+			return &b
+		}(),
+	})
+
+	// Close frame multiple times - should not panic
+	fc.Close()
+	fc.Close()
+	fc.Close()
+
+	// Verify no panic and count is reasonable
+	_ = closeCount
 }

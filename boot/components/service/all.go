@@ -17,7 +17,10 @@ func All() []boot.Component {
 		Template(),
 		Terminal(),
 		Exec(),
-		Host(),
+		// V1 Host - disabled in favor of V2
+		// Host(),
+		// V2 Host2 - uses actor scheduler
+		Host2(),
 		Policy(),
 		Contract(),
 		EnvService(),

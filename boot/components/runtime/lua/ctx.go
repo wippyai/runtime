@@ -4,11 +4,10 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	logapi "github.com/wippyai/runtime/api/logs"
 	ctxmod "github.com/wippyai/runtime/runtime/lua/modules/ctx"
 )
 
-func Context() boot.Component {
+func Ctx() boot.Component {
 	return boot.New(boot.P{
 		Name:      LuaContextName,
 		DependsOn: []boot.ComponentName{LuaEngineName},
@@ -18,8 +17,7 @@ func Context() boot.Component {
 				return ctx, nil
 			}
 
-			logger := logapi.GetLogger(ctx)
-			if err := AddModules(ctx, cm, ctxmod.NewCtxModule(logger.Named("ctx"))); err != nil {
+			if err := AddModules(ctx, cm, ctxmod.Module); err != nil {
 				return ctx, err
 			}
 

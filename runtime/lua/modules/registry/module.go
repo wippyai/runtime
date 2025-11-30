@@ -1,119 +1,72 @@
 package registry
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"sync"
 
 	regapi "github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	"github.com/wippyai/runtime/system/registry/topology"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
-const (
-	// Module name
-	moduleName = "registry"
-
-	// Metatables
-	snapshotMetatable = "registry.Snapshot"
-	changesMetatable  = "registry.Changes"
-	versionMetatable  = "registry.Version"
-	historyMetatable  = "registry.History"
+var (
+	moduleTable  *lua.LTable
+	registration *lua2api.Registration
+	initOnce     sync.Once
 )
 
-// Module represents the registry module
-type Module struct {
-	log         *zap.Logger
-	moduleTable *lua.LTable
-	once        sync.Once
-}
+// Module is the singleton registry module instance.
+var Module = &registryModule{}
 
-// NewRegistryModule creates a new registry module
-func NewRegistryModule(log *zap.Logger) *Module {
-	if log == nil {
-		log = zap.NewNop()
-	}
-	return &Module{log: log}
-}
+type registryModule struct{}
 
-// Info returns module metadata
-func (m *Module) Info() luaapi.ModuleInfo {
+func (m *registryModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
-		Name:        moduleName,
-		Description: "Registry access and version management",
-		Class:       []string{luaapi.ClassStorage, luaapi.ClassNondeterministic},
+		Name:        "registry",
+		Description: "Registry get and find operations",
+		Class:       []string{luaapi.ClassNondeterministic},
 	}
 }
 
-// Loader loads the module into the Lua state
-func (m *Module) Loader(l *lua.LState) int {
-	m.once.Do(func() {
-		m.initModuleTable(l)
+func (m *registryModule) Register(l *lua.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		moduleTable = createModuleTable()
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
 
-	l.Push(m.moduleTable)
+	return registration
+}
+
+func (m *registryModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
 	return 1
 }
 
-// initModuleTable creates and initializes the module table once
-func (m *Module) initModuleTable(l *lua.LState) {
-	// Create module table
-	t := l.CreateTable(0, 10) // Increase size to accommodate new functions
-
-	// Register module-level functions directly
-	t.RawSetString("snapshot", l.NewFunction(m.snapshotCreate))
-	t.RawSetString("snapshot_at", l.NewFunction(m.snapshotAt))
-	t.RawSetString("current_version", l.NewFunction(m.currentVersion))
-	t.RawSetString("versions", l.NewFunction(m.versions))
-	t.RawSetString("apply_version", l.NewFunction(m.applyVersion))
-	t.RawSetString("parse_id", l.NewFunction(parseID))
-	t.RawSetString("history", l.NewFunction(m.historyCreate))
-	t.RawSetString("find", l.NewFunction(m.registryFind))
-	t.RawSetString("get", l.NewFunction(m.registryGet))
-	t.RawSetString("build_delta", l.NewFunction(m.buildDelta)) // Add our new function
-
-	// Register types with their methods using the util helper functions
-	m.registerSnapshotType(l)
-	m.registerChangesType(l)
-	m.registerVersionType(l)
-	m.registerHistoryType(l)
-
-	// Preload the loader submodule
-	loaderMod := NewLoaderModule(m.log)
-	l.PreloadModule(moduleName+"."+loaderModuleName, loaderMod.Loader)
-
-	// Make the table immutable so it can be safely reused
-	t.Immutable = true
-
-	m.moduleTable = t
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *lua.LState) {
+	lua2api.LoadModule(l, Module)
 }
 
-// Helper function to convert an ID table to a registry ID
-func tableToID(_ *lua.LState, table *lua.LTable) (regapi.ID, error) {
-	ns := table.RawGetString("ns")
-	name := table.RawGetString("name")
+func createModuleTable() *lua.LTable {
+	mod := lua.CreateTable(0, 5)
 
-	if ns == lua.LNil || name == lua.LNil {
-		return regapi.ID{}, errors.New("id table must have ns and name fields")
-	}
+	mod.RawSetString("get", lua.LGoFunc(registryGet))
+	mod.RawSetString("find", lua.LGoFunc(registryFind))
+	mod.RawSetString("parse_id", lua.LGoFunc(parseID))
 
-	return regapi.ID{
-		NS:   ns.String(),
-		Name: name.String(),
-	}, nil
+	mod.Immutable = true
+	return mod
 }
 
-// parseID creates an ID from a string
 func parseID(l *lua.LState) int {
 	idStr := l.CheckString(1)
 	id := regapi.ParseID(idStr)
 
-	// Convert to Lua table
 	idTable := l.CreateTable(0, 2)
 	idTable.RawSetString("ns", lua.LString(id.NS))
 	idTable.RawSetString("name", lua.LString(id.Name))
@@ -122,370 +75,185 @@ func parseID(l *lua.LState) int {
 	return 1
 }
 
-// Helper function to wrap a Version in a userdata
-func wrapVersion(l *lua.LState, version regapi.Version) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = version
-	ud.Metatable = value.GetTypeMetatable(l, versionMetatable)
-	return ud
-}
+func registryGet(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context"))
+		return 2
+	}
 
-// snapshotCreate returns a new snapshot of the registry at the current version
-func (m *Module) snapshotCreate(l *lua.LState) int {
-	// Get registry from context
-	reg := regapi.GetRegistry(l.Context())
+	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "snapshot"))
+		l.Push(lua.LString("registry not found in context"))
 		return 2
 	}
 
-	// Get current version
-	version, err := reg.Current()
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "snapshot"))
-		return 2
-	}
-
-	// Get all entries
-	entries, err := reg.GetAllEntries()
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "snapshot"))
-		return 2
-	}
-
-	// Create snapshot
-	snap := &Snapshot{
-		reg:     reg,
-		version: version,
-		entries: entries,
-		log:     m.log,
-	}
-
-	// Create userdata
-	ud := l.NewUserData()
-	ud.Value = snap
-	ud.Metatable = value.GetTypeMetatable(l, snapshotMetatable)
-
-	l.Push(ud)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// snapshotAt returns a snapshot of the registry at the specified version
-func (m *Module) snapshotAt(l *lua.LState) int {
-	// Get registry from context
-	reg := regapi.GetRegistry(l.Context())
-	if reg == nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "snapshot_at"))
-		return 2
-	}
-
-	// Get version ID - this is a simple parameter check, no coroutine needed
-	versionID := l.CheckNumber(1)
-	if versionID <= 0 {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("invalid version ID"), "snapshot_at"))
-		return 2
-	}
-
-	// Get history from registry
-	history := reg.History()
-	if history == nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("history not available"), "snapshot_at"))
-		return 2
-	}
-
-	// Get all versions from history
-	versions, err := history.Versions()
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "snapshot_at"))
-		return 2
-	}
-
-	// Find the requested version
-	var foundVersion regapi.Version
-	for _, ver := range versions {
-		if ver.ID() == uint(versionID) {
-			foundVersion = ver
-			break
-		}
-	}
-
-	if foundVersion == nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("version not found"), "snapshot_at"))
-		return 2
-	}
-
-	// Create state builder
-	resolver := regapi.GetResolver(l.Context())
-	stateBuilder := topology.NewStateBuilder(m.log, resolver)
-
-	// Build state at the specified version
-	state, err := stateBuilder.BuildState(history, foundVersion)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "snapshot_at"))
-		return 2
-	}
-
-	// Create snapshot from state
-	snap := &Snapshot{
-		reg:     reg,
-		version: foundVersion,
-		entries: state,
-		log:     m.log,
-	}
-
-	// Create userdata
-	ud := l.NewUserData()
-	ud.Value = snap
-	ud.Metatable = value.GetTypeMetatable(l, snapshotMetatable)
-
-	l.Push(ud)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// currentVersion returns the current version of the registry
-func (m *Module) currentVersion(l *lua.LState) int {
-	// Get registry from context
-	reg := regapi.GetRegistry(l.Context())
-	if reg == nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "current_version"))
-		return 2
-	}
-
-	// Get current version
-	version, err := reg.Current()
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "current_version"))
-		return 2
-	}
-
-	// Create userdata for Version
-	ud := wrapVersion(l, version)
-
-	l.Push(ud)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// versions returns all available versions in the registry history
-func (m *Module) versions(l *lua.LState) int {
-	// Get registry from context
-	reg := regapi.GetRegistry(l.Context())
-	if reg == nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "versions"))
-		return 2
-	}
-
-	// Get history from registry
-	history := reg.History()
-	if history == nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("history not available"), "versions"))
-		return 2
-	}
-
-	// Get versions from history
-	versions, err := history.Versions()
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "versions"))
-		return 2
-	}
-
-	// Convert to Lua table
-	versionsTable := l.CreateTable(len(versions), 0)
-	for i, ver := range versions {
-		versionsTable.RawSetInt(i+1, wrapVersion(l, ver))
-	}
-
-	l.Push(versionsTable)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// applyVersion applies a specific version to the registry
-func (m *Module) applyVersion(l *lua.LState) int {
-	if !security.IsAllowed(l.Context(), "registry.apply_version", "", nil) {
-		l.RaiseError("registry version change is not allowed")
-		return 0
-	}
-
-	// Get registry from context
-	reg := regapi.GetRegistry(l.Context())
-	if reg == nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "apply_version"))
-		return 2
-	}
-
-	// Get version - parameter check, no coroutine needed
-	ud := l.CheckUserData(1)
-	version, ok := ud.Value.(regapi.Version)
-	if !ok {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("expected version object"), "apply_version"))
-		return 2
-	}
-
-	// We are not allowed to use thread context for registry change
-	// since it is not allowed to actually cancel the operation at the moment
-	ctx := context.Background()
-
-	// Apply version
-	err := reg.ApplyVersion(ctx, version)
-	if err != nil {
-		l.Push(lua.LFalse)
-		l.Push(newRegistryOperationError(l, err, "apply_version"))
-		return 2
-	}
-
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// historyCreate returns the history interface for the registry
-func (m *Module) historyCreate(l *lua.LState) int {
-	// Get registry from context - simple context check, no coroutine needed
-	reg := regapi.GetRegistry(l.Context())
-	if reg == nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "history"))
-		return 2
-	}
-
-	// Get history from registry - simple operation, no coroutine needed
-	history := reg.History()
-	if history == nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("history not available"), "history"))
-		return 2
-	}
-
-	// Create history wrapper
-	hist := &History{
-		reg:  reg,
-		hist: history,
-		log:  m.log,
-	}
-
-	// Create userdata
-	ud := l.NewUserData()
-	ud.Value = hist
-	ud.Metatable = value.GetTypeMetatable(l, historyMetatable)
-
-	l.Push(ud)
-	return 1
-}
-
-// registryGet retrieves a specific entry by ID from the registry
-func (m *Module) registryGet(l *lua.LState) int {
-	// Get registry from context
-	reg := regapi.GetRegistry(l.Context())
-	if reg == nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "get"))
-		return 2
-	}
-
-	// Get ID
 	idStr := l.CheckString(1)
 	id := regapi.ParseID(idStr)
 
-	if !security.IsAllowed(l.Context(), "registry.get", id.String(), nil) {
-		l.RaiseError("registry get is not allowed for %s", id.String())
-		return 0
+	if !security.IsAllowed(ctx, "registry.get", id.String(), nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("registry get not allowed for " + id.String()))
+		return 2
 	}
 
-	// Get entry
 	entry, err := reg.GetEntry(id)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "get"))
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	// Convert to Lua table
-	entryTable, err := entryToLuaTable(l, entry)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "get"))
-		return 2
-	}
-
+	entryTable := entryToLuaTable(l, entry)
 	l.Push(entryTable)
 	l.Push(lua.LNil)
 	return 2
 }
 
-// registryFind implements registry-level search using the Finder interface
-func (m *Module) registryFind(l *lua.LState) int {
-	// Get registry from context
-	reg := regapi.GetRegistry(l.Context())
-	if reg == nil {
+func registryFind(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("registry not found in context"), "find"))
+		l.Push(lua.LString("no context"))
 		return 2
 	}
 
-	// Get filter criteria
+	reg := regapi.GetRegistry(ctx)
+	if reg == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("registry not found in context"))
+		return 2
+	}
+
 	filterTable := l.CheckTable(1)
 	if filterTable == nil {
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("filter criteria table required"), "find"))
+		l.Push(lua.LString("filter criteria table required"))
 		return 2
 	}
 
-	// Convert Lua table to registry metadata
-	meta := convertFilterToMetadata(l, filterTable)
+	meta := convertFilterToMetadata(filterTable)
 
-	// Get finder from context
-	finder := regapi.GetFinder(l.Context())
+	finder := regapi.GetFinder(ctx)
 	if finder == nil {
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("finder not available in context"), "find"))
+		l.Push(lua.LString("finder not available in context"))
 		return 2
 	}
 
-	// Find entries
 	entries, err := finder.Find(meta)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "find"))
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	// Convert to Lua table
 	entriesTable := l.CreateTable(len(entries), 0)
 	for _, entry := range entries {
-		if !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
+		if !security.IsAllowed(ctx, "registry.get", entry.ID.String(), nil) {
 			continue
 		}
-
-		entryTable, err := entryToLuaTable(l, entry)
-
-		if err != nil {
-			l.Push(lua.LNil)
-			l.Push(newRegistryOperationError(l, err, "find"))
-			return 2
-		}
+		entryTable := entryToLuaTable(l, entry)
 		entriesTable.Append(entryTable)
 	}
 
 	l.Push(entriesTable)
 	l.Push(lua.LNil)
 	return 2
+}
+
+func entryToLuaTable(l *lua.LState, entry regapi.Entry) *lua.LTable {
+	t := l.CreateTable(0, 4)
+
+	idTable := l.CreateTable(0, 2)
+	idTable.RawSetString("ns", lua.LString(entry.ID.NS))
+	idTable.RawSetString("name", lua.LString(entry.ID.Name))
+	t.RawSetString("id", idTable)
+
+	t.RawSetString("kind", lua.LString(entry.Kind))
+
+	if entry.Meta != nil {
+		metaTable := l.CreateTable(0, len(entry.Meta))
+		for k, v := range entry.Meta {
+			metaTable.RawSetString(k, toLuaValue(l, v))
+		}
+		t.RawSetString("meta", metaTable)
+	}
+
+	if entry.Data != nil {
+		t.RawSetString("data", toLuaValue(l, entry.Data.Data()))
+	}
+
+	return t
+}
+
+func convertFilterToMetadata(filterTable *lua.LTable) regapi.Metadata {
+	meta := regapi.Metadata{}
+	filterTable.ForEach(func(k, v lua.LValue) {
+		if ks, ok := k.(lua.LString); ok {
+			meta[string(ks)] = toGoValue(v)
+		}
+	})
+	return meta
+}
+
+func toLuaValue(l *lua.LState, val any) lua.LValue {
+	if val == nil {
+		return lua.LNil
+	}
+	switch v := val.(type) {
+	case string:
+		return lua.LString(v)
+	case int:
+		return lua.LNumber(v)
+	case int64:
+		return lua.LNumber(v)
+	case float64:
+		return lua.LNumber(v)
+	case bool:
+		return lua.LBool(v)
+	case []byte:
+		return lua.LString(v)
+	case map[string]any:
+		t := l.CreateTable(0, len(v))
+		for k, val := range v {
+			t.RawSetString(k, toLuaValue(l, val))
+		}
+		return t
+	case []any:
+		t := l.CreateTable(len(v), 0)
+		for i, val := range v {
+			t.RawSetInt(i+1, toLuaValue(l, val))
+		}
+		return t
+	default:
+		return lua.LNil
+	}
+}
+
+func toGoValue(lv lua.LValue) any {
+	switch v := lv.(type) {
+	case lua.LString:
+		return string(v)
+	case lua.LNumber:
+		return float64(v)
+	case lua.LInteger:
+		return int64(v)
+	case lua.LBool:
+		return bool(v)
+	case *lua.LNilType:
+		return nil
+	case *lua.LTable:
+		m := make(map[string]any)
+		v.ForEach(func(k, val lua.LValue) {
+			if ks, ok := k.(lua.LString); ok {
+				m[string(ks)] = toGoValue(val)
+			}
+		})
+		return m
+	default:
+		return nil
+	}
 }

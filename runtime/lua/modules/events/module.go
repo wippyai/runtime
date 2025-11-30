@@ -1,99 +1,103 @@
 package events
 
 import (
-	"context"
 	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	"github.com/wippyai/runtime/runtime/lua/engine/channel"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	"github.com/wippyai/runtime/system/eventbus"
-	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
 const (
-	subscriptionMetatable = "events.Subscription"
+	subscriptionTypeName = "events.Subscription"
 )
 
-// Module represents the events module for Lua
-type Module struct {
-	log         *zap.Logger
-	moduleTable *lua.LTable
-	once        sync.Once
-}
+var (
+	moduleTable           *lua.LTable
+	registration          *lua2api.Registration
+	subscriptionMetatable *lua.LTable
+	initOnce              sync.Once
+)
 
-// NewEventsModule creates a new events module
-func NewEventsModule(log *zap.Logger) *Module {
-	return &Module{
-		log: log.Named("events"),
-	}
-}
+// Module is the singleton events module instance.
+var Module = &eventsModule{}
 
-func (m *Module) Info() luaapi.ModuleInfo {
+type eventsModule struct{}
+
+func (m *eventsModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "events",
-		Description: "Event bus subscription and publishing",
+		Description: "Event bus subscribe and send",
 		Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
 	}
 }
 
-// Loader is the entry point for loading the module into Lua
-func (m *Module) Loader(l *lua.LState) int {
-	m.once.Do(func() {
-		m.initModuleTable(l)
+func (m *eventsModule) Register(l *lua.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		moduleTable = createModuleTable()
+
+		subscriptionMetatable = value.RegisterTypeMethods(nil, subscriptionTypeName,
+			map[string]lua.LGFunction{"__tostring": subscriptionToString},
+			subscriptionMethods)
+
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
 
-	l.Push(m.moduleTable)
+	return registration
+}
+
+type Subscription struct {
+	subscriber    *eventbus.Subscriber
+	channel       *engine.Channel
+	system        event.System
+	kind          event.Kind
+	closed        bool
+	mu            sync.Mutex
+	cancelCleanup func()
+}
+
+func (m *eventsModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
 	return 1
 }
 
-// initModuleTable creates and initializes the module table once
-func (m *Module) initModuleTable(l *lua.LState) {
-	// Create module table with pre-allocated size
-	mod := l.CreateTable(0, 2) // 2 functions: subscribe and send
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *lua.LState) {
+	lua2api.LoadModule(l, Module)
+}
 
-	// Register top-level subscribe function (without needing to get the bus first)
-	mod.RawSetString("subscribe", l.NewFunction(func(l *lua.LState) int {
-		return m.subscribe(l)
-	}))
-
-	// Register top-level send function
-	mod.RawSetString("send", l.NewFunction(func(l *lua.LState) int {
-		return m.send(l)
-	}))
-
-	// Make the table immutable so it can be safely reused
+func createModuleTable() *lua.LTable {
+	mod := lua.CreateTable(0, 2)
+	mod.RawSetString("subscribe", lua.LGoFunc(subscribe))
+	mod.RawSetString("send", lua.LGoFunc(send))
 	mod.Immutable = true
-
-	// Register subscription metatable
-	value.RegisterMethods(l, subscriptionMetatable, map[string]lua.LGFunction{
-		"channel": m.subChannel,
-		"close":   m.subClose,
-	})
-
-	m.moduleTable = mod
+	return mod
 }
 
-// LuaSubscription wraps an eventbus Subscriber for Lua
-type LuaSubscription struct {
-	subscriber *eventbus.Subscriber
-	ch         *channel.Channel
-	system     event.System
-	kind       event.Kind
-	log        *zap.Logger
-	closed     bool
-	release    context.CancelFunc // Cancel function from UoW's AddCleanup
+var subscriptionMethods = map[string]lua.LGFunction{
+	"channel": subscriptionChannel,
+	"close":   subscriptionClose,
 }
 
-// subscribe creates a new subscription to the event bus
-func (m *Module) subscribe(l *lua.LState) int {
-	// Get system and optional kind pattern
+func subscribe(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context"))
+		return 2
+	}
+
 	system := l.CheckString(1)
 	if system == "" {
 		l.Push(lua.LNil)
@@ -101,28 +105,17 @@ func (m *Module) subscribe(l *lua.LState) int {
 		return 2
 	}
 
-	if !security.IsAllowed(l.Context(), "events.subscribe", system, nil) {
+	if !security.IsAllowed(ctx, "events.subscribe", system, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to subscribe to events from system: %s", system)))
 		return 2
 	}
 
-	// Optional kind pattern
 	var kind string
 	if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
 		kind = l.CheckString(2)
 	}
 
-	// Get context and UoW
-	ctx := l.Context()
-	uw := engine.GetUnitOfWork(ctx)
-	if uw == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("unit of work not found in context"))
-		return 2
-	}
-
-	// Get event bus from context
 	bus := event.GetBus(ctx)
 	if bus == nil {
 		l.Push(lua.LNil)
@@ -130,60 +123,45 @@ func (m *Module) subscribe(l *lua.LState) int {
 		return 2
 	}
 
-	// Important: Use the UoW context to ensure proper lifecycle management
-	uwCtx := uw.Context()
+	tc := payload.GetTranscoder(ctx)
 
-	// Create a channel for events
-	ch := channel.Named(fmt.Sprintf("event_%s_%s", system, kind), 64)
+	ch := engine.NewChannel(64)
 
-	// Create LuaSubscription object
-	luaSub := &LuaSubscription{
-		ch:     ch,
-		system: system,
-		kind:   kind,
-		log:    m.log,
-		closed: false,
+	sub := &Subscription{
+		channel: ch,
+		system:  system,
+		kind:    kind,
+		closed:  false,
 	}
 
-	// Create the actual subscriber with a handler that sends to our channel
 	subscriber, err := eventbus.NewSubscriber(
-		uwCtx, // Use UoW context to ensure proper lifecycle
+		ctx,
 		bus,
 		system,
 		kind,
 		func(evt event.Event) {
-			// Convert event to Lua table
+			sub.mu.Lock()
+			if sub.closed {
+				sub.mu.Unlock()
+				return
+			}
+			sub.mu.Unlock()
+
 			evtTable := l.CreateTable(0, 4)
 			evtTable.RawSetString("system", lua.LString(evt.System))
 			evtTable.RawSetString("kind", lua.LString(evt.Kind))
 			evtTable.RawSetString("path", lua.LString(evt.Path))
 
-			// Convert event data to Lua
-			if evt.Data != nil {
-				luaData, err := luaconv.GoToLua(evt.Data)
-				if err != nil {
-					m.log.Error("failed to convert event data to Lua",
-						zap.Error(err),
-						zap.String("system", evt.System),
-						zap.String("kind", evt.Kind))
-				} else {
-					evtTable.RawSetString("data", luaData)
+			if evt.Data != nil && tc != nil {
+				luaPayload, err := tc.Transcode(payload.New(evt.Data), payload.Lua)
+				if err == nil {
+					if lv, ok := luaPayload.Data().(lua.LValue); ok {
+						evtTable.RawSetString("data", lv)
+					}
 				}
 			}
 
-			// Check if context is still valid
-			select {
-			case <-uwCtx.Done():
-				return
-			default:
-				// Send the event to our channel
-				if err := channel.Send(l, ch, evtTable); err != nil {
-					m.log.Error("failed to send event to channel",
-						zap.Error(err),
-						zap.String("system", evt.System),
-						zap.String("kind", evt.Kind))
-				}
-			}
+			ch.Send(nil, evtTable, nil)
 		},
 	)
 
@@ -193,32 +171,40 @@ func (m *Module) subscribe(l *lua.LState) int {
 		return 2
 	}
 
-	// Store the subscriber
-	luaSub.subscriber = subscriber
+	sub.subscriber = subscriber
 
-	// Register cleanup function to ensure subscriber is closed when UoW is done
-	luaSub.release = uw.AddCleanup(func() error {
-		if !luaSub.closed && luaSub.subscriber != nil {
-			luaSub.subscriber.Close()
-			luaSub.subscriber = nil
-			luaSub.closed = true
-		}
-		return channel.Close(l, ch)
-	})
+	// Register cleanup with Resources
+	resources := engine.GetResources(ctx)
+	if resources != nil {
+		sub.cancelCleanup = resources.AddCleanup(func() error {
+			sub.mu.Lock()
+			defer sub.mu.Unlock()
+			if !sub.closed {
+				sub.closed = true
+				if sub.subscriber != nil {
+					sub.subscriber.Close()
+					sub.subscriber = nil
+				}
+				if sub.channel != nil {
+					sub.channel.Close(nil)
+				}
+			}
+			return nil
+		})
+	}
 
-	// Create userdata
-	ud := l.NewUserData()
-	ud.Value = luaSub
-	ud.Metatable = value.GetTypeMetatable(l, subscriptionMetatable)
-
-	// Return subscription object
-	l.Push(ud)
+	value.NewUserData(l, sub, subscriptionMetatable)
 	return 1
 }
 
-// send publishes an event to the event bus
-func (m *Module) send(l *lua.LState) int {
-	// Get required parameters
+func send(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.LString("no context"))
+		return 2
+	}
+
 	system := l.CheckString(1)
 	if system == "" {
 		l.Push(lua.LFalse)
@@ -240,17 +226,12 @@ func (m *Module) send(l *lua.LState) int {
 		return 2
 	}
 
-	// Check security permissions
-	if !security.IsAllowed(l.Context(), "events.send", system, nil) {
+	if !security.IsAllowed(ctx, "events.send", system, nil) {
 		l.Push(lua.LFalse)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to send events to system: %s", system)))
 		return 2
 	}
 
-	// Get context
-	ctx := l.Context()
-
-	// Get event bus from context
 	bus := event.GetBus(ctx)
 	if bus == nil {
 		l.Push(lua.LFalse)
@@ -258,13 +239,11 @@ func (m *Module) send(l *lua.LState) int {
 		return 2
 	}
 
-	// Optional data parameter
 	var data any
 	if l.GetTop() >= 4 && l.Get(4) != lua.LNil {
-		data = value.ToGoAny(l.Get(4))
+		data = toGoValue(l.Get(4))
 	}
 
-	// Create and send event
 	evt := event.Event{
 		System: system,
 		Kind:   kind,
@@ -278,65 +257,95 @@ func (m *Module) send(l *lua.LState) int {
 	return 1
 }
 
-// subChannel returns the channel for the subscription
-func (m *Module) subChannel(l *lua.LState) int {
-	// Get subscription
-	sub := checkSubscription(l)
+func checkSubscription(l *lua.LState, idx int) *Subscription {
+	ud := l.CheckUserData(idx)
+	if sub, ok := ud.Value.(*Subscription); ok {
+		return sub
+	}
+	l.ArgError(idx, "events.Subscription expected")
+	return nil
+}
+
+func subscriptionChannel(l *lua.LState) int {
+	sub := checkSubscription(l, 1)
 	if sub == nil {
 		return 0
 	}
 
-	// Return the channel
-	l.Push(channel.Wrap(l, sub.ch))
+	ud := value.NewTypedUserData(l, sub.channel, "channel")
+	if ud == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("channel type not registered"))
+		return 2
+	}
 	return 1
 }
 
-// subClose closes the subscription
-func (m *Module) subClose(l *lua.LState) int {
-	// Get subscription
-	sub := checkSubscription(l)
+func subscriptionClose(l *lua.LState) int {
+	sub := checkSubscription(l, 1)
 	if sub == nil {
 		return 0
 	}
 
+	sub.mu.Lock()
 	if sub.closed {
-		l.Push(lua.LTrue) // Already closed
+		sub.mu.Unlock()
+		l.Push(lua.LTrue)
 		return 1
 	}
 
-	// Mark as closed
 	sub.closed = true
+	cancel := sub.cancelCleanup
+	sub.cancelCleanup = nil
 
-	// Close the underlying subscriber
 	if sub.subscriber != nil {
 		sub.subscriber.Close()
 		sub.subscriber = nil
 	}
 
-	// IMPORTANT: Call the cancel function to remove cleanup from UoW
-	if sub.release != nil {
-		sub.release()
-		sub.release = nil
+	if sub.channel != nil {
+		sub.channel.Close(nil)
 	}
+	sub.mu.Unlock()
 
-	// Close the channel
-	if err := channel.Close(l, sub.ch); err != nil {
-		m.log.Error("failed to close subscription channel",
-			zap.Error(err),
-			zap.String("system", sub.system),
-			zap.String("kind", sub.kind))
+	if cancel != nil {
+		cancel()
 	}
 
 	l.Push(lua.LTrue)
 	return 1
 }
 
-// checkSubscription validates and returns the subscription from userdata
-func checkSubscription(l *lua.LState) *LuaSubscription {
-	ud := l.CheckUserData(1)
-	if sub, ok := ud.Value.(*LuaSubscription); ok {
-		return sub
+func subscriptionToString(l *lua.LState) int {
+	sub := checkSubscription(l, 1)
+	if sub == nil {
+		return 0
 	}
-	l.ArgError(1, "event subscription expected")
-	return nil
+	l.Push(lua.LString(fmt.Sprintf("events.Subscription{system=%s, kind=%s}", sub.system, sub.kind)))
+	return 1
+}
+
+func toGoValue(lv lua.LValue) any {
+	switch v := lv.(type) {
+	case lua.LString:
+		return string(v)
+	case lua.LNumber:
+		return float64(v)
+	case lua.LInteger:
+		return int64(v)
+	case lua.LBool:
+		return bool(v)
+	case *lua.LNilType:
+		return nil
+	case *lua.LTable:
+		m := make(map[string]any)
+		v.ForEach(func(k, val lua.LValue) {
+			if ks, ok := k.(lua.LString); ok {
+				m[string(ks)] = toGoValue(val)
+			}
+		})
+		return m
+	default:
+		return nil
+	}
 }

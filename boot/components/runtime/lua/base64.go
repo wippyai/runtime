@@ -17,7 +17,7 @@ func Base64() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, base64.NewBase64Module()); err != nil {
+			if err := AddModules(ctx, cm, base64.Module); err != nil {
 				return ctx, err
 			}
 

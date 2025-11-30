@@ -8,8 +8,6 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/runtime/lua/engine/errors"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -72,11 +70,8 @@ func GoToLua(v any) (lua.LValue, error) {
 	case []byte:
 		return lua.LString(val), nil
 	case error:
-		ud := &lua.LUserData{
-			Value:     errors.New(val),
-			Metatable: value.GetTypeMetatable(nil, "error"),
-		}
-		return ud, nil
+		// lua.Error implements LValue, so we can return it directly
+		return lua.WrapError(val, ""), nil
 	}
 
 	// Use reflection for complex types

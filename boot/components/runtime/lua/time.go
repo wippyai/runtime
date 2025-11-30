@@ -18,7 +18,7 @@ func Time() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, ostime.NewOSTimeModule(), timemod.NewTimeModule()); err != nil {
+			if err := AddModules(ctx, cm, ostime.Module, timemod.Module); err != nil {
 				return ctx, err
 			}
 

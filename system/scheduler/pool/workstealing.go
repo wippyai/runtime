@@ -119,7 +119,7 @@ const (
 )
 
 // NewWorkStealing creates a work-stealing pool.
-func NewWorkStealing(factory Factory, dispatcher Dispatcher, cfg WorkStealingConfig) (*WorkStealing, error) {
+func NewWorkStealing(factory Factory, dispatcher Dispatcher, cfg WorkStealingConfig, hooks ...ExecutionHooks) (*WorkStealing, error) {
 	if cfg.Workers <= 0 {
 		cfg.Workers = goruntime.GOMAXPROCS(0)
 	}
@@ -139,6 +139,9 @@ func NewWorkStealing(factory Factory, dispatcher Dispatcher, cfg WorkStealingCon
 	ws.wakeCond = sync.NewCond(&ws.wakeMu)
 
 	executor := NewExecutor(dispatcher)
+	if len(hooks) > 0 {
+		executor = executor.WithExecutionHooks(hooks[0])
+	}
 
 	for i := 0; i < cfg.Workers; i++ {
 		proc, err := factory()

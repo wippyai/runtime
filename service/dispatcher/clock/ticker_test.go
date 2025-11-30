@@ -2,6 +2,7 @@ package clock
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -234,5 +235,121 @@ func TestTickerStartHandlerInvalidDuration(t *testing.T) {
 	err = h.Handle(ctx, clockapi.TickerStartCmd{Duration: -time.Second}, func(data any) {})
 	if err == nil {
 		t.Error("expected error for negative duration")
+	}
+}
+
+func TestTickerCleanupOnFrameClose(t *testing.T) {
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+
+	// Create multiple tickers
+	h := NewTickerStartHandler()
+	for i := 0; i < 5; i++ {
+		err := h.Handle(ctx, clockapi.TickerStartCmd{Duration: 100 * time.Millisecond}, func(data any) {})
+		if err != nil {
+			t.Fatalf("start ticker %d failed: %v", i, err)
+		}
+	}
+
+	registry := GetTickerRegistry(ctx)
+	if registry == nil {
+		t.Fatal("registry should exist")
+	}
+
+	count := registry.Count()
+	if count != 5 {
+		t.Errorf("expected 5 tickers, got %d", count)
+	}
+
+	// Close frame - should cleanup all tickers
+	fc.Close()
+
+	// Verify cleanup happened
+	count = registry.Count()
+	if count != 0 {
+		t.Errorf("expected 0 tickers after cleanup, got %d", count)
+	}
+
+	// Next should fail on any ticker
+	nextH := NewTickerNextHandler()
+	err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: 1}, func(data any) {})
+	if err != ErrTickerNotFound {
+		t.Errorf("expected ErrTickerNotFound after cleanup, got %v", err)
+	}
+}
+
+func TestTickerRegistryScalability(t *testing.T) {
+	const numTickers = 10000
+
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer fc.Close()
+
+	registry := GetOrCreateTickerRegistry(ctx)
+
+	// Create many tickers
+	ids := make([]uint64, numTickers)
+	start := time.Now()
+	for i := 0; i < numTickers; i++ {
+		ids[i] = registry.Start(time.Hour) // Long duration so they don't fire
+	}
+	createTime := time.Since(start)
+	t.Logf("Created %d tickers in %v", numTickers, createTime)
+
+	// Verify all created
+	if count := registry.Count(); count != numTickers {
+		t.Errorf("expected %d tickers, got %d", numTickers, count)
+	}
+
+	// Stop all in parallel
+	start = time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < numTickers; i++ {
+		wg.Add(1)
+		go func(id uint64) {
+			defer wg.Done()
+			registry.Stop(id)
+		}(ids[i])
+	}
+	wg.Wait()
+	stopTime := time.Since(start)
+	t.Logf("Stopped %d tickers in %v", numTickers, stopTime)
+
+	// Verify all stopped
+	if remaining := registry.Count(); remaining != 0 {
+		t.Errorf("expected 0 tickers after stop, got %d", remaining)
+	}
+}
+
+func TestTickerRegistryConcurrentOperations(t *testing.T) {
+	const goroutines = 100
+	const opsPerGoroutine = 100
+
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer fc.Close()
+
+	registry := GetOrCreateTickerRegistry(ctx)
+
+	var wg sync.WaitGroup
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ids := make([]uint64, 0, opsPerGoroutine)
+
+			for i := 0; i < opsPerGoroutine; i++ {
+				id := registry.Start(time.Hour)
+				ids = append(ids, id)
+			}
+
+			for _, id := range ids {
+				registry.Stop(id)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// All should be cleaned up
+	if remaining := registry.Count(); remaining != 0 {
+		t.Errorf("expected 0 tickers after concurrent ops, got %d", remaining)
 	}
 }

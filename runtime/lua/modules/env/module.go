@@ -5,58 +5,69 @@ import (
 
 	"github.com/wippyai/runtime/api/env"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Module provides Lua bindings for accessing environment variables
-type Module struct {
-	moduleTable *lua.LTable
-	once        sync.Once
-}
+var (
+	moduleTable  *lua.LTable
+	registration *lua2api.Registration
+	initOnce     sync.Once
+)
 
-// NewEnvModule creates a new environment module
-func NewEnvModule() *Module {
-	return &Module{}
-}
+// Module is the singleton env module instance.
+var Module = &envModule{}
 
-func (m *Module) Info() luaapi.ModuleInfo {
+type envModule struct{}
+
+func (m *envModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "env",
 		Description: "Environment variable access",
-		Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
+		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
 	}
 }
 
-// Loader is the entry point for loading the module into Lua
-func (m *Module) Loader(l *lua.LState) int {
-	m.once.Do(func() {
-		m.initModuleTable(l)
+func (m *envModule) Register(l *lua.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		moduleTable = createModuleTable()
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
+	return registration
+}
 
-	l.Push(m.moduleTable)
+func (m *envModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
 	return 1
 }
 
-// initModuleTable creates and initializes the module table once
-func (m *Module) initModuleTable(l *lua.LState) {
-	t := l.CreateTable(0, 2) // Exactly 2 functions: get and get_all
-
-	t.RawSetString("get", l.NewFunction(m.get))
-	t.RawSetString("get_all", l.NewFunction(m.getAll))
-	t.RawSetString("set", l.NewFunction(m.set))
-
-	// Make the table immutable so it can be safely reused
-	t.Immutable = true
-
-	m.moduleTable = t
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *lua.LState) {
+	lua2api.LoadModule(l, Module)
 }
 
-func (m *Module) get(l *lua.LState) int {
+func createModuleTable() *lua.LTable {
+	mod := lua.CreateTable(0, 3)
+
+	mod.RawSetString("get", lua.LGoFunc(get))
+	mod.RawSetString("set", lua.LGoFunc(set))
+	mod.RawSetString("get_all", lua.LGoFunc(getAll))
+	mod.Immutable = true
+
+	return mod
+}
+
+func get(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context found"))
+		return 2
 	}
 
 	key := l.CheckString(1)
@@ -65,22 +76,23 @@ func (m *Module) get(l *lua.LState) int {
 		return 0
 	}
 
-	// Add security check for accessing specific environment variable
-	if !security.IsAllowed(l.Context(), "env.get", key, nil) {
-		l.RaiseError("not allowed to access environment variable: %s", key)
-		return 0
+	if !security.IsAllowed(ctx, "env.get", key, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to access environment variable: " + key))
+		return 2
 	}
 
-	envRegistry := env.GetRegistry(l.Context())
+	envRegistry := env.GetRegistry(ctx)
 	if envRegistry == nil {
-		l.RaiseError("environment registry not found")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("environment registry not found"))
+		return 2
 	}
 
-	value, err := envRegistry.Get(l.Context(), key)
+	value, err := envRegistry.Get(ctx, key)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(newEnvOperationError(l, err, "get"))
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
@@ -89,11 +101,12 @@ func (m *Module) get(l *lua.LState) int {
 	return 2
 }
 
-func (m *Module) set(l *lua.LState) int {
+func set(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context found"))
+		return 2
 	}
 
 	key := l.CheckString(1)
@@ -103,27 +116,24 @@ func (m *Module) set(l *lua.LState) int {
 	}
 
 	value := l.CheckString(2)
-	if value == "" {
-		l.ArgError(2, "empty value")
-		return 0
+
+	if !security.IsAllowed(ctx, "env.set", key, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to set environment variable: " + key))
+		return 2
 	}
 
-	// Add security check for setting specific environment variable
-	if !security.IsAllowed(l.Context(), "env.set", key, nil) {
-		l.RaiseError("not allowed to set environment variable: %s", key)
-		return 0
-	}
-
-	envRegistry := env.GetRegistry(l.Context())
+	envRegistry := env.GetRegistry(ctx)
 	if envRegistry == nil {
-		l.RaiseError("environment registry not found")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("environment registry not found"))
+		return 2
 	}
 
-	err := envRegistry.Set(l.Context(), key, value)
+	err := envRegistry.Set(ctx, key, value)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(newEnvOperationError(l, err, "set"))
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
@@ -132,34 +142,33 @@ func (m *Module) set(l *lua.LState) int {
 	return 2
 }
 
-func (m *Module) getAll(l *lua.LState) int {
+func getAll(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context found"))
+		return 2
 	}
 
-	envRegistry := env.GetRegistry(l.Context())
+	envRegistry := env.GetRegistry(ctx)
 	if envRegistry == nil {
-		l.RaiseError("environment registry not found")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("environment registry not found"))
+		return 2
 	}
 
-	variables, err := envRegistry.All(l.Context())
+	variables, err := envRegistry.All(ctx)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(newEnvOperationError(l, err, "getall"))
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
 	result := l.CreateTable(0, len(variables))
 
-	// Add variables to the result table, filtering by permissions
 	for key, value := range variables {
-		// Only include variables that the user has permission to access
-		if security.IsAllowed(l.Context(), "env.get", key, nil) {
-			// Direct map access instead of RawSetString for performance
-			result.Strdict[key] = lua.LString(value)
+		if security.IsAllowed(ctx, "env.get", key, nil) {
+			result.RawSetString(key, lua.LString(value))
 		}
 	}
 

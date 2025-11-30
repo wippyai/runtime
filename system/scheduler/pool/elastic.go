@@ -60,7 +60,7 @@ type ElasticConfig struct {
 }
 
 // NewElastic creates an elastic pool.
-func NewElastic(factory Factory, dispatcher Dispatcher, cfg ElasticConfig) (*Elastic, error) {
+func NewElastic(factory Factory, dispatcher Dispatcher, cfg ElasticConfig, hooks ...ExecutionHooks) (*Elastic, error) {
 	if cfg.MinWorkers <= 0 {
 		cfg.MinWorkers = 1
 	}
@@ -77,10 +77,15 @@ func NewElastic(factory Factory, dispatcher Dispatcher, cfg ElasticConfig) (*Ela
 		cfg.IdleTimeout = 30 * time.Second
 	}
 
+	executor := NewExecutor(dispatcher)
+	if len(hooks) > 0 {
+		executor = executor.WithExecutionHooks(hooks[0])
+	}
+
 	e := &Elastic{
 		factory:     factory,
 		dispatcher:  dispatcher,
-		executor:    NewExecutor(dispatcher),
+		executor:    executor,
 		workers:     make([]*elasticWorker, 0, cfg.MaxWorkers),
 		idle:        make([]*elasticWorker, 0, cfg.MaxWorkers),
 		minWorkers:  cfg.MinWorkers,

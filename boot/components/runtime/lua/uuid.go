@@ -17,7 +17,7 @@ func UUID() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, uuid.NewUUIDModule()); err != nil {
+			if err := AddModules(ctx, cm, uuid.Module); err != nil {
 				return ctx, err
 			}
 

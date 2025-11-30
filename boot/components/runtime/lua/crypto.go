@@ -19,8 +19,8 @@ func Crypto() boot.Component {
 			}
 
 			if err := AddModules(ctx, cm,
-				crypto.NewCryptoModule(),
-				hash.NewHashModule(),
+				crypto.Module,
+				hash.Module,
 			); err != nil {
 				return ctx, err
 			}

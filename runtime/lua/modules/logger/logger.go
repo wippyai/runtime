@@ -6,18 +6,17 @@ import (
 
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	engerr "github.com/wippyai/runtime/runtime/lua/engine/errors"
-	"github.com/wippyai/runtime/runtime/lua/engine/inspect"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
 	lua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/inspect"
 	"go.uber.org/zap"
 )
 
 // todo: can it work via dot notation?
 
 // Module represents a logger Lua module
-type Module struct {
+type LoggerModule struct {
 	baseLogger *zap.Logger
 }
 
@@ -27,13 +26,13 @@ type Logger struct {
 }
 
 // NewLoggerModule creates a new logger module
-func NewLoggerModule(log *zap.Logger) *Module {
-	return &Module{
+func NewLoggerModule(log *zap.Logger) *LoggerModule {
+	return &LoggerModule{
 		baseLogger: log,
 	}
 }
 
-func (m *Module) Info() luaapi.ModuleInfo {
+func (m *LoggerModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "logger",
 		Description: "Structured logging",
@@ -42,7 +41,7 @@ func (m *Module) Info() luaapi.ModuleInfo {
 }
 
 // Loader is the entry point for loading the plugin
-func (m *Module) Loader(l *lua.LState) int {
+func (m *LoggerModule) Loader(l *lua.LState) int {
 	// Register all methods at once using the efficient method from util.go
 	methods := map[string]lua.LGFunction{
 		"debug": loggerDebug,
@@ -81,9 +80,9 @@ func tableToFields(table *lua.LTable) []zap.Field {
 		case lua.LTUserData:
 			// Check if userdata contains a Go error type
 			if ud, ok := v.(*lua.LUserData); ok {
-				// Try WrappedError first for richer error information
-				if wrappedErr, ok := ud.Value.(*engerr.WrappedError); ok {
-					fields = append(fields, zap.String(string(key), wrappedErr.Error()))
+				// Try lua.Error first for richer error information
+				if luaErr, ok := ud.Value.(*lua.Error); ok {
+					fields = append(fields, zap.String(string(key), luaErr.Error()))
 				} else if goErr, ok := ud.Value.(error); ok && goErr != nil {
 					// Fallback to generic error interface
 					fields = append(fields, zap.String(string(key), goErr.Error()))

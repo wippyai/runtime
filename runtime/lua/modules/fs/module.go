@@ -6,143 +6,152 @@ import (
 
 	fsapi "github.com/wippyai/runtime/api/fs"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	"github.com/wippyai/runtime/runtime/lua/engine"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Module represents a fs Lua module
-type Module struct {
-	once        sync.Once
-	moduleTable *lua.LTable
-}
-
 const (
-	// Type constants
+	fsTypeName   = "fs.FS"
+	fileTypeName = "fs.File"
+
 	typeFile = "file"
 	typeDir  = "directory"
 
-	// Seek constants
 	seekSet = "set"
 	seekCur = "cur"
 	seekEnd = "end"
 )
 
-// NewFSModule creates and returns a new instance of the fs Module
-func NewFSModule() *Module {
-	return &Module{}
-}
+var (
+	moduleTable   *lua.LTable
+	registration  *lua2api.Registration
+	fsMetatable   *lua.LTable
+	fileMetatable *lua.LTable
+	initOnce      sync.Once
+)
 
-func (m *Module) Info() luaapi.ModuleInfo {
+// Module is the singleton fs module instance.
+var Module = &fsModule{}
+
+type fsModule struct{}
+
+func (m *fsModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "fs",
 		Description: "Filesystem operations",
-		Class:       []string{luaapi.ClassIO},
+		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
 	}
 }
 
-// Loader loads the module into the given Lua state
-func (m *Module) Loader(l *lua.LState) int {
-	m.once.Do(func() {
-		t := l.CreateTable(0, 3)
-
-		// Register type constants
-		typeTable := l.CreateTable(0, 2)
-		typeTable.RawSetString("FILE", lua.LString(typeFile))
-		typeTable.RawSetString("DIR", lua.LString(typeDir))
-		typeTable.Immutable = true
-		t.RawSetString("type", typeTable)
-
-		// Register seek constants
-		seekTable := l.CreateTable(0, 3)
-		seekTable.RawSetString("SET", lua.LString(seekSet))
-		seekTable.RawSetString("CUR", lua.LString(seekCur))
-		seekTable.RawSetString("END", lua.LString(seekEnd))
-		seekTable.Immutable = true
-		t.RawSetString("seek", seekTable)
-
-		t.RawSetString("get", l.NewFunction(apiGet))
-
-		registerFile(l)
-		registerFS(l)
-		t.Immutable = true
-		m.moduleTable = t
+func (m *fsModule) Register(l *lua.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		moduleTable = createModuleTable()
+		fsMetatable = value.RegisterTypeMethods(nil, fsTypeName,
+			map[string]lua.LGFunction{"__tostring": fsToString},
+			fsMethods)
+		fileMetatable = value.RegisterTypeMethods(nil, fileTypeName,
+			map[string]lua.LGFunction{"__tostring": fileToString},
+			fileMethods)
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
-	l.Push(m.moduleTable)
+
+	return registration
+}
+
+func (m *fsModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
 	return 1
 }
 
-func apiGet(l *lua.LState) int {
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *lua.LState) {
+	lua2api.LoadModule(l, Module)
+}
+
+func createModuleTable() *lua.LTable {
+	mod := lua.CreateTable(0, 4)
+
+	typeTable := lua.CreateTable(0, 2)
+	typeTable.RawSetString("FILE", lua.LString(typeFile))
+	typeTable.RawSetString("DIR", lua.LString(typeDir))
+	typeTable.Immutable = true
+	mod.RawSetString("type", typeTable)
+
+	seekTable := lua.CreateTable(0, 3)
+	seekTable.RawSetString("SET", lua.LString(seekSet))
+	seekTable.RawSetString("CUR", lua.LString(seekCur))
+	seekTable.RawSetString("END", lua.LString(seekEnd))
+	seekTable.Immutable = true
+	mod.RawSetString("seek", seekTable)
+
+	mod.RawSetString("get", lua.LGoFunc(fsGet))
+
+	mod.Immutable = true
+	return mod
+}
+
+func fsGet(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context"))
+		return 2
+	}
+
 	name := l.CheckString(1)
 	if name == "" {
-		l.ArgError(1, "filesystem name required")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("filesystem name required"))
+		return 2
 	}
 
-	// Add security check to control filesystem access
-	if !security.IsAllowed(l.Context(), "fs.get", name, nil) {
-		l.RaiseError("not allowed to access filesystem: %s", name)
-		return 0
+	if !security.IsAllowed(ctx, "fs.get", name, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to access filesystem: " + name))
+		return 2
 	}
 
-	reg := fsapi.GetRegistry(l.Context())
+	reg := fsapi.GetRegistry(ctx)
 	if reg == nil {
-		l.RaiseError("no filesystem registry in context")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no filesystem registry in context"))
+		return 2
 	}
 
 	f, ok := reg.GetFS(name)
 	if !ok {
-		l.RaiseError("filesystem not found: %s", name)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("filesystem not found: " + name))
+		return 2
 	}
 
-	l.Push(WrapFS(l, f))
-	return 1
+	value.NewUserData(l, NewFS(f, "."), fsMetatable)
+	l.Push(lua.LNil)
+	return 2
 }
 
-func CheckFS(l *lua.LState, n int) *FS {
-	ud := l.CheckUserData(n)
+func checkFS(l *lua.LState, idx int) *FS {
+	ud := l.CheckUserData(idx)
 	if v, ok := ud.Value.(*FS); ok {
 		return v
 	}
-
-	l.ArgError(n, "filesystem expected")
+	l.ArgError(idx, "filesystem expected")
 	return nil
 }
 
-func WrapFS(l *lua.LState, fs fsapi.FS) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = NewFS(fs, ".")
-	ud.Metatable = value.GetTypeMetatable(nil, "fs.FS")
-	return ud
-}
-
-func CheckFile(l *lua.LState, n int) *File {
-	ud := l.CheckUserData(n)
+func checkFile(l *lua.LState, idx int) *File {
+	ud := l.CheckUserData(idx)
 	if v, ok := ud.Value.(*File); ok {
 		return v
 	}
-	l.ArgError(n, "file expected")
+	l.ArgError(idx, "file expected")
 	return nil
-}
-
-// WrapFile creates a new File userdata with UoW integration
-func WrapFile(l *lua.LState, file fsapi.File) *lua.LUserData {
-	// Get Unit of Work from context
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("unit of work missing from context")
-		return nil
-	}
-
-	// Create a new File with UoW integration
-	ud := l.NewUserData()
-	ud.Value = NewFile(uw, file)
-	ud.Metatable = value.GetTypeMetatable(nil, "fs.File")
-
-	return ud
 }
 
 func pushFileInfo(l *lua.LState, info fs.FileInfo) *lua.LTable {

@@ -51,21 +51,33 @@ type FrameContext interface {
 
 	// IsSealed returns true if this frame is sealed (immutable).
 	IsSealed() bool
+
+	// AddCleanup registers a cleanup function to run when Close() is called.
+	// Cleanup functions are executed in LIFO order (last added runs first).
+	AddCleanup(fn func() error)
+
+	// Close executes all registered cleanup functions in LIFO order.
+	// Continues running all cleanups even if some fail, returns the last error.
+	// Safe to call multiple times - subsequent calls are no-ops.
+	Close() error
 }
 
 // frameContext is the concrete implementation of FrameContext.
 type frameContext struct {
-	mu     sync.RWMutex
-	values map[any]any
-	parent FrameContext
-	sealed bool
+	mu       sync.RWMutex
+	values   map[any]any
+	parent   FrameContext
+	sealed   bool
+	cleanups []func() error
+	closed   bool
 }
 
 // frameContextPool for reusing frame contexts to reduce allocations.
 var frameContextPool = sync.Pool{
 	New: func() any {
 		return &frameContext{
-			values: make(map[any]any, 4),
+			values:   make(map[any]any, 4),
+			cleanups: make([]func() error, 0, 4),
 		}
 	},
 }
@@ -75,7 +87,9 @@ var frameContextPool = sync.Pool{
 func AcquireFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc := frameContextPool.Get().(*frameContext)
 	fc.sealed = false
+	fc.closed = false
 	fc.parent = nil
+	fc.cleanups = fc.cleanups[:0]
 	if parentFC := FrameFromContext(parent); parentFC != nil {
 		fc.parent = parentFC
 	}
@@ -91,6 +105,8 @@ func ReleaseFrameContext(fc FrameContext) {
 		}
 		f.parent = nil
 		f.sealed = false
+		f.closed = false
+		f.cleanups = f.cleanups[:0]
 		f.mu.Unlock()
 		frameContextPool.Put(f)
 	}
@@ -240,6 +256,32 @@ func (f *frameContext) IsSealed() bool {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return f.sealed
+}
+
+func (f *frameContext) AddCleanup(fn func() error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cleanups = append(f.cleanups, fn)
+}
+
+func (f *frameContext) Close() error {
+	f.mu.Lock()
+	if f.closed {
+		f.mu.Unlock()
+		return nil
+	}
+	f.closed = true
+	cleanups := f.cleanups
+	f.cleanups = nil
+	f.mu.Unlock()
+
+	var lastErr error
+	for i := len(cleanups) - 1; i >= 0; i-- {
+		if err := cleanups[i](); err != nil {
+			lastErr = err
+		}
+	}
+	return lastErr
 }
 
 // frameContextKey is the context key for storing FrameContext.

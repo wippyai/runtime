@@ -17,8 +17,11 @@ const (
 )
 
 func CreateHTTPMetricsMiddleware(collector metrics.Collector) func(options map[string]string) func(http.Handler) http.Handler {
-	return func(options map[string]string) func(http.Handler) http.Handler {
+	return func(_ map[string]string) func(http.Handler) http.Handler {
 		return func(next http.Handler) http.Handler {
+			if collector == nil {
+				return next
+			}
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				start := time.Now()
 
@@ -65,4 +68,10 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(code int) {
 	w.statusCode = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }

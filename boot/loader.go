@@ -8,6 +8,7 @@ import (
 	contextapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/internal/graph"
+	"github.com/wippyai/runtime/system/dispatcher"
 	"github.com/wippyai/runtime/system/eventbus"
 )
 
@@ -101,6 +102,10 @@ func (l *Loader) Start(ctx context.Context) error {
 	if err := StartRuntimeServices(ctx); err != nil {
 		return fmt.Errorf("start runtime services: %w", err)
 	}
+
+	// Freeze dispatcher registry for lock-free lookups
+	// All handlers were registered during Load() phase
+	dispatcher.Freeze()
 
 	for _, c := range l.loaded {
 		if starter, ok := c.(boot.Starter); ok {

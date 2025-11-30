@@ -3,216 +3,501 @@ package crypto
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
-func TestCryptoModuleWithVM(t *testing.T) {
-	logger := zap.NewNop()
+func TestBind(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
 
-	t.Run("module creation and loading", func(t *testing.T) {
-		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	Bind(l)
 
-		err = vm.DoString(newTestContext(), `
-			local crypto = require("crypto")
-			assert(type(crypto) == "table")
-			assert(type(crypto.random) == "table")
-			assert(type(crypto.hmac) == "table")
-			assert(type(crypto.encrypt) == "table")
-			assert(type(crypto.decrypt) == "table")
-			assert(type(crypto.jwt) == "table")
-			assert(type(crypto.pbkdf2) == "function")
-			assert(type(crypto.constant_time_compare) == "function")
-		`, "test")
-		assert.NoError(t, err)
-	})
+	mod := l.GetGlobal("crypto")
+	if mod.Type() != lua.LTTable {
+		t.Fatal("crypto module not registered")
+	}
 
-	t.Run("pbkdf2 function with Serve", func(t *testing.T) {
-		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	tbl := mod.(*lua.LTable)
+	if tbl.RawGetString("random").Type() != lua.LTTable {
+		t.Error("random submodule not registered")
+	}
+	if tbl.RawGetString("encrypt").Type() != lua.LTTable {
+		t.Error("encrypt submodule not registered")
+	}
+	if tbl.RawGetString("decrypt").Type() != lua.LTTable {
+		t.Error("decrypt submodule not registered")
+	}
+	if tbl.RawGetString("pbkdf2").Type() != lua.LTFunction {
+		t.Error("pbkdf2 function not registered")
+	}
+	if tbl.RawGetString("constant_time_compare").Type() != lua.LTFunction {
+		t.Error("constant_time_compare function not registered")
+	}
+}
 
-		script := `
-			local crypto = require("crypto")
-			function test_pbkdf2(password, salt, iterations, key_length, hash_func)
-				local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-				if err then
-					return nil, err
-				end
-				return result
+func TestRandomBytes(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local bytes, err = crypto.random.bytes(16)
+		if not bytes then error(err) end
+		if #bytes ~= 16 then error("expected 16 bytes") end
+	`)
+	if err != nil {
+		t.Errorf("random bytes test failed: %v", err)
+	}
+}
+
+func TestRandomBytesInvalidLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.random.bytes(0)
+		if err == nil then error("expected error for zero length") end
+
+		_, err = crypto.random.bytes(-1)
+		if err == nil then error("expected error for negative length") end
+	`)
+	if err != nil {
+		t.Errorf("random bytes invalid length test failed: %v", err)
+	}
+}
+
+func TestRandomString(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local str, err = crypto.random.string(16)
+		if not str then error(err) end
+		if #str ~= 16 then error("expected 16 chars") end
+	`)
+	if err != nil {
+		t.Errorf("random string test failed: %v", err)
+	}
+}
+
+func TestRandomStringWithCharset(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local str, err = crypto.random.string(10, "abc")
+		if not str then error(err) end
+		for i = 1, #str do
+			local c = str:sub(i, i)
+			if c ~= "a" and c ~= "b" and c ~= "c" then
+				error("invalid character in result")
 			end
-			return test_pbkdf2
-		`
-		err = vm.Import(script, "test", "test_pbkdf2")
-		require.NoError(t, err)
+		end
+	`)
+	if err != nil {
+		t.Errorf("random string with charset test failed: %v", err)
+	}
+}
 
-		// Test with valid parameters
-		password := "password"
-		salt := "salt"
-		iterations := 1000
-		keyLength := 32
-		hashFunc := "sha256"
+func TestRandomStringEmptyCharset(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-		result, err := vm.Execute(newTestContext(), "test_pbkdf2",
-			lua.LString(password),
-			lua.LString(salt),
-			lua.LNumber(iterations),
-			lua.LNumber(keyLength),
-			lua.LString(hashFunc))
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		assert.Equal(t, lua.LTString, result.Type())
-		assert.Equal(t, keyLength, len([]byte(result.String())))
+	err := l.DoString(`
+		local _, err = crypto.random.string(10, "")
+		if err == nil then error("expected error for empty charset") end
+	`)
+	if err != nil {
+		t.Errorf("random string empty charset test failed: %v", err)
+	}
+}
 
-		// Test with SHA512
-		result, err = vm.Execute(newTestContext(), "test_pbkdf2",
-			lua.LString(password),
-			lua.LString(salt),
-			lua.LNumber(iterations),
-			lua.LNumber(keyLength),
-			lua.LString("sha512"))
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		assert.Equal(t, lua.LTString, result.Type())
-		assert.Equal(t, keyLength, len([]byte(result.String())))
-	})
+func TestRandomUUID(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-	t.Run("pbkdf2 function error cases", func(t *testing.T) {
-		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	err := l.DoString(`
+		local id, err = crypto.random.uuid()
+		if not id then error(err) end
+		if #id ~= 36 then error("expected 36 char uuid") end
+	`)
+	if err != nil {
+		t.Errorf("random uuid test failed: %v", err)
+	}
+}
 
-		// Test with invalid iterations
-		err = vm.DoString(newTestContext(), `
-			local crypto = require("crypto")
-			local password = "password"
-			local salt = "salt"
-			local iterations = -1
-			local key_length = 32
-			local hash_func = "sha256"
-			
-			local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-			assert(result == nil, "Expected result to be nil")
-			assert(err ~= nil, "Expected error")
-			assert(string.find(err, "iterations must be positive"), "Expected error about iterations")
-		`, "test_invalid_iterations")
-		assert.NoError(t, err)
+func TestEncryptDecryptAES(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-		// Test with invalid key length
-		err = vm.DoString(newTestContext(), `
-			local crypto = require("crypto")
-			local password = "password"
-			local salt = "salt"
-			local iterations = 1000
-			local key_length = -1
-			local hash_func = "sha256"
-			
-			local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-			assert(result == nil, "Expected result to be nil")
-			assert(err ~= nil, "Expected error")
-			assert(string.find(err, "key length must be positive"), "Expected error about key length")
-		`, "test_invalid_key_length")
-		assert.NoError(t, err)
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local plaintext = "Hello, World!"
 
-		// Test with empty password
-		err = vm.DoString(newTestContext(), `
-			local crypto = require("crypto")
-			local password = ""
-			local salt = "salt"
-			local iterations = 1000
-			local key_length = 32
-			local hash_func = "sha256"
-			
-			local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-			assert(result == nil, "Expected result to be nil")
-			assert(err ~= nil, "Expected error")
-			assert(string.find(err, "password cannot be empty"), "Expected error about empty password")
-		`, "test_empty_password")
-		assert.NoError(t, err)
+		local ciphertext, err = crypto.encrypt.aes(plaintext, key)
+		if not ciphertext then error(err) end
 
-		// Test with empty salt
-		err = vm.DoString(newTestContext(), `
-			local crypto = require("crypto")
-			local password = "password"
-			local salt = ""
-			local iterations = 1000
-			local key_length = 32
-			local hash_func = "sha256"
-			
-			local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-			assert(result == nil, "Expected result to be nil")
-			assert(err ~= nil, "Expected error")
-			assert(string.find(err, "salt cannot be empty"), "Expected error about empty salt")
-		`, "test_empty_salt")
-		assert.NoError(t, err)
+		local decrypted, err = crypto.decrypt.aes(ciphertext, key)
+		if not decrypted then error(err) end
 
-		// Test with invalid hash function
-		err = vm.DoString(newTestContext(), `
-			local crypto = require("crypto")
-			local password = "password"
-			local salt = "salt"
-			local iterations = 1000
-			local key_length = 32
-			local hash_func = "invalid_hash"
-			
-			local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-			assert(result == nil, "Expected result to be nil")
-			assert(err ~= nil, "Expected error")
-			assert(string.find(err, "unsupported hash function"), "Expected error about unsupported hash function")
-		`, "test_invalid_hash")
-		assert.NoError(t, err)
-	})
+		if decrypted ~= plaintext then error("AES round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("AES encrypt/decrypt test failed: %v", err)
+	}
+}
 
-	t.Run("constant_time_compare function", func(t *testing.T) {
-		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Info().Name, mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+func TestEncryptDecryptAESWithAAD(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
 
-		script := `
-			local crypto = require("crypto")
-			function test_compare(a, b)
-				return crypto.constant_time_compare(a, b)
-			end
-			return test_compare
-		`
-		err = vm.Import(script, "test", "test_compare")
-		require.NoError(t, err)
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local plaintext = "Hello, World!"
+		local aad = "additional data"
 
-		// Test with equal strings
-		result, err := vm.Execute(newTestContext(), "test_compare",
-			lua.LString("test"),
-			lua.LString("test"))
-		require.NoError(t, err)
-		assert.Equal(t, lua.LTrue, result)
+		local ciphertext, err = crypto.encrypt.aes(plaintext, key, aad)
+		if not ciphertext then error(err) end
 
-		// Test with different strings of same length
-		result, err = vm.Execute(newTestContext(), "test_compare",
-			lua.LString("test"),
-			lua.LString("tess"))
-		require.NoError(t, err)
-		assert.Equal(t, lua.LFalse, result)
+		local decrypted, err = crypto.decrypt.aes(ciphertext, key, aad)
+		if not decrypted then error(err) end
 
-		// Test with different length strings
-		result, err = vm.Execute(newTestContext(), "test_compare",
-			lua.LString("test"),
-			lua.LString("testing"))
-		require.NoError(t, err)
-		assert.Equal(t, lua.LFalse, result)
+		if decrypted ~= plaintext then error("AES with AAD round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("AES with AAD test failed: %v", err)
+	}
+}
 
-		// Test with empty strings
-		result, err = vm.Execute(newTestContext(), "test_compare",
-			lua.LString(""),
-			lua.LString(""))
-		require.NoError(t, err)
-		assert.Equal(t, lua.LTrue, result)
-	})
+func TestAESInvalidKeyLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.encrypt.aes("test", "short")
+		if err == nil then error("expected error for invalid key length") end
+	`)
+	if err != nil {
+		t.Errorf("AES invalid key length test failed: %v", err)
+	}
+}
+
+func TestAESDecryptInvalidData(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local _, err = crypto.decrypt.aes("short", key)
+		if err == nil then error("expected error for short ciphertext") end
+	`)
+	if err != nil {
+		t.Errorf("AES decrypt invalid data test failed: %v", err)
+	}
+}
+
+func TestEncryptDecryptChaCha20(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local plaintext = "Hello, World!"
+
+		local ciphertext, err = crypto.encrypt.chacha20(plaintext, key)
+		if not ciphertext then error(err) end
+
+		local decrypted, err = crypto.decrypt.chacha20(ciphertext, key)
+		if not decrypted then error(err) end
+
+		if decrypted ~= plaintext then error("ChaCha20 round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 encrypt/decrypt test failed: %v", err)
+	}
+}
+
+func TestChaCha20InvalidKeyLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.encrypt.chacha20("test", "short")
+		if err == nil then error("expected error for invalid key length") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 invalid key length test failed: %v", err)
+	}
+}
+
+func TestChaCha20DecryptInvalidData(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local _, err = crypto.decrypt.chacha20("short", key)
+		if err == nil then error("expected error for short ciphertext") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 decrypt invalid data test failed: %v", err)
+	}
+}
+
+func TestPBKDF2(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local key, err = crypto.pbkdf2("password", "salt", 1000, 32)
+		if not key then error(err) end
+		if #key ~= 32 then error("expected 32 byte key") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 test failed: %v", err)
+	}
+}
+
+func TestPBKDF2WithSHA512(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local key, err = crypto.pbkdf2("password", "salt", 1000, 64, "sha512")
+		if not key then error(err) end
+		if #key ~= 64 then error("expected 64 byte key") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 with sha512 test failed: %v", err)
+	}
+}
+
+func TestPBKDF2InvalidHash(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.pbkdf2("password", "salt", 1000, 32, "md5")
+		if err == nil then error("expected error for unsupported hash") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 invalid hash test failed: %v", err)
+	}
+}
+
+func TestPBKDF2EmptyPassword(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.pbkdf2("", "salt", 1000, 32)
+		if err == nil then error("expected error for empty password") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 empty password test failed: %v", err)
+	}
+}
+
+func TestPBKDF2EmptySalt(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.pbkdf2("password", "", 1000, 32)
+		if err == nil then error("expected error for empty salt") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 empty salt test failed: %v", err)
+	}
+}
+
+func TestPBKDF2InvalidIterations(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.pbkdf2("password", "salt", 0, 32)
+		if err == nil then error("expected error for zero iterations") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 invalid iterations test failed: %v", err)
+	}
+}
+
+func TestPBKDF2InvalidKeyLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.pbkdf2("password", "salt", 1000, 0)
+		if err == nil then error("expected error for zero key length") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 invalid key length test failed: %v", err)
+	}
+}
+
+func TestConstantTimeCompare(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local result = crypto.constant_time_compare("hello", "hello")
+		if not result then error("expected true for equal strings") end
+
+		result = crypto.constant_time_compare("hello", "world")
+		if result then error("expected false for different strings") end
+	`)
+	if err != nil {
+		t.Errorf("constant time compare test failed: %v", err)
+	}
+}
+
+func TestAES128Key(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local key = string.rep("a", 16)
+		local plaintext = "Hello"
+		local ciphertext, err = crypto.encrypt.aes(plaintext, key)
+		if not ciphertext then error(err) end
+		local decrypted, err = crypto.decrypt.aes(ciphertext, key)
+		if decrypted ~= plaintext then error("AES-128 round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("AES-128 test failed: %v", err)
+	}
+}
+
+func TestAES192Key(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local key = string.rep("a", 24)
+		local plaintext = "Hello"
+		local ciphertext, err = crypto.encrypt.aes(plaintext, key)
+		if not ciphertext then error(err) end
+		local decrypted, err = crypto.decrypt.aes(ciphertext, key)
+		if decrypted ~= plaintext then error("AES-192 round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("AES-192 test failed: %v", err)
+	}
+}
+
+func TestAESDecryptWrongKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local wrongKey = string.rep("b", 32)
+		local ciphertext, _ = crypto.encrypt.aes("test", key)
+		local _, err = crypto.decrypt.aes(ciphertext, wrongKey)
+		if err == nil then error("expected error for wrong key") end
+	`)
+	if err != nil {
+		t.Errorf("AES wrong key test failed: %v", err)
+	}
+}
+
+func TestChaCha20WithAAD(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local aad = "additional"
+		local ciphertext, _ = crypto.encrypt.chacha20("test", key, aad)
+		local decrypted, _ = crypto.decrypt.chacha20(ciphertext, key, aad)
+		if decrypted ~= "test" then error("ChaCha20 with AAD failed") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 with AAD test failed: %v", err)
+	}
+}
+
+func TestChaCha20DecryptWrongKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local wrongKey = string.rep("b", 32)
+		local ciphertext, _ = crypto.encrypt.chacha20("test", key)
+		local _, err = crypto.decrypt.chacha20(ciphertext, wrongKey)
+		if err == nil then error("expected error for wrong key") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 wrong key test failed: %v", err)
+	}
+}
+
+func TestRandomStringInvalidLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.random.string(0)
+		if err == nil then error("expected error for zero length") end
+	`)
+	if err != nil {
+		t.Errorf("random string invalid length test failed: %v", err)
+	}
+}
+
+func TestAESDecryptInvalidKeyLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.decrypt.aes("data", "short")
+		if err == nil then error("expected error for invalid key length") end
+	`)
+	if err != nil {
+		t.Errorf("AES decrypt invalid key test failed: %v", err)
+	}
+}
+
+func TestChaCha20DecryptInvalidKeyLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.decrypt.chacha20("data", "short")
+		if err == nil then error("expected error for invalid key length") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 decrypt invalid key test failed: %v", err)
+	}
 }

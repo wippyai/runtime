@@ -17,7 +17,7 @@ func Text() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, text.NewTextModule()); err != nil {
+			if err := AddModules(ctx, cm, text.Module); err != nil {
 				return ctx, err
 			}
 

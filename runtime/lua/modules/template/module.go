@@ -10,28 +10,29 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
 	"github.com/wippyai/runtime/service/template"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
-// Module represents a template Lua module
-type Module struct {
-	log         *zap.Logger
-	once        sync.Once
-	moduleTable *lua.LTable
-}
+const templateSetTypeName = "template.Set"
 
-// NewTemplateModule creates and returns a new instance of the template Module
-func NewTemplateModule(log *zap.Logger) *Module {
-	return &Module{
-		log: log,
-	}
-}
+var (
+	moduleTable          *lua.LTable
+	registration         *lua2api.Registration
+	templateSetMetatable *lua.LTable
+	initOnce             sync.Once
+)
 
-func (m *Module) Info() luaapi.ModuleInfo {
+// Module is the singleton template module instance.
+var Module = &templateModule{}
+
+type templateModule struct{}
+
+func (m *templateModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "templates",
 		Description: "Template rendering engine",
@@ -39,165 +40,166 @@ func (m *Module) Info() luaapi.ModuleInfo {
 	}
 }
 
-// Loader loads the module into the given Lua state
-func (m *Module) Loader(l *lua.LState) int {
-	m.once.Do(func() {
-		mod := l.CreateTable(0, 1)
-
-		mod.RawSetString("get", l.NewFunction(func(l *lua.LState) int {
-			return templateGet(l, m.log)
-		}))
-
-		registerTemplateSet(l)
+func (m *templateModule) Register(l *lua.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		mod := lua.CreateTable(0, 1)
+		mod.RawSetString("get", lua.LGoFunc(templateGet))
 		mod.Immutable = true
-		m.moduleTable = mod
+		moduleTable = mod
+
+		templateSetMetatable = value.RegisterTypeMethods(nil, templateSetTypeName,
+			map[string]lua.LGFunction{"__tostring": templateSetToString},
+			templateSetMethods)
+
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
-	l.Push(m.moduleTable)
+
+	return registration
+}
+
+func (m *templateModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
 	return 1
 }
 
-// Wrapper represents a template set wrapper for Lua
-type Wrapper struct {
-	resource  resource.Resource[any]
-	templates *template.TemplateSet
-	log       *zap.Logger
-	onRelease context.CancelFunc
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *lua.LState) {
+	lua2api.LoadModule(l, Module)
 }
 
-// NewWrapper creates a new template set wrapper with UoW integration
-func NewWrapper(
-	uw engine.UnitOfWork,
-	resource resource.Resource[any],
-	templates *template.TemplateSet,
-	log *zap.Logger,
-) *Wrapper {
-	wrapper := &Wrapper{
-		resource:  resource,
+// TemplateSet wraps template.TemplateSet with cleanup tracking.
+type TemplateSet struct {
+	resource      resource.Resource[any]
+	templates     *template.TemplateSet
+	released      bool
+	mu            sync.Mutex
+	cancelCleanup func()
+}
+
+func NewTemplateSet(ctx context.Context, res resource.Resource[any], templates *template.TemplateSet) *TemplateSet {
+	ts := &TemplateSet{
+		resource:  res,
 		templates: templates,
-		log:       log,
+		released:  false,
 	}
 
-	// Register unconditional cleanup in UoW
-	wrapper.onRelease = uw.AddCleanup(func() error {
-		resource.Release()
-		wrapper.resource = nil
-		return nil
-	})
+	resources := engine.GetResources(ctx)
+	if resources != nil {
+		ts.cancelCleanup = resources.AddCleanup(func() error {
+			ts.mu.Lock()
+			defer ts.mu.Unlock()
+			if !ts.released && ts.resource != nil {
+				ts.resource.Release()
+				ts.released = true
+			}
+			return nil
+		})
+	}
 
-	return wrapper
+	return ts
 }
 
-// registerTemplateSet registers the TemplateSet type and its methods
-func registerTemplateSet(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		"render":  templateRender,
-		"release": templateRelease,
-	}
-
-	value.RegisterMethods(l, "template.Set", methods)
+var templateSetMethods = map[string]lua.LGFunction{
+	"render":  templateSetRender,
+	"release": templateSetRelease,
 }
 
-// CheckTemplateSet checks if the first argument is a Wrapper and returns it
-func CheckTemplateSet(l *lua.LState) *Wrapper {
-	ud := l.CheckUserData(1)
-	if wrapper, ok := ud.Value.(*Wrapper); ok {
-		return wrapper
+func checkTemplateSet(l *lua.LState, idx int) *TemplateSet {
+	ud := l.CheckUserData(idx)
+	if v, ok := ud.Value.(*TemplateSet); ok {
+		return v
 	}
-	l.ArgError(1, "expected template set object")
+	l.ArgError(idx, "template.Set expected")
 	return nil
 }
 
-// WrapTemplateSet wraps a TemplateSet as a Lua userdata
-func WrapTemplateSet(l *lua.LState, wrapper *Wrapper) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = wrapper
-	ud.Metatable = value.GetTypeMetatable(l, "template.Set")
-	return ud
-}
+func templateGet(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context"))
+		return 2
+	}
 
-// templateGet retrieves a template set resource by ID
-func templateGet(l *lua.LState, log *zap.Logger) int {
-	// Get resource ID
 	id := l.CheckString(1)
 	if id == "" {
-		l.RaiseError("resource ID is required")
+		l.Push(lua.LNil)
+		l.Push(lua.LString("resource id is required"))
+		return 2
+	}
+
+	if !security.IsAllowed(ctx, "template.get", id, nil) {
+		l.RaiseError("not allowed to access template: %s", id)
 		return 0
 	}
 
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("no unit of work found in context")
-		return 0
-	}
-
-	reg := resource.GetRegistry(uw.Context())
+	reg := resource.GetRegistry(ctx)
 	if reg == nil {
-		l.RaiseError("resource registry not found")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("resource registry not found"))
+		return 2
 	}
 
-	// Parse resource ID
 	resID := registry.ParseID(id)
-
-	// Acquire resource
-	res, err := reg.Acquire(uw.Context(), resID, resource.ModeNormal)
+	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
 	if err != nil {
-		l.RaiseError("failed to acquire resource: %v", err)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
+		return 2
 	}
 
-	// Get TemplateSet instance
 	templateRes, err := res.Get()
 	if err != nil {
 		res.Release()
-		l.RaiseError("failed to get resource: %v", err)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to get resource: %v", err)))
+		return 2
 	}
 
-	// Check if it's a TemplateSet implementation
 	templateSet, ok := templateRes.(*template.TemplateSet)
 	if !ok {
 		res.Release()
-		l.RaiseError("resource is not a template set: %T", templateRes)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("resource is not a template set: %T", templateRes)))
+		return 2
 	}
 
-	// Create and wrap TemplateSet with UoW integration
-	wrapper := NewWrapper(uw, res, templateSet, log)
+	ts := NewTemplateSet(ctx, res, templateSet)
 
-	// Create userdata
-	ud := WrapTemplateSet(l, wrapper)
-	l.Push(ud)
+	value.NewUserData(l, ts, templateSetMetatable)
 	return 1
 }
 
-// templateRender renders a template by name with variables
-func templateRender(l *lua.LState) int {
-	// Check and get template set
-	wrapper := CheckTemplateSet(l)
-	if wrapper == nil {
+func templateSetRender(l *lua.LState) int {
+	ts := checkTemplateSet(l, 1)
+	if ts == nil {
 		return 0
 	}
 
-	if wrapper.resource == nil {
-		l.RaiseError("template has been released")
-		return 0
+	ts.mu.Lock()
+	if ts.released {
+		ts.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.LString("template set is released"))
+		return 2
 	}
+	templates := ts.templates
+	ts.mu.Unlock()
 
-	// Get template name
 	name := l.CheckString(2)
 	if name == "" {
-		l.RaiseError("template name is required")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("template name is required"))
+		return 2
 	}
 
-	// todo: support payload passing
+	args := l.OptTable(3, lua.CreateTable(0, 0))
 
-	// Get
-	args := l.OptTable(3, l.CreateTable(0, 0))
-
-	// Render the template
-	result, err := wrapper.templates.RenderPayload(name, payload.NewPayload(args, payload.Lua))
+	result, err := templates.RenderPayload(name, payload.NewPayload(args, payload.Lua))
 	if err != nil {
 		if errors.Is(err, template.ErrTemplateNotFound) {
 			l.Push(lua.LNil)
@@ -214,26 +216,44 @@ func templateRender(l *lua.LState) int {
 	return 2
 }
 
-// templateRelease releases a template set resource
-func templateRelease(l *lua.LState) int {
-	// Check and get template wrapper
-	wrapper := CheckTemplateSet(l)
-	if wrapper == nil {
+func templateSetRelease(l *lua.LState) int {
+	ts := checkTemplateSet(l, 1)
+	if ts == nil {
 		return 0
 	}
 
-	// Release the resource directly
-	if wrapper.resource != nil {
-		wrapper.resource.Release()
-		wrapper.resource = nil
-	}
-
-	// Cancel the cleanup function in UoW (don't execute it, just remove it)
-	if wrapper.onRelease != nil {
-		wrapper.onRelease()
-		wrapper.onRelease = nil
+	ts.mu.Lock()
+	if !ts.released && ts.resource != nil {
+		ts.resource.Release()
+		ts.resource = nil
+		ts.released = true
+		cancel := ts.cancelCleanup
+		ts.cancelCleanup = nil
+		ts.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+	} else {
+		ts.mu.Unlock()
 	}
 
 	l.Push(lua.LTrue)
+	return 1
+}
+
+func templateSetToString(l *lua.LState) int {
+	ts := checkTemplateSet(l, 1)
+	if ts == nil {
+		return 0
+	}
+	ts.mu.Lock()
+	released := ts.released
+	ts.mu.Unlock()
+
+	if released {
+		l.Push(lua.LString("template.Set{released}"))
+	} else {
+		l.Push(lua.LString("template.Set{}"))
+	}
 	return 1
 }

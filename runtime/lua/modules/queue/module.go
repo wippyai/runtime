@@ -1,83 +1,103 @@
 package queue
 
 import (
+	"fmt"
 	"sync"
 
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Module represents the queue Lua module
-type Module struct {
-	moduleTable *lua.LTable
-	once        sync.Once
-}
+const messageTypeName = "queue.Message"
 
-// NewModule creates a new queue module instance
-func NewModule() *Module {
-	return &Module{}
-}
+var (
+	moduleTable      *lua.LTable
+	registration     *lua2api.Registration
+	messageMetatable *lua.LTable
+	initOnce         sync.Once
+)
 
-func (m *Module) Info() luaapi.ModuleInfo {
+// Module is the singleton queue module instance.
+var Module = &queueModule{}
+
+type queueModule struct{}
+
+func (m *queueModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "queue",
 		Description: "Message queue operations",
-		Class:       []string{luaapi.ClassIO},
+		Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
 	}
 }
 
-// Loader registers the module's functions into Lua state
-func (m *Module) Loader(l *lua.LState) int {
-	m.once.Do(func() {
-		m.initModuleTable(l)
+func (m *queueModule) Register(l *lua.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		moduleTable = createModuleTable()
+
+		messageMetatable = value.RegisterTypeMethods(nil, messageTypeName,
+			map[string]lua.LGFunction{"__tostring": messageToString},
+			messageMethods)
+
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
 
-	// Register message type for each Lua state
-	m.registerMessageType(l)
+	return registration
+}
 
-	l.Push(m.moduleTable)
+func (m *queueModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
 	return 1
 }
 
-// initModuleTable creates and initializes the module table once
-func (m *Module) initModuleTable(l *lua.LState) {
-	// Create module table with exact pre-allocated size
-	t := l.CreateTable(0, 2) // 2 functions: publish, message
-
-	// Register functions
-	t.RawSetString("publish", l.NewFunction(m.publish))
-	t.RawSetString("message", l.NewFunction(m.message))
-
-	// Make the table immutable
-	t.Immutable = true
-
-	m.moduleTable = t
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *lua.LState) {
+	lua2api.LoadModule(l, Module)
 }
 
-// registerMessageType registers the Message userdata type and its methods
-func (m *Module) registerMessageType(l *lua.LState) {
-	value.RegisterTypeMethods(l, "QueueMessage",
-		map[string]lua.LGFunction{
-			"__tostring": messageToString,
-		},
-		map[string]lua.LGFunction{
-			"id":      messageID,
-			"header":  messageHeader,
-			"headers": messageHeaders,
-		},
-	)
+func createModuleTable() *lua.LTable {
+	mod := lua.CreateTable(0, 2)
+	mod.RawSetString("publish", lua.LGoFunc(publish))
+	mod.RawSetString("message", lua.LGoFunc(message))
+	mod.Immutable = true
+	return mod
 }
 
-// publish publishes a message to a queue
-func (m *Module) publish(l *lua.LState) int {
-	// Get context
+type Message struct {
+	message *queueapi.Message
+}
+
+var messageMethods = map[string]lua.LGFunction{
+	"id":      messageID,
+	"header":  messageHeader,
+	"headers": messageHeaders,
+}
+
+func checkMessage(l *lua.LState, idx int) *Message {
+	ud := l.CheckUserData(idx)
+	if v, ok := ud.Value.(*Message); ok {
+		return v
+	}
+	l.ArgError(idx, "queue.Message expected")
+	return nil
+}
+
+func publish(l *lua.LState) int {
 	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context"))
+		return 2
+	}
 
-	// Get queue manager from context
 	queueMgr := queueapi.GetManager(ctx)
 	if queueMgr == nil {
 		l.Push(lua.LNil)
@@ -85,7 +105,6 @@ func (m *Module) publish(l *lua.LState) int {
 		return 2
 	}
 
-	// Get queue ID (first argument)
 	if l.GetTop() < 1 {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("queue ID required"))
@@ -95,7 +114,6 @@ func (m *Module) publish(l *lua.LState) int {
 	queueIDStr := l.CheckString(1)
 	queueID := registry.ParseID(queueIDStr)
 
-	// Get message data (second argument)
 	if l.GetTop() < 2 {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("message data required"))
@@ -103,14 +121,9 @@ func (m *Module) publish(l *lua.LState) int {
 	}
 
 	data := l.CheckAny(2)
-
-	// Convert Lua value to payload using proper externalization
 	p := luaconv.ExportPayload(data)
-
-	// Create message
 	msg := queueapi.NewMessage(p)
 
-	// Process optional headers (third argument)
 	if l.GetTop() >= 3 {
 		headersArg := l.Get(3)
 		if tbl, ok := headersArg.(*lua.LTable); ok {
@@ -119,30 +132,27 @@ func (m *Module) publish(l *lua.LState) int {
 				if !ok {
 					return
 				}
-				msg.Headers.Set(string(keyStr), value.ToGoAny(val))
+				msg.Headers.Set(string(keyStr), toGoValue(val))
 			})
 		}
 	}
 
-	// Publish message
-	err := queueMgr.Publish(ctx, queueID, msg)
-	if err != nil {
+	yield := AcquirePublishYield()
+	yield.Manager = queueMgr
+	yield.QueueID = queueID
+	yield.Message = msg
+	l.Push(yield)
+	return -1
+}
+
+func message(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.LString("no context"))
 		return 2
 	}
 
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// message retrieves the current message from the delivery context
-func (m *Module) message(l *lua.LState) int {
-	// Get context
-	ctx := l.Context()
-
-	// Get delivery from context
 	delivery, ok := queueapi.GetDelivery(ctx)
 	if !ok {
 		l.Push(lua.LNil)
@@ -150,12 +160,105 @@ func (m *Module) message(l *lua.LState) int {
 		return 2
 	}
 
-	// Create message userdata
 	ud := l.NewUserData()
 	ud.Value = &Message{message: delivery.Message}
-	ud.Metatable = value.GetTypeMetatable(l, "QueueMessage")
+	ud.Metatable = messageMetatable
 
 	l.Push(ud)
 	l.Push(lua.LNil)
 	return 2
+}
+
+func messageID(l *lua.LState) int {
+	msg := checkMessage(l, 1)
+	if msg == nil {
+		return 0
+	}
+	l.Push(lua.LString(msg.message.ID))
+	l.Push(lua.LNil)
+	return 2
+}
+
+func messageHeader(l *lua.LState) int {
+	msg := checkMessage(l, 1)
+	if msg == nil {
+		return 0
+	}
+
+	key := l.CheckString(2)
+	if msg.message.Headers == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LNil)
+		return 2
+	}
+
+	val, ok := msg.message.Headers.Get(key)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.LNil)
+		return 2
+	}
+
+	l.Push(toLuaValue(l, val))
+	l.Push(lua.LNil)
+	return 2
+}
+
+func messageHeaders(l *lua.LState) int {
+	msg := checkMessage(l, 1)
+	if msg == nil {
+		return 0
+	}
+	tbl := lua.CreateTable(0, 10)
+	if msg.message.Headers != nil {
+		for key, value := range msg.message.Headers {
+			tbl.RawSetString(key, toLuaValue(l, value))
+		}
+	}
+	l.Push(tbl)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func messageToString(l *lua.LState) int {
+	msg := checkMessage(l, 1)
+	if msg == nil {
+		return 0
+	}
+	l.Push(lua.LString(fmt.Sprintf("queue.Message{id=%s}", msg.message.ID)))
+	return 1
+}
+
+func toGoValue(v lua.LValue) any {
+	switch v := v.(type) {
+	case lua.LBool:
+		return bool(v)
+	case lua.LNumber:
+		return float64(v)
+	case lua.LInteger:
+		return int64(v)
+	case lua.LString:
+		return string(v)
+	case *lua.LNilType:
+		return nil
+	default:
+		return nil
+	}
+}
+
+func toLuaValue(l *lua.LState, val any) lua.LValue {
+	switch v := val.(type) {
+	case string:
+		return lua.LString(v)
+	case int:
+		return lua.LNumber(v)
+	case int64:
+		return lua.LNumber(v)
+	case float64:
+		return lua.LNumber(v)
+	case bool:
+		return lua.LBool(v)
+	default:
+		return lua.LString(fmt.Sprintf("%v", v))
+	}
 }

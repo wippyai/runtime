@@ -5,80 +5,99 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	"github.com/wippyai/runtime/runtime/lua/engine/errors"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
 const (
-	// TypeName is the type name for payload userdata in Lua
-	TypeName = "payload"
+	typeName = "payload"
 )
 
-// Module provides payload operations with lazy transcoding
-type Module struct {
-	moduleTable *lua.LTable
-	once        sync.Once
-}
+var (
+	moduleTable      *lua.LTable
+	registration     *lua2api.Registration
+	payloadMetatable *lua.LTable
+	initOnce         sync.Once
+)
 
-// NewPayloadModule creates a new payload module for Lua
-func NewPayloadModule() *Module {
-	return &Module{}
-}
+// Module is the singleton payload module instance.
+var Module = &payloadModule{}
 
-func (m *Module) Info() luaapi.ModuleInfo {
+type payloadModule struct{}
+
+func (m *payloadModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "payload",
-		Description: "Payload handling and transcoding",
-		Class:       []string{luaapi.ClassDeterministic},
+		Description: "Payload transcoding and format conversion",
+		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
 	}
 }
 
-// Loader is the entry point for loading the module into Lua
-func (m *Module) Loader(l *lua.LState) int {
-	// Create module table once and cache it
-	m.once.Do(func() {
-		mod := l.CreateTable(0, 2)
-		mod.RawSetString("new", l.NewFunction(m.newPayload))
+func (m *payloadModule) Register(l *lua.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		moduleTable = createModuleTable()
 
-		formats := l.CreateTable(0, 7)
-		formats.RawSetString("JSON", lua.LString(payload.JSON))
-		formats.RawSetString("YAML", lua.LString(payload.YAML))
-		formats.RawSetString("STRING", lua.LString(payload.String))
-		formats.RawSetString("GOLANG", lua.LString(payload.Golang))
-		formats.RawSetString("LUA", lua.LString(payload.Lua))
-		formats.RawSetString("BYTES", lua.LString(payload.Bytes))
-		formats.RawSetString("ERROR", lua.LString(payload.Error))
-		formats.Immutable = true
-		mod.RawSetString("format", formats)
+		payloadMetatable = value.RegisterTypeMethods(nil, typeName,
+			map[string]lua.LGFunction{"__tostring": payloadToString},
+			payloadMethods)
 
-		mod.Immutable = true
-		m.moduleTable = mod
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
 
-	// Register payload methods (per LState)
-	value.RegisterTypeMethods(l, TypeName, nil, map[string]lua.LGFunction{
-		"get_format": m.payloadFormat,
-		"data":       m.payloadData,
-		"transcode":  m.payloadTranscode,
-		"unmarshal":  m.payloadUnmarshal,
-	})
-
-	l.Push(m.moduleTable)
-	return 1
+	return registration
 }
 
 type Wrapper struct {
 	Payload payload.Payload
 }
 
-// newPayload creates a new payload from Lua value and format
-// Params: value, format
-// Returns: payload userdata
-func (m *Module) newPayload(l *lua.LState) int {
+func (m *payloadModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
+	return 1
+}
+
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *lua.LState) {
+	lua2api.LoadModule(l, Module)
+}
+
+func createModuleTable() *lua.LTable {
+	mod := lua.CreateTable(0, 2)
+
+	mod.RawSetString("new", lua.LGoFunc(newPayload))
+
+	formats := lua.CreateTable(0, 7)
+	formats.RawSetString("JSON", lua.LString(payload.JSON))
+	formats.RawSetString("YAML", lua.LString(payload.YAML))
+	formats.RawSetString("STRING", lua.LString(payload.String))
+	formats.RawSetString("GOLANG", lua.LString(payload.Golang))
+	formats.RawSetString("LUA", lua.LString(payload.Lua))
+	formats.RawSetString("BYTES", lua.LString(payload.Bytes))
+	formats.RawSetString("ERROR", lua.LString(payload.Error))
+	formats.Immutable = true
+	mod.RawSetString("format", formats)
+
+	mod.Immutable = true
+	return mod
+}
+
+var payloadMethods = map[string]lua.LGFunction{
+	"get_format": payloadGetFormat,
+	"data":       payloadData,
+	"transcode":  payloadTranscode,
+	"unmarshal":  payloadUnmarshal,
+}
+
+func newPayload(l *lua.LState) int {
 	v := l.Get(1)
 
-	if err := errors.Unwrap(v); err != nil {
+	// Check if the value is an error
+	if err := lua.ExtractError(v); err != nil {
 		p := payload.NewPayload(err, payload.Error)
 		return PushPayload(l, p)
 	}
@@ -87,43 +106,56 @@ func (m *Module) newPayload(l *lua.LState) int {
 	return PushPayload(l, p)
 }
 
-// payloadFormat returns the format of a payload
-// Method: payload:format()
-// Returns: format string
-func (m *Module) payloadFormat(l *lua.LState) int {
-	p := CheckPayload(l)
+func checkPayload(l *lua.LState, idx int) *Wrapper {
+	ud := l.CheckUserData(idx)
+	if pw, ok := ud.Value.(*Wrapper); ok {
+		return pw
+	}
+	l.ArgError(idx, "payload expected")
+	return nil
+}
+
+func payloadGetFormat(l *lua.LState) int {
+	p := checkPayload(l, 1)
+	if p == nil {
+		return 0
+	}
 	l.Push(lua.LString(p.Payload.Format()))
 	return 1
 }
 
-// payloadData returns the raw data from a payload without transcoding
-// Method: payload:data()
-// Returns: data (if already in Lua format) or nil
-func (m *Module) payloadData(l *lua.LState) int {
-	p := CheckPayload(l)
+func payloadData(l *lua.LState) int {
+	p := checkPayload(l, 1)
+	if p == nil {
+		return 0
+	}
+
+	ctx := l.Context()
+	if ctx == nil {
+		l.RaiseError("no context")
+		return 0
+	}
+
 	if p.Payload.Format() == payload.Lua {
-		// Data is already in Lua format, return it directly
 		if lv, ok := p.Payload.Data().(lua.LValue); ok {
 			l.Push(lv)
 			return 1
 		}
 	}
 
-	dtt := payload.GetTranscoder(l.Context())
-	if dtt == nil {
+	tc := payload.GetTranscoder(ctx)
+	if tc == nil {
 		l.RaiseError("transcoder not found")
 		return 0
 	}
 
-	// Transcode to Lua format
-	luaPayload, err := dtt.Transcode(p.Payload, payload.Lua)
+	luaPayload, err := tc.Transcode(p.Payload, payload.Lua)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(newPayloadTranscodeError(l, err, string(p.Payload.Format()), string(payload.Lua)))
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	// Extract the Lua value
 	if lv, ok := luaPayload.Data().(lua.LValue); ok {
 		l.Push(lv)
 		return 1
@@ -133,25 +165,29 @@ func (m *Module) payloadData(l *lua.LState) int {
 	return 1
 }
 
-// payloadTranscode transcodes a payload to a new format
-// Method: payload:transcode(format)
-// Returns: new payload userdata, error
-func (m *Module) payloadTranscode(l *lua.LState) int {
-	p := CheckPayload(l)
-	format := payload.Format(l.CheckString(2))
+func payloadTranscode(l *lua.LState) int {
+	p := checkPayload(l, 1)
+	if p == nil {
+		return 0
+	}
 
-	// Get transcoder from context
-	dtt := payload.GetTranscoder(l.Context())
-	if dtt == nil {
+	format := payload.Format(l.CheckString(2))
+	ctx := l.Context()
+	if ctx == nil {
+		l.RaiseError("no context")
+		return 0
+	}
+
+	tc := payload.GetTranscoder(ctx)
+	if tc == nil {
 		l.RaiseError("transcoder not found")
 		return 0
 	}
 
-	// Transcode the payload
-	result, err := dtt.Transcode(p.Payload, format)
+	result, err := tc.Transcode(p.Payload, format)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(newPayloadTranscodeError(l, err, string(p.Payload.Format()), string(format)))
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
@@ -159,13 +195,18 @@ func (m *Module) payloadTranscode(l *lua.LState) int {
 	return 1
 }
 
-// payloadUnmarshal transcodes a payload to Lua format and returns the data
-// Method: payload:unmarshal()
-// Returns: lua value, error
-func (m *Module) payloadUnmarshal(l *lua.LState) int {
-	p := CheckPayload(l)
+func payloadUnmarshal(l *lua.LState) int {
+	p := checkPayload(l, 1)
+	if p == nil {
+		return 0
+	}
 
-	// If already in Lua format, return the data directly
+	ctx := l.Context()
+	if ctx == nil {
+		l.RaiseError("no context")
+		return 0
+	}
+
 	if p.Payload.Format() == payload.Lua {
 		if lv, ok := p.Payload.Data().(lua.LValue); ok {
 			l.Push(lv)
@@ -173,59 +214,46 @@ func (m *Module) payloadUnmarshal(l *lua.LState) int {
 		}
 	}
 
-	// Get transcoder from context
-	dtt := payload.GetTranscoder(l.Context())
-	if dtt == nil {
+	tc := payload.GetTranscoder(ctx)
+	if tc == nil {
 		l.RaiseError("transcoder not found")
 		return 0
 	}
 
-	// Transcode to Lua format
-	luaPayload, err := dtt.Transcode(p.Payload, payload.Lua)
+	luaPayload, err := tc.Transcode(p.Payload, payload.Lua)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(newPayloadTranscodeError(l, err, string(p.Payload.Format()), string(payload.Lua)))
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	// Extract the Lua value
 	if lv, ok := luaPayload.Data().(lua.LValue); ok {
 		l.Push(lv)
 		return 1
 	}
 
-	// If not a valid Lua value, return nil and error
 	l.Push(lua.LNil)
-	l.Push(newPayloadInvalidError(l, "transcoded data is not a valid Lua value"))
+	l.Push(lua.LString("transcoded data is not a valid Lua value"))
 	return 2
 }
 
-// Helper functions
-
-// CheckPayload gets a payload wrapper from the Lua stack
-func CheckPayload(l *lua.LState) *Wrapper {
-	ud := l.CheckUserData(1)
-	if pw, ok := ud.Value.(*Wrapper); ok {
-		return pw
+func payloadToString(l *lua.LState) int {
+	p := checkPayload(l, 1)
+	if p == nil {
+		return 0
 	}
-	l.ArgError(1, "payload expected")
-	return nil
+	l.Push(lua.LString("payload{format=" + string(p.Payload.Format()) + "}"))
+	return 1
 }
 
-// PushPayload creates a payload userdata and pushes it onto the stack
-// Returns 1 (number of values pushed)
 func PushPayload(l *lua.LState, p payload.Payload) int {
-	ud := l.NewUserData()
-	ud.Value = &Wrapper{Payload: p}
-	ud.Metatable = value.GetTypeMetatable(l, TypeName)
-	l.Push(ud)
+	value.NewUserData(l, &Wrapper{Payload: p}, payloadMetatable)
 	return 1
 }
 
 func WrapPayload(l *lua.LState, p payload.Payload) lua.LValue {
 	ud := l.NewUserData()
 	ud.Value = &Wrapper{Payload: p}
-	ud.Metatable = value.GetTypeMetatable(l, TypeName)
-
+	ud.Metatable = payloadMetatable
 	return ud
 }

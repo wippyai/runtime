@@ -17,7 +17,7 @@ func System() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, system.NewSystemModule()); err != nil {
+			if err := AddModules(ctx, cm, system.Module); err != nil {
 				return ctx, err
 			}
 

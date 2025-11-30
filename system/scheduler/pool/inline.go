@@ -23,16 +23,21 @@ type Inline struct {
 }
 
 // NewInline creates an inline executor.
-func NewInline(factory Factory, dispatcher Dispatcher) (*Inline, error) {
+func NewInline(factory Factory, dispatcher Dispatcher, hooks ...ExecutionHooks) (*Inline, error) {
 	proc, err := factory()
 	if err != nil {
 		return nil, err
 	}
 
+	executor := NewExecutor(dispatcher)
+	if len(hooks) > 0 {
+		executor = executor.WithExecutionHooks(hooks[0])
+	}
+
 	return &Inline{
 		factory:    factory,
 		dispatcher: dispatcher,
-		executor:   NewExecutor(dispatcher),
+		executor:   executor,
 		process:    proc,
 	}, nil
 }

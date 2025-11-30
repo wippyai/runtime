@@ -23,10 +23,43 @@ var ErrStreamNotFound = errors.New("stream not found")
 // ErrStreamClosed is returned when stream was already closed.
 var ErrStreamClosed = errors.New("stream closed")
 
-// streamEntry holds an active stream.
+// ErrNotReadable is returned when trying to read from a write-only stream.
+var ErrNotReadable = errors.New("stream is not readable")
+
+// ErrNotWritable is returned when trying to write to a read-only stream.
+var ErrNotWritable = errors.New("stream is not writable")
+
+// ErrNotSeekable is returned when trying to seek in a non-seekable stream.
+var ErrNotSeekable = errors.New("stream is not seekable")
+
+// StreamCapabilities describes what a stream can do.
+type StreamCapabilities struct {
+	Readable bool
+	Writable bool
+	Seekable bool
+}
+
+// streamEntry holds an active stream with its capabilities.
 type streamEntry struct {
-	reader io.ReadCloser
-	closed bool
+	closer  io.Closer
+	reader  io.Reader
+	writer  io.Writer
+	seeker  io.Seeker
+	flusher Flusher
+	stater  Stater
+	caps    StreamCapabilities
+	size    int64 // -1 if unknown
+	closed  bool
+}
+
+// Flusher is an optional interface for streams that support flush.
+type Flusher interface {
+	Flush() error
+}
+
+// Stater is an optional interface for streams that support stat.
+type Stater interface {
+	Stat() (size int64, err error)
 }
 
 // StreamRegistry manages active streams for a process.
@@ -44,24 +77,77 @@ func NewStreamRegistry() *StreamRegistry {
 	}
 }
 
-// Register adds a stream to the registry and returns its ID.
+// Register adds a read-only stream to the registry (backward compatible).
 func (r *StreamRegistry) Register(reader io.ReadCloser) uint64 {
+	return r.RegisterStream(reader)
+}
+
+// RegisterStream adds any stream to the registry, detecting its capabilities.
+func (r *StreamRegistry) RegisterStream(stream io.Closer) uint64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.nextID++
 	id := r.nextID
 
-	r.streams[id] = &streamEntry{
-		reader: reader,
+	entry := &streamEntry{
+		closer: stream,
+		size:   -1,
 		closed: false,
 	}
 
+	// Detect capabilities
+	if rd, ok := stream.(io.Reader); ok {
+		entry.reader = rd
+		entry.caps.Readable = true
+	}
+	if wr, ok := stream.(io.Writer); ok {
+		entry.writer = wr
+		entry.caps.Writable = true
+	}
+	if sk, ok := stream.(io.Seeker); ok {
+		entry.seeker = sk
+		entry.caps.Seekable = true
+	}
+	if fl, ok := stream.(Flusher); ok {
+		entry.flusher = fl
+	}
+	if st, ok := stream.(Stater); ok {
+		entry.stater = st
+	}
+
+	r.streams[id] = entry
 	return id
 }
 
+// RegisterWithSize adds a stream with known size.
+func (r *StreamRegistry) RegisterWithSize(stream io.Closer, size int64) uint64 {
+	id := r.RegisterStream(stream)
+	r.mu.Lock()
+	if entry, ok := r.streams[id]; ok {
+		entry.size = size
+	}
+	r.mu.Unlock()
+	return id
+}
+
+// Capabilities returns the capabilities of a stream.
+func (r *StreamRegistry) Capabilities(id uint64) (StreamCapabilities, error) {
+	r.mu.Lock()
+	entry, ok := r.streams[id]
+	r.mu.Unlock()
+
+	if !ok {
+		return StreamCapabilities{}, ErrStreamNotFound
+	}
+	if entry.closed {
+		return StreamCapabilities{}, ErrStreamClosed
+	}
+	return entry.caps, nil
+}
+
 // Read reads a chunk from stream with given ID.
-// Returns bytes or error if stream not found or closed.
+// Returns bytes or error if stream not found, closed, or not readable.
 func (r *StreamRegistry) Read(id uint64, size int64) ([]byte, error) {
 	r.mu.Lock()
 	entry, ok := r.streams[id]
@@ -70,9 +156,11 @@ func (r *StreamRegistry) Read(id uint64, size int64) ([]byte, error) {
 	if !ok {
 		return nil, ErrStreamNotFound
 	}
-
 	if entry.closed {
 		return nil, ErrStreamClosed
+	}
+	if entry.reader == nil {
+		return nil, ErrNotReadable
 	}
 
 	if size <= 0 {
@@ -97,6 +185,94 @@ func (r *StreamRegistry) Read(id uint64, size int64) ([]byte, error) {
 	return buf[:n], nil
 }
 
+// Write writes data to stream with given ID.
+// Returns number of bytes written.
+func (r *StreamRegistry) Write(id uint64, data []byte) (int, error) {
+	r.mu.Lock()
+	entry, ok := r.streams[id]
+	r.mu.Unlock()
+
+	if !ok {
+		return 0, ErrStreamNotFound
+	}
+	if entry.closed {
+		return 0, ErrStreamClosed
+	}
+	if entry.writer == nil {
+		return 0, ErrNotWritable
+	}
+
+	return entry.writer.Write(data)
+}
+
+// Seek seeks to a position in the stream.
+// Returns new position.
+func (r *StreamRegistry) Seek(id uint64, offset int64, whence int) (int64, error) {
+	r.mu.Lock()
+	entry, ok := r.streams[id]
+	r.mu.Unlock()
+
+	if !ok {
+		return 0, ErrStreamNotFound
+	}
+	if entry.closed {
+		return 0, ErrStreamClosed
+	}
+	if entry.seeker == nil {
+		return 0, ErrNotSeekable
+	}
+
+	return entry.seeker.Seek(offset, whence)
+}
+
+// Flush flushes any buffered data to the underlying stream.
+func (r *StreamRegistry) Flush(id uint64) error {
+	r.mu.Lock()
+	entry, ok := r.streams[id]
+	r.mu.Unlock()
+
+	if !ok {
+		return ErrStreamNotFound
+	}
+	if entry.closed {
+		return ErrStreamClosed
+	}
+	if entry.flusher == nil {
+		return nil // no-op if not flushable
+	}
+
+	return entry.flusher.Flush()
+}
+
+// Stat returns information about the stream.
+func (r *StreamRegistry) Stat(id uint64) (size int64, position int64, caps StreamCapabilities, err error) {
+	r.mu.Lock()
+	entry, ok := r.streams[id]
+	r.mu.Unlock()
+
+	if !ok {
+		return -1, -1, StreamCapabilities{}, ErrStreamNotFound
+	}
+	if entry.closed {
+		return -1, -1, StreamCapabilities{}, ErrStreamClosed
+	}
+
+	size = entry.size
+	position = int64(-1)
+
+	// Try to get size from stater
+	if size < 0 && entry.stater != nil {
+		size, _ = entry.stater.Stat()
+	}
+
+	// Try to get position from seeker
+	if entry.seeker != nil {
+		position, _ = entry.seeker.Seek(0, io.SeekCurrent)
+	}
+
+	return size, position, entry.caps, nil
+}
+
 // Close closes stream with given ID.
 func (r *StreamRegistry) Close(id uint64) error {
 	r.mu.Lock()
@@ -115,7 +291,10 @@ func (r *StreamRegistry) Close(id uint64) error {
 	}
 
 	entry.closed = true
-	return entry.reader.Close()
+	if entry.closer != nil {
+		return entry.closer.Close()
+	}
+	return nil
 }
 
 // CloseAll closes all streams and clears the registry.
@@ -124,9 +303,9 @@ func (r *StreamRegistry) CloseAll() {
 	defer r.mu.Unlock()
 
 	for id, entry := range r.streams {
-		if !entry.closed {
+		if !entry.closed && entry.closer != nil {
 			entry.closed = true
-			entry.reader.Close()
+			entry.closer.Close()
 		}
 		delete(r.streams, id)
 	}
@@ -154,12 +333,23 @@ func SetStreamRegistry(ctx context.Context, r *StreamRegistry) error {
 }
 
 // GetOrCreateStreamRegistry returns existing registry or creates a new one.
+// Registers cleanup with FrameContext to close all streams on process termination.
 func GetOrCreateStreamRegistry(ctx context.Context) *StreamRegistry {
 	if r := GetStreamRegistry(ctx); r != nil {
 		return r
 	}
 	r := NewStreamRegistry()
-	SetStreamRegistry(ctx, r)
+	_ = SetStreamRegistry(ctx, r)
+
+	// Register cleanup to close all streams when frame closes
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc != nil {
+		fc.AddCleanup(func() error {
+			r.CloseAll()
+			return nil
+		})
+	}
+
 	return r
 }
 
@@ -209,10 +399,110 @@ func (h *StreamCloseHandler) Handle(ctx context.Context, cmd dispatcher.Command,
 	return registry.Close(closeCmd.StreamID)
 }
 
+// StreamWriteHandler writes data to a stream.
+type StreamWriteHandler struct{}
+
+func NewStreamWriteHandler() *StreamWriteHandler {
+	return &StreamWriteHandler{}
+}
+
+func (h *StreamWriteHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	writeCmd := cmd.(streamapi.StreamWriteCmd)
+
+	registry := GetStreamRegistry(ctx)
+	if registry == nil {
+		return ErrStreamNotFound
+	}
+
+	n, err := registry.Write(writeCmd.StreamID, writeCmd.Data)
+	if err != nil {
+		return err
+	}
+
+	emit(int64(n))
+	return nil
+}
+
+// StreamSeekHandler seeks within a stream.
+type StreamSeekHandler struct{}
+
+func NewStreamSeekHandler() *StreamSeekHandler {
+	return &StreamSeekHandler{}
+}
+
+func (h *StreamSeekHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	seekCmd := cmd.(streamapi.StreamSeekCmd)
+
+	registry := GetStreamRegistry(ctx)
+	if registry == nil {
+		return ErrStreamNotFound
+	}
+
+	pos, err := registry.Seek(seekCmd.StreamID, seekCmd.Offset, seekCmd.Whence)
+	if err != nil {
+		return err
+	}
+
+	emit(pos)
+	return nil
+}
+
+// StreamFlushHandler flushes buffered data.
+type StreamFlushHandler struct{}
+
+func NewStreamFlushHandler() *StreamFlushHandler {
+	return &StreamFlushHandler{}
+}
+
+func (h *StreamFlushHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	flushCmd := cmd.(streamapi.StreamFlushCmd)
+
+	registry := GetStreamRegistry(ctx)
+	if registry == nil {
+		return ErrStreamNotFound
+	}
+
+	return registry.Flush(flushCmd.StreamID)
+}
+
+// StreamStatHandler returns stream information.
+type StreamStatHandler struct{}
+
+func NewStreamStatHandler() *StreamStatHandler {
+	return &StreamStatHandler{}
+}
+
+func (h *StreamStatHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	statCmd := cmd.(streamapi.StreamStatCmd)
+
+	registry := GetStreamRegistry(ctx)
+	if registry == nil {
+		return ErrStreamNotFound
+	}
+
+	size, pos, caps, err := registry.Stat(statCmd.StreamID)
+	if err != nil {
+		return err
+	}
+
+	emit(streamapi.StreamInfo{
+		Size:     size,
+		Position: pos,
+		Readable: caps.Readable,
+		Writable: caps.Writable,
+		Seekable: caps.Seekable,
+	})
+	return nil
+}
+
 // Service bundles all stream handlers for convenient registration.
 type Service struct {
 	Read  *StreamReadHandler
 	Close *StreamCloseHandler
+	Write *StreamWriteHandler
+	Seek  *StreamSeekHandler
+	Flush *StreamFlushHandler
+	Stat  *StreamStatHandler
 }
 
 // NewService creates a new stream service with all handlers initialized.
@@ -220,6 +510,10 @@ func NewService() *Service {
 	return &Service{
 		Read:  NewStreamReadHandler(),
 		Close: NewStreamCloseHandler(),
+		Write: NewStreamWriteHandler(),
+		Seek:  NewStreamSeekHandler(),
+		Flush: NewStreamFlushHandler(),
+		Stat:  NewStreamStatHandler(),
 	}
 }
 
@@ -227,4 +521,8 @@ func NewService() *Service {
 func (s *Service) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	register(streamapi.CmdStreamRead, s.Read)
 	register(streamapi.CmdStreamClose, s.Close)
+	register(streamapi.CmdStreamWrite, s.Write)
+	register(streamapi.CmdStreamSeek, s.Seek)
+	register(streamapi.CmdStreamFlush, s.Flush)
+	register(streamapi.CmdStreamStat, s.Stat)
 }

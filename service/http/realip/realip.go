@@ -11,6 +11,7 @@ const (
 
 	// Option keys (dot-separated, preferred)
 	optionTrustedSubnets = "real_ip.trusted.subnets"
+	optionTrustAll       = "real_ip.trust_all"
 
 	// Legacy option keys (deprecated, for backward compatibility)
 	legacyTrustedSubnets = "trusted_subnets"
@@ -19,6 +20,18 @@ const (
 	trueClientIP  = "True-Client-IP"
 	xRealIP       = "X-Real-IP"
 	xForwardedFor = "X-Forwarded-For"
+
+	// Default trusted subnets:
+	// - 127.0.0.0/8: IPv4 loopback
+	// - 10.0.0.0/8: RFC 1918 private (Class A)
+	// - 172.16.0.0/12: RFC 1918 private (Class B)
+	// - 192.168.0.0/16: RFC 1918 private (Class C)
+	// - 169.254.0.0/16: IPv4 link-local
+	// - 100.64.0.0/10: CGNAT (RFC 6598, common in cloud environments)
+	// - ::1/128: IPv6 loopback
+	// - fc00::/7: IPv6 unique local addresses
+	// - fe80::/10: IPv6 link-local
+	defaultTrustedSubnets = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,100.64.0.0/10,::1/128,fc00::/7,fe80::/10"
 )
 
 // getOption retrieves an option value, checking the new dot-separated key first,
@@ -36,13 +49,27 @@ func getOption(options map[string]string, newKey, legacyKey string) string {
 //
 // Options:
 //   - real_ip.trusted.subnets: comma-separated list of CIDR blocks (e.g., "10.0.0.0/8,172.16.0.0/12")
-//     If empty, all requests are trusted (use with caution).
+//     Defaults to loopback addresses only (127.0.0.0/8,::1/128) for security.
+//   - real_ip.trust_all: set to "true" to trust all sources (insecure, use with caution)
 func CreateRealIPMiddleware(options map[string]string) func(http.Handler) http.Handler {
-	trustedSubnets := parseTrustedSubnets(getOption(options, optionTrustedSubnets, legacyTrustedSubnets))
+	var trustedSubnets []*net.IPNet
+
+	// Check for explicit trust_all option
+	if options[optionTrustAll] == "true" {
+		trustedSubnets = nil // nil means trust all in shouldTrust
+	} else {
+		subnetsStr := getOption(options, optionTrustedSubnets, legacyTrustedSubnets)
+		if subnetsStr == "" {
+			subnetsStr = defaultTrustedSubnets
+		}
+		trustedSubnets = parseTrustedSubnets(subnetsStr)
+	}
+
+	trustAll := options[optionTrustAll] == "true"
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if shouldTrust(r.RemoteAddr, trustedSubnets) {
+			if trustAll || shouldTrust(r.RemoteAddr, trustedSubnets) {
 				if rip := extractRealIP(r); rip != "" {
 					r.RemoteAddr = rip
 				}

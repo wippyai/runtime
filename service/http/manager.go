@@ -140,6 +140,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	case config.KindStatic:
 		return m.handleStaticUpsert(ctx, entry)
 	default:
+		m.log.Warn("Unsupported entry kind in HTTP Manager", zap.String("kind", entry.Kind), zap.String("id", entry.ID.String()))
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 }

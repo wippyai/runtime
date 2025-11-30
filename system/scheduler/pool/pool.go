@@ -125,10 +125,23 @@ func (h *hookedProcess) Send(pkg *relay.Package) error {
 	return h.proc.Send(pkg)
 }
 
+// OnExecutionStart is called before each execution with context and process.
+type OnExecutionStart func(ctx context.Context, proc process2.Process)
+
+// OnExecutionComplete is called after each execution with context and result.
+type OnExecutionComplete func(ctx context.Context, result *runtime.Result)
+
+// ExecutionHooks contains per-execution lifecycle callbacks.
+type ExecutionHooks struct {
+	OnStart    OnExecutionStart
+	OnComplete OnExecutionComplete
+}
+
 // Executor runs a process to completion with yield handling.
 // This is the core execution logic shared across all pool types.
 type Executor struct {
 	dispatcher Dispatcher
+	hooks      ExecutionHooks
 }
 
 // NewExecutor creates an executor with the given dispatcher.
@@ -136,15 +149,29 @@ func NewExecutor(d Dispatcher) *Executor {
 	return &Executor{dispatcher: d}
 }
 
+// WithExecutionHooks sets execution-level hooks.
+func (e *Executor) WithExecutionHooks(hooks ExecutionHooks) *Executor {
+	e.hooks = hooks
+	return e
+}
+
 // Run executes a process to completion, handling all yields.
 func (e *Executor) Run(ctx context.Context, proc process2.Process, method string, input payload.Payloads) *runtime.Result {
+	if e.hooks.OnStart != nil {
+		e.hooks.OnStart(ctx, proc)
+	}
+
 	if err := proc.Execute(ctx, method, input); err != nil {
-		return &runtime.Result{Error: err}
+		result := &runtime.Result{Error: err}
+		if e.hooks.OnComplete != nil {
+			e.hooks.OnComplete(ctx, result)
+		}
+		return result
 	}
 
 	var yieldResults *process2.YieldResults
 	for {
-		result, err := proc.Step(yieldResults)
+		stepResult, err := proc.Step(yieldResults)
 
 		if yieldResults != nil {
 			process2.ReleaseYieldResults(yieldResults)
@@ -152,54 +179,108 @@ func (e *Executor) Run(ctx context.Context, proc process2.Process, method string
 		}
 
 		if err != nil {
-			return &runtime.Result{Error: err}
+			result := &runtime.Result{Error: err}
+			if e.hooks.OnComplete != nil {
+				e.hooks.OnComplete(ctx, result)
+			}
+			return result
 		}
 
-		switch result.Status {
+		switch stepResult.Status {
 		case process2.StepDone:
 			var ret runtime.Result
-			yields := result.GetYields()
+			yields := stepResult.GetYields()
 			if len(yields) > 0 {
 				if p, ok := yields[0].(payload.Payload); ok {
 					ret.Value = p
 				}
 			}
+			if e.hooks.OnComplete != nil {
+				e.hooks.OnComplete(ctx, &ret)
+			}
 			return &ret
 
 		case process2.StepIdle:
-			return &runtime.Result{Error: ErrIdleNotSupported}
+			result := &runtime.Result{Error: ErrIdleNotSupported}
+			if e.hooks.OnComplete != nil {
+				e.hooks.OnComplete(ctx, result)
+			}
+			return result
 
 		case process2.StepContinue:
-			yields := result.GetYields()
+			yields := stepResult.GetYields()
 			if len(yields) == 0 {
 				continue
 			}
 
-			cmd := yields[0]
-			handler := e.dispatcher.Dispatch(cmd)
-			if handler == nil {
-				return &runtime.Result{Error: &UnknownCommandError{CmdID: cmd.CmdID()}}
+			yieldResults = e.handleYields(ctx, yields)
+			if yieldResults.Error != nil {
+				result := &runtime.Result{Error: yieldResults.Error}
+				if e.hooks.OnComplete != nil {
+					e.hooks.OnComplete(ctx, result)
+				}
+				return result
 			}
-
-			yieldResults = e.handleYield(ctx, handler, cmd)
 		}
 	}
 }
 
-// handleYield executes a command handler.
-func (e *Executor) handleYield(ctx context.Context, handler dispatcher.Handler, cmd dispatcher.Command) *process2.YieldResults {
+// handleYields executes all command handlers sequentially.
+// For multiple yields, data is collected into a slice.
+func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command) *process2.YieldResults {
 	res := process2.AcquireYieldResults()
 
-	var emittedData any
-	emit := func(data any) {
-		if emittedData == nil {
-			emittedData = data
+	if len(yields) == 1 {
+		cmd := yields[0]
+		fmt.Printf("[DEBUG] handleYields: cmd=%T cmdID=%d\n", cmd, cmd.CmdID())
+
+		handler := e.dispatcher.Dispatch(cmd)
+		if handler == nil {
+			fmt.Printf("[DEBUG] handleYields: NO HANDLER for cmdID=%d\n", cmd.CmdID())
+			res.Error = &UnknownCommandError{CmdID: cmd.CmdID()}
+			return res
 		}
+
+		fmt.Printf("[DEBUG] handleYields: handler=%T\n", handler)
+
+		var emittedData any
+		emit := func(data any) {
+			if emittedData == nil {
+				emittedData = data
+			}
+		}
+
+		fmt.Printf("[DEBUG] handleYields: calling Handle...\n")
+		res.Error = handler.Handle(ctx, cmd, emit)
+		fmt.Printf("[DEBUG] handleYields: Handle returned, err=%v\n", res.Error)
+		res.Data = emittedData
+		return res
 	}
 
-	err := handler.Handle(ctx, cmd, emit)
-	res.Data = emittedData
-	res.Error = err
+	// Multiple yields - handle all sequentially, collect results
+	results := make([]any, len(yields))
+	for i, cmd := range yields {
+		handler := e.dispatcher.Dispatch(cmd)
+		if handler == nil {
+			res.Error = &UnknownCommandError{CmdID: cmd.CmdID()}
+			return res
+		}
+
+		var emittedData any
+		emit := func(data any) {
+			if emittedData == nil {
+				emittedData = data
+			}
+		}
+
+		if err := handler.Handle(ctx, cmd, emit); err != nil {
+			res.Error = err
+			return res
+		}
+		results[i] = emittedData
+	}
+
+	res.Data = results
 	return res
 }
 

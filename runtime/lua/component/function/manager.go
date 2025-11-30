@@ -1,172 +1,181 @@
+// Package function provides Lua function management.
+// Uses pluggable pool schedulers for different workload patterns.
 package function
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"time"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
-	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	"github.com/wippyai/runtime/runtime/lua/engine/channel"
-	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
-	"github.com/wippyai/runtime/runtime/lua/engine/subscribe"
-	"github.com/wippyai/runtime/runtime/lua/pool/flex"
-	"github.com/wippyai/runtime/runtime/lua/pool/queued"
-	syncpool "github.com/wippyai/runtime/runtime/lua/pool/sync"
+	"github.com/wippyai/runtime/runtime/lua/modules/http"
+	"github.com/wippyai/runtime/runtime/lua/modules/stream"
+	timeyields "github.com/wippyai/runtime/runtime/lua/modules/time"
+	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
+	lua "github.com/yuin/gopher-lua"
 
-	"github.com/wippyai/runtime/api/event"
+	api "github.com/wippyai/runtime/api/runtime/lua"
 	"go.uber.org/zap"
 )
 
-var (
-	functionBuild *code.BuildOptions
-	layers        component.Option
-)
-
-func init() {
-	functionBuild = code.NewBuildOptions().
-		WithMode(code.AllowAll).
-		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.NewID("", "channel")}).
-		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.NewID("", "function_api")}).
-		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.NewID("", "os")}).
-		WithPreloaded(code.Preload{Name: "payload", ModuleID: registry.NewID("", "payload")}).
-		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.NewID("", "upstream")})
-
-	layers = component.WithRunnerOption(
-		engine.WithLayer(channel.NewChannelLayer()),
-		engine.WithLayer(subscribe.NewSubscribeLayer()),
-		engine.WithLayer(coroutine.NewCoroutineLayer()),
-	)
+// poolEntry wraps a pool with its config.
+type poolEntry struct {
+	pool   funcpool.Pool
+	config api.PoolConfig
+	method string
 }
 
-type pool interface {
-	Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error)
-	Close()
-}
-
-// Manager handles Lua function compilation, pooling and execution
+// Manager handles Lua function compilation, pooling and execution.
 type Manager struct {
-	log     *zap.Logger
-	code    *code.Manager
-	bus     event.Bus
-	vms     sync.Map // map[registry.Source]api.Callable
-	configs sync.Map // map[registry.Source]*api.FunctionConfig
+	ctx        context.Context
+	log        *zap.Logger
+	code       *code.Manager
+	bus        event.Bus
+	dispatcher dispatcher.Dispatcher
+	topo       topology.Topology
+	pidReg     topology.PIDRegistry
+
+	mu      sync.RWMutex
+	pools   map[registry.ID]*poolEntry
+	configs sync.Map
+	started bool
 }
 
-// NewManager creates a new function manager instance
-func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
+// NewManager creates a new function manager.
+func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus, disp dispatcher.Dispatcher) *Manager {
 	return &Manager{
-		log:  log,
-		code: code,
-		bus:  bus,
+		log:        log.Named("func"),
+		code:       code,
+		bus:        bus,
+		dispatcher: disp,
+		pools:      make(map[registry.ID]*poolEntry),
 	}
 }
 
-// pushHandler creates or updates a pool for a function
-func (m *Manager) pushHandler(id registry.ID, cfg *api.FunctionConfig) error {
-	// Spawn new pool without immediately compiling
-	pool, err := m.createPool(id, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create pool: %w", err)
-	}
+// Start marks the manager as ready to accept pools.
+func (m *Manager) Start(ctx context.Context) error {
+	m.ctx = ctx
+	m.topo = topology.GetTopology(ctx)
+	m.pidReg = topology.GetRegistry(ctx)
 
-	oldPool, exists := m.vms.Load(id)
-
-	// Store new pool and config
-	m.vms.Store(id, pool)
-	m.configs.Store(id, cfg)
-
-	// Close old pool if it exists
-	if exists {
-		if closer, ok := oldPool.(api.VM); ok {
-			closer.Close()
-		}
-	}
-
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.started = true
+	m.log.Info("function manager started")
 	return nil
 }
 
-// Add creates and registers a new function
+// Stop stops all pools gracefully.
+func (m *Manager) Stop() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for id, entry := range m.pools {
+		entry.pool.Stop()
+		m.log.Debug("pool stopped", zap.String("id", id.String()))
+	}
+	m.pools = make(map[registry.ID]*poolEntry)
+	m.started = false
+	m.log.Info("function manager stopped")
+}
+
+// Add creates and registers a new function.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
 		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindFunction)
 	}
 
-	// Unpack config
 	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack function config: %w", err)
 	}
 
-	// Spawn node
+	// Add to code manager
 	node := code.Node{
 		ID:     entry.ID,
 		Kind:   api.KindFunction,
 		Source: cfg.Source,
 		Method: cfg.Method,
 	}
-
-	// Add to code manager
-	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
+	imports := component.BuildImports(cfg.Imports, cfg.Modules)
+	if err := m.code.AddNode(ctx, node, imports); err != nil {
 		return fmt.Errorf("failed to add function: %w", err)
 	}
 
-	// Spawn and store pool
-	if err = m.pushHandler(entry.ID, cfg); err != nil {
+	// Create pool
+	if err := m.createPool(entry.ID, cfg); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return fmt.Errorf("failed to create function: %w", err)
+		return fmt.Errorf("failed to create pool: %w", err)
 	}
 
-	// Register function caller with options
+	// Store config for invalidation
+	m.configs.Store(entry.ID, cfg)
+
+	// Register function caller
 	opts, _ := cfg.Meta.GetBag("options")
-	m.registerCaller(ctx, entry.ID, cfg.Method, opts)
+	m.registerCaller(ctx, entry.ID, opts)
+
+	m.log.Info("function added",
+		zap.String("id", entry.ID.String()),
+		zap.Int("workers", cfg.Pool.Workers),
+	)
 
 	return nil
 }
 
-// Update updates an existing function
+// Update updates an existing function.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
 		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindFunction)
 	}
 
-	// Unpack config
 	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack function config: %w", err)
 	}
 
-	// Spawn node
+	// Update code manager
 	node := code.Node{
 		ID:     entry.ID,
 		Kind:   api.KindFunction,
 		Source: cfg.Source,
 		Method: cfg.Method,
 	}
-
-	// Update in code manager
-	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
+	imports := component.BuildImports(cfg.Imports, cfg.Modules)
+	if err := m.code.UpdateNode(ctx, node, imports); err != nil {
 		return fmt.Errorf("failed to update function node: %w", err)
 	}
 
-	// Update pool
-	if err := m.pushHandler(entry.ID, cfg); err != nil {
-		return fmt.Errorf("failed to refresh function: %w", err)
+	// Replace pool
+	if err := m.replacePool(entry.ID, cfg); err != nil {
+		return fmt.Errorf("failed to replace pool: %w", err)
 	}
 
-	// Re-register function caller with updated options
-	opts, _ := cfg.Meta.GetBag("options")
-	m.registerCaller(ctx, entry.ID, cfg.Method, opts)
+	// Update config
+	m.configs.Store(entry.ID, cfg)
 
+	// Re-register function caller
+	opts, _ := cfg.Meta.GetBag("options")
+	m.registerCaller(ctx, entry.ID, opts)
+
+	m.log.Info("function updated", zap.String("id", entry.ID.String()))
 	return nil
 }
 
-// Delete removes a function
+// Delete removes a function.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
 		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindFunction)
@@ -177,26 +186,22 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to delete function node: %w", err)
 	}
 
-	// Close and remove pool
-	if pool, ok := m.vms.LoadAndDelete(entry.ID); ok {
-		if closer, ok := pool.(api.VM); ok {
-			closer.Close()
-		}
-	}
+	// Stop and remove pool
+	m.removePool(entry.ID)
 
-	// Done config
+	// Remove config
 	m.configs.Delete(entry.ID)
 
 	// Unregister function caller
 	m.unregisterCaller(ctx, entry.ID)
 
+	m.log.Info("function deleted", zap.String("id", entry.ID.String()))
 	return nil
 }
 
-// Invalidate handles invalidation of functions
+// Invalidate handles code invalidation for hot reload.
 func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
 	for _, id := range ids {
-		// Get current config
 		cfgAny, exists := m.configs.Load(id)
 		if !exists {
 			continue
@@ -205,125 +210,225 @@ func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
 
 		m.log.Debug("invalidating function", zap.String("id", id.String()))
 
-		// Refresh pool with existing config
-		if err := m.pushHandler(id, cfg); err != nil {
-			m.log.Error("failed to refresh function", zap.Error(err))
+		if err := m.replacePool(id, cfg); err != nil {
+			m.log.Error("failed to invalidate function", zap.Error(err))
 		}
 	}
 }
 
-// getHandler retrieves the method name and VM for a given handler
-func (m *Manager) getHandler(handler registry.ID) (pool, error) {
-	vmInterface, ok := m.vms.Load(handler)
-	if !ok {
-		return nil, fmt.Errorf("no function found for function: %s", handler)
-	}
-
-	return vmInterface.(pool), nil
-}
-
-// Execute runs a function with given arguments
+// Execute runs a function with given task.
 func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
-	// Get handler directly - it already implements our pool interface
-	vm, err := m.getHandler(task.ID)
-	if err != nil {
-		return nil, err
+	m.mu.RLock()
+	entry, exists := m.pools[task.ID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("pool not found: %s", task.ID)
 	}
 
-	// Use the pool to execute the task directly (blocking)
-	return vm.Execute(ctx, task)
+	// Add task.Context pairs to the frame context
+	if len(task.Context) > 0 {
+		fc := ctxapi.FrameFromContext(ctx)
+		if fc != nil {
+			for _, pair := range task.Context {
+				_ = fc.Set(pair.Key, pair.Value)
+			}
+		}
+	}
+
+	return entry.pool.Call(ctx, entry.method, task.Payloads)
 }
 
-// createPool creates a new pool based on config
-func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) (pool, error) {
-	// Convert imports for code manager
-	imports := component.BuildImports(cfg.Imports, cfg.Modules)
-
-	// Flex pool case - no workers, either no size or has max size
-	isFlexPool := cfg.Pool.Workers == 0 && (cfg.Pool.Size == 0 || cfg.Pool.MaxSize > 0)
-
-	// For flex pool with WarmStart=false, use lazy factory
-	if isFlexPool && !cfg.Pool.WarmStart {
-		// Create a lazy factory
-		factory := NewCompilerFactory(
-			m.log,
-			m.code,
-			id,
-			functionBuild,
-			imports,
-			layers,
-		)
-
-		// Create flex pool with the lazy factory
-		maxSize := cfg.Pool.MaxSize
-		if maxSize <= 0 {
-			maxSize = api.DefaultMaxSize // Use default if not specified
-		}
-
-		return flex.NewTaskPool(
-			factory,
-			cfg.Method,
-			flex.WithTaskMaxSize(maxSize),
-			flex.WithTaskLogger(m.log),
-		)
-	}
-
-	// For all other cases, compile immediately
-	compiled, err := m.code.Compile(id, functionBuild)
+// createPool creates a new pool for a function.
+func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
+	// Compile the function
+	compiled, err := m.code.Compile(id, functionBuildOptions())
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile function: %w", err)
+		return fmt.Errorf("failed to compile: %w", err)
 	}
 
-	// Create a real factory
-	factory, err := component.NewRunnerFactory(m.log, compiled, layers)
+	// Create process factory
+	factory := m.createFactory(compiled)
+
+	// Determine pool config
+	workers := cfg.Pool.Workers
+	if workers == 0 {
+		workers = cfg.Pool.Size
+	}
+	if workers == 0 {
+		workers = 8
+	}
+	queueSize := cfg.Pool.Buffer
+	if queueSize == 0 {
+		queueSize = workers * 64
+	}
+
+	// Select pool type based on config
+	var pool funcpool.Pool
+	poolType := cfg.Pool.Type
+	if poolType == "" {
+		poolType = api.PoolTypeInline // Default to inline for max performance (no pooling)
+	}
+
+	maxWorkers := cfg.Pool.MaxSize
+	if maxWorkers == 0 {
+		maxWorkers = 16
+	}
+
+	// Create execution hooks for topology integration
+	execHooks := m.createExecutionHooks()
+
+	switch poolType {
+	case api.PoolTypeInline:
+		pool, err = funcpool.NewInline(factory, m.dispatcher, execHooks)
+
+	case api.PoolTypeLazy:
+		pool, err = funcpool.NewLazy(factory, m.dispatcher, funcpool.LazyConfig{
+			MaxWorkers:  maxWorkers,
+			IdleTimeout: 30 * time.Second,
+		}, execHooks)
+
+	case api.PoolTypeStatic:
+		pool, err = funcpool.NewStatic(factory, m.dispatcher, funcpool.Config{
+			Workers:   workers,
+			QueueSize: queueSize,
+		}, execHooks)
+
+	case api.PoolTypeElastic:
+		pool, err = funcpool.NewElastic(factory, m.dispatcher, funcpool.ElasticConfig{
+			MinWorkers:  workers,
+			MaxWorkers:  maxWorkers,
+			QueueSize:   queueSize,
+			IdleTimeout: 30 * time.Second,
+		}, execHooks)
+
+	case api.PoolTypeWorkStealing:
+		pool, err = funcpool.NewWorkStealing(factory, m.dispatcher, funcpool.WorkStealingConfig{
+			Workers:   workers,
+			QueueSize: queueSize,
+		}, execHooks)
+
+	default:
+		return fmt.Errorf("unknown pool type: %s", poolType)
+	}
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to create factory: %w", err)
+		return fmt.Errorf("failed to create pool: %w", err)
 	}
 
-	// Compile the factory
-	if err := factory.Compile(); err != nil {
-		return nil, fmt.Errorf("failed to compile: %w", err)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.pools[id] = &poolEntry{
+		pool:   pool,
+		config: cfg.Pool,
+		method: cfg.Method,
 	}
 
-	// For flex pool with WarmStart=true, use the compiled factory with flex pool
-	if isFlexPool {
-		maxSize := cfg.Pool.MaxSize
-		if maxSize <= 0 {
-			maxSize = api.DefaultMaxSize // Use default if not specified
-		}
-
-		return flex.NewTaskPool(
-			factory,
-			cfg.Method,
-			flex.WithTaskMaxSize(maxSize),
-			flex.WithTaskLogger(m.log),
-		)
+	if m.started {
+		pool.Start()
 	}
 
-	// For worker-based execution, use queued pool
-	if cfg.Pool.Workers > 0 {
-		opts := []queued.TaskOption{
-			queued.WithTaskSize(cfg.Pool.Size),
-			queued.WithTaskLogger(m.log),
-			queued.WithTaskWorkers(cfg.Pool.Workers),
-		}
-		if cfg.Pool.Buffer > 0 {
-			opts = append(opts, queued.WithTaskBuffer(cfg.Pool.Buffer))
-		}
-		return queued.NewTaskPool(factory, cfg.Method, opts...)
-	}
-
-	// For synchronous execution, use sync pool
-	return syncpool.NewTaskPool(
-		factory,
-		cfg.Method,
-		syncpool.WithTaskPoolSize(cfg.Pool.Size),
-		syncpool.WithTaskPoolLogger(m.log),
-	)
+	return nil
 }
 
-// registerCaller registers function in the function system
-func (m *Manager) registerCaller(ctx context.Context, id registry.ID, _ string, options runtime.Options) {
+// replacePool stops old pool and creates new one.
+func (m *Manager) replacePool(id registry.ID, cfg *api.FunctionConfig) error {
+	m.removePool(id)
+	return m.createPool(id, cfg)
+}
+
+// removePool stops and removes a pool.
+func (m *Manager) removePool(id registry.ID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if entry, exists := m.pools[id]; exists {
+		entry.pool.Stop()
+		delete(m.pools, id)
+	}
+}
+
+// createFactory creates a ProcessFactory from compiled code.
+func (m *Manager) createFactory(compiled *code.CompiledMain) funcpool.Factory {
+	return func() (process2.Process, error) {
+		return createProcess(compiled)
+	}
+}
+
+// createProcess creates a new process with standard bindings.
+func createProcess(compiled *code.CompiledMain) (process2.Process, error) {
+	binders := engine.CoreBinders()
+	binders = append(binders, stream.BindStream, http.Bind, timeyields.BindYields)
+
+	// Add module binders for dependencies
+	for _, dep := range compiled.Dependencies {
+		if dep.Node != nil && dep.Node.Module != nil {
+			mod := dep.Node.Module
+			name := dep.Name
+			binders = append(binders, func(L *lua.LState) {
+				L.PreloadModule(name, func(L *lua.LState) int {
+					return mod.Loader(L)
+				})
+			})
+		}
+		// Handle compiled proto dependencies (libraries)
+		if dep.Proto != nil {
+			proto := dep.Proto
+			name := dep.Name
+			binders = append(binders, func(L *lua.LState) {
+				L.PreloadModule(name, func(L *lua.LState) int {
+					fn := L.LoadProto(proto)
+					L.Push(fn)
+					L.Call(1, 1)
+					return 1
+				})
+			})
+		}
+	}
+
+	// Add preloaded modules
+	for _, pre := range compiled.Preloaded {
+		if pre.Node != nil && pre.Node.Module != nil {
+			mod := pre.Node.Module
+			name := pre.Name
+			binders = append(binders, func(L *lua.LState) {
+				L.PreloadModule(name, func(L *lua.LState) int {
+					return mod.Loader(L)
+				})
+			})
+		}
+		if pre.Proto != nil {
+			proto := pre.Proto
+			name := pre.Name
+			binders = append(binders, func(L *lua.LState) {
+				L.PreloadModule(name, func(L *lua.LState) int {
+					fn := L.LoadProto(proto)
+					L.Push(fn)
+					L.Call(1, 1)
+					return 1
+				})
+			})
+		}
+	}
+
+	cfg := engine.FactoryConfig{
+		Proto:         compiled.Main,
+		ModuleBinders: binders,
+	}
+
+	factory := engine.NewFactory(cfg)
+	return factory()
+}
+
+// functionBuildOptions returns build options for functions.
+func functionBuildOptions() *code.BuildOptions {
+	return code.NewBuildOptions().
+		WithMode(code.AllowAll)
+}
+
+// registerCaller registers function in the function system.
+func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options runtime.Options) {
 	m.bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Register,
@@ -335,11 +440,53 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, _ string, 
 	})
 }
 
-// unregisterCaller removes function from the function system
+// unregisterCaller removes function from the function system.
 func (m *Manager) unregisterCaller(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Delete,
 		Path:   id.String(),
 	})
+}
+
+// createExecutionHooks creates execution hooks for topology integration.
+func (m *Manager) createExecutionHooks() funcpool.ExecutionHooks {
+	if m.topo == nil || m.pidReg == nil {
+		return funcpool.ExecutionHooks{}
+	}
+
+	onStart := func(ctx context.Context, _ process2.Process) {
+		pid, ok := runtime.GetFramePID(ctx)
+		if !ok || pid.String() == "" {
+			return
+		}
+
+		if err := m.topo.Register(pid); err != nil {
+			m.log.Warn("failed to register function PID in topology",
+				zap.String("pid", pid.String()),
+				zap.Error(err))
+		}
+	}
+
+	onComplete := func(ctx context.Context, result *runtime.Result) {
+		pid, ok := runtime.GetFramePID(ctx)
+		if !ok || pid.String() == "" {
+			return
+		}
+
+		if result.Error != nil {
+			if errors.Is(result.Error, supervisor.ErrExit) {
+				result.Error = nil
+			}
+		}
+
+		m.topo.Notify(pid, result)
+		m.pidReg.Remove(pid)
+		m.topo.Remove(pid)
+	}
+
+	return funcpool.ExecutionHooks{
+		OnStart:    onStart,
+		OnComplete: onComplete,
+	}
 }

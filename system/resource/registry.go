@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/resource"
 
@@ -15,11 +16,12 @@ import (
 
 // Registry manages resource registration and access
 type Registry struct {
-	ctx        context.Context
-	logger     *zap.Logger
-	bus        event.Bus
-	resources  sync.Map // map[registry.Source]Entry
-	subscriber *eventbus.Subscriber
+	ctx         context.Context
+	logger      *zap.Logger
+	bus         event.Bus
+	resources   sync.Map // map[registry.ID]resource.Entry
+	borrowCount sync.Map // map[registry.ID]*atomic.Int32
+	subscriber  *eventbus.Subscriber
 }
 
 // NewResourceRegistry creates a new resource service instance
@@ -83,8 +85,9 @@ func (s *Registry) handleRegister(e event.Event) {
 		return
 	}
 
-	// Store the resource entry
+	// Store the resource entry and initialize borrow counter
 	s.resources.Store(entry.ID, entry)
+	s.borrowCount.Store(entry.ID, new(atomic.Int32))
 	s.logger.Debug("resource registered",
 		zap.String("id", entry.ID.String()),
 		zap.Any("meta", entry.Meta))
@@ -121,19 +124,31 @@ func (s *Registry) handleRemove(e event.Event) {
 		return
 	}
 
-	// Delete the resource
+	// Check if resource exists
 	if _, exists := s.resources.Load(id); !exists {
 		s.logger.Warn("resource not found for removal",
 			zap.String("id", id.String()))
 		return
 	}
 
+	// Check if resource is borrowed
+	if countVal, ok := s.borrowCount.Load(id); ok {
+		count := countVal.(*atomic.Int32).Load()
+		if count > 0 {
+			s.logger.Warn("cannot delete borrowed resource",
+				zap.String("id", id.String()),
+				zap.Int32("borrows", count))
+			return
+		}
+	}
+
 	s.resources.Delete(id)
+	s.borrowCount.Delete(id)
 	s.logger.Debug("resource removed",
 		zap.String("id", id.String()))
 }
 
-// Acquire attempts to acqu,m.8klij ire a resource with the specified access mode
+// Acquire attempts to acquire a resource with the specified access mode
 func (s *Registry) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -145,7 +160,22 @@ func (s *Registry) Acquire(ctx context.Context, id registry.ID, mode resource.Ac
 	}
 
 	entry := entryVal.(resource.Entry)
-	return entry.Provider.Acquire(ctx, id, mode)
+
+	// Get or create borrow counter
+	countVal, _ := s.borrowCount.LoadOrStore(id, new(atomic.Int32))
+	counter := countVal.(*atomic.Int32)
+	counter.Add(1)
+
+	res, err := entry.Provider.Acquire(ctx, id, mode)
+	if err != nil {
+		counter.Add(-1)
+		return nil, err
+	}
+
+	// Wrap with tracking - decrement count on release
+	return resource.NewTrackedResource(res, func() {
+		counter.Add(-1)
+	}), nil
 }
 
 // List returns all registered resource IDs

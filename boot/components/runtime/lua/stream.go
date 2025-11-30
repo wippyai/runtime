@@ -17,7 +17,7 @@ func Stream() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, streammod.NewStreamModule()); err != nil {
+			if err := AddModules(ctx, cm, streammod.Module); err != nil {
 				return ctx, err
 			}
 

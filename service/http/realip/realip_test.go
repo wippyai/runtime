@@ -11,7 +11,7 @@ import (
 )
 
 func TestCreateRealIPMiddleware(t *testing.T) {
-	t.Run("extract True-Client-IP", func(t *testing.T) {
+	t.Run("extract True-Client-IP from loopback", func(t *testing.T) {
 		middleware := CreateRealIPMiddleware(map[string]string{})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -20,7 +20,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 		}))
 
 		req := httptest.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "192.168.1.1:1234"
+		req.RemoteAddr = "127.0.0.1:1234" // loopback is trusted by default
 		req.Header.Set("True-Client-IP", "1.2.3.4")
 		req.Header.Set("X-Real-IP", "5.6.7.8")
 		req.Header.Set("X-Forwarded-For", "9.10.11.12")
@@ -40,7 +40,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 		}))
 
 		req := httptest.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "192.168.1.1:1234"
+		req.RemoteAddr = "127.0.0.1:1234" // loopback is trusted by default
 		req.Header.Set("X-Real-IP", "5.6.7.8")
 		req.Header.Set("X-Forwarded-For", "9.10.11.12")
 
@@ -59,7 +59,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 		}))
 
 		req := httptest.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "192.168.1.1:1234"
+		req.RemoteAddr = "127.0.0.1:1234" // loopback is trusted by default
 		req.Header.Set("X-Forwarded-For", "9.10.11.12")
 
 		w := httptest.NewRecorder()
@@ -77,7 +77,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 		}))
 
 		req := httptest.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "192.168.1.1:1234"
+		req.RemoteAddr = "127.0.0.1:1234" // loopback is trusted by default
 		req.Header.Set("X-Forwarded-For", "9.10.11.12, 13.14.15.16, 17.18.19.20")
 
 		w := httptest.NewRecorder()
@@ -90,12 +90,12 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 		middleware := CreateRealIPMiddleware(map[string]string{})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "192.168.1.1:1234", r.RemoteAddr)
+			assert.Equal(t, "127.0.0.1:1234", r.RemoteAddr)
 			w.WriteHeader(http.StatusOK)
 		}))
 
 		req := httptest.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "192.168.1.1:1234"
+		req.RemoteAddr = "127.0.0.1:1234"
 
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -107,13 +107,69 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 		middleware := CreateRealIPMiddleware(map[string]string{})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "192.168.1.1:1234", r.RemoteAddr)
+			assert.Equal(t, "127.0.0.1:1234", r.RemoteAddr)
 			w.WriteHeader(http.StatusOK)
 		}))
 
 		req := httptest.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "192.168.1.1:1234"
+		req.RemoteAddr = "127.0.0.1:1234"
 		req.Header.Set("X-Real-IP", "not-an-ip")
+
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("private IP source trusted by default", func(t *testing.T) {
+		middleware := CreateRealIPMiddleware(map[string]string{})
+
+		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "1.2.3.4", r.RemoteAddr) // header IP used
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest("GET", "/", nil)
+		req.RemoteAddr = "192.168.1.1:1234" // RFC 1918, trusted by default
+		req.Header.Set("X-Real-IP", "1.2.3.4")
+
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("public IP source not trusted by default", func(t *testing.T) {
+		middleware := CreateRealIPMiddleware(map[string]string{})
+
+		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "203.0.113.1:1234", r.RemoteAddr) // unchanged, public IP not trusted
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest("GET", "/", nil)
+		req.RemoteAddr = "203.0.113.1:1234" // public IP, not trusted
+		req.Header.Set("X-Real-IP", "1.2.3.4")
+
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("trust_all option trusts any source", func(t *testing.T) {
+		middleware := CreateRealIPMiddleware(map[string]string{
+			"real_ip.trust_all": "true",
+		})
+
+		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "1.2.3.4", r.RemoteAddr)
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest("GET", "/", nil)
+		req.RemoteAddr = "192.168.1.1:1234" // would normally be untrusted
+		req.Header.Set("X-Real-IP", "1.2.3.4")
 
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -163,11 +219,12 @@ func TestTrustedSubnets(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
-	t.Run("empty trusted_subnets trusts all", func(t *testing.T) {
+	t.Run("empty trusted_subnets defaults to loopback only", func(t *testing.T) {
 		middleware := CreateRealIPMiddleware(map[string]string{})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "1.2.3.4", r.RemoteAddr)
+			// Non-loopback source should NOT be trusted
+			assert.Equal(t, "203.0.113.1:1234", r.RemoteAddr)
 			w.WriteHeader(http.StatusOK)
 		}))
 

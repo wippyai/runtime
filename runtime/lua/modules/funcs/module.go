@@ -1,228 +1,176 @@
 package funcs
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"sync"
 
+	"github.com/wippyai/runtime/api/attrs"
 	contextapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/function"
-	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	secapi "github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/runtime/lua/engine"
-	"github.com/wippyai/runtime/runtime/lua/engine/coroutine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
-	"github.com/wippyai/runtime/runtime/lua/modules/upstream"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
-// Module represents the function module
-type Module struct {
-	moduleTable *lua.LTable
-	once        sync.Once
-}
+var (
+	moduleTable       *lua.LTable
+	registration      *lua2api.Registration
+	futureMetatable   *lua.LTable
+	executorMetatable *lua.LTable
+	initOnce          sync.Once
+)
 
-// Functions represents a function executor with context values
-type Functions struct {
-	funcs  function.Registry
-	dtt    payload.Transcoder
-	values contextapi.Values
+const (
+	futureTypeName   = "funcs.Future"
+	executorTypeName = "funcs.Executor"
+)
 
-	// Dedicated fields for security context to prevent overwriting/conflicting with user values
-	actor    secapi.Actor
-	hasActor bool
-	scope    secapi.Scope
-	hasScope bool
+// Module is the singleton funcs module instance.
+var Module = &funcsModule{}
 
-	// Options for function execution (retry, ratelimit, timeout, etc.)
-	options    runtime.Bag
-	hasOptions bool
-}
+type funcsModule struct{}
 
-// NewFunctionModule creates a new function module
-func NewFunctionModule() *Module {
-	return &Module{}
-}
-
-func (m *Module) Info() luaapi.ModuleInfo {
+func (m *funcsModule) Info() luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{
 		Name:        "funcs",
-		Description: "Function execution and async calls",
-		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+		Description: "Function calls and async execution",
+		Class:       []string{luaapi.ClassWorkflow, luaapi.ClassNondeterministic},
 	}
 }
 
-// Loader registers the module functions
-func (m *Module) Loader(l *lua.LState) int {
-	m.once.Do(func() {
-		m.initModuleTable(l)
+func (m *funcsModule) Register(l *lua.LState) *lua2api.Registration {
+	initOnce.Do(func() {
+		moduleTable = createModuleTable()
+		futureMetatable = value.RegisterTypeMethods(nil, futureTypeName, nil, futureMethods)
+		executorMetatable = value.RegisterTypeMethods(nil, executorTypeName, nil, executorMethods)
+		registration = &lua2api.Registration{
+			Table:      moduleTable,
+			YieldTypes: nil,
+		}
 	})
 
-	l.Push(m.moduleTable)
+	l.SetGlobal("__funcs_async_start_yield", lua.LGoFunc(asyncStartYield))
+	l.SetGlobal("__funcs_future_new", lua.LGoFunc(futureNew))
+
+	return registration
+}
+
+func (m *funcsModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
 	return 1
 }
 
-// initModuleTable creates and initializes the module table once
-func (m *Module) initModuleTable(l *lua.LState) {
-	// Register the function executor methods once
-	value.RegisterTypeMethods(l, "function.Executor", nil, map[string]lua.LGFunction{
-		"with_context": m.withContext,
-		"with_actor":   m.withActor,
-		"with_scope":   m.withScope,
-		"with_options": m.withOptions,
-		"call":         m.call,
-		"async":        m.async,
-	})
-
-	// Create module table
-	t := l.CreateTable(0, 1)
-	t.RawSetString("new", l.NewFunction(m.new))
-
-	// Make the table immutable so it can be safely reused
-	t.Immutable = true
-
-	m.moduleTable = t
+type Future struct {
+	ID uint64
 }
 
-// extractDependencies gets the required dependencies from context
-func (m *Module) extractDependencies(l *lua.LState) (function.Registry, payload.Transcoder, error) {
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		return nil, nil, errors.New("no unit of work context found")
-	}
-
-	funcs := function.GetRegistry(uw.Context())
-	if funcs == nil {
-		return nil, nil, errors.New("function registry not found in context")
-	}
-
-	dtt := payload.GetTranscoder(uw.Context())
-	if dtt == nil {
-		return nil, nil, errors.New("transcoder not found in context")
-	}
-
-	return funcs, dtt, nil
+// Executor represents a function executor with context values
+type Executor struct {
+	values     []contextapi.Pair
+	actor      secapi.Actor
+	hasActor   bool
+	scope      secapi.Scope
+	hasScope   bool
+	options    attrs.Bag
+	hasOptions bool
 }
 
-// new creates a new function executor
-func (m *Module) new(l *lua.LState) int {
-	funcs, dtt, err := m.extractDependencies(l)
-	if err != nil {
-		l.RaiseError("failed to create executor: %v", err)
-		return 0
-	}
+var executorMethods = map[string]lua.LGFunction{
+	"with_context": executorWithContext,
+	"with_actor":   executorWithActor,
+	"with_scope":   executorWithScope,
+	"with_options": executorWithOptions,
+	"call":         executorCall,
+	"async":        executorAsync,
+}
 
-	values := contextapi.GetValues(l.Context())
-	if values != nil {
-		values = values.Clone().(contextapi.Values)
-	} else {
-		values = contextapi.NewValues()
+func checkExecutor(l *lua.LState, idx int) *Executor {
+	ud := l.CheckUserData(idx)
+	if v, ok := ud.Value.(*Executor); ok {
+		return v
 	}
+	l.ArgError(idx, "Executor expected")
+	return nil
+}
 
-	functions := &Functions{
-		funcs:      funcs,
-		dtt:        dtt,
-		values:     values,
-		hasActor:   false,
-		hasScope:   false,
-		hasOptions: false,
-	}
-
+func executorNew(l *lua.LState) int {
+	exec := &Executor{}
 	ud := l.NewUserData()
-	ud.Value = functions
-	ud.Metatable = value.GetTypeMetatable(l, "function.Executor")
+	ud.Value = exec
+	ud.Metatable = executorMetatable
 	l.Push(ud)
 	return 1
 }
 
-// withContext creates a new executor with additional context values
-func (m *Module) withContext(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
-	if !ok {
-		l.ArgError(1, "functions executor expected")
+func executorWithContext(l *lua.LState) int {
+	exec := checkExecutor(l, 1)
+	if exec == nil {
 		return 0
 	}
 
-	// Add security check for custom application context
-	if !security.IsAllowed(l.Context(), "funcs.context", "context", nil) {
-		l.RaiseError("not allowed to call functions with custom context")
-		return 0
+	ctx := l.Context()
+	if !security.IsAllowed(ctx, "funcs.context", "context", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to call functions with custom context"))
+		return 2
 	}
 
 	ctxTable := l.CheckTable(2)
 
-	// Create new Values and copy existing values
-	newValues := contextapi.NewValues()
-	if functions.values != nil {
-		functions.values.Iterate(func(key string, value any) {
-			newValues.Set(key, value)
-		})
-	}
+	newValues := make([]contextapi.Pair, len(exec.values))
+	copy(newValues, exec.values)
 
-	// Add new values
 	ctxTable.ForEach(func(k, v lua.LValue) {
-		key, ok := k.(lua.LString)
-		if !ok {
-			l.ArgError(2, "context keys must be strings")
-			return
+		if key, ok := k.(lua.LString); ok {
+			newValues = append(newValues, contextapi.Pair{
+				Key:   string(key),
+				Value: value.ToGoAny(v),
+			})
 		}
-		newValues.Set(string(key), value.ToGoAny(v))
 	})
 
-	// Create new Functions instance with copied security context
-	newFunctions := &Functions{
-		funcs:      functions.funcs,
-		dtt:        functions.dtt,
+	newExec := &Executor{
 		values:     newValues,
-		actor:      functions.actor,
-		hasActor:   functions.hasActor,
-		scope:      functions.scope,
-		hasScope:   functions.hasScope,
-		options:    functions.options,
-		hasOptions: functions.hasOptions,
+		actor:      exec.actor,
+		hasActor:   exec.hasActor,
+		scope:      exec.scope,
+		hasScope:   exec.hasScope,
+		options:    exec.options,
+		hasOptions: exec.hasOptions,
 	}
 
-	// Create new userdata with the new Functions instance
-	newUd := l.NewUserData()
-	newUd.Value = newFunctions
-	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
-	l.Push(newUd)
-
+	ud := l.NewUserData()
+	ud.Value = newExec
+	ud.Metatable = executorMetatable
+	l.Push(ud)
 	return 1
 }
 
-// withActor creates a new executor with a specific actor
-func (m *Module) withActor(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
-	if !ok {
-		l.ArgError(1, "functions executor expected")
+func executorWithActor(l *lua.LState) int {
+	exec := checkExecutor(l, 1)
+	if exec == nil {
 		return 0
 	}
 
-	// Add security check for custom security context
-	if !security.IsAllowed(l.Context(), "funcs.security", "security", nil) {
-		l.RaiseError("not allowed to call functions with custom security context")
-		return 0
+	ctx := l.Context()
+	if !security.IsAllowed(ctx, "funcs.security", "security", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to call functions with custom security context"))
+		return 2
 	}
 
-	// Check if we're setting actor
 	if l.Get(2).Type() == lua.LTNil {
-		l.ArgError(2, "actor cannot be nil - security context cannot be removed")
+		l.ArgError(2, "actor cannot be nil")
 		return 0
 	}
 
-	// Get actor
 	actorUD := l.CheckUserData(2)
 	actor, ok := actorUD.Value.(secapi.Actor)
 	if !ok {
@@ -230,50 +178,44 @@ func (m *Module) withActor(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new Functions instance with copied values and new actor
-	newFunctions := &Functions{
-		funcs:      functions.funcs,
-		dtt:        functions.dtt,
-		values:     functions.values.Clone().(contextapi.Values),
+	newValues := make([]contextapi.Pair, len(exec.values))
+	copy(newValues, exec.values)
+
+	newExec := &Executor{
+		values:     newValues,
 		actor:      actor,
 		hasActor:   true,
-		scope:      functions.scope,
-		hasScope:   functions.hasScope,
-		options:    functions.options,
-		hasOptions: functions.hasOptions,
+		scope:      exec.scope,
+		hasScope:   exec.hasScope,
+		options:    exec.options,
+		hasOptions: exec.hasOptions,
 	}
 
-	// Create new userdata with the new Functions instance
-	newUd := l.NewUserData()
-	newUd.Value = newFunctions
-	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
-	l.Push(newUd)
-
+	ud := l.NewUserData()
+	ud.Value = newExec
+	ud.Metatable = executorMetatable
+	l.Push(ud)
 	return 1
 }
 
-// withScope creates a new executor with a specific scope
-func (m *Module) withScope(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
-	if !ok {
-		l.ArgError(1, "functions executor expected")
+func executorWithScope(l *lua.LState) int {
+	exec := checkExecutor(l, 1)
+	if exec == nil {
 		return 0
 	}
 
-	// Add security check for custom security context
-	if !security.IsAllowed(l.Context(), "funcs.security", "security", nil) {
-		l.RaiseError("not allowed to call functions with custom security context")
-		return 0
+	ctx := l.Context()
+	if !security.IsAllowed(ctx, "funcs.security", "security", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to call functions with custom security context"))
+		return 2
 	}
 
-	// Check if we're setting scope
 	if l.Get(2).Type() == lua.LTNil {
-		l.ArgError(2, "scope cannot be nil - security context cannot be removed")
+		l.ArgError(2, "scope cannot be nil")
 		return 0
 	}
 
-	// Get scope
 	scopeUD := l.CheckUserData(2)
 	scope, ok := scopeUD.Value.(secapi.Scope)
 	if !ok {
@@ -281,305 +223,358 @@ func (m *Module) withScope(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new Functions instance with copied values and new scope
-	newFunctions := &Functions{
-		funcs:      functions.funcs,
-		dtt:        functions.dtt,
-		values:     functions.values.Clone().(contextapi.Values),
-		actor:      functions.actor,
-		hasActor:   functions.hasActor,
+	newValues := make([]contextapi.Pair, len(exec.values))
+	copy(newValues, exec.values)
+
+	newExec := &Executor{
+		values:     newValues,
+		actor:      exec.actor,
+		hasActor:   exec.hasActor,
 		scope:      scope,
 		hasScope:   true,
-		options:    functions.options,
-		hasOptions: functions.hasOptions,
+		options:    exec.options,
+		hasOptions: exec.hasOptions,
 	}
 
-	// Create new userdata with the new Functions instance
-	newUd := l.NewUserData()
-	newUd.Value = newFunctions
-	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
-	l.Push(newUd)
-
+	ud := l.NewUserData()
+	ud.Value = newExec
+	ud.Metatable = executorMetatable
+	l.Push(ud)
 	return 1
 }
 
-// withOptions creates a new executor with runtime options
-func (m *Module) withOptions(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
-	if !ok {
-		l.ArgError(1, "functions executor expected")
+func executorWithOptions(l *lua.LState) int {
+	exec := checkExecutor(l, 1)
+	if exec == nil {
 		return 0
 	}
 
-	// Get options table
 	optionsTable := l.CheckTable(2)
+	options := attrs.NewBag()
+	optionsTable.ForEach(func(k, v lua.LValue) {
+		if key, ok := k.(lua.LString); ok {
+			options.Set(string(key), value.ToGoAny(v))
+		}
+	})
 
-	// Convert Lua table to runtime.Bag (which is attrs.Bag, which is map[string]any)
-	optionsData := value.ToGoAny(optionsTable)
-	var options runtime.Bag
-	if dataMap, ok := optionsData.(map[string]any); ok {
-		options = runtime.Bag(dataMap)
-	} else {
-		// If conversion didn't work, create empty bag
-		options = runtime.Bag{}
-	}
+	newValues := make([]contextapi.Pair, len(exec.values))
+	copy(newValues, exec.values)
 
-	// Create new Functions instance with copied values and new options
-	newFunctions := &Functions{
-		funcs:      functions.funcs,
-		dtt:        functions.dtt,
-		values:     functions.values.Clone().(contextapi.Values),
-		actor:      functions.actor,
-		hasActor:   functions.hasActor,
-		scope:      functions.scope,
-		hasScope:   functions.hasScope,
+	newExec := &Executor{
+		values:     newValues,
+		actor:      exec.actor,
+		hasActor:   exec.hasActor,
+		scope:      exec.scope,
+		hasScope:   exec.hasScope,
 		options:    options,
 		hasOptions: true,
 	}
 
-	// Create new userdata with the new Functions instance
-	newUd := l.NewUserData()
-	newUd.Value = newFunctions
-	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
-	l.Push(newUd)
-
+	ud := l.NewUserData()
+	ud.Value = newExec
+	ud.Metatable = executorMetatable
+	l.Push(ud)
 	return 1
 }
 
-// validateRegistryID validates a registry ID
-func validateRegistryID(id registry.ID) error {
-	if id.NS == "" {
-		return fmt.Errorf("namespace is required, got empty namespace in ID: %s", id.String())
-	}
-	if id.Name == "" {
-		return fmt.Errorf("name is required, got empty name in ID: %s", id.String())
-	}
-	return nil
-}
-
-// call synchronously executes a function
-func (m *Module) call(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
-	if !ok {
-		l.ArgError(1, "functions executor expected")
+func executorCall(l *lua.LState) int {
+	exec := checkExecutor(l, 1)
+	if exec == nil {
 		return 0
 	}
 
-	// Get unit of work context
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("no unit of work context found")
-		return 0
-	}
-
-	// Get target function ID for security check
-	targetIndex := 1
-	if l.Get(1).Type() == lua.LTUserData {
-		targetIndex = 2 // Skip self parameter
-	}
-
-	target := l.CheckString(targetIndex)
+	target := l.CheckString(2)
 	if target == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("target name is required"))
+		l.Push(lua.LString("function ID required"))
 		return 2
 	}
 
-	// Parse registry ID for security check
 	regID := registry.ParseID(target)
-	if err := validateRegistryID(regID); err != nil {
+	if regID.NS == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("invalid registry ID: %v", err)))
+		l.Push(lua.LString("namespace required in function ID"))
+		return 2
+	}
+	if regID.Name == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("name required in function ID"))
 		return 2
 	}
 
-	// Add security check for function call permission
-	if !security.IsAllowed(l.Context(), "funcs.call", target, nil) {
+	ctx := l.Context()
+	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to call function: %s", target)))
+		l.Push(lua.LString("no context"))
 		return 2
 	}
 
-	// Create task with proper context
-	log := logapi.GetLogger(l.Context()).Named("funcs")
-	t, err := functions.createTask(l, log)
-	if err != nil {
+	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
 		l.Push(lua.LNil)
-		l.Push(newFuncsOperationError(l, err, "create_task"))
+		l.Push(lua.LString("not allowed: " + target))
 		return 2
-	}
-
-	// Wrap in coroutine for execution
-	coroutine.Wrap(l, func() *engine.Update {
-		result, err := functions.funcs.Call(uw.Context(), t)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, newFuncsOperationError(l, err, "call")}, nil)
-		}
-
-		if result.Error != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, newFuncsOperationError(l, result.Error, "call")}, nil)
-		}
-
-		if result.Value != nil {
-			res, err := functions.dtt.Transcode(result.Value, payload.Lua)
-			if err != nil {
-				return engine.NewUpdate(nil, []lua.LValue{lua.LNil, newFuncsOperationError(l, err, "transcode")}, nil)
-			}
-
-			return engine.NewUpdate(nil, []lua.LValue{res.Data().(lua.LValue), lua.LNil}, nil)
-		}
-
-		return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
-	})
-
-	return -1 // Yield for coroutine
-}
-
-// async asynchronously executes a function and returns a command
-func (m *Module) async(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
-	if !ok {
-		l.ArgError(1, "functions executor expected")
-		return 0
-	}
-
-	// Get target function ID for security check
-	targetIndex := 1
-	if l.Get(1).Type() == lua.LTUserData {
-		targetIndex = 2 // Skip self parameter
-	}
-
-	target := l.CheckString(targetIndex)
-	if target == "" {
-		l.RaiseError("target name is required")
-		return 0
-	}
-
-	// Parse registry ID for security check
-	regID := registry.ParseID(target)
-	if err := validateRegistryID(regID); err != nil {
-		l.RaiseError("invalid registry ID: %v", err)
-		return 0
-	}
-
-	// Add security check for function call permission
-	if !security.IsAllowed(l.Context(), "funcs.call", target, nil) {
-		l.RaiseError("not allowed to call function: %s", target)
-		return 0
-	}
-
-	// Create task with proper validation
-	log := logapi.GetLogger(l.Context()).Named("funcs")
-	runtimeTask, err := functions.createTask(l, log)
-	if err != nil {
-		l.RaiseError("failed to create task: %v", err)
-		return 0
-	}
-
-	// Get unit of work context
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("no unit of work context found")
-		return 0
-	}
-
-	ctx, cancel := context.WithCancel(uw.Context())
-
-	// Create a Request for the function call with the task's params
-	req := upstream.NewRequest(
-		l,
-		runtimeTask.ID.String(),
-		func(_ runtime.Command) { cancel() },
-		runtimeTask.Payloads...,
-	)
-
-	uw.Run(func(_ engine.UnitOfWork) {
-		// Run the function
-		result, err := functions.funcs.Call(ctx, runtimeTask)
-		if err != nil {
-			_ = req.Complete(&runtime.Result{
-				Error: err,
-			})
-			return
-		}
-
-		// Complete with result
-		_ = req.Complete(&runtime.Result{
-			Value: result.Value,
-			Error: result.Error,
-		})
-	})
-
-	// Return the request wrapped as upstream.Request userdata
-	l.Push(upstream.WrapRequest(l, req))
-	return 1
-}
-
-// createTask creates a runtime.Task from Lua parameters
-func (f *Functions) createTask(l *lua.LState, _ *zap.Logger) (runtime.Task, error) {
-	targetIndex := 1
-	if l.Get(1).Type() == lua.LTUserData {
-		targetIndex = 2 // Skip self parameter
-	}
-
-	target := l.CheckString(targetIndex)
-	if target == "" {
-		return runtime.Task{}, errors.New("target name is required")
-	}
-
-	// Parse and validate registry ID
-	regID := registry.ParseID(target)
-	if err := validateRegistryID(regID); err != nil {
-		return runtime.Task{}, fmt.Errorf("invalid registry ID: %w", err)
 	}
 
 	var payloads []payload.Payload
-	for i := targetIndex + 1; i <= l.GetTop(); i++ {
+	for i := 3; i <= l.GetTop(); i++ {
 		val := l.Get(i)
-
-		// Check if argument is already a payload wrapper
-		if ud, ok := val.(*lua.LUserData); ok {
-			if pw, ok := ud.Value.(*payloadmod.Wrapper); ok {
-				payloads = append(payloads, pw.Payload)
-				continue
-			}
-		}
-
-		// Otherwise create a new payload
 		payloads = append(payloads, luaconv.ExportPayload(val))
 	}
 
-	// Build context override pairs from Functions struct fields
-	var ctxPairs []contextapi.Pair
-
-	// Add actor if set
-	if f.hasActor {
-		ctxPairs = append(ctxPairs, secapi.ActorPair(f.actor))
-	}
-
-	// Add scope if set
-	if f.hasScope {
-		ctxPairs = append(ctxPairs, secapi.ScopePair(f.scope))
-	}
-
-	// Add custom values if set
-	if f.values != nil && f.values.Len() > 0 {
-		ctxPairs = append(ctxPairs, contextapi.ValuesPair(f.values))
-	}
-
-	task := runtime.Task{
+	yield := AcquireCallYield()
+	yield.Task = runtime.Task{
 		ID:       regID,
 		Payloads: payloads,
-		Context:  ctxPairs,
 	}
 
-	// Add options if set
-	if f.hasOptions {
-		task.Options = f.options
+	// Add context pairs
+	if exec.hasActor {
+		yield.Task.Context = append(yield.Task.Context, secapi.ActorPair(exec.actor))
+	}
+	if exec.hasScope {
+		yield.Task.Context = append(yield.Task.Context, secapi.ScopePair(exec.scope))
+	}
+	yield.Task.Context = append(yield.Task.Context, exec.values...)
+
+	if exec.hasOptions {
+		yield.Task.Options = exec.options
 	}
 
-	return task, nil
+	l.Push(yield)
+	return -1
+}
+
+func executorAsync(l *lua.LState) int {
+	exec := checkExecutor(l, 1)
+	if exec == nil {
+		return 0
+	}
+
+	target := l.CheckString(2)
+	if target == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("function ID required"))
+		return 2
+	}
+
+	regID := registry.ParseID(target)
+	if regID.NS == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("namespace required in function ID"))
+		return 2
+	}
+	if regID.Name == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("name required in function ID"))
+		return 2
+	}
+
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context"))
+		return 2
+	}
+
+	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed: " + target))
+		return 2
+	}
+
+	var payloads []payload.Payload
+	for i := 3; i <= l.GetTop(); i++ {
+		val := l.Get(i)
+		payloads = append(payloads, luaconv.ExportPayload(val))
+	}
+
+	yield := AcquireAsyncStartYield()
+	yield.Task = runtime.Task{
+		ID:       regID,
+		Payloads: payloads,
+	}
+
+	// Add context pairs
+	if exec.hasActor {
+		yield.Task.Context = append(yield.Task.Context, secapi.ActorPair(exec.actor))
+	}
+	if exec.hasScope {
+		yield.Task.Context = append(yield.Task.Context, secapi.ScopePair(exec.scope))
+	}
+	yield.Task.Context = append(yield.Task.Context, exec.values...)
+
+	if exec.hasOptions {
+		yield.Task.Options = exec.options
+	}
+
+	l.Push(yield)
+	return 1
+}
+
+// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+func Bind(l *lua.LState) {
+	lua2api.LoadModule(l, Module)
+}
+
+func createModuleTable() *lua.LTable {
+	mod := lua.CreateTable(0, 2)
+	mod.RawSetString("call", lua.LGoFunc(call))
+	mod.RawSetString("new", lua.LGoFunc(executorNew))
+	mod.Immutable = true
+	return mod
+}
+
+var futureMethods = map[string]lua.LGFunction{
+	"await":  futureAwait,
+	"cancel": futureCancel,
+}
+
+func checkFuture(l *lua.LState, idx int) *Future {
+	ud := l.CheckUserData(idx)
+	if v, ok := ud.Value.(*Future); ok {
+		return v
+	}
+	l.ArgError(idx, "Future expected")
+	return nil
+}
+
+func futureAwait(l *lua.LState) int {
+	future := checkFuture(l, 1)
+	yield := AcquireAsyncAwaitYield()
+	yield.CallID = future.ID
+	l.Push(yield)
+	return -1
+}
+
+func futureCancel(l *lua.LState) int {
+	future := checkFuture(l, 1)
+	yield := AcquireAsyncCancelYield()
+	yield.CallID = future.ID
+	l.Push(yield)
+	return -1
+}
+
+func asyncStartYield(l *lua.LState) int {
+	target := l.CheckString(1)
+	if target == "" {
+		l.ArgError(1, "function ID required")
+		return 0
+	}
+
+	regID := registry.ParseID(target)
+	if regID.NS == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("namespace required in function ID"))
+		return 2
+	}
+	if regID.Name == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("name required in function ID"))
+		return 2
+	}
+
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context"))
+		return 2
+	}
+
+	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed: " + target))
+		return 2
+	}
+
+	var payloads []payload.Payload
+	for i := 2; i <= l.GetTop(); i++ {
+		val := l.Get(i)
+		payloads = append(payloads, luaconv.ExportPayload(val))
+	}
+
+	yield := AcquireAsyncStartYield()
+	yield.Task = runtime.Task{
+		ID:       regID,
+		Payloads: payloads,
+	}
+
+	l.Push(yield)
+	return 1
+}
+
+func futureNew(l *lua.LState) int {
+	id := uint64(l.CheckNumber(1))
+	future := &Future{ID: id}
+	ud := l.NewUserData()
+	ud.Value = future
+	ud.Metatable = futureMetatable
+	l.Push(ud)
+	return 1
+}
+
+func call(l *lua.LState) int {
+	target := l.CheckString(1)
+	if target == "" {
+		l.ArgError(1, "function ID required")
+		return 0
+	}
+
+	regID := registry.ParseID(target)
+	if regID.NS == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("namespace required in function ID"))
+		return 2
+	}
+	if regID.Name == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("name required in function ID"))
+		return 2
+	}
+
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context"))
+		return 2
+	}
+
+	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed: " + target))
+		return 2
+	}
+
+	var payloads []payload.Payload
+	for i := 2; i <= l.GetTop(); i++ {
+		val := l.Get(i)
+		payloads = append(payloads, luaconv.ExportPayload(val))
+	}
+
+	yield := AcquireCallYield()
+	yield.Task = runtime.Task{
+		ID:       regID,
+		Payloads: payloads,
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+func BindAsync(l *lua.LState) {
+	err := l.DoString(`
+		function funcs.async(target, ...)
+			local yield = __funcs_async_start_yield(target, ...)
+			if yield == nil then
+				return nil, "failed to create async call"
+			end
+			local resp = coroutine.yield(yield)
+			if resp.Error then
+				return nil, tostring(resp.Error)
+			end
+			return __funcs_future_new(resp.CallID)
+		end
+	`)
+	if err != nil {
+		panic(fmt.Sprintf("failed to load funcs.async: %v", err))
+	}
 }

@@ -17,7 +17,7 @@ func YAML() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, yamlmod.NewYAMLModule()); err != nil {
+			if err := AddModules(ctx, cm, yamlmod.Module); err != nil {
 				return ctx, err
 			}
 
