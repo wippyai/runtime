@@ -226,16 +226,11 @@ func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command
 
 	if len(yields) == 1 {
 		cmd := yields[0]
-		fmt.Printf("[DEBUG] handleYields: cmd=%T cmdID=%d\n", cmd, cmd.CmdID())
-
 		handler := e.dispatcher.Dispatch(cmd)
 		if handler == nil {
-			fmt.Printf("[DEBUG] handleYields: NO HANDLER for cmdID=%d\n", cmd.CmdID())
 			res.Error = &UnknownCommandError{CmdID: cmd.CmdID()}
 			return res
 		}
-
-		fmt.Printf("[DEBUG] handleYields: handler=%T\n", handler)
 
 		var emittedData any
 		emit := func(data any) {
@@ -244,9 +239,7 @@ func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command
 			}
 		}
 
-		fmt.Printf("[DEBUG] handleYields: calling Handle...\n")
 		res.Error = handler.Handle(ctx, cmd, emit)
-		fmt.Printf("[DEBUG] handleYields: Handle returned, err=%v\n", res.Error)
 		res.Data = emittedData
 		return res
 	}

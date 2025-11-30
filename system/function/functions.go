@@ -90,7 +90,6 @@ func (f *Registry) registerFunction(e event.Event) {
 	}
 
 	id := registry.ParseID(e.Path)
-	fmt.Printf("[DEBUG functions.go] registerFunction: path=%s id=%v\n", e.Path, id)
 
 	// Store the function handler
 	f.handlers.Store(id, reg.Handler)
@@ -149,13 +148,11 @@ func (f *Registry) sendReject(path event.Path, reason string) {
 // Returns an error if no handler is registered for the task's target or if the handler type is invalid.
 // Blocks until execution completes or context is canceled.
 func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.Result, error) {
-	fmt.Printf("[DEBUG Registry.Call] task.ID=%v\n", task.ID)
 	if ctx == nil {
 		return nil, fmt.Errorf("nil context")
 	}
 
 	handler, exists := f.handlers.Load(task.ID)
-	fmt.Printf("[DEBUG Registry.Call] handler exists=%v handler=%T\n", exists, handler)
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for target: %s", task.ID)
 	}
@@ -200,16 +197,11 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 
 	// Execute through interceptor chain if available
 	chain := function.GetInterceptorChain(ctx)
-	fmt.Printf("[DEBUG Registry.Call] chain=%v\n", chain)
 	if chain != nil {
-		fmt.Printf("[DEBUG Registry.Call] executing through chain\n")
 		return chain.Execute(ctx, executorFunc, task)
 	}
 
-	fmt.Printf("[DEBUG Registry.Call] executing directly\n")
-	result, err := executorFunc(ctx, task)
-	fmt.Printf("[DEBUG Registry.Call] result=%v err=%v\n", result, err)
-	return result, err
+	return executorFunc(ctx, task)
 }
 
 // executor creates frame context and executes the function handler.

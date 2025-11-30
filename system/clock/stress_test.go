@@ -14,7 +14,7 @@ import (
 // TestTimerWaveLoad simulates realistic wave-based load patterns.
 // Creates timers in waves with varying intensity over time.
 func TestTimerWaveLoad(t *testing.T) {
-	r := NewTimerRegistry()
+	r := NewWheelTimerRegistry()
 	defer r.Close()
 
 	const (
@@ -187,7 +187,7 @@ func TestTickerWaveLoad(t *testing.T) {
 
 // TestTimerBurstSpikes simulates sudden traffic spikes followed by calm periods.
 func TestTimerBurstSpikes(t *testing.T) {
-	r := NewTimerRegistry()
+	r := NewWheelTimerRegistry()
 	defer r.Close()
 
 	const (
@@ -257,7 +257,7 @@ func TestTimerBurstSpikes(t *testing.T) {
 
 // TestMixedOperationsChaos performs random mixed operations with realistic patterns.
 func TestMixedOperationsChaos(t *testing.T) {
-	r := NewTimerRegistry()
+	r := NewWheelTimerRegistry()
 	defer r.Close()
 
 	const (
@@ -365,7 +365,7 @@ func TestMixedOperationsChaos(t *testing.T) {
 
 // TestConcurrentResetRace tests concurrent resets on the same timer to find races.
 func TestConcurrentResetRace(t *testing.T) {
-	r := NewTimerRegistry()
+	r := NewWheelTimerRegistry()
 	defer r.Close()
 
 	const (
@@ -500,7 +500,7 @@ func TestWheelTimerMixedChaos(t *testing.T) {
 
 // TestRapidCreateWait rapidly creates and waits for timers.
 func TestRapidCreateWait(t *testing.T) {
-	r := NewTimerRegistry()
+	r := NewWheelTimerRegistry()
 	defer r.Close()
 
 	const (
@@ -535,7 +535,7 @@ func TestRapidCreateWait(t *testing.T) {
 
 // TestRapidCreateCancel rapidly creates and cancels timers.
 func TestRapidCreateCancel(t *testing.T) {
-	r := NewTimerRegistry()
+	r := NewWheelTimerRegistry()
 	defer r.Close()
 
 	const (
@@ -574,8 +574,8 @@ func TestRapidCreateCancel(t *testing.T) {
 
 // TestLeakDetection verifies no resources are leaked.
 func TestLeakDetection(t *testing.T) {
-	// Timer registry
-	tr := NewTimerRegistry()
+	// Timer registry (wheel-based)
+	tr := NewWheelTimerRegistry()
 	for i := 0; i < 1000; i++ {
 		id := tr.Start(time.Hour)
 		tr.Stop(id)
@@ -592,22 +592,11 @@ func TestLeakDetection(t *testing.T) {
 		tkr.Stop(id)
 	}
 	tkr.Close()
-
-	// Wheel timer registry
-	wr := NewWheelTimerRegistry()
-	for i := 0; i < 1000; i++ {
-		id := wr.Start(time.Hour)
-		wr.Stop(id)
-	}
-	if count := wr.Count(); count != 0 {
-		t.Errorf("wheel timer registry leaked %d timers", count)
-	}
-	wr.Close()
 }
 
 // TestContextCancellationUnderLoad tests context cancellation with many waiters.
 func TestContextCancellationUnderLoad(t *testing.T) {
-	r := NewTimerRegistry()
+	r := NewWheelTimerRegistry()
 	defer r.Close()
 
 	const (

@@ -326,7 +326,6 @@ func executorCall(l *lua.LState) int {
 		ID:       regID,
 		Payloads: payloads,
 	}
-	fmt.Printf("[DEBUG funcs] executorCall: target=%s regID=%v yield.Task.ID=%v\n", target, regID, yield.Task.ID)
 
 	// Add context pairs
 	if exec.hasActor {

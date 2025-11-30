@@ -8,6 +8,7 @@ import (
 
 	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
 )
 
 func TestTickerRegistry(t *testing.T) {
@@ -103,12 +104,25 @@ func TestTickerRegistryContextCancel(t *testing.T) {
 	}
 }
 
+func getTickerHandlers(t *testing.T) (start, next, stop dispatcher.Handler, cleanup func()) {
+	d := NewBlockingDispatcher()
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+	return handlers[clockapi.CmdTickerStart],
+		handlers[clockapi.CmdTickerNext],
+		handlers[clockapi.CmdTickerStop],
+		func() { d.Stop(context.Background()) }
+}
+
 func TestTickerStartHandler(t *testing.T) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	h := NewTickerStartHandler()
+	startH, _, _, cleanup := getTickerHandlers(t)
+	defer cleanup()
 
 	var emitted any
-	err := h.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, func(data any) {
+	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, func(data any) {
 		emitted = data
 	})
 
@@ -133,18 +147,21 @@ func TestTickerStartHandler(t *testing.T) {
 
 func TestTickerNextHandler(t *testing.T) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	startH, nextH, _, cleanup := getTickerHandlers(t)
+	defer cleanup()
 
-	startH := NewTickerStartHandler()
 	var tickerID uint64
 	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 5 * time.Millisecond}, func(data any) {
 		tickerID = data.(uint64)
 	})
 
-	nextH := NewTickerNextHandler()
 	var emitted any
+	done := make(chan struct{})
 	err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, func(data any) {
 		emitted = data
+		close(done)
 	})
+	<-done
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -163,23 +180,24 @@ func TestTickerNextHandler(t *testing.T) {
 
 func TestTickerStopHandler(t *testing.T) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	startH, _, stopH, cleanup := getTickerHandlers(t)
+	defer cleanup()
 
-	startH := NewTickerStartHandler()
 	var tickerID uint64
 	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, func(data any) {
 		tickerID = data.(uint64)
 	})
 
-	stopH := NewTickerStopHandler()
-	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, func(data any) {})
+	var emitted bool
+	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, func(data any) {
+		emitted = true
+	})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	err = stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, func(data any) {})
-	if err != ErrTickerNotFound {
-		t.Errorf("expected ErrTickerNotFound on second stop, got %v", err)
+	if !emitted {
+		t.Error("expected emit on stop")
 	}
 
 	GetTickerRegistry(ctx).Close()
@@ -187,10 +205,8 @@ func TestTickerStopHandler(t *testing.T) {
 
 func TestTickerFullCycle(t *testing.T) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-
-	startH := NewTickerStartHandler()
-	nextH := NewTickerNextHandler()
-	stopH := NewTickerStopHandler()
+	startH, nextH, stopH, cleanup := getTickerHandlers(t)
+	defer cleanup()
 
 	var tickerID uint64
 	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 2 * time.Millisecond}, func(data any) {
@@ -200,9 +216,12 @@ func TestTickerFullCycle(t *testing.T) {
 	ticks := make([]int64, 0, 3)
 	for i := 0; i < 3; i++ {
 		var tick int64
+		done := make(chan struct{})
 		err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, func(data any) {
 			tick = data.(int64)
+			close(done)
 		})
+		<-done
 		if err != nil {
 			t.Fatalf("tick %d error: %v", i, err)
 		}
@@ -225,26 +244,38 @@ func TestTickerFullCycle(t *testing.T) {
 
 func TestTickerStartHandlerInvalidDuration(t *testing.T) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	h := NewTickerStartHandler()
+	startH, _, _, cleanup := getTickerHandlers(t)
+	defer cleanup()
 
-	err := h.Handle(ctx, clockapi.TickerStartCmd{Duration: 0}, func(data any) {})
-	if err == nil {
-		t.Error("expected error for zero duration")
+	var emitted bool
+	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 0}, func(data any) {
+		emitted = true
+	})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if emitted {
+		t.Error("expected no emit for zero duration")
 	}
 
-	err = h.Handle(ctx, clockapi.TickerStartCmd{Duration: -time.Second}, func(data any) {})
-	if err == nil {
-		t.Error("expected error for negative duration")
+	err = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: -time.Second}, func(data any) {
+		emitted = true
+	})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if emitted {
+		t.Error("expected no emit for negative duration")
 	}
 }
 
 func TestTickerCleanupOnFrameClose(t *testing.T) {
 	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	startH, _, _, cleanup := getTickerHandlers(t)
+	defer cleanup()
 
-	// Create multiple tickers
-	h := NewTickerStartHandler()
 	for i := 0; i < 5; i++ {
-		err := h.Handle(ctx, clockapi.TickerStartCmd{Duration: 100 * time.Millisecond}, func(data any) {})
+		err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 100 * time.Millisecond}, func(data any) {})
 		if err != nil {
 			t.Fatalf("start ticker %d failed: %v", i, err)
 		}
@@ -260,20 +291,11 @@ func TestTickerCleanupOnFrameClose(t *testing.T) {
 		t.Errorf("expected 5 tickers, got %d", count)
 	}
 
-	// Close frame - should cleanup all tickers
 	fc.Close()
 
-	// Verify cleanup happened
 	count = registry.Count()
 	if count != 0 {
 		t.Errorf("expected 0 tickers after cleanup, got %d", count)
-	}
-
-	// Next should fail on any ticker
-	nextH := NewTickerNextHandler()
-	err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: 1}, func(data any) {})
-	if err != ErrTickerNotFound {
-		t.Errorf("expected ErrTickerNotFound after cleanup, got %v", err)
 	}
 }
 
@@ -285,21 +307,18 @@ func TestTickerRegistryScalability(t *testing.T) {
 
 	registry := GetOrCreateTickerRegistry(ctx)
 
-	// Create many tickers
 	ids := make([]uint64, numTickers)
 	start := time.Now()
 	for i := 0; i < numTickers; i++ {
-		ids[i] = registry.Start(time.Hour) // Long duration so they don't fire
+		ids[i] = registry.Start(time.Hour)
 	}
 	createTime := time.Since(start)
 	t.Logf("Created %d tickers in %v", numTickers, createTime)
 
-	// Verify all created
 	if count := registry.Count(); count != numTickers {
 		t.Errorf("expected %d tickers, got %d", numTickers, count)
 	}
 
-	// Stop all in parallel
 	start = time.Now()
 	var wg sync.WaitGroup
 	for i := 0; i < numTickers; i++ {
@@ -313,7 +332,6 @@ func TestTickerRegistryScalability(t *testing.T) {
 	stopTime := time.Since(start)
 	t.Logf("Stopped %d tickers in %v", numTickers, stopTime)
 
-	// Verify all stopped
 	if remaining := registry.Count(); remaining != 0 {
 		t.Errorf("expected 0 tickers after stop, got %d", remaining)
 	}
@@ -348,7 +366,6 @@ func TestTickerRegistryConcurrentOperations(t *testing.T) {
 
 	wg.Wait()
 
-	// All should be cleaned up
 	if remaining := registry.Count(); remaining != 0 {
 		t.Errorf("expected 0 tickers after concurrent ops, got %d", remaining)
 	}

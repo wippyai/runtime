@@ -4,10 +4,14 @@ import (
 	"container/heap"
 	"container/list"
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// ErrTimerNotFound is returned when timer ID doesn't exist.
+var ErrTimerNotFound = errors.New("timer not found")
 
 // wheelTimer represents a timer in the wheel.
 type wheelTimer struct {
@@ -28,12 +32,6 @@ func (t *wheelTimer) getBucket() *wheelBucket {
 	b := t.b
 	t.mu.Unlock()
 	return b
-}
-
-func (t *wheelTimer) setBucket(b *wheelBucket) {
-	t.mu.Lock()
-	t.b = b
-	t.mu.Unlock()
 }
 
 func (t *wheelTimer) getExpiration() int64 {
@@ -79,23 +77,6 @@ func (b *wheelBucket) Add(t *wheelTimer) {
 	t.b = b
 	t.mu.Unlock()
 	b.mu.Unlock()
-}
-
-// remove is the internal removal that requires holding both b.mu and t.mu
-func (b *wheelBucket) remove(t *wheelTimer) bool {
-	// Caller must hold b.mu
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.b != b {
-		return false
-	}
-	if t.element != nil {
-		b.timers.Remove(t.element)
-		t.element = nil
-	}
-	t.b = nil
-	return true
 }
 
 // Remove removes a timer from its current bucket.
