@@ -3,34 +3,10 @@ package store
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-)
-
-// Common errors that can be returned by Store implementations
-var (
-	// ErrKeyNotFound indicates the requested key doesn't exist in the store
-	// Returned by Get and Delete operations when the key cannot be found
-	ErrKeyNotFound = errors.New("key not found")
-
-	// ErrKeyExists indicates attempted creation of a key that already exists
-	// Used when trying to create a new entry with a key that's already in use
-	ErrKeyExists = errors.New("key already exists")
-
-	// ErrInvalidKey indicates the key format is invalid
-	// Returned when a key doesn't conform to the expected format or contains invalid characters
-	ErrInvalidKey = errors.New("invalid key format")
-
-	// ErrStoreFull indicates the store has reached its maximum capacity
-	// Returned by Set operations when the store cannot accept more entries due to size constraints
-	ErrStoreFull = errors.New("store is full, cannot add more entries")
-
-	// ErrStoreClosed indicates the store is not open for operations
-	// Returned when attempting to perform operations on a store that has been shut down
-	ErrStoreClosed = errors.New("store is closed for operations, cannot perform action")
 )
 
 type (

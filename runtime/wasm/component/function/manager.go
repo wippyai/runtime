@@ -15,14 +15,14 @@ import (
 	api "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/runtime/wasm/engine"
 	"github.com/wippyai/runtime/runtime/wasm/host/clock"
-	pool "github.com/wippyai/runtime/system/scheduler/pool"
+	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"go.uber.org/zap"
 )
 
 // poolEntry wraps a pool with its config.
 type poolEntry struct {
-	pool   pool.Pool
+	pool   funcpool.Pool
 	config api.FunctionConfig
 	module *wasmrt.Module
 }
@@ -203,18 +203,7 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig, module *wa
 
 	factory := engine.NewFactory(m.runtime, module)
 
-	poolCfg := pool.WorkStealingConfig{
-		Workers:   cfg.Pool.Size,
-		QueueSize: cfg.Pool.Buffer,
-	}
-	if poolCfg.Workers <= 0 {
-		poolCfg.Workers = 4
-	}
-	if poolCfg.QueueSize <= 0 {
-		poolCfg.QueueSize = poolCfg.Workers * 64
-	}
-
-	p, err := pool.NewWorkStealing(factory.Create(), m.dispatcher, poolCfg)
+	p, err := funcpool.NewInline(factory.Create(), m.dispatcher)
 	if err != nil {
 		return fmt.Errorf("create pool: %w", err)
 	}
@@ -239,18 +228,7 @@ func (m *Manager) replacePool(id registry.ID, cfg *api.FunctionConfig, module *w
 
 	factory := engine.NewFactory(m.runtime, module)
 
-	poolCfg := pool.WorkStealingConfig{
-		Workers:   cfg.Pool.Size,
-		QueueSize: cfg.Pool.Buffer,
-	}
-	if poolCfg.Workers <= 0 {
-		poolCfg.Workers = 4
-	}
-	if poolCfg.QueueSize <= 0 {
-		poolCfg.QueueSize = poolCfg.Workers * 64
-	}
-
-	p, err := pool.NewWorkStealing(factory.Create(), m.dispatcher, poolCfg)
+	p, err := funcpool.NewInline(factory.Create(), m.dispatcher)
 	if err != nil {
 		return fmt.Errorf("create pool: %w", err)
 	}

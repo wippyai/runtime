@@ -8,7 +8,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	bootpkg "github.com/wippyai/runtime/boot"
-	native "github.com/wippyai/runtime/service/exec"
+	"github.com/wippyai/runtime/service/exec/native"
 )
 
 func Exec() boot.Component {

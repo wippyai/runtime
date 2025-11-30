@@ -7,9 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/resource"
 )
 
 // TimerRegistryKey is the context key for TimerRegistry.
@@ -233,110 +232,12 @@ func GetOrCreateTimerRegistry(ctx context.Context) *TimerRegistry {
 	r := NewTimerRegistry()
 	SetTimerRegistry(ctx, r)
 
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc != nil {
-		fc.AddCleanup(func() error {
+	if store := resource.GetStore(ctx); store != nil {
+		store.AddCleanup(func() error {
 			r.Close()
 			return nil
 		})
 	}
 
 	return r
-}
-
-// TimerStartHandler creates a new timer and returns its ID.
-type TimerStartHandler struct{}
-
-func NewTimerStartHandler() *TimerStartHandler {
-	return &TimerStartHandler{}
-}
-
-func (h *TimerStartHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	startCmd := cmd.(clockapi.TimerStartCmd)
-
-	if startCmd.Duration <= 0 {
-		return errors.New("timer duration must be positive")
-	}
-
-	registry := GetOrCreateTimerRegistry(ctx)
-	id := registry.Start(startCmd.Duration)
-	emit(id)
-
-	return nil
-}
-
-// TimerWaitHandler waits for a timer to fire.
-type TimerWaitHandler struct{}
-
-func NewTimerWaitHandler() *TimerWaitHandler {
-	return &TimerWaitHandler{}
-}
-
-func (h *TimerWaitHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	waitCmd := cmd.(clockapi.TimerWaitCmd)
-
-	registry := GetTimerRegistry(ctx)
-	if registry == nil {
-		return ErrTimerNotFound
-	}
-
-	t, err := registry.Wait(ctx, waitCmd.TimerID)
-	if err != nil {
-		return err
-	}
-
-	emit(t.UnixNano())
-	return nil
-}
-
-// TimerStopHandler stops and removes a timer.
-type TimerStopHandler struct{}
-
-func NewTimerStopHandler() *TimerStopHandler {
-	return &TimerStopHandler{}
-}
-
-func (h *TimerStopHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	stopCmd := cmd.(clockapi.TimerStopCmd)
-
-	registry := GetTimerRegistry(ctx)
-	if registry == nil {
-		return ErrTimerNotFound
-	}
-
-	stopped, err := registry.Stop(stopCmd.TimerID)
-	if err != nil {
-		return err
-	}
-
-	emit(stopped)
-	return nil
-}
-
-// TimerResetHandler resets a timer with a new duration.
-type TimerResetHandler struct{}
-
-func NewTimerResetHandler() *TimerResetHandler {
-	return &TimerResetHandler{}
-}
-
-func (h *TimerResetHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	resetCmd := cmd.(clockapi.TimerResetCmd)
-
-	if resetCmd.Duration <= 0 {
-		return errors.New("timer reset duration must be positive")
-	}
-
-	registry := GetTimerRegistry(ctx)
-	if registry == nil {
-		return ErrTimerNotFound
-	}
-
-	wasActive, err := registry.Reset(resetCmd.TimerID, resetCmd.Duration)
-	if err != nil {
-		return err
-	}
-
-	emit(wasActive)
-	return nil
 }

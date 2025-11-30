@@ -1,4 +1,5 @@
 local http = require("http")
+local time = require("time")
 local funcs = require("funcs")
 
 local function handler()
@@ -9,18 +10,17 @@ local function handler()
         return nil, "Failed to get HTTP context"
     end
 
-    -- Call WASM add function via funcs.call
-    local result, err = funcs.call("app.api:add", 2, 3)
-    if err then
-        res:set_status(http.STATUS.INTERNAL_SERVER_ERROR)
-        res:write_json({ error = err })
-        return
-    end
+    -- Sleep for 10ms to test dispatcher
+    time.sleep("10ms")
+
+    -- Call WASM add function (2 + 3 = 5)
+    local sum, err = funcs.new():call("app.api:add", 2, 3)
 
     local data = {
         message = "hello world",
-        wasm_result = result,
-        calculation = "2 + 3 = " .. tostring(result)
+        slept = "10ms",
+        wasm_add = sum,
+        wasm_err = err
     }
     res:set_content_type(http.CONTENT.JSON)
     res:set_status(http.STATUS.OK)

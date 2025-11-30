@@ -83,9 +83,21 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 		}
 	}
 
-	// Convert input payloads to args
+	// Convert input payloads to Go args using transcoder
+	dtt := payload.GetTranscoder(ctx)
 	p.args = make([]any, 0, len(input))
 	for _, pl := range input {
+		if pl == nil {
+			continue
+		}
+		// Transcode to Golang format if needed
+		if pl.Format() != payload.Golang && dtt != nil {
+			transcoded, err := dtt.Transcode(pl, payload.Golang)
+			if err != nil {
+				return fmt.Errorf("transcode payload: %w", err)
+			}
+			pl = transcoded
+		}
 		if data := pl.Data(); data != nil {
 			p.args = append(p.args, data)
 		}
@@ -102,11 +114,17 @@ func (p *Process) Step(results *process2.YieldResults) (process2.StepResult, err
 	if p.scheduler == nil {
 		if p.started {
 			result.Status = process2.StepDone
+			if p.result != nil {
+				result.Result = payload.New(p.result)
+			}
 			return result, p.err
 		}
 		p.started = true
 		p.result, p.err = p.instance.Call(p.ctx, p.method, p.args...)
 		result.Status = process2.StepDone
+		if p.result != nil {
+			result.Result = payload.New(p.result)
+		}
 		return result, p.err
 	}
 
@@ -166,12 +184,12 @@ func (p *Process) Step(results *process2.YieldResults) (process2.StepResult, err
 		result.Status = process2.StepDone
 		if len(sr.Results) > 0 {
 			p.result = sr.Results[0]
+			result.Result = payload.New(p.result)
 		}
 		return result, nil
 
 	case SchedulerContinue:
 		result.Status = process2.StepContinue
-		// Direct dispatcher.Command - no type assertion needed!
 		result.AddYield(sr.Command)
 		return result, nil
 	}

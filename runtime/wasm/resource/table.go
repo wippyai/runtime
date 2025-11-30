@@ -37,8 +37,10 @@ const (
 
 // InstanceResources manages all resources for a single WASM instance.
 // This is the primary entry point for resource management.
+// Uses resource.Store internally to support both Dropper-based cleanup
+// and AddCleanup for arbitrary cleanup functions.
 type InstanceResources struct {
-	table *Table
+	store *apiresource.Store
 
 	// Pre-allocated typed accessors for common resource types
 	inputStreams      *apiresource.TypedTable[*InputStream]
@@ -54,9 +56,10 @@ type InstanceResources struct {
 
 // NewInstanceResources creates resource management for a WASM instance.
 func NewInstanceResources() *InstanceResources {
-	table := New()
+	store := apiresource.NewStore()
+	table := store.Table()
 	return &InstanceResources{
-		table:             table,
+		store:             store,
 		inputStreams:      apiresource.NewTypedTable[*InputStream](table, TypeInputStream),
 		outputStreams:     apiresource.NewTypedTable[*OutputStream](table, TypeOutputStream),
 		pollables:         apiresource.NewTypedTable[*Pollable](table, TypePollable),
@@ -69,7 +72,19 @@ func NewInstanceResources() *InstanceResources {
 
 // Table returns the underlying resource table.
 func (r *InstanceResources) Table() *Table {
-	return r.table
+	return r.store.Table()
+}
+
+// Store returns the underlying resource store.
+func (r *InstanceResources) Store() *apiresource.Store {
+	return r.store
+}
+
+// AddCleanup registers a cleanup function to run on Close.
+// Cleanups run in LIFO order (last added runs first).
+// Returns a cancel function that prevents this cleanup from running.
+func (r *InstanceResources) AddCleanup(fn func() error) func() {
+	return r.store.AddCleanup(fn)
 }
 
 // InputStreams returns typed accessor for input streams.
@@ -109,12 +124,13 @@ func (r *InstanceResources) TimerDurations() *TimerDurationMap {
 
 // Len returns total resource count across all types.
 func (r *InstanceResources) Len() int {
-	return r.table.Len()
+	return r.store.Table().Len()
 }
 
 // Close releases all resources for this instance.
+// Runs cleanup functions (LIFO), then closes table (calls Drop on resources).
 func (r *InstanceResources) Close() error {
-	return r.table.Close()
+	return r.store.Close()
 }
 
 // Common resource types used across WASI hosts

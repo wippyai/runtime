@@ -9,8 +9,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-var getResources = engine.GetResources
-
 // GetYield wraps StoreGetCmd for Lua.
 type GetYield struct {
 	*storeapi.StoreGetCmd
@@ -79,7 +77,7 @@ func (y *SetYield) CmdID() dispatcher.CommandID   { return storeapi.CmdStoreSet 
 func (y *SetYield) ToCommand() dispatcher.Command { return y.StoreSetCmd }
 func (y *SetYield) Release()                      { ReleaseSetYield(y) }
 
-func (y *SetYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *SetYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
@@ -120,7 +118,7 @@ func (y *DeleteYield) CmdID() dispatcher.CommandID   { return storeapi.CmdStoreD
 func (y *DeleteYield) ToCommand() dispatcher.Command { return y.StoreDeleteCmd }
 func (y *DeleteYield) Release()                      { ReleaseDeleteYield(y) }
 
-func (y *DeleteYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *DeleteYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
@@ -161,7 +159,7 @@ func (y *HasYield) CmdID() dispatcher.CommandID   { return storeapi.CmdStoreHas 
 func (y *HasYield) ToCommand() dispatcher.Command { return y.StoreHasCmd }
 func (y *HasYield) Release()                      { ReleaseHasYield(y) }
 
-func (y *HasYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *HasYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LFalse, lua.LString(err.Error())}
 	}

@@ -6,14 +6,15 @@ import (
 	"github.com/wippyai/runtime/boot/components/otel"
 	"github.com/wippyai/runtime/boot/components/prometheus"
 	"github.com/wippyai/runtime/boot/components/service/aws"
+	"github.com/wippyai/runtime/boot/components/service/fs"
 	"github.com/wippyai/runtime/boot/components/service/storage"
 	"github.com/wippyai/runtime/boot/components/temporal"
 )
 
 func All() []boot.Component {
 	components := []boot.Component{
-		Directory(),
-		Embed(),
+		fs.Directory(),
+		fs.Embed(),
 		Template(),
 		Terminal(),
 		Exec(),

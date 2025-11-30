@@ -1,9 +1,6 @@
 package code
 
 import (
-	"errors"
-	"fmt"
-
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime/lua"
 	lru "github.com/wippyai/runtime/internal/cache"
@@ -54,7 +51,7 @@ func NewCompiler(
 func (c *Compiler) getCompiledProto(node *Node) (*glua.FunctionProto, error) {
 	// Modules don't need compilation
 	if node.Kind == lua.KindModule {
-		return nil, errors.New("module nodes are not compiled")
+		return nil, ErrModuleNotCompiled
 	}
 
 	if proto, ok := c.protoCache.Get(node.ID); ok {
@@ -107,13 +104,13 @@ func (c *Compiler) Compile(
 	nodes[rt.Main.ID] = rt.Main
 
 	if err := options.Validate(nodes); err != nil {
-		return nil, fmt.Errorf("build options validation failed: %w", err)
+		return nil, err
 	}
 
 	// Compile main node
 	mainProto, err := c.getCompiledProto(rt.Main)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile main node: %w", err)
+		return nil, NewCompileError(rt.Main.ID, err)
 	}
 
 	compiled := &CompiledMain{}
@@ -121,9 +118,8 @@ func (c *Compiler) Compile(
 	compiled.FuncName = rt.Main.Method
 
 	for _, pre := range options.Preloaded {
-		main, pErr := c.preloadModule(memGraph, pre, compiled)
-		if pErr != nil {
-			return main, pErr
+		if err := c.preloadModule(memGraph, pre, compiled); err != nil {
+			return nil, err
 		}
 	}
 
@@ -139,7 +135,7 @@ func (c *Compiler) Compile(
 
 		proto, err := c.getCompiledProto(dep.Node)
 		if err != nil {
-			return nil, fmt.Errorf("failed to compile dependency node %v: %w", dep.Node.ID, err)
+			return nil, NewCompileError(dep.Node.ID, err)
 		}
 
 		compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
@@ -156,17 +152,15 @@ func (c *Compiler) Compile(
 	return compiled, nil
 }
 
-//nolint:unparam // ok for now
-func (c *Compiler) preloadModule(memGraph *MemoryGraph, pre Preload, compiled *CompiledMain) (*CompiledMain, error) {
+func (c *Compiler) preloadModule(memGraph *MemoryGraph, pre Preload, compiled *CompiledMain) error {
 	node, err := memGraph.GetNode(pre.ModuleID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to preload %v: %w", pre, err)
+		return err
 	}
 
-	// we can only preload modules
 	compiled.Preloaded = append(compiled.Preloaded, CompiledProto{
 		Name: pre.Name,
 		Node: node,
 	})
-	return nil, nil
+	return nil
 }

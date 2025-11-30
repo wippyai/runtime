@@ -14,6 +14,7 @@ func All() []boot.Component {
 		Exec(),
 		Expr(),
 		FS(),
+		Funcs(),
 		HTML(),
 		HTTP(),
 		JSON(),

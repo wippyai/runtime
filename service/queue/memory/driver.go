@@ -47,29 +47,55 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 		return queueapi.ErrNoQueue
 	}
 
-	q.mu.RLock()
-	closed := q.closed
-	q.mu.RUnlock()
-
-	if closed {
-		return fmt.Errorf("queue %s is closed", queueID)
-	}
-
 	for _, msg := range msgs {
 		if msg.ID == "" {
 			msg.ID = uuid.New().String()
 		}
 
-		select {
-		case q.messages <- msg:
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-d.lifecycleCtxDone():
-			return fmt.Errorf("driver is stopped")
+		if err := q.send(ctx, d.lifecycleCtxDone(), msg); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// send safely sends a message to the queue, protected by mutex to prevent races with close.
+func (q *queue) send(ctx context.Context, driverDone <-chan struct{}, msg *queueapi.Message) error {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
+	if q.closed {
+		return fmt.Errorf("queue %s is closed", q.id)
+	}
+
+	select {
+	case q.messages <- msg:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-driverDone:
+		return fmt.Errorf("driver is stopped")
+	}
+}
+
+// requeue safely requeues a message, protected by mutex to prevent races with close.
+func (q *queue) requeue(ctx context.Context, msg *queueapi.Message) error {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
+	if q.closed {
+		return fmt.Errorf("queue is closed, cannot requeue message")
+	}
+
+	select {
+	case q.messages <- msg:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return fmt.Errorf("queue is full, cannot requeue message")
+	}
 }
 
 func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries chan<- *queueapi.Delivery) (context.CancelFunc, error) {
@@ -101,22 +127,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 						return nil
 					},
 					Nack: func(ctx context.Context) error {
-						q.mu.RLock()
-						closed := q.closed
-						q.mu.RUnlock()
-
-						if closed {
-							return fmt.Errorf("queue is closed, cannot requeue message")
-						}
-
-						select {
-						case q.messages <- msg:
-							return nil
-						case <-ctx.Done():
-							return ctx.Err()
-						default:
-							return fmt.Errorf("queue is full, cannot requeue message")
-						}
+						return q.requeue(ctx, msg)
 					},
 				}
 

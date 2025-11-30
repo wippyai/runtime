@@ -7,15 +7,11 @@ import (
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	sqlres "github.com/wippyai/runtime/service/sql"
 	lua "github.com/yuin/gopher-lua"
 )
-
-// re-export GetResources for local use
-var getResources = engine.GetResources
 
 type DB struct {
 	resource      resource.Resource[any]
@@ -33,17 +29,17 @@ func (d *DB) GetDBType() string {
 	return d.dbType
 }
 
-func NewDB(ctx context.Context, resource resource.Resource[any], db *sql.DB, dbType string) *DB {
+func NewDB(ctx context.Context, res resource.Resource[any], db *sql.DB, dbType string) *DB {
 	dbWrapper := &DB{
-		resource: resource,
+		resource: res,
 		db:       db,
 		dbType:   dbType,
 		released: false,
 	}
 
-	res := getResources(ctx)
-	if res != nil {
-		dbWrapper.cancelCleanup = res.AddCleanup(func() error {
+	store := resource.GetStore(ctx)
+	if store != nil {
+		dbWrapper.cancelCleanup = store.AddCleanup(func() error {
 			if !dbWrapper.released && dbWrapper.resource != nil {
 				dbWrapper.resource.Release()
 			}

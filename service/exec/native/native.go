@@ -2,8 +2,6 @@ package native
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -53,7 +51,7 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		}
 		if !allowed {
 			e.log.Warn("command rejected by whitelist", zap.String("command", cmd))
-			return nil, fmt.Errorf("command not in whitelist: %s", cmd)
+			return nil, NewCommandNotAllowedError(cmd)
 		}
 	}
 
@@ -191,7 +189,7 @@ func (e *ProcessExecutor) WriteStdin(data []byte) error {
 
 	if e.state != running {
 		e.log.Error("process is not running", zap.String("state", e.state))
-		return errors.New("process is not running")
+		return ErrProcessNotRunning
 	}
 
 	n, err := e.stdinPipe.Write(data)
@@ -211,12 +209,12 @@ func (e *ProcessExecutor) Signal(sig int) error {
 
 	if e.state != running {
 		e.log.Error("process is not running", zap.String("state", e.state))
-		return errors.New("process is not running")
+		return ErrProcessNotRunning
 	}
 
 	if e.pid <= 0 {
 		e.log.Error("pid is not a positive int", zap.Int("pid", e.pid))
-		return errors.New("pid is not a positive int, process is possibly not running")
+		return ErrInvalidPID
 	}
 
 	// we're using os.FindProcess to avoid touching e.cmd

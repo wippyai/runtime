@@ -297,19 +297,12 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 	p.state.SetContext(ctx)
 
 	// Create and store Resources in FrameContext
-	fc := ctxapi.FrameFromContext(ctx)
 	res := NewResources()
-	if fc != nil {
-		if err := fc.Set(ResourcesKey, res); err != nil {
-			if p.state != nil {
-				p.state.Close()
-			}
-			return fmt.Errorf("failed to store resources: %w", err)
+	if err := SetResources(ctx, res); err != nil {
+		if p.state != nil {
+			p.state.Close()
 		}
-		// Register Resources cleanup on frame close
-		fc.AddCleanup(func() error {
-			return res.Close()
-		})
+		return fmt.Errorf("failed to store resources: %w", err)
 	}
 
 	// Determine which function to execute
@@ -881,10 +874,9 @@ func (p *Process) yieldToCommand(task *Task) dispatcher.Command {
 	lastValue := task.Yielded[len(task.Yielded)-1]
 	cmd := ConvertYieldToCommand(lastValue)
 
-	// Release pooled yield objects after conversion
-	if releasable, ok := lastValue.(lua2api.Releasable); ok && cmd != nil {
-		releasable.Release()
-	}
+	// NOTE: Do NOT release the yield object here - the cmd shares the same
+	// underlying data (e.g., CallYield.CallCmd). The yield object should be
+	// released after the handler has processed the command (in handleYieldResults).
 
 	return cmd
 }
@@ -987,6 +979,10 @@ func (p *Process) resumeTaskWithResult(task *Task, data any, err error) {
 			lastYield := task.Yielded[len(task.Yielded)-1]
 			if hy, ok := lastYield.(HandledYield); ok {
 				task.Resumed = hy.HandleResult(p.state, data, err)
+				// Release the yield object now that the handler is done
+				if releasable, ok := lastYield.(lua2api.Releasable); ok {
+					releasable.Release()
+				}
 			} else if luaVals, ok := data.([]lua.LValue); ok {
 				task.Resumed = luaVals
 			}

@@ -188,13 +188,7 @@ func (e *Executor) Run(ctx context.Context, proc process2.Process, method string
 
 		switch stepResult.Status {
 		case process2.StepDone:
-			var ret runtime.Result
-			yields := stepResult.GetYields()
-			if len(yields) > 0 {
-				if p, ok := yields[0].(payload.Payload); ok {
-					ret.Value = p
-				}
-			}
+			ret := runtime.Result{Value: stepResult.Result}
 			if e.hooks.OnComplete != nil {
 				e.hooks.OnComplete(ctx, &ret)
 			}

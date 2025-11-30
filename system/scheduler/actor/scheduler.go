@@ -291,24 +291,22 @@ func (s *Scheduler) Cancel(procID uint64) {
 }
 
 // completeProcessor handles process completion.
-func (s *Scheduler) completeProcessor(proc *Processor, yields []dispatcher.Command, err error) {
-	result := &runtime.Result{Error: err}
+func (s *Scheduler) completeProcessor(proc *Processor, result *StepResult, err error) {
+	res := &runtime.Result{Error: err}
 
-	// Store first yield as result if it implements payload.Payload
-	if len(yields) > 0 {
-		if p, ok := yields[0].(payload.Payload); ok {
-			result.Value = p
-		}
+	// Use explicit Result field from StepResult
+	if result != nil && result.Result != nil {
+		res.Value = result.Result
 	}
 
 	// Notify blocking Execute()/Requeue() caller
 	if proc.resultCh != nil {
-		proc.resultCh <- result
+		proc.resultCh <- res
 	}
 
 	// Invoke completion callback
 	if s.onComplete != nil {
-		s.onComplete(proc.ctx, proc.PID, result)
+		s.onComplete(proc.ctx, proc.PID, res)
 	}
 
 	// Pooled processors are managed externally - don't release or unregister

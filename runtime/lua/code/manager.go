@@ -221,10 +221,13 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	// Mark node for transaction
 	cm.txNodes[node.ID] = true
 
-	// calculate all dependents
-	//nolint:ineffassign,staticcheck // ok for now
+	// Calculate all dependents for cache invalidation
 	dependents, err := cm.memGraph.GetAllDependents(node.ID)
-	// FIXME do we need to check err?
+	if err != nil {
+		cm.log.Warn("failed to get dependents for cache invalidation",
+			zap.Stringer("node", node.ID),
+			zap.Error(err))
+	}
 
 	invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
 	invalidateIDs = append(invalidateIDs, node.ID)
@@ -233,7 +236,7 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 		invalidateIDs = append(invalidateIDs, dep.ID)
 	}
 
-	// invalidating cache
+	// Invalidate cache
 	cm.compiler.Invalidate(invalidateIDs)
 
 	return nil

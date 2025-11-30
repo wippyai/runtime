@@ -69,41 +69,45 @@ type EmitFunc func(data any)
 // Handler processes commands yielded by processes.
 // Handlers are registered per CommandID and invoked by the scheduler.
 //
+// CRITICAL: Handlers MUST NOT block. They should:
+//   - Set up async operations (timers, I/O callbacks)
+//   - Call emit() when results are ready
+//   - Return immediately
+//
 // The Handle method receives:
-//   - ctx: Cancelled when process dies or command is cancelled
+//   - ctx: Caller's context (FrameContext) - for resource lookup and cancellation
 //   - cmd: The command to handle
-//   - emit: Function to send values to the process (can call 0+ times)
+//   - emit: Function to send values to the process (call when async operation completes)
 //
 // Returns:
-//   - nil: Command completed successfully
-//   - error: Command failed
+//   - nil: Command accepted (async operation started or completed)
+//   - error: Command rejected (invalid params, resource not found, etc.)
 //
 // Patterns:
 //
-//	One-shot (e.g., sleep):
+//	Immediate (e.g., now):
 //	  func Handle(ctx, cmd, emit) error {
-//	      time.Sleep(cmd.Duration)
+//	      emit(time.Now().UnixNano())
 //	      return nil
 //	  }
 //
-//	Streaming (e.g., ticker):
+//	Async (e.g., sleep):
 //	  func Handle(ctx, cmd, emit) error {
-//	      ticker := time.NewTicker(cmd.Duration)
-//	      defer ticker.Stop()
-//	      for {
-//	          select {
-//	          case <-ctx.Done():
-//	              return ctx.Err()
-//	          case t := <-ticker.C:
-//	              emit(t)
-//	          }
-//	      }
+//	      timer := time.AfterFunc(cmd.Duration, func() {
+//	          emit(nil)
+//	      })
+//	      // Register cleanup in case process dies
+//	      resource.GetStore(ctx).AddCleanup(func() error {
+//	          timer.Stop()
+//	          return nil
+//	      })
+//	      return nil
 //	  }
 //
 // Thread safety:
-//   - ctx and emit are thread-safe
-//   - Handler may spawn goroutines but must respect ctx cancellation
-//   - After Handle returns, emit must not be called
+//   - ctx, cmd, and emit are safe to use from spawned goroutines
+//   - emit may be called multiple times for streaming handlers
+//   - After process dies, emit calls are ignored (safe to call)
 type Handler interface {
 	Handle(ctx context.Context, cmd Command, emit EmitFunc) error
 }

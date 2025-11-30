@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/resource"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -96,9 +97,13 @@ func TestResourcesInContext(t *testing.T) {
 		t.Error("Expected resources after process start")
 	}
 
-	// Test cleanup registration
+	// Test cleanup registration via resource.Store
+	store := resource.GetStore(ctx)
+	if store == nil {
+		t.Fatal("Expected store in context")
+	}
 	cleanupCalled := false
-	res.AddCleanup(func() error {
+	store.AddCleanup(func() error {
 		cleanupCalled = true
 		return nil
 	})
@@ -107,37 +112,6 @@ func TestResourcesInContext(t *testing.T) {
 	proc.Close()
 	if !cleanupCalled {
 		t.Error("Cleanup function was not called")
-	}
-}
-
-func TestChannelRegistry(t *testing.T) {
-	reg := NewChannelRegistry()
-
-	// Get creates if not exists
-	ch1 := reg.Get("test")
-	if ch1 == nil {
-		t.Fatal("Get returned nil")
-	}
-	if ch1.Name() != "test" {
-		t.Errorf("Expected name 'test', got '%s'", ch1.Name())
-	}
-
-	// Get same channel again
-	ch2 := reg.Get("test")
-	if ch1 != ch2 {
-		t.Error("Get returned different channel for same name")
-	}
-
-	// GetOrCreate with buffer
-	ch3 := reg.GetOrCreate("buffered", 5)
-	if ch3.capacity != 5 {
-		t.Errorf("Expected capacity 5, got %d", ch3.capacity)
-	}
-
-	// Close all
-	reg.Close()
-	if !ch1.IsClosed() {
-		t.Error("Channel should be closed after registry close")
 	}
 }
 

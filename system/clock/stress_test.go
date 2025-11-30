@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -642,4 +643,235 @@ func TestContextCancellationUnderLoad(t *testing.T) {
 	wg.Wait()
 
 	t.Logf("Context cancellations: %d/%d", cancelled.Load(), workers*perWorker)
+}
+
+// TestWheelTimerMemoryLeak tests for memory leaks by creating and destroying many timers.
+func TestWheelTimerMemoryLeak(t *testing.T) {
+	runtime.GC()
+	var m1 runtime.MemStats
+	runtime.ReadMemStats(&m1)
+
+	const iterations = 10
+	const timersPerIteration = 10000
+
+	for iter := 0; iter < iterations; iter++ {
+		r := NewWheelTimerRegistry()
+
+		// Create timers with mixed durations
+		ids := make([]uint64, timersPerIteration)
+		for i := 0; i < timersPerIteration; i++ {
+			duration := time.Duration(1+rand.Intn(100)) * time.Millisecond
+			ids[i] = r.Start(duration)
+		}
+
+		// Wait for some, stop others
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		for i, id := range ids {
+			if i%2 == 0 {
+				r.Wait(ctx, id)
+			} else {
+				r.Stop(id)
+			}
+		}
+		cancel()
+
+		// Close registry
+		r.Close()
+
+		// Verify no remaining timers
+		if count := r.Count(); count != 0 {
+			t.Errorf("iteration %d: leaked %d timers", iter, count)
+		}
+	}
+
+	runtime.GC()
+	runtime.GC() // Second GC to clean up finalizers
+	var m2 runtime.MemStats
+	runtime.ReadMemStats(&m2)
+
+	heapGrowth := int64(m2.HeapAlloc) - int64(m1.HeapAlloc)
+	if heapGrowth > 10*1024*1024 { // 10MB threshold
+		t.Errorf("potential memory leak: heap grew by %d bytes after %d iterations",
+			heapGrowth, iterations)
+	}
+	t.Logf("Memory: start=%dKB end=%dKB growth=%dKB",
+		m1.HeapAlloc/1024, m2.HeapAlloc/1024, heapGrowth/1024)
+}
+
+// TestWheelTimerLongRunning simulates a long-running service with steady timer churn.
+func TestWheelTimerLongRunning(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping long-running test in short mode")
+	}
+
+	r := NewWheelTimerRegistry()
+	defer r.Close()
+
+	const (
+		duration    = 30 * time.Second
+		targetRate  = 1000 // timers per second
+		checkPeriod = 5 * time.Second
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	defer cancel()
+
+	var created, fired, stopped atomic.Int64
+	var wg sync.WaitGroup
+
+	// Producer: creates timers at target rate
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(time.Second / time.Duration(targetRate))
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				dur := time.Duration(10+rand.Intn(90)) * time.Millisecond
+				id := r.Start(dur)
+				created.Add(1)
+
+				// 70% wait, 30% stop immediately
+				if rand.Intn(100) < 70 {
+					go func(id uint64) {
+						waitCtx, waitCancel := context.WithTimeout(ctx, 200*time.Millisecond)
+						if _, err := r.Wait(waitCtx, id); err == nil {
+							fired.Add(1)
+						} else {
+							r.Stop(id)
+							stopped.Add(1)
+						}
+						waitCancel()
+					}(id)
+				} else {
+					r.Stop(id)
+					stopped.Add(1)
+				}
+			}
+		}
+	}()
+
+	// Monitor: periodically check for leaks
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(checkPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				count := r.Count()
+				c, f, s := created.Load(), fired.Load(), stopped.Load()
+				outstanding := c - f - s
+				t.Logf("Progress: created=%d fired=%d stopped=%d count=%d outstanding=%d",
+					c, f, s, count, outstanding)
+				if count > int(targetRate)*2 {
+					t.Errorf("too many outstanding timers: %d", count)
+				}
+			}
+		}
+	}()
+
+	wg.Wait()
+
+	// Final check
+	time.Sleep(500 * time.Millisecond) // Let remaining timers fire
+	finalCount := r.Count()
+	t.Logf("Final: created=%d fired=%d stopped=%d remaining=%d",
+		created.Load(), fired.Load(), stopped.Load(), finalCount)
+}
+
+// TestWheelTimerBurstMemory tests memory behavior under burst load.
+func TestWheelTimerBurstMemory(t *testing.T) {
+	r := NewWheelTimerRegistry()
+	defer r.Close()
+
+	const (
+		bursts         = 5
+		timersPerBurst = 50000
+		burstDelay     = 2 * time.Second
+	)
+
+	runtime.GC()
+	var baselineMem runtime.MemStats
+	runtime.ReadMemStats(&baselineMem)
+
+	for burst := 0; burst < bursts; burst++ {
+		// Create burst of timers
+		ids := make([]uint64, timersPerBurst)
+		for i := 0; i < timersPerBurst; i++ {
+			ids[i] = r.Start(time.Duration(10+rand.Intn(90)) * time.Millisecond)
+		}
+
+		// Wait for all to fire
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		for _, id := range ids {
+			r.Wait(ctx, id)
+		}
+		cancel()
+
+		// Check memory after burst
+		runtime.GC()
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		t.Logf("Burst %d: heap=%dMB count=%d", burst+1, mem.HeapAlloc/1024/1024, r.Count())
+
+		time.Sleep(burstDelay)
+	}
+
+	// Final memory check
+	runtime.GC()
+	runtime.GC()
+	var finalMem runtime.MemStats
+	runtime.ReadMemStats(&finalMem)
+
+	growth := int64(finalMem.HeapAlloc) - int64(baselineMem.HeapAlloc)
+	t.Logf("Memory growth after %d bursts: %dKB (baseline=%dKB final=%dKB)",
+		bursts, growth/1024, baselineMem.HeapAlloc/1024, finalMem.HeapAlloc/1024)
+
+	if growth > 20*1024*1024 { // 20MB threshold
+		t.Errorf("excessive memory growth: %d bytes", growth)
+	}
+}
+
+// TestWheelTimerGoroutineLeak tests for goroutine leaks.
+func TestWheelTimerGoroutineLeak(t *testing.T) {
+	baseGoroutines := runtime.NumGoroutine()
+
+	const iterations = 5
+	for i := 0; i < iterations; i++ {
+		r := NewWheelTimerRegistry()
+
+		// Create and destroy timers
+		for j := 0; j < 1000; j++ {
+			id := r.Start(time.Millisecond)
+			if j%2 == 0 {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+				r.Wait(ctx, id)
+				cancel()
+			} else {
+				r.Stop(id)
+			}
+		}
+
+		r.Close()
+	}
+
+	// Let goroutines settle
+	time.Sleep(100 * time.Millisecond)
+	runtime.GC()
+
+	finalGoroutines := runtime.NumGoroutine()
+	leaked := finalGoroutines - baseGoroutines
+
+	t.Logf("Goroutines: base=%d final=%d leaked=%d", baseGoroutines, finalGoroutines, leaked)
+
+	if leaked > 5 { // Allow small variance
+		t.Errorf("goroutine leak detected: %d goroutines leaked", leaked)
+	}
 }

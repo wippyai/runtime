@@ -219,7 +219,7 @@ func requestBodyJSON(l *lua.LState) int {
 		l.Push(lua.LString(fmt.Sprintf("failed to read body: %v", err)))
 		return 2
 	}
-	val, err := jsonmod.Decode(l, body)
+	val, err := jsonmod.Decode(body)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("invalid JSON: %v", err)))

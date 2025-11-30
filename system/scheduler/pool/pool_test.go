@@ -127,6 +127,53 @@ func TestInlineFactoryError(t *testing.T) {
 	}
 }
 
+// Test that StepResult.Result is properly propagated to runtime.Result.Value
+func TestInlineResultPropagation(t *testing.T) {
+	factory := func() (process2.Process, error) {
+		return &resultProcess{result: payload.New("hello world")}, nil
+	}
+	pool, err := NewInline(factory, &mockDispatcher{})
+	if err != nil {
+		t.Fatalf("NewInline: %v", err)
+	}
+	defer pool.Stop()
+	pool.Start()
+
+	result, err := pool.Call(context.Background(), "test", nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("result error: %v", result.Error)
+	}
+	if result.Value == nil {
+		t.Fatal("expected result.Value to be set")
+	}
+	pl, ok := result.Value.(payload.Payload)
+	if !ok {
+		t.Fatalf("expected result.Value to be payload.Payload, got %T", result.Value)
+	}
+	if pl.Data() != "hello world" {
+		t.Fatalf("expected 'hello world', got %v", pl.Data())
+	}
+}
+
+// resultProcess returns a result on StepDone
+type resultProcess struct {
+	result payload.Payload
+}
+
+func (p *resultProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
+	return nil
+}
+
+func (p *resultProcess) Step(results *process2.YieldResults) (process2.StepResult, error) {
+	return process2.StepResult{Status: process2.StepDone, Result: p.result}, nil
+}
+
+func (p *resultProcess) Close()                        {}
+func (p *resultProcess) Send(pkg *relay.Package) error { return nil }
+
 // Static tests
 
 func TestStaticBasic(t *testing.T) {

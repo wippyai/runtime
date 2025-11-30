@@ -6,8 +6,8 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-// registryKey is the context key for the dispatcher registry.
-var registryKey = &ctxapi.Key{Name: "dispatcher.registry", Inherit: true}
+// registryKey is the context key for the dispatcher registry in AppContext.
+var registryKey = &ctxapi.Key{Name: "dispatcher.registry"}
 
 // Registry provides O(1) command-to-handler lookup.
 type Registry interface {
@@ -28,57 +28,52 @@ type Freezer interface {
 	Freeze()
 }
 
-// GetRegistry retrieves the dispatcher registry from context.
+// GetRegistry retrieves the dispatcher registry from AppContext.
 // Returns nil if no registry is set.
 func GetRegistry(ctx context.Context) Registry {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
 		return nil
 	}
-	if val, ok := fc.Get(registryKey); ok {
-		if r, ok := val.(Registry); ok {
-			return r
-		}
+	if r, ok := ac.Get(registryKey).(Registry); ok {
+		return r
 	}
 	return nil
 }
 
-// GetRegistrar retrieves the dispatcher registrar from context.
+// GetRegistrar retrieves the dispatcher registrar from AppContext.
 // Returns nil if no registrar is set or if it doesn't support registration.
 func GetRegistrar(ctx context.Context) Registrar {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
 		return nil
 	}
-	if val, ok := fc.Get(registryKey); ok {
-		if r, ok := val.(Registrar); ok {
-			return r
-		}
+	if r, ok := ac.Get(registryKey).(Registrar); ok {
+		return r
 	}
 	return nil
 }
 
-// GetDispatcher retrieves the dispatcher from context.
+// GetDispatcher retrieves the dispatcher from AppContext.
 // Returns nil if no dispatcher is set.
 func GetDispatcher(ctx context.Context) Dispatcher {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
 		return nil
 	}
-	if val, ok := fc.Get(registryKey); ok {
-		if d, ok := val.(Dispatcher); ok {
-			return d
-		}
+	if d, ok := ac.Get(registryKey).(Dispatcher); ok {
+		return d
 	}
 	return nil
 }
 
-// WithRegistry stores a dispatcher registry in the frame context.
-// Returns error if no frame context or frame is sealed.
+// WithRegistry stores a dispatcher registry in the AppContext.
+// Returns error if no AppContext is available.
 func WithRegistry(ctx context.Context, r Registry) error {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return ctxapi.ErrNoFrameContext
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctxapi.ErrNoAppContext
 	}
-	return fc.Set(registryKey, r)
+	ac.With(registryKey, r)
+	return nil
 }

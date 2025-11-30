@@ -5,9 +5,9 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
+	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
-	"github.com/wippyai/runtime/system/payload/lua"
 	"github.com/wippyai/runtime/system/payload/yaml"
 )
 
@@ -18,7 +18,7 @@ func Transcoder() boot.Component {
 			dtt := transcoder.GlobalTranscoder()
 			json.Register(dtt)
 			yaml.Register(dtt)
-			lua.Register(dtt)
+			luapayload.Register(dtt)
 			return payload.WithTranscoder(ctx, dtt), nil
 		},
 	})

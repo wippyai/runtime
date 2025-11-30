@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"sync"
 
+	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -24,9 +25,9 @@ func NewStatement(ctx context.Context, stmt *sql.Stmt, db *DB) *Statement {
 		closed: false,
 	}
 
-	res := getResources(ctx)
-	if res != nil {
-		s.cancelCleanup = res.AddCleanup(func() error {
+	store := resource.GetStore(ctx)
+	if store != nil {
+		s.cancelCleanup = store.AddCleanup(func() error {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			if !s.closed {

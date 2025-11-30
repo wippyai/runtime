@@ -1,80 +1,362 @@
 package clock
 
 import (
+	"container/heap"
+	"container/list"
 	"context"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// TimingWheel implements a hierarchical timing wheel for efficient timer management.
-// Based on Kafka's purgatory timing wheel design.
-// Achieves O(1) timer insertion and cancellation.
-type TimingWheel struct {
-	tick        int64 // tick duration in nanoseconds
-	wheelSize   int64
-	interval    int64 // tick * wheelSize
-	currentTime int64 // truncated to tick boundary
-
-	buckets       []*bucket
-	overflowWheel atomic.Pointer[TimingWheel]
-
-	exitC chan struct{}
-}
-
-// bucket holds timers at the same time slot using intrusive linked list.
-type bucket struct {
-	expiration atomic.Int64
-	mu         sync.Mutex
-	head       *wheelTimer
-	tail       *wheelTimer
-}
-
 // wheelTimer represents a timer in the wheel.
-// Uses intrusive linked list to avoid list.Element allocation.
 type wheelTimer struct {
-	expiration atomic.Int64 // timer expiration in nanoseconds
-	firedC     chan time.Time
+	expiration int64 // atomic access required
 	callback   func()
-	mu         sync.Mutex // protects b, prev, next
-	b          *bucket
-	prev       *wheelTimer
-	next       *wheelTimer
-	stopped    atomic.Bool
+	firedC     chan time.Time
+
+	// mu protects bucket membership fields
+	mu      sync.Mutex
+	b       *wheelBucket
+	element *list.Element
+
+	stopped atomic.Bool
 }
 
-var wheelTimerPool = sync.Pool{
-	New: func() any {
-		return &wheelTimer{
-			firedC: make(chan time.Time, 1),
-		}
-	},
+func (t *wheelTimer) getBucket() *wheelBucket {
+	t.mu.Lock()
+	b := t.b
+	t.mu.Unlock()
+	return b
 }
 
-func acquireWheelTimer() *wheelTimer {
-	return wheelTimerPool.Get().(*wheelTimer)
+func (t *wheelTimer) setBucket(b *wheelBucket) {
+	t.mu.Lock()
+	t.b = b
+	t.mu.Unlock()
 }
 
-func releaseWheelTimer(t *wheelTimer) {
+func (t *wheelTimer) getExpiration() int64 {
+	return atomic.LoadInt64(&t.expiration)
+}
+
+func (t *wheelTimer) setExpiration(exp int64) {
+	atomic.StoreInt64(&t.expiration, exp)
+}
+
+// wheelBucket holds timers at the same time slot.
+type wheelBucket struct {
+	expiration int64 // bucket expiration time in ms
+	mu         sync.Mutex
+	timers     *list.List
+
+	// heap index for delayqueue, -1 means not in heap
+	index int
+}
+
+func newWheelBucket() *wheelBucket {
+	return &wheelBucket{
+		expiration: -1,
+		timers:     list.New(),
+		index:      -1,
+	}
+}
+
+// SetExpiration sets bucket expiration. Returns true if changed.
+func (b *wheelBucket) SetExpiration(exp int64) bool {
+	return atomic.SwapInt64(&b.expiration, exp) != exp
+}
+
+func (b *wheelBucket) Expiration() int64 {
+	return atomic.LoadInt64(&b.expiration)
+}
+
+func (b *wheelBucket) Add(t *wheelTimer) {
+	b.mu.Lock()
+	t.mu.Lock()
+	e := b.timers.PushBack(t)
+	t.element = e
+	t.b = b
+	t.mu.Unlock()
+	b.mu.Unlock()
+}
+
+// remove is the internal removal that requires holding both b.mu and t.mu
+func (b *wheelBucket) remove(t *wheelTimer) bool {
+	// Caller must hold b.mu
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.b != b {
+		return false
+	}
+	if t.element != nil {
+		b.timers.Remove(t.element)
+		t.element = nil
+	}
+	t.b = nil
+	return true
+}
+
+// Remove removes a timer from its current bucket.
+func (b *wheelBucket) Remove(t *wheelTimer) bool {
+	// First get current bucket with timer lock
+	t.mu.Lock()
+	bucket := t.b
+	t.mu.Unlock()
+
+	if bucket == nil {
+		return false
+	}
+
+	// Lock bucket, then re-check timer
+	bucket.mu.Lock()
+	t.mu.Lock()
+	if t.b != bucket {
+		t.mu.Unlock()
+		bucket.mu.Unlock()
+		// Bucket changed, retry with new bucket
+		return b.Remove(t)
+	}
+	if t.element != nil {
+		bucket.timers.Remove(t.element)
+		t.element = nil
+	}
+	t.b = nil
+	t.mu.Unlock()
+	bucket.mu.Unlock()
+	return true
+}
+
+// Flush removes all timers and returns them for reinsertion.
+func (b *wheelBucket) Flush() []*wheelTimer {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	result := make([]*wheelTimer, 0, b.timers.Len())
+	for e := b.timers.Front(); e != nil; {
+		next := e.Next()
+		t := e.Value.(*wheelTimer)
+		t.mu.Lock()
+		b.timers.Remove(e)
+		t.element = nil
+		t.b = nil
+		t.mu.Unlock()
+		result = append(result, t)
+		e = next
+	}
+	b.SetExpiration(-1)
+	return result
+}
+
+// wheelBucketHeap implements heap.Interface for buckets ordered by expiration.
+type wheelBucketHeap []*wheelBucket
+
+func (h wheelBucketHeap) Len() int           { return len(h) }
+func (h wheelBucketHeap) Less(i, j int) bool { return h[i].Expiration() < h[j].Expiration() }
+func (h wheelBucketHeap) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+	h[i].index = i
+	h[j].index = j
+}
+
+func (h *wheelBucketHeap) Push(x any) {
+	b := x.(*wheelBucket)
+	b.index = len(*h)
+	*h = append(*h, b)
+}
+
+func (h *wheelBucketHeap) Pop() any {
+	old := *h
+	n := len(old)
+	b := old[n-1]
+	old[n-1] = nil
+	b.index = -1
+	*h = old[0 : n-1]
+	return b
+}
+
+// wheelDelayQueue manages buckets with expiration times.
+type wheelDelayQueue struct {
+	mu      sync.Mutex
+	cond    *sync.Cond
+	heap    wheelBucketHeap
+	wakeupC chan struct{} // signals wakeup, closed on shutdown
+	closed  atomic.Bool
+}
+
+func newWheelDelayQueue() *wheelDelayQueue {
+	dq := &wheelDelayQueue{
+		heap:    make(wheelBucketHeap, 0),
+		wakeupC: make(chan struct{}, 1),
+	}
+	dq.cond = sync.NewCond(&dq.mu)
+	return dq
+}
+
+// Offer adds or updates a bucket in the queue.
+func (dq *wheelDelayQueue) Offer(b *wheelBucket) {
+	dq.mu.Lock()
+	if b.index == -1 {
+		heap.Push(&dq.heap, b)
+	} else {
+		heap.Fix(&dq.heap, b.index)
+	}
+	dq.mu.Unlock()
+
+	// Non-blocking signal
 	select {
-	case <-t.firedC:
+	case dq.wakeupC <- struct{}{}:
 	default:
 	}
-	t.expiration.Store(0)
-	t.callback = nil
-	t.mu.Lock()
-	t.b = nil
-	t.prev = nil
-	t.next = nil
-	t.mu.Unlock()
-	t.stopped.Store(false)
-	wheelTimerPool.Put(t)
+}
+
+// Poll blocks until a bucket expires or exit is signaled.
+func (dq *wheelDelayQueue) Poll(exitC <-chan struct{}) *wheelBucket {
+	for {
+		select {
+		case <-exitC:
+			return nil
+		default:
+		}
+
+		dq.mu.Lock()
+		if len(dq.heap) == 0 {
+			dq.mu.Unlock()
+			select {
+			case <-exitC:
+				return nil
+			case <-dq.wakeupC:
+				continue
+			}
+		}
+
+		b := dq.heap[0]
+		now := time.Now().UnixMilli()
+		delay := b.Expiration() - now
+
+		if delay <= 0 {
+			heap.Pop(&dq.heap)
+			dq.mu.Unlock()
+			return b
+		}
+		dq.mu.Unlock()
+
+		// Wait for delay or wakeup
+		timer := time.NewTimer(time.Duration(delay) * time.Millisecond)
+		select {
+		case <-exitC:
+			timer.Stop()
+			return nil
+		case <-dq.wakeupC:
+			timer.Stop()
+			// New bucket added or bucket updated, re-check
+		case <-timer.C:
+			// Delay elapsed, re-check
+		}
+	}
+}
+
+func (dq *wheelDelayQueue) Close() {
+	if dq.closed.Swap(true) {
+		return
+	}
+	// Signal wakeup to unblock Poll
+	select {
+	case dq.wakeupC <- struct{}{}:
+	default:
+	}
+}
+
+// TimingWheel is the core hierarchical timing wheel structure.
+type TimingWheel struct {
+	tickMs      int64
+	wheelSize   int64
+	interval    int64
+	currentTime int64
+
+	buckets       []*wheelBucket
+	queue         *wheelDelayQueue
+	overflowWheel atomic.Pointer[TimingWheel]
+}
+
+// NewTimingWheel creates a timing wheel.
+func NewTimingWheel(tickMs int64, wheelSize int64, startMs int64) *TimingWheel {
+	buckets := make([]*wheelBucket, wheelSize)
+	for i := range buckets {
+		buckets[i] = newWheelBucket()
+	}
+
+	return &TimingWheel{
+		tickMs:      tickMs,
+		wheelSize:   wheelSize,
+		interval:    tickMs * wheelSize,
+		currentTime: truncateMs(startMs, tickMs),
+		buckets:     buckets,
+	}
+}
+
+func truncateMs(t, tick int64) int64 {
+	return t - t%tick
+}
+
+// Add adds a timer to the wheel. Returns true if added.
+func (tw *TimingWheel) Add(t *wheelTimer) bool {
+	currentTime := atomic.LoadInt64(&tw.currentTime)
+	expiration := t.getExpiration()
+
+	if expiration < currentTime+tw.tickMs {
+		return false
+	}
+
+	if expiration < currentTime+tw.interval {
+		virtualID := expiration / tw.tickMs
+		b := tw.buckets[virtualID%tw.wheelSize]
+		b.Add(t)
+
+		exp := truncateMs(expiration, tw.tickMs)
+		if b.SetExpiration(exp) {
+			tw.queue.Offer(b)
+		}
+		return true
+	}
+
+	ow := tw.overflowWheel.Load()
+	if ow == nil {
+		tw.addOverflowWheel(currentTime)
+		ow = tw.overflowWheel.Load()
+	}
+	return ow.Add(t)
+}
+
+func (tw *TimingWheel) addOverflowWheel(currentTime int64) {
+	newWheel := &TimingWheel{
+		tickMs:      tw.interval,
+		wheelSize:   tw.wheelSize,
+		interval:    tw.interval * tw.wheelSize,
+		currentTime: truncateMs(currentTime, tw.interval),
+		buckets:     make([]*wheelBucket, tw.wheelSize),
+		queue:       tw.queue,
+	}
+	for i := range newWheel.buckets {
+		newWheel.buckets[i] = newWheelBucket()
+	}
+	tw.overflowWheel.CompareAndSwap(nil, newWheel)
+}
+
+func (tw *TimingWheel) advanceClock(expiration int64) {
+	currentTime := atomic.LoadInt64(&tw.currentTime)
+	if expiration >= currentTime+tw.tickMs {
+		currentTime = truncateMs(expiration, tw.tickMs)
+		atomic.StoreInt64(&tw.currentTime, currentTime)
+
+		if ow := tw.overflowWheel.Load(); ow != nil {
+			ow.advanceClock(currentTime)
+		}
+	}
 }
 
 const (
-	wheelTick       = int64(time.Millisecond)
-	wheelSize       = 512
-	wheelInterval   = wheelTick * wheelSize
 	wheelShardCount = 64
 	wheelShardMask  = wheelShardCount - 1
 )
@@ -85,9 +367,10 @@ type wheelShard struct {
 	timers map[uint64]*wheelTimer
 }
 
-// WheelTimerRegistry manages timers using a timing wheel.
+// WheelTimerRegistry manages timers using a hierarchical timing wheel.
 type WheelTimerRegistry struct {
 	wheel   *TimingWheel
+	queue   *wheelDelayQueue
 	shards  [wheelShardCount]wheelShard
 	nextID  atomic.Uint64
 	stopped atomic.Bool
@@ -95,180 +378,17 @@ type WheelTimerRegistry struct {
 	wg      sync.WaitGroup
 }
 
-func (r *WheelTimerRegistry) getShard(id uint64) *wheelShard {
-	return &r.shards[id&wheelShardMask]
-}
-
-// NewTimingWheel creates a timing wheel with given tick (nanoseconds) and size.
-func NewTimingWheel(tick int64, wheelSize int64, startMs int64) *TimingWheel {
-	startNs := startMs * int64(time.Millisecond)
-	return newTimingWheel(tick, wheelSize, startNs, nil)
-}
-
-func newTimingWheel(tick int64, wheelSize int64, startNs int64, prevExitC chan struct{}) *TimingWheel {
-	buckets := make([]*bucket, wheelSize)
-	for i := range buckets {
-		buckets[i] = newBucket()
-	}
-
-	exitC := prevExitC
-	if exitC == nil {
-		exitC = make(chan struct{})
-	}
-
-	return &TimingWheel{
-		tick:        tick,
-		wheelSize:   wheelSize,
-		interval:    tick * wheelSize,
-		currentTime: truncate(startNs, tick),
-		buckets:     buckets,
-		exitC:       exitC,
-	}
-}
-
-func newBucket() *bucket {
-	b := &bucket{}
-	b.expiration.Store(-1)
-	return b
-}
-
-func truncate(n, tick int64) int64 {
-	return n - n%tick
-}
-
-// Add adds a timer to the wheel. Returns true if added, false if already expired.
-func (tw *TimingWheel) Add(t *wheelTimer) bool {
-	currentTime := atomic.LoadInt64(&tw.currentTime)
-	expiration := t.expiration.Load()
-
-	if expiration < currentTime+tw.tick {
-		return false
-	}
-
-	if expiration < currentTime+tw.interval {
-		virtualID := expiration / tw.tick
-		b := tw.buckets[virtualID%tw.wheelSize]
-		b.Add(t)
-
-		exp := truncate(expiration, tw.tick)
-		b.SetExpiration(exp)
-		return true
-	}
-
-	overflowWheel := tw.overflowWheel.Load()
-	if overflowWheel == nil {
-		tw.createOverflowWheel(currentTime)
-		overflowWheel = tw.overflowWheel.Load()
-	}
-	return overflowWheel.Add(t)
-}
-
-func (tw *TimingWheel) createOverflowWheel(currentTime int64) {
-	newWheel := newTimingWheel(tw.interval, tw.wheelSize, currentTime, tw.exitC)
-	tw.overflowWheel.CompareAndSwap(nil, newWheel)
-}
-
-func (tw *TimingWheel) advanceClock(expiration int64) {
-	currentTime := atomic.LoadInt64(&tw.currentTime)
-	if expiration >= currentTime+tw.tick {
-		currentTime = truncate(expiration, tw.tick)
-		atomic.StoreInt64(&tw.currentTime, currentTime)
-
-		if overflowWheel := tw.overflowWheel.Load(); overflowWheel != nil {
-			overflowWheel.advanceClock(currentTime)
-		}
-	}
-}
-
-// bucket methods with intrusive linked list
-
-func (b *bucket) Add(t *wheelTimer) {
-	t.mu.Lock()
-	b.mu.Lock()
-	t.b = b
-	t.prev = b.tail
-	t.next = nil
-	if b.tail != nil {
-		b.tail.next = t
-	} else {
-		b.head = t
-	}
-	b.tail = t
-	b.mu.Unlock()
-	t.mu.Unlock()
-}
-
-func (b *bucket) Remove(t *wheelTimer) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.b == nil {
-		return false
-	}
-
-	bucket := t.b
-	bucket.mu.Lock()
-	defer bucket.mu.Unlock()
-
-	// Double-check after acquiring bucket lock
-	if t.b != bucket {
-		return false
-	}
-
-	if t.prev != nil {
-		t.prev.next = t.next
-	} else {
-		bucket.head = t.next
-	}
-	if t.next != nil {
-		t.next.prev = t.prev
-	} else {
-		bucket.tail = t.prev
-	}
-
-	t.b = nil
-	t.prev = nil
-	t.next = nil
-	return true
-}
-
-func (b *bucket) SetExpiration(expiration int64) bool {
-	return b.expiration.Swap(expiration) != expiration
-}
-
-func (b *bucket) Expiration() int64 {
-	return b.expiration.Load()
-}
-
-func (b *bucket) Flush(reinsert func(*wheelTimer)) {
-	b.mu.Lock()
-	for t := b.head; t != nil; {
-		next := t.next
-
-		// Lock timer and clear its bucket reference
-		t.mu.Lock()
-		t.b = nil
-		t.prev = nil
-		t.next = nil
-		t.mu.Unlock()
-
-		b.mu.Unlock()
-		reinsert(t)
-		b.mu.Lock()
-
-		t = next
-	}
-	b.head = nil
-	b.tail = nil
-	b.expiration.Store(-1)
-	b.mu.Unlock()
-}
-
 // NewWheelTimerRegistry creates a new timing wheel based timer registry.
 func NewWheelTimerRegistry() *WheelTimerRegistry {
-	now := time.Now().UnixNano() / int64(time.Millisecond)
+	now := time.Now().UnixMilli()
+	queue := newWheelDelayQueue()
+
+	wheel := NewTimingWheel(1, 512, now)
+	wheel.queue = queue
+
 	r := &WheelTimerRegistry{
-		wheel: NewTimingWheel(wheelTick, wheelSize, now),
+		wheel: wheel,
+		queue: queue,
 		exitC: make(chan struct{}),
 	}
 
@@ -282,71 +402,40 @@ func NewWheelTimerRegistry() *WheelTimerRegistry {
 	return r
 }
 
+func (r *WheelTimerRegistry) getShard(id uint64) *wheelShard {
+	return &r.shards[id&wheelShardMask]
+}
+
 func (r *WheelTimerRegistry) run() {
 	defer r.wg.Done()
 
-	ticker := time.NewTicker(time.Millisecond)
-	defer ticker.Stop()
-
 	for {
-		select {
-		case <-r.exitC:
+		b := r.queue.Poll(r.exitC)
+		if b == nil {
 			return
-		case now := <-ticker.C:
-			r.advanceAndFire(now.UnixNano())
+		}
+
+		r.wheel.advanceClock(b.Expiration())
+
+		timers := b.Flush()
+		for _, t := range timers {
+			if t.stopped.Load() {
+				continue
+			}
+			if !r.wheel.Add(t) {
+				r.fireTimer(t)
+			}
 		}
 	}
 }
 
-func (r *WheelTimerRegistry) advanceAndFire(now int64) {
-	r.wheel.advanceClock(now)
-
-	for _, b := range r.wheel.buckets {
-		exp := b.Expiration()
-		if exp != -1 && exp <= now {
-			b.Flush(func(t *wheelTimer) {
-				if t.stopped.Load() {
-					return
-				}
-				if t.expiration.Load() <= now {
-					r.fireTimer(t, time.Unix(0, now))
-				} else {
-					r.wheel.Add(t)
-				}
-			})
-		}
-	}
-
-	if overflowWheel := r.wheel.overflowWheel.Load(); overflowWheel != nil {
-		r.advanceOverflowWheel(overflowWheel, now)
-	}
-}
-
-func (r *WheelTimerRegistry) fireTimer(t *wheelTimer, fireTime time.Time) {
+func (r *WheelTimerRegistry) fireTimer(t *wheelTimer) {
 	if t.callback != nil {
-		t.callback()
+		go t.callback()
 	}
 	select {
-	case t.firedC <- fireTime:
+	case t.firedC <- time.Now():
 	default:
-	}
-}
-
-func (r *WheelTimerRegistry) advanceOverflowWheel(tw *TimingWheel, now int64) {
-	for _, b := range tw.buckets {
-		exp := b.Expiration()
-		if exp != -1 && exp <= now {
-			b.Flush(func(t *wheelTimer) {
-				if t.stopped.Load() {
-					return
-				}
-				r.wheel.Add(t)
-			})
-		}
-	}
-
-	if overflowWheel := tw.overflowWheel.Load(); overflowWheel != nil {
-		r.advanceOverflowWheel(overflowWheel, now)
 	}
 }
 
@@ -354,11 +443,10 @@ func (r *WheelTimerRegistry) advanceOverflowWheel(tw *TimingWheel, now int64) {
 func (r *WheelTimerRegistry) Start(d time.Duration) uint64 {
 	id := r.nextID.Add(1)
 
-	now := time.Now().UnixNano()
-	expiration := now + int64(d)
-
-	t := acquireWheelTimer()
-	t.expiration.Store(expiration)
+	t := &wheelTimer{
+		firedC: make(chan time.Time, 1),
+	}
+	t.setExpiration(time.Now().UnixMilli() + d.Milliseconds())
 
 	shard := r.getShard(id)
 	shard.mu.Lock()
@@ -366,8 +454,7 @@ func (r *WheelTimerRegistry) Start(d time.Duration) uint64 {
 	shard.mu.Unlock()
 
 	if !r.wheel.Add(t) {
-		// Timer already expired (within tick), fire immediately
-		r.fireTimer(t, time.Now())
+		r.fireTimer(t)
 	}
 
 	return id
@@ -377,12 +464,11 @@ func (r *WheelTimerRegistry) Start(d time.Duration) uint64 {
 func (r *WheelTimerRegistry) StartWithCallback(d time.Duration, callback func()) uint64 {
 	id := r.nextID.Add(1)
 
-	now := time.Now().UnixNano()
-	expiration := now + int64(d)
-
-	t := acquireWheelTimer()
-	t.expiration.Store(expiration)
-	t.callback = callback
+	t := &wheelTimer{
+		callback: callback,
+		firedC:   make(chan time.Time, 1),
+	}
+	t.setExpiration(time.Now().UnixMilli() + d.Milliseconds())
 
 	shard := r.getShard(id)
 	shard.mu.Lock()
@@ -403,11 +489,7 @@ func (r *WheelTimerRegistry) Wait(ctx context.Context, id uint64) (time.Time, er
 	t, ok := shard.timers[id]
 	shard.mu.Unlock()
 
-	if !ok {
-		return time.Time{}, ErrTimerNotFound
-	}
-
-	if t.stopped.Load() {
+	if !ok || t.stopped.Load() {
 		return time.Time{}, ErrTimerNotFound
 	}
 
@@ -418,7 +500,6 @@ func (r *WheelTimerRegistry) Wait(ctx context.Context, id uint64) (time.Time, er
 		shard.mu.Lock()
 		delete(shard.timers, id)
 		shard.mu.Unlock()
-		releaseWheelTimer(t)
 		return fireTime, nil
 	}
 }
@@ -438,16 +519,10 @@ func (r *WheelTimerRegistry) Stop(id uint64) (bool, error) {
 	}
 
 	stopped := !t.stopped.Swap(true)
-
-	// Remove from bucket (uses timer's mutex internally)
-	t.mu.Lock()
-	bucket := t.b
-	t.mu.Unlock()
-	if bucket != nil {
-		bucket.Remove(t)
+	if b := t.getBucket(); b != nil {
+		b.Remove(t)
 	}
 
-	releaseWheelTimer(t)
 	return stopped, nil
 }
 
@@ -458,29 +533,23 @@ func (r *WheelTimerRegistry) Reset(id uint64, d time.Duration) (bool, error) {
 	t, ok := shard.timers[id]
 	shard.mu.Unlock()
 
-	if !ok {
+	if !ok || t.stopped.Load() {
 		return false, ErrTimerNotFound
 	}
 
+	// Remove from current bucket if any
+	if b := t.getBucket(); b != nil {
+		b.Remove(t)
+	}
+
 	if t.stopped.Load() {
-		return false, nil
+		return false, ErrTimerNotFound
 	}
 
-	// Remove from current bucket (uses timer's mutex internally)
-	t.mu.Lock()
-	bucket := t.b
-	t.mu.Unlock()
-	if bucket != nil {
-		bucket.Remove(t)
-	}
-
-	// Update expiration and re-add to wheel
-	now := time.Now().UnixNano()
-	t.expiration.Store(now + int64(d))
+	t.setExpiration(time.Now().UnixMilli() + d.Milliseconds())
 
 	if !r.wheel.Add(t) {
-		// Timer already expired, fire immediately
-		r.fireTimer(t, time.Now())
+		r.fireTimer(t)
 	}
 
 	return true, nil
@@ -504,14 +573,14 @@ func (r *WheelTimerRegistry) Close() {
 		return
 	}
 	close(r.exitC)
+	r.queue.Close()
 	r.wg.Wait()
 
 	for i := range r.shards {
 		shard := &r.shards[i]
 		shard.mu.Lock()
-		for id, t := range shard.timers {
+		for id := range shard.timers {
 			delete(shard.timers, id)
-			releaseWheelTimer(t)
 		}
 		shard.mu.Unlock()
 	}

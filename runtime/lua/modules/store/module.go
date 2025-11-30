@@ -31,7 +31,7 @@ func (m *storeModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *storeModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *storeModule) Register(_ *lua.LState) *lua2api.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 		storeMetatable = value.RegisterTypeMethods(nil, storeTypeName,

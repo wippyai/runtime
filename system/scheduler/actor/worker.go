@@ -236,18 +236,17 @@ func (w *Worker) executeOne(proc *Processor) {
 		return
 	}
 
-	yields := result.GetYields()
-
 	switch result.Status {
 	case StepDone:
 		proc.State = StateComplete
-		w.scheduler.completeProcessor(proc, yields, nil)
+		w.scheduler.completeProcessor(proc, &result, nil)
 
 	case StepIdle:
 		proc.State = StateIdle
 		w.scheduler.parkIdle(proc)
 
 	case StepContinue:
+		yields := result.GetYields()
 		if len(yields) == 0 {
 			// Continue without yields - use LIFO slot for hot path
 			proc.State = StateReady

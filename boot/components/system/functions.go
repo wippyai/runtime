@@ -9,7 +9,6 @@ import (
 	funcapi "github.com/wippyai/runtime/api/function"
 	logapi "github.com/wippyai/runtime/api/logs"
 	regapi "github.com/wippyai/runtime/api/registry"
-	relayapi "github.com/wippyai/runtime/api/relay"
 	bootcore "github.com/wippyai/runtime/boot/components/core"
 	"github.com/wippyai/runtime/system/function"
 	"go.uber.org/zap"
@@ -45,11 +44,8 @@ func Functions() boot.Component {
 				logger.Warn("failed to register function dependency pattern", zap.Error(err))
 			}
 
-			// Function host is already registered in infrastructure
-			funcHost := relayapi.GetHost(ctx)
-			if funcHost != nil {
-				funcs = function.NewFunctionRegistry(bus, funcHost, logger.Named("funcs"))
-			}
+			// Create function registry (host is retrieved from frame context at call time)
+			funcs = function.NewFunctionRegistry(bus, logger.Named("funcs"))
 
 			return funcapi.WithRegistry(ctx, funcs), nil
 		},

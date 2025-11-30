@@ -23,16 +23,16 @@ type Store struct {
 	cancelCleanup func()
 }
 
-func NewStore(ctx context.Context, resource resource.Resource[any], s store.Store) *Store {
+func NewStore(ctx context.Context, res resource.Resource[any], s store.Store) *Store {
 	storeWrapper := &Store{
-		resource: resource,
+		resource: res,
 		store:    s,
 		released: false,
 	}
 
-	res := getResources(ctx)
-	if res != nil {
-		storeWrapper.cancelCleanup = res.AddCleanup(func() error {
+	resStore := resource.GetStore(ctx)
+	if resStore != nil {
+		storeWrapper.cancelCleanup = resStore.AddCleanup(func() error {
 			storeWrapper.mu.Lock()
 			defer storeWrapper.mu.Unlock()
 			if !storeWrapper.released && storeWrapper.resource != nil {
@@ -58,12 +58,12 @@ var storeMethods = map[string]lua.LGFunction{
 	"release": storeRelease,
 }
 
-func checkStore(l *lua.LState, idx int) *Store {
-	ud := l.CheckUserData(idx)
+func checkStore(l *lua.LState) *Store {
+	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*Store); ok {
 		return v
 	}
-	l.ArgError(idx, "store expected")
+	l.ArgError(1, "store expected")
 	return nil
 }
 
@@ -125,7 +125,7 @@ func storeGet(l *lua.LState) int {
 }
 
 func storeKeyGet(l *lua.LState) int {
-	s := checkStore(l, 1)
+	s := checkStore(l)
 	if s == nil {
 		return 0
 	}
@@ -161,7 +161,7 @@ func storeKeyGet(l *lua.LState) int {
 }
 
 func storeKeySet(l *lua.LState) int {
-	s := checkStore(l, 1)
+	s := checkStore(l)
 	if s == nil {
 		return 0
 	}
@@ -230,7 +230,7 @@ func storeKeySet(l *lua.LState) int {
 }
 
 func storeKeyDelete(l *lua.LState) int {
-	s := checkStore(l, 1)
+	s := checkStore(l)
 	if s == nil {
 		return 0
 	}
@@ -266,7 +266,7 @@ func storeKeyDelete(l *lua.LState) int {
 }
 
 func storeKeyHas(l *lua.LState) int {
-	s := checkStore(l, 1)
+	s := checkStore(l)
 	if s == nil {
 		return 0
 	}
@@ -302,7 +302,7 @@ func storeKeyHas(l *lua.LState) int {
 }
 
 func storeRelease(l *lua.LState) int {
-	s := checkStore(l, 1)
+	s := checkStore(l)
 	if s == nil {
 		return 0
 	}
@@ -327,7 +327,7 @@ func storeRelease(l *lua.LState) int {
 }
 
 func storeToString(l *lua.LState) int {
-	s := checkStore(l, 1)
+	s := checkStore(l)
 	if s == nil {
 		return 0
 	}

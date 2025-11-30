@@ -627,8 +627,7 @@ func TestExecutor_WriteStdin(t *testing.T) {
 			} else {
 				// Test writing to a non-running process
 				err := process.WriteStdin([]byte(tt.input))
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "process is not running")
+				assert.ErrorIs(t, err, ErrProcessNotRunning)
 			}
 		})
 	}

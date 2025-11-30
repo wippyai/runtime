@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/wippyai/runtime/api/resource"
 	apiexec "github.com/wippyai/runtime/api/service/exec"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -27,9 +28,9 @@ func NewProcess(ctx context.Context, handle apiexec.Process) *Process {
 		closed: false,
 	}
 
-	resources := getResources(ctx)
-	if resources != nil {
-		p.cancelCleanup = resources.AddCleanup(func() error {
+	store := resource.GetStore(ctx)
+	if store != nil {
+		p.cancelCleanup = store.AddCleanup(func() error {
 			p.mu.Lock()
 			defer p.mu.Unlock()
 			if !p.closed && p.handle != nil {

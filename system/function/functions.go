@@ -10,7 +10,6 @@ import (
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/pidgen"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/relay"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
@@ -20,7 +19,6 @@ import (
 // It uses an event bus for communication and supports dynamic handler registration.
 type Registry struct {
 	ctx        context.Context
-	host       relay.Host
 	logger     *zap.Logger
 	bus        event.Bus
 	handlers   sync.Map
@@ -29,10 +27,9 @@ type Registry struct {
 }
 
 // NewFunctionRegistry creates a new Registry instance with the provided event bus and logger.
-func NewFunctionRegistry(bus event.Bus, host relay.Host, logger *zap.Logger) *Registry {
+func NewFunctionRegistry(bus event.Bus, logger *zap.Logger) *Registry {
 	return &Registry{
 		bus:      bus,
-		host:     host,
 		logger:   logger,
 		handlers: sync.Map{},
 		options:  sync.Map{},
@@ -93,6 +90,7 @@ func (f *Registry) registerFunction(e event.Event) {
 	}
 
 	id := registry.ParseID(e.Path)
+	fmt.Printf("[DEBUG functions.go] registerFunction: path=%s id=%v\n", e.Path, id)
 
 	// Store the function handler
 	f.handlers.Store(id, reg.Handler)
@@ -151,11 +149,13 @@ func (f *Registry) sendReject(path event.Path, reason string) {
 // Returns an error if no handler is registered for the task's target or if the handler type is invalid.
 // Blocks until execution completes or context is canceled.
 func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.Result, error) {
+	fmt.Printf("[DEBUG Registry.Call] task.ID=%v\n", task.ID)
 	if ctx == nil {
 		return nil, fmt.Errorf("nil context")
 	}
 
 	handler, exists := f.handlers.Load(task.ID)
+	fmt.Printf("[DEBUG Registry.Call] handler exists=%v handler=%T\n", exists, handler)
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for target: %s", task.ID)
 	}
@@ -200,16 +200,24 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 
 	// Execute through interceptor chain if available
 	chain := function.GetInterceptorChain(ctx)
+	fmt.Printf("[DEBUG Registry.Call] chain=%v\n", chain)
 	if chain != nil {
+		fmt.Printf("[DEBUG Registry.Call] executing through chain\n")
 		return chain.Execute(ctx, executorFunc, task)
 	}
 
-	return executorFunc(ctx, task)
+	fmt.Printf("[DEBUG Registry.Call] executing directly\n")
+	result, err := executorFunc(ctx, task)
+	fmt.Printf("[DEBUG Registry.Call] result=%v err=%v\n", result, err)
+	return result, err
 }
 
 // executor creates frame context and executes the function handler.
 // This is called as the final step in the interceptor chain or directly if no chain exists.
 func (f *Registry) executor(ctx context.Context, handler function.Func, task runtimeapi.Task) (*runtimeapi.Result, error) {
+	// Get host from caller's frame context
+	host, _ := runtimeapi.GetFrameHost(ctx)
+
 	// Acquire pooled frame context
 	ctx, fc := ctxapi.AcquireFrameContext(ctx)
 
@@ -221,14 +229,14 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 	if len(task.Context) == 0 {
 		_ = fc.Set(runtimeapi.FrameIDKey, task.ID)
 		_ = fc.Set(runtimeapi.FramePIDKey, pid)
-		_ = fc.Set(runtimeapi.FrameHostKey, f.host)
+		_ = fc.Set(runtimeapi.FrameHostKey, host)
 	} else {
 		// Slow path: has task context overrides
 		pairsLen := 3 + len(task.Context)
 		pairs := make([]ctxapi.Pair, pairsLen)
 		pairs[0] = ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID}
 		pairs[1] = ctxapi.Pair{Key: runtimeapi.FramePIDKey, Value: pid}
-		pairs[2] = ctxapi.Pair{Key: runtimeapi.FrameHostKey, Value: f.host}
+		pairs[2] = ctxapi.Pair{Key: runtimeapi.FrameHostKey, Value: host}
 		copy(pairs[3:], task.Context)
 
 		if err := fc.SetMultiple(pairs...); err != nil {

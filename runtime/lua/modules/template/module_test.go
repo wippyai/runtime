@@ -12,10 +12,10 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	templatecfg "github.com/wippyai/runtime/api/service/template"
+	lua2payload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	templatesvc "github.com/wippyai/runtime/service/template"
 	payloadSystem "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
-	lua2payload "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 

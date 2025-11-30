@@ -7,9 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/resource"
 )
 
 // TickerRegistryKey is the context key for TickerRegistry.
@@ -209,7 +208,7 @@ func SetTickerRegistry(ctx context.Context, r *TickerRegistry) error {
 }
 
 // GetOrCreateTickerRegistry returns existing registry or creates a new one.
-// Registers cleanup with FrameContext to stop all tickers on process termination.
+// Registers cleanup with resource.Store to stop all tickers on process termination.
 func GetOrCreateTickerRegistry(ctx context.Context) *TickerRegistry {
 	if r := GetTickerRegistry(ctx); r != nil {
 		return r
@@ -217,77 +216,12 @@ func GetOrCreateTickerRegistry(ctx context.Context) *TickerRegistry {
 	r := NewTickerRegistry()
 	SetTickerRegistry(ctx, r)
 
-	// Register cleanup to stop all tickers when frame closes
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc != nil {
-		fc.AddCleanup(func() error {
+	if store := resource.GetStore(ctx); store != nil {
+		store.AddCleanup(func() error {
 			r.Close()
 			return nil
 		})
 	}
 
 	return r
-}
-
-// TickerStartHandler creates a new ticker and returns its ID.
-type TickerStartHandler struct{}
-
-func NewTickerStartHandler() *TickerStartHandler {
-	return &TickerStartHandler{}
-}
-
-func (h *TickerStartHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	startCmd := cmd.(clockapi.TickerStartCmd)
-
-	if startCmd.Duration <= 0 {
-		return errors.New("ticker duration must be positive")
-	}
-
-	registry := GetOrCreateTickerRegistry(ctx)
-	id := registry.Start(startCmd.Duration)
-	emit(id)
-
-	return nil
-}
-
-// TickerNextHandler waits for the next tick from a ticker.
-type TickerNextHandler struct{}
-
-func NewTickerNextHandler() *TickerNextHandler {
-	return &TickerNextHandler{}
-}
-
-func (h *TickerNextHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	nextCmd := cmd.(clockapi.TickerNextCmd)
-
-	registry := GetTickerRegistry(ctx)
-	if registry == nil {
-		return ErrTickerNotFound
-	}
-
-	t, err := registry.Next(ctx, nextCmd.TickerID)
-	if err != nil {
-		return err
-	}
-
-	emit(t.UnixNano())
-	return nil
-}
-
-// TickerStopHandler stops and removes a ticker.
-type TickerStopHandler struct{}
-
-func NewTickerStopHandler() *TickerStopHandler {
-	return &TickerStopHandler{}
-}
-
-func (h *TickerStopHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	stopCmd := cmd.(clockapi.TickerStopCmd)
-
-	registry := GetTickerRegistry(ctx)
-	if registry == nil {
-		return ErrTickerNotFound
-	}
-
-	return registry.Stop(stopCmd.TickerID)
 }

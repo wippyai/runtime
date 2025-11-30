@@ -23,15 +23,16 @@ entries:
   - name: hello
     kind: function.lua
     meta:
-      comment: Returns hello world JSON, calls WASM add function
+      comment: Returns hello world JSON with sleep test
     source: file://hello.lua
     modules:
       - http
+      - time
       - funcs
     method: handler
     pool:
       type: workstealing
-      size: 32
+      size: 256
       buffer: 1024
 
   # app.api:hello.endpoint - HTTP endpoint

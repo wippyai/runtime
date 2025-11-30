@@ -12,6 +12,7 @@ import (
 
 type Response struct {
 	writer basehttp.ResponseWriter
+	rCtx   *httpservice.RequestContext
 }
 
 var responseMethods = map[string]lua.LGFunction{
@@ -40,7 +41,7 @@ func newResponse(l *lua.LState) int {
 		return 2
 	}
 
-	value.NewUserData(l, &Response{writer: reqCtx.ResponseWriter()}, responseMetatable)
+	value.NewUserData(l, &Response{writer: reqCtx.ResponseWriter(), rCtx: reqCtx}, responseMetatable)
 	l.Push(lua.LNil)
 	return 2
 }
@@ -86,6 +87,7 @@ func responseWrite(l *lua.LState) int {
 		l.Push(lua.LString(err.Error()))
 		return 1
 	}
+	res.rCtx.MarkHandled()
 	l.Push(lua.LNil)
 	return 1
 }
@@ -119,6 +121,7 @@ func responseWriteJSON(l *lua.LState) int {
 		l.Push(lua.LString(err.Error()))
 		return 1
 	}
+	res.rCtx.MarkHandled()
 	l.Push(lua.LNil)
 	return 1
 }
@@ -173,6 +176,7 @@ func responseWriteEvent(l *lua.LState) int {
 		flusher.Flush()
 	}
 
+	res.rCtx.MarkHandled()
 	l.Push(lua.LNil)
 	return 1
 }

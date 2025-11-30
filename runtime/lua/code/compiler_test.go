@@ -253,7 +253,7 @@ func (m *testModule) Info() lua.ModuleInfo {
 }
 
 func TestNewCompiler(t *testing.T) {
-	compileFn := func(*Node) (*glua.FunctionProto, error) { return nil, nil }
+	compileFn := func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil }
 	compiler := NewCompiler(compileFn, 100, 200)
 
 	assert.NotNil(t, compiler)
@@ -276,7 +276,7 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 				ID:   registry.ID{Name: "moduleNode"},
 				Kind: lua.KindModule,
 			},
-			compileFn:     func(*Node) (*glua.FunctionProto, error) { return nil, nil },
+			compileFn:     func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil },
 			expectedProto: nil,
 			expectError:   true,
 		},
@@ -314,7 +314,7 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 }
 
 func TestCompiler_Invalidate(t *testing.T) {
-	compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) { return nil, nil }, 100, 200)
+	compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil }, 100, 200)
 
 	// Add some test data
 	testID := registry.ID{NS: "test", Name: "id"}
@@ -423,7 +423,7 @@ func TestCompiler_PreloadModule(t *testing.T) {
 	}
 	require.NoError(t, mg.AddNode(module))
 
-	compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) { return nil, nil }, 100, 200)
+	compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil }, 100, 200)
 	compiled := &CompiledMain{}
 
 	// Test preloading
@@ -432,9 +432,8 @@ func TestCompiler_PreloadModule(t *testing.T) {
 		ModuleID: module.ID,
 	}
 
-	result, err := compiler.preloadModule(mg, preload, compiled)
+	err := compiler.preloadModule(mg, preload, compiled)
 	assert.NoError(t, err)
-	assert.Nil(t, result)
 	assert.Len(t, compiled.Preloaded, 1)
 	assert.Equal(t, module, compiled.Preloaded[0].Node)
 	assert.Equal(t, "test", compiled.Preloaded[0].Name)
@@ -444,6 +443,6 @@ func TestCompiler_PreloadModule(t *testing.T) {
 		Name:     "bad",
 		ModuleID: registry.ID{NS: "test", Name: "non-existent"},
 	}
-	_, err = compiler.preloadModule(mg, badPreload, compiled)
+	err = compiler.preloadModule(mg, badPreload, compiled)
 	assert.Error(t, err)
 }

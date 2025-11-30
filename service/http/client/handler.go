@@ -13,7 +13,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
-	streamhandler "github.com/wippyai/runtime/service/dispatcher/stream"
+	streamhandler "github.com/wippyai/runtime/service/fs/stream"
 )
 
 // RequestHandler processes HTTP request commands.

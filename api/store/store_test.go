@@ -22,8 +22,8 @@ func TestErrors(t *testing.T) {
 		{"key not found", ErrKeyNotFound, "key not found"},
 		{"key exists", ErrKeyExists, "key already exists"},
 		{"invalid key", ErrInvalidKey, "invalid key format"},
-		{"store full", ErrStoreFull, "store is full, cannot add more entries"},
-		{"store closed", ErrStoreClosed, "store is closed for operations, cannot perform action"},
+		{"store full", ErrStoreFull, "store is full"},
+		{"store closed", ErrStoreClosed, "store is closed"},
 	}
 
 	for _, tt := range tests {

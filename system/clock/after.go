@@ -7,6 +7,7 @@ import (
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/resource"
 )
 
 // AfterRegistryKey is the context key for AfterRegistry.
@@ -110,9 +111,8 @@ func GetOrCreateAfterRegistry(ctx context.Context) *AfterRegistry {
 	r := NewAfterRegistry()
 	SetAfterRegistry(ctx, r)
 
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc != nil {
-		fc.AddCleanup(func() error {
+	if store := resource.GetStore(ctx); store != nil {
+		store.AddCleanup(func() error {
 			r.Close()
 			return nil
 		})

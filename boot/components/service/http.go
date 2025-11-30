@@ -27,7 +27,7 @@ import (
 	"github.com/wippyai/runtime/service/http/middleware/ratelimit"
 	"github.com/wippyai/runtime/service/http/middleware/realip"
 	"github.com/wippyai/runtime/service/http/middleware/wsrelay"
-	"github.com/wippyai/runtime/service/tokenstore"
+	tokenstore "github.com/wippyai/runtime/service/store/token"
 	"go.uber.org/zap"
 )
 

@@ -11,7 +11,6 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	"github.com/wippyai/runtime/service/template"
@@ -87,9 +86,9 @@ func NewTemplateSet(ctx context.Context, res resource.Resource[any], templates *
 		released:  false,
 	}
 
-	resources := engine.GetResources(ctx)
-	if resources != nil {
-		ts.cancelCleanup = resources.AddCleanup(func() error {
+	store := resource.GetStore(ctx)
+	if store != nil {
+		ts.cancelCleanup = store.AddCleanup(func() error {
 			ts.mu.Lock()
 			defer ts.mu.Unlock()
 			if !ts.released && ts.resource != nil {

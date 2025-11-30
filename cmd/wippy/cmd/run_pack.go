@@ -18,7 +18,7 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
-	"github.com/wippyai/runtime/service/embed"
+	"github.com/wippyai/runtime/service/fs/embed"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )

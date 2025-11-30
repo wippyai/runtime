@@ -11,11 +11,11 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	topapi "github.com/wippyai/runtime/api/topology"
+	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/system/eventbus"
 	"github.com/wippyai/runtime/system/logs"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
-	"github.com/wippyai/runtime/system/payload/lua"
 	"github.com/wippyai/runtime/system/payload/yaml"
 	"github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/topology"
@@ -43,7 +43,7 @@ func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, 
 	dtt := transcoder.GlobalTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
-	lua.Register(dtt)
+	luapayload.Register(dtt)
 	ctx = payload.WithTranscoder(ctx, dtt)
 
 	// Setup event infrastructure (logger with event streaming)
@@ -154,9 +154,6 @@ func createHosts(ctx context.Context, cfg boot.Config) error {
 	if err := node.RegisterHost(funcapi.HostID, funcHost); err != nil {
 		return err
 	}
-
-	// Store function host in context (control host is not stored)
-	_ = relayapi.WithHost(ctx, funcHost)
 
 	return nil
 }

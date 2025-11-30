@@ -146,10 +146,10 @@ func (m *MemoryGraph) hasCycle(from, to registry.ID) bool {
 // AddNode inserts a new node into the graph.
 func (m *MemoryGraph) AddNode(n *Node) error {
 	if n == nil {
-		return fmt.Errorf("node cannot be nil")
+		return ErrNodeNil
 	}
 	if _, exists := m.nodes[n.ID]; exists {
-		return fmt.Errorf("node with Process %v already exists", n.ID)
+		return NewNodeExistsError(n.ID)
 	}
 
 	m.graph.AddNode(n.ID)
@@ -162,13 +162,13 @@ func (m *MemoryGraph) AddNode(n *Node) error {
 // It returns an error if the node has any direct outgoing dependencies or incoming dependents.
 func (m *MemoryGraph) RemoveNode(id registry.ID) error {
 	if _, exists := m.nodes[id]; !exists {
-		return fmt.Errorf("node with Process %v not found", id)
+		return NewNodeNotFoundError(id)
 	}
 
 	// Check for incoming dependencies.
 	for nid := range m.nodes {
 		if m.graph.HasEdge(nid, id) {
-			return fmt.Errorf("cannot remove node %v: it has incoming dependencies from node %v", id, nid)
+			return NewIncomingDependencyError(id, nid)
 		}
 	}
 
@@ -184,14 +184,14 @@ func (m *MemoryGraph) RemoveNode(id registry.ID) error {
 // AddDependency creates a dependency edge from the node with Process 'from' to the node with Process 'to'.
 func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 	if _, exists := m.nodes[from]; !exists {
-		return fmt.Errorf("from node %v not found", from)
+		return NewNodeNotFoundError(from)
 	}
 	if _, exists := m.nodes[to]; !exists {
-		return fmt.Errorf("to node %v not found", to)
+		return NewNodeNotFoundError(to)
 	}
 
 	if m.graph.HasEdge(from, to) {
-		return fmt.Errorf("dependency from %v to %v already exists", from, to)
+		return NewDependencyExistsError(from, to)
 	}
 
 	// Check for alias collisions - if this node has other direct dependencies
@@ -204,7 +204,7 @@ func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 		for _, neighbor := range neighbors {
 			if edge, ok := m.graph.GetEdge(from, neighbor); ok {
 				if edge.Data.As == alias && neighbor != to {
-					return fmt.Errorf("alias collision: %s is already used for another dependency of %v", alias, from)
+					return NewAliasCollisionError(alias, from)
 				}
 			}
 		}
@@ -212,7 +212,7 @@ func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 
 	// Efficient cycle detection without graph cloning
 	if m.hasCycle(from, to) {
-		return fmt.Errorf("adding dependency would create a cycle")
+		return ErrCycleDetected
 	}
 
 	m.graph.AddEdge(from, to, 1, Edge{As: alias})
@@ -223,7 +223,7 @@ func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 // RemoveDependency removes the dependency edge from 'from' to 'to'.
 func (m *MemoryGraph) RemoveDependency(from, to registry.ID) error {
 	if !m.graph.HasEdge(from, to) {
-		return fmt.Errorf("dependency from %v to %v not found", from, to)
+		return NewDependencyNotFoundError(from, to)
 	}
 	m.invalidateCache()
 	return m.graph.RemoveEdge(from, to)
@@ -233,7 +233,7 @@ func (m *MemoryGraph) RemoveDependency(from, to registry.ID) error {
 func (m *MemoryGraph) GetNode(id registry.ID) (*Node, error) {
 	n, exists := m.nodes[id]
 	if !exists {
-		return nil, fmt.Errorf("node with Process %v not found", id)
+		return nil, NewNodeNotFoundError(id)
 	}
 	return n, nil
 }
@@ -241,7 +241,7 @@ func (m *MemoryGraph) GetNode(id registry.ID) (*Node, error) {
 // GetDirectDependencies returns all nodes that the node with the given Process depends on. Only direct dependencies are returned.
 func (m *MemoryGraph) GetDirectDependencies(id registry.ID) ([]*Node, error) {
 	if _, exists := m.nodes[id]; !exists {
-		return nil, fmt.Errorf("node with Process %v not found", id)
+		return nil, NewNodeNotFoundError(id)
 	}
 
 	neighborIDs, err := m.graph.GetNeighbors(id)
@@ -262,7 +262,7 @@ func (m *MemoryGraph) GetDirectDependencies(id registry.ID) ([]*Node, error) {
 // GetDirectDependents returns all nodes that depend on the node with the specified Process. Only direct dependents are returned.
 func (m *MemoryGraph) GetDirectDependents(id registry.ID) ([]*Node, error) {
 	if _, exists := m.nodes[id]; !exists {
-		return nil, fmt.Errorf("node with Process %v not found", id)
+		return nil, NewNodeNotFoundError(id)
 	}
 
 	// Pre-allocate with estimated capacity
@@ -278,7 +278,7 @@ func (m *MemoryGraph) GetDirectDependents(id registry.ID) ([]*Node, error) {
 // GetAllDependents returns all nodes that depend on the node with the specified Process, including transitive dependents.
 func (m *MemoryGraph) GetAllDependents(id registry.ID) ([]*Node, error) {
 	if _, exists := m.nodes[id]; !exists {
-		return nil, fmt.Errorf("node with Process %v not found", id)
+		return nil, NewNodeNotFoundError(id)
 	}
 
 	// Check cache first
@@ -476,12 +476,7 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 	for _, dep := range depNodes {
 		if existingNodeID, exists := nameToNode[dep.Name]; exists {
 			if existingNodeID != dep.Node.ID {
-				return nil, fmt.Errorf(
-					"alias collision: '%s' is used for both %v and %v in the dependency tree",
-					dep.Name,
-					existingNodeID,
-					dep.Node.ID,
-				)
+				return nil, NewAliasCollisionError(dep.Name, existingNodeID)
 			}
 		}
 		nameToNode[dep.Name] = dep.Node.ID

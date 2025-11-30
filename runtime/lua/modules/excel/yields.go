@@ -5,11 +5,8 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	excelapi "github.com/wippyai/runtime/api/dispatcher/excel"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
-
-var getResources = engine.GetResources
 
 // OpenStreamYield wraps ExcelOpenStreamCmd for Lua.
 type OpenStreamYield struct {

@@ -9,7 +9,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	lru "github.com/wippyai/runtime/internal/cache"
-	"github.com/wippyai/runtime/system/payload/lua"
+	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	luavm "github.com/yuin/gopher-lua"
 )
 
@@ -162,7 +162,7 @@ func luaEval(l *luavm.LState) int {
 		return 2
 	}
 
-	luaResult, err := lua.GoToLua(result)
+	luaResult, err := luaconv.GoToLua(result)
 	if err != nil {
 		l.Push(luavm.LNil)
 		l.Push(luavm.LString(fmt.Sprintf("failed to convert result: %s", err.Error())))
@@ -192,7 +192,7 @@ func programRun(l *luavm.LState) int {
 		return 2
 	}
 
-	luaResult, err := lua.GoToLua(result)
+	luaResult, err := luaconv.GoToLua(result)
 	if err != nil {
 		l.Push(luavm.LNil)
 		l.Push(luavm.LString(fmt.Sprintf("failed to convert result: %s", err.Error())))

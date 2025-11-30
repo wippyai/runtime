@@ -1,13 +1,34 @@
 package code
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// Test helper functions for slice containment checks
+func contains(slice []registry.ID, item registry.ID) bool {
+	for _, id := range slice {
+		if id == item {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
 
 func TestBuildOptions_WithMethods(t *testing.T) {
 	opts := NewBuildOptions()
@@ -93,7 +114,7 @@ func (m *mockModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *mockModule) Loader(l *lua.LState) int {
+func (m *mockModule) Loader(_ *lua.LState) int {
 	return 0
 }
 
@@ -198,7 +219,9 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		}
 		err := opts.Validate(nodes)
 		assert.Error(t, err)
-		assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
+		var apiErr apierror.Error
+		assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
+		assert.Equal(t, apierror.KindPermissionDenied, apiErr.Kind())
 	})
 
 	t.Run("same Process in required and denied", func(t *testing.T) {
@@ -212,7 +235,9 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		}
 		err := opts.Validate(nodes)
 		assert.Error(t, err)
-		assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
+		var apiErr apierror.Error
+		assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
+		assert.Equal(t, apierror.KindPermissionDenied, apiErr.Kind())
 	})
 
 	t.Run("same Process added multiple times to lists", func(t *testing.T) {
@@ -282,7 +307,7 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 		name      string
 		opts      *BuildOptions
 		wantError bool
-		errorMsg  string
+		errorKind apierror.Kind
 	}{
 		{
 			name: "empty nodes with no requirements",
@@ -296,7 +321,7 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 				WithMode(AllowAll).
 				WithRequired(registry.ID{Name: "foo"}),
 			wantError: true,
-			errorMsg:  "required process `:foo` was not found",
+			errorKind: apierror.KindPermissionDenied,
 		},
 		{
 			name: "empty nodes in DenyAll mode",
@@ -311,7 +336,7 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 				WithAllowed(registry.ID{Name: "foo"}).
 				WithRequired(registry.ID{Name: "foo"}),
 			wantError: true,
-			errorMsg:  "required process `:foo` was not found",
+			errorKind: apierror.KindPermissionDenied,
 		},
 	}
 
@@ -320,9 +345,9 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 			err := tt.opts.Validate(map[registry.ID]*Node{})
 			if tt.wantError {
 				assert.Error(t, err)
-				if tt.errorMsg != "" {
-					assert.Equal(t, tt.errorMsg, err.Error())
-				}
+				var apiErr apierror.Error
+				assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
+				assert.Equal(t, tt.errorKind, apiErr.Kind())
 			} else {
 				assert.NoError(t, err)
 			}
@@ -353,7 +378,9 @@ func TestBuildOptions_ModificationAfterSetup(t *testing.T) {
 	opts.WithDenied(fooID)
 	err := opts.Validate(nodes)
 	if assert.Error(t, err) {
-		assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
+		var apiErr apierror.Error
+		assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
+		assert.Equal(t, apierror.KindPermissionDenied, apiErr.Kind())
 	}
 }
 
@@ -372,7 +399,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 		opts      *BuildOptions
 		nodes     map[registry.ID]*Node
 		wantError bool
-		errorMsg  string
+		errorKind apierror.Kind
 	}{
 		{
 			name: "AllowAll mode - allow everything not denied",
@@ -394,7 +421,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "process `:foo` is not allowed in this build",
+			errorKind: apierror.KindPermissionDenied,
 		},
 		{
 			name: "AllowListed mode - only allow listed",
@@ -417,7 +444,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "process `:bar` is not in the allowed IDs list",
+			errorKind: apierror.KindPermissionDenied,
 		},
 		{
 			name: "DenyAll mode - only allow required",
@@ -439,7 +466,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "process `:bar` is not allowed (DenyAll mode)",
+			errorKind: apierror.KindPermissionDenied,
 		},
 		{
 			name: "StrictListed mode - required must be allowed",
@@ -464,7 +491,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "required process `:foo` must also be in allowed list (StrictListed mode)",
+			errorKind: apierror.KindPermissionDenied,
 		},
 		{
 			name: "Missing required Process",
@@ -475,7 +502,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "required process `:foo` was not found",
+			errorKind: apierror.KindPermissionDenied,
 		},
 		{
 			name: "Denied takes precedence over required",
@@ -487,7 +514,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				{Name: "foo"}: createNode("foo"),
 			},
 			wantError: true,
-			errorMsg:  "process `:foo` is not allowed in this build",
+			errorKind: apierror.KindPermissionDenied,
 		},
 	}
 
@@ -496,9 +523,9 @@ func TestBuildOptions_Validate(t *testing.T) {
 			err := tt.opts.Validate(tt.nodes)
 			if tt.wantError {
 				assert.Error(t, err)
-				if tt.errorMsg != "" {
-					assert.Equal(t, tt.errorMsg, err.Error())
-				}
+				var apiErr apierror.Error
+				assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
+				assert.Equal(t, tt.errorKind, apiErr.Kind())
 			} else {
 				assert.NoError(t, err)
 			}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -78,9 +79,9 @@ func NewWorkbook(ctx context.Context) *Workbook {
 		closed: false,
 	}
 
-	res := getResources(ctx)
-	if res != nil {
-		wb.cancelCleanup = res.AddCleanup(func() error {
+	store := resource.GetStore(ctx)
+	if store != nil {
+		wb.cancelCleanup = store.AddCleanup(func() error {
 			wb.mu.Lock()
 			defer wb.mu.Unlock()
 			if !wb.closed && wb.file != nil {
@@ -101,9 +102,9 @@ func WrapFile(ctx context.Context, file *excelize.File) *Workbook {
 		closed: false,
 	}
 
-	res := getResources(ctx)
-	if res != nil {
-		wb.cancelCleanup = res.AddCleanup(func() error {
+	store := resource.GetStore(ctx)
+	if store != nil {
+		wb.cancelCleanup = store.AddCleanup(func() error {
 			wb.mu.Lock()
 			defer wb.mu.Unlock()
 			if !wb.closed && wb.file != nil {

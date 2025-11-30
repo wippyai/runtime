@@ -3,6 +3,7 @@ package function
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	funcapi "github.com/wippyai/runtime/api/dispatcher/func"
@@ -44,6 +45,7 @@ type CallHandler struct{}
 
 func (h *CallHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
 	callCmd := cmd.(*funcapi.CallCmd)
+	fmt.Printf("[DEBUG CallHandler] Task.ID=%v\n", callCmd.Task.ID)
 
 	registry := function.GetRegistry(ctx)
 	if registry == nil {
@@ -51,6 +53,7 @@ func (h *CallHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit d
 		return nil
 	}
 
+	// todo: wrong, blocking!
 	result, err := registry.Call(ctx, callCmd.Task)
 	if err != nil {
 		emit(funcapi.Response{Error: err})

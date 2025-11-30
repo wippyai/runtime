@@ -6,6 +6,7 @@ import (
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -173,10 +174,10 @@ func subscribe(l *lua.LState) int {
 
 	sub.subscriber = subscriber
 
-	// Register cleanup with Resources
-	resources := engine.GetResources(ctx)
-	if resources != nil {
-		sub.cancelCleanup = resources.AddCleanup(func() error {
+	// Register cleanup with Store
+	store := resource.GetStore(ctx)
+	if store != nil {
+		sub.cancelCleanup = store.AddCleanup(func() error {
 			sub.mu.Lock()
 			defer sub.mu.Unlock()
 			if !sub.closed {

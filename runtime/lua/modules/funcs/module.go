@@ -12,9 +12,9 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	secapi "github.com/wippyai/runtime/api/security"
+	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	luaconv "github.com/wippyai/runtime/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -326,6 +326,7 @@ func executorCall(l *lua.LState) int {
 		ID:       regID,
 		Payloads: payloads,
 	}
+	fmt.Printf("[DEBUG funcs] executorCall: target=%s regID=%v yield.Task.ID=%v\n", target, regID, yield.Task.ID)
 
 	// Add context pairs
 	if exec.hasActor {

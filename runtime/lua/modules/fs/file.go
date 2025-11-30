@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
-	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/api/resource"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -27,9 +27,9 @@ func NewFile(file fsapi.File) *File {
 func NewFileWithCleanup(ctx context.Context, file fsapi.File) *File {
 	f := &File{file: file}
 
-	res := engine.GetResources(ctx)
-	if res != nil {
-		f.cancelCleanup = res.AddCleanup(func() error {
+	store := resource.GetStore(ctx)
+	if store != nil {
+		f.cancelCleanup = store.AddCleanup(func() error {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			if !f.closed {

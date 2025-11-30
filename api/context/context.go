@@ -9,6 +9,9 @@ import (
 // ErrNoFrameContext is returned when trying to set a frame value without a frame context
 var ErrNoFrameContext = errors.New("no frame context available")
 
+// ErrNoAppContext is returned when trying to set an app value without an app context
+var ErrNoAppContext = errors.New("no app context available")
+
 // Key represents a context key used for storing and retrieving values from the context.
 // It provides a type-safe way to store context values using string names.
 // When Inherit is true, the value will be automatically copied to new frames

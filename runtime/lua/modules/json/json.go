@@ -188,7 +188,7 @@ func (m *OldModule) decode(l *lua.LState) int {
 		return 2
 	}
 
-	value, err := Decode(l, []byte(str))
+	value, err := Decode([]byte(str))
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(newJSONDecodeError(l, err))
@@ -587,7 +587,7 @@ func (j *jsonValue) writeValueOptimized(buf *bytes.Buffer, value lua.LValue) err
 	}
 }
 
-func Decode(l *lua.LState, data []byte) (lua.LValue, error) {
+func Decode(data []byte) (lua.LValue, error) {
 	var value any
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
@@ -595,11 +595,11 @@ func Decode(l *lua.LState, data []byte) (lua.LValue, error) {
 	if err := dec.Decode(&value); err != nil {
 		return nil, err
 	}
-	return DecodeValue(l, value), nil
+	return DecodeValue(value), nil
 }
 
 // DecodeValue converts Go value to Lua value with proper indexing.
-func DecodeValue(l *lua.LState, value any) lua.LValue {
+func DecodeValue(value any) lua.LValue {
 	switch converted := value.(type) {
 	case bool:
 		return lua.LBool(converted)
@@ -611,17 +611,15 @@ func DecodeValue(l *lua.LState, value any) lua.LValue {
 	case string:
 		return lua.LString(converted)
 	case []any:
-		// Use proper Lua table creation with 1-indexed arrays
-		arr := l.CreateTable(len(converted), 0)
+		arr := lua.CreateTable(len(converted), 0)
 		for i, item := range converted {
-			arr.RawSetInt(i+1, DecodeValue(l, item)) // 1-indexed for Lua
+			arr.RawSetInt(i+1, DecodeValue(item))
 		}
 		return arr
 	case map[string]any:
-		// Use proper Lua table creation for objects
-		tbl := l.CreateTable(0, len(converted))
+		tbl := lua.CreateTable(0, len(converted))
 		for key, item := range converted {
-			tbl.RawSetH(lua.LString(key), DecodeValue(l, item))
+			tbl.RawSetH(lua.LString(key), DecodeValue(item))
 		}
 		return tbl
 	case nil:

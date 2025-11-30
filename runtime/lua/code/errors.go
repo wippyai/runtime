@@ -1,0 +1,159 @@
+package code
+
+import (
+	"fmt"
+
+	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/registry"
+)
+
+// Error implements apierror.Error for code graph errors
+type Error struct {
+	kind      apierror.Kind
+	message   string
+	retryable apierror.Ternary
+	details   attrs.Attributes
+}
+
+// Error implements error interface
+func (e *Error) Error() string {
+	return e.message
+}
+
+// Kind implements apierror.Error
+func (e *Error) Kind() apierror.Kind {
+	return e.kind
+}
+
+// Retryable implements apierror.Error
+func (e *Error) Retryable() apierror.Ternary {
+	return e.retryable
+}
+
+// Details implements apierror.Error
+func (e *Error) Details() attrs.Attributes {
+	return e.details
+}
+
+// Sentinel errors
+var (
+	ErrNodeNil = &Error{
+		kind:      apierror.KindInvalid,
+		message:   "node cannot be nil",
+		retryable: apierror.False,
+	}
+
+	ErrModuleNotCompiled = &Error{
+		kind:      apierror.KindInvalid,
+		message:   "module nodes are not compiled",
+		retryable: apierror.False,
+	}
+
+	ErrCycleDetected = &Error{
+		kind:      apierror.KindInvalid,
+		message:   "adding dependency would create a cycle",
+		retryable: apierror.False,
+	}
+)
+
+// NewNodeNotFoundError creates an error for missing node
+func NewNodeNotFoundError(id registry.ID) *Error {
+	return &Error{
+		kind:      apierror.KindNotFound,
+		message:   fmt.Sprintf("node with ID %v not found", id),
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"node_id": id.String()}),
+	}
+}
+
+// NewNodeExistsError creates an error for duplicate node
+func NewNodeExistsError(id registry.ID) *Error {
+	return &Error{
+		kind:      apierror.KindAlreadyExists,
+		message:   fmt.Sprintf("node with ID %v already exists", id),
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"node_id": id.String()}),
+	}
+}
+
+// NewDependencyExistsError creates an error for duplicate dependency
+func NewDependencyExistsError(from, to registry.ID) *Error {
+	return &Error{
+		kind:      apierror.KindAlreadyExists,
+		message:   fmt.Sprintf("dependency from %v to %v already exists", from, to),
+		retryable: apierror.False,
+		details: attrs.NewBagFrom(map[string]any{
+			"from": from.String(),
+			"to":   to.String(),
+		}),
+	}
+}
+
+// NewDependencyNotFoundError creates an error for missing dependency
+func NewDependencyNotFoundError(from, to registry.ID) *Error {
+	return &Error{
+		kind:      apierror.KindNotFound,
+		message:   fmt.Sprintf("dependency from %v to %v not found", from, to),
+		retryable: apierror.False,
+		details: attrs.NewBagFrom(map[string]any{
+			"from": from.String(),
+			"to":   to.String(),
+		}),
+	}
+}
+
+// NewAliasCollisionError creates an error for alias conflicts
+func NewAliasCollisionError(alias string, nodeID registry.ID) *Error {
+	return &Error{
+		kind:      apierror.KindConflict,
+		message:   fmt.Sprintf("alias collision: %s is already used for another dependency of %v", alias, nodeID),
+		retryable: apierror.False,
+		details: attrs.NewBagFrom(map[string]any{
+			"alias":   alias,
+			"node_id": nodeID.String(),
+		}),
+	}
+}
+
+// NewIncomingDependencyError creates an error when removing node with dependents
+func NewIncomingDependencyError(nodeID, dependentID registry.ID) *Error {
+	return &Error{
+		kind:      apierror.KindConflict,
+		message:   fmt.Sprintf("cannot remove node %v: it has incoming dependencies from node %v", nodeID, dependentID),
+		retryable: apierror.False,
+		details: attrs.NewBagFrom(map[string]any{
+			"node_id":      nodeID.String(),
+			"dependent_id": dependentID.String(),
+		}),
+	}
+}
+
+// NewBuildValidationError creates an error for build option validation failures
+func NewBuildValidationError(reason string, id registry.ID) *Error {
+	return &Error{
+		kind:      apierror.KindPermissionDenied,
+		message:   reason,
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"node_id": id.String()}),
+	}
+}
+
+// NewCompileError creates an error for compilation failures
+func NewCompileError(id registry.ID, err error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   fmt.Sprintf("failed to compile node %v: %v", id, err),
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"node_id": id.String()}),
+	}
+}
+
+// WrapError wraps a standard error with code graph error context
+func WrapError(kind apierror.Kind, err error, retryable apierror.Ternary) *Error {
+	return &Error{
+		kind:      kind,
+		message:   err.Error(),
+		retryable: retryable,
+	}
+}

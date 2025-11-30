@@ -5,11 +5,8 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	execapi "github.com/wippyai/runtime/api/dispatcher/exec"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
-
-var getResources = engine.GetResources
 
 // ProcessWaitYield wraps ProcessWaitCmd for Lua.
 type ProcessWaitYield struct {

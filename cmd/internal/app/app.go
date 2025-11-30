@@ -13,9 +13,9 @@ import (
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
 	"github.com/wippyai/runtime/cmd/internal/logger"
+	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	json2 "github.com/wippyai/runtime/system/payload/json"
-	"github.com/wippyai/runtime/system/payload/lua"
 	"github.com/wippyai/runtime/system/payload/yaml"
 	"go.uber.org/zap"
 )
@@ -52,7 +52,7 @@ func Init(ctx context.Context, verbose, veryVerbose, console, silent bool, appSt
 	dtt := transcoder.GlobalTranscoder()
 	json2.Register(dtt)
 	yaml.Register(dtt)
-	lua.Register(dtt)
+	luapayload.Register(dtt)
 	ctx = payload.WithTranscoder(ctx, dtt)
 
 	// Initialize loader

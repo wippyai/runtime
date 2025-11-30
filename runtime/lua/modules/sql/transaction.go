@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -33,9 +34,9 @@ func NewTransaction(ctx context.Context, tx *sql.Tx, db *DB) *Transaction {
 		active: true,
 	}
 
-	res := getResources(ctx)
-	if res != nil {
-		txWrapper.cancelCleanup = res.AddCleanup(func() error {
+	store := resource.GetStore(ctx)
+	if store != nil {
+		txWrapper.cancelCleanup = store.AddCleanup(func() error {
 			txWrapper.mu.Lock()
 			defer txWrapper.mu.Unlock()
 			if txWrapper.active {

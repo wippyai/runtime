@@ -8,7 +8,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	apiexec "github.com/wippyai/runtime/api/service/exec"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
@@ -29,9 +28,9 @@ func NewExecutor(ctx context.Context, res resource.Resource[any], factory apiexe
 		released: false,
 	}
 
-	resources := engine.GetResources(ctx)
-	if resources != nil {
-		e.cancelCleanup = resources.AddCleanup(func() error {
+	store := resource.GetStore(ctx)
+	if store != nil {
+		e.cancelCleanup = store.AddCleanup(func() error {
 			e.mu.Lock()
 			defer e.mu.Unlock()
 			if !e.released && e.resource != nil {

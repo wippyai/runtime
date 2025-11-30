@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -837,6 +838,426 @@ func (m *mockFuncRegistry) Call(ctx context.Context, _ runtime.Task) (*runtime.R
 	}
 	if m.callErr != nil {
 		return nil, m.callErr
+	}
+	return &runtime.Result{}, nil
+}
+
+// Stress tests
+
+func TestConsumer_StressHighThroughput(t *testing.T) {
+	ctx := context.Background()
+	driver := &mockDriver{}
+
+	processedCount := atomic.Int64{}
+	funcReg := &mockFuncRegistry{
+		onCall: func() {
+			processedCount.Add(1)
+		},
+	}
+
+	config := &consumerapi.Config{
+		Queue:       registry.ID{NS: "stress", Name: "queue"},
+		Func:        registry.ID{NS: "stress", Name: "func"},
+		Concurrency: 10,
+		Prefetch:    100,
+	}
+
+	consumer := NewConsumer(
+		registry.ID{NS: "stress", Name: "consumer"},
+		config,
+		driver,
+		funcReg,
+		zap.NewNop(),
+	)
+
+	_, err := consumer.Start(ctx)
+	require.NoError(t, err)
+
+	const messageCount = 10000
+	ackCount := atomic.Int64{}
+
+	for i := 0; i < messageCount; i++ {
+		delivery := &queueapi.Delivery{
+			Message: &queueapi.Message{
+				ID:      fmt.Sprintf("msg%d", i),
+				Body:    payload.New("stress test message"),
+				Headers: attrs.NewBag(),
+			},
+			Ack: func(_ context.Context) error {
+				ackCount.Add(1)
+				return nil
+			},
+			Nack: func(_ context.Context) error { return nil },
+		}
+		driver.deliveries <- delivery
+	}
+
+	assert.Eventually(t, func() bool {
+		return processedCount.Load() == messageCount
+	}, 30*time.Second, 10*time.Millisecond, "all messages should be processed")
+
+	assert.Equal(t, int64(messageCount), ackCount.Load(), "all messages should be acked")
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = consumer.Stop(stopCtx)
+	require.NoError(t, err)
+}
+
+func TestConsumer_StressRapidStartStop(t *testing.T) {
+	const iterations = 50
+
+	for i := 0; i < iterations; i++ {
+		ctx := context.Background()
+		driver := &mockDriver{}
+		funcReg := &mockFuncRegistry{}
+
+		config := &consumerapi.Config{
+			Queue:       registry.ID{NS: "stress", Name: "queue"},
+			Func:        registry.ID{NS: "stress", Name: "func"},
+			Concurrency: 5,
+			Prefetch:    10,
+		}
+
+		consumer := NewConsumer(
+			registry.ID{NS: "stress", Name: fmt.Sprintf("consumer-%d", i)},
+			config,
+			driver,
+			funcReg,
+			zap.NewNop(),
+		)
+
+		_, err := consumer.Start(ctx)
+		require.NoError(t, err, "iteration %d start failed", i)
+
+		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err = consumer.Stop(stopCtx)
+		cancel()
+		require.NoError(t, err, "iteration %d stop failed", i)
+	}
+}
+
+func TestConsumer_StressStartStopWithMessages(t *testing.T) {
+	const iterations = 20
+
+	for i := 0; i < iterations; i++ {
+		ctx := context.Background()
+		driver := &mockDriver{}
+
+		processedCount := atomic.Int32{}
+		funcReg := &mockFuncRegistry{
+			callDelay: time.Millisecond,
+			onCall: func() {
+				processedCount.Add(1)
+			},
+		}
+
+		config := &consumerapi.Config{
+			Queue:       registry.ID{NS: "stress", Name: "queue"},
+			Func:        registry.ID{NS: "stress", Name: "func"},
+			Concurrency: 3,
+			Prefetch:    10,
+		}
+
+		consumer := NewConsumer(
+			registry.ID{NS: "stress", Name: fmt.Sprintf("consumer-%d", i)},
+			config,
+			driver,
+			funcReg,
+			zap.NewNop(),
+		)
+
+		_, err := consumer.Start(ctx)
+		require.NoError(t, err, "iteration %d start failed", i)
+
+		for j := 0; j < 10; j++ {
+			delivery := &queueapi.Delivery{
+				Message: &queueapi.Message{
+					ID:      fmt.Sprintf("msg-%d-%d", i, j),
+					Body:    payload.New("test"),
+					Headers: attrs.NewBag(),
+				},
+				Ack:  func(_ context.Context) error { return nil },
+				Nack: func(_ context.Context) error { return nil },
+			}
+			driver.deliveries <- delivery
+		}
+
+		time.Sleep(5 * time.Millisecond)
+
+		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err = consumer.Stop(stopCtx)
+		cancel()
+		require.NoError(t, err, "iteration %d stop failed", i)
+	}
+}
+
+func TestConsumer_StressConcurrentConsumers(t *testing.T) {
+	const consumerCount = 10
+	const messagesPerConsumer = 100
+
+	var wg sync.WaitGroup
+	wg.Add(consumerCount)
+
+	totalProcessed := atomic.Int64{}
+
+	for c := 0; c < consumerCount; c++ {
+		go func(consumerID int) {
+			defer wg.Done()
+
+			ctx := context.Background()
+			driver := &mockDriver{}
+
+			funcReg := &mockFuncRegistry{
+				onCall: func() {
+					totalProcessed.Add(1)
+				},
+			}
+
+			config := &consumerapi.Config{
+				Queue:       registry.ID{NS: "stress", Name: fmt.Sprintf("queue-%d", consumerID)},
+				Func:        registry.ID{NS: "stress", Name: "func"},
+				Concurrency: 3,
+				Prefetch:    20,
+			}
+
+			consumer := NewConsumer(
+				registry.ID{NS: "stress", Name: fmt.Sprintf("consumer-%d", consumerID)},
+				config,
+				driver,
+				funcReg,
+				zap.NewNop(),
+			)
+
+			_, err := consumer.Start(ctx)
+			if err != nil {
+				t.Errorf("consumer %d start failed: %v", consumerID, err)
+				return
+			}
+
+			for m := 0; m < messagesPerConsumer; m++ {
+				delivery := &queueapi.Delivery{
+					Message: &queueapi.Message{
+						ID:      fmt.Sprintf("msg-%d-%d", consumerID, m),
+						Body:    payload.New("test"),
+						Headers: attrs.NewBag(),
+					},
+					Ack:  func(_ context.Context) error { return nil },
+					Nack: func(_ context.Context) error { return nil },
+				}
+				driver.deliveries <- delivery
+			}
+
+			time.Sleep(50 * time.Millisecond)
+
+			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := consumer.Stop(stopCtx); err != nil {
+				t.Errorf("consumer %d stop failed: %v", consumerID, err)
+			}
+		}(c)
+	}
+
+	wg.Wait()
+
+	expected := int64(consumerCount * messagesPerConsumer)
+	assert.GreaterOrEqual(t, totalProcessed.Load(), expected/2, "at least half of messages should be processed")
+}
+
+func TestConsumer_StressNackRequeue(t *testing.T) {
+	ctx := context.Background()
+	driver := &mockDriver{}
+
+	nackCount := atomic.Int32{}
+	ackCount := atomic.Int32{}
+
+	// Use a thread-safe mock that fails first 10 calls
+	funcReg := &mockFuncRegistryFailFirst{
+		failCount: 10,
+	}
+
+	config := &consumerapi.Config{
+		Queue:       registry.ID{NS: "stress", Name: "queue"},
+		Func:        registry.ID{NS: "stress", Name: "func"},
+		Concurrency: 1,
+		Prefetch:    10,
+	}
+
+	consumer := NewConsumer(
+		registry.ID{NS: "stress", Name: "consumer"},
+		config,
+		driver,
+		funcReg,
+		zap.NewNop(),
+	)
+
+	_, err := consumer.Start(ctx)
+	require.NoError(t, err)
+
+	delivery := &queueapi.Delivery{
+		Message: &queueapi.Message{
+			ID:      "msg-requeue",
+			Body:    payload.New("requeue test"),
+			Headers: attrs.NewBag(),
+		},
+		Ack: func(_ context.Context) error {
+			ackCount.Add(1)
+			return nil
+		},
+		Nack: func(_ context.Context) error {
+			nackCount.Add(1)
+			return nil
+		},
+	}
+
+	driver.deliveries <- delivery
+
+	time.Sleep(50 * time.Millisecond)
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err = consumer.Stop(stopCtx)
+	require.NoError(t, err)
+
+	// Message was processed at least once
+	assert.GreaterOrEqual(t, funcReg.callCount.Load(), int64(1))
+}
+
+func TestConsumer_StressResourceCleanup(t *testing.T) {
+	const iterations = 100
+
+	for i := 0; i < iterations; i++ {
+		ctx := context.Background()
+		driver := &mockDriver{}
+
+		funcReg := &mockFuncRegistry{}
+
+		config := &consumerapi.Config{
+			Queue:       registry.ID{NS: "stress", Name: "queue"},
+			Func:        registry.ID{NS: "stress", Name: "func"},
+			Concurrency: 5,
+			Prefetch:    50,
+		}
+
+		consumer := NewConsumer(
+			registry.ID{NS: "stress", Name: fmt.Sprintf("consumer-%d", i)},
+			config,
+			driver,
+			funcReg,
+			zap.NewNop(),
+		)
+
+		statusChan, err := consumer.Start(ctx)
+		require.NoError(t, err, "iteration %d start failed", i)
+
+		stopCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		err = consumer.Stop(stopCtx)
+		cancel()
+		require.NoError(t, err, "iteration %d stop failed", i)
+
+		// Verify status channel is closed
+		select {
+		case _, ok := <-statusChan:
+			assert.False(t, ok, "status channel should be closed")
+		case <-time.After(100 * time.Millisecond):
+			t.Fatalf("iteration %d: status channel not closed", i)
+		}
+	}
+}
+
+func TestConsumer_StressMixedAckNack(t *testing.T) {
+	ctx := context.Background()
+	driver := &mockDriver{}
+
+	ackCount := atomic.Int64{}
+	nackCount := atomic.Int64{}
+	callCount := atomic.Int64{}
+
+	// Use a thread-safe mock that alternates success/failure
+	funcReg := &mockFuncRegistryAtomic{
+		failEveryN: 3,
+	}
+
+	config := &consumerapi.Config{
+		Queue:       registry.ID{NS: "stress", Name: "queue"},
+		Func:        registry.ID{NS: "stress", Name: "func"},
+		Concurrency: 5,
+		Prefetch:    20,
+	}
+
+	consumer := NewConsumer(
+		registry.ID{NS: "stress", Name: "consumer"},
+		config,
+		driver,
+		funcReg,
+		zap.NewNop(),
+	)
+
+	_, err := consumer.Start(ctx)
+	require.NoError(t, err)
+
+	const messageCount = 100
+	for i := 0; i < messageCount; i++ {
+		delivery := &queueapi.Delivery{
+			Message: &queueapi.Message{
+				ID:      fmt.Sprintf("msg%d", i),
+				Body:    payload.New("mixed test"),
+				Headers: attrs.NewBag(),
+			},
+			Ack: func(_ context.Context) error {
+				ackCount.Add(1)
+				callCount.Add(1)
+				return nil
+			},
+			Nack: func(_ context.Context) error {
+				nackCount.Add(1)
+				callCount.Add(1)
+				return nil
+			},
+		}
+		driver.deliveries <- delivery
+	}
+
+	assert.Eventually(t, func() bool {
+		return callCount.Load() >= messageCount
+	}, 10*time.Second, 10*time.Millisecond, "all messages should be processed")
+
+	total := ackCount.Load() + nackCount.Load()
+	assert.Equal(t, int64(messageCount), total, "all messages should be acked or nacked")
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = consumer.Stop(stopCtx)
+	require.NoError(t, err)
+}
+
+// Thread-safe mock that fails every Nth call
+type mockFuncRegistryAtomic struct {
+	callCount  atomic.Int64
+	failEveryN int64
+}
+
+func (m *mockFuncRegistryAtomic) Call(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+	count := m.callCount.Add(1)
+	if count%m.failEveryN == 0 {
+		return nil, errors.New("simulated failure")
+	}
+	return &runtime.Result{}, nil
+}
+
+// Thread-safe mock that fails first N calls
+type mockFuncRegistryFailFirst struct {
+	callCount atomic.Int64
+	failCount int64
+}
+
+func (m *mockFuncRegistryFailFirst) Call(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+	count := m.callCount.Add(1)
+	if count <= m.failCount {
+		return nil, errors.New("temporary failure")
 	}
 	return &runtime.Result{}, nil
 }

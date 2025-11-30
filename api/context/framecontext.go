@@ -4,8 +4,6 @@ package context
 import (
 	"context"
 	"fmt"
-	"log"
-	"runtime/debug"
 	"sync"
 )
 
@@ -52,32 +50,26 @@ type FrameContext interface {
 	// IsSealed returns true if this frame is sealed (immutable).
 	IsSealed() bool
 
-	// AddCleanup registers a cleanup function to run when Close() is called.
-	// Cleanup functions are executed in LIFO order (last added runs first).
-	AddCleanup(fn func() error)
-
-	// Close executes all registered cleanup functions in LIFO order.
-	// Continues running all cleanups even if some fail, returns the last error.
+	// Close marks the frame as closed.
 	// Safe to call multiple times - subsequent calls are no-ops.
+	// Note: Resource cleanup should be handled via resource.Store.AddCleanup().
 	Close() error
 }
 
 // frameContext is the concrete implementation of FrameContext.
 type frameContext struct {
-	mu       sync.RWMutex
-	values   map[any]any
-	parent   FrameContext
-	sealed   bool
-	cleanups []func() error
-	closed   bool
+	mu     sync.RWMutex
+	values map[any]any
+	parent FrameContext
+	sealed bool
+	closed bool
 }
 
 // frameContextPool for reusing frame contexts to reduce allocations.
 var frameContextPool = sync.Pool{
 	New: func() any {
 		return &frameContext{
-			values:   make(map[any]any, 4),
-			cleanups: make([]func() error, 0, 4),
+			values: make(map[any]any, 4),
 		}
 	},
 }
@@ -89,7 +81,6 @@ func AcquireFrameContext(parent context.Context) (context.Context, FrameContext)
 	fc.sealed = false
 	fc.closed = false
 	fc.parent = nil
-	fc.cleanups = fc.cleanups[:0]
 	if parentFC := FrameFromContext(parent); parentFC != nil {
 		fc.parent = parentFC
 	}
@@ -106,7 +97,6 @@ func ReleaseFrameContext(fc FrameContext) {
 		f.parent = nil
 		f.sealed = false
 		f.closed = false
-		f.cleanups = f.cleanups[:0]
 		f.mu.Unlock()
 		frameContextPool.Put(f)
 	}
@@ -201,9 +191,6 @@ func (f *frameContext) Set(key any, value any) error {
 	defer f.mu.Unlock()
 
 	if f.sealed {
-		// TODO: This should never be triggered. If it is, it's a priority to learn how it happened.
-		// Indicates a timing issue where something is trying to write to a sealed frame.
-		log.Printf("[FRAME_DEBUG] Set FAILED - frame is sealed: key=%v\n%s", key, string(debug.Stack()))
 		return fmt.Errorf("cannot set key in sealed frame: %v", key)
 	}
 
@@ -258,30 +245,11 @@ func (f *frameContext) IsSealed() bool {
 	return f.sealed
 }
 
-func (f *frameContext) AddCleanup(fn func() error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.cleanups = append(f.cleanups, fn)
-}
-
 func (f *frameContext) Close() error {
 	f.mu.Lock()
-	if f.closed {
-		f.mu.Unlock()
-		return nil
-	}
+	defer f.mu.Unlock()
 	f.closed = true
-	cleanups := f.cleanups
-	f.cleanups = nil
-	f.mu.Unlock()
-
-	var lastErr error
-	for i := len(cleanups) - 1; i >= 0; i-- {
-		if err := cleanups[i](); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return nil
 }
 
 // frameContextKey is the context key for storing FrameContext.

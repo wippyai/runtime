@@ -11,7 +11,7 @@ import (
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	httpservice "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/runtime/wasm/resource"
-	streamservice "github.com/wippyai/runtime/service/dispatcher/stream"
+	streamservice "github.com/wippyai/runtime/service/fs/stream"
 )
 
 const (

@@ -85,7 +85,7 @@ func decodeFunc(l *lua.LState) int {
 		return 2
 	}
 
-	value, err := Decode(l, []byte(str))
+	value, err := Decode([]byte(str))
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))

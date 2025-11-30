@@ -10,7 +10,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
-	"github.com/wippyai/runtime/boot/components/dispatcher"
+	"github.com/wippyai/runtime/boot/components/dispatchers"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	funclua "github.com/wippyai/runtime/runtime/lua/component/function"
@@ -25,7 +25,7 @@ func Engine() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      LuaEngineName,
-		DependsOn: []boot.ComponentName{dispatcher.ClockName},
+		DependsOn: []boot.ComponentName{dispatchers.ClockDispatcherName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)

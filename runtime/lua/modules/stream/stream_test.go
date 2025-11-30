@@ -7,12 +7,15 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	streamsvc "github.com/wippyai/runtime/service/dispatcher/stream"
+	"github.com/wippyai/runtime/api/resource"
+	streamsvc "github.com/wippyai/runtime/service/fs/stream"
 	lua "github.com/yuin/gopher-lua"
 )
 
 func TestStreamRegistryIntegration(t *testing.T) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	store := resource.NewStore()
+	_ = resource.SetStore(ctx, store)
 
 	registry := streamsvc.GetOrCreateStreamRegistry(ctx)
 	if registry == nil {

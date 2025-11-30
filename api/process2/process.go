@@ -32,6 +32,7 @@ const MaxYields = 4
 // StepResult is returned by Process.Step() containing status and yields.
 type StepResult struct {
 	Status     StepStatus
+	Result     payload.Payload // Final result on StepDone (optional)
 	yieldCount int
 	yieldsBuf  [MaxYields]dispatcher.Command
 	yields     []dispatcher.Command
@@ -70,6 +71,7 @@ func (r *StepResult) YieldCount() int {
 // Reset clears the result for reuse.
 func (r *StepResult) Reset() {
 	r.Status = StepContinue
+	r.Result = nil
 	for i := 0; i < r.yieldCount; i++ {
 		r.yieldsBuf[i] = nil
 	}
