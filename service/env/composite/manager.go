@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	enverr "github.com/wippyai/runtime/service/env"
 	"go.uber.org/zap"
 )
 
@@ -45,16 +46,16 @@ func NewManager(
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageRouter {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return fmt.Errorf("%w: %s", enverr.ErrUnsupportedKind, entry.Kind)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[envsvc.RouterStorageConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to decode composite storage config: %w", err)
+		return fmt.Errorf("%w: %w", enverr.ErrDecodeConfig, err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
+		return fmt.Errorf("%w: %w", enverr.ErrInvalidConfig, err)
 	}
 
 	selectedStorages := make([]env.Storage, 0, len(cfg.Storages))
@@ -62,14 +63,14 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		storageID := registry.ParseID(storageName)
 		storage, found := m.findStorage(storageID)
 		if !found {
-			return fmt.Errorf("storage not found: %s", storageName)
+			return fmt.Errorf("%w: %s", enverr.ErrStorageNotFound, storageName)
 		}
 		selectedStorages = append(selectedStorages, storage)
 	}
 
-	storage, err := NewStorage(selectedStorages, m.log)
+	storage, err := NewStorage(selectedStorages)
 	if err != nil {
-		return fmt.Errorf("failed to create composite storage: %w", err)
+		return fmt.Errorf("%w: %w", enverr.ErrCreateStorage, err)
 	}
 
 	m.mu.Lock()
@@ -112,7 +113,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageRouter {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return fmt.Errorf("%w: %s", enverr.ErrUnsupportedKind, entry.Kind)
 	}
 
 	m.mu.Lock()

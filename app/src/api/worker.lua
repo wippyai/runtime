@@ -1,4 +1,5 @@
--- Simple worker process that receives messages via inbox
+-- Simple worker process
+local process = require("process")
 
 local function main(input)
     -- Get our PID
@@ -10,20 +11,8 @@ local function main(input)
         print("[WORKER] Received input: " .. tostring(input))
     end
 
-    -- Get inbox channel for receiving messages
-    local inbox = process.inbox()
-    print("[WORKER] Waiting for messages on inbox...")
-
-    -- Wait for a message (blocking receive)
-    local msg, ok = inbox:receive()
-
-    if ok and msg then
-        print("[WORKER] Got message!")
-        print("[WORKER]   Topic: " .. tostring(msg:topic()))
-        print("[WORKER]   From: " .. tostring(msg:from()))
-    else
-        print("[WORKER] Inbox closed or no message")
-    end
+    -- Do some work
+    print("[WORKER] Processing...")
 
     print("[WORKER] Completed")
     return "done"

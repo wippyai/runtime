@@ -4,7 +4,7 @@ import "github.com/wippyai/runtime/api/boot"
 
 const (
 	HTTPName              boot.ComponentName = "http"
-	TerminalName          boot.ComponentName = "terminal"
+	Terminal2Name         boot.ComponentName = "terminal2"
 	ProcessSupervisorName boot.ComponentName = "process_supervisor"
 	ProcessFuncName       boot.ComponentName = "process_func"
 	EphemeralHostName     boot.ComponentName = "ephemeral_host"

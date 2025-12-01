@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 
@@ -47,11 +46,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	cfg, err := entryutil.DecodeEntryConfig[envsvc.MemoryStorageConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("%w: %v", enverr.ErrDecodeConfig, err)
+		return fmt.Errorf("%w: %w", enverr.ErrDecodeConfig, err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("%w: %v", enverr.ErrInvalidConfig, err)
+		return fmt.Errorf("%w: %w", enverr.ErrInvalidConfig, err)
 	}
 
 	storage := NewStorage(nil)
@@ -115,19 +114,4 @@ func (m *Manager) GetStorage(id registry.ID) (env.Storage, bool) {
 		return nil, false
 	}
 	return storage, true
-}
-
-// IsUnsupportedKind checks if error is unsupported kind error.
-func IsUnsupportedKind(err error) bool {
-	return errors.Is(err, enverr.ErrUnsupportedKind)
-}
-
-// IsDecodeConfigError checks if error is decode config error.
-func IsDecodeConfigError(err error) bool {
-	return errors.Is(err, enverr.ErrDecodeConfig)
-}
-
-// IsInvalidConfigError checks if error is invalid config error.
-func IsInvalidConfigError(err error) bool {
-	return errors.Is(err, enverr.ErrInvalidConfig)
 }

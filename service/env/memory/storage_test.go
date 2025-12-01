@@ -36,7 +36,7 @@ func TestNewStorage(t *testing.T) {
 	})
 }
 
-func TestStorage_ImplementsInterface(t *testing.T) {
+func TestStorage_ImplementsInterface(_ *testing.T) {
 	var _ env.Storage = (*Storage)(nil)
 }
 
@@ -114,7 +114,7 @@ func TestStorage_List(t *testing.T) {
 	assert.Equal(t, "value3", values["KEY3"])
 }
 
-func TestStorage_Concurrent(t *testing.T) {
+func TestStorage_Concurrent(_ *testing.T) {
 	storage := NewStorage(nil)
 	ctx := context.Background()
 

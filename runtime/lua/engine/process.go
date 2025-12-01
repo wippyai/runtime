@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/resource"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
@@ -235,6 +236,10 @@ type Process struct {
 
 	// exported caches method functions extracted from module table
 	exported map[string]*lua.LFunction
+
+	// inbox holds incoming relay messages for this process
+	inboxMu sync.Mutex
+	inbox   []*relay.Package
 }
 
 // NewProcess creates a new Lua process with options.
@@ -296,13 +301,18 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 	p.ctx = ctx
 	p.state.SetContext(ctx)
 
-	// Create and store Resources in FrameContext
-	res := NewResources()
-	if err := SetResources(ctx, res); err != nil {
+	// Create and store resource.Store in FrameContext
+	store := resource.NewStore()
+	if err := resource.SetStore(ctx, store); err != nil {
 		if p.state != nil {
 			p.state.Close()
 		}
 		return fmt.Errorf("failed to store resources: %w", err)
+	}
+
+	// Seal the frame to finalize context and break any parent references
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		fc.Seal()
 	}
 
 	// Determine which function to execute
@@ -495,12 +505,19 @@ func (p *Process) Step(results *scheduler.YieldResults) (scheduler.StepResult, e
 
 // Send delivers an external message to the process.
 func (p *Process) Send(pkg *relay.Package) error {
-	res := GetResources(p.ctx)
-	if res == nil {
-		return fmt.Errorf("resources not found in context")
-	}
-	res.QueueMessage(pkg)
+	p.inboxMu.Lock()
+	p.inbox = append(p.inbox, pkg)
+	p.inboxMu.Unlock()
 	return nil
+}
+
+// DrainInbox returns and clears all incoming messages.
+func (p *Process) DrainInbox() []*relay.Package {
+	p.inboxMu.Lock()
+	msgs := p.inbox
+	p.inbox = p.inbox[:0]
+	p.inboxMu.Unlock()
+	return msgs
 }
 
 // State returns the underlying Lua state.
@@ -655,33 +672,30 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, error) {
 		return tasks, nil
 	}
 
-	// Route incoming messages from Resources to subscribed channels
-	res := GetResources(p.ctx)
-	if res != nil {
-		for _, pkg := range res.DrainMessages() {
-			for _, msg := range pkg.Messages {
-				topic := string(msg.Topic)
-				if sub, exists := lctx.subs.get(topic); exists {
-					value := messageToLua(p.state, msg)
-					result := sub.channel.Send(nil, value, nil)
+	// Route incoming messages to subscribed channels
+	for _, pkg := range p.DrainInbox() {
+		for _, msg := range pkg.Messages {
+			topic := string(msg.Topic)
+			if sub, exists := lctx.subs.get(topic); exists {
+				value := messageToLua(p.state, msg)
+				result := sub.channel.Send(nil, value, nil)
 
-					// Wake any blocked receivers
-					updates := result.GetUpdates()
-					if result.Yields && len(updates) > 0 {
-						for _, upd := range updates {
-							if upd.State == nil {
-								continue
-							}
-							t, err := p.GetTask(upd.State)
-							if err == nil {
-								t.ResumeWith(upd.GetResult()...)
-								p.queue.Push(t)
-							}
+				// Wake any blocked receivers
+				updates := result.GetUpdates()
+				if result.Yields && len(updates) > 0 {
+					for _, upd := range updates {
+						if upd.State == nil {
+							continue
+						}
+						t, err := p.GetTask(upd.State)
+						if err == nil {
+							t.ResumeWith(upd.GetResult()...)
+							p.queue.Push(t)
 						}
 					}
-
-					ReleaseResult(result)
 				}
+
+				ReleaseResult(result)
 			}
 		}
 	}
@@ -883,12 +897,17 @@ func (p *Process) yieldToCommand(task *Task) dispatcher.Command {
 
 // Close releases all process resources.
 func (p *Process) Close() {
-	// Close resources via context if available
+	// Close resource store via context if available
 	if p.ctx != nil {
-		if res := GetResources(p.ctx); res != nil {
-			res.Close()
+		if store := resource.GetStore(p.ctx); store != nil {
+			store.Close()
 		}
 	}
+
+	// Clear inbox
+	p.inboxMu.Lock()
+	p.inbox = p.inbox[:0]
+	p.inboxMu.Unlock()
 
 	// Close all threads
 	for _, task := range p.threads {
@@ -904,6 +923,9 @@ func (p *Process) Close() {
 		p.state.Close()
 		p.state = nil
 	}
+
+	// Clear context reference
+	p.ctx = nil
 }
 
 // SyncExecute runs the script directly without coroutines or scheduler.
@@ -999,12 +1021,17 @@ func (p *Process) resumeTaskWithResult(task *Task, data any, err error) {
 // Called automatically by Step when returning StepDone.
 // The Lua state is preserved for reuse.
 func (p *Process) clearExecution() {
-	// Close resources for this execution
+	// Close resource store for this execution
 	if p.ctx != nil {
-		if res := GetResources(p.ctx); res != nil {
-			res.Close()
+		if store := resource.GetStore(p.ctx); store != nil {
+			store.Close()
 		}
 	}
+
+	// Clear inbox
+	p.inboxMu.Lock()
+	p.inbox = p.inbox[:0]
+	p.inboxMu.Unlock()
 
 	// Close all spawned threads but keep them referenced for GC
 	for _, task := range p.threads {
@@ -1021,6 +1048,11 @@ func (p *Process) clearExecution() {
 
 	// Clear yield buffer
 	p.yieldBuf = p.yieldBuf[:0]
+
+	// Clear context from LState to release all references
+	if p.state != nil {
+		p.state.RemoveContext()
+	}
 
 	// Clear context
 	p.ctx = nil

@@ -5,13 +5,18 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
+	"github.com/wippyai/runtime/api/env"
 )
+
+func TestStorage_ImplementsInterface(_ *testing.T) {
+	var _ env.Storage = (*Storage)(nil)
+}
 
 func setupTestFile(t *testing.T) (string, func()) {
 	tmpDir, err := os.MkdirTemp("", "filestorage-test-*")
@@ -46,21 +51,18 @@ KEY3=value3`
 }
 
 func TestNewStorage(t *testing.T) {
-	logger := zap.NewNop()
 	filePath := "test.env"
-	storage := NewStorage(filePath, true, 0644, 0755, logger)
+	storage := NewStorage(filePath, true, 0644, 0755)
 
 	assert.NotNil(t, storage)
 	assert.Equal(t, filePath, storage.filepath)
-	assert.NotNil(t, storage.log)
 	assert.Equal(t, true, storage.autoCreate)
 	assert.Equal(t, os.FileMode(0644), storage.fileMode)
 	assert.Equal(t, os.FileMode(0755), storage.dirMode)
 }
 
 func TestStorage_DefaultModes(t *testing.T) {
-	logger := zap.NewNop()
-	storage := NewStorage("test.env", true, 0, 0, logger)
+	storage := NewStorage("test.env", true, 0, 0)
 
 	assert.Equal(t, os.FileMode(0644), storage.fileMode)
 	assert.Equal(t, os.FileMode(0755), storage.dirMode)
@@ -70,149 +72,93 @@ func TestStorage_Get(t *testing.T) {
 	testFile, cleanup := setupTestFile(t)
 	t.Cleanup(cleanup)
 
-	logger := zap.NewNop()
-	storage := NewStorage(testFile, true, 0644, 0755, logger)
+	storage := NewStorage(testFile, true, 0644, 0755)
 
 	_, err := os.Stat(testFile)
 	require.NoError(t, err)
 
-	tests := []struct {
-		name     string
-		key      string
-		expected string
-		wantErr  bool
-	}{
-		{
-			name:     "existing key",
-			key:      "KEY1",
-			expected: "value1",
-			wantErr:  false,
-		},
-		{
-			name:     "key with comment",
-			key:      "KEY2",
-			expected: "value2",
-			wantErr:  false,
-		},
-		{
-			name:     "non-existent key",
-			key:      "NONEXISTENT",
-			expected: "",
-			wantErr:  true,
-		},
-	}
+	t.Run("existing key", func(t *testing.T) {
+		value, err := storage.Get(context.Background(), "KEY1")
+		require.NoError(t, err)
+		assert.Equal(t, "value1", value)
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			value, err := storage.Get(context.Background(), tt.key)
-			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Equal(t, "", value)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expected, value)
-			}
+	t.Run("key with comment", func(t *testing.T) {
+		value, err := storage.Get(context.Background(), "KEY2")
+		require.NoError(t, err)
+		assert.Equal(t, "value2", value)
+	})
 
-			_, err = os.Stat(testFile)
-			assert.NoError(t, err)
-		})
-	}
+	t.Run("non-existent key", func(t *testing.T) {
+		_, err := storage.Get(context.Background(), "NONEXISTENT")
+		assert.ErrorIs(t, err, env.ErrVariableNotFound)
+	})
 }
 
 func TestStorage_Set(t *testing.T) {
 	testFile, cleanup := setupTestFile(t)
 	t.Cleanup(cleanup)
 
-	logger := zap.NewNop()
-	storage := NewStorage(testFile, true, 0644, 0755, logger)
+	storage := NewStorage(testFile, true, 0644, 0755)
 
-	_, err := os.Stat(testFile)
-	require.NoError(t, err)
+	t.Run("update existing key", func(t *testing.T) {
+		err := storage.Set(context.Background(), "KEY1", "newvalue1")
+		require.NoError(t, err)
 
-	tests := []struct {
-		name     string
-		key      string
-		value    string
-		expected string
-	}{
-		{
-			name:     "update existing key",
-			key:      "KEY1",
-			value:    "newvalue1",
-			expected: "newvalue1",
-		},
-		{
-			name:     "add new key",
-			key:      "NEWKEY",
-			value:    "newvalue",
-			expected: "newvalue",
-		},
-	}
+		if runtime.GOOS == "windows" {
+			time.Sleep(5 * time.Millisecond)
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := storage.Set(context.Background(), tt.key, tt.value)
-			assert.NoError(t, err)
+		value, err := storage.Get(context.Background(), "KEY1")
+		require.NoError(t, err)
+		assert.Equal(t, "newvalue1", value)
+	})
 
-			if runtime.GOOS == "windows" {
-				time.Sleep(5 * time.Millisecond)
-			}
+	t.Run("add new key", func(t *testing.T) {
+		err := storage.Set(context.Background(), "NEWKEY", "newvalue")
+		require.NoError(t, err)
 
-			_, err = os.Stat(testFile)
-			assert.NoError(t, err)
+		if runtime.GOOS == "windows" {
+			time.Sleep(5 * time.Millisecond)
+		}
 
-			value, err := storage.Get(context.Background(), tt.key)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected, value)
-		})
-	}
+		value, err := storage.Get(context.Background(), "NEWKEY")
+		require.NoError(t, err)
+		assert.Equal(t, "newvalue", value)
+	})
 }
 
 func TestStorage_Delete(t *testing.T) {
 	testFile, cleanup := setupTestFile(t)
 	t.Cleanup(cleanup)
 
-	logger := zap.NewNop()
-	storage := NewStorage(testFile, true, 0644, 0755, logger)
-
-	_, err := os.Stat(testFile)
-	require.NoError(t, err)
+	storage := NewStorage(testFile, true, 0644, 0755)
 
 	value, err := storage.Get(context.Background(), "KEY1")
 	require.NoError(t, err)
 	assert.Equal(t, "value1", value)
 
 	err = storage.Delete(context.Background(), "KEY1")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	if runtime.GOOS == "windows" {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	_, err = os.Stat(testFile)
-	assert.NoError(t, err)
-
 	_, err = storage.Get(context.Background(), "KEY1")
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, env.ErrVariableNotFound)
 }
 
 func TestStorage_List(t *testing.T) {
 	testFile, cleanup := setupTestFile(t)
 	t.Cleanup(cleanup)
 
-	logger := zap.NewNop()
-	storage := NewStorage(testFile, true, 0644, 0755, logger)
-
-	_, err := os.Stat(testFile)
-	require.NoError(t, err)
+	storage := NewStorage(testFile, true, 0644, 0755)
 
 	values, err := storage.List(context.Background())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, values)
 	assert.Greater(t, len(values), 0)
-
-	_, err = os.Stat(testFile)
-	assert.NoError(t, err)
 
 	assert.Equal(t, "value1", values["KEY1"])
 	assert.Equal(t, "value2", values["KEY2"])
@@ -220,11 +166,10 @@ func TestStorage_List(t *testing.T) {
 }
 
 func TestStorage_ListNonExistent(t *testing.T) {
-	logger := zap.NewNop()
-	storage := NewStorage("/tmp/nonexistent-env-file.env", false, 0644, 0755, logger)
+	storage := NewStorage("/tmp/nonexistent-env-file.env", false, 0644, 0755)
 
 	values, err := storage.List(context.Background())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, values)
 	assert.Empty(t, values)
 }
@@ -235,13 +180,93 @@ func TestStorage_AutoCreate(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	testFile := filepath.Join(tmpDir, "subdir", "test.env")
-	logger := zap.NewNop()
-	storage := NewStorage(testFile, true, 0644, 0755, logger)
+	storage := NewStorage(testFile, true, 0644, 0755)
 
 	err = storage.Set(context.Background(), "KEY1", "value1")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	value, err := storage.Get(context.Background(), "KEY1")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "value1", value)
+}
+
+func TestStorage_Concurrent(t *testing.T) {
+	testFile, cleanup := setupTestFile(t)
+	t.Cleanup(cleanup)
+
+	storage := NewStorage(testFile, true, 0644, 0755)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(3)
+
+		go func() {
+			defer wg.Done()
+			_, _ = storage.Get(ctx, "KEY1")
+		}()
+
+		go func() {
+			defer wg.Done()
+			_ = storage.Set(ctx, "KEY1", "value")
+		}()
+
+		go func() {
+			defer wg.Done()
+			_, _ = storage.List(ctx)
+		}()
+	}
+
+	wg.Wait()
+}
+
+// Benchmarks
+
+func BenchmarkStorage_Get(b *testing.B) {
+	tmpDir, _ := os.MkdirTemp("", "filestorage-bench-*")
+	defer os.RemoveAll(tmpDir)
+
+	testFile := filepath.Join(tmpDir, "test.env")
+	_ = os.WriteFile(testFile, []byte("KEY=value\n"), 0600)
+
+	storage := NewStorage(testFile, true, 0600, 0700)
+	ctx := context.Background()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = storage.Get(ctx, "KEY")
+	}
+}
+
+func BenchmarkStorage_Set(b *testing.B) {
+	tmpDir, _ := os.MkdirTemp("", "filestorage-bench-*")
+	defer os.RemoveAll(tmpDir)
+
+	testFile := filepath.Join(tmpDir, "test.env")
+	_ = os.WriteFile(testFile, []byte("KEY=value\n"), 0600)
+
+	storage := NewStorage(testFile, true, 0600, 0700)
+	ctx := context.Background()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = storage.Set(ctx, "KEY", "value")
+	}
+}
+
+func BenchmarkStorage_List(b *testing.B) {
+	tmpDir, _ := os.MkdirTemp("", "filestorage-bench-*")
+	defer os.RemoveAll(tmpDir)
+
+	testFile := filepath.Join(tmpDir, "test.env")
+	content := "KEY1=value1\nKEY2=value2\nKEY3=value3\n"
+	_ = os.WriteFile(testFile, []byte(content), 0600)
+
+	storage := NewStorage(testFile, true, 0644, 0755)
+	ctx := context.Background()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = storage.List(ctx)
+	}
 }

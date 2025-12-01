@@ -73,6 +73,12 @@ func Bind(l *lua.LState) {
 	lua2api.LoadModule(l, Module)
 }
 
+// BindGlobal sets the process module as a global variable.
+func BindGlobal(l *lua.LState) {
+	Module.Register(l)
+	l.SetGlobal("process", moduleTable)
+}
+
 func createModuleTable() *lua.LTable {
 	mod := lua.CreateTable(0, 24)
 
@@ -314,6 +320,13 @@ func send(l *lua.LState) int {
 	return 1
 }
 
+// TODO: spawn should be converted to a yield-based command instead of a direct Go call.
+// Currently spawn() calls manager.Start() synchronously which runs on the caller's goroutine.
+// This prevents proper context isolation and can cause memory leaks when spawning from
+// function pools, as the spawned process context inherits references from the pool worker.
+// The fix is to make spawn yield a command that gets executed by the scheduler's command
+// dispatcher, ensuring the spawned process runs on its own scheduler goroutine with
+// proper context setup similar to how http.response() and other yields work.
 func spawn(l *lua.LState) int {
 	manager, ok := getProcessManager(l)
 	if !ok {

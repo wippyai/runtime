@@ -12,7 +12,7 @@ import (
 	enverr "github.com/wippyai/runtime/service/env"
 )
 
-func TestStorage_ImplementsInterface(t *testing.T) {
+func TestStorage_ImplementsInterface(_ *testing.T) {
 	var _ env.Storage = (*Storage)(nil)
 }
 
@@ -20,8 +20,9 @@ func TestStorage_Get(t *testing.T) {
 	storage := NewStorage()
 
 	t.Run("existing env var", func(t *testing.T) {
-		stdos.Setenv("TEST_ENV_VAR", "test_value")
-		defer stdos.Unsetenv("TEST_ENV_VAR")
+		err := stdos.Setenv("TEST_ENV_VAR", "test_value")
+		require.NoError(t, err)
+		defer func() { _ = stdos.Unsetenv("TEST_ENV_VAR") }()
 
 		value, err := storage.Get(context.Background(), "TEST_ENV_VAR")
 		require.NoError(t, err)
@@ -33,12 +34,14 @@ func TestStorage_Get(t *testing.T) {
 		assert.ErrorIs(t, err, env.ErrVariableNotFound)
 	})
 
-	t.Run("empty env var returns not found", func(t *testing.T) {
-		stdos.Setenv("TEST_EMPTY_VAR", "")
-		defer stdos.Unsetenv("TEST_EMPTY_VAR")
+	t.Run("empty env var is valid value", func(t *testing.T) {
+		err := stdos.Setenv("TEST_EMPTY_VAR", "")
+		require.NoError(t, err)
+		defer func() { _ = stdos.Unsetenv("TEST_EMPTY_VAR") }()
 
-		_, err := storage.Get(context.Background(), "TEST_EMPTY_VAR")
-		assert.ErrorIs(t, err, env.ErrVariableNotFound)
+		value, err := storage.Get(context.Background(), "TEST_EMPTY_VAR")
+		require.NoError(t, err)
+		assert.Equal(t, "", value)
 	})
 }
 
@@ -59,8 +62,9 @@ func TestStorage_Delete(t *testing.T) {
 func TestStorage_List(t *testing.T) {
 	storage := NewStorage()
 
-	stdos.Setenv("TEST_LIST_VAR", "list_value")
-	defer stdos.Unsetenv("TEST_LIST_VAR")
+	err := stdos.Setenv("TEST_LIST_VAR", "list_value")
+	require.NoError(t, err)
+	defer func() { _ = stdos.Unsetenv("TEST_LIST_VAR") }()
 
 	values, err := storage.List(context.Background())
 	require.NoError(t, err)
@@ -69,7 +73,7 @@ func TestStorage_List(t *testing.T) {
 	assert.Equal(t, "list_value", values["TEST_LIST_VAR"])
 }
 
-func TestStaticStorage_ImplementsInterface(t *testing.T) {
+func TestStaticStorage_ImplementsInterface(_ *testing.T) {
 	var _ env.Storage = (*StaticStorage)(nil)
 }
 
@@ -145,7 +149,7 @@ func TestStaticStorage_NilData(t *testing.T) {
 	assert.Empty(t, values)
 }
 
-func TestStaticStorage_Concurrent(t *testing.T) {
+func TestStaticStorage_Concurrent(_ *testing.T) {
 	data := map[string]string{"KEY": "value"}
 	storage := NewStaticStorage(data)
 	ctx := context.Background()
@@ -170,8 +174,8 @@ func TestStaticStorage_Concurrent(t *testing.T) {
 // Benchmarks
 
 func BenchmarkStorage_Get(b *testing.B) {
-	stdos.Setenv("BENCH_KEY", "value")
-	defer stdos.Unsetenv("BENCH_KEY")
+	_ = stdos.Setenv("BENCH_KEY", "value")
+	defer func() { _ = stdos.Unsetenv("BENCH_KEY") }()
 
 	storage := NewStorage()
 	ctx := context.Background()

@@ -7,7 +7,7 @@ import (
 	apiinterceptor "github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/logs"
 	bootsystem "github.com/wippyai/runtime/boot/components/system"
-	"github.com/wippyai/runtime/service/interceptor/retry"
+	"github.com/wippyai/runtime/system/function/interceptor/retry"
 )
 
 func InterceptorRetry() boot.Component {

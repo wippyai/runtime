@@ -22,12 +22,14 @@ func NewStorage() *Storage {
 }
 
 // Get retrieves an environment variable by name.
-// Returns ErrVariableNotFound if the variable doesn't exist or is empty.
+// Returns ErrVariableNotFound if the variable is not set.
+// Empty string is a valid value if the variable is set.
 func (s *Storage) Get(_ context.Context, key string) (string, error) {
-	if val := stdos.Getenv(key); val != "" {
-		return val, nil
+	val, exists := stdos.LookupEnv(key)
+	if !exists {
+		return "", env.ErrVariableNotFound
 	}
-	return "", env.ErrVariableNotFound
+	return val, nil
 }
 
 // Set is not supported for OS storage.

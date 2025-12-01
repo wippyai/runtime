@@ -64,6 +64,53 @@ func TestErrors(t *testing.T) {
 	}
 }
 
+func TestError_Interface(t *testing.T) {
+	t.Run("sentinel errors implement Error interface", func(t *testing.T) {
+		errVar := ErrVariableNotFound
+		assert.Equal(t, "environment variable not found", errVar.Error())
+		assert.Equal(t, "NotFound", errVar.Kind().String())
+		assert.False(t, errVar.Retryable().Bool())
+		assert.Nil(t, errVar.Details())
+	})
+
+	t.Run("NewVariableNotFoundError has details", func(t *testing.T) {
+		err := NewVariableNotFoundError("MY_VAR")
+		assert.Equal(t, "environment variable not found", err.Error())
+		assert.Equal(t, "NotFound", err.Kind().String())
+		assert.False(t, err.Retryable().Bool())
+
+		details := err.Details()
+		require.NotNil(t, details)
+		varName, _ := details.Get("variable")
+		assert.Equal(t, "MY_VAR", varName)
+	})
+
+	t.Run("NewStorageNotFoundError has details", func(t *testing.T) {
+		err := NewStorageNotFoundError("app:my_storage")
+		assert.Equal(t, "environment storage backend not found", err.Error())
+		assert.Equal(t, "NotFound", err.Kind().String())
+
+		details := err.Details()
+		require.NotNil(t, details)
+		storageID, _ := details.Get("storage")
+		assert.Equal(t, "app:my_storage", storageID)
+	})
+
+	t.Run("NewInvalidVariableNameError has details", func(t *testing.T) {
+		err := NewInvalidVariableNameError("bad-name", "contains dash")
+		assert.Contains(t, err.Error(), "invalid environment variable name")
+		assert.Contains(t, err.Error(), "contains dash")
+		assert.Equal(t, "Invalid", err.Kind().String())
+
+		details := err.Details()
+		require.NotNil(t, details)
+		varName, _ := details.Get("variable")
+		assert.Equal(t, "bad-name", varName)
+		reason, _ := details.Get("reason")
+		assert.Equal(t, "contains dash", reason)
+	})
+}
+
 func TestVariable_MarshalUnmarshal(t *testing.T) {
 	tests := []struct {
 		name    string

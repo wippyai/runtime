@@ -167,21 +167,19 @@ func (h *Host) prepareContext(ctx context.Context, pid relay.PID, start *process
 
 	// Store OnStart hooks from Start
 	if len(start.OnStart) > 0 {
+		// ???
 		if err := process2.SetOnStartHooks(pCtx, start.OnStart); err != nil {
 			h.log.Error("failed to set onStart hooks", zap.Error(err))
 		}
 	}
 
-	// Store OnComplete hooks from Start, adding frame cleanup
-	onCompleteHooks := start.OnComplete
-	onCompleteHooks = append(onCompleteHooks, func(ctx context.Context, _ relay.PID, _ *runtime.Result) {
-		if fc := ctxapi.FrameFromContext(ctx); fc != nil {
-			_ = fc.Close()
+	// Store OnComplete hooks from Start if any (frame cleanup is handled by scheduler)
+	if len(start.OnComplete) > 0 {
+		if err := process2.SetOnCompleteHooks(pCtx, start.OnComplete); err != nil {
+			h.log.Error("failed to set onComplete hooks", zap.Error(err))
 		}
-	})
-	if err := process2.SetOnCompleteHooks(pCtx, onCompleteHooks); err != nil {
-		h.log.Error("failed to set onComplete hooks", zap.Error(err))
 	}
 
+	// Frame is sealed by Process.Execute after setting up resource store
 	return pCtx
 }

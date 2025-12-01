@@ -1,15 +1,21 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 	systemapi "github.com/wippyai/runtime/api/system"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/deps/client"
@@ -40,6 +46,8 @@ Examples:
 func init() {
 	rootCmd.AddCommand(runCmd)
 	runCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
+	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: host/namespace:entry)")
+	runCmd.Flags().String("method", "", "Method to call on exec process (default: entry point)")
 }
 
 func runApp(cmd *cobra.Command, _ []string) error {
@@ -129,6 +137,16 @@ func runApp(cmd *cobra.Command, _ []string) error {
 
 	// Store signal channel for system.exit()
 	systemapi.SetSignalChannel(ctx, sigChan)
+
+	// Handle --exec flag: launch process and wait for completion
+	execSpec, _ := cmd.Flags().GetString("exec")
+	if execSpec != "" {
+		execMethod, _ := cmd.Flags().GetString("method")
+		if err := launchExecProcess(ctx, logger, execSpec, execMethod); err != nil {
+			logger.Error("exec launch failed", zap.Error(err))
+			return err
+		}
+	}
 
 	<-sigChan
 
@@ -293,4 +311,114 @@ func parseOverride(input string) (namespace, entry, field, value string, err err
 	}
 
 	return namespace, entry, field, value, nil
+}
+
+// parseExecSpec parses "host/namespace:entry" format for --exec flag
+// Uses / to separate host (since host IDs can contain colons like "node:control")
+func parseExecSpec(spec string) (hostID, namespace, entry string, err error) {
+	// Find slash to separate host from source
+	slashIdx := strings.Index(spec, "/")
+	if slashIdx == -1 {
+		return "", "", "", fmt.Errorf("missing '/' separator (expected host/namespace:entry)")
+	}
+
+	hostID = strings.TrimSpace(spec[:slashIdx])
+	remainder := spec[slashIdx+1:]
+
+	if hostID == "" {
+		return "", "", "", fmt.Errorf("empty host ID")
+	}
+
+	// Find colon to separate namespace from entry
+	colonIdx := strings.Index(remainder, ":")
+	if colonIdx == -1 {
+		return "", "", "", fmt.Errorf("missing ':' separator (expected host/namespace:entry)")
+	}
+
+	namespace = strings.TrimSpace(remainder[:colonIdx])
+	entry = strings.TrimSpace(remainder[colonIdx+1:])
+
+	if namespace == "" {
+		return "", "", "", fmt.Errorf("empty namespace")
+	}
+
+	if entry == "" {
+		return "", "", "", fmt.Errorf("empty entry name")
+	}
+
+	return hostID, namespace, entry, nil
+}
+
+// launchExecProcess launches a process and triggers shutdown on completion
+func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method string) error {
+	hostID, namespace, entry, err := parseExecSpec(execSpec)
+	if err != nil {
+		return fmt.Errorf("invalid exec spec: %w", err)
+	}
+
+	manager := process2.GetManager(ctx)
+	if manager == nil {
+		return fmt.Errorf("process manager not available")
+	}
+
+	source := registry.NewID(namespace, entry)
+
+	// Use sync.Once to ensure we only trigger shutdown once
+	var shutdownOnce sync.Once
+
+	start := &process2.Start{
+		HostID: hostID,
+		Source: source,
+		OnComplete: []process2.OnComplete{
+			func(_ context.Context, pid relay.PID, result *runtime.Result) {
+				shutdownOnce.Do(func() {
+					exitCode := interpretExitCode(result)
+					logger.Debug("exec process completed",
+						zap.String("pid", pid.String()),
+						zap.Int("exit_code", exitCode))
+					systemapi.TriggerShutdown(ctx, exitCode)
+				})
+			},
+		},
+	}
+
+	pid, err := manager.Start(ctx, start)
+	if err != nil {
+		return fmt.Errorf("failed to start process on host %s: %w", hostID, err)
+	}
+
+	logger.Debug("exec process started",
+		zap.String("pid", pid.String()),
+		zap.String("host", hostID),
+		zap.String("source", source.String()),
+		zap.String("method", method))
+
+	return nil
+}
+
+// interpretExitCode extracts an exit code from a process result
+func interpretExitCode(result *runtime.Result) int {
+	if result == nil {
+		return 0
+	}
+
+	if result.Error != nil {
+		return 1
+	}
+
+	if result.Value == nil {
+		return 0
+	}
+
+	// Try to interpret result as a number
+	switch v := result.Value.Data().(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	default:
+		return 0
+	}
 }

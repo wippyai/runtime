@@ -708,3 +708,100 @@ func BenchmarkSchedulerParallelExecute(b *testing.B) {
 		}
 	})
 }
+
+// Memory leak tests
+
+// TrackingProcess tracks Close() calls
+type TrackingProcess struct {
+	closeCalled *atomic.Int32
+	ctx         context.Context
+}
+
+func (p *TrackingProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
+	p.ctx = ctx
+	return nil
+}
+
+func (p *TrackingProcess) Step(results *YieldResults) (StepResult, error) {
+	var r StepResult
+	r.Status = StepDone
+	r.AddYield(CompleteCmd{Value: "done"})
+	return r, nil
+}
+
+func (p *TrackingProcess) Send(pkg *relay.Package) error {
+	return nil
+}
+
+func (p *TrackingProcess) Close() {
+	if p.closeCalled != nil {
+		p.closeCalled.Add(1)
+	}
+}
+
+func TestSchedulerReleasesProcesses(t *testing.T) {
+	var closeCalls atomic.Int32
+	var completed atomic.Int32
+
+	sched := newTestScheduler(2)
+	sched.onComplete = func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		completed.Add(1)
+	}
+
+	sched.Start()
+	defer sched.Stop()
+
+	const numProcs = 1000
+	ctx := context.Background()
+
+	for i := 0; i < numProcs; i++ {
+		pid := relay.PID{Host: "test", UniqID: fmt.Sprintf("%d", i)}
+		proc := &TrackingProcess{closeCalled: &closeCalls}
+		_, err := sched.Submit(ctx, pid, proc, "", nil)
+		if err != nil {
+			t.Fatalf("Submit failed: %v", err)
+		}
+	}
+
+	// Wait for all to complete
+	deadline := time.Now().Add(10 * time.Second)
+	for completed.Load() < numProcs && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if completed.Load() != numProcs {
+		t.Fatalf("expected %d completions, got %d", numProcs, completed.Load())
+	}
+
+	// Give time for Close() calls
+	time.Sleep(100 * time.Millisecond)
+
+	if closeCalls.Load() != numProcs {
+		t.Fatalf("expected %d Close() calls, got %d", numProcs, closeCalls.Load())
+	}
+
+	// Check maps are empty
+	var byIDCount, byPIDCount, idleCount int
+	sched.byID.Range(func(k, v any) bool {
+		byIDCount++
+		return true
+	})
+	sched.byPID.Range(func(k, v any) bool {
+		byPIDCount++
+		return true
+	})
+	sched.idle.Range(func(k, v any) bool {
+		idleCount++
+		return true
+	})
+
+	if byIDCount != 0 {
+		t.Errorf("byID map has %d entries, expected 0", byIDCount)
+	}
+	if byPIDCount != 0 {
+		t.Errorf("byPID map has %d entries, expected 0", byPIDCount)
+	}
+	if idleCount != 0 {
+		t.Errorf("idle map has %d entries, expected 0", idleCount)
+	}
+}

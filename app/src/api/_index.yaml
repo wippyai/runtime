@@ -9,6 +9,8 @@ entries:
       comment: Simple worker process
     source: file://worker.lua
     method: main
+    modules:
+      - process
 
   # app.api:hello - Lua function with pool
   - name: hello
@@ -18,11 +20,11 @@ entries:
     source: file://hello.lua
     modules:
       - http
-      - process
+      - funcs
     method: handler
     pool:
       type: workstealing
-      size: 64
+      size: 16
       buffer: 1024
 
   # app.api:hello.endpoint - HTTP endpoint
@@ -34,6 +36,40 @@ entries:
     method: GET
     func: hello
     path: /hello
+
+  # app.api:stats - Memory and runtime stats
+  - name: stats
+    kind: function.lua
+    meta:
+      comment: Go runtime memory stats
+    source: file://stats.lua
+    modules:
+      - http
+      - system
+    method: handler
+    pool:
+      type: inline
+
+  # app.api:stats.endpoint - HTTP endpoint
+  - name: stats.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Runtime stats endpoint
+      router: app:api.public
+    method: GET
+    func: stats
+    path: /stats
+
+  # app.api:cli - CLI process for terminal host
+  - name: cli
+    kind: process.lua
+    meta:
+      comment: Simple CLI demo app
+    source: file://cli.lua
+    method: main
+    modules:
+      - io
+      - system
 
   # Commented out WASM components for now
   # - name: add

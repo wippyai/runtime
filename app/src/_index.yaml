@@ -29,3 +29,12 @@ entries:
       workers: 32
     lifecycle:
       auto_start: true
+
+  # app:terminal - terminal host for CLI apps
+  - name: terminal
+    kind: terminal.host2
+    meta:
+      comment: Terminal host for CLI processes
+    hide_logs: true
+    lifecycle:
+      auto_start: true

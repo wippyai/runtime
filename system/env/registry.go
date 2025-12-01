@@ -94,7 +94,7 @@ func (r *Registry) handleEvent(e event.Event) {
 
 func (r *Registry) registerStorage(e event.Event) {
 	storage, ok := e.Data.(env.Storage)
-	if !ok {
+	if !ok || storage == nil {
 		r.log.Error("invalid storage payload", zap.String("path", e.Path))
 		r.sendReject(e.Path, "invalid storage data type")
 		return
@@ -104,14 +104,14 @@ func (r *Registry) registerStorage(e event.Event) {
 	r.storages.Store(storageID, storage)
 	r.sendAccept(e.Path)
 
-	r.log.Info("storage registered", zap.String("id", storageID.String()))
+	r.log.Debug("storage registered", zap.String("id", storageID.String()))
 }
 
 func (r *Registry) deleteStorage(e event.Event) {
 	storageID := registry.ParseID(e.Path)
 	r.storages.Delete(storageID)
 	r.sendAccept(e.Path)
-	r.log.Info("storage deleted", zap.String("id", storageID.String()))
+	r.log.Debug("storage deleted", zap.String("id", storageID.String()))
 }
 
 func (r *Registry) registerVariable(e event.Event) {
@@ -141,12 +141,6 @@ func (r *Registry) registerVariable(e event.Event) {
 		r.sendReject(e.Path, fmt.Sprintf("variable name already exists: %s", envName))
 		return
 	}
-
-	// required to pass todo: ??? reason about it
-	//	// Allow overriding variables with the same envName (e.g., router storage can override OS storage)
-	//	if existingID, exists := r.variablesByName.Load(envName); exists {
-	//		r.log.Info("overriding existing variable", zap.String("env_name", envName), zap.String("old_id", fmt.Sprintf("%v", existingID)), zap.String("new_id", variable.ID.String()))
-	//	}
 
 	r.variablesByID.Store(variable.ID, variable)
 	r.variablesByName.Store(envName, variable.ID)
@@ -199,7 +193,7 @@ func (r *Registry) updateVariable(e event.Event) {
 
 	r.sendAccept(e.Path)
 
-	r.log.Info("variable updated", zap.String("id", variable.ID.String()), zap.String("name", variable.Name), zap.String("base_name", envName))
+	r.log.Debug("variable updated", zap.String("id", variable.ID.String()), zap.String("name", variable.Name), zap.String("base_name", envName))
 }
 
 func (r *Registry) deleteVariable(e event.Event) {
@@ -214,7 +208,7 @@ func (r *Registry) deleteVariable(e event.Event) {
 
 	r.variablesByID.Delete(varID)
 	r.sendAccept(e.Path)
-	r.log.Info("variable deleted", zap.String("id", varID.String()))
+	r.log.Debug("variable deleted", zap.String("id", varID.String()))
 }
 
 func (r *Registry) findVariableByID(id registry.ID) (*env.Variable, error) {
@@ -256,14 +250,19 @@ func (r *Registry) findVariable(ctx context.Context, name string) (*env.Variable
 	return r.findVariableByID(nameID)
 }
 
+// getStorage retrieves storage by ID from the registry's in-memory map.
+// Context is accepted for interface consistency but not used since storage
+// lookup is a local map operation.
 func (r *Registry) getStorage(_ context.Context, id registry.ID) (env.Storage, error) {
-	if stored, exists := r.storages.Load(id); exists {
-		if storage, ok := stored.(env.Storage); ok {
-			return storage, nil
-		}
+	stored, exists := r.storages.Load(id)
+	if !exists {
+		return nil, env.ErrStorageNotFound
+	}
+	storage, ok := stored.(env.Storage)
+	if !ok {
 		return nil, fmt.Errorf("invalid storage type for %s", id.String())
 	}
-	return nil, env.ErrStorageNotFound
+	return storage, nil
 }
 
 func (r *Registry) Get(ctx context.Context, name string) (string, error) {
@@ -291,7 +290,8 @@ func (r *Registry) getValue(ctx context.Context, variable *env.Variable) (string
 	envName := r.getEnvName(variable)
 	value, err := storage.Get(ctx, envName)
 	if err != nil {
-		// Always return default value (even if empty) for variables
+		// NotFound is normal - variable not in storage, use default
+		// Other errors (IO, permission) are unexpected but we still fallback for compatibility
 		return variable.DefaultValue, nil
 	}
 	return value, nil
@@ -351,3 +351,6 @@ func (r *Registry) sendReject(path event.Path, reason string) {
 		Data:   reason,
 	})
 }
+
+// Compile-time interface check
+var _ env.Registry = (*Registry)(nil)

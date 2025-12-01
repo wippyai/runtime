@@ -314,9 +314,13 @@ func (s *Scheduler) completeProcessor(proc *Processor, result *StepResult, err e
 		return
 	}
 
+	// Close the process to release resources (e.g., Lua state)
+	proc.Process.Close()
+
 	// Unregister from lookups and release processor
 	s.byID.Delete(proc.ID)
 	s.byPID.Delete(proc.PID)
+	s.idle.Delete(proc.ID)
 	releaseProcessor(proc)
 }
 

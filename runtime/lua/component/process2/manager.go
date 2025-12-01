@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/modules/http"
+	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	timeyields "github.com/wippyai/runtime/runtime/lua/modules/time"
 	lua "github.com/yuin/gopher-lua"
@@ -188,7 +189,7 @@ func (m *Manager) createProcess(id registry.ID) (process2.Process, error) {
 // createProcess creates a process from compiled code.
 func createProcess(compiled *code.CompiledMain) (process2.Process, error) {
 	binders := engine.CoreBinders()
-	binders = append(binders, stream.BindStream, http.Bind, timeyields.BindYields)
+	binders = append(binders, stream.BindStream, http.Bind, timeyields.BindYields, processmod.BindGlobal)
 
 	// Add module binders for dependencies
 	for _, dep := range compiled.Dependencies {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process2"
@@ -60,6 +61,10 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 				for _, hook := range hooks {
 					hook(ctx, pid, result)
 				}
+			}
+			// Release frame context to free all references
+			if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+				ctxapi.ReleaseFrameContext(fc)
 			}
 		}),
 	)

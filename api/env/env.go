@@ -25,13 +25,6 @@ const (
 	Rejected event.Kind = "reject"
 )
 
-var (
-	ErrVariableNotFound    = errors.New("environment variable not found")
-	ErrStorageNotFound     = errors.New("environment storage backend not found")
-	ErrVariableReadOnly    = errors.New("environment variable is read-only")
-	ErrInvalidVariableName = errors.New("invalid environment variable name")
-)
-
 // Variable represents an environment variable with optional default value and access control.
 type Variable struct {
 	ID           registry.ID       `json:"id"`

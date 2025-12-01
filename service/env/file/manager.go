@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	enverr "github.com/wippyai/runtime/service/env"
 	"go.uber.org/zap"
 )
 
@@ -38,16 +39,16 @@ func NewManager(
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageFile {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return fmt.Errorf("%w: %s", enverr.ErrUnsupportedKind, entry.Kind)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[envsvc.FileStorageConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to decode file storage config: %w", err)
+		return fmt.Errorf("%w: %w", enverr.ErrDecodeConfig, err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
+		return fmt.Errorf("%w: %w", enverr.ErrInvalidConfig, err)
 	}
 
 	fileMode := os.FileMode(0644)
@@ -60,7 +61,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		dirMode = os.FileMode(cfg.DirMode)
 	}
 
-	storage := NewStorage(cfg.FilePath, cfg.AutoCreate, fileMode, dirMode, m.log)
+	storage := NewStorage(cfg.FilePath, cfg.AutoCreate, fileMode, dirMode)
 
 	m.mu.Lock()
 	m.storages[entry.ID] = storage
@@ -86,7 +87,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageFile {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return fmt.Errorf("%w: %s", enverr.ErrUnsupportedKind, entry.Kind)
 	}
 
 	m.mu.Lock()

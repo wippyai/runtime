@@ -64,11 +64,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	cfg, err := entryutil.DecodeEntryConfig[envsvc.OSStorageConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("%w: %v", enverr.ErrDecodeConfig, err)
+		return fmt.Errorf("%w: %w", enverr.ErrDecodeConfig, err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("%w: %v", enverr.ErrInvalidConfig, err)
+		return fmt.Errorf("%w: %w", enverr.ErrInvalidConfig, err)
 	}
 
 	var storage env.Storage

@@ -73,14 +73,14 @@ func TestProcessMultipleCoroutines(t *testing.T) {
 	t.Error("Did not complete in expected steps")
 }
 
-func TestResourcesInContext(t *testing.T) {
+func TestResourceStoreInContext(t *testing.T) {
 	// Create frame context
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
-	// No resources yet
-	res := GetResources(ctx)
-	if res != nil {
-		t.Error("Expected nil resources before process start")
+	// No store yet
+	store := resource.GetStore(ctx)
+	if store != nil {
+		t.Error("Expected nil store before process start")
 	}
 
 	script := `return 1`
@@ -91,17 +91,13 @@ func TestResourcesInContext(t *testing.T) {
 	}
 	defer proc.Close()
 
-	// Now resources should exist
-	res = GetResources(ctx)
-	if res == nil {
-		t.Error("Expected resources after process start")
+	// Now store should exist
+	store = resource.GetStore(ctx)
+	if store == nil {
+		t.Fatal("Expected store after process start")
 	}
 
-	// Test cleanup registration via resource.Store
-	store := resource.GetStore(ctx)
-	if store == nil {
-		t.Fatal("Expected store in context")
-	}
+	// Test cleanup registration
 	cleanupCalled := false
 	store.AddCleanup(func() error {
 		cleanupCalled = true

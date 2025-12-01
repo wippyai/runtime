@@ -17,7 +17,7 @@ func All() []boot.Component {
 		fs.Directory(),
 		fs.Embed(),
 		Template(),
-		Terminal(),
+		Terminal2(),
 		Exec(),
 		Host2(),
 		Policy(),
