@@ -86,7 +86,7 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 
 // wsDeps holds dependencies extracted from request context for WebSocket upgrade
 type wsDeps struct {
-	host       relay.Host
+	host       relay.AttachableHost
 	node       relay.Node
 	topo       topology.Topology
 	transcoder payload.Transcoder
@@ -105,9 +105,9 @@ func extractDeps(r *http.Request) (*wsDeps, error) {
 		return nil, fmt.Errorf("HTTP server host not found in context")
 	}
 
-	relayHost, ok := hostVal.(relay.Host)
+	relayHost, ok := hostVal.(relay.AttachableHost)
 	if !ok {
-		return nil, fmt.Errorf("invalid host type: %T", hostVal)
+		return nil, fmt.Errorf("host does not support attachment: %T", hostVal)
 	}
 
 	node := relay.GetNode(r.Context())

@@ -58,7 +58,7 @@ func TestVirtualNodeManager_Register(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	localNode := newMockNode("local")
+	localNode := NewNode("local")
 	router := NewRouter(localNode, nil)
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
@@ -107,7 +107,7 @@ func TestVirtualNodeManager_RegisterInvalidPayload(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	localNode := newMockNode("local")
+	localNode := NewNode("local")
 	router := NewRouter(localNode, nil)
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
@@ -148,7 +148,7 @@ func TestVirtualNodeManager_RegisterDuplicate(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	localNode := newMockNode("local")
+	localNode := NewNode("local")
 	router := NewRouter(localNode, nil)
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
@@ -206,7 +206,7 @@ func TestVirtualNodeManager_RegisterConflictWithLocalNode(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	localNode := newMockNode("local")
+	localNode := NewNode("local")
 	router := NewRouter(localNode, nil)
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
@@ -250,7 +250,7 @@ func TestVirtualNodeManager_Unregister(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	localNode := newMockNode("local")
+	localNode := NewNode("local")
 	router := NewRouter(localNode, nil)
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
@@ -307,7 +307,7 @@ func TestVirtualNodeManager_UnregisterNonexistent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	localNode := newMockNode("local")
+	localNode := NewNode("local")
 	router := NewRouter(localNode, nil)
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()

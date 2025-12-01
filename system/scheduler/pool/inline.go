@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"sync"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process2"
@@ -10,6 +11,7 @@ import (
 
 // Inline executes function calls synchronously in the caller's goroutine.
 // No worker pool, no queuing - calls run to completion immediately.
+// Concurrent calls are serialized via mutex to protect the single process.
 //
 // Use cases:
 //   - Eval: Embedding one actor inside another
@@ -20,6 +22,7 @@ type Inline struct {
 	dispatcher Dispatcher
 	executor   *Executor
 	process    process2.Process
+	mu         sync.Mutex
 }
 
 // NewInline creates an inline executor.
@@ -43,7 +46,10 @@ func NewInline(factory Factory, dispatcher Dispatcher, hooks ...ExecutionHooks) 
 }
 
 // Call executes synchronously in the caller's goroutine.
+// Serializes access to the process via mutex to prevent concurrent access.
 func (i *Inline) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	return i.executor.Run(ctx, i.process, method, input), nil
 }
 
@@ -52,7 +58,10 @@ func (i *Inline) Start() {}
 
 // Stop closes the process.
 func (i *Inline) Stop() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	if i.process != nil {
 		i.process.Close()
+		i.process = nil
 	}
 }

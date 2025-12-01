@@ -1,6 +1,8 @@
 package supervisor
 
 import (
+	"sort"
+
 	"github.com/wippyai/runtime/api/registry"
 	systemapi "github.com/wippyai/runtime/api/system"
 )
@@ -51,13 +53,9 @@ func (a *serviceInfoAdapter) GetAllStates() []systemapi.ServiceState {
 	}
 
 	// Sort by ID for stable ordering
-	for i := 0; i < len(result)-1; i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[i].ID.String() > result[j].ID.String() {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID.String() < result[j].ID.String()
+	})
 
 	return result
 }

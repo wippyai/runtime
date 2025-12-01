@@ -109,7 +109,7 @@ func GetOrCreateAfterRegistry(ctx context.Context) *AfterRegistry {
 		return r
 	}
 	r := NewAfterRegistry()
-	SetAfterRegistry(ctx, r)
+	_ = SetAfterRegistry(ctx, r)
 
 	if store := resource.GetStore(ctx); store != nil {
 		store.AddCleanup(func() error {

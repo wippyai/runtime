@@ -176,6 +176,7 @@ func (m *mockNode) Attach(PID, chan *Package) (context.CancelFunc, error) {
 func (m *mockNode) Detach(PID)                      {}
 func (m *mockNode) RegisterHost(HostID, Host) error { return nil }
 func (m *mockNode) UnregisterHost(HostID)           {}
+func (m *mockNode) GetHost(HostID) (Host, bool)     { return nil, false }
 
 type mockReceiver struct{}
 
@@ -192,10 +193,6 @@ func (m *mockNodeManager) Stop() error                 { return nil }
 type mockHost struct{}
 
 func (m *mockHost) Send(*Package) error { return nil }
-func (m *mockHost) Attach(PID, chan *Package) (context.CancelFunc, error) {
-	return func() {}, nil
-}
-func (m *mockHost) Detach(PID) {}
 
 func TestWithNode_GetNode(t *testing.T) {
 	t.Run("returns nil when AppContext is nil", func(t *testing.T) {

@@ -15,12 +15,12 @@ type NodeManager struct {
 	ctx        context.Context
 	logger     *zap.Logger
 	bus        event.Bus
-	node       api.Node
+	node       *Node
 	subscriber *eventbus.Subscriber
 }
 
 // NewNodeManager creates a new node manager instance that wraps a Node
-func NewNodeManager(node api.Node, bus event.Bus, logger *zap.Logger) *NodeManager {
+func NewNodeManager(node *Node, bus event.Bus, logger *zap.Logger) *NodeManager {
 	return &NodeManager{
 		node:   node,
 		bus:    bus,

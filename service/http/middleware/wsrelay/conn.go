@@ -30,7 +30,7 @@ type Connection struct {
 
 	// Relay components (immutable after creation)
 	wsPID      relay.PID
-	host       relay.Host
+	host       relay.AttachableHost
 	node       relay.Node
 	topo       topology.Topology
 	transcoder payload.Transcoder
@@ -68,7 +68,7 @@ func NewConnection(
 	config RelayCommand,
 	messageTopic relay.Topic,
 	serverID registry.ID,
-	host relay.Host,
+	host relay.AttachableHost,
 	node relay.Node,
 	topo topology.Topology,
 	transcoder payload.Transcoder,

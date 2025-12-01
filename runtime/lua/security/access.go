@@ -29,15 +29,15 @@ func IsAllowed(ctx context.Context, action, resource string, meta registry.Metad
 		return result == security.Allow
 	}
 
-	// Security context is incomplete, log a warning
+	// Security context is incomplete
 	if !hasActor {
-		logger.Warn("security check with missing actor",
+		logger.Debug("security check with missing actor",
 			zap.String("action", action),
 			zap.String("resource", resource))
 	}
 
 	if !hasScope {
-		logger.Warn("security check with missing policy scope",
+		logger.Debug("security check with missing policy scope",
 			zap.String("action", action),
 			zap.String("resource", resource))
 	}

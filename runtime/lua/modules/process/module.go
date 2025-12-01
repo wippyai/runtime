@@ -9,7 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -127,7 +127,7 @@ func checkPID(l *lua.LState) (relay.PID, bool) {
 	return pid, ok
 }
 
-func getProcessManager(l *lua.LState) (process.Manager, bool) {
+func getProcessManager(l *lua.LState) (process2.Manager, bool) {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -135,7 +135,7 @@ func getProcessManager(l *lua.LState) (process.Manager, bool) {
 		return nil, false
 	}
 
-	manager := process.GetManager(ctx)
+	manager := process2.GetManager(ctx)
 	if manager == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no process manager found"))
@@ -349,9 +349,9 @@ func spawn(l *lua.LState) int {
 	payloads := createPayloadsFromArgs(l, 3)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, self)
+	options.Set(process2.LifecycleParentKey, self)
 
-	start := &process.Start{
+	start := &process2.Start{
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
@@ -404,10 +404,10 @@ func spawnMonitored(l *lua.LState) int {
 	payloads := createPayloadsFromArgs(l, 3)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, self)
-	options.Set(process.LifecycleMonitorKey, true)
+	options.Set(process2.LifecycleParentKey, self)
+	options.Set(process2.LifecycleMonitorKey, true)
 
-	start := &process.Start{
+	start := &process2.Start{
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
@@ -460,10 +460,10 @@ func spawnLinked(l *lua.LState) int {
 	payloads := createPayloadsFromArgs(l, 3)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, self)
-	options.Set(process.LifecycleLinkKey, true)
+	options.Set(process2.LifecycleParentKey, self)
+	options.Set(process2.LifecycleLinkKey, true)
 
-	start := &process.Start{
+	start := &process2.Start{
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
@@ -522,11 +522,11 @@ func spawnLinkedMonitored(l *lua.LState) int {
 	payloads := createPayloadsFromArgs(l, 3)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, self)
-	options.Set(process.LifecycleMonitorKey, true)
-	options.Set(process.LifecycleLinkKey, true)
+	options.Set(process2.LifecycleParentKey, self)
+	options.Set(process2.LifecycleMonitorKey, true)
+	options.Set(process2.LifecycleLinkKey, true)
 
-	start := &process.Start{
+	start := &process2.Start{
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,

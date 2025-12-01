@@ -202,44 +202,73 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig, module *wa
 	}
 
 	factory := engine.NewFactory(m.runtime, module)
+	poolCfg := cfg.Pool.ToFuncpoolConfig()
+	poolType := cfg.Pool.Type
+	if poolType == "" {
+		poolType = api.PoolTypeStatic
+	}
 
-	p, err := funcpool.NewInline(factory.Create(), m.dispatcher)
+	var pool funcpool.Pool
+	var err error
+
+	switch poolType {
+	case api.PoolTypeInline, api.PoolTypeLazy:
+		pool, err = funcpool.NewInline(factory.Create(), m.dispatcher)
+
+	case api.PoolTypeStatic:
+		pool, err = funcpool.NewStatic(factory.Create(), m.dispatcher, funcpool.Config{
+			Workers:   poolCfg.Workers,
+			QueueSize: poolCfg.QueueSize,
+		})
+
+	case api.PoolTypeElastic:
+		maxWorkers := cfg.Pool.MaxSize
+		if maxWorkers <= 0 {
+			maxWorkers = poolCfg.Workers * 4
+		}
+		pool, err = funcpool.NewElastic(factory.Create(), m.dispatcher, funcpool.ElasticConfig{
+			MinWorkers: poolCfg.Workers,
+			MaxWorkers: maxWorkers,
+			QueueSize:  poolCfg.QueueSize,
+		})
+
+	case api.PoolTypeWorkStealing:
+		pool, err = funcpool.NewWorkStealing(factory.Create(), m.dispatcher, funcpool.WorkStealingConfig{
+			Workers:   poolCfg.Workers,
+			QueueSize: poolCfg.QueueSize,
+		})
+
+	default:
+		return fmt.Errorf("unknown pool type: %s", poolType)
+	}
+
 	if err != nil {
 		return fmt.Errorf("create pool: %w", err)
 	}
 
 	m.pools[id] = &poolEntry{
-		pool:   p,
+		pool:   pool,
 		config: *cfg,
 		module: module,
 	}
+
+	pool.Start()
 
 	return nil
 }
 
 // replacePool replaces an existing pool.
 func (m *Manager) replacePool(id registry.ID, cfg *api.FunctionConfig, module *wasmrt.Module) error {
+	// Stop existing pool first
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if entry, exists := m.pools[id]; exists {
 		entry.pool.Stop()
+		delete(m.pools, id)
 	}
+	m.mu.Unlock()
 
-	factory := engine.NewFactory(m.runtime, module)
-
-	p, err := funcpool.NewInline(factory.Create(), m.dispatcher)
-	if err != nil {
-		return fmt.Errorf("create pool: %w", err)
-	}
-
-	m.pools[id] = &poolEntry{
-		pool:   p,
-		config: *cfg,
-		module: module,
-	}
-
-	return nil
+	// Create new pool (createPool handles its own locking)
+	return m.createPool(id, cfg, module)
 }
 
 // removePool stops and removes a pool.

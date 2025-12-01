@@ -2,7 +2,6 @@ package relay
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -14,47 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// mockNode implements Node interface for testing
-type mockNode struct {
-	nodeID  string
-	hosts   sync.Map
-	sendErr error
-}
-
-func newMockNode(id string) *mockNode {
-	return &mockNode{
-		nodeID: id,
-	}
-}
-
-func (n *mockNode) ID() string {
-	return n.nodeID
-}
-
-func (n *mockNode) RegisterHost(id string, host api.Host) error {
-	_, loaded := n.hosts.LoadOrStore(id, host)
-	if loaded {
-		return api.ErrHostAlreadyExists
-	}
-	return nil
-}
-
-func (n *mockNode) UnregisterHost(id string) {
-	n.hosts.Delete(id)
-}
-
-func (n *mockNode) Send(_ *api.Package) error {
-	return n.sendErr
-}
-
-func (n *mockNode) Attach(_ api.PID, _ chan *api.Package) (context.CancelFunc, error) {
-	return func() {}, nil
-}
-
-func (n *mockNode) Detach(_ api.PID) {
-	// No-op for testing
-}
-
 // mockHost implements Host interface for testing
 type mockHost struct {
 	sendErr error
@@ -64,18 +22,10 @@ func (h *mockHost) Send(_ *api.Package) error {
 	return h.sendErr
 }
 
-func (h *mockHost) Attach(_ api.PID, _ chan *api.Package) (context.CancelFunc, error) {
-	return func() {}, nil
-}
-
-func (h *mockHost) Detach(_ api.PID) {
-	// No-op for testing
-}
-
-func setupManagerTest() (*NodeManager, *mockNode, event.Bus) {
+func setupManagerTest() (*NodeManager, *Node, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
-	node := newMockNode("test-node")
+	node := NewNode("test-node")
 	manager := NewNodeManager(node, bus, logger)
 	return manager, node, bus
 }
@@ -139,7 +89,7 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 			hostID:        "host1",
 			host:          &mockHost{},
 			expectedKind:  api.HostReject,
-			expectedError: "host already exists",
+			expectedError: "already exists",
 		},
 	}
 
@@ -159,7 +109,11 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 				assert.Equal(t, tt.expectedKind, resp.Kind)
 				assert.Equal(t, tt.hostID, resp.Path)
 				if tt.expectedError != "" {
-					assert.Equal(t, tt.expectedError, resp.Data)
+					if errStr, ok := resp.Data.(string); ok {
+						assert.Contains(t, errStr, tt.expectedError)
+					} else {
+						t.Errorf("expected error string, got %T", resp.Data)
+					}
 				}
 			case <-time.After(time.Second):
 				t.Fatal("timeout waiting for response")
@@ -242,71 +196,71 @@ func TestManager_Send(t *testing.T) {
 	require.NoError(t, manager.Start(ctx))
 	defer func() { assert.NoError(t, manager.Stop()) }()
 
-	tests := []struct {
-		name        string
-		sendErr     error
-		shouldError bool
-	}{
-		{
-			name:        "successful send",
-			sendErr:     nil,
-			shouldError: false,
-		},
-		{
-			name:        "send error",
-			sendErr:     api.ErrHostNotFound,
-			shouldError: true,
-		},
-	}
+	t.Run("send to unregistered host returns error", func(t *testing.T) {
+		pid := api.PID{
+			Node:   "test-node",
+			Host:   "nonexistent-host",
+			UniqID: "test",
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			node.sendErr = tt.sendErr
+		pkg := &api.Package{
+			Target: pid,
+			Messages: []*api.Message{
+				{Topic: "test"},
+			},
+		}
 
-			pid := api.PID{
-				Node:   "test-node",
-				Host:   "test-host",
-				UniqID: "test",
-			}
+		err := manager.Send(pkg)
+		assert.Error(t, err)
+	})
 
-			pkg := &api.Package{
-				Target: pid,
-				Messages: []*api.Message{
-					{Topic: "test"},
-				},
-			}
+	t.Run("send to registered host succeeds", func(t *testing.T) {
+		host := &mockHost{}
+		require.NoError(t, node.RegisterHost("test-host", host))
 
-			err := manager.Send(pkg)
+		pid := api.PID{
+			Node:   "test-node",
+			Host:   "test-host",
+			UniqID: "test",
+		}
 
-			if tt.shouldError {
-				assert.Error(t, err)
-				assert.Equal(t, tt.sendErr, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
+		pkg := &api.Package{
+			Target: pid,
+			Messages: []*api.Message{
+				{Topic: "test"},
+			},
+		}
+
+		err := manager.Send(pkg)
+		assert.NoError(t, err)
+	})
 }
 
 func TestManager_Attach(t *testing.T) {
-	ctx := context.Background()
-	manager, _, _ := setupManagerTest()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	manager, node, _ := setupManagerTest()
 	require.NoError(t, manager.Start(ctx))
 	defer func() { assert.NoError(t, manager.Stop()) }()
+
+	// Register an attachable host first
+	attachableHost := NewHost(ctx, HostConfig{WorkerCount: 1, BufferSize: 10})
+	require.NoError(t, node.RegisterHost("test-host", attachableHost))
 
 	pid := api.PID{
 		Node:   "test-node",
 		Host:   "test-host",
 		UniqID: "test",
 	}
-	ch := make(chan *api.Package)
+	ch := make(chan *api.Package, 1)
 
-	cancel, err := manager.Attach(pid, ch)
+	detach, err := manager.Attach(pid, ch)
 	require.NoError(t, err)
-	assert.NotNil(t, cancel)
+	assert.NotNil(t, detach)
 
 	// Test cancel function
-	cancel()
+	detach()
 }
 
 func TestManager_Node(t *testing.T) {

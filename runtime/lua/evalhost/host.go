@@ -72,7 +72,7 @@ func (h *Host) CreateProcessFromID(ctx context.Context, id registry.ID) (process
 		return nil, fmt.Errorf("process factory not available")
 	}
 
-	proc, err := h.processFactory.Create(id)
+	proc, _, err := h.processFactory.Create(id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create process from ID %s: %w", id, err)
 	}

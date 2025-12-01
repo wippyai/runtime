@@ -2,6 +2,7 @@ package service
 
 import (
 	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/components/env"
 	"github.com/wippyai/runtime/boot/components/metrics"
 	"github.com/wippyai/runtime/boot/components/otel"
 	"github.com/wippyai/runtime/boot/components/prometheus"
@@ -18,19 +19,14 @@ func All() []boot.Component {
 		Template(),
 		Terminal(),
 		Exec(),
-		// V1 Host - disabled in favor of V2
-		// Host(),
-		// V2 Host2 - uses actor scheduler
 		Host2(),
 		Policy(),
 		Contract(),
-		EnvService(),
-		ProcessFunc(),
-		ProcessSupervisor(),
 		HTTP(),
 		InterceptorRetry(),
 	}
 
+	components = append(components, env.All()...)
 	components = append(components, storage.All()...)
 	components = append(components, aws.All()...)
 	components = append(components, metrics.All()...)

@@ -15,8 +15,11 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/component"
 	funclua "github.com/wippyai/runtime/runtime/lua/component/function"
 	"github.com/wippyai/runtime/runtime/lua/component/library"
+	proclua "github.com/wippyai/runtime/runtime/lua/component/process2"
+	workflowlua "github.com/wippyai/runtime/runtime/lua/component/workflow2"
 	envlua "github.com/wippyai/runtime/runtime/lua/modules/env"
 	loggermod "github.com/wippyai/runtime/runtime/lua/modules/logger"
+	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	reghandler "github.com/wippyai/runtime/system/registry/events"
 )
 
@@ -50,6 +53,7 @@ func Engine() boot.Component {
 					Modules: []luaapi.Module{
 						envlua.Module,
 						loggermod.Module,
+						processmod.Module,
 					},
 					ProtoCacheSize: protoCacheSize,
 					MainCacheSize:  mainCacheSize,
@@ -79,6 +83,12 @@ func Engine() boot.Component {
 			handlers.Register(reghandler.NewTransactionHandler(codeManager))
 			handlers.Register(component.NewHandler("function.lua", funcs))
 			handlers.Register(component.NewHandler("library.lua", libraries))
+
+			// Register process2 and workflow2 managers
+			processes := proclua.NewManager(logger.Named("lua.process2"), codeManager, bus)
+			workflows := workflowlua.NewManager(logger.Named("lua.workflow2"), codeManager, bus)
+			handlers.Register(component.NewHandler("process.lua", processes))
+			handlers.Register(component.NewHandler("workflow.lua", workflows))
 
 			return ctx, nil
 		},

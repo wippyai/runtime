@@ -6,7 +6,6 @@ func All() []boot.Component {
 	return []boot.Component{
 		OTel(),
 		OTelHTTP(),
-		OTelProcess(),
 		OTelInterceptor(),
 		OTelQueue(),
 		OTelMetrics(),

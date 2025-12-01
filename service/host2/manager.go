@@ -7,7 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
-	procapi "github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -24,18 +24,20 @@ type Manager struct {
 	bus             event.Bus
 	dtt             payload.Transcoder
 	commandRegistry *actor.Registry
+	factory         process2.Factory
 
 	mu    sync.RWMutex
 	hosts map[registry.ID]*Host
 }
 
 // NewManager creates a new host2 manager.
-func NewManager(bus event.Bus, dtt payload.Transcoder, cmdRegistry *actor.Registry, logger *zap.Logger) *Manager {
+func NewManager(bus event.Bus, dtt payload.Transcoder, cmdRegistry *actor.Registry, factory process2.Factory, logger *zap.Logger) *Manager {
 	return &Manager{
 		log:             logger.Named("host2"),
 		bus:             bus,
 		dtt:             dtt,
 		commandRegistry: cmdRegistry,
+		factory:         factory,
 		hosts:           make(map[registry.ID]*Host),
 	}
 }
@@ -50,10 +52,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	// Create scheduler for this host with lifecycle callbacks
 	scheduler := actor.NewScheduler(m.commandRegistry,
 		actor.WithWorkers(cfg.HostConfig.Workers),
-		actor.WithQueueSize(cfg.HostConfig.BufferSize),
+		actor.WithQueueSize(cfg.HostConfig.QueueSize),
+		actor.WithLocalQueueSize(cfg.HostConfig.LocalQueueSize),
 		actor.WithOnComplete(func(ctx context.Context, pid relay.PID, result *runtime.Result) {
 			// Execute OnComplete hooks stored in context
-			if hooks := procapi.GetOnCompleteHooks(ctx); len(hooks) > 0 {
+			if hooks := process2.GetOnCompleteHooks(ctx); len(hooks) > 0 {
 				for _, hook := range hooks {
 					hook(ctx, pid, result)
 				}
@@ -61,7 +64,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		}),
 	)
 
-	h := NewHost(entry.ID, cfg, scheduler, m.log)
+	h := NewHost(entry.ID, cfg, scheduler, m.factory, m.log)
 
 	m.mu.Lock()
 	m.hosts[entry.ID] = h
@@ -73,14 +76,6 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Kind:   relay.HostRegister,
 		Path:   entry.ID.String(),
 		Data:   relay.Host(h),
-	})
-
-	// Register with process host system
-	m.bus.Send(ctx, event.Event{
-		System: procapi.HostSystem,
-		Kind:   procapi.HostRegister,
-		Path:   entry.ID.String(),
-		Data:   procapi.Managed(h),
 	})
 
 	// Register with supervisor
@@ -125,13 +120,6 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		Path:   entry.ID.String(),
 	})
 
-	// Unregister from process host system
-	m.bus.Send(ctx, event.Event{
-		System: procapi.HostSystem,
-		Kind:   procapi.HostDelete,
-		Path:   entry.ID.String(),
-	})
-
 	// Unregister from relay
 	m.bus.Send(ctx, event.Event{
 		System: relay.System,
@@ -146,4 +134,17 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	m.log.Info("host deleted", zap.String("id", entry.ID.String()))
 	return nil
+}
+
+// GetHost returns a host by ID.
+func (m *Manager) GetHost(hostID string) (process2.Host, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for id, h := range m.hosts {
+		if id.String() == hostID {
+			return h, true
+		}
+	}
+	return nil, false
 }

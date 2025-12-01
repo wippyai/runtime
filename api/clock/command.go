@@ -3,9 +3,17 @@
 package clock
 
 import (
+	"errors"
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
+)
+
+// Errors returned by clock handlers.
+var (
+	ErrTimerNotFound  = errors.New("timer not found")
+	ErrTickerNotFound = errors.New("ticker not found")
+	ErrTickerClosed   = errors.New("ticker closed")
 )
 
 // Command IDs for clock operations.

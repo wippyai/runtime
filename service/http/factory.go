@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"path"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	config "github.com/wippyai/runtime/api/service/http"
@@ -89,6 +91,15 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 			fc.Seal()
 		}
 
+		// Read request body as payload for functions that accept parameters
+		var payloads payload.Payloads
+		if r.Body != nil && r.ContentLength != 0 {
+			body, err := io.ReadAll(r.Body)
+			if err == nil && len(body) > 0 {
+				payloads = payload.Payloads{payload.NewPayload(body, payload.JSON)}
+			}
+		}
+
 		// Create task with request context as pairs (not in frame)
 		// This prevents request context from leaking to child function calls
 		task := runtime.Task{
@@ -96,6 +107,7 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 			Context: []contextapi.Pair{
 				{Key: config.RequestCtx, Value: rCtx},
 			},
+			Payloads: payloads,
 		}
 
 		result, err := f.funcs.Call(execCtx, task)
@@ -118,6 +130,16 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 			http.Error(w, result.Error.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		// If function returned a result payload, write it as JSON response
+		if result.Value != nil && !rCtx.ResponseHandled() {
+			w.Header().Set("Content-Type", "application/json")
+			if data, ok := result.Value.Data().([]byte); ok {
+				_, _ = w.Write(data)
+			}
+			return
+		}
+
 		if !rCtx.ResponseHandled() {
 			http.Error(w, "no response sent", http.StatusInternalServerError)
 		}

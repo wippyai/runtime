@@ -2,11 +2,11 @@ package clock
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/resource"
 )
@@ -14,11 +14,11 @@ import (
 // TickerRegistryKey is the context key for TickerRegistry.
 var TickerRegistryKey = &ctxapi.Key{Name: "clock.tickers", Inherit: false}
 
-// ErrTickerNotFound is returned when ticker ID doesn't exist.
-var ErrTickerNotFound = errors.New("ticker not found")
+// ErrTickerNotFound is an alias for the API error.
+var ErrTickerNotFound = clockapi.ErrTickerNotFound
 
-// ErrTickerClosed is returned when ticker was already stopped.
-var ErrTickerClosed = errors.New("ticker closed")
+// ErrTickerClosed is an alias for the API error.
+var ErrTickerClosed = clockapi.ErrTickerClosed
 
 const (
 	tickerShardCount = 64
@@ -214,7 +214,7 @@ func GetOrCreateTickerRegistry(ctx context.Context) *TickerRegistry {
 		return r
 	}
 	r := NewTickerRegistry()
-	SetTickerRegistry(ctx, r)
+	_ = SetTickerRegistry(ctx, r)
 
 	if store := resource.GetStore(ctx); store != nil {
 		store.AddCleanup(func() error {

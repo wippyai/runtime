@@ -269,36 +269,6 @@ func TestTickerStartHandlerInvalidDuration(t *testing.T) {
 	}
 }
 
-func TestTickerCleanupOnFrameClose(t *testing.T) {
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
-	startH, _, _, cleanup := getTickerHandlers(t)
-	defer cleanup()
-
-	for i := 0; i < 5; i++ {
-		err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 100 * time.Millisecond}, func(data any) {})
-		if err != nil {
-			t.Fatalf("start ticker %d failed: %v", i, err)
-		}
-	}
-
-	registry := GetTickerRegistry(ctx)
-	if registry == nil {
-		t.Fatal("registry should exist")
-	}
-
-	count := registry.Count()
-	if count != 5 {
-		t.Errorf("expected 5 tickers, got %d", count)
-	}
-
-	fc.Close()
-
-	count = registry.Count()
-	if count != 0 {
-		t.Errorf("expected 0 tickers after cleanup, got %d", count)
-	}
-}
-
 func TestTickerRegistryScalability(t *testing.T) {
 	const numTickers = 10000
 

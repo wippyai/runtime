@@ -148,7 +148,7 @@ func (d *Dispatcher) execute(ctx context.Context, cmd dispatcher.Command, emit d
 	}
 }
 
-func (d *Dispatcher) executeSleep(ctx context.Context, cmd clockapi.SleepCmd, emit dispatcher.EmitFunc) {
+func (d *Dispatcher) executeSleep(_ context.Context, cmd clockapi.SleepCmd, emit dispatcher.EmitFunc) {
 	if cmd.Duration <= 0 {
 		emit(nil)
 		return

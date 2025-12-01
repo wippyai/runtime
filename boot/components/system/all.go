@@ -8,10 +8,10 @@ func All() []boot.Component {
 		Filesystem(),
 		Environment(),
 		Resources(),
+		Factory(),
+		ProcessManager(),
 		Interceptor(),
 		Contracts(),
 		Functions(),
-		Process(),
-		ProcessTopology(),
 	}
 }

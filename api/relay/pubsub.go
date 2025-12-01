@@ -66,13 +66,17 @@ type (
 		Payloads payload.Payloads
 	}
 
-	// Host defines an interface for components that can receive and forward messages
+	// Host defines an interface for components that can receive and forward messages.
+	// Message routing is handled internally by each host implementation.
 	Host interface {
 		Receiver
-		// Attach connects a process (identified by PID) to a message channel
-		// Returns a cancel function to detach and any error that occurred
+	}
+
+	// AttachableHost extends Host with channel-based message delivery.
+	// Used by hosts that support external process attachment (e.g., control host).
+	AttachableHost interface {
+		Host
 		Attach(PID, chan *Package) (context.CancelFunc, error)
-		// Detach disconnects a process (identified by PID) from the host
 		Detach(PID)
 	}
 
@@ -85,6 +89,12 @@ type (
 		RegisterHost(HostID, Host) error
 		// UnregisterHost removes a host from this node
 		UnregisterHost(HostID)
+		// GetHost returns the host by ID if it exists
+		GetHost(HostID) (Host, bool)
+		// Attach connects a process to a channel (only works with AttachableHost)
+		Attach(PID, chan *Package) (context.CancelFunc, error)
+		// Detach disconnects a process from its channel
+		Detach(PID)
 	}
 
 	// Receiver defines the interface for components that can send messages upstream in the pub/sub system

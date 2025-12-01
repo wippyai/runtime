@@ -6,6 +6,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	wsapi "github.com/wippyai/runtime/api/dispatcher/ws"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -56,6 +57,27 @@ func (y *WsConnectYield) ToCommand() dispatcher.Command {
 }
 
 func (y *WsConnectYield) Release() { ReleaseWsConnectYield(y) }
+
+// HandleResult implements HandledYield to convert connection ID to WsConn userdata.
+func (y *WsConnectYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+	}
+
+	id, ok := data.(uint64)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.LString("invalid connection ID type")}
+	}
+
+	// Create websocket channel that yields WsReceiveYield on receive
+	wsCh := &WsChannel{ConnID: id}
+	conn := &WsConn{ID: id, Channel: wsCh}
+
+	ud := l.NewUserData()
+	ud.Value = conn
+	ud.Metatable = value.GetTypeMetatable(l, wsConnTypeName)
+	return []lua.LValue{ud}
+}
 
 // WsSendYield is yielded to send a message.
 type WsSendYield struct {
@@ -128,6 +150,35 @@ func (y *WsReceiveYield) ToCommand() dispatcher.Command {
 }
 
 func (y *WsReceiveYield) Release() { ReleaseWsReceiveYield(y) }
+
+// HandleResult implements HandledYield to convert WsMessage to Lua table.
+func (y *WsReceiveYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.LFalse}
+	}
+
+	msg, ok := data.(wsapi.WsMessage)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.LFalse}
+	}
+
+	if msg.EOF {
+		// Connection closed - return table with close type
+		tbl := l.CreateTable(0, 2)
+		tbl.RawSetString("type", lua.LString("close"))
+		tbl.RawSetString("data", lua.LNil)
+		return []lua.LValue{tbl, lua.LTrue}
+	}
+
+	tbl := l.CreateTable(0, 2)
+	if msg.MessageType == wsapi.MessageText {
+		tbl.RawSetString("type", lua.LString("text"))
+	} else {
+		tbl.RawSetString("type", lua.LString("binary"))
+	}
+	tbl.RawSetString("data", lua.LString(msg.Data))
+	return []lua.LValue{tbl, lua.LTrue}
+}
 
 // WsCloseYield is yielded to close a connection.
 type WsCloseYield struct {
@@ -203,36 +254,3 @@ func (y *WsPingYield) ToCommand() dispatcher.Command {
 }
 
 func (y *WsPingYield) Release() { ReleaseWsPingYield(y) }
-
-// WsSubscribeYield is yielded to subscribe to messages.
-type WsSubscribeYield struct {
-	ConnID uint64
-}
-
-var wsSubscribeYieldPool = sync.Pool{
-	New: func() interface{} { return &WsSubscribeYield{} },
-}
-
-func AcquireWsSubscribeYield(connID uint64) *WsSubscribeYield {
-	y := wsSubscribeYieldPool.Get().(*WsSubscribeYield)
-	y.ConnID = connID
-	return y
-}
-
-func ReleaseWsSubscribeYield(y *WsSubscribeYield) {
-	y.ConnID = 0
-	wsSubscribeYieldPool.Put(y)
-}
-
-func (y *WsSubscribeYield) String() string       { return "<ws_subscribe_yield>" }
-func (y *WsSubscribeYield) Type() lua.LValueType { return lua.LTUserData }
-
-func (y *WsSubscribeYield) CmdID() dispatcher.CommandID {
-	return wsapi.CmdWsSubscribe
-}
-
-func (y *WsSubscribeYield) ToCommand() dispatcher.Command {
-	return wsapi.WsSubscribeCmd{ConnID: y.ConnID}
-}
-
-func (y *WsSubscribeYield) Release() { ReleaseWsSubscribeYield(y) }

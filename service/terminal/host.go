@@ -2,7 +2,6 @@ package terminal
 
 import (
 	"context"
-	"errors"
 	"os"
 	"sync/atomic"
 	"time"
@@ -264,21 +263,6 @@ func (t *Terminal) execOp(ctx context.Context, op op) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-// Attach attaches a process to the terminal.
-// This implementation always returns an error as only terminal processes
-// can be attached to the terminal host.
-// It implements part of the relay.Host interface.
-func (t *Terminal) Attach(_ relay.PID, _ chan *relay.Package) (context.CancelFunc, error) {
-	return nil, errors.New("only terminal process can be attached to the host")
-}
-
-// Detach detaches a process from the terminal.
-// This is a no-op in the current implementation.
-// It implements part of the relay.Host interface.
-func (t *Terminal) Detach(_ relay.PID) {
-	// nothing
 }
 
 // Send sends a message to the currently running process.

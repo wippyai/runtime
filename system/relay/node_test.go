@@ -172,7 +172,7 @@ func TestNodeAttachInvalidHostType(t *testing.T) {
 	cancel, err := node.Attach(pid, ch)
 	assert.Nil(t, cancel)
 	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "invalid type")
+		assert.Contains(t, err.Error(), "does not support attachment")
 	}
 }
 
@@ -239,7 +239,7 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 	ch := make(chan *api.Package)
 	_, err := node.Attach(pid, ch)
 	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "invalid type")
+		assert.Contains(t, err.Error(), "does not support attachment")
 	}
 
 	// Try to send to the invalid host

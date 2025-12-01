@@ -80,6 +80,16 @@ type (
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 	}
 
+	// WorkflowConfig defines the configuration for a Lua workflow.
+	// Workflows have restricted module access for deterministic execution.
+	WorkflowConfig struct {
+		Meta    registry.Metadata      `json:"meta"`              // Metadata for the workflow
+		Source  string                 `json:"source"`            // Lua source code
+		Method  string                 `json:"method"`            // Alias of the Lua method to execute
+		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
+		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
+	}
+
 	// BteaConfig defines the configuration for a Lua terminal app, this is custom process with host expectations.
 	BteaConfig struct {
 		Meta    registry.Metadata      `json:"meta"`              // Metadata for the terminal

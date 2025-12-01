@@ -11,7 +11,6 @@ const (
 	EphemeralHost2Name    boot.ComponentName = "ephemeral_host2"
 	NativeExecName        boot.ComponentName = "exec"
 	TemplateName          boot.ComponentName = "template"
-	EnvName               boot.ComponentName = "envstore"
 	YAMLPolicyName        boot.ComponentName = "policy"
 	DirectoryName         boot.ComponentName = "directory"
 	ContractName          boot.ComponentName = "contract"

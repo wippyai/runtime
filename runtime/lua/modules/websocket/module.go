@@ -13,13 +13,15 @@ import (
 )
 
 var (
-	moduleTable   *lua.LTable
-	registration  *lua2api.Registration
-	connMetatable *lua.LTable
-	initOnce      sync.Once
+	moduleTable  *lua.LTable
+	registration *lua2api.Registration
+	initOnce     sync.Once
 )
 
-const wsConnTypeName = "websocket.Client"
+const (
+	wsConnTypeName    = "websocket.Client"
+	wsChannelTypeName = "websocket.Channel"
+)
 
 // Module is the singleton websocket module instance.
 var Module = &websocketModule{}
@@ -37,7 +39,8 @@ func (m *websocketModule) Info() luaapi.ModuleInfo {
 func (m *websocketModule) Register(l *lua.LState) *lua2api.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
-		connMetatable = value.RegisterTypeMethods(nil, wsConnTypeName, nil, connMethods)
+		value.RegisterTypeMethods(nil, wsConnTypeName, nil, connMethods)
+		registerChannelMethods()
 		registration = &lua2api.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
@@ -45,6 +48,30 @@ func (m *websocketModule) Register(l *lua.LState) *lua2api.Registration {
 	})
 
 	return registration
+}
+
+func registerChannelMethods() {
+	value.RegisterMethods(nil, wsChannelTypeName, map[string]lua.LGFunction{
+		"receive": wsChannelReceive,
+	})
+}
+
+// WsChannel is a channel-like type that yields WsReceiveYield on receive.
+type WsChannel struct {
+	ConnID uint64
+}
+
+// wsChannelReceive yields WsReceiveYield to wait for next message.
+func wsChannelReceive(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	ch, ok := ud.Value.(*WsChannel)
+	if !ok {
+		l.ArgError(1, "websocket channel expected")
+		return 0
+	}
+	yield := AcquireWsReceiveYield(ch.ConnID)
+	l.Push(yield)
+	return -1
 }
 
 func (m *websocketModule) Loader(l *lua.LState) int {
@@ -189,14 +216,16 @@ func connect(l *lua.LState) int {
 }
 
 var connMethods = map[string]lua.LGFunction{
-	"send":      connSend,
-	"receive":   connReceive,
-	"close":     connClose,
-	"subscribe": connSubscribe,
+	"send":    connSend,
+	"receive": connReceive,
+	"channel": connChannel,
+	"close":   connClose,
+	"ping":    connPing,
 }
 
 type WsConn struct {
-	ID uint64
+	ID      uint64
+	Channel *WsChannel
 }
 
 func checkConn(l *lua.LState, idx int) *WsConn {
@@ -206,10 +235,6 @@ func checkConn(l *lua.LState, idx int) *WsConn {
 	}
 	l.ArgError(idx, "websocket.Client expected")
 	return nil
-}
-
-func NewConn(l *lua.LState, id uint64) lua.LValue {
-	return value.NewUserData(l, &WsConn{ID: id}, connMetatable)
 }
 
 func connSend(l *lua.LState) int {
@@ -225,10 +250,28 @@ func connSend(l *lua.LState) int {
 	return -1
 }
 
-func connReceive(l *lua.LState) int {
+// connChannel returns the channel for receiving messages.
+func connChannel(l *lua.LState) int {
 	conn := checkConn(l, 1)
+	if conn.Channel == nil {
+		l.RaiseError("connection has no channel")
+		return 0
+	}
+	ud := l.NewUserData()
+	ud.Value = conn.Channel
+	ud.Metatable = value.GetTypeMetatable(nil, wsChannelTypeName)
+	l.Push(ud)
+	return 1
+}
 
-	yield := AcquireWsReceiveYield(conn.ID)
+// connReceive is an alias for connChannel for API compatibility.
+func connReceive(l *lua.LState) int {
+	return connChannel(l)
+}
+
+func connPing(l *lua.LState) int {
+	conn := checkConn(l, 1)
+	yield := AcquireWsPingYield(conn.ID, nil)
 	l.Push(yield)
 	return -1
 }
@@ -245,16 +288,6 @@ func connClose(l *lua.LState) int {
 	}
 
 	yield := AcquireWsCloseYield(conn.ID, code, reason)
-	l.Push(yield)
-	return -1
-}
-
-// connSubscribe starts a background read loop that delivers messages via emit.
-// The Lua code should use this with a spawned task that handles incoming messages.
-func connSubscribe(l *lua.LState) int {
-	conn := checkConn(l, 1)
-
-	yield := AcquireWsSubscribeYield(conn.ID)
 	l.Push(yield)
 	return -1
 }

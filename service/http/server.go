@@ -45,7 +45,7 @@ type ServerService struct {
 	statusChan    chan any
 	started       bool                   // Track if server has been started
 	mountPaths    map[registry.ID]string // Track mount paths by Source
-	host          relay.Host             // pubsub host
+	host          relay.AttachableHost   // pubsub host
 	middlewareFac MiddlewareAPI          // Middleware factory
 	handlerFunc   http.Handler           // Optional server-level handler
 }

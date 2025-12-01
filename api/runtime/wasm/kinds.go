@@ -7,4 +7,7 @@ import "github.com/wippyai/runtime/api/registry"
 const (
 	// KindFunction identifies a WASM function component with inline WAT source
 	KindFunction registry.Kind = "function.wat"
+
+	// KindComponentFunction identifies a precompiled WASM component loaded from filesystem
+	KindComponentFunction registry.Kind = "function.wasm"
 )

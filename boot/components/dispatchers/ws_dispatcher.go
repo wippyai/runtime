@@ -6,7 +6,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/service/ws"
+	"github.com/wippyai/runtime/service/websocket"
 )
 
 func WS() boot.Component {
@@ -18,7 +18,7 @@ func WS() boot.Component {
 			if reg == nil {
 				return ctx, fmt.Errorf("dispatcher registrar not found in context")
 			}
-			svc := ws.NewService()
+			svc := websocket.NewService()
 			svc.RegisterAll(reg.Register)
 			return ctx, nil
 		},

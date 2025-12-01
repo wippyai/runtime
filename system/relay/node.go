@@ -46,6 +46,16 @@ func (n *Node) UnregisterHost(hostID api.HostID) {
 	n.hosts.Delete(hostID)
 }
 
+// GetHost returns a host by ID if it exists.
+func (n *Node) GetHost(hostID api.HostID) (api.Host, bool) {
+	if h, ok := n.hosts.Load(hostID); ok {
+		if host, ok := h.(api.Host); ok {
+			return host, true
+		}
+	}
+	return nil, false
+}
+
 // Send delivers a package to its destination. The destination must be a host
 // registered within this node.
 // Returns an error if the destination is for an external node or if the local
@@ -69,34 +79,37 @@ func (n *Node) Send(pkg *api.Package) error {
 }
 
 // Attach connects a process ID to a channel for receiving packages.
-// The PID must belong to a host registered within this node.
-// Returns an error if the PID refers to an external node or if the local host
-// is not found.
+// Only works with hosts that implement AttachableHost.
 func (n *Node) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
-	// Attach is only for local processes.
-	if pid.Node == "" || pid.Node == n.nodeID {
-		if h, ok := n.hosts.Load(pid.Host); ok {
-			host, ok := h.(api.Host)
-			if !ok {
-				return nil, fmt.Errorf("host %s in node %s has invalid type", pid.Host, n.nodeID)
-			}
-			return host.Attach(pid, ch)
-		}
+	if pid.Node != "" && pid.Node != n.nodeID {
+		return nil, fmt.Errorf("cannot attach to external node %s", pid.Node)
+	}
+
+	h, ok := n.hosts.Load(pid.Host)
+	if !ok {
 		return nil, fmt.Errorf("host %s not found in node %s", pid.Host, n.nodeID)
 	}
 
-	// Cannot attach to a process on an external node.
-	return nil, fmt.Errorf("cannot attach to external node %s", pid.Node)
+	attachable, ok := h.(api.AttachableHost)
+	if !ok {
+		return nil, fmt.Errorf("host %s does not support attachment", pid.Host)
+	}
+
+	return attachable.Attach(pid, ch)
 }
 
 // Detach disconnects a process ID from its receive channel.
-// This is a no-op if the PID refers to an external node or if the host is not found.
 func (n *Node) Detach(pid api.PID) {
-	if pid.Node == "" || pid.Node == n.nodeID {
-		if h, ok := n.hosts.Load(pid.Host); ok {
-			if host, ok := h.(api.Host); ok {
-				host.Detach(pid)
-			}
-		}
+	if pid.Node != "" && pid.Node != n.nodeID {
+		return
+	}
+
+	h, ok := n.hosts.Load(pid.Host)
+	if !ok {
+		return
+	}
+
+	if attachable, ok := h.(api.AttachableHost); ok {
+		attachable.Detach(pid)
 	}
 }

@@ -83,10 +83,3 @@ func (h *TemporalHost) RegisterWorkflow(reg *temporal.WorkflowRegistration) {
 	defer h.mu.Unlock()
 	h.workflows[reg.Source.String()] = reg
 }
-
-func (h *TemporalHost) Attach(pid relay.PID, ch chan *relay.Package) (context.CancelFunc, error) {
-	return func() {}, nil
-}
-
-func (h *TemporalHost) Detach(pid relay.PID) {
-}

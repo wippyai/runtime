@@ -65,3 +65,38 @@ func (c *FunctionConfig) Validate() error {
 
 	return nil
 }
+
+// ComponentFunctionConfig defines configuration for a precompiled WASM component.
+type ComponentFunctionConfig struct {
+	FS     string            `json:"fs"`     // Filesystem entry ID (e.g., "app:wasm.files")
+	Path   string            `json:"path"`   // Path within filesystem to .wasm file
+	Hash   string            `json:"hash"`   // Required SHA256 hash (e.g., "sha256:abc123...")
+	Method string            `json:"method"` // Exported function name
+	Pool   PoolConfig        `json:"pool,omitempty"`
+	Meta   registry.Metadata `json:"meta,omitempty"`
+}
+
+// Validate checks if the ComponentFunctionConfig has all required fields.
+func (c *ComponentFunctionConfig) Validate() error {
+	if c.FS == "" {
+		return fmt.Errorf("fs is required")
+	}
+
+	if c.Path == "" {
+		return fmt.Errorf("path is required")
+	}
+
+	if c.Hash == "" {
+		return fmt.Errorf("hash is required")
+	}
+
+	if c.Method == "" {
+		return fmt.Errorf("method is required")
+	}
+
+	if c.Pool.Size <= 0 && c.Pool.Type != PoolTypeInline && c.Pool.Type != PoolTypeLazy {
+		return fmt.Errorf("pool.size must be greater than 0 for non-lazy/inline pools")
+	}
+
+	return nil
+}

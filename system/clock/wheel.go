@@ -4,14 +4,15 @@ import (
 	"container/heap"
 	"container/list"
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	clockapi "github.com/wippyai/runtime/api/clock"
 )
 
-// ErrTimerNotFound is returned when timer ID doesn't exist.
-var ErrTimerNotFound = errors.New("timer not found")
+// ErrTimerNotFound is an alias for the API error.
+var ErrTimerNotFound = clockapi.ErrTimerNotFound
 
 // wheelTimer represents a timer in the wheel.
 type wheelTimer struct {
