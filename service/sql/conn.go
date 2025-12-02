@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -135,16 +137,45 @@ func (p *ConnPool) Acquire(
 
 // Helper to build DSN string for different database types
 func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
+	opts := buildOptionsString(cfg.Options)
+
 	switch kind {
 	case config.KindPostgres:
-		return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s %s",
-			cfg.Host, cfg.Port, cfg.Username, cfg.Password, cfg.Database,
-			buildOptionsString(cfg.Options)), nil
+		var b strings.Builder
+		b.Grow(128)
+		b.WriteString("host=")
+		b.WriteString(cfg.Host)
+		b.WriteString(" port=")
+		b.WriteString(strconv.Itoa(cfg.Port))
+		b.WriteString(" user=")
+		b.WriteString(cfg.Username)
+		b.WriteString(" password=")
+		b.WriteString(cfg.Password)
+		b.WriteString(" dbname=")
+		b.WriteString(cfg.Database)
+		if opts != "" {
+			b.WriteString(" ")
+			b.WriteString(opts)
+		}
+		return b.String(), nil
 
 	case config.KindMySQL:
-		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?%s",
-			cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database,
-			buildOptionsString(cfg.Options)), nil
+		var b strings.Builder
+		b.Grow(128)
+		b.WriteString(cfg.Username)
+		b.WriteString(":")
+		b.WriteString(cfg.Password)
+		b.WriteString("@tcp(")
+		b.WriteString(cfg.Host)
+		b.WriteString(":")
+		b.WriteString(strconv.Itoa(cfg.Port))
+		b.WriteString(")/")
+		b.WriteString(cfg.Database)
+		if opts != "" {
+			b.WriteString("?")
+			b.WriteString(opts)
+		}
+		return b.String(), nil
 
 	default:
 		return "", fmt.Errorf("unsupported database type: %s", kind)
@@ -168,15 +199,20 @@ func buildOptionsString(options map[string]string) string {
 		return ""
 	}
 
-	var opts string
+	var b strings.Builder
+	b.Grow(len(options) * 20)
+	first := true
 	for k, v := range options {
-		if opts != "" {
-			opts += " "
+		if !first {
+			b.WriteString(" ")
 		}
-		opts += fmt.Sprintf("%s=%s", k, v)
+		first = false
+		b.WriteString(k)
+		b.WriteString("=")
+		b.WriteString(v)
 	}
 
-	return opts
+	return b.String()
 }
 
 // DBConn represents a database connection resource

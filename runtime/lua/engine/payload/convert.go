@@ -1,7 +1,7 @@
 package payload
 
 import (
-	"fmt"
+	"fmt" // Note: fmt kept for Sprintf in logging
 	"reflect"
 	"sync"
 	"time"
@@ -92,7 +92,7 @@ func GoToLua(v any) (lua.LValue, error) {
 		for i := 0; i < rv.Len(); i++ {
 			lval, err := GoToLua(rv.Index(i).Interface())
 			if err != nil {
-				return nil, fmt.Errorf("error converting slice/array element %d: %w", i, err)
+				return nil, NewConversionError(fmt.Sprintf("error converting slice/array element %d", i), err)
 			}
 			table.RawSetInt(i+1, lval)
 		}
@@ -112,7 +112,7 @@ func GoToLua(v any) (lua.LValue, error) {
 
 			lval, err := GoToLua(iter.Value().Interface())
 			if err != nil {
-				return nil, fmt.Errorf("error converting map value for key %s: %w", keyStr, err)
+				return nil, NewConversionError(fmt.Sprintf("error converting map value for key %s", keyStr), err)
 			}
 			table.RawSetString(keyStr, lval)
 		}
@@ -174,7 +174,7 @@ func GoToLua(v any) (lua.LValue, error) {
 			}
 
 			if err != nil {
-				return nil, fmt.Errorf("error converting struct field %s: %w", field.name, err)
+				return nil, NewConversionError(fmt.Sprintf("error converting struct field %s", field.name), err)
 			}
 
 			table.RawSetString(field.name, lval)
@@ -206,6 +206,6 @@ func GoToLua(v any) (lua.LValue, error) {
 		// FIXME rework on demand
 		fallthrough
 	default:
-		return nil, fmt.Errorf("unsupported type: %T", v)
+		return nil, NewUnsupportedTypeError(fmt.Sprintf("unsupported type: %T", v))
 	}
 }

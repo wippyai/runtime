@@ -2,8 +2,6 @@ package dispatchers
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	httpclient "github.com/wippyai/runtime/service/http/client"
@@ -18,7 +16,7 @@ func HTTP() boot.Component {
 		Load: func(ctx context.Context) (context.Context, error) {
 			reg := dispatcherapi.GetRegistrar(ctx)
 			if reg == nil {
-				return ctx, fmt.Errorf("dispatcher registrar not found in context")
+				return ctx, ErrDispatcherNotFound
 			}
 
 			d = httpclient.NewDispatcher()

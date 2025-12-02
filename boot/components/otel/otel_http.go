@@ -2,7 +2,6 @@ package otel
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -17,7 +16,7 @@ func OTelHTTP() boot.Component {
 		Load: func(ctx context.Context) (context.Context, error) {
 			middlewareRegistry := httpapi.GetMiddlewareRegistry(ctx)
 			if middlewareRegistry == nil {
-				return ctx, fmt.Errorf("HTTP middleware registry not available in context")
+				return ctx, ErrHTTPMiddlewareNotAvailable
 			}
 
 			svc := otelapi.GetService(ctx)

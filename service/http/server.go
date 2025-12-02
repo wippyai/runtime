@@ -3,7 +3,7 @@ package http
 import (
 	"context"
 	"errors"
-	"fmt"
+	"fmt" // Note: fmt kept for Sprintf in logging
 	"net"
 	"net/http"
 	"runtime"
@@ -83,7 +83,7 @@ func (s *ServerService) UpdateConfig(cfg *config.ServerConfig) error {
 	// Check if address changes while server is running
 	if s.started {
 		if s.config.Addr != cfg.Addr {
-			return fmt.Errorf("cannot change server address while running")
+			return ErrServerAddressChangeWhileRunning
 		}
 	}
 
@@ -100,7 +100,7 @@ func (s *ServerService) UpsertRouter(id registry.ID, cfg *config.RouterConfig) e
 		for _, mw := range cfg.Middleware {
 			m, err := s.middlewareFac.CreateMiddleware(mw, cfg.Options)
 			if err != nil {
-				return fmt.Errorf("failed to create middleware %s: %w", mw, err)
+				return NewMiddlewareCreateError(mw, err)
 			}
 
 			middlewares = append(middlewares, m)
@@ -113,7 +113,7 @@ func (s *ServerService) UpsertRouter(id registry.ID, cfg *config.RouterConfig) e
 		for _, mw := range cfg.PostMiddleware {
 			m, err := s.middlewareFac.CreateMiddleware(mw, cfg.PostOptions)
 			if err != nil {
-				return fmt.Errorf("failed to create post-match middleware %s: %w", mw, err)
+				return NewPostMiddlewareCreateError(mw, err)
 			}
 
 			postMiddlewares = append(postMiddlewares, m)
@@ -159,7 +159,7 @@ func (s *ServerService) Remove(id registry.ID) error {
 
 	path, exists := s.mountPaths[id]
 	if !exists {
-		return fmt.Errorf("mount for Source %s not found", id)
+		return NewMountNotFoundError(id.String())
 	}
 
 	if err := s.routeMgr.Unmount(path); err != nil {
@@ -261,7 +261,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		err := s.server.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			select {
-			case s.statusChan <- fmt.Errorf("server error: %w", err):
+			case s.statusChan <- NewServerError(err):
 			default:
 			}
 		}
@@ -275,7 +275,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		s.mu.Lock()
 		s.started = false
 		s.mu.Unlock()
-		return nil, fmt.Errorf("startup check failed: %w", err)
+		return nil, NewStartupCheckError(err)
 	}
 
 	// Handle shutdown via context
@@ -286,7 +286,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 
 		if err := s.Stop(shutdownCtx); err != nil {
 			select {
-			case s.statusChan <- fmt.Errorf("shutdown error: %w", err):
+			case s.statusChan <- NewShutdownError(err):
 			default:
 			}
 		}
@@ -308,7 +308,7 @@ func (s *ServerService) Stop(ctx context.Context) error {
 	// Gracefully shutdown the server
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {
-			return fmt.Errorf("graceful shutdown failed: %w", err)
+			return NewGracefulShutdownError(err)
 		}
 		s.server = nil
 	}
@@ -329,9 +329,9 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 	for {
 		select {
 		case <-timeout:
-			return fmt.Errorf("service failed to start within %v timeout", BootTimeout)
+			return NewStartupTimeoutError(BootTimeout.String())
 		case <-ctx.Done():
-			return fmt.Errorf("startup canceled: %w", ctx.Err())
+			return NewStartupCanceledError(ctx.Err())
 		case <-ticker.C:
 			dialCtx, cancel := context.WithTimeout(ctx, time.Second)
 			dialer := &net.Dialer{}
@@ -353,7 +353,7 @@ func (s *ServerService) Attach(pid relay.PID, ch chan *relay.Package) (context.C
 	defer s.mu.RUnlock()
 
 	if s.host == nil {
-		return nil, fmt.Errorf("server host not initialized")
+		return nil, ErrServerHostNotInitialized
 	}
 
 	return s.host.Attach(pid, ch)
@@ -377,7 +377,7 @@ func (s *ServerService) Send(pkg *relay.Package) error {
 	defer s.mu.RUnlock()
 
 	if s.host == nil {
-		return fmt.Errorf("server host not initialized")
+		return ErrServerHostNotInitialized
 	}
 
 	return s.host.Send(pkg)

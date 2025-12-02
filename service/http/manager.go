@@ -2,7 +2,7 @@ package http
 
 import (
 	"context"
-	"fmt"
+	"fmt" // Note: fmt kept for Sprintf in logging
 	"net/http"
 	"sync"
 
@@ -91,19 +91,19 @@ func NewManager(
 	log *zap.Logger,
 ) (*Manager, error) {
 	if dtt == nil {
-		return nil, fmt.Errorf("transcoder is required")
+		return nil, ErrTranscoderRequired
 	}
 	if bus == nil {
-		return nil, fmt.Errorf("event bus is required")
+		return nil, ErrEventBusRequired
 	}
 	if serverFactory == nil {
-		return nil, fmt.Errorf("server factory is required")
+		return nil, ErrServerFactoryRequired
 	}
 	if endpointFactory == nil {
-		return nil, fmt.Errorf("endpoint factory is required")
+		return nil, ErrEndpointFactoryRequired
 	}
 	if staticFactory == nil {
-		return nil, fmt.Errorf("static factory is required")
+		return nil, ErrStaticFactoryRequired
 	}
 
 	return &Manager{
@@ -141,7 +141,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return m.handleStaticUpsert(ctx, entry)
 	default:
 		m.log.Warn("Unsupported entry kind in HTTP Manager", zap.String("kind", entry.Kind), zap.String("id", entry.ID.String()))
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 }
 
@@ -160,7 +160,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	case config.KindStatic:
 		return m.handleStaticUpsert(ctx, entry)
 	default:
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 }
 
@@ -179,7 +179,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	case config.KindStatic:
 		return m.handleStaticDelete(ctx, entry)
 	default:
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 }
 
@@ -234,7 +234,7 @@ func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) 
 	}
 
 	if _, exists := m.servers[entry.ID]; exists {
-		return fmt.Errorf("server %s already exists", entry.ID)
+		return NewServerAlreadyExistsError(entry.ID.String())
 	}
 
 	m.servers[entry.ID] = server
@@ -266,11 +266,11 @@ func (m *Manager) handleServerUpdate(ctx context.Context, entry registry.Entry) 
 
 	server, exists := m.servers[entry.ID]
 	if !exists {
-		return fmt.Errorf("server %s not found", entry.ID)
+		return NewServerNotFoundError(entry.ID.String())
 	}
 
 	if err := server.UpdateConfig(cfg); err != nil {
-		return fmt.Errorf("failed to update server config: %w", err)
+		return NewUpdateConfigError(err)
 	}
 	m.pending[entry.ID] = true
 
@@ -291,7 +291,7 @@ func (m *Manager) handleServerUpdate(ctx context.Context, entry registry.Entry) 
 func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) error {
 	_, exists := m.servers[entry.ID]
 	if !exists {
-		return fmt.Errorf("server %s not found", entry.ID)
+		return NewServerNotFoundError(entry.ID.String())
 	}
 
 	// Done from supervisor
@@ -346,7 +346,7 @@ func (m *Manager) handleRouterCreate(_ context.Context, entry registry.Entry) er
 	serverID := registry.ParseID(cfg.Meta.GetString(config.ServerID, "")).WithDefaultNS(entry.ID.NS)
 	server, exists := m.servers[serverID]
 	if !exists {
-		return fmt.Errorf("server %s not found", serverID)
+		return NewServerNotFoundError(serverID.String())
 	}
 
 	if err := server.UpsertRouter(entry.ID, cfg); err != nil {
@@ -375,14 +375,14 @@ func (m *Manager) handleRouterUpdate(_ context.Context, entry registry.Entry) er
 	// Get current server for this router
 	currentServerID, exists := m.routerServers[entry.ID]
 	if !exists {
-		return fmt.Errorf("router %s not found", entry.ID)
+		return NewRouterNotFoundError(entry.ID.String())
 	}
 
 	// Get target server from updated config
 	newServerID := registry.ParseID(cfg.Meta.GetString(config.ServerID, "")).WithDefaultNS(entry.ID.NS)
 	newServer, exists := m.servers[newServerID]
 	if !exists {
-		return fmt.Errorf("target server %s not found", newServerID)
+		return NewServerNotFoundError(newServerID.String())
 	}
 
 	// If server changed, we need to handle endpoint migration
@@ -431,12 +431,12 @@ func (m *Manager) handleRouterUpdate(_ context.Context, entry registry.Entry) er
 func (m *Manager) handleRouterDelete(_ context.Context, entry registry.Entry) error {
 	serverID, exists := m.routerServers[entry.ID]
 	if !exists {
-		return fmt.Errorf("router %s not found", entry.ID)
+		return NewRouterNotFoundError(entry.ID.String())
 	}
 
 	server, exists := m.servers[serverID]
 	if !exists {
-		return fmt.Errorf("server %s not found", serverID)
+		return NewServerNotFoundError(serverID.String())
 	}
 
 	if err := server.DeleteRouter(entry.ID); err != nil {
@@ -474,12 +474,12 @@ func (m *Manager) handleEndpointUpsert(ctx context.Context, entry registry.Entry
 	routerID := registry.ParseID(cfg.Meta.GetString(config.RouterID, "")).WithDefaultNS(entry.ID.NS)
 	serverID, exists := m.routerServers[routerID]
 	if !exists {
-		return fmt.Errorf("router %s not found", routerID)
+		return NewRouterNotFoundError(routerID.String())
 	}
 
 	server, exists := m.servers[serverID]
 	if !exists {
-		return fmt.Errorf("server %s not found", serverID)
+		return NewServerNotFoundError(serverID.String())
 	}
 
 	cfg.Func = cfg.Func.WithDefaultNS(entry.ID.NS)
@@ -511,17 +511,17 @@ func (m *Manager) handleEndpointUpsert(ctx context.Context, entry registry.Entry
 func (m *Manager) handleEndpointDelete(_ context.Context, entry registry.Entry) error {
 	routerID, exists := m.endpointRouters[entry.ID]
 	if !exists {
-		return fmt.Errorf("endpoint %s not found", entry.ID)
+		return NewEndpointNotFoundError(entry.ID.String())
 	}
 
 	serverID, exists := m.routerServers[routerID]
 	if !exists {
-		return fmt.Errorf("router %s not found", routerID)
+		return NewRouterNotFoundError(routerID.String())
 	}
 
 	server, exists := m.servers[serverID]
 	if !exists {
-		return fmt.Errorf("server %s not found", serverID)
+		return NewServerNotFoundError(serverID.String())
 	}
 
 	if err := server.RemoveEndpoint(routerID, entry.ID); err != nil {
@@ -554,7 +554,7 @@ func (m *Manager) handleStaticUpsert(ctx context.Context, entry registry.Entry) 
 	serverID := registry.ParseID(cfg.Meta.GetString(config.ServerID, "")).WithDefaultNS(entry.ID.NS)
 	server, exists := m.servers[serverID]
 	if !exists {
-		return fmt.Errorf("server %s not found", serverID)
+		return NewServerNotFoundError(serverID.String())
 	}
 
 	cfg.FS = registry.ParseID(cfg.FS.String()).WithDefaultNS(entry.ID.NS)
@@ -584,12 +584,12 @@ func (m *Manager) handleStaticUpsert(ctx context.Context, entry registry.Entry) 
 func (m *Manager) handleStaticDelete(_ context.Context, entry registry.Entry) error {
 	serverID, exists := m.staticServers[entry.ID]
 	if !exists {
-		return fmt.Errorf("static handler %s not found", entry.ID)
+		return NewStaticHandlerNotFoundError(entry.ID.String())
 	}
 
 	server, exists := m.servers[serverID]
 	if !exists {
-		return fmt.Errorf("server %s not found", serverID)
+		return NewServerNotFoundError(serverID.String())
 	}
 
 	if err := server.Remove(entry.ID); err != nil {
@@ -613,12 +613,12 @@ func (m *Manager) handleStaticDelete(_ context.Context, entry registry.Entry) er
 // decodeEntity is a helper to decode registry entries into specific configs
 func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*T, error) {
 	if entry.Data == nil {
-		return nil, fmt.Errorf("configuration data is required")
+		return nil, ErrConfigDataRequired
 	}
 
 	cfg := new(T)
 	if err := transcoder.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return nil, NewUnmarshalConfigError(err)
 	}
 
 	// set meta if applicable
@@ -629,7 +629,7 @@ func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*
 	// Validate if the config implements Validate()
 	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid configuration: %w", err)
+			return nil, NewInvalidConfigError(err)
 		}
 	}
 

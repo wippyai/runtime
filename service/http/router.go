@@ -1,7 +1,7 @@
 package http
 
 import (
-	"fmt"
+	"fmt" // Note: fmt kept for Sprintf in logging
 	"net/http"
 	"strings"
 	"sync"
@@ -92,7 +92,7 @@ func (rm *RouteManager) AddRouter(id registry.ID, prefix string,
 	// Check for duplicate prefixes
 	for existingID, existingRouter := range rm.routers {
 		if existingID != id && existingRouter.prefix == prefix {
-			return fmt.Errorf("router with prefix %s already exists", prefix)
+			return NewRouterPrefixExistsError(prefix)
 		}
 	}
 
@@ -122,7 +122,7 @@ func (rm *RouteManager) RemoveRouter(id registry.ID) error {
 	defer rm.mu.Unlock()
 
 	if _, exists := rm.routers[id]; !exists {
-		return fmt.Errorf("router %s not found", id)
+		return NewRouterNotFoundError(id.String())
 	}
 
 	delete(rm.routers, id)
@@ -136,7 +136,7 @@ func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, p
 
 	router, exists := rm.routers[routerID]
 	if !exists {
-		return fmt.Errorf("router %s not found", routerID)
+		return NewRouterNotFoundError(routerID.String())
 	}
 
 	// Validate method
@@ -146,15 +146,15 @@ func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, p
 		http.MethodPatch, http.MethodHead, http.MethodOptions, http.MethodTrace:
 		// Valid method
 	default:
-		return fmt.Errorf("invalid HTTP method: %s", method)
+		return NewInvalidHTTPMethodError(method)
 	}
 
 	// Validate path
 	if path == "" {
-		return fmt.Errorf("path cannot be empty")
+		return ErrPathCannotBeEmpty
 	}
 	if !strings.HasPrefix(path, "/") {
-		return fmt.Errorf("path must start with /: %s", path)
+		return NewInvalidPathError(path)
 	}
 
 	// Convert :param syntax to {param} syntax
@@ -192,11 +192,11 @@ func (rm *RouteManager) RemoveRoute(routerID registry.ID, id registry.ID) error 
 
 	router, exists := rm.routers[routerID]
 	if !exists {
-		return fmt.Errorf("router %s not found", routerID)
+		return NewRouterNotFoundError(routerID.String())
 	}
 
 	if _, exists := router.routes[id]; !exists {
-		return fmt.Errorf("route %s not found in router %s", id, routerID)
+		return NewRouteNotFoundError(id.String(), routerID.String())
 	}
 
 	delete(router.routes, id)
@@ -210,14 +210,14 @@ func (rm *RouteManager) Mount(path string, handler http.Handler) error {
 
 	// Validate path
 	if path == "" {
-		return fmt.Errorf("mount path cannot be empty")
+		return ErrMountPathCannotBeEmpty
 	}
 	if !strings.HasPrefix(path, "/") {
-		return fmt.Errorf("mount path must start with /: %s", path)
+		return NewInvalidMountPathError(path)
 	}
 
 	if _, exists := rm.mounts[path]; exists {
-		return fmt.Errorf("mount path %s already exists", path)
+		return NewMountPathExistsError(path)
 	}
 
 	rm.mounts[path] = handler
@@ -230,7 +230,7 @@ func (rm *RouteManager) Unmount(path string) error {
 	defer rm.mu.Unlock()
 
 	if _, exists := rm.mounts[path]; !exists {
-		return fmt.Errorf("mount path %s not found", path)
+		return NewMountPathNotFoundError(path)
 	}
 
 	delete(rm.mounts, path)

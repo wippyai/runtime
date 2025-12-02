@@ -3,8 +3,6 @@ package env
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -64,12 +62,12 @@ type Registry interface {
 func (v *Variable) Validate() error {
 	for _, c := range v.Name {
 		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
-			return fmt.Errorf("env variable name must only contain alphanumeric characters (a-z, A-Z, 0-9) and underscores, but received %s", v.Name)
+			return NewInvalidVariableNameError(v.Name, "must only contain alphanumeric characters (a-z, A-Z, 0-9) and underscores")
 		}
 	}
 
 	if v.StorageID.NS == "" || v.StorageID.Name == "" {
-		return errors.New("invalid storage ID format, must have both namespace and name")
+		return ErrInvalidStorageID
 	}
 
 	return nil

@@ -1,7 +1,7 @@
 package payload
 
 import (
-	"fmt"
+	"fmt" // Note: fmt kept for Sprintf in logging
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
@@ -23,7 +23,7 @@ type JSONToLua struct{}
 // Transcode implements the payload.FormatTranscoder interface
 func (t *JSONToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.JSON {
-		return nil, fmt.Errorf("JSON=>Lua can only transcode from JSON format, got %s", p.Format())
+		return nil, NewInvalidFormatError(fmt.Sprintf("JSON=>Lua can only transcode from JSON format, got %s", p.Format()))
 	}
 
 	var data []byte
@@ -33,12 +33,12 @@ func (t *JSONToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	case []byte:
 		data = v
 	default:
-		return nil, fmt.Errorf("JSON=>Lua can only handle string or []byte, got %T", p.Data())
+		return nil, NewInvalidTypeError(fmt.Sprintf("JSON=>Lua can only handle string or []byte, got %T", p.Data()))
 	}
 
 	luaValue, err := json.Decode(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode JSON: %w", err)
+		return nil, NewTranscodeError("failed to decode JSON", err)
 	}
 
 	return payload.NewPayload(luaValue, payload.Lua), nil
@@ -50,18 +50,17 @@ type ToJSON struct{}
 // Transcode implements the payload.FormatTranscoder interface
 func (t *ToJSON) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Lua {
-		return nil, fmt.Errorf("Lua=>JSON can only transcode from Lua format, got %s", p.Format())
+		return nil, NewInvalidFormatError(fmt.Sprintf("Lua=>JSON can only transcode from Lua format, got %s", p.Format()))
 	}
 
 	lv, ok := p.Data().(lua.LValue)
 	if !ok {
-		return nil, fmt.Errorf("Lua=>JSON expects data to be of type lua.LValue, got %T", p.Data())
+		return nil, NewInvalidTypeError(fmt.Sprintf("Lua=>JSON expects data to be of type lua.LValue, got %T", p.Data()))
 	}
 
-	// Use the existing Encode function
 	jsonData, err := json.Encode(lv)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode to JSON: %w", err)
+		return nil, NewTranscodeError("failed to encode to JSON", err)
 	}
 
 	return payload.NewPayload(jsonData, payload.JSON), nil

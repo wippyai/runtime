@@ -11,12 +11,14 @@ type Error struct {
 	message   string
 	retryable apierror.Ternary
 	details   attrs.Attributes
+	cause     error
 }
 
 func (e *Error) Error() string               { return e.message }
 func (e *Error) Kind() apierror.Kind         { return e.kind }
 func (e *Error) Retryable() apierror.Ternary { return e.retryable }
 func (e *Error) Details() attrs.Attributes   { return e.details }
+func (e *Error) Unwrap() error               { return e.cause }
 
 // Sentinel errors
 var (
@@ -41,6 +43,12 @@ var (
 	ErrInvalidVariableName = &Error{
 		kind:      apierror.KindInvalid,
 		message:   "invalid environment variable name",
+		retryable: apierror.False,
+	}
+
+	ErrInvalidStorageID = &Error{
+		kind:      apierror.KindInvalid,
+		message:   "invalid storage ID format, must have both namespace and name",
 		retryable: apierror.False,
 	}
 )

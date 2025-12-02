@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"path/filepath"
 
@@ -59,12 +58,12 @@ func Registry() boot.Component {
 						historyPath := registryCfg.GetString(string(RegistryHistoryPath), ".wippy/registry.db")
 						absPath, err := filepath.Abs(historyPath)
 						if err != nil {
-							return nil, fmt.Errorf("failed to resolve history path: %w", err)
+							return nil, NewHistoryPathError(err)
 						}
 
 						sqliteHist, err := sqlite.NewSQLite(absPath, logger.Named("history"))
 						if err != nil {
-							return nil, fmt.Errorf("failed to create SQLite history: %w", err)
+							return nil, NewSQLiteHistoryError(err)
 						}
 						hist = sqliteHist
 						histCloser = sqliteHist

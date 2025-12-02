@@ -29,7 +29,7 @@ func (m *subscribeContext) add(topic string, ch *Channel) (*subscription, error)
 
 	if existing, exists := m.byTopic[topic]; exists {
 		if existing.channel != ch {
-			return nil, fmt.Errorf("topic %q already subscribed", topic)
+			return nil, NewTopicAlreadySubscribedError(topic)
 		}
 		return existing, nil
 	}
@@ -46,7 +46,7 @@ func (m *subscribeContext) remove(ch *Channel) error {
 
 	topic, exists := m.byChannel[ch]
 	if !exists {
-		return fmt.Errorf("channel not found")
+		return ErrChannelNotFound
 	}
 	delete(m.byTopic, topic)
 	delete(m.byChannel, ch)
@@ -237,7 +237,7 @@ func NewProcess(opts ...ProcessOption) *Process {
 // If method is specified, the script is run once to get module table, then the method is called.
 func (p *Process) Execute(ctx context.Context, method string, input payload.Payloads) error {
 	if p.state == nil {
-		return fmt.Errorf("process state not initialized - use Factory.Create()")
+		return ErrStateNotInitialized
 	}
 
 	// Clear state from previous execution (for pooled processes)
@@ -256,14 +256,14 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 		if p.state != nil {
 			p.state.Close()
 		}
-		return fmt.Errorf("failed to store resources: %w", err)
+		return NewStoreResourcesError(err)
 	}
 
 	// Create and store ProcessContext for request-specific state
 	pc := acquireProcessContext()
 	if err := setProcessContext(ctx, pc); err != nil {
 		ReleaseProcessContext(pc)
-		return fmt.Errorf("failed to store process context: %w", err)
+		return NewStoreProcessContextError(err)
 	}
 
 	// Seal the frame - no more modifications allowed after this
@@ -298,11 +298,11 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 			fn, err = p.state.Load(strings.NewReader(p.script), p.scriptName)
 			if err != nil {
 				p.state.Close()
-				return fmt.Errorf("failed to load script: %w", err)
+				return NewLoadScriptError(err)
 			}
 		} else {
 			p.state.Close()
-			return fmt.Errorf("no script or proto provided")
+			return ErrNoScriptOrProto
 		}
 	}
 
@@ -331,10 +331,10 @@ func (p *Process) extractMethod(method string) error {
 		var err error
 		scriptFn, err = p.state.Load(strings.NewReader(p.script), p.scriptName)
 		if err != nil {
-			return fmt.Errorf("failed to load script: %w", err)
+			return NewLoadScriptError(err)
 		}
 	} else {
-		return fmt.Errorf("no script or proto provided")
+		return ErrNoScriptOrProto
 	}
 
 	// Run script synchronously to get module table
@@ -343,7 +343,7 @@ func (p *Process) extractMethod(method string) error {
 		NRet:    1,
 		Protect: true,
 	}); err != nil {
-		return fmt.Errorf("failed to execute script: %w", err)
+		return NewExecuteScriptError(err)
 	}
 
 	// Get return value
@@ -370,7 +370,7 @@ func (p *Process) extractMethod(method string) error {
 	}
 
 	if fn == nil {
-		return fmt.Errorf("method %q not found in module", method)
+		return NewMethodNotFoundError(method)
 	}
 
 	p.exported[method] = fn
@@ -463,7 +463,7 @@ func (p *Process) Step(results *scheduler.YieldResults) (scheduler.StepResult, e
 func (p *Process) Send(pkg *relay.Package) error {
 	pc := GetProcessContext(p.ctx)
 	if pc == nil {
-		return fmt.Errorf("process context not available")
+		return ErrProcessContextNotAvailable
 	}
 	pc.QueueMessage(pkg)
 	return nil
@@ -481,7 +481,7 @@ func (p *Process) GetTask(thread *lua.LState) (*Task, error) {
 			return task, nil
 		}
 	}
-	return nil, fmt.Errorf("task not found")
+	return nil, ErrTaskNotFound
 }
 
 // GetTasks returns all tasks.
@@ -842,7 +842,7 @@ func (p *Process) Close() {
 // The Lua state must be initialized via Start first.
 func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LValue, error) {
 	if p.state == nil {
-		return lua.LNil, fmt.Errorf("process not initialized")
+		return lua.LNil, ErrProcessNotInitialized
 	}
 
 	p.state.SetContext(ctx)

@@ -3,7 +3,6 @@ package context
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 )
@@ -189,7 +188,7 @@ func (f *frameContext) Set(key any, value any) error {
 	defer f.mu.Unlock()
 
 	if f.sealed {
-		return fmt.Errorf("cannot set key in sealed frame: %v", key)
+		return NewFrameSealedError(key)
 	}
 
 	f.values[key] = value
@@ -201,7 +200,7 @@ func (f *frameContext) SetMultiple(pairs ...Pair) error {
 	defer f.mu.Unlock()
 
 	if f.sealed {
-		return fmt.Errorf("cannot set keys in sealed frame")
+		return ErrFrameSealed
 	}
 
 	for _, p := range pairs {

@@ -2,7 +2,7 @@ package http
 
 import (
 	"context"
-	"fmt"
+	"fmt" // Note: fmt kept for Sprintf in logging
 	"io"
 	"net/http"
 	"path"
@@ -60,7 +60,7 @@ var _ EndpointFactoryAPI = (*EndpointFactory)(nil)
 // NewEndpointFactory creates a new endpoint factory instance with the provided function registry
 func NewEndpointFactory(funcs function.Registry) (*EndpointFactory, error) {
 	if funcs == nil {
-		return nil, fmt.Errorf("function registry is required")
+		return nil, ErrFunctionRegistryRequired
 	}
 	return &EndpointFactory{
 		funcs: funcs,
@@ -70,7 +70,7 @@ func NewEndpointFactory(funcs function.Registry) (*EndpointFactory, error) {
 // CreateHandler creates an HTTP handler from the provided endpoint configuration
 func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointConfig) (http.Handler, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid endpoint config: %w", err)
+		return nil, NewInvalidEndpointConfigError(err)
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -205,10 +205,10 @@ var _ StaticFactoryAPI = (*StaticFactory)(nil)
 // NewStaticFactory creates a new static file factory instance with the provided filesystem registry
 func NewStaticFactory(fsReg fs.Registry, middlewareFactory MiddlewareAPI) (*StaticFactory, error) {
 	if fsReg == nil {
-		return nil, fmt.Errorf("filesystem registry is required")
+		return nil, ErrFilesystemRegistryRequired
 	}
 	if middlewareFactory == nil {
-		return nil, fmt.Errorf("middleware factory is required")
+		return nil, ErrMiddlewareFactoryRequired
 	}
 	return &StaticFactory{
 		fsReg:             fsReg,
@@ -219,12 +219,12 @@ func NewStaticFactory(fsReg fs.Registry, middlewareFactory MiddlewareAPI) (*Stat
 // CreateHandler creates an HTTP handler from the provided static file configuration
 func (f *StaticFactory) CreateHandler(_ context.Context, cfg *config.StaticConfig) (http.Handler, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid static config: %w", err)
+		return nil, NewInvalidStaticConfigError(err)
 	}
 
 	fsys, ok := f.fsReg.GetFS(cfg.FS.String())
 	if !ok {
-		return nil, fmt.Errorf("filesystem not found: %s", cfg.FS)
+		return nil, NewFilesystemNotFoundError(cfg.FS.String())
 	}
 
 	// Create base handler
@@ -233,7 +233,7 @@ func (f *StaticFactory) CreateHandler(_ context.Context, cfg *config.StaticConfi
 	// For SPA mode, use our custom handler
 	if cfg.StaticOptions.SPA {
 		if cfg.StaticOptions.IndexFile == "" {
-			return nil, fmt.Errorf("index file must be specified for SPA mode")
+			return nil, ErrIndexFileRequired
 		}
 		handler = NewSPAHandler(fsys, cfg.StaticOptions.IndexFile)
 
@@ -259,7 +259,7 @@ func (f *StaticFactory) CreateHandler(_ context.Context, cfg *config.StaticConfi
 		for i, name := range cfg.Middleware {
 			mw, err := f.middlewareFactory.CreateMiddleware(name, cfg.Options)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create middleware %s: %w", name, err)
+				return nil, NewMiddlewareCreateError(name, err)
 			}
 			middlewareHandlers[i] = mw
 		}

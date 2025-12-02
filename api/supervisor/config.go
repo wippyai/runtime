@@ -3,7 +3,6 @@ package supervisor
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/security"
@@ -63,21 +62,21 @@ func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
 	if aux.StartTimeout != "" {
 		cfg.StartTimeout, err = time.ParseDuration(aux.StartTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid StartTimeout duration format: %w", err)
+			return NewInvalidDurationError("StartTimeout", err)
 		}
 	}
 
 	if aux.StopTimeout != "" {
 		cfg.StopTimeout, err = time.ParseDuration(aux.StopTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid StopTimeout duration format: %w", err)
+			return NewInvalidDurationError("StopTimeout", err)
 		}
 	}
 
 	if aux.StableThreshold != "" {
 		cfg.StableThreshold, err = time.ParseDuration(aux.StableThreshold)
 		if err != nil {
-			return fmt.Errorf("invalid StableThreshold duration format: %w", err)
+			return NewInvalidDurationError("StableThreshold", err)
 		}
 	}
 
@@ -103,14 +102,14 @@ func (p *RetryPolicy) UnmarshalJSON(data []byte) error {
 	if aux.InitialDelay != "" {
 		p.InitialDelay, err = time.ParseDuration(aux.InitialDelay)
 		if err != nil {
-			return fmt.Errorf("invalid InitialDelay duration format: %w", err)
+			return NewInvalidDurationError("InitialDelay", err)
 		}
 	}
 
 	if aux.MaxDelay != "" {
 		p.MaxDelay, err = time.ParseDuration(aux.MaxDelay)
 		if err != nil {
-			return fmt.Errorf("invalid MaxDelay duration format: %w", err)
+			return NewInvalidDurationError("MaxDelay", err)
 		}
 	}
 
